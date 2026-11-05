@@ -97,7 +97,11 @@ export function IdentityAccessView({
   // account surface; the same request starts the service tab's existing login flow once it mounts.
   useEffect(() => {
     const consume = () => {
-      if (consumeAccountLoginRequest()) setAutoLogin(true);
+      if (!consumeAccountLoginRequest()) return;
+      // The login flow lives in the service tab; selecting it is part of honouring the request,
+      // including when the person had moved to another tab after signing out.
+      setTab("service");
+      setAutoLogin(true);
     };
     consume();
     return subscribeAccountLoginRequest(consume);
@@ -148,7 +152,14 @@ export function IdentityAccessView({
         <span className="min-w-0 truncate text-sm text-text-muted">{t("accessControl.tagline")}</span>
         {signedOut && builtInLogin && identityProvider !== "unknown" ? (
           <span className="ml-auto">
-            <Button variant="primary" testId="account-header-sign-in" onClick={() => setAutoLogin(true)}>
+            <Button
+              variant="primary"
+              testId="account-header-sign-in"
+              onClick={() => {
+                setTab("service");
+                setAutoLogin(true);
+              }}
+            >
               {loginLabel}
             </Button>
           </span>

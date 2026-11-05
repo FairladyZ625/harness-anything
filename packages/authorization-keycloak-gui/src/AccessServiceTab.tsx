@@ -168,9 +168,12 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       return () => clearInterval(interval);
     }, [auth, repoId, rootDir]);
 
-    const signIn = (userCode?: string) =>
-      run(async () => {
-        loggingIn.current = true;
+    const signIn = (userCode?: string) => {
+      // One in-flight login owns the panel. A second entry point must not start a main-process
+      // login that the first call's cleanup would then tear down.
+      if (loggingIn.current) return Promise.resolve();
+      loggingIn.current = true;
+      return run(async () => {
         setLogin({ userCode });
         try {
           const openBrowser = (page: EmbeddedLoginPage) =>
@@ -181,6 +184,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
           setLogin(null);
         }
       });
+    };
 
     // The account header and the business-read error surface share this one login flow.
     useEffect(() => {

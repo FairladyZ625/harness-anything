@@ -267,6 +267,94 @@ describe("IdentityAccessView", () => {
     await act(async () => finish());
   });
 
+  it("selects the service tab when the header login is used from another tab", async () => {
+    let finish!: () => void;
+    const api = auth({
+      status: vi.fn(async () => ({ ok: true, authenticated: false })),
+      login: vi.fn((_repoId, openBrowser) => {
+        openBrowser({ url: "https://identity.example.test/auth" });
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }),
+      cancelLogin: vi.fn(async () => finish()),
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: api, access: { forRepository: () => ({}) } },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView)));
+    await act(async () => undefined);
+    const grants = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) =>
+      tab.textContent?.includes("成员与权限"),
+    )!;
+    await act(async () => grants.click());
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("成员与权限");
+    const header = container.querySelector<HTMLButtonElement>('[data-testid="account-header-sign-in"]')!;
+    await act(async () => header.click());
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("服务与会话");
+    expect(api.login).toHaveBeenCalledOnce();
+    expect(container.querySelector("webview")).not.toBeNull();
+    await act(async () => finish());
+  });
+
+  it("selects the service tab when a business-read sign-in request arrives on another tab", async () => {
+    let finish!: () => void;
+    const api = auth({
+      status: vi.fn(async () => ({ ok: true, authenticated: false })),
+      login: vi.fn((_repoId, openBrowser) => {
+        openBrowser({ url: "https://identity.example.test/auth" });
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }),
+      cancelLogin: vi.fn(async () => finish()),
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: api, access: { forRepository: () => ({}) } },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView)));
+    await act(async () => undefined);
+    const grants = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) =>
+      tab.textContent?.includes("成员与权限"),
+    )!;
+    await act(async () => grants.click());
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("成员与权限");
+    await act(async () => requestAccountLogin());
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("服务与会话");
+    expect(api.login).toHaveBeenCalledOnce();
+    await act(async () => finish());
+  });
+
+  it("keeps the first login panel when the header sign-in is clicked twice", async () => {
+    let finish!: () => void;
+    const api = auth({
+      status: vi.fn(async () => ({ ok: true, authenticated: false })),
+      login: vi.fn((_repoId, openBrowser) => {
+        openBrowser({ url: "https://identity.example.test/auth" });
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }),
+      cancelLogin: vi.fn(async () => finish()),
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: api, access: { forRepository: () => ({}) } },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView)));
+    await act(async () => undefined);
+    const header = container.querySelector<HTMLButtonElement>('[data-testid="account-header-sign-in"]')!;
+    await act(async () => {
+      header.click();
+      header.click();
+    });
+    expect(api.login).toHaveBeenCalledOnce();
+    expect(container.querySelector("webview")).not.toBeNull();
+    await act(async () => finish());
+  });
+
   it("honours a business-read sign-in request when the account page arrives", async () => {
     const api = auth({ status: vi.fn(async () => ({ ok: true, authenticated: false })) });
     requestAccountLogin();

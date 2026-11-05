@@ -104,25 +104,29 @@ export function AppSidebar({
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
   const identityRepo = repos.find((repo) => repo.repoId === activeRepoId),
     identityRoot = identityRepo?.canonicalRoot ?? undefined;
-  const identityTarget = useRef(activeRepoId);
-  identityTarget.current = activeRepoId;
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [identity, setIdentity] = useState<IdentitySnapshot | null>(null);
+  const identityRequest = useRef(0);
   const authCandidate = guiHostBridge()?.auth,
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
     if (!auth) return;
-    const requestRepoId = activeRepoId;
+    // Every read gets its own sequence. A slower earlier read (for example a delayed binding
+    // reply) must not restore the person after a newer read has already signed the shell out.
+    const request = ++identityRequest.current;
     // readIdentity resolves the unavailable phase itself; a rejection here is a programming
     // error and must surface, not be turned into a second silent state.
     void readIdentity(auth, activeRepoId ?? undefined, identityRoot).then((value) => {
-      if (identityTarget.current !== requestRepoId) return;
+      if (identityRequest.current !== request) return;
       setIdentity(value);
     });
   };
   useEffect(() => {
     setIdentity(null);
     refreshIdentity();
+    return () => {
+      identityRequest.current += 1;
+    };
   }, [activeRepoId, identityRoot]);
   useEffect(() => {
     window.addEventListener("harness-auth-changed", refreshIdentity);

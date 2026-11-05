@@ -72,6 +72,40 @@ describe("RepositoryReadNotice", () => {
     expect(onLogin).toHaveBeenCalledOnce();
   });
 
+  it("keeps the sign-in action when another mounted read reports a replica failure", async () => {
+    function FailedRead({ id, code }: { readonly id: string; readonly code: string }) {
+      useQuery({
+        queryKey: ["repo-a", id],
+        queryFn: async () => {
+          throw Object.assign(new Error(code), { code });
+        },
+        retry: false,
+      });
+      return null;
+    }
+    const onLogin = vi.fn();
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <FailedRead id="tasks" code="authentication_required" />
+          <FailedRead id="workspace" code="replica_unavailable" />
+          <RepositoryReadNotice repoId="repo-a" onLogin={onLogin} />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="repository-read-state"]')?.getAttribute("data-state")).toBe(
+        "authentication-required",
+      ),
+    );
+    expect(container.querySelector('[data-testid="repository-read-sign-in"]')).not.toBeNull();
+    expect(container.textContent).toContain("会话已结束或无法再用当前凭据读取台账");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[data-testid="repository-read-sign-in"]')!.click(),
+    );
+    expect(onLogin).toHaveBeenCalledOnce();
+  });
+
   it("retries the authentication_required reads after the account is signed in again", async () => {
     const fail = { current: true };
     await mount(fail, () => {});
