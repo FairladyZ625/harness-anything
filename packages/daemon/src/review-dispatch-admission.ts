@@ -41,6 +41,26 @@ export function selectReadOnlyAttachTarget(
   );
 }
 
+/**
+ * The exact commit a Task reviewer must inspect, or null when the selected cut has no code delivery.
+ * `undefined` means this is not a Task reviewer dispatch, so no checkout is pinned.
+ */
+export function reviewerPinnedCommit(
+  payload: { readonly role?: unknown; readonly executionId?: unknown },
+  taskSnapshot: ReturnType<typeof requireCurrentTaskProjection>["snapshot"] | null,
+): string | null | undefined {
+  if (payload.role !== "reviewer") return undefined;
+  if (taskSnapshot === null) return null;
+  const candidates = currentSubmittedExecutions(taskSnapshot),
+    execution =
+      typeof payload.executionId === "string"
+        ? candidates.find((candidate) => candidate.executionId === payload.executionId)
+        : candidates.length === 1
+          ? candidates[0]
+          : undefined;
+  return execution?.submission?.commitSha ?? null;
+}
+
 /** A reviewer dispatch binds to the task's submitted cut; anything else is a dispatch error, never a fallback to an implementation execution. */
 export function selectReviewTarget(
   taskId: string | null,

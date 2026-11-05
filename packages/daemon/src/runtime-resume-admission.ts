@@ -164,8 +164,8 @@ export function assertResumeAgent(
  * center delivered to an edge (dec_57370FF2021DADF04E3B21724D CH2). A resumed dispatch and a requested cwd keep
  * their own checkout; a dry-run preview and a task with no binding start at the repository root. A reviewer is
  * task-bound like an implementer here: relative writes from a review must land in its own checkout, never in the
- * canonical root the review is judging. The reviewer's checkout holds the frozen cut, so it never follows the
- * published task branch: submit dispatches the review before the delivery order pushes that branch.
+ * canonical root the review is judging. A reviewer's checkout is pinned to the submission's frozen commit; submit
+ * dispatches the review before the delivery order pushes that branch, so the published branch is not an anchor.
  */
 export async function prepareDispatchWorktree(
   input: { readonly rootDir: string; readonly readSettings?: () => SettingsV1 },
@@ -178,6 +178,7 @@ export async function prepareDispatchWorktree(
     readonly acceptedCommit?: string;
   },
   bindingFor: (taskId: string) => TaskWorktreeBindingV1 | null,
+  pinnedCommit?: string | null,
 ): Promise<TaskWorktreeCheckout | null> {
   const resumed = typeof payload.dispatchId === "string" ? readDispatchStream(input.rootDir, payload.dispatchId) : null,
     taskId = typeof payload.taskId === "string" ? payload.taskId : (resumed?.header.taskId ?? null),
@@ -200,7 +201,7 @@ export async function prepareDispatchWorktree(
     input.readSettings?.().worktree ?? noWorktreeSetup(),
     payload.acceptedCommit,
     undefined,
-    { followPublishedBranch: payload.role !== "reviewer" },
+    payload.role === "reviewer" ? { pinnedCommit: pinnedCommit ?? null } : {},
   );
   if (checkout && !checkout.setup.ok)
     throw runtimeSpawnError(

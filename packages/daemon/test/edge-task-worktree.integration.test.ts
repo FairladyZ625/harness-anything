@@ -70,7 +70,8 @@ test("an edge dispatch without a cwd launches in the worktree the center's bindi
 
 test("edge dispatch cwd follows its worktree or artifact package, including the reviewer seat", async (t) => {
   const fixture = nodesFixture(t),
-    reviewer = edgeSpawner(fixture.nodeA, binding);
+    reviewCommit = git(fixture.nodeA, "rev-parse", "origin/main"),
+    reviewer = edgeSpawner(fixture.nodeA, binding, reviewCommit);
   await assert.rejects(
     reviewer.spawn({
       taskId,
@@ -84,6 +85,7 @@ test("edge dispatch cwd follows its worktree or artifact package, including the 
   );
   const reviewCwd = path.join(fixture.nodeA, binding.path);
   assert.deepEqual(reviewer.launchedIn, [reviewCwd], "a reviewer");
+  assert.equal(git(reviewCwd, "rev-parse", "HEAD"), reviewCommit, "the reviewer checkout is the center's frozen cut");
   assert.equal(git(reviewCwd, "branch", "--show-current"), taskId);
   assert.match(reviewer.prompts[0]!, new RegExp(`Task package root: ${path.join(reviewCwd, packagePath)}\n`, "u"));
   assert.deepEqual(readdirSync(path.join(fixture.nodeA, ".worktrees")), [taskId]);
@@ -473,7 +475,7 @@ function launched(error: unknown): boolean {
 }
 
 /** A remote-edge spawner whose center read delivers `worktree`; it stops at the launch boundary and records the cwd. */
-function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
+function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null, reviewerCommit?: string) {
   const launchedIn: string[] = [],
     prompts: string[] = [],
     spawner = makeRuntimeSpawner({
@@ -490,6 +492,22 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
           packageRoot: path.join(rootDir, packagePath),
           causalContext: null,
           worktree,
+          // A reviewer's checkout is pinned to the center's frozen delivery; the edge must cut there
+          // rather than from a task branch it may not have fetched.
+          ...(reviewerCommit === undefined
+            ? {}
+            : {
+                reviewerSubmission: {
+                  commitSha: reviewerCommit,
+                  completionClaim: "Frozen edge delivery.",
+                  deliverables: [],
+                  outputs: [],
+                  verificationNotes: [],
+                  knownGaps: [],
+                  residualRisks: [],
+                  completionContract: {},
+                } as never,
+              }),
         }),
         async readRuntimeSession(id: string) {
           return (
