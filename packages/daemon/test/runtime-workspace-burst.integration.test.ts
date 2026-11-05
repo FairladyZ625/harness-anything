@@ -15,9 +15,10 @@ import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 test(
   "real workspace changes keep the writer queue bounded and allow a normal write",
-  { timeout: 60_000 },
+  { timeout: 300_000 },
   async (t) => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
+    const notificationTarget = Number(process.env.FLEET_STRESS_WORKSPACE_NOTIFICATIONS ?? 100),
+      parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
       repoId = workspaceId("writer-queue-depth"),
       stateRoot = path.join(parent, "writer-epochs"),
       releasePath = path.join(parent, "release-provider"),
@@ -110,7 +111,7 @@ fs.watch = function(target, options, listener) {
   return nativeWatch.call(this, target, options, (event, filename) => {
     if (released) return listener(event, filename);
     pending.push([event, filename]);
-    if (pending.length === 100) {
+    if (pending.length === ${notificationTarget}) {
       released = true;
       for (const args of pending) listener(...args);
       parentPort.postMessage({ schema: "test-native-workspace-burst", count: pending.length });
@@ -172,7 +173,7 @@ syncBuiltinESMExports();
       );
       assert.equal(typeof spawned.runtimeSessionId, "string");
       publishedQueueDepths.length = 0;
-      for (let index = 0; index < 500; index += 1)
+      for (let index = 0; index < Math.max(500, notificationTarget * 2); index += 1)
         writeFileSync(path.join(repoRoot, "node_modules", `file-${index}`), "workspace activity");
       const notifications = await burstObserved.promise,
         maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null)),
@@ -185,6 +186,7 @@ syncBuiltinESMExports();
         writeMs = Math.round(performance.now() - writeStarted);
       t.diagnostic(`nativeNotifications=${notifications} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs}`);
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.ok(writeMs < 15_000, `normal write took ${String(writeMs)} ms`);
       assert.ok(maxQueueDepth <= 3, `workspace burst left ${String(maxQueueDepth)} queued writes`);
       writeFileSync(releasePath, "release");
       await runtimeExited.promise;
