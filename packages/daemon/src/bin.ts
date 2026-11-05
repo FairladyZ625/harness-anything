@@ -127,7 +127,7 @@ async function runResidentDaemon(
         retainPidUntilExit: true,
         shutdownRequested: () => stopping !== null,
         requestShutdown: requestStop,
-        onSupersededDrainFailure: buildSupersessionEnabled
+        onSupersededFailure: buildSupersessionEnabled
           ? async () => {
               try {
                 // A failed drain cannot prove that every writer handle was released. Supervision

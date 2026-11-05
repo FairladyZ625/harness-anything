@@ -58,7 +58,8 @@ export async function startDaemon(input: {
   /** Called after a build-superseded exit released the socket and singleton, so the resident
    * entry can hand the slot to the disk build. */
   readonly onSupersededExit?: () => void | Promise<void>;
-  readonly onSupersededDrainFailure?: () => void | Promise<void>;
+  /** A failed handoff may leave writers alive: a resident must exit before its replacement opens them. */
+  readonly onSupersededFailure?: () => void | Promise<void>;
   readonly buildSupersessionEnabled?: boolean;
   /** Resident entries retain the outgoing pid until actual process exit for force-stop discovery. */
   readonly retainPidUntilExit?: boolean;
@@ -105,6 +106,13 @@ export async function startDaemon(input: {
       pendingWrites: repos.reduce((total, repo) => total + (repo.queueDepth ?? 0), 0),
       attachingRepositories: repos.filter((repo) => repo.state === "warming").length,
     };
+  };
+  const notifySupersessionFailure = async (): Promise<void> => {
+    const [recovery] = await Promise.allSettled([Promise.resolve().then(() => input.onSupersededFailure?.())]);
+    if (recovery?.status === "rejected")
+      console.error(
+        `daemon build-supersession failure recovery failed: ${recovery.reason instanceof Error ? recovery.reason.message : String(recovery.reason)}`,
+      );
   };
   // Shutdown used to close the socket first and release the pid file and the singleton lock after the
   // Git follower drain, so for the whole length of that drain the endpoint said "gone" while the pid file and
@@ -167,20 +175,22 @@ export async function startDaemon(input: {
         // A rejected drain cannot prove its writer threads stopped. Keep the singleton until
         // the resident actually dies; the next claimant removes the now-stale PID lock.
         if (!(drainFailed && outcome === "build_superseded" && input.retainPidUntilExit === true)) singleton.release();
-        if (drainFailed && outcome === "build_superseded") {
-          const [recovery] = await Promise.allSettled([
-            Promise.resolve().then(() => input.onSupersededDrainFailure?.()),
-          ]);
-          if (recovery?.status === "rejected")
-            console.error(
-              `daemon build-supersession failure recovery failed: ${recovery.reason instanceof Error ? recovery.reason.message : String(recovery.reason)}`,
-            );
-        }
+        if (drainFailed && outcome === "build_superseded") await notifySupersessionFailure();
         clearTimeout(deadline);
       }
       // Only the supersession outcome restarts itself: an operator stop means stop, and the
       // stopped marker the CLI wrote for it blocks autostart until the operator says otherwise.
-      if (outcome === "build_superseded") await input.onSupersededExit?.();
+      if (outcome === "build_superseded") {
+        try {
+          await input.onSupersededExit?.();
+        } catch (error) {
+          console.error(
+            `daemon build-supersession successor failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          await notifySupersessionFailure();
+          throw error;
+        }
+      }
     })();
     return stopPromise;
   };

@@ -32,14 +32,15 @@ async function until(predicate: () => boolean | Promise<boolean>, message: strin
   }
 }
 
-for (const { failDrain, supervised, fakeService } of [
-  { failDrain: true, supervised: true, fakeService: false },
-  { failDrain: false, supervised: true, fakeService: false },
-  { failDrain: true, supervised: false, fakeService: false },
-  { failDrain: true, supervised: false, fakeService: true },
+for (const { failDrain, supervised, fakeService, failSuccessor } of [
+  { failDrain: true, supervised: true, fakeService: false, failSuccessor: false },
+  { failDrain: false, supervised: true, fakeService: false, failSuccessor: false },
+  { failDrain: true, supervised: false, fakeService: false, failSuccessor: false },
+  { failDrain: true, supervised: false, fakeService: true, failSuccessor: false },
+  { failDrain: false, supervised: false, fakeService: false, failSuccessor: true },
 ]) {
   test(
-    `${fakeService ? "installed-service" : supervised ? "supervised" : "on-demand"} resident ${failDrain ? "failed drain" : "handoff"} preserves and re-adopts a runtime calling the CLI`,
+    `${fakeService ? "installed-service" : supervised ? "supervised" : "on-demand"} resident ${failSuccessor ? "failed successor callback" : failDrain ? "failed drain" : "handoff"} preserves and re-adopts a runtime calling the CLI`,
     { skip: process.platform === "win32" ? "requires POSIX detached process groups" : false, timeout: 90_000 },
     async () => {
       const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-readopt-")),
@@ -103,8 +104,12 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           (match) => `${match}\n        openCell: globalThis.residentTestOpenCell,`,
         );
       assert.notEqual(hooked, source, "fixture must inject its repo cell into the actual resident runtime");
-      writeFileSync(runtime, hooked);
-      if (!supervised) {
+      const injectedRuntime = failSuccessor
+        ? hooked.replace("await input.onSupersededExit?.();", "throw new Error('injected successor callback failure');")
+        : hooked;
+      if (failSuccessor) assert.notEqual(injectedRuntime, hooked, "fixture must inject the successor failure");
+      writeFileSync(runtime, injectedRuntime);
+      if (!supervised && !failSuccessor) {
         const binSource = readFileSync(entry, "utf8"),
           heldBin = binSource.replace(
             "const output = openDaemonOutputFd(",
@@ -198,7 +203,7 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
         writeFileSync(entry, replacementEntry);
         writeFileSync(marker, "build-b\n");
         await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2000, 2000, undefined, true);
-        if (!supervised) {
+        if (!supervised && !failSuccessor) {
           await until(() => existsSync(failureEntered), "failed drain did not enter successor preparation");
           const contender = await acquireDaemonSingleton({ userRoot, daemonId: repoId, endpoint });
           assert.deepEqual(
@@ -215,6 +220,7 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
         assert.notEqual(outcome, "hung", `resident failed to exit after supersession: ${stderr}`);
         assert.deepEqual(outcome, [supervised ? 75 : 1, null], stderr);
         if (failDrain) assert.match(stderr, /injected resident drain failure/u);
+        if (failSuccessor) assert.match(stderr, /injected successor callback failure/u);
         assert.doesNotThrow(() => process.kill(workerPid, 0));
         if (supervised) successor = start();
         let successorError = "";
@@ -267,7 +273,7 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           { liveness: "live", outcome: null },
         );
         projection.close();
-        if (!supervised && !fakeService) {
+        if (!supervised && !fakeService && !failSuccessor) {
           // The failure successor must not retain its private wait-for-parent flag into a later upgrade.
           writeFileSync(marker, "build-c\n");
           await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2000, 2000, undefined, true);
