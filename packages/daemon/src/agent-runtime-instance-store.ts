@@ -78,6 +78,7 @@ import {
   runtimeKindIds,
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
+import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
 import { runtimeVersionGate } from "./runtime-version.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 
@@ -498,12 +499,13 @@ export function openRuntimeInstanceStore(input: {
   }
   async function prepareDaemonGitEnvironment(
     instanceId: string,
-    provider: "github" | "gitlab" = "github",
+    provider: "github" | "gitlab",
+    repoId: string,
   ): Promise<NodeJS.ProcessEnv | null> {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    const reference = config.hostingCredentialRefs?.[provider];
+    const reference = hostingCredentialReference(config, provider, repoId);
     if (reference === undefined) return null;
     let secret: string;
     try {
@@ -576,9 +578,9 @@ export function openRuntimeInstanceStore(input: {
           ...(action.isolationState !== undefined ? { isolationState: action.isolationState } : {}),
           ...kindConfig,
           auth,
-          ...(action.hostingCredentialRefs === undefined
+          ...(action.hostingCredentialRefsByRepo === undefined
             ? {}
-            : { hostingCredentialRefs: action.hostingCredentialRefs }),
+            : { hostingCredentialRefsByRepo: action.hostingCredentialRefsByRepo }),
         } as RuntimeInstanceConfig),
         instance = publicConfig(config, readiness.get(config.instanceId));
       return {
@@ -655,11 +657,19 @@ export function openRuntimeInstanceStore(input: {
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
       const provider = action.provider === "gitlab" || action.provider === "github" ? action.provider : null;
       if (!provider) throw runtimeInstanceError("invalid_command", "Hosting credential requires --provider.");
-      const existingRefs = current.hostingCredentialRefs ?? {},
+      const repoId = requiredRuntimeInstanceText(action.repoId, "repoId"),
+        byRepo = current.hostingCredentialRefsByRepo ?? {},
+        existingRefs = Object.hasOwn(byRepo, repoId) ? byRepo[repoId]! : {},
         refs = kind.endsWith("-set")
           ? { ...existingRefs, [provider]: action.credentialRef }
           : Object.fromEntries(Object.entries(existingRefs).filter(([candidate]) => candidate !== provider)),
-        updated = runtimeInstanceConfig({ ...current, hostingCredentialRefs: refs }),
+        updated = runtimeInstanceConfig({
+          ...current,
+          hostingCredentialRefsByRepo: {
+            ...Object.fromEntries(Object.entries(byRepo).filter(([candidate]) => candidate !== repoId)),
+            ...(Object.keys(refs).length === 0 ? {} : { [repoId]: refs }),
+          },
+        }),
         instance = publicConfig(updated, readiness.get(updated.instanceId));
       persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
       return {

@@ -489,7 +489,8 @@ export interface RuntimeSpawnerInput {
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly prepareDaemonGitEnvironment?: (
     instanceId: string,
-    provider?: "github" | "gitlab",
+    provider: "github" | "gitlab",
+    repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
   readonly resolveAgent?: (agentId: string) => RuntimeAgent;
   readonly resolveSquadDispatch?: (

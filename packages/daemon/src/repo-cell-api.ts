@@ -131,7 +131,8 @@ export interface RepoCellApiContext {
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
     readonly prepareDaemonGitEnvironment?: (
       instanceId: string,
-      provider?: "github" | "gitlab",
+      provider: "github" | "gitlab",
+      repoId: string,
     ) => Promise<NodeJS.ProcessEnv | null>;
   };
   readonly rejected: RepoCellOperationalContext["rejected"];

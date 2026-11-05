@@ -21,12 +21,13 @@ export type HostingProviderKind = HostingProvider["kind"];
 export function hostingCredentialConfigurationAdvice(
   provider: HostingProviderKind,
   instanceId = "<instance-id>",
+  repoId = "<repo-id>",
 ): string {
   const scopes =
     provider === "github"
       ? "the token needs repository contents write for task pushes, pull requests write for PR publication, and Actions read for CI"
       : "the token needs write_repository for pushes and api for merge request publication and CI reads";
-  return `ha runtime instance hosting-credential set ${instanceId} --provider ${provider} --ref <opaque-reference>; ${scopes}`;
+  return `ha runtime instance hosting-credential set ${instanceId} --repo-id ${repoId} --provider ${provider} --ref <opaque-reference>; ${scopes}`;
 }
 
 export async function detectHostingProvider(

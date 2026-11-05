@@ -476,8 +476,9 @@ export async function openWriterSupervisor(
           error: serializeWriterError(failure.error),
         }));
       case "prepareDaemonGitEnvironment": {
+        // The host supplies the cell namespace; a worker cannot select another repository's binding.
         const payload = call.payload as { instanceId: string; provider?: "github" | "gitlab" };
-        return input.prepareDaemonGitEnvironment!(payload.instanceId, payload.provider);
+        return input.prepareDaemonGitEnvironment!(payload.instanceId, payload.provider ?? "github", input.repoId);
       }
       case "runtimeLaunch": {
         const payload = call.payload as {

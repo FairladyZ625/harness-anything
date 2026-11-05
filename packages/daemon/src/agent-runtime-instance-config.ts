@@ -93,6 +93,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           ...runtimeKindIds,
           "auth",
           "hostingCredentialRefs",
+          "hostingCredentialRefsByRepo",
         ];
   if (
     Object.keys(value).some((key) => !allowed.includes(key)) ||
@@ -176,14 +177,11 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     auth,
     ...(value.hostingCredentialRefs === undefined
       ? {}
+      : { hostingCredentialRefs: hostingCredentialRefs(value.hostingCredentialRefs) }),
+    ...(value.hostingCredentialRefsByRepo === undefined
+      ? {}
       : {
-          hostingCredentialRefs: Object.fromEntries(
-            Object.entries(value.hostingCredentialRefs as Record<string, unknown>).map(([provider, reference]) => {
-              if (provider !== "github" && provider !== "gitlab")
-                throw runtimeInstanceError("invalid_runtime_instance", `Unknown hosting provider ${provider}.`);
-              return [provider, credentialReference(reference, `hostingCredentialRefs.${provider}`)];
-            }),
-          ) as { readonly github?: string; readonly gitlab?: string },
+          hostingCredentialRefsByRepo: repositoryHostingCredentialRefs(value.hostingCredentialRefsByRepo),
         }),
   };
   const effortField = "reasoningEffort" in declaration.configuration.fields ? "reasoningEffort" : "effort",
@@ -248,6 +246,29 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       ].join(""),
     );
   return { ...common, kindId, [kindId]: configuration } as RuntimeInstanceConfig;
+}
+
+function hostingCredentialRefs(value: unknown): { readonly github?: string; readonly gitlab?: string } {
+  if (!isRuntimeInstanceRecord(value))
+    throw runtimeInstanceError("invalid_runtime_instance", "Hosting credential refs must be an object.");
+  return Object.fromEntries(
+    Object.entries(value).map(([provider, reference]) => {
+      if (provider !== "github" && provider !== "gitlab")
+        throw runtimeInstanceError("invalid_runtime_instance", `Unknown hosting provider ${provider}.`);
+      return [provider, credentialReference(reference, `hostingCredentialRefs.${provider}`)];
+    }),
+  );
+}
+
+function repositoryHostingCredentialRefs(value: unknown) {
+  if (!isRuntimeInstanceRecord(value))
+    throw runtimeInstanceError("invalid_runtime_instance", "Repository hosting credential refs must be an object.");
+  return Object.fromEntries(
+    Object.entries(value).map(([repoId, refs]) => [
+      requiredRuntimeInstanceText(repoId, "repoId"),
+      hostingCredentialRefs(refs),
+    ]),
+  );
 }
 
 function normalizeRuntimeInputAliases(

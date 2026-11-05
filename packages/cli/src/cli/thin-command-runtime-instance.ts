@@ -33,7 +33,11 @@ export function parseRuntimeInstance(
       ...(kind === "runtime-instance-list" && flags.booleans.has("--probe") ? { probe: true } : {}),
       ...(kind === "runtime-instance-show" && flags.booleans.has("--probe") ? { probe: true } : {}),
       ...(kind.startsWith("runtime-instance-hosting-credential-")
-        ? { provider: flags.one.get("--provider"), credentialRef: flags.one.get("--ref") }
+        ? {
+            repoId: flags.one.get("--repo-id"),
+            provider: flags.one.get("--provider"),
+            credentialRef: flags.one.get("--ref"),
+          }
         : {}),
       ...(auth && flags.one.get("--idempotency-key") ? { idempotencyKey: flags.one.get("--idempotency-key") } : {}),
     },

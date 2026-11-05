@@ -144,7 +144,8 @@ export interface RepoCellActionContext extends TaskQueryCell {
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly prepareDaemonGitEnvironment?: (
       instanceId: string,
-      provider?: "github" | "gitlab",
+      provider: "github" | "gitlab",
+      repoId: string,
     ) => Promise<NodeJS.ProcessEnv | null>;
   };
   readonly appendAuxiliaryRuntimeIngress: Bound<typeof appendAuxiliaryRuntimeIngressImpl>;

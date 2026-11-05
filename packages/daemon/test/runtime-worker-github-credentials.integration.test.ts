@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
@@ -18,15 +18,23 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 
-test("task-bound runtime settlement pushes only its own codex branch with the bound GitHub credential", async () => {
+async function exerciseTaskPush(
+  t: TestContext,
+  shared?: {
+    instances: ReturnType<typeof openRuntimeInstanceStore>;
+    repoId: string;
+    credentialRef: string;
+    secret: string;
+  },
+): Promise<void> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-worker-github-")),
     root = path.join(parent, "repo"),
     workerRoot = path.join(root, ".worktrees", "worker"),
     remote = path.join(parent, "origin.git"),
     userRoot = path.join(parent, "user"),
-    secret = randomUUID(),
-    credentialRef = "credential:v1:github-worker",
-    repoId = "runtime-worker-github",
+    secret = shared?.secret ?? randomUUID(),
+    credentialRef = shared?.credentialRef ?? "credential:v1:github-worker",
+    repoId = shared?.repoId ?? "runtime-worker-github",
     instanceId = "codex-github-worker",
     taskId = "task_github_worker",
     executionId = "execution-github-worker";
@@ -48,36 +56,43 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
         version: "1.0.0",
         observedAt: "2026-08-25T00:00:00.000Z",
       },
-      instances = openRuntimeInstanceStore({
-        userRoot,
-        discover: () => [installation],
-        resolveCredential: async (reference) => {
-          assert.equal(reference, credentialRef);
-          return secret;
-        },
-        subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+      instances =
+        shared?.instances ??
+        openRuntimeInstanceStore({
+          userRoot,
+          discover: () => [installation],
+          resolveCredential: async (reference) => {
+            assert.equal(reference, credentialRef);
+            return secret;
+          },
+          subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+        });
+    if (!shared)
+      instances.create({
+        schemaVersion: 2,
+        instanceId,
+        name: "Codex GitHub Worker",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        defaultModel: "gpt-5.6-sol",
+        enabled: true,
+        permissionMode: "read-only",
+        codex: {},
+        auth: { mode: "subscription" },
       });
-    instances.create({
-      schemaVersion: 2,
-      instanceId,
-      name: "Codex GitHub Worker",
-      kindId: "codex",
-      installationId: installation.installationId,
-      providerId: "openai",
-      models: ["gpt-5.6-sol"],
-      defaultModel: "gpt-5.6-sol",
-      enabled: true,
-      permissionMode: "read-only",
-      codex: {},
-      auth: { mode: "subscription" },
-    });
-    const bound = instances.command({
-      kind: "runtime-instance-hosting-credential-set",
-      instanceId,
-      provider: "github",
-      credentialRef,
-    });
+    const bound = shared
+      ? instances.command({ kind: "runtime-instance-show", instanceId })
+      : instances.command({
+          kind: "runtime-instance-hosting-credential-set",
+          instanceId,
+          provider: "github",
+          repoId,
+          credentialRef,
+        });
 
+    let credentialReads = 0;
     let taskBoundLaunches = 0;
     let mainPush: ReturnType<typeof spawnSync> | null = null;
     let finishTask: ((code: number | null) => void) | undefined;
@@ -94,7 +109,12 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       prepareRuntimeLaunch: instances.prepareLaunch,
       // This test owns the bound hosting credential; the operator login is not part of it.
       runtimeGithubToken: async () => null,
-      prepareDaemonGitEnvironment: instances.prepareDaemonGitEnvironment,
+      prepareDaemonGitEnvironment: async (selectedInstance, provider, repoScope) => {
+        credentialReads += 1;
+        const environment = await instances.prepareDaemonGitEnvironment(selectedInstance, provider, repoScope);
+        assert.equal(environment?.GH_TOKEN, secret, `push for ${repoId} must use its own credential`);
+        return environment;
+      },
       runtimeLaunch: (prepared) => {
         const taskBound = prepared.env.HARNESS_TASK_BOUND === "1";
         if (taskBound) {
@@ -196,10 +216,29 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.ok(finishTask, "the task runtime must remain live until submission is accepted");
+    // Keep git transport local while exercising provider detection, daemon credential resolution,
+    // and the real PR publication path. Any unexpected API request fails this hermetic fixture.
+    git(root, "remote", "set-url", "origin", `https://github.com/fixture/${repoId}.git`);
+    git(root, "remote", "set-url", "--push", "origin", remote);
+    t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+      assert.equal(init.headers && (init.headers as Record<string, string>).Authorization, `Bearer ${secret}`);
+      assert.ok(String(url).startsWith(`https://api.github.com/repos/fixture/${repoId}`));
+      return new Response(
+        JSON.stringify(
+          String(url).includes("/pulls")
+            ? init.method === "POST"
+              ? { html_url: `https://github.com/fixture/${repoId}/pull/1` }
+              : []
+            : { default_branch: "main" },
+        ),
+        { status: 200 },
+      );
+    });
     finishTask(0);
     await runtimeOutcome(root, repoId, String(spawned.runtimeSessionId));
 
     assert.equal(taskBoundLaunches, 1);
+    assert.ok(credentialReads > 0, "settlement must resolve the repository credential before pushing");
     assert.match(String(mainPush?.stderr), /outside a task branch refs\/heads\/task_/u);
     assert.notEqual(mainPush?.status, 0, mainPush?.stderr);
     assert.match(gitText(remote, "show-ref", "--verify", `refs/heads/${taskId}`), new RegExp(taskId, "u"));
@@ -215,9 +254,13 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       kind: "runtime-instance-hosting-credential-unset",
       instanceId,
       provider: "github",
+      repoId,
     });
-    assert.equal("hostingCredentialState" in (unsetReceipt.instance as Record<string, unknown>), false);
-    assert.equal(await instances.prepareDaemonGitEnvironment(instanceId), null);
+    assert.equal(
+      "hostingCredentialState" in (unsetReceipt.instance as Record<string, unknown>),
+      shared ? instances.list().some((row) => Object.keys(row.hostingCredentialRefsByRepo ?? {}).length > 0) : false,
+    );
+    assert.equal(await instances.prepareDaemonGitEnvironment(instanceId, "github", repoId), null);
     for (const observed of [bound, shown, unsetReceipt, events, stream]) {
       assert.doesNotMatch(JSON.stringify(observed), new RegExp(secret, "u"));
       assert.doesNotMatch(
@@ -228,6 +271,68 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
   } finally {
     await cell?.close();
     rmSync(parent, { recursive: true, force: true });
+  }
+}
+
+test("task-bound runtime settlement pushes only its own codex branch with the bound GitHub credential", (t) =>
+  exerciseTaskPush(t));
+
+test("two repositories sharing one instance publish with distinct refs without a daemon restart", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-shared-hosting-instance-"));
+  const installation: RuntimeInstallationWitness = {
+    installationId: "codex-github-worker-installation",
+    kindId: "codex",
+    executablePath: "/opt/witnessed/codex-github-worker",
+    version: "1.0.0",
+    observedAt: "2026-08-25T00:00:00.000Z",
+  };
+  const credentials = new Map([
+    ["credential:v1:repo-a", randomUUID()],
+    ["credential:v1:repo-b", randomUUID()],
+  ]);
+  const instances = openRuntimeInstanceStore({
+    userRoot,
+    discover: () => [installation],
+    resolveCredential: async (ref) => {
+      assert.ok(credentials.has(ref));
+      return credentials.get(ref)!;
+    },
+    subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+  });
+  try {
+    instances.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-github-worker",
+      name: "Shared worker",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      authMode: "subscription",
+    });
+    for (const repoId of ["repo-a", "repo-b"])
+      instances.command({
+        kind: "runtime-instance-hosting-credential-set",
+        instanceId: "codex-github-worker",
+        repoId,
+        provider: "github",
+        credentialRef: `credential:v1:${repoId}`,
+      });
+    // Negative control: on the old instance-wide implementation this resolves repo-b's ref for A.
+    assert.equal(
+      (await instances.prepareDaemonGitEnvironment("codex-github-worker", "github", "repo-a"))?.GH_TOKEN,
+      credentials.get("credential:v1:repo-a"),
+    );
+    // Both bindings exist before either runtime is dispatched. A second set must never replace A.
+    for (const repoId of ["repo-a", "repo-b"])
+      await exerciseTaskPush(t, {
+        instances,
+        repoId,
+        credentialRef: `credential:v1:${repoId}`,
+        secret: credentials.get(`credential:v1:${repoId}`)!,
+      });
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
   }
 });
 

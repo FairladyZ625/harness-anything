@@ -240,7 +240,8 @@ export interface RepoWriterInputPorts {
   ) => Promise<PreparedRuntimeLaunch>;
   readonly prepareDaemonGitEnvironment?: (
     instanceId: string,
-    provider?: "github" | "gitlab",
+    provider: "github" | "gitlab",
+    repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;

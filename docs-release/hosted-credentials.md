@@ -1,7 +1,7 @@
 # Hosted Git credentials
 
 Task branch and pull request publishing goes through the daemon with the GitHub
-or GitLab credential configured once per runtime instance. A runtime process does
+or GitLab credential configured for each runtime instance and repository. A runtime process does
 not read the instance configuration, and publication requires no worker-shell
 hosting credential. Reading CI with the hosting CLI still requires shell credentials.
 This page is the operator setup; the worker-facing commands are described in
@@ -9,7 +9,7 @@ This page is the operator setup; the worker-facing commands are described in
 
 ## What the credential powers
 
-Each command resolves the credential bound to the runtime instance that runs
+Each command resolves the credential bound to the repository and runtime instance that runs
 the dispatch, and uses it only for that task:
 
 | Command | What it does with the credential |
@@ -23,10 +23,10 @@ service records the installing shell's `PATH` (see
 ## Bind the credential to a runtime instance
 
 ```bash
-ha runtime instance hosting-credential set <instance-id> --provider github --ref credential:v1:<slug>
-ha runtime instance hosting-credential unset <instance-id> --provider github
-ha runtime instance hosting-credential set <instance-id> --provider gitlab --ref credential:v1:<slug>
-ha runtime instance hosting-credential unset <instance-id> --provider gitlab
+ha runtime instance hosting-credential set <instance-id> --repo-id <repo-id> --provider github --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --repo-id <repo-id> --provider github
+ha runtime instance hosting-credential set <instance-id> --repo-id <repo-id> --provider gitlab --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --repo-id <repo-id> --provider gitlab
 ```
 
 `--ref` takes an opaque reference into the machine's native credential store,
@@ -37,6 +37,29 @@ receipts never echo the reference or the secret. A worker session cannot change 
 operator-side setting, and a missing binding surfaces as
 `runtime_credential_unavailable` (see
 [Recovering from task and runtime rejections](operations-server-daemon.md#recovering-from-task-and-runtime-rejections)).
+
+`--repo-id` names the registered repository namespace, independent of its checkout path.
+Binding or rotating repository A leaves repository B unchanged and takes effect immediately;
+no daemon restart is required. Doctor and dispatch notices use the same scoped lookup.
+
+### Existing instance-wide bindings
+
+Existing `runtime-instances.json` records can still contain `hostingCredentialRefs`.
+These previous-version fields are retained as disk residue until **2026-12-05** and
+never used as a fallback. Explicitly rebind the existing opaque reference for each
+repository using `set --repo-id`; no secret needs to be read or copied. New writes use
+`hostingCredentialRefsByRepo`. No canonical event format changes or attach migration
+are involved: this is node-local instance metadata. Remove the legacy field reader
+and vault-retention check after the compatibility window.
+
+### Multiple edge nodes
+
+The node performing publication resolves `(instance, repoId, provider)` in its own
+instance registry and native vault. Provision the repository's reference on each
+publishing node; refs and secrets are not replicated through the canonical ledger.
+The center still owns task acceptance and execution fencing (PostgreSQL for cloud
+centers); this change adds no tenant-wide secret store or second ledger writer.
+Concurrent repository bindings enter the node's existing credential FIFO.
 
 ## Create the vault item
 
