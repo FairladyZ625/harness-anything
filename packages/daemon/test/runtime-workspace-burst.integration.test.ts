@@ -75,6 +75,12 @@ test(
       mkdirSync(path.join(repoRoot, "node_modules"));
       const rootDir = canonicalRoot(repoRoot);
       initRepo(rootDir);
+      // Keep the file churn out of Git snapshots so this measures writer queue contention.
+      writeFileSync(path.join(repoRoot, ".git", "info", "exclude"), "node_modules/\n");
+      // Populate before watching: the measured burst modifies files, avoiding recursive watcher
+      // directory-discovery work for each newly created entry.
+      for (let index = 0; index < Math.max(1_000, notificationTarget); index += 1)
+        writeFileSync(path.join(repoRoot, "node_modules", `file-${index}`), "before");
       const authority = openPersistentWriterEpoch({ stateRoot, holderId: "writer-queue-depth" }),
         lease = authority.acquire(repoId),
         fence = {
@@ -99,6 +105,7 @@ test(
         publishedQueueDepths: (number | null)[] = [];
       // Buffer actual native notifications in the writer thread and release them together. This
       // makes the queue contention deterministic without inventing file events or sleeping.
+      // Drop later notifications in the fixture so only the measured burst competes with the write.
       const preload = `
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -108,15 +115,17 @@ fs.watch = function(target, options, listener) {
   if (String(target) !== ${JSON.stringify(repoRoot)}) return nativeWatch.call(this, target, options, listener);
   const pending = [];
   let released = false;
-  return nativeWatch.call(this, target, options, (event, filename) => {
-    if (released) return listener(event, filename);
+  const watcher = nativeWatch.call(this, target, options, (event, filename) => {
+    if (released) return;
     pending.push([event, filename]);
     if (pending.length === ${notificationTarget}) {
       released = true;
+      watcher.close();
       for (const args of pending) listener(...args);
       parentPort.postMessage({ schema: "test-native-workspace-burst", count: pending.length });
     }
   });
+  return watcher;
 };
 syncBuiltinESMExports();
 `;
@@ -173,7 +182,7 @@ syncBuiltinESMExports();
       );
       assert.equal(typeof spawned.runtimeSessionId, "string");
       publishedQueueDepths.length = 0;
-      for (let index = 0; index < Math.max(500, notificationTarget * 2); index += 1)
+      for (let index = 0; index < Math.max(1_000, notificationTarget); index += 1)
         writeFileSync(path.join(repoRoot, "node_modules", `file-${index}`), "workspace activity");
       const notifications = await burstObserved.promise,
         maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null)),
