@@ -186,7 +186,7 @@ test("the task owner can force-release an abandoned lease, rejoin its execution,
     if (releaseEvent?.type === "lease_released")
       assert.equal(
         releaseEvent.payload.mutation.reason,
-        "Owner forced takeover: Worker session ended after provider HTTP 429; preserve and submit the existing closeout.",
+        "Owner forced lease release: Worker session ended after provider HTTP 429; preserve and submit the existing closeout.",
       );
 
     const rejoined = (await cell.run({ kind: "task-start", taskId, executionId }, holderBinding)) as WriteReceipt;

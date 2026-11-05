@@ -5,6 +5,9 @@
  */
 export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
   // dec_5EC2631352B17EE2BF4979E37E; owner-authorized single offline Task retirement constructor.
+  // dec_5DBF5F2B38719E4B52003D178D CH1: ReworkTask's owner arrangement is an aggregate
+  // transition, using task_amended rather than a second task/execution lifecycle.
+  "packages/kernel/src/domain/task-lifecycle-command-transitions.ts|envelope-call|task_amended": 1,
   "packages/kernel/src/domain/task-completion-generation-retirement.ts|envelope-call|task_completion_generation_retired": 1,
   "packages/daemon/src/repo-cell-task-command-docs.ts|dynamic-task-event|<dynamic>": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_amended": 1,

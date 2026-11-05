@@ -1,3 +1,4 @@
+import { clearExecutionArrangement } from "./task-execution-arrangement.ts";
 import { submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
 import type { ExecutionV1 } from "./execution.ts";
@@ -142,7 +143,12 @@ export const review: Transition = {
     const command = raw as RecordReviewCommand,
       current = execution(snapshot, command.executionId) as ExecutionV1,
       recorded = reviewFrom(command, rawProof as ReviewProof),
-      rework = reworkReopen(snapshot, command, recorded, rawProof as ReviewProof);
+      rework = reworkReopen(snapshot, command, recorded, rawProof as ReviewProof),
+      task =
+        rework?.task ??
+        (command.verdict === "approved"
+          ? clearExecutionArrangement(snapshot.task as TaskV2)
+          : (snapshot.task as TaskV2));
     // A changes_requested verdict is the return order itself: below the repository rework budget the
     // same transition that records the review reopens the implementation iteration, and the daemon
     // continues the submitting worker with the report (dec_E369B8616F50A6208B293997E7 CH3). At or
@@ -151,6 +157,7 @@ export const review: Transition = {
       snapshot: {
         ...snapshot,
         revision: command.workspaceRevision,
+        task,
         ...(rework
           ? {
               task: rework.task,
@@ -161,7 +168,7 @@ export const review: Transition = {
         reviews: [...snapshot.reviews, recorded],
       },
       event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
-        task: rework ? rework.task : (snapshot.task as TaskV2),
+        task,
         execution: rework ? rework.execution : current,
         review: recorded,
         ...(rework ? { edge: rework.edge } : {}),

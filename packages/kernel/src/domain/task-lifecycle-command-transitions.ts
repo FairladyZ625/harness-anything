@@ -1,4 +1,11 @@
 import {
+  clearExecutionArrangement,
+  arrangementIssues,
+  arrangeExecution,
+  currentExecutionArrangement,
+  executionArrangementAllows,
+} from "./task-execution-arrangement.ts";
+import {
   isNativeExecution,
   submissionDigest,
   submissionId,
@@ -121,6 +128,7 @@ export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: 
   return (
     Boolean(task) &&
     startablePhase &&
+    currentExecutionArrangement(snapshot)?.ready !== false &&
     (snapshot.lease === null || snapshot.lease.phase === "orphaned") &&
     isNonEmptyString(executionId) &&
     rejoin === round
@@ -144,6 +152,10 @@ export const start: Transition = {
       proof = rawProof as Partial<StartExecutionProof>,
       issues = revisionIssues(snapshot, command),
       reservation = proof.reservation;
+    if (!executionArrangementAllows(snapshot, command.actor, command.arrangementId, command.source))
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "This execution arrangement has not handed this round to the caller"),
+      );
     if (!canStartExecution(snapshot, command.executionId))
       issues.push(
         lifecycleContractIssue(
@@ -423,6 +435,10 @@ export const submit: Transition = {
       lease = snapshot.lease,
       amendment = command.amend === true,
       ownerAmendment = command.asOwner === true && task !== null && isSamePerson(task.createdBy, command.actor);
+    if (currentExecutionArrangement(snapshot)?.ready === false)
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "The previous execution is being handed off; its submission is fenced"),
+      );
     if (amendment) {
       if (
         !task ||
@@ -493,9 +509,9 @@ export const submit: Transition = {
         ...(amendment && !isSameExecution(current.actor, command.actor) ? { amendedBy: command.actor } : {}),
       },
       task: TaskV2 = amendment
-        ? (snapshot.task as TaskV2)
+        ? clearExecutionArrangement(snapshot.task as TaskV2)
         : {
-            ...(snapshot.task as TaskV2),
+            ...clearExecutionArrangement(snapshot.task as TaskV2),
             status: command.submission.completionContract.closeoutGates.review ? "in_review" : "submitted",
             currentNode: "review",
           },
@@ -586,7 +602,9 @@ export const rework: Transition = {
           )
         : undefined,
       currentDigest = current?.submission ? submissionDigest(current.submission) : undefined;
-    if (
+    if (command.takeover === true || command.handoffId !== undefined) {
+      issues.push(...arrangementIssues(snapshot, command));
+    } else if (
       !task ||
       (task.status !== "in_review" && !reviewExemptSubmission) ||
       task.currentNode !== "review" ||
@@ -622,14 +640,34 @@ export const rework: Transition = {
     return issues;
   },
   reduce: (snapshot, raw) => {
-    const command = raw as ReworkTaskCommand,
-      current = execution(snapshot, command.executionId) as ExecutionV1,
+    const command = raw as ReworkTaskCommand;
+    const reviewedCut = snapshot.reviews.some(
+        (review) => review.executionId === command.executionId && review.submissionDigest === command.submissionDigest,
+      ),
+      returnNow =
+        command.takeover === true &&
+        snapshot.task?.currentNode === "review" &&
+        (snapshot.task.status === "submitted" || reviewedCut);
+    if (command.handoffId !== undefined || (command.takeover === true && !returnNow)) {
+      const task = arrangeExecution(snapshot, command);
+      return {
+        snapshot: { ...snapshot, task, revision: command.workspaceRevision },
+        event: envelope<TaskMutationEvent>(command, "task_amended", {
+          task,
+          mutation: { command: "amend", reason: command.reason, fields: ["executionArrangement"] },
+        }),
+      };
+    }
+    const current = execution(snapshot, command.executionId) as ExecutionV1,
       nextExecution: ExecutionV1 = { ...current, state: "changes_requested", closedAt: command.occurredAt },
       task: TaskV2 = {
         ...(snapshot.task as TaskV2),
         status: "active",
         currentNode: "implementation",
         iteration: (snapshot.task?.iteration ?? 0) + 1,
+        ...(command.takeover === true
+          ? { executionArrangement: arrangeExecution(snapshot, command).executionArrangement }
+          : {}),
       };
     return {
       snapshot: {

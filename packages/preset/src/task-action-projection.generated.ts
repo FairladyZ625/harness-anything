@@ -325,7 +325,24 @@ export const taskActionDescriptorProjection = {
         fields: [
           { field: "taskId", type: "string", required: true },
           { field: "expectedVersion", type: "number", required: false },
-          { field: "executionId", type: "string", required: false },
+          {
+            field: "executionId",
+            type: "string",
+            required: false,
+            cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "takeover",
+            type: "boolean",
+            required: false,
+            cli: { name: "--takeover", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "submissionDigest",
+            type: "string",
+            required: false,
+            cli: { name: "--submission-digest", kind: "single", error: "invalid_field" },
+          },
           { field: "reviewId", type: "string", required: false },
           {
             field: "reason",
@@ -356,7 +373,7 @@ export const taskActionDescriptorProjection = {
         exactlyOneOf: [],
       },
       explain:
-        "Return a review cut, or a review-exempt submitted cut, to rework with an owner reason; resume the worker.",
+        "Return a submitted cut to rework; --takeover --execution-id <cut> --submission-digest <digest> arranges only its next round, waiting for the old runtime to stop. --agent selects a registered replacement; otherwise the caller coordinates this round.",
       execution: {
         ingress: "task-rework",
         topology: "ledger-write",

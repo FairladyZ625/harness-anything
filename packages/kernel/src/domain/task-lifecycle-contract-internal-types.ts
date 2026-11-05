@@ -78,6 +78,7 @@ export interface RetireCompletionGenerationIntent extends Intent<"RetireCompleti
   readonly sourceGeneration: 1 | 2;
 }
 export interface StartExecutionIntent extends Intent<"StartExecution"> {
+  readonly arrangementId?: string;
   readonly executionId: string;
   readonly ttlMs?: number;
   readonly stackOn?: string;
@@ -94,6 +95,13 @@ export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
   readonly asOwner?: true;
 }
 export interface ReworkTaskIntent extends Intent<"ReworkTask"> {
+  readonly takeover?: true;
+  readonly submissionDigest?: `sha256:${string}`;
+  readonly agentId?: string;
+  readonly runtimeInstanceId?: string;
+  readonly model?: string;
+  /** Center-only completion CAS; never read from a public action. */
+  readonly handoffId?: string;
   readonly executionId: string;
   readonly reviewId?: string;
   readonly reason: string;

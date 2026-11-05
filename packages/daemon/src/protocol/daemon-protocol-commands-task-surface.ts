@@ -70,7 +70,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["task", "release", "<task-id>"],
     summary:
-      "Release the authenticated holder lease; the task creator can force takeover after a failed dispatch with an explicit reason.",
+      "Release a lease after the worker stopped; this does not complete a round takeover. Use task rework --takeover to arrange the returned round.",
     method: "repo.task.run",
     inputs: [
       cliInput(
@@ -85,7 +85,10 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         "boolean",
         false,
         { code: "invalid_field" },
-        { description: "Let the task creator release a held worker lease and take over the execution." },
+        {
+          description:
+            "Let the task creator release a stopped worker lease with a reason; this does not arrange or launch a replacement.",
+        },
       ),
     ],
   }),

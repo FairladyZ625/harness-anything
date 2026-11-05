@@ -82,7 +82,7 @@ function taskMutationWithStopResult(
 ): TaskMutation | RuntimeLeaseReleasePending {
   const forceTakeover = action.kind === "task-release" && action.forceTakeover === true,
     reason = forceTakeover
-      ? `Owner forced takeover: ${cell.requiredCellText(action.reason, "reason")}`
+      ? `Owner forced lease release: ${cell.requiredCellText(action.reason, "reason")}`
       : typeof action.reason === "string" && action.reason.trim()
         ? action.reason.trim()
         : "Authenticated holder released the lease.",

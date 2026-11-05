@@ -1,3 +1,4 @@
+import { continueReviewRework } from "./task-return-dispatch.ts";
 import { makeRuntimeRecoveryWork } from "./runtime-recovery-work.ts";
 import { localOperatorBinding } from "./daemon-host-binding.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
@@ -651,6 +652,22 @@ export async function openRepoWriterCell(
           "review_result_missing",
           `Recovered Review ${action.reviewId as string} was not applied: ${JSON.stringify(receipt)}.`,
         );
+      if (receipt.outcome === "applied") {
+        const event = store.readTaskEvent(receipt.opId);
+        if (event)
+          setImmediate(() => {
+            if (state === "closed") return;
+            // Settlement may itself be queued (e.g. cancellation). Let that writer finish before
+            // the shared return handoff waits for another runtime's terminal publication.
+            void recoveryWork
+              .run(() =>
+                continueReviewRework(operationalContext, event, authorized, receipt, undefined, (work) =>
+                  recoveryWork.write(work, authorized),
+                ),
+              )
+              .catch((error: unknown) => console.error("[review-rework]", error));
+          });
+      }
     },
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
@@ -805,7 +822,7 @@ export async function openRepoWriterCell(
       ),
   });
   operationalContext satisfies RepoCellOperationalContext;
-  handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding }) => {
+  handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding, arrangementId }) => {
     const runtimeExecutor = { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       runtimeBinding = { ...binding, actor: { principal: binding.actor.principal, executor: runtimeExecutor } };
     let lease = projection.currentLease(taskId, now());
@@ -857,7 +874,12 @@ export async function openRepoWriterCell(
         throw cellCodedError("lease_conflict", `Task ${taskId} lease remained active after dispatch handoff release.`);
     }
     operationalContext.assertTaskWipCapacity(taskId, "active");
-    const startAction = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
+    const startAction = {
+        kind: "task-start",
+        taskId,
+        ...(executionId ? { executionId } : {}),
+        ...(arrangementId ? { arrangementId } : {}),
+      },
       startBinding = await authorizeRuntimeAction(
         startAction,
         runtimeBinding,

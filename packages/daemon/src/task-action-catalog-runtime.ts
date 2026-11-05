@@ -19,7 +19,6 @@ import { retireTaskAwaitsAtTerminalStatus } from "./terminal-awaits-retirement.t
 import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
-import { continueReviewRework } from "./task-return-dispatch.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
@@ -342,26 +341,7 @@ export async function runTaskActionCatalogRuntime(
     );
     if (action.kind === "task-start")
       return { ...receipt, riskTierAdvice: taskRiskTierAdvice(result.snapshot) } as WriteReceipt;
-    // Both automatic and owner-authorized returns use the same continuation: the applied command
-    // names the review that was recorded or returned, so the continuation follows that review's
-    // execution and dispatch identity instead of searching the projection.
-    return command.type === "RecordReview" || command.type === "ReworkTask"
-      ? await continueReviewRework(
-          cell,
-          command,
-          binding,
-          receipt,
-          action.kind === "task-rework"
-            ? {
-                ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
-                ...(typeof action.runtimeInstanceId === "string"
-                  ? { runtimeInstanceId: action.runtimeInstanceId }
-                  : {}),
-                ...(typeof action.model === "string" ? { model: action.model } : {}),
-              }
-            : undefined,
-        )
-      : receipt;
+    return receipt;
   }
   if (result.outcome === "pending")
     return {

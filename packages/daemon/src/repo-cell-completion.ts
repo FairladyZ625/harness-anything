@@ -2,6 +2,7 @@ import { readTaskCompletion } from "./task-completion-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
+  submissionDigest,
   completionGateIds,
   compileCompletionGateWitness,
   EXECUTION_DELIVERY_BASELINE_NOTE,
@@ -229,6 +230,14 @@ export function taskShowFromProjection(
       currentExecutions: read.snapshot.executions
         .filter((value) => value.iteration === task?.iteration)
         .map(({ executionId, state }) => ({ executionId, state })),
+      reworkTargets: read.snapshot.executions
+        .filter(
+          (value) =>
+            value.submission &&
+            ((value.iteration === task?.iteration && value.state === "submitted") ||
+              (value.iteration + 1 === task?.iteration && value.state === "changes_requested")),
+        )
+        .map((value) => ({ executionId: value.executionId, submissionDigest: submissionDigest(value.submission!) })),
       // The raw execution field is start-frozen; ship its semantics beside it so a JSON reader
       // does not mistake the comparison cut for the delivered HEAD (task_199ad30eb5cdd072cd65317919).
       deliveryBaselineNote: EXECUTION_DELIVERY_BASELINE_NOTE,

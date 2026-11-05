@@ -1,3 +1,4 @@
+import { validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
 import { validTaskAssignment, type TaskAssignment } from "./task-assignment.ts";
 import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateTaskGraph } from "./task-graph.ts";
@@ -62,6 +63,51 @@ export interface ActorAxes {
   readonly principal: { readonly personId: string };
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
 }
+/** One cut's owner exception. Its iteration is the returned round, never a repository setting. */
+export interface TaskExecutionArrangement {
+  readonly id: string;
+  readonly executionId: string;
+  readonly submissionDigest: `sha256:${string}`;
+  readonly iteration: number;
+  readonly actor: ActorAxes;
+  readonly source: WriteSource;
+  readonly reason: string;
+  readonly ready: boolean;
+  readonly agentId?: string;
+  readonly runtimeInstanceId?: string;
+  readonly model?: string;
+}
+
+function validTaskExecutionArrangement(value: unknown): value is TaskExecutionArrangement {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, [
+      "id",
+      "executionId",
+      "submissionDigest",
+      "iteration",
+      "actor",
+      "source",
+      "reason",
+      "ready",
+      ...["agentId", "runtimeInstanceId", "model"].filter((key) => key in value),
+    ]) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.executionId) &&
+    typeof value.submissionDigest === "string" &&
+    /^sha256:[0-9a-f]{64}$/u.test(value.submissionDigest) &&
+    Number.isSafeInteger(value.iteration) &&
+    Number(value.iteration) > 0 &&
+    validateActorIdentity(value.actor).length === 0 &&
+    validateWriteSource(value.source).length === 0 &&
+    isNonEmptyString(value.reason) &&
+    typeof value.ready === "boolean" &&
+    [value.agentId, value.runtimeInstanceId, value.model].every(
+      (field) => field === undefined || isNonEmptyString(field),
+    )
+  );
+}
+
 export type TaskPackageDisposition = "active" | "archived" | "tombstoned";
 export interface TaskMetadataV1 {
   readonly idempotencyKey: string | null;
@@ -81,6 +127,7 @@ export interface TaskMetadataV1 {
   readonly fromLegacyId: string | null;
 }
 export interface TaskV2 extends BaseEntityPinState {
+  readonly executionArrangement?: TaskExecutionArrangement;
   readonly assignment?: TaskAssignment | null;
   readonly schema: "task/v2";
   readonly taskId: string;
@@ -152,6 +199,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "closeoutOverrides",
       "archiveOnComplete",
       "assignment",
+      "executionArrangement",
       "presetSnapshotGap",
     ];
   if (
@@ -161,6 +209,8 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
   )
     return [{ code: "invalid_task", message: "Task/v2 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
+  if (value.executionArrangement !== undefined && !validTaskExecutionArrangement(value.executionArrangement))
+    issues.push({ code: "invalid_task", message: "execution arrangement is invalid" });
   if (value.presetSnapshotGap !== undefined) {
     const gap = value.presetSnapshotGap;
     if (

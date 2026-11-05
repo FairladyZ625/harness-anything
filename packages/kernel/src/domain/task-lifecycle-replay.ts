@@ -1,3 +1,4 @@
+import { clearExecutionArrangement } from "./task-execution-arrangement.ts";
 import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
@@ -120,7 +121,7 @@ function assertAtomic<C extends TaskLifecycleCommand>(
     const previous = execution(snapshot, command.executionId);
     if (
       !previous?.submission ||
-      result.snapshot.task !== snapshot.task ||
+      !sameReplayTask(result.snapshot.task, snapshot.task ? clearExecutionArrangement(snapshot.task) : null) ||
       result.snapshot.lease !== null ||
       changed?.state !== "submitted" ||
       changed.submittedAt !== command.occurredAt ||
@@ -185,7 +186,10 @@ function assertAtomic<C extends TaskLifecycleCommand>(
       (reopen && !reopened) ||
       (!reopen &&
         (result.event.type !== "review_recorded" ||
-          result.snapshot.task !== snapshot.task ||
+          !sameReplayTask(
+            result.snapshot.task,
+            command.verdict === "approved" && snapshot.task ? clearExecutionArrangement(snapshot.task) : snapshot.task,
+          ) ||
           changed !== execution(snapshot, command.executionId) ||
           result.snapshot.lease !== snapshot.lease ||
           result.event.payload.edge !== undefined))
@@ -593,7 +597,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
         !event.payload.execution.submission ||
         supersedes !== submissionId(current.submission) ||
         submissionId(current.submission) === submissionId(event.payload.execution.submission) ||
-        !sameReplayTask(event.payload.task, snapshot.task) ||
+        !sameReplayTask(event.payload.task, snapshot.task ? clearExecutionArrangement(snapshot.task) : null) ||
         stableStringify(event.payload.execution) !== stableStringify(expected) ||
         (!isSameExecution(current.actor, event.actor) && !isSamePerson(snapshot.task.createdBy, event.actor)) ||
         event.payload.edge !== undefined ||
