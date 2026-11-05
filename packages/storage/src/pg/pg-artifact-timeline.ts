@@ -10,7 +10,12 @@ import { checkedPageLimit } from "./pg-query-page.ts";
 /**
  * PostgreSQL half of the artifact timeline index (G38 read side, dec_72FADB86/CH3).
  * SQLite owns the same table shape through `artifact-timeline-projection.ts`; keep the facet rule
- * (`mediaType`/`policyId` of the committed claim) identical on both backends.
+ * (`mediaType`/`policyId` of the committed claim) and the stored `artifacts/...` relative path
+ * identical on both backends.
+ *
+ * Rows carry the document's `readers` allowlist and are filtered by the caller's readers on every
+ * page and count, matching `readDocument`'s overlap rule. Counts are maintained per reader set and
+ * summed over the sets visible to the caller, so an exact total never requires scanning artifacts.
  */
 export const artifactTimelineDdl = (): readonly string[] => [
   `CREATE TABLE IF NOT EXISTS ha_artifact_documents (
@@ -27,17 +32,22 @@ export const artifactTimelineDdl = (): readonly string[] => [
     tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
     readers text[] NOT NULL DEFAULT '{}',
     kind text NOT NULL, total bigint NOT NULL CHECK (total >= 0),
-    PRIMARY KEY (tenant_id, project_id, policy_epoch, kind)
+    PRIMARY KEY (tenant_id, project_id, policy_epoch, kind, readers)
   )`,
   // Backfill for deployments whose documents predate this index. The caller passes the repository
-  // because canonical revisions are repo-scoped while projection rows are not.
+  // because canonical revisions are repo-scoped while projection rows are not. The reader arrays
+  // come from the projected document rows, and counts are rebuilt per reader set.
   `CREATE OR REPLACE FUNCTION ha_backfill_artifact_documents(tenant text, project text, epoch bigint, repo text)
     RETURNS integer LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
     DECLARE processed integer;
     BEGIN
+      -- Reconstruct the scope's index rather than only adding rows: a partial or dirty index is
+      -- repaired by the same one-time expansion, so readiness cannot hide stale outputs.
+      DELETE FROM ha_artifact_documents WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
+      DELETE FROM ha_artifact_counts WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
       INSERT INTO ha_artifact_documents(
-        tenant_id, project_id, policy_epoch, path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes)
-      SELECT v.tenant_id, v.project_id, v.policy_epoch, v.entity_id,
+        tenant_id, project_id, policy_epoch, readers, path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes)
+      SELECT v.tenant_id, v.project_id, v.policy_epoch, v.readers, v.entity_id,
         split_part(v.entity_id, '/', 2),
         substr(v.entity_id, strpos(v.entity_id, '/artifacts/') + 1),
         CASE WHEN metadata->>'mediaType' = 'text/html' THEN 'html'
@@ -58,14 +68,15 @@ export const artifactTimelineDdl = (): readonly string[] => [
         AND ((metadata->>'mediaType') IN ('text/html', 'text/markdown')
           OR (metadata->>'policyId') = 'raw-artifact-bytes/v1')
       ON CONFLICT (tenant_id, project_id, policy_epoch, path) DO UPDATE SET
-        package_dir=excluded.package_dir, relative=excluded.relative, kind=excluded.kind,
-        sort_ms=excluded.sort_ms, occurred_at=excluded.occurred_at, size_bytes=excluded.size_bytes;
+        readers=excluded.readers, package_dir=excluded.package_dir, relative=excluded.relative,
+        kind=excluded.kind, sort_ms=excluded.sort_ms, occurred_at=excluded.occurred_at,
+        size_bytes=excluded.size_bytes;
       GET DIAGNOSTICS processed = ROW_COUNT;
       DELETE FROM ha_artifact_counts WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
-      INSERT INTO ha_artifact_counts(tenant_id, project_id, policy_epoch, kind, total)
-      SELECT tenant_id, project_id, policy_epoch, kind, count(*)
+      INSERT INTO ha_artifact_counts(tenant_id, project_id, policy_epoch, readers, kind, total)
+      SELECT tenant_id, project_id, policy_epoch, readers, kind, count(*)
       FROM ha_artifact_documents WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch
-      GROUP BY tenant_id, project_id, policy_epoch, kind;
+      GROUP BY tenant_id, project_id, policy_epoch, readers, kind;
       RETURN processed;
     END $function$`,
 ];
@@ -84,12 +95,25 @@ const artifactKindOf = (document: {
 
 const scopeValues = (scope: PgProjectionScope) => [scope.tenantId, scope.projectId, scope.policyEpoch];
 
-const adjustCount = (client: PoolClient, scope: PgProjectionScope, kind: ArtifactTimelineKind, delta: 1 | -1) =>
+/** The scope's reader allowlist in one canonical order, so equal sets share a count row. */
+const canonicalReaders = (readers: readonly string[] | undefined): string[] => [...new Set(readers ?? [])].sort();
+
+const sameReaders = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((reader, index) => reader === right[index]);
+
+const adjustCount = (
+  client: PoolClient,
+  scope: PgProjectionScope,
+  readers: readonly string[],
+  kind: ArtifactTimelineKind,
+  delta: 1 | -1,
+) =>
   client.query(
-    `INSERT INTO ha_artifact_counts(tenant_id, project_id, policy_epoch, kind, total) VALUES ($1, $2, $3, $4, 1)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, kind) DO UPDATE
-     SET total = GREATEST(ha_artifact_counts.total + $5, 0)`,
-    [...scopeValues(scope), kind, delta],
+    `INSERT INTO ha_artifact_counts(tenant_id, project_id, policy_epoch, readers, kind, total)
+     VALUES ($1, $2, $3, $4::text[], $5, 1)
+     ON CONFLICT (tenant_id, project_id, policy_epoch, kind, readers) DO UPDATE
+     SET total = GREATEST(ha_artifact_counts.total + $6, 0)`,
+    [...scopeValues(scope), readers, kind, delta],
   );
 
 /** Maintain the index in the same transaction that writes the canonical document row. */
@@ -103,28 +127,32 @@ export async function projectPgArtifactDocument(
   if (!taskArtifactSubtreePath(path)) return;
   const kind = artifactKindOf(document);
   if (kind === null) return retirePgArtifactDocument(client, scope, path);
-  const match = /^tasks\/([^/]+)\/artifacts\/(.+)$/u.exec(path);
+  const match = /^tasks\/([^/]+)\/(artifacts\/.+)$/u.exec(path);
   if (match === null) return;
-  const sortMs = -Date.parse(occurredAt);
+  const sortMs = -Date.parse(occurredAt),
+    readers = canonicalReaders(scope.readers);
   if (!Number.isFinite(sortMs)) throw new Error(`artifact document ${path} has an invalid occurrence time`);
-  const previous = await client.query<{ kind: ArtifactTimelineKind }>(
-    `SELECT kind FROM ha_artifact_documents WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND path=$4`,
+  const previous = await client.query<{ kind: ArtifactTimelineKind; readers: string[] }>(
+    `SELECT kind, readers FROM ha_artifact_documents
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND path=$4`,
     [...scopeValues(scope), path],
   );
   await client.query(
     `INSERT INTO ha_artifact_documents(
-       tenant_id, project_id, policy_epoch, path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       tenant_id, project_id, policy_epoch, readers, path, package_dir, relative, kind, sort_ms,
+       occurred_at, size_bytes)
+     VALUES ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (tenant_id, project_id, policy_epoch, path) DO UPDATE SET
-       package_dir=excluded.package_dir, relative=excluded.relative, kind=excluded.kind,
-       sort_ms=excluded.sort_ms, occurred_at=excluded.occurred_at, size_bytes=excluded.size_bytes`,
-    [...scopeValues(scope), path, match[1]!, match[2]!, kind, sortMs, occurredAt, document.size],
+       readers=excluded.readers, package_dir=excluded.package_dir, relative=excluded.relative,
+       kind=excluded.kind, sort_ms=excluded.sort_ms, occurred_at=excluded.occurred_at,
+       size_bytes=excluded.size_bytes`,
+    [...scopeValues(scope), readers, path, match[1]!, match[2]!, kind, sortMs, occurredAt, document.size],
   );
-  const before = previous.rows[0]?.kind;
-  if (before === undefined) await adjustCount(client, scope, kind, 1);
-  else if (before !== kind) {
-    await adjustCount(client, scope, before, -1);
-    await adjustCount(client, scope, kind, 1);
+  const before = previous.rows[0];
+  if (before === undefined) await adjustCount(client, scope, readers, kind, 1);
+  else if (before.kind !== kind || !sameReaders(canonicalReaders(before.readers), readers)) {
+    await adjustCount(client, scope, canonicalReaders(before.readers), before.kind, -1);
+    await adjustCount(client, scope, readers, kind, 1);
   }
 }
 
@@ -134,16 +162,16 @@ export async function retirePgArtifactDocument(
   path: string,
 ): Promise<void> {
   if (!taskArtifactSubtreePath(path)) return;
-  const removed = await client.query<{ kind: ArtifactTimelineKind }>(
+  const removed = await client.query<{ kind: ArtifactTimelineKind; readers: string[] }>(
     `DELETE FROM ha_artifact_documents WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND path=$4
-     RETURNING kind`,
+     RETURNING kind, readers`,
     [...scopeValues(scope), path],
   );
-  const kind = removed.rows[0]?.kind;
-  if (kind !== undefined) await adjustCount(client, scope, kind, -1);
+  const row = removed.rows[0];
+  if (row !== undefined) await adjustCount(client, scope, canonicalReaders(row.readers), row.kind, -1);
 }
 
-/** One ordered page plus maintained totals; the caller supplies the projection cut. */
+/** One ordered page plus maintained totals for exactly the reader sets this caller can see. */
 export async function readPgArtifactTimeline(
   client: PoolClient,
   scope: PgProjectionScope,
@@ -151,13 +179,24 @@ export async function readPgArtifactTimeline(
 ): Promise<Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts">> {
   if (query.kind !== "html" && query.kind !== "md" && query.kind !== "raw")
     throw new Error("artifact timeline kind is invalid");
-  const limit = checkedPageLimit(query.limit, 500);
-  const values: unknown[] = [...scopeValues(scope), query.kind];
+  const limit = checkedPageLimit(query.limit, 500),
+    meta = await client.query<{ artifact_index_version: number }>(
+      `SELECT artifact_index_version FROM ha_projection_meta
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
+      scopeValues(scope),
+    );
+  // A cache that predates the index must not answer "ready" with a partial timeline.
+  if ((meta.rows[0]?.artifact_index_version ?? 1) === 0)
+    throw Object.assign(new Error("Artifact timeline index backfill is pending; retry after migration."), {
+      code: "projection_pending",
+    });
+  const readers = canonicalReaders(scope.readers),
+    values: unknown[] = [...scopeValues(scope), readers, query.kind];
   let afterSql = "";
   if (query.after !== undefined) {
     const sortMs = -Date.parse(query.after.occurredAt);
     if (!Number.isFinite(sortMs)) throw new Error("artifact timeline cursor time is invalid");
-    afterSql = "AND (a.sort_ms, a.relative, a.package_dir) > ($5, $6, $7)";
+    afterSql = "AND (a.sort_ms, a.relative, a.package_dir) > ($6, $7, $8)";
     values.push(sortMs, query.after.relative, query.after.packageDir);
   }
   const limitParameter = values.push(limit + 1),
@@ -177,15 +216,21 @@ export async function readPgArtifactTimeline(
          SELECT task_id, snapshot FROM ha_task_snapshots t
          WHERE t.tenant_id=a.tenant_id AND t.project_id=a.project_id AND t.policy_epoch=a.policy_epoch
            AND t.package_path = 'tasks/' || a.package_dir
+           AND (cardinality($4::text[]) = 0 OR t.readers && $4::text[])
          ORDER BY t.workspace_revision DESC LIMIT 1
        ) s ON true
-       WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3 AND a.kind=$4 ${afterSql}
+       WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3 AND a.kind=$5
+         AND (cardinality($4::text[]) = 0 OR a.readers && $4::text[])
+         ${afterSql}
        ORDER BY a.sort_ms, a.relative, a.package_dir LIMIT $${limitParameter}`,
       values,
     ),
     totals = await client.query<{ readonly kind: ArtifactTimelineKind; readonly total: string | number }>(
-      `SELECT kind, total FROM ha_artifact_counts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
-      scopeValues(scope),
+      `SELECT kind, SUM(total) AS total FROM ha_artifact_counts
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+         AND (cardinality($4::text[]) = 0 OR readers && $4::text[])
+       GROUP BY kind`,
+      [...scopeValues(scope), readers],
     ),
     counts: Record<ArtifactTimelineKind, number> = { html: 0, md: 0, raw: 0 };
   for (const row of totals.rows) counts[row.kind] = Number(row.total);
@@ -206,12 +251,18 @@ export async function readPgArtifactTimeline(
 }
 
 /** One-time expansion for projections whose documents predate the index. Idempotent, and it
- * marks the projection complete so an embedded upgrade does not rescan on every open. */
+ * marks the projection complete so a later catch-up does not rescan. */
 export async function backfillPgArtifactDocuments(
   client: PoolClient,
   scope: PgProjectionScope,
   repoId: string,
 ): Promise<number> {
+  const version = await client.query<{ artifact_index_version: number }>(
+    `SELECT artifact_index_version FROM ha_projection_meta
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
+    scopeValues(scope),
+  );
+  if ((version.rows[0]?.artifact_index_version ?? 1) !== 0) return 0;
   const result = await client.query<{ readonly processed: number }>(
     "SELECT ha_backfill_artifact_documents($1,$2,$3,$4) AS processed",
     [...scopeValues(scope), repoId],
