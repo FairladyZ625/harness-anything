@@ -140,16 +140,20 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
       }
       const second = open();
       try {
-        assert.throws(() => second.projection.readArtifactTimelinePage({ kind: "md", limit: 10 }), {
-          code: "projection_pending",
-        });
-        await second.projection.catchUpAsync!();
+        // Opening the embedded backend runs the one-time expansion before readers are admitted,
+        // so a version-0 cache is repaired rather than served as a partial timeline. The direct
+        // read-level pending case is covered by the first test.
         const repaired = second.projection.readArtifactTimelinePage({ kind: "md", limit: 10 });
         assert.deepEqual(
           repaired.rows.map(({ relative }) => relative),
           ["artifacts/parity.md"],
         );
         assert.deepEqual(repaired.counts, { html: 0, md: 1, raw: 0 });
+        assert.equal(
+          second.projection.readArtifactTimelinePage({ kind: "html", limit: 10 }).rows.length,
+          0,
+          "the initialization backfill removes the dirty row",
+        );
       } finally {
         second.projection.close();
         await second.store.drain();
