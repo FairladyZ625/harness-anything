@@ -82,35 +82,14 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    ```
 
    Again commit each <=64-row call and repeat to a committed `processed=0`. All old event
-   rows, including non-runtime schemas, must reach version 5. Version 5 derives
+   rows, including non-runtime schemas, must reach version 5. The same call also fills the
+   derived `summary_json` fleet header and re-triggers rows that are already version 5 but
+   still have a NULL header, so a completed-v5 database needs no separate command. Version 5 derives
    `dispatch_key` from either payload spelling (`dispatchKey`, or the pre-rename
    `idempotencyKey`); reviewer dispatches stay out of that scalar column because the
    projection's normalized `runtime-dispatch-key` rows carry their qualified keys. Resume by
    repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
    merge scopes.
-
-4b. Backfill the fleet event-summary header for each tenant/project/policy-epoch and repo.
-   This derived text is what the fleet overview reads; old writers fill it through the shared
-   `ha_event_read_index_fields` trigger, but rows written before that trigger existed need
-   this page job:
-
-   ```sql
-   BEGIN;
-   SET LOCAL ROLE ha_schema_owner;
-   SELECT set_config('ha.tenant_id', 'tenant-id', true),
-          set_config('ha.project_id', 'project-id', true),
-          set_config('ha.policy_epoch', '1', true);
-   SELECT ha_backfill_fleet_event_summaries('tenant-id', 'project-id', 1, 64) AS processed;
-   COMMIT;
-   ```
-
-   Commit each <=64-row call and repeat until a committed call returns `processed=0`.
-   `processed` counts rows whose `summary_json` changed; the partial
-   `ha_events_summary_pending` index is the durable remainder, so an interrupted or rolled
-   back call is safe to repeat. The function never rewrites canonical `event_json`, never
-   changes `read_index_version`, and is independent of phase 4. Keep the shared trigger
-   installed: previous writers continue to populate the header during the compatibility
-   window. Do not run the loop inside the `ensurePgProjectionSchema` DDL transaction.
 
 5. Verify readiness on the same claims before enabling current readers. All probes must
    return no rows (use the actual deployment identifiers):
@@ -142,8 +121,8 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
 
 6. Switch readers after every scope and repo is complete. A fleet reader whose event window
    still contains a NULL `summary_json` refuses with `fleet event summaries are not backfilled`
-   rather than silently omitting the event; rerun phase 4b or wait for the trigger/backfill
-   to reach zero. The fleet backfill is ready only when the phase-5 NULL probe is empty. During a partially filled snapshot,
+   rather than silently omitting the event; rerun phase 4 or wait for the trigger/backfill
+   to reach zero. The fleet backfill is ready only when the phase-5 NULL probe is empty; phase 4 fills it in the same calls as the event read indexes. During a partially filled snapshot,
    current document lists return `projection_pending` instead of a partial list or reading
    bodies; runtime/event reads likewise return `projection_pending` until their own expansion
    is complete. Parent-dependent task reads also return `projection_pending` until their

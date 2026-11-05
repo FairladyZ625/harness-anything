@@ -110,23 +110,6 @@ export function eventReadIndexDdl(): readonly string[] {
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
     `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
-    `CREATE OR REPLACE FUNCTION ha_backfill_fleet_event_summaries(
-      p_tenant text, p_project text, p_policy bigint, p_limit integer) RETURNS integer
-      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
-      DECLARE processed integer;
-      BEGIN
-        WITH page AS (
-          SELECT tenant_id,project_id,repo_id,revision FROM ha_events
-          WHERE tenant_id=p_tenant AND project_id=p_project AND policy_epoch=p_policy AND summary_json IS NULL
-          ORDER BY revision LIMIT p_limit
-        ), updated AS (
-          UPDATE ha_events e SET summary_json=ha_fleet_event_summary(e.event_json)
-          FROM page WHERE e.tenant_id=page.tenant_id AND e.project_id=page.project_id
-            AND e.repo_id=page.repo_id AND e.revision=page.revision
-          RETURNING 1
-        ) SELECT count(*) INTO processed FROM updated;
-        RETURN processed;
-      END $function$`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
@@ -198,9 +181,10 @@ export function eventReadIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,repo_id,revision FROM ha_events
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
-            AND read_index_version<5 ORDER BY revision LIMIT 64 FOR UPDATE
+            AND (read_index_version<5 OR summary_json IS NULL)
+          ORDER BY revision LIMIT 64 FOR UPDATE
         ), filled AS (
-          UPDATE ha_events e SET event_json=e.event_json FROM batch b
+          UPDATE ha_events e SET event_json=e.event_json, summary_json=ha_fleet_event_summary(e.event_json) FROM batch b
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
         ) SELECT count(*)::integer INTO processed FROM filled;
         RETURN processed;
@@ -215,7 +199,7 @@ export async function assertPgEventReadIndexReady(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND read_index_version<5 LIMIT 1`,
+      AND (read_index_version<5 OR summary_json IS NULL) LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length)
