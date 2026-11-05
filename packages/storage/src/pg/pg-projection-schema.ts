@@ -27,8 +27,16 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_projection_meta",
   "ha_projection_values",
   "ha_runtime_session_tasks",
+  "ha_runtime_unsettled",
   "ha_entity_declaration_heads",
 ] as const);
+
+/** Read/digest tables compared with the other backend. The current-set projection is derived
+ * from ha_projection_values and is maintained by triggers, so it is not part of the replay audit
+ * even though it shares the projection's RLS and grants. */
+export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
+  PG_PROJECTION_TABLES.filter((table) => table !== "ha_runtime_unsettled"),
+);
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
 export const PG_PROJECTION_SCHEMA_VERSION = 5;
@@ -92,7 +100,7 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
     `GRANT USAGE ON SEQUENCE ha_search_terms_term_slot_seq TO "${roles.runtime}", "${roles.migration}"`,
   );
   await client.query(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")}, ha_runtime_unsettled TO "${roles.runtime}", "${roles.migration}"`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")} TO "${roles.runtime}", "${roles.migration}"`,
   );
 }
 
