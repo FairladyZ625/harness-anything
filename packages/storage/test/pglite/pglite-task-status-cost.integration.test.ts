@@ -1,22 +1,52 @@
 // harness-test-tier: integration
 import test from "node:test";
+import assert from "node:assert/strict";
+import { join } from "node:path";
+import { withTempStoreAsync } from "../store/helpers.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { assertTaskStatusCost } from "../postgres/pg-task-status-cost.fixture.ts";
 
 pgliteIntegrationSuite("PGlite task status read costs", () => {
   test("raw and presentation task reads exclude unrelated task history", async () => {
-    const backend = await createPGliteStorageBackend({
-      repoId: "task-status-cost",
-      storage: {
-        backend: "pglite",
-        scope: { tenantId: "task-status-cost", projectId: "task-status-cost", policyEpoch: 1 },
-      },
+    await withTempStoreAsync(async (root) => {
+      const options = {
+        repoId: "task-status-cost",
+        storage: {
+          backend: "pglite" as const,
+          dataDir: join(root, "parent-resume"),
+          scope: { tenantId: "task-status-cost", projectId: "task-status-cost", policyEpoch: 1 },
+        },
+      };
+      let backend = await createPGliteStorageBackend(options);
+      try {
+        await assertTaskStatusCost(backend.pool, backend.pool, "pglite");
+        await backend.pool.query(`UPDATE ha_task_snapshots SET parent_index_version=0
+        WHERE project_id='task-status-cost' AND task_id IN
+          (SELECT task_id FROM ha_task_snapshots WHERE project_id='task-status-cost' ORDER BY task_id LIMIT 130)`);
+        await assert.rejects(backend.projection.list({ presentationStatus: true, limit: 1 }), {
+          code: "projection_pending",
+        });
+        assert.deepEqual(await backend.backfillReadIndexes(), { processed: 64, done: false });
+        await backend.close();
+        backend = await createPGliteStorageBackend(options);
+        assert.equal(
+          (
+            await backend.pool.query(`SELECT count(*)::integer AS n FROM ha_task_snapshots
+          WHERE project_id='task-status-cost' AND parent_index_version=0`)
+          ).rows[0]!.n,
+          66,
+          "reopening preserves progress and does not drain the remaining parent pages",
+        );
+        assert.equal((await backend.projection.read("target")).snapshot.task?.taskId, "target");
+        assert.deepEqual(await backend.backfillReadIndexes(), { processed: 64, done: false });
+        assert.deepEqual(await backend.backfillReadIndexes(), { processed: 2, done: false });
+        assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: true });
+        assert.equal((await backend.projection.read("target", true)).snapshot.task?.status, "planned");
+        assert.equal((await backend.projection.list({ presentationStatus: true, limit: 1 })).rows.length, 1);
+      } finally {
+        await backend.close();
+      }
     });
-    try {
-      await assertTaskStatusCost(backend.pool, backend.pool, "pglite");
-    } finally {
-      await backend.close();
-    }
   });
 });

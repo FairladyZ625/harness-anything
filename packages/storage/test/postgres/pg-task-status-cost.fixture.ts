@@ -8,6 +8,7 @@ import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixt
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "../../src/pg/pg-projection-schema.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
+import { backfillPgReadIndexPage } from "../../src/pg/pg-read-index-backfill.ts";
 import { tracedPgReads, explainNodes, reportPgVersion } from "./pg-explain.fixture.ts";
 
 export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: string): Promise<void> {
@@ -267,6 +268,7 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
   );
   assert.equal((await source.read("target")).snapshot.task?.status, "planned");
   await assert.rejects(source.read("target", true), { code: "projection_pending" });
+  await assert.rejects(source.list({ presentationStatus: true, limit: 1 }), { code: "projection_pending" });
   await assert.rejects(source.list({ parentTaskId: "target" }), { code: "projection_pending" });
   await assert.rejects(source.readTaskChildCounts(["target"]), { code: "projection_pending" });
   assert.deepEqual(await source.readTaskChildCounts([]), {});
@@ -315,10 +317,16 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
   let total = 0;
   const pages: number[] = [];
   for (;;) {
-    const processed = await manage(fill);
+    // Only parent indexes remain pending. Exercise the actual scheduler, not
+    // the SQL function directly: its other branch can otherwise hide this work.
+    const { processed, done } = await backfillPgReadIndexPage(pool, scope, "task-status-cost");
     assert.ok(processed >= 0 && processed <= 64);
     pages.push(processed);
-    if (processed === 0) break;
+    if (done) {
+      assert.equal(await pending(), 0, "the scheduler must not finish with parent indexes pending");
+      break;
+    }
+    assert.ok(processed > 0, "a parent-only page must advance");
     total += processed;
     assert.ok(total <= count, "backfill must advance a bounded set of pending rows");
   }
@@ -326,6 +334,10 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
   assert.equal(await pending(), 0);
   assert.deepEqual(await stored(), original, "backfill preserves every snapshot");
   assert.equal((await source.read("target", true)).snapshot.task?.status, "planned");
+  assert.equal(
+    (await source.list({ taskIds: ["target"], presentationStatus: true, limit: 1 })).rows[0]!.snapshot.task?.status,
+    "planned",
+  );
   assert.deepEqual(await source.readTaskChildCounts(["target"]), { target: 2 });
   assert.deepEqual(
     (await source.list({ parentTaskId: "target" })).rows.map(({ taskId }) => taskId),
