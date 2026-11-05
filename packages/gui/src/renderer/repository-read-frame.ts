@@ -10,7 +10,12 @@ export function repositoryReadFrame(value: unknown): Partial<RepositoryReadFrame
   return { cut: frame.cut, freshness: frame.freshness, warning: frame.warning };
 }
 
-const reportedReadFailures = new Set(["replica_unavailable", "authorization_denied", "authentication_required"]);
+const reportedReadFailures = new Set([
+  "replica_unavailable",
+  "authorization_denied",
+  "authentication_required",
+  "projection_pending",
+]);
 
 export function repositoryReadFailure(value: unknown): Error | null {
   if (!isRendererRecord(value) || value.ok !== false) return null;
