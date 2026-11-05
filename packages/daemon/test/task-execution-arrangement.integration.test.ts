@@ -131,6 +131,12 @@ test("automatic first: owner replacement waits for old runtime outcome, duplicat
     assert.ok(exit >= 0);
     assert.ok(events.findIndex((event) => event.eventId === next.eventId) > exit);
     assert.equal(workers(f).length, 2);
+    assert.match(
+      f.launches.at(-1)!.prompt,
+      /review-automatic-first/u,
+      "the replacement receives the verdict of its exact returned cut",
+    );
+    assert.doesNotMatch(f.launches.at(-1)!.prompt, /--path null/u);
     const repeat = await arrange(f, { agentId: "closeout-reviewer" });
     assert.equal(repeat.outcome, "applied", JSON.stringify(repeat));
     assert.equal(workers(f).length, 2, "no second continuation");

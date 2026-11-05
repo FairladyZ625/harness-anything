@@ -1,5 +1,6 @@
 import {
   normalizeTaskLifecycleCommand,
+  reviewsForExecution,
   type ExecutionV1,
   type TaskEventV1,
   type WriteReceiptDraft,
@@ -8,7 +9,6 @@ import { currentExecutionArrangement } from "@harness-anything/kernel/internal/d
 import { readTaskDispatches } from "./dispatch-read.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
-import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
@@ -83,28 +83,44 @@ export async function continueReviewRework(
   // let a superseded verdict decide this continuation's prompt and dispatch identity.
   const taskId = cell.requiredCellText(command.taskId, "taskId"),
     read = cell.projection.read(taskId),
+    arrangedCut =
+      command.type === "task_amended" && command.payload.mutation.fields.includes("executionArrangement")
+        ? read.snapshot.executions.find(
+            (value): value is ExecutionV1 =>
+              value.schema === "execution/v1" &&
+              value.executionId === read.snapshot.task?.executionArrangement?.executionId,
+          )
+        : undefined,
+    cutReviews = arrangedCut ? reviewsForExecution(read.snapshot.reviews, arrangedCut) : [],
+    // An arrangement names a cut, not a review command. Prefer its return-driving verdict;
+    // owner-returned approved cuts use the most recent review of that same submitted packet.
+    arrangedReview =
+      cutReviews.find((value) => value.verdict === "changes_requested" && value.reviewedAt === arrangedCut?.closedAt) ??
+      cutReviews.toSorted((left, right) => Date.parse(left.reviewedAt) - Date.parse(right.reviewedAt)).at(-1),
     reviewId =
       command.type === "review_recorded"
         ? command.payload.review.reviewId
         : command.type === "submission_returned"
           ? command.payload.reviewId
-          : undefined,
+          : arrangedReview?.reviewId,
     review = reviewId ? read.snapshot.reviews.find((value) => value.reviewId === reviewId) : undefined,
     execution = review
       ? read.snapshot.executions.find((value) => value.executionId === review.executionId)
       : command.type === "submission_returned"
         ? read.snapshot.executions.find((value) => value.executionId === command.payload.execution.executionId)
-        : command.type === "task_amended" && command.payload.mutation.fields.includes("executionArrangement")
-          ? read.snapshot.executions.find(
-              (value) => value.executionId === read.snapshot.task?.executionArrangement?.executionId,
-            )
-          : undefined,
+        : arrangedCut,
     // A ReworkTask whose review is not changes_requested is an owner return: an approved cut the
     // owner already consented (pre-merge CI red) or one with a confirmed blocker has no review
     // verdict to continue from, so the owner's reason is the work order. A changes_requested return
     // keeps the review verdict and reviewer reason in the prompt even when the owner issued it.
     ownerReturnReason =
-      command.type === "submission_returned" && review?.verdict !== "changes_requested" ? command.payload.reason : null;
+      review?.verdict === "changes_requested"
+        ? null
+        : command.type === "submission_returned"
+          ? command.payload.reason
+          : arrangedCut
+            ? (read.snapshot.task?.executionArrangement?.reason ?? null)
+            : null;
   if (!execution?.submission || (command.type === "review_recorded" && (!review || !reviewId))) return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
     if (read.snapshot.task.iteration !== execution.iteration + 1) return receipt;
@@ -381,8 +397,10 @@ async function dispatchContinuation(
             worktree,
           )) as unknown as WriteReceiptDraft;
         });
-      if (spawned.outcome !== "applied" && spawned.outcome !== "no_changes")
-        return { continuation: { mode, ...spawned }, steps: [spawned] };
+      if (spawned.outcome !== "applied" && spawned.outcome !== "no_changes") {
+        if (retryResume(attempt, continuation.mode, spawned.code)) continue;
+        return failedReturn(input, continuation, spawned);
+      }
       return {
         continuation: {
           mode: continuation.mode,
@@ -398,35 +416,47 @@ async function dispatchContinuation(
         ],
       };
     } catch (error) {
-      // The rework round is already durable. Preserve the actual launch error and its code, so
-      // the receipt never masquerades as a launched worker; only a rejected resume retries fresh.
-      if (
-        attempt === 0 &&
-        continuation.mode === "resume" &&
-        ["runtime_resume_failed", "runtime_dispatch_not_resumable"].includes(runtimeErrorCode(error) ?? "")
-      )
-        continue;
       const failure = cell.failed(input.opId, error);
-      return {
-        continuation: { mode: continuation.mode, ...failure },
-        steps: [failure],
-        warnings: [
-          `Task ${input.taskId}'s return to rework was recorded; only the worker dispatch failed. ` +
-            "Fix the cause, then run the next command to re-dispatch the worker.",
-        ],
-        ...(continuation.resumeCommand
-          ? {
-              next: [
-                {
-                  command: continuation.resumeCommand,
-                  reason: "continue the recorded rework without returning the task again",
-                },
-              ],
-            }
-          : {}),
-      };
+      if (retryResume(attempt, continuation.mode, failure.code)) continue;
+      const rejected = failedReturn(input, continuation, failure);
+      return rejected;
     }
   }
+}
+
+// The writer returns rejected receipts, while preparation may throw. Preserve either failure's
+// original code and the existing one-resume/one-fresh behavior at their common exit.
+function retryResume(attempt: number, mode: string, code: string | undefined): boolean {
+  return (
+    attempt === 0 &&
+    mode === "resume" &&
+    ["runtime_resume_failed", "runtime_dispatch_not_resumable"].includes(code ?? "")
+  );
+}
+
+function failedReturn(
+  input: ReworkContext,
+  continuation: ReturnType<typeof prepareWorkerContinuation>,
+  failure: WriteReceiptDraft,
+): ReviewReworkStep {
+  return {
+    continuation: { mode: continuation.mode, ...failure },
+    steps: [failure],
+    warnings: [
+      `Task ${input.taskId}'s return to rework was recorded; only the worker dispatch failed. ` +
+        "Fix the cause, then run the next command to re-dispatch the worker.",
+    ],
+    ...(continuation.resumeCommand
+      ? {
+          next: [
+            {
+              command: continuation.resumeCommand,
+              reason: "continue the recorded rework without returning the task again",
+            },
+          ],
+        }
+      : {}),
+  };
 }
 
 async function cancelSubmittingWorker(
