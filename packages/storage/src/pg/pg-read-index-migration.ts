@@ -2,6 +2,9 @@ import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
+const pendingReadIndex = `((model='runtime-session' AND read_index_version<2)
+  OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))`;
+
 /** Additive v5 expansion. Current and previous writers share these materialization triggers.
  * Keep them after the previous-binary window (2026-11-18): current writes still require them.
  * Backfill runs as bounded management transactions; canonical text is never converted to JSONB.
@@ -135,18 +138,27 @@ export async function pgProjectionReadSource(
     [scope.tenantId, scope.projectId, scope.policyEpoch, model],
   );
   if (!pending.rows.length) return "ha_projection_values";
-  return `(SELECT tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value,
+  const canonicalColumns =
+    "tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value";
+  return `(SELECT ${canonicalColumns},runtime_liveness,runtime_outcome,order_at,order_revision,execution_id,interval_open,fact_edge
+    FROM ha_projection_values WHERE NOT ${pendingReadIndex}
+    UNION ALL SELECT ${canonicalColumns},
     v->>'liveness' AS runtime_liveness,v->>'outcome' AS runtime_outcome,v->>'pinnedAt' AS order_at,
     (v->>'acquiredRevision')::bigint AS order_revision,v->>'executionId' AS execution_id,
     v->>'releasedRevision' IS NULL AS interval_open,
     (starts_with(v->>'ownerRef','fact/') OR starts_with(v->>'targetRef','fact/')) AS fact_edge
-    FROM ha_projection_values CROSS JOIN LATERAL (SELECT ha_read_index_json(value) AS v) parsed)`;
+    FROM ha_projection_values CROSS JOIN LATERAL (SELECT ha_read_index_json(value) AS v) parsed
+    WHERE ${pendingReadIndex})`;
 }
 
 export async function pgSessionTaskReadSource(client: PoolClient, scope: PgProjectionScope): Promise<string> {
   if ((await pgProjectionReadSource(client, scope, "runtime-session")) === "ha_projection_values")
     return "ha_runtime_session_tasks";
-  return `(SELECT DISTINCT tenant_id,project_id,policy_epoch,readers,entity_id AS session_id,binding->>'taskId' AS task_id
+  return `(SELECT b.tenant_id,b.project_id,b.policy_epoch,b.readers,b.task_id,b.session_id
+    FROM ha_runtime_session_tasks b JOIN ha_projection_values p
+      ON (p.tenant_id,p.project_id,p.policy_epoch,p.entity_id)=(b.tenant_id,b.project_id,b.policy_epoch,b.session_id)
+    WHERE p.model='runtime-session' AND p.owner_id='' AND p.read_index_version>=2
+    UNION ALL SELECT DISTINCT tenant_id,project_id,policy_epoch,readers,binding->>'taskId' AS task_id,entity_id AS session_id
     FROM ha_projection_values CROSS JOIN LATERAL jsonb_array_elements(ha_read_index_json(value)->'taskBindings') binding
-    WHERE model='runtime-session' AND owner_id='')`;
+    WHERE model='runtime-session' AND owner_id='' AND read_index_version<2)`;
 }

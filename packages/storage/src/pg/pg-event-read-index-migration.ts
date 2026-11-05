@@ -271,9 +271,13 @@ export async function pgEventReadSource(client: PoolClient, scope: PgProjectionS
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (!pending.rows.length) return "ha_events";
+  const canonicalColumns = `tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,
+    event_digest,occurred_at,actor_refs,entity_refs,readers,recorded_at`;
   // Delete the previous reader once all deployed repositories are complete; no later than 2026-12-05.
-  return `(SELECT tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,
-    event_digest,occurred_at,actor_refs,entity_refs,readers,recorded_at,
+  // A pending row does not invalidate indexed history. Parse only the durable remainder.
+  return `(SELECT ${canonicalColumns},${Object.keys(eventReadFields).join(",")},
+    runtime_session_present,runtime_session_unsettled FROM ha_events WHERE read_index_version>=5
+    UNION ALL SELECT ${canonicalColumns},
     ${Object.entries(eventReadFields)
       .map(([column, expression]) => `${expression.replaceAll("NEW.", "e.")} AS ${column}`)
       .join(",")},
@@ -283,7 +287,8 @@ export async function pgEventReadSource(client: PoolClient, scope: PgProjectionS
     EXISTS(SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=e.tenant_id AND p.project_id=e.project_id
       AND p.policy_epoch=e.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
       AND p.entity_id=v#>>'{payload,runtimeSessionId}' AND ha_read_index_json(p.value)->>'outcome' IS NULL) AS runtime_session_unsettled
-    FROM ha_events e CROSS JOIN LATERAL (SELECT ha_read_index_json(e.event_json) AS v) parsed)`;
+    FROM ha_events e CROSS JOIN LATERAL (SELECT ha_read_index_json(e.event_json) AS v) parsed
+    WHERE read_index_version<5)`;
 }
 
 /** Schema-owner contract step, outside serving PostgreSQL transactions. A scoped page only

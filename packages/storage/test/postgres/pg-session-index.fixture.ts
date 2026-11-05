@@ -82,11 +82,24 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
     1,
     "plain point reads do not depend on an unrelated index expansion",
   );
+  plans.length = 0;
   assert.equal(
     (await source.readRuntimeSessions({ unsettledOnly: true })).length,
     50,
     "legacy outcome reader excludes settled sessions",
   );
+  for (const scan of explainNodes(plans).filter((row) => row["Relation Name"] === "ha_projection_values"))
+    assert.ok(
+      (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]) <= 51,
+      `one pending session must not reparse already indexed history: ${JSON.stringify(scan)}`,
+    );
+  plans.length = 0;
+  assert.deepEqual(await source.readRuntimeSessionsForTask("absent"), []);
+  for (const scan of explainNodes(plans).filter((row) => row["Relation Name"] === "ha_projection_values"))
+    assert.ok(
+      (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]) <= 1,
+      `one pending binding must not scan unrelated sessions: ${JSON.stringify(scan)}`,
+    );
   assert.equal(
     (
       await withPostgresTransaction(
