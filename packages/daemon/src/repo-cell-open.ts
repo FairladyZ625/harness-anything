@@ -661,7 +661,7 @@ export async function openRepoWriterCell(
             // the shared return handoff waits for another runtime's terminal publication.
             void recoveryWork
               .run(() =>
-                continueReviewRework(operationalContext, event, authorized, receipt, undefined, (work) =>
+                continueReviewRework(operationalContext, event, authorized, receipt, (work) =>
                   recoveryWork.write(work, authorized),
                 ),
               )

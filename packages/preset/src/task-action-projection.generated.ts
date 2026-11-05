@@ -335,7 +335,7 @@ export const taskActionDescriptorProjection = {
             field: "takeover",
             type: "boolean",
             required: false,
-            cli: { name: "--takeover", kind: "single", error: "invalid_field" },
+            cli: { name: "--takeover", kind: "boolean", error: "invalid_field" },
           },
           {
             field: "submissionDigest",
@@ -373,7 +373,7 @@ export const taskActionDescriptorProjection = {
         exactlyOneOf: [],
       },
       explain:
-        "Return a submitted cut to rework; --takeover --execution-id <cut> --submission-digest <digest> arranges only its next round, waiting for the old runtime to stop. --agent selects a registered replacement; otherwise the caller coordinates this round.",
+        "Return a cut; --takeover reserves its round. --agent selects its worker; otherwise the caller arranges it.",
       execution: {
         ingress: "task-rework",
         topology: "ledger-write",

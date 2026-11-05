@@ -235,7 +235,9 @@ export function taskShowFromProjection(
           (value) =>
             value.submission &&
             ((value.iteration === task?.iteration && value.state === "submitted") ||
-              (value.iteration + 1 === task?.iteration && value.state === "changes_requested")),
+              (task?.status === "active" &&
+                value.iteration + 1 === task.iteration &&
+                value.state === "changes_requested")),
         )
         .map((value) => ({ executionId: value.executionId, submissionDigest: submissionDigest(value.submission!) })),
       // The raw execution field is start-frozen; ship its semantics beside it so a JSON reader

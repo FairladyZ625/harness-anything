@@ -75,8 +75,8 @@ export async function continueReviewRework(
   command: TaskEventV1,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
+  write: ReturnWrite,
   workerIdentity?: WorkerIdentityOverrides,
-  write?: ReturnWrite,
 ): Promise<WriteReceiptDraft> {
   // The applied command names the review it recorded or returned; a search over the projection
   // would be a different question (`snapshot.reviews` is ordered by entity id, not time) and would
@@ -105,9 +105,9 @@ export async function continueReviewRework(
     // keeps the review verdict and reviewer reason in the prompt even when the owner issued it.
     ownerReturnReason =
       command.type === "submission_returned" && review?.verdict !== "changes_requested" ? command.payload.reason : null;
-  if (!execution?.submission || (command.type === "review_recorded" && (!review || !reviewId)) || !write)
-    return receipt;
+  if (!execution?.submission || (command.type === "review_recorded" && (!review || !reviewId))) return receipt;
   if (read.snapshot.task?.status === "active" && execution.state === "changes_requested") {
+    if (read.snapshot.task.iteration !== execution.iteration + 1) return receipt;
     const reportPath = read.packagePath && reviewId ? reviewReportRelativePath(read.packagePath, reviewId) : null;
     if (ownerReturnReason === null && reportPath === null && !currentExecutionArrangement(read.snapshot))
       return receipt;
@@ -228,15 +228,20 @@ async function dispatchContinuation(
   // runtime before the continuation receives the same worktree. The existing cancel path waits
   // for terminal publication; if another node owns the source, its ownership refusal fails this
   // continuation closed instead of starting a second writer here.
-  const existing = arrangement?.ready
-    ? cell.projection.readRuntimeDispatchByDispatchKey(`task-arrangement:${arrangement.id}`)
-    : null;
+  const existingKeys = arrangement
+      ? arrangement.ready
+        ? [`task-arrangement:${arrangement.id}`]
+        : []
+      : (["resume", "fresh"] as const).map((mode) => returnDispatchKey(input, mode)),
+    existing = existingKeys
+      .map((key) => cell.projection.readRuntimeDispatchByDispatchKey(key))
+      .find((row) => row !== null);
   if (existing)
     return {
       continuation: {
         mode: "fresh",
         outcome: "no_changes",
-        arrangementId,
+        ...(arrangementId ? { arrangementId, ready: true, targetExecutionId: input.execution.executionId } : {}),
         dispatchId: existing.event.payload.dispatchId,
         runtimeSessionId: existing.event.payload.runtimeSessionId,
       },
@@ -376,7 +381,11 @@ async function dispatchContinuation(
       if (spawned.outcome !== "applied" && spawned.outcome !== "no_changes")
         return { continuation: { mode, ...spawned }, steps: [spawned] };
       return {
-        continuation: { mode: continuation.mode, ...spawned },
+        continuation: {
+          mode: continuation.mode,
+          ...spawned,
+          ...(arrangementId ? { arrangementId, ready: true, targetExecutionId: input.execution.executionId } : {}),
+        },
         next: [
           {
             command: `ha task show ${input.taskId}`,
@@ -526,7 +535,11 @@ function prepareWorkerContinuation(
       // The review names the return order: one cut can be returned again after another round, and
       // each order needs its own dispatch identity so a later return never re-mints an earlier
       // execution credential client.
-      dispatchKey: `task-return:${input.taskId}:${input.execution.executionId}:${input.review?.reviewId ?? "owner"}:${mode}`,
+      dispatchKey: returnDispatchKey(input, mode),
     },
   };
+}
+
+function returnDispatchKey(input: ReworkContext, mode: "resume" | "fresh"): string {
+  return `task-return:${input.taskId}:${input.execution.executionId}:${input.review?.reviewId ?? "owner"}:${mode}`;
 }

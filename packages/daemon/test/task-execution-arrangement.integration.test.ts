@@ -95,6 +95,12 @@ test("owner first reserves only the returned round; duplicate takeover does not 
     assert.equal(workers(f).length, 0);
     assert.equal((await f.run({ kind: "task-start", taskId, executionId: "owner-round" })).outcome, "applied");
     assert.equal((await f.submit("owner-round")).outcome, "applied");
+    const submittedShow = await f.run({ kind: "task-show", taskId });
+    assert.deepEqual(
+      JSON.parse(String(submittedShow.evidence)).reworkTargets,
+      [cut(f)],
+      "old returned cuts are no longer offered after resubmission",
+    );
     const next = await changes(f, "automatic-next", "owner-round");
     assert.equal(next.outcome, "applied", JSON.stringify(next));
     assert.equal(workers(f).length, 1, JSON.stringify(next));
@@ -128,10 +134,36 @@ test("automatic first: owner replacement waits for old runtime outcome, duplicat
     const repeat = await arrange(f, { agentId: "closeout-reviewer" });
     assert.equal(repeat.outcome, "applied", JSON.stringify(repeat));
     assert.equal(workers(f).length, 2, "no second continuation");
+    assert.equal(
+      f
+        .events()
+        .some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === next.payload.runtimeSessionId,
+        ),
+      false,
+      "a duplicate request must leave the replacement running",
+    );
     const stale = await arrange(f, { submissionDigest: `sha256:${"f".repeat(64)}` });
     assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
-    const oldSubmit = await f.submit(old.payload.executionId!, workerBinding(old.payload.runtimeSessionId));
+    const oldSubmit = await f
+      .cell()
+      .run(
+        { kind: "task-submit", taskId, executionId: old.payload.executionId! },
+        workerBinding(old.payload.runtimeSessionId),
+      );
     assert.equal(oldSubmit.outcome, "op_rejected", JSON.stringify(oldSubmit));
+    assert.equal(oldSubmit.code, "lease_required", JSON.stringify(oldSubmit));
+    const staleCutSubmit = await f.run({
+      kind: "task-submit",
+      taskId,
+      executionId: cut(f).executionId,
+      amend: true,
+      asOwner: true,
+    });
+    assert.equal(staleCutSubmit.outcome, "op_rejected", JSON.stringify(staleCutSubmit));
+    assert.equal(staleCutSubmit.code, "invalid_transition", JSON.stringify(staleCutSubmit));
     assert.equal(workers(f).length, 2);
     await f.waitForProviderBinding(next.payload.dispatchId, "review-provider-session-new");
     assert.equal((await f.cancel(next.payload.runtimeSessionId)).outcome, "applied");
@@ -211,7 +243,11 @@ test("owner accepted during automatic cancellation fences that continuation, and
     const automatic = changes(f, "race");
     await stopReached.promise;
     const takeover = arrange(f, { agentId: "closeout-reviewer" });
-    const interleaved = await f.run({ kind: "task-amend", taskId, patches: [{ field: "pinned", value: "true" }] });
+    const interleaved = await f.run({
+      kind: "task-amend",
+      taskId,
+      patches: [{ field: "reviewer", value: "closeout-reviewer" }],
+    });
     assert.equal(interleaved.outcome, "applied", JSON.stringify(interleaved));
     assert.ok(
       f
@@ -262,10 +298,7 @@ test("a changes_requested review recovered during runtime settlement uses the sa
       "succeeded",
     );
     await f.waitForLaunches(2);
-    assert.equal(
-      (await f.run({ kind: "task-amend", taskId, patches: [{ field: "pinned", value: "true" }] })).outcome,
-      "applied",
-    );
+    await f.cell().settlePendingMaterialization("recovered rework dispatch");
     assert.equal(workers(f).length, 1);
     assert.equal(f.events().filter((event) => event.type === "review_recorded").length, 1);
   } finally {

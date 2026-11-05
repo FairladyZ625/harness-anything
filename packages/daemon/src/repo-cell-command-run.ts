@@ -404,6 +404,7 @@ export function makeRepoCellCommandRunner(
                 event,
                 binding,
                 receipt,
+                async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
                 action.kind === "task-rework"
                   ? {
                       ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
@@ -413,7 +414,6 @@ export function makeRepoCellCommandRunner(
                       ...(typeof action.model === "string" ? { model: action.model } : {}),
                     }
                   : undefined,
-                async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
               )) as WriteReceipt;
           }
           if (!replaceAfterPublication) return receipt;

@@ -62,6 +62,7 @@ test("round takeover CLI and RPC consume the same rework action fields", () => {
   if (!parsed.ok) return;
   assert.deepEqual(parsed.command.action, {
     kind: "task-rework",
+    commandType: "ReworkTask",
     taskId: "task-1",
     takeover: true,
     executionId: "execution-1",

@@ -10,11 +10,7 @@ export function currentExecutionArrangement(snapshot: TaskLifecycleSnapshot): Ta
   const arrangement = snapshot.task?.executionArrangement;
   if (!arrangement || arrangement.iteration !== snapshot.task?.iteration) return undefined;
   const cut = snapshot.executions.find((value) => value.executionId === arrangement.executionId);
-  return cut?.state === "changes_requested" &&
-    cut.submission &&
-    submissionDigest(cut.submission) === arrangement.submissionDigest
-    ? arrangement
-    : undefined;
+  return cut?.state === "changes_requested" ? arrangement : undefined;
 }
 
 export function arrangementIssues(
@@ -26,9 +22,8 @@ export function arrangementIssues(
     arrangement = task?.executionArrangement;
   if (command.handoffId !== undefined)
     return arrangement?.id === command.handoffId &&
-      arrangement.iteration === task?.iteration &&
-      cut?.submission &&
-      arrangement.submissionDigest === submissionDigest(cut.submission) &&
+      arrangement.executionId === command.executionId &&
+      currentExecutionArrangement(snapshot)?.id === arrangement.id &&
       snapshot.lease === null
       ? []
       : [
@@ -58,7 +53,22 @@ export function arrangementIssues(
       ];
 }
 
-export function arrangeExecution(snapshot: TaskLifecycleSnapshot, command: ReworkTaskCommand): TaskV2 {
+export function arrangeExecution(
+  snapshot: TaskLifecycleSnapshot,
+  command: Pick<
+    ReworkTaskCommand,
+    | "executionId"
+    | "handoffId"
+    | "opId"
+    | "submissionDigest"
+    | "actor"
+    | "source"
+    | "reason"
+    | "agentId"
+    | "runtimeInstanceId"
+    | "model"
+  >,
+): TaskV2 {
   const cut = snapshot.executions.find((value) => value.executionId === command.executionId)!,
     existing = snapshot.task?.executionArrangement,
     arrangement: TaskExecutionArrangement =

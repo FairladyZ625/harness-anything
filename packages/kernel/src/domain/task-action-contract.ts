@@ -578,7 +578,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       taskId,
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
-      cli("takeover", "boolean", false, "--takeover"),
+      cli("takeover", "boolean", false, "--takeover", "boolean"),
       cli("submissionDigest", "string", false, "--submission-digest"),
       field("reviewId", "string", false),
       cli("reason", "string", true, "--reason"),
@@ -603,7 +603,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "operation-id", semanticKey: "taskId/executionId/reviewId" },
     ),
     explain:
-      "Return a submitted cut to rework; --takeover --execution-id <cut> --submission-digest <digest> arranges only its next round, waiting for the old runtime to stop. --agent selects a registered replacement; otherwise the caller coordinates this round.",
+      "Return a cut; --takeover reserves its round. --agent selects its worker; otherwise the caller arranges it.",
   }),
   lifecycle("consent", {
     input: input([
