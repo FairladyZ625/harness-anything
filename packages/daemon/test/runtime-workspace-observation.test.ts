@@ -275,3 +275,168 @@ for (const notification of ["EPERM", "EACCES", "rename"] as const) {
     }
   });
 }
+
+test("workspace notification bursts leave the writer queue bounded", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-burst-"));
+  let changed: ((event: string, filename: string | null) => void) | undefined;
+  const watcher = Object.assign(new EventEmitter(), { close: () => undefined, unref: () => undefined });
+  t.mock.method(fs, "watch", (_path: unknown, _options: unknown, listener: typeof changed) => {
+    changed = listener;
+    return watcher;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const scheduled: Array<() => void | Promise<void>> = [],
+    runtime = tasklessSettlementRuntime(root, null),
+    context = {
+      input: {
+        rootDir: root,
+        now: () => new Date().toISOString(),
+        schedule: (work: () => void | Promise<void>) => scheduled.push(work),
+      },
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      exiting: new Set(),
+    } as unknown as RuntimeSpawnerContext;
+  runtime.lastProgressAtMs = Date.now() - 10_000;
+  runtime.lastRealProgressAtMs = runtime.lastProgressAtMs;
+  const previousProgress = runtime.lastProgressAtMs;
+  try {
+    attachActiveRuntime(context, runtime);
+    for (let index = 0; index < 10_000; index += 1) changed!("change", `node_modules/file-${index}`);
+    t.diagnostic(`notifications=10000 queued=${scheduled.length}`);
+    assert.ok(scheduled.length <= 1, "a stalled writer must retain at most one workspace observation per runtime");
+    let ordinaryWriteRan = false;
+    context.input.schedule(() => {
+      ordinaryWriteRan = true;
+    });
+    while (scheduled.length) await scheduled.shift()!();
+    assert.equal(ordinaryWriteRan, true);
+    assert.ok(runtime.lastProgressAtMs > previousProgress, "the burst advances the progress clock");
+  } finally {
+    disposeActiveRuntimeObservations(runtime);
+  }
+});
+
+test("workspace progress is rate-limited with a trailing record", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-11-05T03:00:00.000Z") });
+  const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-throttle-"));
+  let changed: ((event: string, filename: string | null) => void) | undefined;
+  const watcher = Object.assign(new EventEmitter(), { close: () => undefined, unref: () => undefined });
+  t.mock.method(fs, "watch", (_path: unknown, _options: unknown, listener: typeof changed) => {
+    changed = listener;
+    return watcher;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const scheduled: Array<() => void | Promise<void>> = [],
+    records: string[] = [],
+    base = tasklessSettlementRuntime(root, null),
+    runtime = active({
+      ...base,
+      lastRealProgressAtMs: Date.now(),
+      stream: { ...base.stream, appendWorkspaceActivity: (at: string) => records.push(at) },
+    }),
+    context = {
+      input: {
+        rootDir: root,
+        now: () => new Date().toISOString(),
+        schedule: (work: () => void | Promise<void>) => scheduled.push(work),
+      },
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      exiting: new Set(),
+    } as unknown as RuntimeSpawnerContext;
+  try {
+    attachActiveRuntime(context, runtime);
+    changed!("change", "first.txt");
+    while (scheduled.length) await scheduled.shift()!();
+    t.mock.timers.tick(200);
+    for (let index = 0; index < 1_000; index += 1) changed!("change", `file-${index}`);
+    assert.equal(scheduled.length, 0);
+    t.mock.timers.tick(799);
+    assert.equal(scheduled.length, 0);
+    t.mock.timers.tick(1);
+    assert.equal(scheduled.length, 1);
+    while (scheduled.length) await scheduled.shift()!();
+    assert.deepEqual(records, ["2026-11-05T03:00:00.000Z", "2026-11-05T03:00:00.200Z"]);
+    assert.equal(runtime.lastProgressAtMs, Date.parse("2026-11-05T03:00:00.200Z"));
+  } finally {
+    disposeActiveRuntimeObservations(runtime);
+  }
+});
+
+test("provider exit flushes the last coalesced workspace progress before settlement", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-11-05T03:00:00.000Z") });
+  const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-exit-"));
+  let changed: ((event: string, filename: string | null) => void) | undefined,
+    onExit: ((code: number | null) => void) | undefined;
+  const watcher = Object.assign(new EventEmitter(), { close: () => undefined, unref: () => undefined });
+  t.mock.method(fs, "watch", (_path: unknown, _options: unknown, listener: typeof changed) => {
+    changed = listener;
+    return watcher;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const scheduled: Array<() => void | Promise<void>> = [],
+    order: string[] = [],
+    base = tasklessSettlementRuntime(root, null),
+    runtime = active({
+      ...base,
+      lastRealProgressAtMs: Date.now(),
+      stream: { ...base.stream, appendWorkspaceActivity: (at: string) => order.push(at) },
+      process: {
+        ...base.process,
+        onExit: (listener) => {
+          onExit = listener;
+        },
+      },
+    }),
+    context = {
+      input: {
+        rootDir: root,
+        now: () => new Date().toISOString(),
+        schedule: (work: () => void | Promise<void>) => scheduled.push(work),
+      },
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      exiting: new Set(),
+      consumeChunk: async () => undefined,
+      publishRuntimeEvent: async () => {
+        order.push("connectivity recovered");
+      },
+      publishExit: async () => {
+        order.push("settled");
+      },
+    } as unknown as RuntimeSpawnerContext;
+  attachActiveRuntime(context, runtime);
+  changed!("change", "first.txt");
+  while (scheduled.length) await scheduled.shift()!();
+  t.mock.timers.tick(200);
+  runtime.providerUnreachable = {
+    state: "provider_unreachable",
+    lastProgressAt: "2026-11-05T03:00:00.000Z",
+    lastErrorAt: "2026-11-05T03:00:00.100Z",
+    lastError: "connection lost",
+  };
+  changed!("change", "last.txt");
+  onExit!(0);
+  while (scheduled.length) await scheduled.shift()!();
+  assert.deepEqual(order, [
+    "2026-11-05T03:00:00.000Z",
+    "2026-11-05T03:00:00.200Z",
+    "connectivity recovered",
+    "settled",
+  ]);
+  t.mock.timers.tick(1_000);
+  assert.equal(scheduled.length, 0, "exit clears the trailing timer");
+});
