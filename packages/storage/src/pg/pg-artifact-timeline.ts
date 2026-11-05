@@ -136,21 +136,6 @@ const scopeValues = (scope: PgProjectionScope) => [scope.tenantId, scope.project
 /** The scope's reader allowlist in one canonical order, so equal sets share a count row. */
 const canonicalReaders = (readers: readonly string[] | undefined): string[] => [...new Set(readers ?? [])].sort();
 
-const adjustCount = (
-  client: PoolClient,
-  scope: PgProjectionScope,
-  readers: readonly string[],
-  kind: ArtifactTimelineKind,
-  delta: 1 | -1,
-) =>
-  client.query(
-    `INSERT INTO ha_artifact_counts(tenant_id, project_id, policy_epoch, readers, kind, total)
-     VALUES ($1, $2, $3, $4::text[], $5, 1)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, kind, readers) DO UPDATE
-     SET total = GREATEST(ha_artifact_counts.total + $6, 0)`,
-    [...scopeValues(scope), readers, kind, delta],
-  );
-
 /** One artifact write collected for a batch flush; `kind: null` retires the path. */
 export interface PgArtifactTimelineEntry {
   readonly path: string;
