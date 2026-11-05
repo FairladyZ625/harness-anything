@@ -83,9 +83,10 @@ export function createCapturePort(options: CaptureOptions = {}): CapturePort {
           captured = true;
         }
       } else if (platform === "linux") {
-        const body = await linuxProcDump(request.pid, readText);
-        files.push(await writeCapture(request.dir, `${stamp}-${request.reason}.proc.txt`, body));
-        captured = true;
+        const dump = await linuxProcDump(request.pid, readText);
+        files.push(await writeCapture(request.dir, `${stamp}-${request.reason}.proc.txt`, dump.body));
+        captured = dump.hasContent;
+        if (!captured) errors.push("no readable /proc diagnostic content");
       } else {
         files.push(
           await writeCapture(
@@ -109,14 +110,19 @@ export function createCapturePort(options: CaptureOptions = {}): CapturePort {
   };
 }
 
-async function linuxProcDump(pid: number, readText: (file: string) => Promise<string>): Promise<string> {
+async function linuxProcDump(
+  pid: number,
+  readText: (file: string) => Promise<string>,
+): Promise<{ readonly body: string; readonly hasContent: boolean }> {
   const paths = ["status", "stack", "wchan", "syscall", "stat"].map((name) => `/proc/${String(pid)}/${name}`),
     sections: string[] = [`# read-only /proc dump for pid ${String(pid)}`];
+  let hasContent = false;
   for (const file of paths) {
     const read = await attemptRead(() => readText(file));
     sections.push(read.ok ? `\n## ${file}\n${read.value}` : `\n## ${file}\nunavailable: ${read.error}`);
+    if (read.ok && read.value.trim().length > 0) hasContent = true;
   }
-  return `${sections.join("")}\n`;
+  return { body: `${sections.join("")}\n`, hasContent };
 }
 
 // The daemon-side JS stack exporter is owned by another task. The probe never assumes it exists:

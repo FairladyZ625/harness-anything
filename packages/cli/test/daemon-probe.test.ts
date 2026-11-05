@@ -294,7 +294,7 @@ test("trigger fires once per event, disarms on recovery, and honors cooldown", (
   assert.equal(tracker.evaluate(down(0)), null);
   assert.equal(tracker.evaluate(down(100)), null);
   assert.equal(tracker.evaluate(down(300)), "unresponsive");
-  tracker.captured("unresponsive", 300);
+  tracker.attempted(300, true);
   assert.equal(tracker.evaluate(down(400)), null);
   assert.equal(tracker.evaluate(down(900)), null);
   assert.equal(tracker.evaluate(up(1_000)), null);
@@ -324,7 +324,7 @@ test("trigger fires once per event, disarms on recovery, and honors cooldown", (
     cooldownMs: 0,
   });
   assert.equal(rss.evaluate({ at: 0, state: "up", cpuPercent: 0, rssBytes: 2_000 }), "rss");
-  rss.captured("rss", 0);
+  rss.attempted(0, true);
   assert.equal(rss.evaluate({ at: 1, state: "up", cpuPercent: 0, rssBytes: 2_000 }), null);
 });
 
@@ -338,7 +338,7 @@ test("one sustained multi-signal event captures exactly once", () => {
   });
   const combined = (at: number): TriggerSample => ({ at, state: "down", cpuPercent: 95, rssBytes: 200 });
   assert.equal(tracker.evaluate(combined(0)), "rss");
-  tracker.captured("rss", 0);
+  tracker.attempted(0, true);
   for (const at of [30_000, 35_000, 60_000, 65_000]) assert.equal(tracker.evaluate(combined(at)), null);
   assert.equal(tracker.evaluate({ at: 700_000, state: "up", cpuPercent: 0, rssBytes: 0 }), null);
   assert.equal(tracker.evaluate(combined(700_001)), "rss");
@@ -359,12 +359,12 @@ test("an event starting inside the cooldown is captured when the cooldown expire
     rssBytes,
   });
   assert.equal(tracker.evaluate(sample(0, "up", 200)), "rss");
-  tracker.captured("rss", 0);
+  tracker.attempted(0, true);
   assert.equal(tracker.evaluate(sample(1_000, "up", 0)), null);
   assert.equal(tracker.evaluate(sample(2_000, "down", 0)), null);
   assert.equal(tracker.evaluate(sample(32_000, "down", 0)), null);
   assert.equal(tracker.evaluate(sample(602_000, "down", 0)), "unresponsive");
-  tracker.captured("unresponsive", 602_000);
+  tracker.attempted(602_000, true);
   assert.equal(tracker.evaluate(sample(3_600_000, "down", 0)), null);
 });
 
@@ -526,12 +526,55 @@ test("linux capture writes a proc dump and names an unavailable stack", async ()
     jsStackTimeoutMs: 1_000,
     sampleSeconds: 5,
   });
+  assert.equal(result.captured, true);
   assert.equal(result.files.length, 1);
   assert.match(result.files[0]!, /20261103T130000000Z-high-cpu\.proc\.txt$/u);
   const body = writes.get(result.files[0]!)!;
   assert.match(body, /## \/proc\/42\/status\nName:\tdaemon/u);
   assert.match(body, /unavailable: EACCES/u);
   assert.equal(result.jsStack.status, "not-advertised");
+});
+
+test("linux error-only dump fails, then recovery or a JS stack captures a scene", async () => {
+  let readable = false,
+    stackAvailable = false;
+  const dumps: string[] = [];
+  const port = createCapturePort({
+    platform: "linux",
+    readFileText: async () => {
+      if (!readable) throw new Error("EACCES");
+      return "process data\n";
+    },
+    writeCaptureFile: async (_dir, name, body) => {
+      dumps.push(body);
+      return name;
+    },
+    ensureDirectory: async () => undefined,
+    jsStackProbe: async (_socket, method) => ({
+      method,
+      status: stackAvailable ? "captured" : "unreachable",
+      file: stackAvailable ? "stack.json" : null,
+      detail: null,
+    }),
+  });
+  const request: CaptureRequest = {
+    pid: 42,
+    reason: "unresponsive",
+    at: 0,
+    dir: "/tmp",
+    socketPath: "/tmp/daemon.sock",
+    jsStackMethod: "daemon.diagnostics.stack",
+    jsStackTimeoutMs: 1_000,
+    sampleSeconds: 1,
+  };
+  const failed = await port.capture(request);
+  assert.equal(failed.captured, false);
+  assert.match(dumps[0]!, /unavailable: EACCES/u);
+  stackAvailable = true;
+  assert.equal((await port.capture(request)).captured, true, "a successful JS stack is sufficient");
+  stackAvailable = false;
+  readable = true;
+  assert.equal((await port.capture(request)).captured, true, "proc access can recover");
 });
 
 test("darwin capture invokes sample and records its file", async () => {
@@ -610,14 +653,24 @@ async function collectTimelineRange(
   return records;
 }
 
-test("a skipped capture retries after PID recovery and captures once", async (t) => {
+test("skipped and failed attempts are cooled down before recovery captures once", async (t) => {
   const fake = await startFakeDaemon();
   t.after(async () => fake.close());
   fake.setMode("hang");
   let clock = 0,
-    reads = 0,
-    calls = 0;
+    reads = 0;
+  const attemptTimes: number[] = [];
   const records: Readonly<Record<string, unknown>>[] = [];
+  const port = createCapturePort({
+    platform: "linux",
+    ensureDirectory: async () => undefined,
+    readFileText: async () => {
+      if (clock < 1750) throw new Error("EACCES");
+      return "process data\n";
+    },
+    writeCaptureFile: async (_dir, name) => name,
+    jsStackProbe: async (_socket, method) => ({ method, status: "unreachable", file: null, detail: null }),
+  });
   const result = await runProbeLoop(
     {
       socketPath: fake.socketPath,
@@ -636,14 +689,9 @@ test("a skipped capture retries after PID recovery and captures once", async (t)
         close: async () => undefined,
       },
       capture: {
-        capture: async () => {
-          calls += 1;
-          return {
-            captured: calls > 1,
-            files: calls > 1 ? ["scene.txt"] : [],
-            errors: [],
-            jsStack: { method: "daemon.diagnostics.stack", status: "not-advertised", file: null, detail: null },
-          };
+        capture: async (request) => {
+          attemptTimes.push(clock);
+          return port.capture(request);
         },
       },
       jsStackMethod: "daemon.diagnostics.stack",
@@ -652,21 +700,22 @@ test("a skipped capture retries after PID recovery and captures once", async (t)
     },
     {
       intervalMs: 250,
-      iterations: 5,
+      iterations: 10,
       durationMs: null,
       unresponsiveMs: 250,
       cpuPercent: 90,
       cpuSustainMs: 60_000,
       rssBytes: 8 * 1024 * 1024 * 1024,
-      cooldownMs: 600_000,
+      cooldownMs: 500,
       captureDir: "/tmp",
     },
   );
-  assert.equal(calls, 2);
+  assert.equal(attemptTimes.length, 3);
+  assert.deepEqual(attemptTimes, [750, 1250, 1750]);
   assert.equal(result.captures, 1);
   assert.deepEqual(
     records.filter((record) => record.kind === "capture").map((record) => record.status),
-    ["skipped", "skipped", "captured"],
+    ["skipped", "failed", "failed", "captured"],
   );
 });
 

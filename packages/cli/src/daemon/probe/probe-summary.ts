@@ -242,7 +242,14 @@ function startInterval(record: Readonly<Record<string, unknown>>): number {
 
 function addCapture(state: AccumulatorState, record: Readonly<Record<string, unknown>>): void {
   const atMs = Date.parse(String(record.at));
-  if (!Number.isFinite(atMs) || atMs < state.sinceMs || atMs > state.untilMs || record.status === "skipped") return;
+  if (
+    !Number.isFinite(atMs) ||
+    atMs < state.sinceMs ||
+    atMs > state.untilMs ||
+    record.status === "skipped" ||
+    record.status === "failed"
+  )
+    return;
   state.captures.push({
     atMs,
     reason: typeof record.reason === "string" ? record.reason : "unknown",

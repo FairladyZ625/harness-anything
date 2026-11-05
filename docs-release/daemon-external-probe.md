@@ -53,13 +53,15 @@ Counter sources: `/proc/<pid>/{stat,status,fd}` on Linux, `ps`/`lsof` on macOS, 
 `Get-Process` on Windows. Windows is best-effort and less tested; fields that cannot be read
 stay `null` and are listed in `metricsUnavailable`.
 
-A skipped capture (unknown PID or no scene produced) remains pending and is retried while the event persists. A successful capture runs at most once for an ongoing event. The event must clear before it can arm
-again, and a cleared/re-fired event waits out `--cooldown`. Capture artifacts go to
+An unknown PID is recorded as skipped; a capture with no diagnostic content is recorded as failed.
+Both remain pending and are retried after `--cooldown` while the event persists. Every attempt,
+including a failure or skip, starts the cooldown. A successful capture runs at most once for an
+ongoing event; the event must clear before it can arm again. Capture artifacts go to
 `<user-root>/logs/probe-captures/`:
 
 - macOS: `sample <pid> <seconds> -file <artifact>`;
 - Linux: `/proc/<pid>/{status,stack,wchan,syscall,stat}` concatenated into one text file;
-  an unreadable file is named in that dump rather than failing the capture;
+  an unreadable file is named in that dump; at least one nonempty proc file or a successful JS stack is required for a successful capture;
 - JS stack: only when the daemon advertises the method in `protocol.hello.methods`. The
   expected method is `daemon.diagnostics.stack`; `--js-stack-method` only accepts this
   read-only diagnostic name (control methods such as `daemon.stop` are refused). When it is

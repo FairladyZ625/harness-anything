@@ -39,7 +39,7 @@ ha daemon probe --duration 10m
 
 计数器来源：Linux 读 `/proc/<pid>/{stat,status,fd}`，macOS 用 `ps`/`lsof`，Windows 用 PowerShell `Get-Process`（尽力而为、验证较少；取不到的字段保持 `null` 并列入 `metricsUnavailable`）。
 
-PID 暂不可读或抓取未产出现场时标记为 skipped，事件持续时会再尝试；成功后同一次事件只抓一次现场。条件消失后才会重新武装；清除后再次发生要等过 `--cooldown`。现场文件写到 `<user-root>/logs/probe-captures/`：
+PID 暂不可读时标记为 skipped；没有有效诊断内容时标记为 failed。每次尝试（包括失败或跳过）都开始 `--cooldown`，冷却结束后事件仍持续才重试；成功后同一次事件只抓一次现场。至少一个非空 proc 文件或成功的 JS 栈才算成功。条件消失后才会重新武装。现场文件写到 `<user-root>/logs/probe-captures/`：
 
 - macOS：`sample <pid> <seconds> -file <文件>`；
 - Linux：把 `/proc/<pid>/{status,stack,wchan,syscall,stat}` 拼成一个文本文件；读不到的文件在正文里写明，不让整次抓现场失败；

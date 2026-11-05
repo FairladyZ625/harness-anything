@@ -186,9 +186,9 @@ export async function runProbeLoop(deps: ProbeLoopDeps, options: ProbeLoopOption
     const reason = tracker.evaluate(sample);
     if (reason !== null) {
       const captured = await runCapture(deps, sample, reason, options, errors);
-      const status = captured.captured ? "captured" : "skipped";
+      const status = captured.captured ? "captured" : sample.pid === null ? "skipped" : "failed";
+      tracker.attempted(deps.now(), captured.captured);
       if (status === "captured") {
-        tracker.captured(reason, sample.at);
         captures += 1;
         captureFiles.push(...captured.files);
       }

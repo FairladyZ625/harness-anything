@@ -448,6 +448,8 @@ test("summary renders observed availability, captures, and the offline log view"
     reason: "unresponsive",
     files: ["/tmp/scene.sample.txt"],
   });
+  await writer.append({ kind: "capture", status: "failed", at: "2026-11-03T00:06:00.000Z", files: ["error.txt"] });
+  await writer.append({ kind: "capture", status: "skipped", at: "2026-11-03T00:07:00.000Z", files: [] });
   await writer.append({ kind: "sample", at: "2026-11-03T00:10:00.000Z", state: "up", latencyMs: 12 });
   await writer.close();
   const options = parseSummaryArgs(["daemon", "probe", "summary", "--day", "20261103"]);
@@ -465,6 +467,7 @@ test("summary renders observed availability, captures, and the offline log view"
   assert.match(text, /captures=1/u);
   assert.match(text, /cause=exited/u);
   assert.match(text, /scene\.sample\.txt/u);
+  assert.doesNotMatch(text, /error\.txt/u);
 });
 
 function record(event: string, at: string, pid: number, extra: Readonly<Record<string, unknown>> = {}): string {
