@@ -52,20 +52,22 @@ export interface DispatchForensicsInput {
   readonly reason: string;
   readonly endedAt: string;
   readonly request: DispatchForensicsRequest;
+  /** An existing marker (the dispatch's `needs_attention` incident receipt) asks for evidence. */
+  readonly evidenceRequired?: boolean;
 }
 
 type DowngradedOutcome = DispatchForensicsInput["outcome"];
 
-// `needs_attention` is the existing classification that explicitly asks the owner to look at a
-// run; it is the evidence-required marker for an otherwise normal terminal. The rest is the
-// ordinary abnormal set. A worker that stopped to ask the owner is the one deliberate stop: its
-// question is already a durable ruling artifact, so retaining every waiting turn would be noise.
+// The explicit marker is the dispatch's existing `needs_attention` incident receipt; the rest is
+// the ordinary abnormal set. A worker that stopped to ask the owner is the one deliberate stop:
+// its question is already a durable ruling artifact, so retaining every waiting turn would be noise.
 export function dispatchForensicsRequired(
   outcome: DowngradedOutcome,
   classification: DispatchExitClassification,
+  evidenceRequired = false,
 ): boolean {
   return (
-    classification === "needs_attention" ||
+    evidenceRequired ||
     (classification !== "awaiting_ruling" && (outcome === "failed" || outcome === "stopped" || outcome === "unknown"))
   );
 }
@@ -76,7 +78,7 @@ export function dispatchForensicsRequired(
  * A missing transcript is recorded in the trace rather than failing the settlement.
  */
 export function captureDispatchForensics(input: DispatchForensicsInput): RuntimeDispatchForensics | null {
-  if (!dispatchForensicsRequired(input.outcome, input.classification)) return null;
+  if (!dispatchForensicsRequired(input.outcome, input.classification, input.evidenceRequired)) return null;
   const streamFile = dispatchStreamPath(input.rootDir, input.dispatchId),
     stream = readSnapshot(streamFile);
   if (stream.totalBytes === 0) return null;
@@ -205,8 +207,10 @@ function readProviderTranscript(input: DispatchForensicsInput): ProviderSnapshot
     capture: { file: null, totalBytes: 0, capturedBytes: 0, truncated: false, reason },
     text: null,
   });
-  if (input.resolvedProviderDirectory === null) return unavailable("no resolved provider directory");
-  if (input.providerSessionId === null) return unavailable("no provider session id");
+  if (typeof input.resolvedProviderDirectory !== "string" || input.resolvedProviderDirectory.length === 0)
+    return unavailable("no resolved provider directory");
+  if (typeof input.providerSessionId !== "string" || input.providerSessionId.length === 0)
+    return unavailable("no provider session id");
   if (!/^[a-z0-9-]+$/iu.test(input.providerSessionId)) return unavailable("invalid provider session id");
   const sessions = path.join(input.resolvedProviderDirectory, "sessions");
   if (!existsSync(sessions)) return unavailable("provider sessions directory absent");

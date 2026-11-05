@@ -32,6 +32,7 @@ import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispa
 import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
 import { archiveDispatchStream as archiveDispatchStreamUnchecked } from "./dispatch-stream-archive.ts";
+import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 
 /**
  * The guarded archive entry every settlement/adoption/fallback caller uses. A stream whose
@@ -39,7 +40,13 @@ import { archiveDispatchStream as archiveDispatchStreamUnchecked } from "./dispa
  * only recoverable copy until the canonical artifact write end accepts the snapshot.
  */
 export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
-  if (readDispatchStreamSummary(rootDir, dispatchId)?.evidenceState === "pending") return;
+  const sidecar = readDispatchEvidenceState(rootDir, dispatchId);
+  if (sidecar === "pending") return;
+  const summary = readDispatchStreamSummary(rootDir, dispatchId);
+  if (summary?.evidenceState === "pending") return;
+  // New settlements always write a sidecar. If it is missing while the header advertises
+  // tracking, the disposition write failed: fail closed instead of compacting the only copy.
+  if (sidecar === null && summary?.header.evidenceTrackingVersion === 1) return;
   archiveDispatchStreamUnchecked(rootDir, dispatchId);
 }
 
@@ -113,6 +120,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly mission?: string;
   readonly fallbackAttempt?: RuntimeFallbackAttempt;
   readonly transcriptCompactionVersion?: 1;
+  /** New settlements carry a sidecar evidence disposition; a missing sidecar is then fail-closed. */
+  readonly evidenceTrackingVersion?: 1;
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
@@ -381,6 +390,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
     removeDispatchLiveIndexEntries(rootDir, [
       { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
     ]);
+  removeDispatchEvidenceState(rootDir, dispatchId);
 }
 
 export function readDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {

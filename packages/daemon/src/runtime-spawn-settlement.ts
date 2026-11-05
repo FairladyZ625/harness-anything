@@ -38,6 +38,8 @@ import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continu
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
 import { captureDispatchForensics, dispatchForensicsRequired } from "./runtime-dispatch-evidence.ts";
+import { writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -459,14 +461,33 @@ export async function publishExit(
     let forensics: ReturnType<typeof captureDispatchForensics> = null,
       evidencePending = false,
       archivePublished = false;
-    const evidenceRequired =
-      (active.task !== null || active.decisionReviewTarget !== null) &&
-      dispatchForensicsRequired(outcome, attemptOutcome.classification);
-    // A pending marker is the durable block every later archive/compaction/purge pass reads.
-    // It is written onto the stream that still holds the raw bytes; a stream that is already
-    // gone has nothing left to preserve, so only the current-run block remains for it.
+    const writeEvidenceState = (state: "pending" | "stored" | "not-required", reason: string): boolean => {
+      try {
+        writeDispatchEvidenceState(context.input.rootDir, active.dispatchId, state, reason);
+        return true;
+      } catch (error) {
+        consumeKnownError(error);
+        console.error(`[runtime-forensics] ${active.dispatchId} could not write evidence state ${state}`);
+        return false;
+      }
+    };
+    const incident = readIncidentActionReceipt(context.input.rootDir, active.dispatchId),
+      marked = incident !== null && incident.status !== "claimed" && incident.action === "needs_attention",
+      evidenceRequired =
+        (active.task !== null || active.decisionReviewTarget !== null) &&
+        dispatchForensicsRequired(outcome, attemptOutcome.classification, marked);
+    // The sidecar is the durable disposition read by archive/purge/adoption. It is written before
+    // the stream can grow a large terminal body; a write failure is fail-closed, not "not stored".
+    if (
+      !writeEvidenceState(
+        evidenceRequired ? "pending" : "not-required",
+        evidenceRequired ? "capture pending" : "no abnormal terminal",
+      )
+    )
+      evidencePending = true;
     const markEvidencePending = (reason: string): void => {
       evidencePending = true;
+      writeEvidenceState("pending", reason);
       if (readDispatchStreamSummary(context.input.rootDir, active.dispatchId) === null) return;
       try {
         active.stream.appendEvidenceState?.({ state: "pending", reason }, context.input.now());
@@ -484,12 +505,13 @@ export async function publishExit(
           executionId: active.task?.executionId ?? null,
           instanceId: active.instanceId,
           kindId: active.kindId,
-          providerSessionId: active.providerSessionId,
-          resolvedProviderDirectory: active.resolvedProviderDirectory,
+          providerSessionId: active.providerSessionId ?? null,
+          resolvedProviderDirectory: active.resolvedProviderDirectory ?? null,
           outcome,
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
           endedAt,
+          evidenceRequired: marked,
           request: {
             dispatchOpId: active.dispatchOpId,
             actor: active.binding.actor,
@@ -600,6 +622,7 @@ export async function publishExit(
       }
     }
     if (forensics !== null && archivePublished) {
+      if (!writeEvidenceState("stored", "archive accepted")) evidencePending = true;
       try {
         active.stream.appendEvidenceState?.({ state: "stored" }, context.input.now());
       } catch (error) {

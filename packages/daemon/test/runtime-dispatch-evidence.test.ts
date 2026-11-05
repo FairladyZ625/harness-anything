@@ -157,13 +157,18 @@ test("a normal success and an owner-ruling wait keep no evidence snapshot", () =
   }
 });
 
-test("the existing needs_attention classification marks a normal terminal for evidence", () => {
+test("an explicit evidence marker captures an otherwise normal terminal", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-marked-"));
   try {
     writeStream(rootDir);
-    assert.equal(dispatchForensicsRequired("succeeded", "needs_attention"), true);
-    assert.equal(dispatchForensicsRequired("failed", "needs_attention"), true);
-    assert.ok(captureDispatchForensics(input(rootDir, { outcome: "succeeded", classification: "needs_attention" })));
+    assert.equal(dispatchForensicsRequired("succeeded", "gate_red", true), true);
+    assert.equal(dispatchForensicsRequired("failed", "provider_fault"), true);
+    assert.equal(dispatchForensicsRequired("succeeded", "gate_red"), false);
+    assert.ok(
+      captureDispatchForensics(
+        input(rootDir, { outcome: "succeeded", classification: "gate_red", evidenceRequired: true }),
+      ),
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
