@@ -426,7 +426,7 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
       owner,
     )) as Record<string, unknown>;
     assert.equal(refused.code, "invalid_proof", JSON.stringify(refused));
-    assert.match(JSON.stringify(refused), /no non-reviewer runtime dispatch/u);
+    assert.match(JSON.stringify(refused), /no authoring dispatch to replay/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -438,12 +438,13 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
 // command's proof requires a dispatch record, so the advertised next step could never run. The one
 // executable step for an executorless, un-reviewed cut is the independent review itself; once it is
 // recorded the missing executor no longer blocks.
-test("a dispatchless owner submission names the executable review step, not declare-executor", async () => {
+test("a dispatchless owner submission declares its external agent and doctor follows the same state", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-executor-dispatchless-")),
     repoId = "executor-dispatchless",
     taskId = "task-executor-dispatchless",
     executionId = "exec-dispatchless",
-    reviewId = "dispatchless-review";
+    reviewId = "dispatchless-review",
+    externalAgent = "codex-gpt-6.1-sol";
   let cell: RepoCell | undefined;
   try {
     initRepo(rootDir);
@@ -501,14 +502,42 @@ test("a dispatchless owner submission names the executable review step, not decl
       "the fixture must reproduce the reported dispatchless (executor=null) execution",
     );
     assert.equal(evidence.completionBlocker?.code, "executor_missing", JSON.stringify(evidence.completionBlocker));
-    assert.match(
-      evidence.completionNext?.action ?? "",
-      /^ha task review-execution /u,
-      "an executorless cut with no dispatch must point at the independent review it can actually run",
+    assert.equal(
+      evidence.completionNext?.action,
+      `ha task declare-executor ${taskId} --execution-id ${executionId} --agent <agent-id> ` +
+        "--reason <auditable-recovery-reason>",
+      "an executorless cut with no dispatch must point at the owner declaration it can actually run",
     );
-    assert.doesNotMatch(evidence.completionNext?.action ?? "", /declare-executor/u);
 
-    // Run the advertised command in the same cell: it must not need a dispatch record.
+    // The owner's explicit agent id and reason are the attribution record for out-of-ledger work.
+    const declared = await cell.run(
+      {
+        kind: "task-declare-executor",
+        taskId,
+        executionId,
+        agent: externalAgent,
+        reason: "The owner ran this work outside the ledger with this agent.",
+      },
+      owner,
+    );
+    assert.equal(declared.outcome, "applied", JSON.stringify(declared));
+
+    const attributed = (await cell.run({ kind: "task-show", taskId }, owner)) as Record<string, unknown>,
+      attributedEvidence = JSON.parse(String(attributed.evidence)) as {
+        readonly executions: readonly {
+          readonly executionId: string;
+          readonly actor: { readonly executor: unknown };
+        }[];
+        readonly completionBlocker: { readonly code: string } | null;
+      };
+    assert.deepEqual(
+      attributedEvidence.executions.find((execution) => execution.executionId === executionId)?.actor.executor,
+      { kind: "agent", id: externalAgent },
+      "the declaration must persist the claimed agent on the execution",
+    );
+    assert.notEqual(attributedEvidence.completionBlocker?.code, "executor_missing");
+    assert.equal(await doctorCheck(cell, owner, "executor-undeclared").then((check) => check.status), "ok");
+
     writeFileSync(
       path.join(rootDir, "dispatchless-review.json"),
       JSON.stringify({
@@ -546,8 +575,25 @@ test("a dispatchless owner submission names the executable review step, not decl
       "executor_missing",
       "recording the independent review settles the independence judgment the missing executor stood for",
     );
+    assert.equal(
+      (await doctorCheck(cell, owner, "executor-undeclared")).status,
+      "ok",
+      "doctor must not keep demanding attribution after the review already judged the cut",
+    );
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+async function doctorCheck(
+  cell: RepoCell,
+  actor: Parameters<RepoCell["run"]>[1],
+  checkId: string,
+): Promise<{ readonly status: string; readonly count: number }> {
+  const receipt = (await cell.run({ kind: "doctor-health" }, actor)) as Record<string, unknown>,
+    checks = receipt.checks as readonly { readonly id: string; readonly status: string; readonly count: number }[],
+    check = checks.find((candidate) => candidate.id === checkId);
+  assert.ok(check, `doctor check ${checkId} missing: ${JSON.stringify(receipt.checks)}`);
+  return check;
+}

@@ -225,7 +225,8 @@ export function compileExecutionExecutorDeclaration(input: {
   readonly executionId: string;
   readonly actor: ActorAxes;
   readonly executor: NonNullable<ActorAxes["executor"]>;
-  readonly dispatchTaskId: string;
+  /** The task whose dispatch supplied the agent; absent when the owner declared out-of-ledger work. */
+  readonly dispatchTaskId?: string;
   readonly source: WriteSource;
   readonly reason: string;
   readonly opId: string;
@@ -247,7 +248,7 @@ export function compileExecutionExecutorDeclaration(input: {
     !eligible ||
     input.executor.kind !== "agent" ||
     !isNonEmptyString(input.executor.id) ||
-    !isNonEmptyString(input.dispatchTaskId) ||
+    (input.dispatchTaskId !== undefined && !isNonEmptyString(input.dispatchTaskId)) ||
     (input.actor.executor !== null && stableStringify(input.actor.executor) !== stableStringify(input.executor)) ||
     !isNonEmptyString(input.reason) ||
     input.workspaceRevision <= input.snapshot.revision
@@ -281,7 +282,7 @@ export function compileExecutionExecutorDeclaration(input: {
         task: nextTask,
         execution: nextExecution,
         previousActor: current.actor,
-        dispatchTaskId: input.dispatchTaskId,
+        ...(input.dispatchTaskId === undefined ? {} : { dispatchTaskId: input.dispatchTaskId }),
         reason: input.reason,
         documentClaims: [],
       },

@@ -27,7 +27,7 @@ import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 import { deliveryContainment, EMPTY_TREE_SHA, rebaseEquivalentDelivery } from "./task-delivery-containment.ts";
-import { taskLineageHasAuthoringDispatch } from "./dispatch-read.ts";
+import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
@@ -70,21 +70,27 @@ export function readCompletionContext(
     // The executor gate only asks for dispatch proof while an independent review is still owed.
     // Reading lineage otherwise would add a dispatch scan to every task read for a value no
     // judgment consumes, and a read that cannot answer it would turn into a false "no dispatch".
-    owesExecutorAttribution =
-      snapshot.task?.status === "in_review" &&
-      closeoutGates.review !== false &&
-      snapshot.executions.some(
-        (execution) =>
-          isNativeExecution(execution) &&
-          execution.iteration === snapshot.task?.iteration &&
-          execution.state === "submitted" &&
-          execution.actor.executor === null &&
-          reviewsForExecution(snapshot.reviews, execution).length === 0,
-      ),
+    executorlessReview =
+      snapshot.task?.status === "in_review" && closeoutGates.review !== false
+        ? snapshot.executions.find(
+            (execution) =>
+              isNativeExecution(execution) &&
+              execution.iteration === snapshot.task?.iteration &&
+              execution.state === "submitted" &&
+              execution.actor.executor === null &&
+              reviewsForExecution(snapshot.reviews, execution).length === 0,
+          )
+        : undefined,
     common = {
       closeoutGates,
-      ...(owesExecutorAttribution
-        ? { hasDispatchLineage: taskLineageHasAuthoringDispatch({ projection, taskId }) }
+      ...(executorlessReview
+        ? {
+            executorDeclarationCandidates: taskLineageExecutorCandidates({
+              projection,
+              taskId,
+              executionId: executorlessReview.executionId,
+            }).authoring.map((candidate) => candidate.executorId),
+          }
         : {}),
       delivery: readCompletionDeliveryStatus(projection, snapshot, rootDir),
       eligibleDirtyPaths: [],

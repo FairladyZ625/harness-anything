@@ -594,7 +594,7 @@ test("a legacy submitted review cut points at the registered stock disposal, not
   assert.doesNotMatch(index, /dispatch-review|contract migrate/u);
 });
 
-test("an executorless review without dispatch lineage names an executable independent-review step", () => {
+test("an executorless review with no authoring dispatch names the owner declaration step", () => {
   const inReview = at(3),
     executorless = {
       ...inReview,
@@ -603,13 +603,13 @@ test("an executorless review without dispatch lineage names an executable indepe
         actor: { ...execution.actor, executor: null },
       })),
     },
-    result = taskCompletionNext(executorless, { ...context, hasDispatchLineage: false });
+    result = taskCompletionNext(executorless, { ...context, executorDeclarationCandidates: [] });
   assert.equal(result.blocker?.code, "executor_missing");
   assert.equal(
     result.next?.action,
-    "ha task review-execution task-1 --execution-id execution-1 --review-id <id> --from-file <review.json>",
+    "ha task declare-executor task-1 --execution-id execution-1 --agent <agent-id> " +
+      "--reason <auditable-recovery-reason>",
   );
-  assert.doesNotMatch(result.next!.action, /declare-executor/u);
 });
 
 test("unknown dispatch lineage defaults to the executable review step, never a dead declare-executor", () => {
@@ -629,6 +629,49 @@ test("unknown dispatch lineage defaults to the executable review step, never a d
     result.next?.action,
     "ha task review-execution task-1 --execution-id execution-1 --review-id <id> --from-file <review.json>",
   );
+});
+
+test("one authoring dispatch names its exact --agent selector", () => {
+  const inReview = at(3),
+    executorless = {
+      ...inReview,
+      executions: inReview.executions.map((execution) => ({
+        ...execution,
+        actor: { ...execution.actor, executor: null },
+      })),
+    },
+    result = taskCompletionNext(executorless, {
+      ...context,
+      executorDeclarationCandidates: ["runtime-session:author"],
+    });
+  assert.equal(result.blocker?.code, "executor_missing");
+  assert.equal(
+    result.next?.action,
+    "ha task declare-executor task-1 --execution-id execution-1 --agent runtime-session:author " +
+      "--reason <auditable-recovery-reason>",
+  );
+});
+
+test("several authoring dispatches name every selectable --agent instead of the refused flag-less form", () => {
+  const inReview = at(3),
+    executorless = {
+      ...inReview,
+      executions: inReview.executions.map((execution) => ({
+        ...execution,
+        actor: { ...execution.actor, executor: null },
+      })),
+    },
+    result = taskCompletionNext(executorless, {
+      ...context,
+      executorDeclarationCandidates: ["runtime-session:author-a", "runtime-session:author-b"],
+    }),
+    action = result.next?.action ?? "";
+  assert.equal(result.blocker?.code, "executor_missing");
+  assert.match(action, /ha task declare-executor task-1 --execution-id execution-1 --agent runtime-session:author-a /u);
+  assert.match(action, /ha task declare-executor task-1 --execution-id execution-1 --agent runtime-session:author-b /u);
+  assert.match(action, / or /u);
+  // The flag-less form is the one that refuses an ambiguous choice; it must not survive.
+  assert.doesNotMatch(action, /declare-executor task-1 --execution-id execution-1 --reason/u);
 });
 
 test("a missing executor blocks only while an independent review is still owed", () => {

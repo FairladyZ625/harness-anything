@@ -2,6 +2,8 @@ import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { resolveLedgerGitLayout } from "@harness-anything/storage";
 import {
   currentExecutionCuts,
+  isNativeExecution,
+  reviewsForExecution,
   taskWipOccupyingStatuses,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -11,7 +13,7 @@ import { runProcessTextAsync } from "./process-port.ts";
 import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
 import { doctorLocalRootResidue } from "./repo-local-root-residue.ts";
-import { taskLineageHasAuthoringDispatch } from "./dispatch-read.ts";
+import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -209,43 +211,67 @@ async function gitHasCommit(roots: readonly string[], sha: string): Promise<stri
 }
 
 // A submitted execution with executor=null cannot attribute the work to the runtime that did it.
-// A dispatched cut recovers its executor from that record; a dispatchless one can only be closed by
-// an independent review, so naming declare-executor there would advertise a proof it can never meet.
+// The check asks the same question completion asks: attribution is owed only while an independent
+// review is still outstanding, and a reviewed cut has already had its independence judged.
 function executorUndeclaredCheck(
   submitted: ReturnType<typeof submittedRoundExecutions>,
   cell: RepoCellOperationalContext,
 ): DoctorCheck {
   const items = submitted
-    .filter((entry) => entry.node === "review" && entry.executor === null)
+    .filter((entry) => entry.node === "review" && entry.executor === null && executorAttributionOwed(cell, entry))
     .map((entry) => ({
       ...entry,
-      hasAuthoringDispatch: taskLineageHasAuthoringDispatch({
+      candidates: taskLineageExecutorCandidates({
         projection: cell.projection,
         taskId: entry.taskId,
-      }),
+        executionId: entry.executionId,
+      }).authoring.map((candidate) => candidate.executorId),
     }));
   return {
     id: "executor-undeclared",
     status: items.length ? "fail" : "ok",
     summary: items.length
-      ? `Submitted executions without executor attribution: ${items
+      ? `Submitted executions still owing executor attribution: ${items
           .map((entry) => `${entry.taskId}/${entry.executionId}`)
           .join(", ")}`
-      : "Every submitted execution names the executor that produced it.",
+      : "No submitted execution still owes executor attribution before review.",
     count: items.length,
     next: items.length
       ? items
-          .map((entry) =>
-            entry.hasAuthoringDispatch
-              ? `Declare the executor with ha task declare-executor ${entry.taskId} ` +
-                `--execution-id ${entry.executionId} --agent <agent-id> --reason <reason> before review.`
-              : `Record an independent review with ha task review-execution ${entry.taskId} ` +
-                `--execution-id ${entry.executionId} --review-id <review-id> --from-file <review.json>; ` +
-                "this execution has no authoring dispatch to declare.",
-          )
+          .map((entry) => {
+            const choices = entry.candidates.length === 0 ? ["<agent-id>"] : entry.candidates;
+            return choices
+              .map(
+                (agent) =>
+                  `Declare the executor with ha task declare-executor ${entry.taskId} ` +
+                  `--execution-id ${entry.executionId} --agent ${agent} --reason <reason> before review.`,
+              )
+              .join(" ");
+          })
           .join(" ")
       : "Nothing to do.",
   };
+}
+
+function executorAttributionOwed(
+  cell: RepoCellOperationalContext,
+  entry: ReturnType<typeof submittedRoundExecutions>[number],
+): boolean {
+  const snapshot = cell.projection.read(entry.taskId).snapshot,
+    task = snapshot.task,
+    execution = snapshot.executions.find(
+      (candidate) => isNativeExecution(candidate) && candidate.executionId === entry.executionId,
+    );
+  return (
+    task?.status === "in_review" &&
+    task.currentNode === "review" &&
+    execution !== undefined &&
+    isNativeExecution(execution) &&
+    execution.state === "submitted" &&
+    execution.actor.executor === null &&
+    execution.submission?.completionContract?.closeoutGates?.review !== false &&
+    reviewsForExecution(snapshot.reviews, execution).length === 0
+  );
 }
 
 // An orphaned lease is a held lease past its TTL: the holder may still be alive, so this only

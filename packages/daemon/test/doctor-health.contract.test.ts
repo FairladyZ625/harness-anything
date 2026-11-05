@@ -289,7 +289,12 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
           iteration: 1,
           state: "submitted",
           actor: i === 500 ? { ...actor, executor: null } : actor,
-          submission: { commitSha: delivery },
+          submission: {
+            commitSha: delivery,
+            completionContract: {
+              closeoutGates: { review: true, consent: true, factDisposition: true },
+            },
+          },
         },
       ],
     },
@@ -342,11 +347,15 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
       byId = new Map(checks.map((check) => [check.id, check]));
     assert.equal(byId.get("executor-undeclared")?.count, 1);
     assert.equal(byId.get("executor-undeclared")?.status, "fail");
-    assert.match(byId.get("executor-undeclared")!.next, /ha task review-execution task_500 --execution-id exe_500/u);
+    assert.match(
+      byId.get("executor-undeclared")!.next,
+      /ha task declare-executor task_500 --execution-id exe_500 --agent <agent-id>/u,
+      "a dispatchless execution must name the owner declaration that can actually run",
+    );
     assert.doesNotMatch(
       byId.get("executor-undeclared")!.next,
-      /declare-executor/u,
-      "a dispatchless execution cannot satisfy declare-executor, so the doctor must not recommend it",
+      /ha task review-execution/u,
+      "the owner declaration is the executable attribution step when no authoring dispatch exists",
     );
     assert.equal(byId.get("orphan-lease")?.count, 1);
     assert.equal(byId.get("stale-delivered")?.count, 501);

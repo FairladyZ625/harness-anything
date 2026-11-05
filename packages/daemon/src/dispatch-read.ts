@@ -393,19 +393,56 @@ export function readTaskLineageDispatches(input: {
   return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
 
+export interface TaskAuthoringExecutorCandidate {
+  readonly runtimeSessionId: string;
+  readonly executorId: string;
+  readonly agentId: string | undefined;
+  readonly dispatchTaskId: string;
+  readonly executionId: string;
+}
+
 /**
- * Whether declare-executor has an authoring dispatch it can replay as executor proof. Reviewer
- * dispatches are excluded: attribution exists to judge reviewer independence, so a review session
- * offered as a candidate would let the reviewer become the declared author. This is the one
- * predicate both the declaration and the completion next step read.
+ * The authoring dispatches `declare-executor` may replay for this cut, plus the reviewer sessions
+ * it must never accept. Reviewer dispatches are excluded from candidates: attribution exists to
+ * judge reviewer independence, so a review session offered as a candidate would let the reviewer
+ * become the declared author. The execution cut keeps the lineage fallback able to reach an earlier
+ * iteration's authoring dispatch when the current execution only ever hosted review sessions.
  */
-export function taskLineageHasAuthoringDispatch(input: {
+export function taskLineageExecutorCandidates(input: {
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
-}): boolean {
-  return readTaskLineageDispatches(input).some(
-    (dispatch) => !isReviewerDispatch(input.projection, dispatch.dispatchId),
-  );
+  readonly executionId?: string;
+}): {
+  readonly authoring: readonly TaskAuthoringExecutorCandidate[];
+  readonly reviewerExecutorIds: ReadonlySet<string>;
+} {
+  const rows = readTaskLineageDispatches(input),
+    reviewerExecutorIds = new Set(
+      rows
+        .filter((dispatch) => isReviewerDispatch(input.projection, dispatch.dispatchId))
+        .map((dispatch) => `runtime-session:${dispatch.runtimeSessionId}`),
+    ),
+    authoringRows = rows.filter((dispatch) => !isReviewerDispatch(input.projection, dispatch.dispatchId)),
+    exactRows =
+      input.executionId === undefined ? [] : authoringRows.filter((row) => row.executionId === input.executionId),
+    eligibleRows = exactRows.length ? exactRows : authoringRows;
+  return {
+    authoring: [
+      ...new Map(
+        eligibleRows.map((dispatch) => [
+          dispatch.runtimeSessionId,
+          {
+            runtimeSessionId: dispatch.runtimeSessionId,
+            executorId: `runtime-session:${dispatch.runtimeSessionId}`,
+            agentId: dispatch.agentId,
+            dispatchTaskId: dispatch.taskId,
+            executionId: dispatch.executionId,
+          },
+        ]),
+      ).values(),
+    ],
+    reviewerExecutorIds,
+  };
 }
 
 /** Reviewer identity is canonical in the dispatch event, including rows whose projected role is absent. */
