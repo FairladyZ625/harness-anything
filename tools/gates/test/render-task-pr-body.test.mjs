@@ -258,7 +258,10 @@ test("PR renderer replaces the canonical template default with the generated dec
 });
 
 test("PR renderer refuses to invent an authority when no decision or Execution Surface exists", () => {
-  assert.throws(() => renderProtected({ authorizedSurface: "" }), /no authorizing decision or Execution Surface/u);
+  assert.throws(
+    () => renderProtected({ authorizedSurface: "" }),
+    /no authorizing decision, Execution Surface, or closeout declaration/u,
+  );
 });
 
 test("PR renderer preserves a standalone task's authored authority without a ledger source", () => {
@@ -341,6 +344,32 @@ test("editing a generated declaration to record break-glass survives re-renderin
     checkPrGovernance({ body: second, changedFiles: protectedSubmission().changedFiles, manifest }).ok,
     true,
   );
+});
+
+test("editing a generated declaration's authorization and scope values survives re-rendering", () => {
+  const first = renderProtected(),
+    edited = first
+      .replace(`- Authority: ${protectedId}`, "- Authority: ADR-0023")
+      .replace(`- Authorized surface: ${authorizedSurface}`, "- Authorized surface: Explicit emergency scope"),
+    second = renderProtected({ body: edited }),
+    section = governanceSection(second);
+  assert.match(section, /^- Authority: ADR-0023$/mu);
+  assert.match(section, /^- Authorized surface: Explicit emergency scope$/mu);
+  assert.equal(
+    checkPrGovernance({ body: second, changedFiles: protectedSubmission().changedFiles, manifest }).ok,
+    true,
+  );
+});
+
+test("a governance declaration supplied by the closeout is published and kept", () => {
+  const closeoutWithGovernance = `${closeout}\n\n## Governance Declaration\n\n- Authority: ADR-0023 D5\n- Break-glass: no\n`,
+    first = renderProtected({ authorizedSurface: "", closeout: closeoutWithGovernance }),
+    second = renderProtected({ authorizedSurface: "", closeout: closeoutWithGovernance, body: first }),
+    section = governanceSection(first);
+  assert.match(section, /^- Authority: ADR-0023 D5$/mu);
+  assert.doesNotMatch(section, /harness:generated-governance/u, "the closeout declaration is authored, not generated");
+  assert.equal(checkPrGovernance({ body: first, changedFiles: protectedSubmission().changedFiles, manifest }).ok, true);
+  assert.match(governanceSection(second), /^- Authority: ADR-0023 D5$/mu);
 });
 
 test("an authored break-glass declaration is preserved instead of being downgraded", () => {
