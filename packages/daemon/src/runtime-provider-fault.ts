@@ -17,6 +17,14 @@ const quota =
   // request) stays outside: those are not transport faults and must not switch providers.
   incompleteStream =
     /\b(?:incomplete response|(?:stream|sse).*(?:disconnected|ended|incomplete|event type mismatch)|event type mismatch|before message_stop|deepseek messages (?:stream|sse|transport failed)\b)/iu,
+  // A dropped connection never delivered an answer to judge, so it is the same transport fault as a
+  // broken stream (dec_FCD38D503B0C0752B83A417246 CH2). The family is named by transport vocabulary
+  // and the OS error codes Node surfaces, not by one provider's sentence: the measured case is
+  // devin-main's `Connection error, send a message to continue retrying`. A well-formed refusal
+  // (`request failed (404)`, missing workspace metadata, a completed connection with no content)
+  // stays outside: those are not connection losses and must not switch providers.
+  connectionFailure =
+    /\b(?:connection (?:error|refused|reset|closed|aborted|dropped|lost|failed|terminated|interrupted|timed out|timeout)|failed to connect|socket (?:error|hang ?up|closed)|network (?:error|failure|unreachable|is unreachable)|transport (?:error|failure))\b|\b(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)\b/iu,
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
   auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
 
@@ -186,6 +194,10 @@ export function classifyRuntimeExit(
   // work after the worker has already called a tool.
   if (attemptFailed && providerFault?.code === "request_unavailable" && active.toolCallObserved)
     return classified("gate_red", providerFault.reason);
+  // A connection that dropped after the worker already called a tool may have left work behind;
+  // keep that attempt a task failure instead of replaying it on the next provider.
+  if (attemptFailed && providerFault?.code === "provider_disconnected" && active.toolCallObserved)
+    return classified("gate_red", providerFault.reason);
   if (attemptFailed && providerFault)
     return {
       ...classified(providerFault.faultClass ? "provider_quota" : "provider_fault", providerFault.reason),
@@ -328,6 +340,12 @@ function providerFaultFromDiagnostic(
   const joined = [code, diagnostic].filter((value): value is string => value !== null).join(" "),
     reason = providerReason(responseCode, joined);
   if (/^request_unavailable$/iu.test(code ?? "")) return fault("request_unavailable", reason);
+  // A connection diagnostic can also carry quota, rate-limit, capacity, broken-stream, or status
+  // wording (for example `Connection error, please try again later` or a 429 whose body also says
+  // the connection dropped). The connection cause owns the classification so the post-tool
+  // no-replay guard in classifyRuntimeExit covers those overlaps too; pure quota/rate/capacity/
+  // stream diagnostics stay below with their existing fault classes.
+  if (connectionFailure.test(joined)) return fault("provider_disconnected", reason);
   if (quota.test(joined)) return fault("quota_exhausted", reason, "quota_exhausted", resetAt);
   if (responseCode === 429 || /rate[_ -]?limit|too many requests/iu.test(joined))
     return fault("rate_limited", reason, "rate_limited", resetAt);

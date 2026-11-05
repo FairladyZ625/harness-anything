@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import { isProviderFailureClassification } from "../src/runtime-fallback-contract.ts";
 import {
   classifyRuntimeExit,
   observeProviderFault,
@@ -82,6 +83,167 @@ test("request_unavailable is retryable only before tool activity; other startup 
     "gate_red",
     "non-transient request validation errors do not retry",
   );
+});
+
+// Measured on instance devin-main (2026-09-18~19): the ACP provider reported
+// `Connection error, send a message to continue retrying` after the upstream connection dropped.
+// A turn that never reached a tool call is a transport failure, not a task verdict
+// (dec_FCD38D503B0C0752B83A417246 CH2); once a tool has run, the attempt may have changed the
+// workspace and must not be replayed on the next provider.
+test("connection loss retries before tool activity and stays a task failure after it", () => {
+  const diagnostic = "Connection error, send a message to continue retrying",
+    frameFault = providerFaultFromFrame("devin", { type: "acp.error", message: diagnostic }),
+    stderrFault = providerFaultFromStderr("devin", diagnostic),
+    beforeTool = classifyRuntimeExit(
+      active({
+        kindId: "devin",
+        providerOutcome: "failed",
+        failureText: diagnostic,
+        providerFault: frameFault,
+      }),
+      1,
+    ),
+    afterTool = classifyRuntimeExit(
+      active({
+        kindId: "devin",
+        providerOutcome: "failed",
+        failureText: diagnostic,
+        providerFault: frameFault,
+        toolCallObserved: true,
+      }),
+      1,
+    );
+
+  assert.equal(frameFault?.code, "provider_disconnected");
+  assert.equal(stderrFault?.code, "provider_disconnected");
+  assert.equal(frameFault?.reason, diagnostic);
+  assert.equal(beforeTool.outcome, "failed");
+  assert.equal(beforeTool.classification, "provider_fault");
+  assert.equal(afterTool.outcome, "failed");
+  assert.equal(afterTool.classification, "gate_red");
+  assert.equal(afterTool.reason, diagnostic);
+});
+
+test("the connection-failure family covers transport wording but not task refusals", () => {
+  for (const diagnostic of [
+    "Connection error, send a message to continue retrying",
+    "connection reset by peer",
+    "read ECONNRESET",
+    "socket hang up",
+    "Failed to connect to upstream",
+    "network is unreachable",
+    "transport error",
+  ])
+    assert.equal(providerFaultFromStderr("devin", diagnostic)?.code, "provider_disconnected", diagnostic);
+  for (const refusal of [
+    "Connection metadata is missing from the workspace",
+    "Connection established; the request returned no content",
+    "DeepSeek Messages request failed (404)",
+  ])
+    assert.equal(providerFaultFromStderr("devin", refusal), null, refusal);
+});
+
+// A connection diagnostic can also contain the capacity, broken-stream, or HTTP wording that older
+// rules match first. The no-replay rule must follow the connection cause, not whichever regex ran
+// first: post-tool the attempt may have left work behind, so it stays gate_red. Pure capacity and
+// pure stream diagnostics keep their existing provider_fault semantics.
+test("connection failures overlapping capacity, stream, or HTTP rules keep the post-tool no-replay guard", () => {
+  const overlaps = [
+    ["capacity", "Connection error, please try again later"],
+    ["stream", "stream disconnected: connection reset by peer"],
+  ];
+  for (const [family, diagnostic] of overlaps) {
+    const fault = providerFaultFromFrame("devin", { type: "acp.error", message: diagnostic }),
+      beforeTool = classifyRuntimeExit(
+        active({ kindId: "devin", providerOutcome: "failed", failureText: diagnostic, providerFault: fault }),
+        1,
+      ),
+      afterTool = classifyRuntimeExit(
+        active({
+          kindId: "devin",
+          providerOutcome: "failed",
+          failureText: diagnostic,
+          providerFault: fault,
+          toolCallObserved: true,
+        }),
+        1,
+      );
+    assert.equal(fault?.code, "provider_disconnected", family);
+    assert.equal(beforeTool.classification, "provider_fault", family);
+    assert.equal(afterTool.classification, "gate_red", family);
+  }
+
+  const httpOverlap = providerFaultFromFrame("codex", {
+      type: "turn.failed",
+      error: { http_status: 500, message: "connection reset by peer" },
+    }),
+    httpBeforeTool = classifyRuntimeExit(
+      active({ providerOutcome: "failed", providerFault: httpOverlap, errorBuffer: "connection reset by peer" }),
+      1,
+    ),
+    httpAfterTool = classifyRuntimeExit(
+      active({
+        providerOutcome: "failed",
+        providerFault: httpOverlap,
+        toolCallObserved: true,
+        errorBuffer: "connection reset by peer",
+      }),
+      1,
+    );
+  assert.equal(httpOverlap?.code, "provider_disconnected");
+  assert.equal(httpBeforeTool.classification, "provider_fault");
+  assert.equal(httpAfterTool.classification, "gate_red");
+
+  for (const diagnostic of ["service is busy; please try again later", "stream disconnected before completion"]) {
+    const fault = providerFaultFromFrame("codex", { type: "turn.failed", error: { message: diagnostic } }),
+      afterTool = classifyRuntimeExit(
+        active({ providerOutcome: "failed", failureText: diagnostic, providerFault: fault, toolCallObserved: true }),
+        1,
+      );
+    assert.equal(fault?.code, "server_error", diagnostic);
+    assert.equal(afterTool.classification, "provider_fault", diagnostic);
+  }
+});
+
+// A connection diagnostic can also arrive beside a 429 or quota/rate-limit wording. Those classes
+// are checked before the connection family elsewhere, and `provider_quota` is fallback-eligible, so
+// letting them win would replay an attempt that may already have called a tool. The connection
+// cause therefore outranks them; pure quota/rate-limit diagnostics keep their existing class.
+test("connection failures overlapping quota or rate-limit keep the post-tool no-replay guard", () => {
+  const overlaps: [string, Record<string, unknown>][] = [
+    ["429", { http_status: 429, message: "Connection error, send a message to continue retrying" }],
+    ["rate-limit text", { message: "Connection error, send a message to continue retrying: too many requests" }],
+    ["quota text", { message: "Connection error, send a message to continue retrying: quota exceeded" }],
+  ];
+  for (const [family, error] of overlaps) {
+    const fault = providerFaultFromFrame("codex", { type: "turn.failed", error }),
+      beforeTool = classifyRuntimeExit(active({ providerOutcome: "failed", providerFault: fault }), 1),
+      afterTool = classifyRuntimeExit(
+        active({ providerOutcome: "failed", providerFault: fault, toolCallObserved: true }),
+        1,
+      );
+    assert.equal(fault?.code, "provider_disconnected", family);
+    assert.equal(beforeTool.classification, "provider_fault", family);
+    assert.equal(isProviderFailureClassification(beforeTool.classification), true, family);
+    assert.equal(afterTool.classification, "gate_red", family);
+    assert.equal(isProviderFailureClassification(afterTool.classification), false, family);
+  }
+
+  const pureFaults: [string, Record<string, unknown>, string][] = [
+    ["pure 429", { http_status: 429, message: "request throttled" }, "rate_limited"],
+    ["pure quota", { message: "quota exceeded" }, "quota_exhausted"],
+  ];
+  for (const [family, error, code] of pureFaults) {
+    const fault = providerFaultFromFrame("codex", { type: "turn.failed", error }),
+      beforeTool = classifyRuntimeExit(active({ providerOutcome: "failed", providerFault: fault }), 1),
+      afterTool = classifyRuntimeExit(
+        active({ providerOutcome: "failed", providerFault: fault, toolCallObserved: true }),
+        1,
+      );
+    assert.equal(fault?.code, code, family);
+    assert.equal(beforeTool.classification, "provider_quota", family);
+    assert.equal(afterTool.classification, "provider_quota", family);
+  }
 });
 
 test("Codex tool item.started closes the startup retry window before item completion", () => {
