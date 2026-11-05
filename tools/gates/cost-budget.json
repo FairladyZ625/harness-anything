@@ -2374,11 +2374,7 @@
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 163, firstCall 73 -> 163 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
+        "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
         "probe": "cli-decision-verify",
@@ -2387,11 +2383,7 @@
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 163, firstCall 73 -> 163 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
+        "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
         "probe": "cli-doctor-health",
@@ -3264,11 +3256,7 @@
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 163, firstCall 73 -> 163 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
+        "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
         "probe": "cli-decision-verify",
@@ -3277,11 +3265,7 @@
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 163, firstCall 73 -> 163 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
+        "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
         "probe": "cli-doctor-health",
