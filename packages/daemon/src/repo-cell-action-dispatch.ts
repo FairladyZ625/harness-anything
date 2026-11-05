@@ -753,10 +753,13 @@ export function declareExecutionExecutor(
         const document = cell.projection.readDocument(target).document;
         return document ? [document] : [];
       }),
-      completionContext: {
-        ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status, cell.rootDir),
-        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
-      },
+      completionContext: readCompletionContext(
+        cell.projection,
+        taskId,
+        declaration.snapshot,
+        current.status,
+        cell.rootDir,
+      ),
     }),
     appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);
@@ -823,10 +826,13 @@ export function annotateExecution(
         const document = cell.projection.readDocument(target).document;
         return document ? [document] : [];
       }),
-      completionContext: {
-        ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status, cell.rootDir),
-        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
-      },
+      completionContext: readCompletionContext(
+        cell.projection,
+        taskId,
+        annotation.snapshot,
+        current.status,
+        cell.rootDir,
+      ),
     }),
     appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);

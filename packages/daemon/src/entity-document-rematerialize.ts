@@ -26,7 +26,6 @@ import { publicationKillpoints } from "./entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
-import { readTaskLineageDispatches } from "./dispatch-read.ts";
 
 type RematerializeEntityKind = "decision" | "fact" | "task";
 
@@ -346,10 +345,7 @@ function taskDocumentUpdates(
     packagePath,
     paths,
     currentDocuments,
-    completionContext: {
-      ...readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir),
-      hasDispatchLineage: readTaskLineageDispatches({ projection, taskId }).length > 0,
-    },
+    completionContext: readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir),
   }).map(({ path, body }) => ({
     path,
     policyId: "typed-machine-writer/v1",

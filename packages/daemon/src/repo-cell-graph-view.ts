@@ -6,7 +6,7 @@ import {
   type CausalGraphNodeInfo,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.ts";
+import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 

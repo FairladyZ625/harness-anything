@@ -11,6 +11,7 @@ import { runProcessTextAsync } from "./process-port.ts";
 import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
 import { doctorLocalRootResidue } from "./repo-local-root-residue.ts";
+import { taskLineageHasAuthoringDispatch } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -42,7 +43,7 @@ export async function doctorHealth(
   const submitted = submittedRoundExecutions(cell),
     checks: DoctorCheck[] = [
       await staleDeliveredCheck(submitted, tips),
-      executorUndeclaredCheck(submitted),
+      executorUndeclaredCheck(submitted, cell),
       orphanLeaseCheck(cell),
       wipPressureCheck(cell),
       doctorLocalRootResidue(cell.rootDir),
@@ -207,10 +208,22 @@ async function gitHasCommit(roots: readonly string[], sha: string): Promise<stri
   return null;
 }
 
-// A submitted execution with executor=null cannot attribute the work to the runtime that did
-// it; review and completion of that cut are unsafe. Every item is a failure.
-function executorUndeclaredCheck(submitted: ReturnType<typeof submittedRoundExecutions>): DoctorCheck {
-  const items = submitted.filter((entry) => entry.node === "review" && entry.executor === null);
+// A submitted execution with executor=null cannot attribute the work to the runtime that did it.
+// A dispatched cut recovers its executor from that record; a dispatchless one can only be closed by
+// an independent review, so naming declare-executor there would advertise a proof it can never meet.
+function executorUndeclaredCheck(
+  submitted: ReturnType<typeof submittedRoundExecutions>,
+  cell: RepoCellOperationalContext,
+): DoctorCheck {
+  const items = submitted
+    .filter((entry) => entry.node === "review" && entry.executor === null)
+    .map((entry) => ({
+      ...entry,
+      hasAuthoringDispatch: taskLineageHasAuthoringDispatch({
+        projection: cell.projection,
+        taskId: entry.taskId,
+      }),
+    }));
   return {
     id: "executor-undeclared",
     status: items.length ? "fail" : "ok",
@@ -221,8 +234,16 @@ function executorUndeclaredCheck(submitted: ReturnType<typeof submittedRoundExec
       : "Every submitted execution names the executor that produced it.",
     count: items.length,
     next: items.length
-      ? "Declare the executor with ha task declare-executor <task-id> --execution-id <id> " +
-        "--agent <agent-id> --reason <reason> before review."
+      ? items
+          .map((entry) =>
+            entry.hasAuthoringDispatch
+              ? `Declare the executor with ha task declare-executor ${entry.taskId} ` +
+                `--execution-id ${entry.executionId} --agent <agent-id> --reason <reason> before review.`
+              : `Record an independent review with ha task review-execution ${entry.taskId} ` +
+                `--execution-id ${entry.executionId} --review-id <review-id> --from-file <review.json>; ` +
+                "this execution has no authoring dispatch to declare.",
+          )
+          .join(" ")
       : "Nothing to do.",
   };
 }

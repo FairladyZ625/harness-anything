@@ -239,16 +239,18 @@ function evaluateCompletion(
     return one(
       "executor_missing",
       "lifecycle",
-      context.hasDispatchLineage === false
-        ? `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`
-        : [
+      // Only an explicit authoring-dispatch proof makes declare-executor runnable; an unknown or
+      // dispatchless lineage can only be closed by the independent review that judges the cut.
+      context.hasDispatchLineage === true
+        ? [
             `ha task declare-executor ${task.taskId}`,
             `--execution-id ${executionId}`,
             "--reason <auditable-recovery-reason>",
-          ].join(" "),
-      context.hasDispatchLineage === false
-        ? "This execution has no dispatch record to declare; an independent reviewer must record the review."
-        : "The submitted execution is already at review; restore its omitted executor from its dispatch record.",
+          ].join(" ")
+        : `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
+      context.hasDispatchLineage === true
+        ? "The submitted execution is already at review; restore its omitted executor from its dispatch record."
+        : "This execution has no authoring dispatch to declare; an independent reviewer must record the review.",
     );
   if (task.status === "submitted" && context.closeoutGates?.review !== false)
     return one(

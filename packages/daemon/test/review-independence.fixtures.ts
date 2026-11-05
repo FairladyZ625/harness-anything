@@ -63,7 +63,7 @@ export function writeCloseout(rootDir: string, packagePath: unknown): void {
   );
 }
 
-export function writeSettingsFixture(rootDir: string): void {
+export function writeSettingsFixture(rootDir: string, closeoutProfile?: "strict"): void {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "harness/harness.yaml"),
@@ -76,6 +76,7 @@ export function writeSettingsFixture(rootDir: string): void {
       "  defaultVertical: software/coding",
       "  defaultPreset: standard-task",
       "  defaultProfile: baseline",
+      ...(closeoutProfile === undefined ? [] : ["  closeout:", `    profile: ${closeoutProfile}`]),
       "  scaffolds:",
       "    task: governance/task-scaffold.json",
       "    repository: governance/repository-scaffold.json",

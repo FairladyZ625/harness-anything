@@ -1,5 +1,5 @@
 import type { DecisionProjectionRow, TaskIndexProjectionRow, TaskProjectionQueries } from "@harness-anything/kernel";
-import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.ts";
+import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
 
 /**
  * Dispatch-time causal context: the bounded slice of the causal graph a freshly

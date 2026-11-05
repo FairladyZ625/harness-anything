@@ -22,7 +22,6 @@ import {
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
-import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { taskMutationForRuntimeTerminal } from "./repo-cell-task-mutation.ts";
@@ -624,10 +623,7 @@ export function prepareTaskSurfaceWriteAt(
       snapshot: next,
       packagePath: current.packagePath,
       currentDocuments: documents,
-      completionContext: {
-        ...readCompletionContext(cell.projection, taskId, next, current.status, cell.rootDir),
-        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
-      },
+      completionContext: readCompletionContext(cell.projection, taskId, next, current.status, cell.rootDir),
     });
   return {
     compiled,

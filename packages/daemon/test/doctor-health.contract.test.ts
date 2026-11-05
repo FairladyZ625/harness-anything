@@ -304,6 +304,21 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
       list: (query: { status: string; limit?: number }) => ({
         rows: query.status === "in_review" ? rows.slice(0, query.limit) : [],
       }),
+      read: (taskId: string) => ({ snapshot: rows.find((row) => row.taskId === taskId)?.snapshot }),
+      readTaskRuntimeBatch: (query: { taskIds: readonly string[] }) => ({
+        status: "ready",
+        taskIds: query.taskIds,
+        rows: query.taskIds.map((taskId) => ({
+          taskId,
+          title: taskId,
+          packagePath: `tasks/${taskId}`,
+          sessions: [],
+        })),
+        watermark: 1,
+        sourceRevision: 1,
+        page: { limit: 500, cursor: null, nextCursor: null },
+      }),
+      readRuntimeDispatchesByTaskIds: () => [],
       readTaskChildCounts: () => ({}),
       currentLease: (taskId: string) =>
         taskId === "task_500"
@@ -323,10 +338,16 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
   };
   try {
     const receipt = (await doctorHealth(cell as never, { kind: "doctor-health" }, binding)) as Record<string, unknown>,
-      checks = receipt.checks as { id: string; status: string; count: number; summary: string }[],
+      checks = receipt.checks as { id: string; status: string; count: number; summary: string; next: string }[],
       byId = new Map(checks.map((check) => [check.id, check]));
     assert.equal(byId.get("executor-undeclared")?.count, 1);
     assert.equal(byId.get("executor-undeclared")?.status, "fail");
+    assert.match(byId.get("executor-undeclared")!.next, /ha task review-execution task_500 --execution-id exe_500/u);
+    assert.doesNotMatch(
+      byId.get("executor-undeclared")!.next,
+      /declare-executor/u,
+      "a dispatchless execution cannot satisfy declare-executor, so the doctor must not recommend it",
+    );
     assert.equal(byId.get("orphan-lease")?.count, 1);
     assert.equal(byId.get("stale-delivered")?.count, 501);
     assert.match(byId.get("stale-delivered")!.summary, /not yet merged/u);

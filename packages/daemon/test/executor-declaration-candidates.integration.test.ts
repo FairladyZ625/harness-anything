@@ -432,3 +432,122 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+// The reported defect: the owner authored the work outside the ledger (no runtime dispatch at all)
+// and submitted it with --as-owner. `ha task show` advertised `ha task declare-executor`, but that
+// command's proof requires a dispatch record, so the advertised next step could never run. The one
+// executable step for an executorless, un-reviewed cut is the independent review itself; once it is
+// recorded the missing executor no longer blocks.
+test("a dispatchless owner submission names the executable review step, not declare-executor", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-executor-dispatchless-")),
+    repoId = "executor-dispatchless",
+    taskId = "task-executor-dispatchless",
+    executionId = "exec-dispatchless",
+    reviewId = "dispatchless-review";
+  let cell: RepoCell | undefined;
+  try {
+    initRepo(rootDir);
+    writeSettingsFixture(rootDir, "strict");
+    cell = await openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "daemon-test",
+    });
+    const person = { personId: "person-owner" },
+      owner = withPolicyGroup(
+        withPolicyGroup({ actor: { principal: person, executor: null }, source: "local" as const }, "maintainer"),
+        "contributor",
+      ),
+      reviewer = withPolicyGroup(
+        withPolicyGroup(
+          {
+            actor: {
+              principal: { personId: "person-independent-reviewer" },
+              executor: { kind: "agent" as const, id: "independent-review-agent" },
+            },
+            source: "local" as const,
+          },
+          "maintainer",
+        ),
+        "contributor",
+      );
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Dispatchless owner delivery", presetId: "standard-task" },
+      owner,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, owner);
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
+    await commitDelivery(cell, rootDir);
+    writeCloseout(rootDir, packagePath);
+    assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, owner)), "applied");
+
+    const shown = (await cell.run({ kind: "task-show", taskId }, owner)) as Record<string, unknown>,
+      evidence = JSON.parse(String(shown.evidence)) as {
+        readonly executions: readonly {
+          readonly executionId: string;
+          readonly actor: { readonly executor: unknown };
+        }[];
+        readonly completionNext: { readonly action: string } | null;
+        readonly completionBlocker: { readonly code: string } | null;
+      };
+    assert.equal(
+      evidence.executions.find((execution) => execution.executionId === executionId)?.actor.executor,
+      null,
+      "the fixture must reproduce the reported dispatchless (executor=null) execution",
+    );
+    assert.equal(evidence.completionBlocker?.code, "executor_missing", JSON.stringify(evidence.completionBlocker));
+    assert.match(
+      evidence.completionNext?.action ?? "",
+      /^ha task review-execution /u,
+      "an executorless cut with no dispatch must point at the independent review it can actually run",
+    );
+    assert.doesNotMatch(evidence.completionNext?.action ?? "", /declare-executor/u);
+
+    // Run the advertised command in the same cell: it must not need a dispatch record.
+    writeFileSync(
+      path.join(rootDir, "dispatchless-review.json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "The independent reviewer inspected the dispatchless owner delivery.",
+        evidenceChecked: ["focused regression test"],
+        findings: [],
+        resolutions: [],
+      }),
+    );
+    const reviewReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
+    mkdirSync(reviewReportDir, { recursive: true });
+    writeFileSync(
+      path.join(reviewReportDir, `${reviewId}.md`),
+      "# Review dispatchless-review\n\nThe independent reviewer inspected the owner delivery.\n",
+    );
+    const reviewed = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId,
+        fromFile: "dispatchless-review.json",
+      },
+      reviewer,
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+
+    const after = (await cell.run({ kind: "task-show", taskId }, owner)) as Record<string, unknown>,
+      afterEvidence = JSON.parse(String(after.evidence)) as {
+        readonly completionBlocker: { readonly code: string } | null;
+      };
+    assert.notEqual(
+      afterEvidence.completionBlocker?.code,
+      "executor_missing",
+      "recording the independent review settles the independence judgment the missing executor stood for",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

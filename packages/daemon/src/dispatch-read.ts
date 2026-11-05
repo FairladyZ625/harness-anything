@@ -393,6 +393,21 @@ export function readTaskLineageDispatches(input: {
   return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
 
+/**
+ * Whether declare-executor has an authoring dispatch it can replay as executor proof. Reviewer
+ * dispatches are excluded: attribution exists to judge reviewer independence, so a review session
+ * offered as a candidate would let the reviewer become the declared author. This is the one
+ * predicate both the declaration and the completion next step read.
+ */
+export function taskLineageHasAuthoringDispatch(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+}): boolean {
+  return readTaskLineageDispatches(input).some(
+    (dispatch) => !isReviewerDispatch(input.projection, dispatch.dispatchId),
+  );
+}
+
 /** Reviewer identity is canonical in the dispatch event, including rows whose projected role is absent. */
 export function isReviewerDispatch(
   projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById">,

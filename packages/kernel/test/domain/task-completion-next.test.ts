@@ -612,6 +612,25 @@ test("an executorless review without dispatch lineage names an executable indepe
   assert.doesNotMatch(result.next!.action, /declare-executor/u);
 });
 
+test("unknown dispatch lineage defaults to the executable review step, never a dead declare-executor", () => {
+  // A caller that cannot answer the lineage question must not fall back to the one command that
+  // requires a dispatch record: undeclared proof is the same shape as no authoring dispatch.
+  const inReview = at(3),
+    executorless = {
+      ...inReview,
+      executions: inReview.executions.map((execution) => ({
+        ...execution,
+        actor: { ...execution.actor, executor: null },
+      })),
+    },
+    result = taskCompletionNext(executorless, context);
+  assert.equal(result.blocker?.code, "executor_missing");
+  assert.equal(
+    result.next?.action,
+    "ha task review-execution task-1 --execution-id execution-1 --review-id <id> --from-file <review.json>",
+  );
+});
+
 test("a missing executor blocks only while an independent review is still owed", () => {
   const withoutExecutor = (snapshot: ReturnType<typeof at>) => ({
       ...snapshot,
