@@ -30,7 +30,7 @@ import { runMigrationImport } from "./migration-import.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
-import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
+import { selectExecutorDeclaration, taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -736,7 +736,7 @@ export function declareExecutionExecutor(
       executionId,
       actor: binding.actor,
       executor: dispatchProof.executor,
-      dispatchTaskId: dispatchProof.dispatchTaskId,
+      ...(dispatchProof.dispatchTaskId === undefined ? {} : { dispatchTaskId: dispatchProof.dispatchTaskId }),
       source: binding.source,
       reason,
       opId,
@@ -753,10 +753,13 @@ export function declareExecutionExecutor(
         const document = cell.projection.readDocument(target).document;
         return document ? [document] : [];
       }),
-      completionContext: {
-        ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status, cell.rootDir),
-        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
-      },
+      completionContext: readCompletionContext(
+        cell.projection,
+        taskId,
+        declaration.snapshot,
+        current.status,
+        cell.rootDir,
+      ),
     }),
     appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);
@@ -823,10 +826,13 @@ export function annotateExecution(
         const document = cell.projection.readDocument(target).document;
         return document ? [document] : [];
       }),
-      completionContext: {
-        ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status, cell.rootDir),
-        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
-      },
+      completionContext: readCompletionContext(
+        cell.projection,
+        taskId,
+        annotation.snapshot,
+        current.status,
+        cell.rootDir,
+      ),
     }),
     appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);
@@ -848,63 +854,55 @@ function dispatchedExecutor(
   declarationCandidates: readonly { readonly executionId: string }[],
 ): {
   readonly executor: { readonly kind: "agent"; readonly id: string };
-  readonly dispatchTaskId: string;
+  readonly dispatchTaskId?: string;
 } {
   const requested = action.agent === undefined ? undefined : cell.requiredCellText(action.agent, "agent"),
-    // Reviewer dispatches never name an executor: attribution exists to judge reviewer independence,
-    // so a review session offered as a candidate would let the reviewer become the declared author.
-    // Filtering before the execution cut keeps the lineage fallback able to reach an earlier
-    // iteration's authoring dispatch when the current execution only ever hosted review sessions.
-    rows = readTaskLineageDispatches({ projection: cell.projection, taskId }).filter(
-      (dispatch) => !isReviewerDispatch(cell.projection, dispatch.dispatchId),
-    ),
-    exactRows = rows.filter((dispatch) => dispatch.executionId === executionId),
-    eligibleRows = exactRows.length ? exactRows : rows,
-    candidates = [
-      ...new Map(
-        eligibleRows.map((dispatch) => [
-          dispatch.runtimeSessionId,
-          {
-            runtimeSessionId: dispatch.runtimeSessionId,
-            executorId: `runtime-session:${dispatch.runtimeSessionId}`,
-            agentId: dispatch.agentId,
-            dispatchTaskId: dispatch.taskId,
-          },
-        ]),
-      ).values(),
-    ],
-    matches = requested
-      ? candidates.filter(
-          (candidate) =>
-            requested === candidate.executorId ||
-            requested === candidate.runtimeSessionId ||
-            requested === candidate.agentId,
-        )
-      : candidates;
-  if (matches.length === 1)
+    lineage = taskLineageExecutorCandidates({
+      projection: cell.projection,
+      taskId,
+      executionId,
+    }),
+    selection = selectExecutorDeclaration({
+      requested,
+      exact: lineage.exact,
+      fallback: lineage.fallback,
+      reviewerIdentities: lineage.reviewerIdentities,
+    });
+  if (selection.kind === "replay")
     return {
-      executor: { kind: "agent", id: matches[0]!.executorId },
-      dispatchTaskId: matches[0]!.dispatchTaskId,
+      executor: { kind: "agent", id: selection.candidate.executorId },
+      dispatchTaskId: selection.candidate.dispatchTaskId,
     };
-  const choices = candidates.map((candidate) => candidate.executorId);
-  if (candidates.length === 0) {
+  if (selection.kind === "external") {
+    assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, declarationCandidates);
+    // Out-of-ledger work has no dispatch to replay: the caller's explicit agent id and the reason
+    // are the attribution record, written through the same declaration event as a replayed dispatch.
+    return { executor: { kind: "agent", id: selection.executorId } };
+  }
+  if (selection.kind === "reviewer-alias")
+    throw cell.cellCodedError(
+      "invalid_proof",
+      `--agent ${selection.requested} is a reviewer identity on this lineage; reviewer sessions never carry ` +
+        "executor attribution. Name the authoring agent that performed the work.",
+    );
+  if (selection.kind === "owner-declaration-required") {
     assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, declarationCandidates);
     throw cell.cellCodedError(
       "invalid_proof",
-      `Task ${taskId} has no non-reviewer runtime dispatch on itself or its parent chain; ` +
-        `reviewer sessions never carry executor attribution. Run ha task dispatches ${taskId}; ` +
-        "executor declaration remains unavailable until an authoring dispatch record exists.",
+      `Task ${taskId} has no authoring dispatch to replay. Declare the agent that performed the work with ` +
+        `ha task declare-executor ${taskId} --execution-id ${executionId} --agent <agent-id> ` +
+        "--reason <auditable-recovery-reason>; reviewer sessions never carry executor attribution.",
     );
   }
-  if (requested)
+  if (selection.requested !== undefined)
     throw cell.cellCodedError(
       "invalid_proof",
-      `--agent ${requested} does not name exactly one dispatch for execution ${executionId}. ` +
-        `Choose ${choices.join(" or ")} from ha task dispatches ${taskId}.`,
+      `--agent ${selection.requested} does not name exactly one dispatch for execution ${executionId}. ` +
+        `Choose ${selection.choices.join(" or ")} from ha task dispatches ${taskId}.`,
     );
   throw cell.cellCodedError(
     "invalid_command",
-    `Execution ${executionId} has multiple dispatched executors. Choose one explicitly with ${choices
+    `Execution ${executionId} has multiple dispatched executors. Choose one explicitly with ${selection.choices
       .map(
         (agent) =>
           `ha task declare-executor ${taskId} --execution-id ${executionId} --agent ${agent} --reason <reason>`,

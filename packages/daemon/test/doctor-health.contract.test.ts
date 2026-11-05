@@ -289,7 +289,12 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
           iteration: 1,
           state: "submitted",
           actor: i === 500 ? { ...actor, executor: null } : actor,
-          submission: { commitSha: delivery },
+          submission: {
+            commitSha: delivery,
+            completionContract: {
+              closeoutGates: { review: true, consent: true, factDisposition: true },
+            },
+          },
         },
       ],
     },
@@ -304,6 +309,21 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
       list: (query: { status: string; limit?: number }) => ({
         rows: query.status === "in_review" ? rows.slice(0, query.limit) : [],
       }),
+      read: (taskId: string) => ({ snapshot: rows.find((row) => row.taskId === taskId)?.snapshot }),
+      readTaskRuntimeBatch: (query: { taskIds: readonly string[] }) => ({
+        status: "ready",
+        taskIds: query.taskIds,
+        rows: query.taskIds.map((taskId) => ({
+          taskId,
+          title: taskId,
+          packagePath: `tasks/${taskId}`,
+          sessions: [],
+        })),
+        watermark: 1,
+        sourceRevision: 1,
+        page: { limit: 500, cursor: null, nextCursor: null },
+      }),
+      readRuntimeDispatchesByTaskIds: () => [],
       readTaskChildCounts: () => ({}),
       currentLease: (taskId: string) =>
         taskId === "task_500"
@@ -323,10 +343,20 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
   };
   try {
     const receipt = (await doctorHealth(cell as never, { kind: "doctor-health" }, binding)) as Record<string, unknown>,
-      checks = receipt.checks as { id: string; status: string; count: number; summary: string }[],
+      checks = receipt.checks as { id: string; status: string; count: number; summary: string; next: string }[],
       byId = new Map(checks.map((check) => [check.id, check]));
     assert.equal(byId.get("executor-undeclared")?.count, 1);
     assert.equal(byId.get("executor-undeclared")?.status, "fail");
+    assert.match(
+      byId.get("executor-undeclared")!.next,
+      /ha task declare-executor task_500 --execution-id exe_500 --agent <agent-id>/u,
+      "a dispatchless execution must name the owner declaration that can actually run",
+    );
+    assert.doesNotMatch(
+      byId.get("executor-undeclared")!.next,
+      /ha task review-execution/u,
+      "the owner declaration is the executable attribution step when no authoring dispatch exists",
+    );
     assert.equal(byId.get("orphan-lease")?.count, 1);
     assert.equal(byId.get("stale-delivered")?.count, 501);
     assert.match(byId.get("stale-delivered")!.summary, /not yet merged/u);

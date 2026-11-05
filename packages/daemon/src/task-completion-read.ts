@@ -7,7 +7,9 @@ import {
   currentExecutionCuts,
   deliveryTargetRef,
   INITIAL_SETTINGS_V1,
+  isNativeExecution,
   resolveHarnessLayout,
+  reviewsForExecution,
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
   taskCompletionAction,
@@ -25,6 +27,7 @@ import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 import { deliveryContainment, EMPTY_TREE_SHA, rebaseEquivalentDelivery } from "./task-delivery-containment.ts";
+import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
@@ -63,8 +66,32 @@ export function readCompletionContext(
       relationType: "produces",
       state: "active",
     }).status,
+    closeoutGates = readEffectiveCloseoutGates(projection, snapshot),
+    // The executor gate only asks for dispatch proof while an independent review is still owed.
+    // Reading lineage otherwise would add a dispatch scan to every task read for a value no
+    // judgment consumes, and a read that cannot answer it would turn into a false "no dispatch".
+    executorlessReview =
+      snapshot.task?.status === "in_review" && closeoutGates.review !== false
+        ? snapshot.executions.find(
+            (execution) =>
+              isNativeExecution(execution) &&
+              execution.iteration === snapshot.task?.iteration &&
+              execution.state === "submitted" &&
+              execution.actor.executor === null &&
+              reviewsForExecution(snapshot.reviews, execution).length === 0,
+          )
+        : undefined,
     common = {
-      closeoutGates: readEffectiveCloseoutGates(projection, snapshot),
+      closeoutGates,
+      ...(executorlessReview
+        ? {
+            executorDeclarationCandidates: taskLineageExecutorCandidates({
+              projection,
+              taskId,
+              executionId: executorlessReview.executionId,
+            }).exact.map((candidate) => candidate.executorId),
+          }
+        : {}),
       delivery: readCompletionDeliveryStatus(projection, snapshot, rootDir),
       eligibleDirtyPaths: [],
       projectionStatus,

@@ -376,6 +376,12 @@ export function readTaskDispatchSession(
 export function readTaskLineageDispatches(input: {
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
+  /**
+   * Walk parent tasks too. Defaults to false so submit's automatic attribution only replays a
+   * dispatch that provably belongs to this execution; a parent's author cannot be assumed to be
+   * the child's author when the child may have been authored outside the ledger.
+   */
+  readonly includeAncestors?: boolean;
 }): readonly TaskDispatchRow[] {
   const taskIds: string[] = [],
     visited = new Set<string>();
@@ -383,7 +389,10 @@ export function readTaskLineageDispatches(input: {
   while (candidate !== null && !visited.has(candidate)) {
     taskIds.push(candidate);
     visited.add(candidate);
-    candidate = input.projection.read(candidate).snapshot.task?.metadata?.parentTaskId ?? null;
+    candidate =
+      input.includeAncestors === true
+        ? (input.projection.read(candidate).snapshot.task?.metadata?.parentTaskId ?? null)
+        : null;
   }
   const rows: TaskDispatchRow[] = [];
   for (let offset = 0; offset < taskIds.length; offset += 500)
@@ -391,6 +400,103 @@ export function readTaskLineageDispatches(input: {
       ...readTaskDispatches({ projection: input.projection, taskIds: taskIds.slice(offset, offset + 500) }).dispatches,
     );
   return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
+export interface TaskAuthoringExecutorCandidate {
+  readonly runtimeSessionId: string;
+  readonly executorId: string;
+  readonly agentId: string | undefined;
+  readonly dispatchTaskId: string;
+  readonly executionId: string;
+}
+
+/** The raw and prefixed spellings a declared executor may use for one reviewer session. */
+function reviewerIdentityForms(runtimeSessionId: string, agentId: string | undefined): readonly string[] {
+  return [runtimeSessionId, `runtime-session:${runtimeSessionId}`, ...(agentId === undefined ? [] : [agentId])];
+}
+
+function normalizeDeclaredExecutor(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.startsWith("agent:") ? trimmed.slice("agent:".length) : trimmed;
+}
+
+/**
+ * The authoring dispatches `declare-executor` may replay for this cut, split by what they prove.
+ * `exact` rows are bound to this execution; `fallback` also includes ancestors for the legacy
+ * recovery path. Reviewer dispatches are never candidates: attribution exists to judge reviewer
+ * independence, so a review session offered as a candidate would let the reviewer become the author.
+ */
+export function taskLineageExecutorCandidates(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+  readonly executionId?: string;
+}): {
+  readonly exact: readonly TaskAuthoringExecutorCandidate[];
+  readonly fallback: readonly TaskAuthoringExecutorCandidate[];
+  readonly reviewerIdentities: ReadonlySet<string>;
+} {
+  const rows = readTaskLineageDispatches({ ...input, includeAncestors: true }),
+    reviewerRows = rows.filter((dispatch) => isReviewerDispatch(input.projection, dispatch.dispatchId)),
+    authoringRows = rows.filter((dispatch) => !isReviewerDispatch(input.projection, dispatch.dispatchId)),
+    candidate = (dispatch: TaskDispatchRow): TaskAuthoringExecutorCandidate => ({
+      runtimeSessionId: dispatch.runtimeSessionId,
+      executorId: `runtime-session:${dispatch.runtimeSessionId}`,
+      agentId: dispatch.agentId,
+      dispatchTaskId: dispatch.taskId,
+      executionId: dispatch.executionId,
+    }),
+    dedupe = (entries: readonly TaskDispatchRow[]): readonly TaskAuthoringExecutorCandidate[] => [
+      ...new Map(entries.map((dispatch) => [dispatch.runtimeSessionId, candidate(dispatch)])).values(),
+    ];
+  return {
+    exact: dedupe(
+      input.executionId === undefined ? [] : authoringRows.filter((row) => row.executionId === input.executionId),
+    ),
+    fallback: dedupe(authoringRows),
+    reviewerIdentities: new Set(
+      reviewerRows.flatMap((dispatch) => reviewerIdentityForms(dispatch.runtimeSessionId, dispatch.agentId)),
+    ),
+  };
+}
+
+export type ExecutorDeclarationSelection =
+  | { readonly kind: "replay"; readonly candidate: TaskAuthoringExecutorCandidate }
+  | { readonly kind: "external"; readonly executorId: string }
+  | { readonly kind: "reviewer-alias"; readonly requested: string }
+  | { readonly kind: "choose"; readonly requested: string | undefined; readonly choices: readonly string[] }
+  | { readonly kind: "owner-declaration-required" };
+
+/**
+ * One decision shared by the writer and its tests. Exact dispatches are authoritative; ancestors
+ * are only a fallback when the caller did not name a different agent. An explicit agent that
+ * matches no authoring dispatch is an owner declaration, so an unrelated parent dispatch cannot
+ * block recording the real external author. Reviewer aliases are rejected before any match.
+ */
+export function selectExecutorDeclaration(input: {
+  readonly requested?: string;
+  readonly exact: readonly TaskAuthoringExecutorCandidate[];
+  readonly fallback: readonly TaskAuthoringExecutorCandidate[];
+  readonly reviewerIdentities: ReadonlySet<string>;
+}): ExecutorDeclarationSelection {
+  const requested = input.requested === undefined ? undefined : normalizeDeclaredExecutor(input.requested);
+  if (requested !== undefined && input.reviewerIdentities.has(requested)) return { kind: "reviewer-alias", requested };
+  const search = input.exact.length > 0 ? input.exact : input.fallback,
+    matches =
+      requested === undefined
+        ? search
+        : search.filter(
+            (candidate) =>
+              requested === candidate.executorId ||
+              requested === candidate.runtimeSessionId ||
+              requested === candidate.agentId,
+          );
+  if (matches.length === 1) return { kind: "replay", candidate: matches[0]! };
+  if (input.exact.length === 0 && requested !== undefined && matches.length === 0)
+    return { kind: "external", executorId: requested };
+  if (requested !== undefined)
+    return { kind: "choose", requested, choices: search.map((candidate) => candidate.executorId) };
+  if (search.length === 0) return { kind: "owner-declaration-required" };
+  return { kind: "choose", requested: undefined, choices: search.map((candidate) => candidate.executorId) };
 }
 
 /** Reviewer identity is canonical in the dispatch event, including rows whose projected role is absent. */

@@ -352,7 +352,7 @@ export async function proofFor(
       const dispatchlessExecution =
         execution?.actor.executor === null &&
         command.actor.executor === null &&
-        readTaskLineageDispatches({ projection, taskId: command.taskId }).length === 0;
+        readTaskLineageDispatches({ projection, taskId: command.taskId, includeAncestors: true }).length === 0;
       const principalSettingGuidance = principalIndependenceRequired
         ? [
             "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +
@@ -493,7 +493,7 @@ function validNoIndependentReview(
     command.noIndependentReview === true &&
     command.noIndependentReviewReason !== undefined &&
     command.noIndependentReviewReason.trim().length > 0 &&
-    readTaskLineageDispatches({ projection, taskId: command.taskId }).length === 0
+    readTaskLineageDispatches({ projection, taskId: command.taskId, includeAncestors: true }).length === 0
   );
 }
 
@@ -506,7 +506,7 @@ function validExternalCompletionEvidence(
     command.externalCompletionAnchor === undefined ||
     command.noDispatchReason === undefined ||
     command.noDispatchReason.trim().length === 0 ||
-    readTaskLineageDispatches({ projection, taskId: command.taskId }).length > 0
+    readTaskLineageDispatches({ projection, taskId: command.taskId, includeAncestors: true }).length > 0
   )
     return false;
   const anchor = command.externalCompletionAnchor.trim();

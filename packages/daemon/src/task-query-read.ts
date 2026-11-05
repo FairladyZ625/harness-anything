@@ -3,7 +3,6 @@ import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { isDeepStrictEqual } from "node:util";
 import {
   blockingOf,
   todoIsOpen,
@@ -76,6 +75,7 @@ import { buildAttentionItems } from "./agenda-attention-projection.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
+import { projectionCut, requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
 import { readReckoningAgenda } from "./reckoning-agenda-read.ts";
 import {
   decodeAgendaCursor,
@@ -1165,22 +1165,6 @@ function relationFacetWarnings(status: "ready" | "pending") {
           repairHint: "Retry after the rebuild projection catches up.",
         },
       ];
-}
-export type ProjectionCut = Pick<TaskRelationProjectionRead, "status" | "watermark" | "sourceRevision">;
-function projectionCut(read: ProjectionCut): ProjectionCut {
-  return {
-    status: read.status,
-    watermark: read.watermark,
-    sourceRevision: read.sourceRevision,
-  };
-}
-export function requireSameProjectionCut(surface: string, reads: readonly ProjectionCut[]): ProjectionCut {
-  const basis = reads[0];
-  if (basis === undefined) throw new Error(`${surface} requires an event projection cut.`);
-  for (const read of reads.slice(1))
-    if (!isDeepStrictEqual(projectionCut(read), projectionCut(basis)))
-      throw new Error(`${surface} spans multiple event projection cuts.`);
-  return projectionCut(basis);
 }
 export function requiredPackageDisposition(
   taskId: string,

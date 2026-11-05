@@ -64,8 +64,12 @@ export interface CompletionReadinessContext {
   readonly invalidDocument?: { readonly path: string; readonly reason: string };
   readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
   readonly delivery?: CompletionDeliveryStatus;
-  /** Whether declare-executor has a dispatch record it can replay as executor proof. */
-  readonly hasDispatchLineage?: boolean;
+  /**
+   * Authoring-dispatch executor ids `declare-executor` can replay for this review cut. An empty
+   * list means the lineage has no authoring dispatch, so only an explicit owner declaration works;
+   * undefined means the caller could not read the lineage and must not be told a dispatch exists.
+   */
+  readonly executorDeclarationCandidates?: readonly string[];
   /** Direct children with an active package; with a null parent it makes the task a derived work root. */
   readonly childTaskCount?: number;
 }
@@ -116,6 +120,34 @@ function witnessCommand(
   if (sourceKind === "github-actions" || sourceKind === "gitlab-pipeline")
     return `Read required checks on the hosting platform and merge the delivery into its configured target branch.`;
   return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
+}
+
+/**
+ * The executor-declaration step this cut can actually run. A dispatch candidate can be replayed
+ * with `--agent`; with no authoring dispatch the owner must name the agent explicitly. Several
+ * candidates each get their own command because the flag-less form refuses the ambiguous choice.
+ */
+function executorDeclarationRemediation(
+  taskId: string,
+  executionId: string,
+  candidates: readonly string[] | undefined,
+): { readonly action: string; readonly reason: string } {
+  if (candidates === undefined)
+    return {
+      action: `ha task review-execution ${taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
+      reason: "The read could not prove an authoring dispatch; an independent reviewer must record the review.",
+    };
+  const base = `ha task declare-executor ${taskId} --execution-id ${executionId}`,
+    choices = candidates.length === 0 ? ["<agent-id>"] : candidates;
+  return {
+    action: choices.map((id) => `${base} --agent ${id} --reason <auditable-recovery-reason>`).join(" or "),
+    reason:
+      candidates.length === 0
+        ? "No authoring dispatch can be replayed; the task owner names the agent that performed the work."
+        : candidates.length === 1
+          ? "The submitted execution is already at review; restore its omitted executor from its dispatch record."
+          : `The lineage has ${candidates.length} authoring dispatches; choose the one that performed this cut.`,
+  };
 }
 
 function evaluateCompletion(
@@ -235,21 +267,10 @@ function evaluateCompletion(
     execution.actor.executor === null &&
     context.closeoutGates?.review !== false &&
     reviewsForExecution(snapshot.reviews, execution).length === 0
-  )
-    return one(
-      "executor_missing",
-      "lifecycle",
-      context.hasDispatchLineage === false
-        ? `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`
-        : [
-            `ha task declare-executor ${task.taskId}`,
-            `--execution-id ${executionId}`,
-            "--reason <auditable-recovery-reason>",
-          ].join(" "),
-      context.hasDispatchLineage === false
-        ? "This execution has no dispatch record to declare; an independent reviewer must record the review."
-        : "The submitted execution is already at review; restore its omitted executor from its dispatch record.",
-    );
+  ) {
+    const remediation = executorDeclarationRemediation(task.taskId, executionId, context.executorDeclarationCandidates);
+    return one("executor_missing", "lifecycle", remediation.action, remediation.reason);
+  }
   if (task.status === "submitted" && context.closeoutGates?.review !== false)
     return one(
       "not_in_review",

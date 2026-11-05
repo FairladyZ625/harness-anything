@@ -11,7 +11,6 @@ import {
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
 import { reviewJsonAllowedFields, reviewJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
 import { validationDiagnostic } from "./protocol/daemon-protocol-validate-entities.ts";
-import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { gateChecks } from "./repo-cell-proof.ts";
@@ -284,7 +283,6 @@ export function lifecycleReceipt(
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId =
       event.type === "submission_returned" ? (event.payload.reviewId ?? null) : (receiptReview?.reviewId ?? null),
-    hasDispatchLineage = readTaskLineageDispatches({ projection: cell.projection, taskId: event.taskId }).length > 0,
     to = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`,
     from =
       event.type === "execution_started"
@@ -298,10 +296,7 @@ export function lifecycleReceipt(
     nextCommand =
       taskCompletionAction(
         snapshot,
-        {
-          ...readCompletionContext(cell.projection, event.taskId, snapshot, "ready", cell.rootDir),
-          hasDispatchLineage,
-        },
+        readCompletionContext(cell.projection, event.taskId, snapshot, "ready", cell.rootDir),
         executionId ?? undefined,
       )?.action ?? null,
     // A parentTaskId amend hands the task to a different work; the receipt names where it landed.

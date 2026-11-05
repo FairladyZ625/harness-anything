@@ -225,7 +225,8 @@ export function compileExecutionExecutorDeclaration(input: {
   readonly executionId: string;
   readonly actor: ActorAxes;
   readonly executor: NonNullable<ActorAxes["executor"]>;
-  readonly dispatchTaskId: string;
+  /** The task whose dispatch supplied the agent; absent when the owner declared out-of-ledger work. */
+  readonly dispatchTaskId?: string;
   readonly source: WriteSource;
   readonly reason: string;
   readonly opId: string;
@@ -247,16 +248,15 @@ export function compileExecutionExecutorDeclaration(input: {
     !eligible ||
     input.executor.kind !== "agent" ||
     !isNonEmptyString(input.executor.id) ||
-    !isNonEmptyString(input.dispatchTaskId) ||
-    (input.actor.executor !== null && stableStringify(input.actor.executor) !== stableStringify(input.executor)) ||
+    (input.dispatchTaskId !== undefined && !isNonEmptyString(input.dispatchTaskId)) ||
     !isNonEmptyString(input.reason) ||
     input.workspaceRevision <= input.snapshot.revision
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_executor_declaration",
-        "executor declaration requires the same principal to bind a dispatched agent to a submitted Execution at the " +
-          "review node that originally declared no executor; unblock a blocked task before retrying",
+        "executor declaration requires the execution's own principal to declare an agent for a submitted " +
+          "Execution at the review node that originally declared no executor; unblock a blocked task before retrying",
       ),
     ]);
   // The repair preserves the adjudication corridor: a `submitted` cut awaiting review
@@ -281,7 +281,7 @@ export function compileExecutionExecutorDeclaration(input: {
         task: nextTask,
         execution: nextExecution,
         previousActor: current.actor,
-        dispatchTaskId: input.dispatchTaskId,
+        ...(input.dispatchTaskId === undefined ? {} : { dispatchTaskId: input.dispatchTaskId }),
         reason: input.reason,
         documentClaims: [],
       },
