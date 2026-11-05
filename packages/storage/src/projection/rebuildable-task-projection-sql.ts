@@ -139,10 +139,13 @@ export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlVal
     /* @gate-identity check-bypass-write-boundary/bypass-write-035 */ db.prepare(text),
   ).run(...values).changes;
 }
-// Statements are keyed by connection object and SQL text. Closing a connection finalizes its
-// statements and a reopen constructs a new object, so a finalized statement is never reused.
 const connectionStatements = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
-/** The connection's statement for `sql`, prepared on first use. Call sites that carry their own
+/** Release the cache before close finalizes the connection's native statements. */
+export function closeProjectionConnection(db: DatabaseSync): void {
+  connectionStatements.delete(db);
+  db.close();
+}
+/** Reuse a statement for the connection's lifetime. Call sites that carry their own
  * write-boundary identity pass the `prepare` that performs it. */
 export function prepareQuery(
   db: DatabaseSync,
