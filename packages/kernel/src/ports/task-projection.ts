@@ -150,7 +150,12 @@ export interface TaskProjection {
   readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
-  readonly read: (taskId: string, presentationStatus?: boolean) => TaskProjectionRead;
+  /**
+   * Raw task read. `presentationStatus` selects the presentation snapshot. `presentationRollup`
+   * (default true) says whether the backend may compute that rollup when the caller discards it;
+   * a hot raw reader passes false to skip the subtree scan.
+   */
+  readonly read: (taskId: string, presentationStatus?: boolean, presentationRollup?: boolean) => TaskProjectionRead;
   /** Migration-only access to the aggregate before TaskV2 validation. Normal reads must use `read`. */
   readonly readForTaskContractMigration: (taskId: string) => TaskProjectionRead;
   readonly readTaskIdsForTaskContractMigration: () => readonly string[];
