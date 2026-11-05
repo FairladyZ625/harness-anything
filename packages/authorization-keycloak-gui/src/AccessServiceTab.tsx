@@ -78,6 +78,8 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     } | null>(null);
     const loggingIn = useRef(false),
       sessionRequest = useRef(0),
+      auxRequest = useRef(0),
+      sessionAuthenticated = useRef<boolean | null>(null),
       autoLoginHandled = useRef(false);
     useEffect(
       () => () => {
@@ -86,13 +88,26 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       [auth],
     );
 
+    // A session read is authoritative for the session snapshot alone. The binding and bootstrap
+    // reads are ancillary: their failure or a newer poll must not swallow a confirmed sign-in.
+    const applySession = (reply: RecordValue) => {
+      const authenticated = reply.authenticated === true;
+      const previous = sessionAuthenticated.current;
+      sessionAuthenticated.current = authenticated;
+      setSession(reply);
+      setSessionFailed(false);
+      // A recovery notification is a transition, not a poll result: every later read that sees
+      // the first authenticated state after a signed-out one emits it exactly once.
+      if (authenticated && previous === false) window.dispatchEvent(new Event("harness-auth-signed-in"));
+    };
+
     const refresh = async () => {
       const request = ++sessionRequest.current;
       const statusReply = await auth.status(repoId, rootDir).then(
         (reply) => ({ ok: true as const, reply: reply as RecordValue }),
         (error: unknown) => ({ ok: false as const, error }),
       );
-      // A read superseded by a newer request or a repository change must not write state.
+      // A read superseded by a newer session read or a repository change must not write state.
       if (sessionRequest.current !== request) return;
       if (!statusReply.ok) {
         // A failed identity read must not leave the previous session labelled as current.
@@ -100,10 +115,10 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
         setSessionFailed(true);
         throw statusReply.error;
       }
-      setSession(statusReply.reply);
-      setSessionFailed(false);
+      applySession(statusReply.reply);
+      const aux = ++auxRequest.current;
       const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
-      if (sessionRequest.current !== request) return;
+      if (auxRequest.current !== aux) return;
       if (nextBinding.configured === false) {
         setBinding(null);
         setBootstrapRequired(false);
@@ -111,17 +126,18 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       }
       setBinding(nextBinding);
       const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
-      if (sessionRequest.current !== request) return;
+      if (auxRequest.current !== aux) return;
       setBootstrapRequired(bootstrap.required === true);
-      return statusReply.reply;
     };
 
     useEffect(() => {
+      sessionAuthenticated.current = null;
       setSession(null);
       setSessionFailed(false);
       void refresh().catch((error: unknown) => setFeedback(message(error)));
       return () => {
         sessionRequest.current += 1;
+        auxRequest.current += 1;
       };
     }, [repoId, rootDir]);
 
@@ -134,12 +150,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
           return refresh();
         })
         .then(
-          (session) => {
-            // The account surface is the only login implementation; this event tells read surfaces
-            // that a real session now exists so they can retry what authentication refused.
-            if (session?.authenticated === true) window.dispatchEvent(new Event("harness-auth-signed-in"));
-            setBusy(false);
-          },
+          () => setBusy(false),
           (error: unknown) => {
             setFeedback(message(error));
             setBusy(false);
@@ -153,8 +164,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
         void auth.status(repoId, rootDir).then(
           (reply) => {
             if (sessionRequest.current !== request) return;
-            setSession(reply as RecordValue);
-            setSessionFailed(false);
+            applySession(reply as RecordValue);
           },
           (error: unknown) => {
             if (sessionRequest.current !== request) return;
