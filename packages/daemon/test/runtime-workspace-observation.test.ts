@@ -196,7 +196,9 @@ fs.watch = function(target, options, listener) {
 };
 syncBuiltinESMExports();
 `;
-    let onExit: ((code: number | null) => void) | undefined;
+    let onExit: ((code: number | null) => void) | undefined,
+      wake: (() => void) | undefined,
+      settled = false;
     const base = tasklessSettlementRuntime(root, null),
       runtime = active({
         ...base,
@@ -217,6 +219,8 @@ syncBuiltinESMExports();
           schedule: (work: () => void | Promise<void>) => {
             scheduled.push(work);
             queued.resolve();
+            wake?.();
+            wake = undefined;
           },
         },
         processes: new Map([[runtime.runtimeSessionId, runtime]]),
@@ -227,6 +231,7 @@ syncBuiltinESMExports();
         },
         publishExit: async () => {
           order.push("settled");
+          settled = true;
         },
       } as unknown as RuntimeSpawnerContext;
     const OriginalWorker = workerThreads.Worker;
@@ -263,7 +268,10 @@ syncBuiltinESMExports();
       writeFileSync(path.join(root, "second.txt"), "second");
       await waitForFile(seen);
       onExit!(0);
-      while (scheduled.length) await scheduled.shift()!();
+      while (!settled) {
+        if (scheduled.length) await scheduled.shift()!();
+        else await new Promise<void>((resolve) => (wake = resolve));
+      }
       assert.deepEqual(order, [
         new Date(at).toISOString(),
         new Date(at + 200).toISOString(),

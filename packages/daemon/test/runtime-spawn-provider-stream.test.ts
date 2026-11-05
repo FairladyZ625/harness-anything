@@ -129,12 +129,16 @@ test("runtime callbacks enqueue output before a subsequently observed exit", asy
       },
     } as never),
     scheduled: Array<() => Promise<void>> = [],
+    exitEnqueued = Promise.withResolvers<void>(),
     observed: string[] = [],
     orderedContext = {
       ...context(),
       input: {
         ...context().input,
-        schedule: (effect: () => Promise<void>) => scheduled.push(effect),
+        schedule: (effect: () => Promise<void>) => {
+          scheduled.push(effect);
+          if (scheduled.length === 2) exitEnqueued.resolve();
+        },
       },
       consumeChunk: async (_active: unknown, chunk: string, flush: boolean) => {
         observed.push(flush ? "flush" : `output:${chunk}`);
@@ -150,7 +154,8 @@ test("runtime callbacks enqueue output before a subsequently observed exit", asy
   listeners.output?.("last-frame");
   listeners.exit?.(0);
 
-  assert.equal(scheduled.length, 2);
+  assert.equal(scheduled.length, 1, "workspace monitor closes before exit settlement enters the writer");
+  await exitEnqueued.promise;
   for (const effect of scheduled) await effect();
   assert.deepEqual(observed, ["output:last-frame", "flush", "exit:0"]);
   disposeActiveRuntimeObservations(runtime);

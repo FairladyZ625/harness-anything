@@ -9,7 +9,7 @@ const input = workerData as {
   lastActivity = new BigInt64Array(input.lastActivity);
 // The watcher itself is unrefed; the port owns this thread until disposal or a terminal observation.
 parentPort!.ref();
-observeRuntimeWorkspace(
+const monitor = observeRuntimeWorkspace(
   input.rootDir,
   input.cwd,
   (record) => {
@@ -20,4 +20,9 @@ observeRuntimeWorkspace(
   },
   (occurredAt) => Atomics.store(lastActivity, 0, BigInt(occurredAt)),
 );
+parentPort!.on("message", (message: unknown) => {
+  if (message !== "close") return;
+  monitor.close();
+  parentPort!.close();
+});
 parentPort!.postMessage({ kind: "ready" });

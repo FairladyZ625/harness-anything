@@ -254,7 +254,7 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
       try {
         return work();
       } catch (error) {
-        retireObservationFault(context, active, error);
+        retireObservationFault(context, active, error, handles.flushOnExit);
         throw error;
       }
     }, active.binding);
@@ -296,12 +296,17 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
       const error = Object.assign(new Error(record.message), record.code ? { code: record.code } : {});
       observe(() => {
         throw error;
-      });
+      }, true);
     }
   });
 }
 
-function retireObservationFault(context: RuntimeSpawnerContext, active: ActiveRuntime, error: unknown): void {
+function retireObservationFault(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  error: unknown,
+  providerExited = false,
+): void {
   active.observationError = error instanceof Error ? error : new Error(String(error));
   active.lossReason = `Runtime workspace observation failed (${runtimeErrorCode(error)}): ${active.observationError.message}`;
   context.input.recordLifecycle?.({
@@ -311,6 +316,7 @@ function retireObservationFault(context: RuntimeSpawnerContext, active: ActiveRu
     error: active.lossReason,
   });
   disposeActiveRuntimeObservations(active);
+  if (providerExited) return;
   // Termination may wait on another process. It must not hold the ledger writer; only
   // the prepared loss record and normal terminal settlement return to its existing queue.
   void Promise.resolve()
@@ -338,6 +344,10 @@ export function attachActiveRuntime(
   resumeObservation?: ResumeProcessObservation,
 ): void {
   const runtimeSessionId = active.runtimeSessionId,
+    exitState: {
+      closed?: Promise<number | null>;
+      recordProgress?: ActiveRuntime["recordWorkspaceProgress"];
+    } = {},
     handlers = {
       output: (chunk: string, persisted = false) => {
         if (context.processes.get(runtimeSessionId) === active)
@@ -357,16 +367,29 @@ export function attachActiveRuntime(
       },
       exit: (code: number | null, lossReason?: string) => {
         if (context.processes.get(runtimeSessionId) === active) {
-          const recordProgress = active.recordWorkspaceProgress,
-            closed = releaseActiveRuntimeObservations(active, true);
-          context.input.schedule(async () => {
-            const finalProgressAt = await closed;
-            if (context.processes.get(runtimeSessionId) !== active) return;
-            if (finalProgressAt !== null) await recordProgress?.(finalProgressAt);
-            if (lossReason) active.lossReason = lossReason;
-            await context.consumeChunk(active, "", true);
-            await context.publishExit(active, code);
-          }, active.binding);
+          if (!exitState.closed) {
+            exitState.recordProgress = active.recordWorkspaceProgress;
+            exitState.closed = releaseActiveRuntimeObservations(active, true);
+          }
+          void exitState.closed.then(
+            (finalProgressAt) => {
+              context.input.schedule(async () => {
+                if (context.processes.get(runtimeSessionId) !== active) return;
+                if (finalProgressAt !== null) await exitState.recordProgress?.(finalProgressAt);
+                if (lossReason && !active.observationError) active.lossReason = lossReason;
+                await context.consumeChunk(active, "", true);
+                await context.publishExit(active, code);
+              }, active.binding);
+            },
+            (error: unknown) => {
+              context.input.schedule(async () => {
+                if (context.processes.get(runtimeSessionId) !== active) return;
+                retireObservationFault(context, active, error, true);
+                await context.consumeChunk(active, "", true);
+                await context.publishExit(active, code);
+              }, active.binding);
+            },
+          );
         }
       },
     };

@@ -17,12 +17,16 @@ export function openRuntimeWorkspaceMonitor(
     lastRecordedAt = -Infinity,
     terminal = false,
     closing = false,
+    exited = false,
+    resolveExit!: () => void,
     closePromise: Promise<number | null> | null = null;
   const ready = new Promise<void>((resolve) => {
-    resolveReady = resolve;
-  });
+      resolveReady = resolve;
+    }),
+    exit = new Promise<void>((resolve) => {
+      resolveExit = resolve;
+    });
   worker.on("message", (record: WorkspaceMonitorObservation | { readonly kind: "ready" }) => {
-    if (closing) return;
     if (record.kind === "ready") {
       resolveReady();
       return;
@@ -35,7 +39,6 @@ export function openRuntimeWorkspaceMonitor(
     append(record);
   });
   worker.on("error", (error) => {
-    if (closing) return;
     terminal = true;
     resolveReady();
     append({
@@ -45,14 +48,17 @@ export function openRuntimeWorkspaceMonitor(
     });
   });
   worker.on("exit", (code) => {
-    if (closing || terminal) return;
-    terminal = true;
-    resolveReady();
-    append({
-      kind: "workspace_observation_failed",
-      code: "workspace_monitor_exit",
-      message: `Workspace monitor exited with code ${String(code)}.`,
-    });
+    exited = true;
+    if (!closing && !terminal) {
+      terminal = true;
+      resolveReady();
+      append({
+        kind: "workspace_observation_failed",
+        code: "workspace_monitor_exit",
+        message: `Workspace monitor exited with code ${String(code)}.`,
+      });
+    }
+    resolveExit();
   });
   worker.unref();
   return {
@@ -61,7 +67,8 @@ export function openRuntimeWorkspaceMonitor(
       if (closePromise) return closePromise;
       closing = true;
       closePromise = (async () => {
-        await worker.terminate();
+        if (!exited) worker.postMessage("close");
+        await exit;
         const observedAt = Number(Atomics.load(lastActivity, 0));
         return Atomics.load(lastActivity, 1) === 0n && observedAt > lastRecordedAt && observedAt > 0
           ? observedAt

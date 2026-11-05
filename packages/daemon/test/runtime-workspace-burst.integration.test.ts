@@ -24,6 +24,7 @@ test(
       stateRoot = path.join(parent, "writer-epochs"),
       releasePath = path.join(parent, "release-provider"),
       readyPath = path.join(parent, "provider-ready"),
+      providerFinished = path.join(parent, "provider-finished"),
       watcherReady = path.join(parent, "watcher-ready"),
       executablePath = writeProviderExecutable(
         path.join(parent, "provider.mjs"),
@@ -32,6 +33,7 @@ test(
       await new Promise(resolve => { const watcher = fs.watch(${JSON.stringify(parent)}, () => {
         if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); }
       }); if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); } });
+      fs.writeFileSync(${JSON.stringify(providerFinished)}, "finished");
 ` +
           'console.log(JSON.stringify({ type: "thread.started", thread_id: "queue-depth-session" }));\n' +
           'console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));\n',
@@ -74,7 +76,9 @@ test(
       };
     let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>> | undefined;
     let churn: Worker | undefined;
-    const stopChurn = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+    const stopChurn = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2)),
+      shutdownGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 5)),
+      maxWriteMs = 3_000;
     try {
       const repoRoot = path.join(parent, "repo");
       mkdirSync(repoRoot);
@@ -107,7 +111,29 @@ test(
       const preload = `
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { parentPort, workerData } from "node:worker_threads";
+import threads, { parentPort, workerData } from "node:worker_threads";
+if (workerData?.shutdownGate && workerData?.cwd !== ${JSON.stringify(repoRoot)}) {
+  Atomics.store(new Int32Array(workerData.shutdownGate), 2, 1);
+  const NativeWorker = threads.Worker;
+  threads.Worker = class extends NativeWorker {
+    constructor(url, options = {}) {
+      const isMonitor = options.workerData?.cwd === ${JSON.stringify(repoRoot)};
+      if (isMonitor) Atomics.store(new Int32Array(workerData.shutdownGate), 3, 1);
+      super(url, options);
+      if (isMonitor) {
+        const gate = new Int32Array(workerData.shutdownGate), post = this.postMessage.bind(this);
+        this.once("exit", () => Atomics.store(gate, 4, Math.round(performance.now())));
+        this.postMessage = (message, ...args) => {
+          if (message !== "close") return post(message, ...args);
+          Atomics.store(gate, 0, 1);
+          Atomics.notify(gate, 0);
+          void Promise.resolve(Atomics.waitAsync(gate, 1, 0).value).then(() => post(message, ...args));
+        };
+      }
+    }
+  };
+  syncBuiltinESMExports();
+}
 const nativeWatch = fs.watch;
 fs.watch = function(target, options, listener) {
   const watcher = nativeWatch.call(this, target, options, listener);
@@ -150,6 +176,7 @@ syncBuiltinESMExports();
           createWorker: (url, options) => {
             const worker = new Worker(url, {
               ...options,
+              workerData: { ...options.workerData, shutdownGate: shutdownGate.buffer },
               execArgv: [...options.execArgv, "--import", `data:text/javascript,${encodeURIComponent(preload)}`],
             });
             worker.on("message", (message: { schema?: string }) => {
@@ -186,6 +213,7 @@ syncBuiltinESMExports();
          while (Atomics.load(stop, 0) === 0 && writes < 100000) {
            fs.writeFileSync(path.join(workerData.dir, "file-" + (writes % workerData.files)), "changed");
            writes++;
+           Atomics.store(stop, 1, writes);
          }
          parentPort.postMessage({ writes, limitReached: writes === 100000 });`,
         {
@@ -209,6 +237,7 @@ syncBuiltinESMExports();
           code === 0 ? resolve() : reject(new Error(`churn worker exited ${String(code)}`)),
         );
       });
+      void churnExited.catch(() => {});
       await ready;
       await waitForWorkspaceProgress(repoRoot, spawned.dispatchId);
       const writeStarted = performance.now(),
@@ -218,19 +247,51 @@ syncBuiltinESMExports();
           binding,
         ),
         writeMs = Math.round(performance.now() - writeStarted);
+      t.diagnostic(`initialTaskCreateMs=${writeMs} workspaceFiles=${fileCount}`);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.ok(writeMs < maxWriteMs, `ordinary write during workspace churn took ${String(writeMs)} ms`);
+      writeFileSync(releasePath, "release");
+      await Atomics.waitAsync(shutdownGate, 0, 0, 20_000).value;
+      t.diagnostic(
+        `shutdownGate=${Array.from(shutdownGate).join(",")} providerFinished=${String(existsSync(providerFinished))}`,
+      );
+      assert.equal(Atomics.load(shutdownGate, 0), 1, "monitor shutdown must be requested and deliberately held open");
+      const beforeExitWrite = Atomics.load(stopChurn, 1),
+        exitWriteStarted = performance.now();
+      let timeout: NodeJS.Timeout | undefined;
+      const exitReceipt = await Promise.race([
+        supervisor.request<{ readonly outcome: string }>(
+          "run",
+          { action: { kind: "task-create", taskId: "task_during_monitor_close", title: "Write during monitor close" } },
+          binding,
+        ),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error("ordinary write was blocked by monitor shutdown")), 5_000);
+        }),
+      ]).finally(() => clearTimeout(timeout));
+      const exitWriteMs = Math.round(performance.now() - exitWriteStarted);
+      assert.equal(exitReceipt.outcome, "applied", JSON.stringify(exitReceipt));
+      assert.ok(exitWriteMs < maxWriteMs, `ordinary write during monitor shutdown took ${String(exitWriteMs)} ms`);
+      assert.ok(Atomics.load(stopChurn, 1) > beforeExitWrite, "workspace changes continued during the exit write");
+      const shutdownReleasedAt = performance.now();
+      Atomics.store(shutdownGate, 1, 1);
+      Atomics.notify(shutdownGate, 1);
       Atomics.store(stopChurn, 0, 1);
       await churnExited;
       const maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null));
       t.diagnostic(
-        `workspaceFiles=${fileCount} churnWrites=${churnWrites} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs}`,
+        `workspaceFiles=${fileCount} churnWrites=${churnWrites} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs} exitTaskCreateMs=${exitWriteMs} maxWriteMs=${maxWriteMs}`,
       );
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.ok(churnWrites > 0, "changes continued while the ordinary write ran");
       assert.equal(churnLimitReached, false, "the bounded churn must still be active during the ordinary write");
       assert.ok(maxQueueDepth <= 3, `workspace churn left ${String(maxQueueDepth)} queued writes`);
-      writeFileSync(releasePath, "release");
       await runtimeExited.promise;
+      t.diagnostic(
+        `shutdownToMonitorExitMs=${Math.round(Atomics.load(shutdownGate, 4) - shutdownReleasedAt)} shutdownToOutcomeMs=${Math.round(performance.now() - shutdownReleasedAt)}`,
+      );
     } finally {
+      Atomics.store(shutdownGate, 1, 1);
+      Atomics.notify(shutdownGate, 1);
       Atomics.store(stopChurn, 0, 1);
       await churn?.terminate();
       writeFileSync(releasePath, "release");
