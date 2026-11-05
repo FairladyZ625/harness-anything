@@ -47,8 +47,10 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       await backend.pool.query(
         "INSERT INTO ha_projection_meta(tenant_id,project_id,policy_epoch,readers,projection_name,schema_version,watermark,source_revision) VALUES ('t','p',0,'{}','task/v1',5,65,65)",
       );
-      // The previous release already completed event v5 but never wrote fleet summaries.
+      // The previous release already completed event v5 but never wrote fleet summaries, and an
+      // old database has no readiness row yet.
       await backend.pool.query("UPDATE ha_events SET summary_json=NULL, read_index_version=5");
+      await backend.pool.query("DELETE FROM ha_event_summary_state");
       await assert.rejects(
         () => backend.projection.readEventSummaries(0, 100, "fleet"),
         /fleet event summaries are not backfilled/u,

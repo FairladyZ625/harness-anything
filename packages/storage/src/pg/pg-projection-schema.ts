@@ -28,6 +28,7 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_projection_values",
   "ha_runtime_session_tasks",
   "ha_runtime_unsettled",
+  "ha_event_summary_state",
   "ha_entity_declaration_heads",
 ] as const);
 
@@ -35,7 +36,7 @@ export const PG_PROJECTION_TABLES = Object.freeze([
  * from ha_projection_values and is maintained by triggers, so it is not part of the replay audit
  * even though it shares the projection's RLS and grants. */
 export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
-  PG_PROJECTION_TABLES.filter((table) => table !== "ha_runtime_unsettled"),
+  PG_PROJECTION_TABLES.filter((table) => table !== "ha_runtime_unsettled" && table !== "ha_event_summary_state"),
 );
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
@@ -100,7 +101,7 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
     `GRANT USAGE ON SEQUENCE ha_search_terms_term_slot_seq TO "${roles.runtime}", "${roles.migration}"`,
   );
   await client.query(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")} TO "${roles.runtime}", "${roles.migration}"`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")}, ha_event_summary_state TO "${roles.runtime}", "${roles.migration}"`,
   );
 }
 
@@ -122,6 +123,14 @@ export function projectionDdl(): readonly string[] {
     // immediately after seeding), so an aggregate read must not depend on it. This table holds
     // only unsettled sessions and is maintained by the same write transaction; its size is the
     // current in-flight count, not session history.
+    `CREATE TABLE IF NOT EXISTS ha_event_summary_state (
+      tenant_id text NOT NULL,
+      project_id text NOT NULL,
+      policy_epoch bigint NOT NULL,
+      repo_id text NOT NULL,
+      ready boolean NOT NULL DEFAULT false,
+      PRIMARY KEY(tenant_id,project_id,policy_epoch,repo_id)
+    )`,
     `CREATE TABLE IF NOT EXISTS ha_runtime_unsettled (
       tenant_id text NOT NULL,
       project_id text NOT NULL,
@@ -153,9 +162,13 @@ export function projectionDdl(): readonly string[] {
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_runtime_unsettled_sync AFTER INSERT OR UPDATE OF value, runtime_outcome
-      ON ha_projection_values FOR EACH ROW EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
+      ON ha_projection_values FOR EACH ROW
+      WHEN (NEW.model = 'runtime-session' AND NEW.owner_id = '')
+      EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
     `CREATE OR REPLACE TRIGGER ha_runtime_unsettled_delete AFTER DELETE ON ha_projection_values
-      FOR EACH ROW EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
+      FOR EACH ROW
+      WHEN (OLD.model = 'runtime-session' AND OLD.owner_id = '')
+      EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
     `DO $migration$
       BEGIN
         IF to_regclass('ha_projection_meta') IS NOT NULL THEN

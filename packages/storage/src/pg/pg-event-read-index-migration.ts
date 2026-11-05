@@ -73,7 +73,7 @@ export function eventReadIndexDdl(): readonly string[] {
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
-    String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary(serialized text) RETURNS text
+    String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
       LANGUAGE sql IMMUTABLE STRICT AS $function$
         SELECT jsonb_build_object(
           'eventId', v->>'eventId', 'schema', v->>'schema', 'type', v->>'type',
@@ -84,7 +84,10 @@ export function eventReadIndexDdl(): readonly string[] {
             'title', left(v#>>'{payload,title}', 280),
             'statement', left(v#>>'{payload,statement}', 280),
             'text', left(v#>>'{payload,text}', 280)))
-        FROM (SELECT ha_read_index_json(serialized) AS v) source
+      $function$`,
+    String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary(serialized text) RETURNS text
+      LANGUAGE sql IMMUTABLE STRICT AS $function$
+        SELECT ha_fleet_event_summary_from_jsonb(ha_read_index_json(serialized))
       $function$`,
     `CREATE OR REPLACE FUNCTION ha_event_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
@@ -102,14 +105,23 @@ export function eventReadIndexDdl(): readonly string[] {
           SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=NEW.tenant_id AND p.project_id=NEW.project_id
           AND p.policy_epoch=NEW.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
           AND p.entity_id=NEW.runtime_session_id COLLATE "default" AND p.runtime_outcome IS NULL);
-        NEW.summary_json := ha_fleet_event_summary(NEW.event_json);
+        IF NEW.summary_json IS NULL THEN
+          NEW.summary_json := ha_fleet_event_summary_from_jsonb(v);
+        END IF;
         NEW.read_index_version := 5;
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json ON ha_events
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
-    `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
-      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
+    `DO $summary_index$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM ha_events WHERE summary_json IS NULL LIMIT 1) THEN
+          CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
+            (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL;
+        ELSE
+          DROP INDEX IF EXISTS ha_events_summary_pending;
+        END IF;
+      END $summary_index$`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
@@ -187,6 +199,12 @@ export function eventReadIndexDdl(): readonly string[] {
           UPDATE ha_events e SET event_json=e.event_json, summary_json=ha_fleet_event_summary(e.event_json) FROM batch b
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
         ) SELECT count(*)::integer INTO processed FROM filled;
+        IF processed = 0 THEN
+          DROP INDEX IF EXISTS ha_events_summary_pending;
+          INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
+          VALUES (tenant,project,epoch,repo,true)
+          ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true;
+        END IF;
         RETURN processed;
       END $function$`,
   ];
