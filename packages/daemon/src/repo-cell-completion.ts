@@ -154,7 +154,7 @@ export function taskShowFromProjection(
   rootDir: string,
   projection: TaskProjectionQueries,
   taskId: string,
-  directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
+  directChildCount?: number,
 ): WriteReceipt {
   const read = projection.read(taskId),
     progress = projection.readProgress(taskId),
@@ -184,6 +184,7 @@ export function taskShowFromProjection(
     return failed(`read:${taskId}`, notFound);
   }
   const taskRead = projection.read(taskId, true),
+    parentDeferred = taskRead.warnings.includes("task_parent_metadata_deferred"),
     assignmentRevision = Math.max(
       taskRead.snapshot.revision,
       ...projection
@@ -197,26 +198,27 @@ export function taskShowFromProjection(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),
     returnBudget = readEffectiveReviewReturnBudget(projection),
-    rootAssessment = task
-      ? deriveTaskRoot(
-          {
-            taskId,
-            title: task.title,
-            status: task.status,
-            taskClass: task.taskClass,
-            packageDisposition: task.packageDisposition ?? "active",
-            hasOwnExecution:
-              read.snapshot.lease !== null ||
-              read.snapshot.executions.some(
-                (execution) => execution.state === "active" || execution.state === "submitted",
-              ),
-            hasCloseoutEvidence: hasCloseoutEvidence(read.snapshot.executions),
-            directChildCount,
-          },
-          rootSetting.threshold,
-        )
-      : null,
-    completion = readTaskCompletion(projection, taskId, rootDir),
+    rootAssessment =
+      task && !parentDeferred
+        ? deriveTaskRoot(
+            {
+              taskId,
+              title: task.title,
+              status: task.status,
+              taskClass: task.taskClass,
+              packageDisposition: task.packageDisposition ?? "active",
+              hasOwnExecution:
+                read.snapshot.lease !== null ||
+                read.snapshot.executions.some(
+                  (execution) => execution.state === "active" || execution.state === "submitted",
+                ),
+              hasCloseoutEvidence: hasCloseoutEvidence(read.snapshot.executions),
+              directChildCount: directChildCount ?? projection.readTaskChildCounts([taskId])[taskId] ?? 0,
+            },
+            rootSetting.threshold,
+          )
+        : null,
+    completion = parentDeferred ? null : readTaskCompletion(projection, taskId, rootDir),
     workspace = taskWorkspaceView(
       rootDir,
       task,
@@ -269,8 +271,9 @@ export function taskShowFromProjection(
         : {}),
       returnBudget,
       rootAssessment,
-      completionNext: completion.completionNext,
-      completionBlocker: completion.completionBlocker,
+      warnings: taskRead.warnings,
+      completionNext: completion?.completionNext ?? null,
+      completionBlocker: completion?.completionBlocker ?? null,
       progress: progress.rows,
     },
     receipt = {

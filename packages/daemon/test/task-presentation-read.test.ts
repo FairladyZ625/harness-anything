@@ -3,9 +3,13 @@ import test from "node:test";
 import { presentationQueryFixture } from "../../storage/test/store/presentation-query.fixture.ts";
 import assert from "node:assert/strict";
 import { type TaskProjection, type TaskProjectionListQuery, allowsTaskStatusMove } from "@harness-anything/kernel";
-import { listTasks, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
+import { listTasks, taskListPayload, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
+import { taskShowFromProjection } from "../src/repo-cell-completion.ts";
 import { taskPresentationReads } from "../src/task-presentation-read.ts";
-import { workListFromProjection } from "../src/work-read.ts";
+import { workIndexFromProjection, workListFromProjection } from "../src/work-read.ts";
+import { createRepoCellApi, type RepoCellApiContext } from "../src/repo-cell-api.ts";
+import { dispatchRead } from "../src/repo-cell-command.ts";
+import { workspaceStructureFromProjection } from "../src/workspace-scope-read.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 
 export function presentationFixture() {
@@ -154,4 +158,113 @@ test("a page cursor survives the derived root set disappearing between pages", (
     assert.equal(last.page!.nextCursor, null);
     db.prepare("UPDATE task_snapshot SET status = 'done' WHERE task_id = 'b-leaf'").run();
   }
+});
+
+test("task display and flat pages defer parent-derived fields without blocking or inventing zero children", () => {
+  const { projection, db } = presentationFixture();
+  test.after(() => db.close());
+  const warnings = ["task_parent_metadata_deferred" as const];
+  const pending = {
+    ...projection,
+    read: (id: string, presentation = false) => ({ ...projection.read(id), warnings: presentation ? warnings : [] }),
+    readTaskIndex: (query: TaskProjectionListQuery = {}) => ({
+      ...projection.readTaskIndex({ ...query, presentationStatus: false }),
+      warnings,
+    }),
+    readTaskChildCounts: () => {
+      throw new Error("parent-derived reads must be deferred");
+    },
+    readRelationQuery: () => ({ status: "ready" as const, rows: [], watermark: 7, sourceRevision: 7, warnings: [] }),
+  } as unknown as TaskProjection;
+  const first = taskList(pending, "planned") as unknown as {
+    rows: { taskId: string; rootAssessment: unknown }[];
+    warnings: string[];
+    page: { nextCursor: string };
+  };
+  assert.equal(first.rows[0]?.taskId, "a-root");
+  assert.equal(first.rows[0]?.rootAssessment, null);
+  assert.deepEqual(first.warnings, warnings);
+  const next = taskList(pending, "planned", 1, first.page.nextCursor);
+  assert.equal(next.rows[0]?.taskId, "c-open");
+  const receipt = taskShowFromProjection("/unused/task-parent-migration", pending, "a-root");
+  const shown = JSON.parse(receipt.evidence!);
+  assert.equal(shown.task.taskId, "a-root");
+  assert.equal(shown.task.status, "planned");
+  assert.equal(shown.rootAssessment, null);
+  assert.equal(shown.completionNext, null);
+  assert.deepEqual(shown.warnings, warnings);
+});
+
+test("parent collections preserve pending cuts and deferred metadata instead of publishing empty success", () => {
+  const { projection, db } = presentationFixture();
+  test.after(() => db.close());
+  for (const status of ["pending", "ready"] as const) {
+    const queries: TaskProjectionListQuery[] = [];
+    const pending = {
+      ...projection,
+      readTaskIndex: (query: TaskProjectionListQuery = {}) => {
+        queries.push(query);
+        return {
+          ...projection.readTaskIndex(query),
+          rows: [],
+          status,
+          warnings: ["task_parent_metadata_deferred" as const],
+        };
+      },
+    };
+    for (const read of [
+      () => workListFromProjection(pending, {}),
+      () => workIndexFromProjection(pending),
+      () => workspaceStructureFromProjection(pending, { rootTaskId: "a-root" }),
+    ]) {
+      assert.throws(read, { code: "projection_pending", message: "索引迁移中" });
+      assert.equal(queries.at(-1)?.requireParentMetadata, true);
+    }
+    for (const depth of [undefined, "all"]) {
+      assert.throws(
+        () =>
+          taskListPayload(
+            {
+              readTaskIndex: pending.readTaskIndex,
+              readTaskChildCounts: pending.readTaskChildCounts,
+              rootThreshold: 5,
+            },
+            {},
+            { kind: "task-list", parentTaskId: "a-root", ...(depth ? { depth } : {}) } as never,
+            (code, message) => Object.assign(new Error(message), { code }),
+          ),
+        { code: "projection_pending" },
+      );
+    }
+  }
+});
+
+test("work index API propagates migration failure and restores the complete result after backfill", async () => {
+  const { projection, db } = presentationFixture();
+  test.after(() => db.close());
+  let migrating = true;
+  const cell = createRepoCellApi({
+    extracted: {},
+    mode: "local",
+    fleetRoster: null,
+    input: { repoId: "probe" },
+    state: "attached",
+    rootDir: "/unused",
+    dispatchRead,
+    projection: {
+      ...projection,
+      readTaskIndex: (query: TaskProjectionListQuery = {}) => {
+        if (migrating) {
+          assert.equal(query.requireParentMetadata, true);
+          throw Object.assign(new Error("索引迁移中"), { code: "projection_pending" });
+        }
+        return projection.readTaskIndex(query);
+      },
+    },
+  } as unknown as RepoCellApiContext);
+  await assert.rejects(cell.read("repo.works.index", {}), { code: "projection_pending", message: "索引迁移中" });
+  migrating = false;
+  const ready = await cell.read("repo.works.index", {});
+  assert.equal(ready.status, "ready");
+  assert.deepEqual(ready.works[0]?.memberTaskIds, ["b-leaf"]);
 });

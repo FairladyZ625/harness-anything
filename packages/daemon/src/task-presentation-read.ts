@@ -10,3 +10,15 @@ export function taskPresentationReads(
     readTaskIndex: (query = {}) => projection.readTaskIndex({ ...query, presentationStatus: true }),
   };
 }
+
+/** A collection cannot treat an incomplete projection as an empty, ready answer. */
+export function requireTaskCollectionReady(
+  read: {
+    readonly status: "ready" | "pending";
+    readonly warnings: readonly string[];
+  },
+  parentMetadata = false,
+): void {
+  if (read.status !== "ready" || (parentMetadata && read.warnings.includes("task_parent_metadata_deferred")))
+    throw Object.assign(new Error("索引迁移中"), { code: "projection_pending" });
+}

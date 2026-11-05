@@ -18,6 +18,13 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
   await reportPgVersion(pool, backend);
   const pairs: Record<string, number[]> = {};
   for (const size of [200, 2000]) {
+    // Each scale starts with fresh tuples: transition UPDATEs must not add dead
+    // heap versions to the next scale's pre-existing ready-read budget.
+    const scope = {
+      tenantId: "task-status-cost",
+      projectId: size === 200 ? "task-status-cost-small" : "task-status-cost",
+      policyEpoch: 1,
+    };
     await withPostgresTransaction(
       seedPool,
       async (client) => {
@@ -138,8 +145,141 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
     );
     assert.equal(last.page?.nextCursor, null);
     observe("parent/last-page", 1);
+    await withPostgresTransaction(
+      seedPool,
+      (client) =>
+        client.query(
+          `UPDATE ha_task_snapshots SET snapshot=jsonb_set(snapshot,'{task,status}','"done"'::jsonb)
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id IN ('child-1','child-2')`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
+        ),
+      scope,
+    );
+    await withPostgresTransaction(
+      seedPool,
+      (client) =>
+        client.query(
+          "UPDATE ha_task_snapshots SET parent_task_id=NULL,parent_index_version=0 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
+        ),
+      scope,
+    );
+    for (const [name, query] of [
+      ["parent", { parentTaskId: "target" }],
+      ["missing-parent", { parentTaskId: "missing" }],
+      ["roots", { workRootsOnly: true }],
+      ["derived-collection", { requireParentMetadata: true }],
+    ] as const) {
+      plans.length = 0;
+      await assert.rejects(source.list(query), { code: "projection_pending", message: "索引迁移中" });
+      observe(`pending/${name}`, 0);
+    }
+    plans.length = 0;
+    await assert.rejects(source.readTaskChildCounts(["target"]), { code: "projection_pending" });
+    observe("pending/child-count", 0);
+    // Test the old JSON path under the runtime role as a candidate transition read.
+    // LIMIT bounds returned rows, not rows examined for a missing parent.
+    for (const parent of ["missing", "target"]) {
+      plans.length = 0;
+      const rows = await withPostgresTransaction(
+        tracedPgReads(pool, plans, (sql) => /^SELECT/u.test(sql)),
+        async (client) =>
+          (
+            await client.query(
+              `SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND snapshot #>> '{task,metadata,parentTaskId}'=$4 ORDER BY task_id LIMIT 2`,
+              [scope.tenantId, scope.projectId, scope.policyEpoch, parent],
+            )
+          ).rows,
+        scope,
+      );
+      observe(`pending-json/${parent}`, rows.length);
+    }
+    const limited = await withPostgresTransaction(
+      pool,
+      async (client) =>
+        (
+          await client.query(
+            `WITH candidates AS MATERIALIZED (
+        SELECT task_id,snapshot FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+        ORDER BY task_id DESC LIMIT 64
+      ) SELECT task_id FROM candidates WHERE snapshot #>> '{task,metadata,parentTaskId}'='target'`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          )
+        ).rows,
+      scope,
+    );
+    assert.equal(limited.length, 0);
+    process.stdout.write(
+      `TASK_PARENT_FIXED_WINDOW ${JSON.stringify({ backend, size, budget: 64, returned: 0, expected: 2 })}\n`,
+    );
+    plans.length = 0;
+    const raw = await source.read("target");
+    assert.equal(raw.snapshot.task?.taskId, "target");
+    observe("pending/raw-point", 1);
+    plans.length = 0;
+    const page = await source.list({ limit: 1 });
+    assert.equal(page.rows.length, 1);
+    assert.ok(page.page?.nextCursor);
+    observe("pending/raw-page", 1);
+    plans.length = 0;
+    const displayed = await source.read("target", true);
+    assert.equal(displayed.status, "ready");
+    assert.equal(displayed.snapshot.task?.status, "planned");
+    assert.deepEqual(displayed.warnings, ["task_parent_metadata_deferred"]);
+    observe("pending/presentation-point", 1);
+    plans.length = 0;
+    const displayedPage = await source.list({ presentationStatus: true, limit: 1 });
+    assert.equal(displayedPage.status, "ready");
+    assert.deepEqual(
+      displayedPage.rows.map((row) => row.taskId),
+      ["child-1"],
+    );
+    assert.deepEqual(displayedPage.warnings, ["task_parent_metadata_deferred"]);
+    assert.ok(displayedPage.page?.nextCursor);
+    observe("pending/presentation-first", 1);
+    plans.length = 0;
+    const displayedNext = await source.list({
+      presentationStatus: true,
+      limit: 1,
+      cursor: displayedPage.page.nextCursor,
+    });
+    assert.deepEqual(
+      displayedNext.rows.map((row) => row.taskId),
+      ["child-2"],
+    );
+    assert.equal(displayedNext.rows[0]?.snapshot.task?.metadata?.parentTaskId, "target");
+    observe("pending/presentation-next", 1);
+    await withPostgresTransaction(
+      seedPool,
+      (client) =>
+        client.query(
+          "UPDATE ha_task_snapshots SET snapshot=snapshot WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
+        ),
+      scope,
+    );
+    const completedDisplay = await source.read("target", true);
+    assert.equal(completedDisplay.snapshot.task?.status, "done");
+    assert.deepEqual(completedDisplay.warnings, []);
+    assert.equal((await source.read("target")).snapshot.task?.status, "planned");
+    await withPostgresTransaction(
+      seedPool,
+      (client) =>
+        client.query(
+          `UPDATE ha_task_snapshots SET snapshot=jsonb_set(snapshot,'{task,status}','"planned"'::jsonb)
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id IN ('child-1','child-2')`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
+        ),
+      scope,
+    );
   }
   for (const [key, [small, large]] of Object.entries(pairs)) {
+    if (key.startsWith("pending-json/")) {
+      if (key.endsWith("/missing"))
+        assert.ok(large! >= small! * 5, `${key} candidate scans must expose history growth`);
+      continue;
+    }
     assert.ok(large! <= small! + 20, `${key} scans ${small} -> ${large} for one selected task`);
     assert.ok(
       small! <= 4 && large! <= 4,
@@ -267,9 +407,11 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
     ),
   );
   assert.equal((await source.read("target")).snapshot.task?.status, "planned");
-  await assert.rejects(source.read("target", true), { code: "projection_pending" });
-  await assert.rejects(source.list({ presentationStatus: true, limit: 1 }), { code: "projection_pending" });
+  assert.equal((await source.read("target", true)).snapshot.task?.taskId, "target");
+  assert.equal((await source.list({ presentationStatus: true, limit: 1 })).rows.length, 1);
   await assert.rejects(source.list({ parentTaskId: "target" }), { code: "projection_pending" });
+  await assert.rejects(source.list({ workRootsOnly: true }), { code: "projection_pending" });
+  await assert.rejects(source.list({ requireParentMetadata: true }), { code: "projection_pending" });
   await assert.rejects(source.readTaskChildCounts(["target"]), { code: "projection_pending" });
   assert.deepEqual(await source.readTaskChildCounts([]), {});
   // An unchanged previous-writer UPDATE still passes through the installed trigger.

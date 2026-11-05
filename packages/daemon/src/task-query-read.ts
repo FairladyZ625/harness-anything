@@ -928,7 +928,10 @@ export function makeTaskQueryReadModel(input: {
         code,
         source: "generated-cache",
         severity: "warning",
-        message: "The agenda projection cache was rebuilt from canonical events.",
+        message:
+          code === "task_parent_metadata_deferred"
+            ? "Task relationships are being indexed; parent-derived status and assessments are temporarily deferred."
+            : "The agenda projection cache was rebuilt from canonical events.",
       })),
       attentionItems = attentionOnly
         ? []

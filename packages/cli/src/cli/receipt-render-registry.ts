@@ -106,7 +106,10 @@ export function renderCliReceipt(
       ...(runtimeSelectionReason(receipt) === null ? [] : [runtimeSelectionReason(receipt)!]),
     ];
   return warnings.length
-    ? { ...rendered, text: `${rendered.text}\n${warnings.map((warning) => `warning: ${warning}`).join("\n")}` }
+    ? {
+        ...rendered,
+        text: `${rendered.text}\n${warnings.map((warning) => `warning: ${warning === "task_parent_metadata_deferred" ? "索引迁移中" : warning}`).join("\n")}`,
+      }
     : rendered;
 }
 

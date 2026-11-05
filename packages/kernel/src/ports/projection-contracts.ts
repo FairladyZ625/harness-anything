@@ -178,6 +178,8 @@ export interface TaskProjectionListQuery {
   readonly riskTier?: string;
   readonly urgency?: string;
   readonly workRootsOnly?: boolean;
+  /** Require complete parent relationships for collection derivation; pending migration is an error. */
+  readonly requireParentMetadata?: boolean;
   readonly openOnly?: boolean;
   readonly search?: string;
   readonly slug?: string;

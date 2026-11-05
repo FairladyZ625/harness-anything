@@ -1,4 +1,4 @@
-import { taskPresentationReads } from "./task-presentation-read.ts";
+import { requireTaskCollectionReady, taskPresentationReads } from "./task-presentation-read.ts";
 import type {
   TaskIndexProjectionRow,
   TaskProjection,
@@ -40,8 +40,12 @@ export function workListFromProjection(
   projection: TaskProjection,
   input: { readonly all?: boolean; readonly limit?: number },
 ) {
-  const read = taskPresentationReads(projection).readTaskIndex({ activePackagesOnly: true }),
-    rows = workRows(read.rows).filter((row) => input.all === true || !isTerminalStatus(row.status));
+  const read = taskPresentationReads(projection).readTaskIndex({
+    activePackagesOnly: true,
+    requireParentMetadata: true,
+  });
+  requireTaskCollectionReady(read, true);
+  const rows = workRows(read.rows).filter((row) => input.all === true || !isTerminalStatus(row.status));
   return {
     schema: "work-list/v1" as const,
     rows: rows.slice(0, input.limit ?? 50),
@@ -194,8 +198,12 @@ export interface WorkIndexRow extends WorkListRow {
  * not re-derive the rule (the GUI): `ha work list --all`'s roots, each task assigned by `workRootOf`'s walk.
  */
 export function workIndexFromProjection(projection: TaskProjection) {
-  const read = taskPresentationReads(projection).readTaskIndex({ activePackagesOnly: true }),
-    byId = new Map(read.rows.map((row) => [row.taskId, row])),
+  const read = taskPresentationReads(projection).readTaskIndex({
+    activePackagesOnly: true,
+    requireParentMetadata: true,
+  });
+  requireTaskCollectionReady(read, true);
+  const byId = new Map(read.rows.map((row) => [row.taskId, row])),
     works = workRows(read.rows),
     members = new Map(works.map(({ taskId }) => [taskId, [] as string[]]));
   for (const row of read.rows) {

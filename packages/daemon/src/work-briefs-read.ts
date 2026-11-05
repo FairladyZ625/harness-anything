@@ -94,7 +94,10 @@ export function workBriefsFromProjection(input: {
   readonly now?: () => Date;
 }): WorkBriefsReadResult {
   const now = input.now ?? (() => new Date()),
-    index = taskPresentationReads(input.projection).readTaskIndex({ activePackagesOnly: true }),
+    index = taskPresentationReads(input.projection).readTaskIndex({
+      activePackagesOnly: true,
+      requireParentMetadata: true,
+    }),
     byId = new Map(index.rows.map((row) => [row.taskId, row])),
     works = workIndexFromProjection(input.projection).works,
     asksByWork = asksByWorkRoot(input.projection, works, input.agendaPage, input.principalId),

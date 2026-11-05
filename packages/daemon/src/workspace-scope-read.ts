@@ -1,4 +1,4 @@
-import { taskPresentationReads } from "./task-presentation-read.ts";
+import { requireTaskCollectionReady, taskPresentationReads } from "./task-presentation-read.ts";
 import { type TaskProjection, type TaskIndexProjectionRow, type TaskV2 } from "@harness-anything/kernel";
 import type { CanonicalEventSummary } from "@harness-anything/kernel";
 
@@ -72,7 +72,8 @@ export function workspaceStructureFromProjection(
   projection: TaskProjection,
   input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
 ): WorkspaceStructureRead {
-  const read = taskPresentationReads(projection).readTaskIndex({});
+  const read = taskPresentationReads(projection).readTaskIndex({ requireParentMetadata: true });
+  requireTaskCollectionReady(read, true);
   const byId = new Map(read.rows.map((row) => [row.taskId, row]));
   const root = byId.get(input.rootTaskId);
   if (!root) throw new Error(`Workspace root task not found: ${input.rootTaskId}`);

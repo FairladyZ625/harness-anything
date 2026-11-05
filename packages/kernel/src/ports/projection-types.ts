@@ -13,6 +13,7 @@ export type ProjectionWarningSource = "source-package" | "generated-cache" | "co
 export type ProjectionWarningSeverity = "warning" | "hard-fail";
 export type ProjectionWarningCode =
   | "projection_missing"
+  | "task_parent_metadata_deferred"
   | "projection_stale"
   | "projection_tampered"
   | "relation_truth_unavailable"

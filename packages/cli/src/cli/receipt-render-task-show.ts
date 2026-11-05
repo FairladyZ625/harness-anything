@@ -16,6 +16,9 @@ export function renderTaskShow(
   return [
     `status: ${String(payload.task.status)}`,
     `graph cursor: ${String(payload.task.currentNode)}`,
+    ...(Array.isArray(payload.warnings) && payload.warnings.includes("task_parent_metadata_deferred")
+      ? ["warning: 索引迁移中"]
+      : []),
     ...executionLines(payload),
     ...(Array.isArray(payload.reworkTargets)
       ? payload.reworkTargets.flatMap((target) =>

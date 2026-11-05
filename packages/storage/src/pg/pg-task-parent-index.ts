@@ -25,12 +25,16 @@ export function taskParentIndexDdl(): readonly string[] {
 }
 
 /** The write trigger covers new rows; only pre-expansion rows need management backfill. */
-export async function assertPgTaskParentIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<void> {
+export async function pgTaskParentIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
   const pending = await client.query(
     `SELECT 1 FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       AND parent_index_version=0 LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  if (pending.rows.length)
-    throw Object.assign(new Error("Task parent-index backfill is pending"), { code: "projection_pending" });
+  return pending.rows.length === 0;
+}
+
+export async function assertPgTaskParentIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<void> {
+  if (!(await pgTaskParentIndexReady(client, scope)))
+    throw Object.assign(new Error("索引迁移中"), { code: "projection_pending" });
 }

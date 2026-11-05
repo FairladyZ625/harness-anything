@@ -1,5 +1,5 @@
 import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
-import { taskPresentationReads } from "./task-presentation-read.ts";
+import { requireTaskCollectionReady, taskPresentationReads } from "./task-presentation-read.ts";
 import {
   admitTaskExecutionWip,
   allowsTaskStatusMove,
@@ -123,8 +123,9 @@ export function taskListPayload(
             ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
             activePackagesOnly: true,
           }
-        : { activePackagesOnly: true },
+        : { activePackagesOnly: true, requireParentMetadata: true },
     );
+  requireTaskCollectionReady(read, !flat || typeof action.parentTaskId === "string");
   let selected: ReturnType<typeof selectTaskIndex>;
   try {
     selected = selectTaskIndex(
@@ -147,7 +148,11 @@ export function taskListPayload(
     throw error;
   }
   // Filters and pages narrow the rows; a row's children are still counted across the whole ledger.
-  const childCounts = selected.mode === "flat" ? reads.readTaskChildCounts(selected.rows.map((row) => row.taskId)) : {},
+  const parentDeferred = read.warnings.includes("task_parent_metadata_deferred"),
+    childCounts =
+      selected.mode === "flat" && !parentDeferred
+        ? reads.readTaskChildCounts(selected.rows.map((row) => row.taskId))
+        : {},
     value =
       selected.mode === "tree"
         ? {
@@ -174,19 +179,21 @@ export function taskListPayload(
                 packagePath: row.packagePath,
                 packageDisposition: row.packageDisposition,
                 taskClass: row.taskClass,
-                rootAssessment: deriveTaskRoot(
-                  {
-                    taskId: row.taskId,
-                    title: row.title,
-                    status: row.status,
-                    taskClass: row.taskClass,
-                    packageDisposition: row.packageDisposition,
-                    hasCloseoutEvidence: false,
-                    hasOwnExecution: false,
-                    directChildCount,
-                  },
-                  reads.rootThreshold,
-                ),
+                rootAssessment: parentDeferred
+                  ? null
+                  : deriveTaskRoot(
+                      {
+                        taskId: row.taskId,
+                        title: row.title,
+                        status: row.status,
+                        taskClass: row.taskClass,
+                        packageDisposition: row.packageDisposition,
+                        hasCloseoutEvidence: false,
+                        hasOwnExecution: false,
+                        directChildCount,
+                      },
+                      reads.rootThreshold,
+                    ),
               };
             }),
             count: selected.rows.length,

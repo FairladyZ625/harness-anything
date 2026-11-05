@@ -156,6 +156,30 @@ describe("renderer invoke assembles wire params per protocol declaration", () =>
     expect(renderToStaticMarkup(createElement(WorkspaceSummaryPending, { error: new Error(hint) }))).toContain(hint);
   });
 
+  it("shows parent collection migration as one line rather than an empty work scope", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: false,
+              error: { code: "projection_pending", hint: "索引迁移中" },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    window.sessionStorage.setItem("harness.browser.access-token", "secret");
+    await expect(harnessClient.getWorkspaceScope({ repoId: "canonical", rootTaskId: "parent" })).rejects.toMatchObject({
+      code: "projection_pending",
+      message: "索引迁移中",
+    });
+    expect(renderToStaticMarkup(createElement(WorkspaceSummaryPending, { error: new Error("索引迁移中") }))).toContain(
+      "索引迁移中",
+    );
+  });
+
   it("keeps repo-only and empty-input methods free of a payload key", async () => {
     const settings = await browserInvoke("repo.settings.read", { repoId: "canonical" }, "getSettings");
     expect(settings.params).toEqual({ repo: { repoId: "canonical" } });

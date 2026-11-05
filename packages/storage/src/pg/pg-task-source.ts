@@ -1,4 +1,4 @@
-import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
+import { assertPgTaskParentIndexReady, pgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import { readPgFactsInTransaction } from "./pg-fact-reads.ts";
 import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
 import { pgKnowledgeQueries, type PgKnowledgeQueries } from "./pg-knowledge-queries.ts";
@@ -189,12 +189,13 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (presentationStatus) await assertPgTaskParentIndexReady(client, options.scope);
+        const parentReady = !presentationStatus || (await pgTaskParentIndexReady(client, options.scope));
+        const deriveStatus = presentationStatus && parentReady;
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           // Keep main's bounded raw path: presentationStatus=false only projects the task's own
           // snapshot status, never the recursive subtree rollup. The rollup is computed only when
           // the caller reads presentation status; an explicit raw caller may skip even the scalar.
-          presentation = presentationStatus
+          presentation = deriveStatus
             ? presentationStatusSql(5)
             : presentationRollup
               ? "snapshot #>> '{task,status}'"
@@ -223,7 +224,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           packagePath: result.rows[0]?.package_path ?? null,
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
-          warnings: [],
+          warnings: parentReady ? [] : ["task_parent_metadata_deferred"],
           catchUp: { maxItems, reducedItems: 0, storeTransactions: 0 },
         };
       },
@@ -234,8 +235,10 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (query.presentationStatus || query.parentTaskId !== undefined || query.workRootsOnly)
+        if (query.parentTaskId !== undefined || query.workRootsOnly || query.requireParentMetadata)
           await assertPgTaskParentIndexReady(client, options.scope);
+        const parentReady = !query.presentationStatus || (await pgTaskParentIndexReady(client, options.scope));
+        const deriveStatus = query.presentationStatus && parentReady;
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
           where = [
@@ -246,9 +249,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           ];
         if (query.status !== undefined) {
           values.push(query.status);
-          where.push(
-            `${query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'"} = $${values.length}`,
-          );
+          where.push(`${deriveStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'"} = $${values.length}`);
         }
         if (query.search !== undefined) {
           const search = query.search.replace(/[\\%_]/gu, "\\$&");
@@ -325,7 +326,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         const paged = query.limit !== undefined || query.cursor !== undefined,
           limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
         if (limit !== null) values.push(limit + 1);
-        const presentation = query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'",
+        const presentation = deriveStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'",
           result = await client.query<{
             task_id: string;
             package_path: string | null;
@@ -366,7 +367,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           rows,
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
-          warnings: [],
+          warnings: parentReady ? [] : ["task_parent_metadata_deferred" as const],
           ...(limit !== null
             ? {
                 page: {

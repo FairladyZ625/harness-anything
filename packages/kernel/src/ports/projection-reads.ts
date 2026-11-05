@@ -22,7 +22,8 @@ import type {
   DecisionRelationEdgeRow,
 } from "./decision-projection-model.ts";
 
-export type TaskProjectionWarning = "projection_missing";
+/** Parent-derived display fields are omitted until the scoped parent index is complete. */
+export type TaskProjectionWarning = "projection_missing" | "task_parent_metadata_deferred";
 export interface TaskProjectionRead {
   readonly status: "ready" | "pending";
   readonly snapshot: TaskLifecycleSnapshot;

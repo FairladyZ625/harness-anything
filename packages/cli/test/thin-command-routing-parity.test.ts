@@ -1860,3 +1860,38 @@ test("Decision migration failure prints progress and retry guidance on stderr", 
     },
   );
 });
+
+test("parent collection migration renders a visible failure instead of an empty list", () => {
+  for (const command of ["task-list", "work-list", "work-show"]) {
+    assert.deepEqual(
+      renderCliReceipt({ ok: false, command, error: { code: "projection_pending", hint: "索引迁移中" } }),
+      { stream: "stderr", text: "error code=projection_pending hint=索引迁移中" },
+    );
+  }
+});
+
+test("ordinary task reads explain deferred parent fields without hiding their result", () => {
+  const result = renderCliReceipt({
+    ok: true,
+    command: "probe",
+    summary: "task remains readable",
+    warnings: ["task_parent_metadata_deferred"],
+  });
+  assert.equal(result.stream, "stdout");
+  assert.match(result.text, /task remains readable/u);
+  assert.match(result.text, /warning: 索引迁移中/u);
+  assert.doesNotMatch(result.text, /task_parent_metadata_deferred/u);
+});
+
+test("task show renders the deferred-field warning from its evidence payload", () => {
+  const result = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    evidence: JSON.stringify({
+      task: { status: "planned", currentNode: "implementation" },
+      warnings: ["task_parent_metadata_deferred"],
+    }),
+  });
+  assert.match(result.text, /status: planned/u);
+  assert.match(result.text, /warning: 索引迁移中/u);
+});
