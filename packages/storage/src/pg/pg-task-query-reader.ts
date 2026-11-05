@@ -33,6 +33,7 @@ export interface PgTaskQueryReader {
     expiresAt?: string,
   ) => LeaseV1;
   readonly rebuild: () => void;
+  readonly backfillReadIndexes: () => { readonly processed: number; readonly done: boolean };
   readonly warmIndexes: (maxItems?: number) => import("./pg-entity-declaration-catchup.ts").EntityIndexPage;
   /** One-time artifact timeline expansion; returns the number of backfilled rows (0 when ready). */
   readonly backfillArtifactTimeline: () => number;
@@ -160,6 +161,7 @@ export function createPgTaskQueryReader(
       | "rebuild"
       | "warm-indexes"
       | "artifact-backfill"
+      | "backfill-read-indexes"
       | "epoch"
       | "replication",
     method?: string,
@@ -220,6 +222,10 @@ export function createPgTaskQueryReader(
     rebuild: () => {
       if (activeSession) throw new Error("rebuild cannot run inside a projection read session");
       request("rebuild");
+    },
+    backfillReadIndexes: () => {
+      if (activeSession) throw new Error("read-index maintenance cannot run inside a read session");
+      return request("backfill-read-indexes");
     },
     warmIndexes: (maxItems = 64) => {
       if (activeSession) throw new Error("index catch-up cannot run inside a projection read session");

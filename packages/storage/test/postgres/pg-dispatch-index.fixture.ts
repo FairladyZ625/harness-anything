@@ -60,7 +60,7 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
       repoId,
       ownsPool: false,
     });
-  await assert.rejects(() => source.readRuntimeDispatchById("target-100002"), { code: "projection_pending" });
+  assert.equal((await source.readRuntimeDispatchById("target-100002"))?.event.payload.dispatchId, "target-100002");
   await withPostgresTransaction(
     seedPool,
     async (client) => {

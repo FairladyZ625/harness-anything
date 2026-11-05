@@ -82,7 +82,11 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
     1,
     "plain point reads do not depend on an unrelated index expansion",
   );
-  await assert.rejects(source.readRuntimeSessions({ unsettledOnly: true }), { code: "projection_pending" });
+  assert.equal(
+    (await source.readRuntimeSessions({ unsettledOnly: true })).length,
+    50,
+    "legacy outcome reader excludes settled sessions",
+  );
   assert.equal(
     (
       await withPostgresTransaction(

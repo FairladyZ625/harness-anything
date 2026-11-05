@@ -1,3 +1,4 @@
+import { backfillPgReadIndexPage } from "./pg-read-index-backfill.ts";
 import { borrowPgReadClient } from "./pg-read-savepoint.ts";
 import { backfillPgEntityDeclarationPage } from "./pg-entity-declaration-catchup.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
@@ -46,6 +47,7 @@ interface PgQueryWorkerRequest {
     | "rebuild"
     | "warm-indexes"
     | "artifact-backfill"
+    | "backfill-read-indexes"
     | "epoch"
     | "replication";
   readonly method?: string;
@@ -308,6 +310,11 @@ function startWorker(
           input.scope,
         );
         respond(request.id, input.state, null);
+        return;
+      }
+      if (request.op === "backfill-read-indexes") {
+        if (sessionClient) throw new Error("read-index maintenance cannot run inside a read session");
+        respond(request.id, input.state, await backfillPgReadIndexPage(pool, input.scope, input.repoId));
         return;
       }
       if (request.op === "warm-indexes") {

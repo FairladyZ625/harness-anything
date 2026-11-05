@@ -568,7 +568,7 @@ ${REPOSITORY_READ_TABLES_SQL}
 ${ARTIFACT_TIMELINE_TABLES_SQL}
   `);
   backfillRuntimeSessionExecutionNode(db);
-  ensureRuntimeMemberIndex(db, onValidationProgress);
+  ensureRuntimeMemberIndex(db);
   backfillEventSummaryReadIndex(db, onValidationProgress);
   backfillRuntimeSessionBindings(db, onValidationProgress);
   ensureArtifactTimelineBackfill(db);

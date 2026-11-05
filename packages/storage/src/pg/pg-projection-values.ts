@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
-import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { pgProjectionReadSource } from "./pg-read-index-migration.ts";
+import { pgEventReadSource } from "./pg-event-read-index-migration.ts";
 import type { RuntimeSession } from "@harness-anything/kernel";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -171,9 +171,14 @@ export async function listPgRuntimeSessions(
     readonly executionOwnerNodeId?: string;
   } = {},
 ): Promise<readonly RuntimeSession[]> {
-  if (query.unsettledOnly) await assertPgReadIndexReady(client, scope, "runtime-session");
-  if (query.executionOwnerNodeId !== undefined) await assertPgEventReadIndexReady(client, scope, repoId);
+  const source = await pgProjectionReadSource(client, scope, "runtime-session"),
+    events = query.executionOwnerNodeId === undefined ? "ha_events" : await pgEventReadSource(client, scope, repoId);
   const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
-    result = await client.query<{ value: string }>(statement.text, [...statement.values]);
+    result = await client.query<{ value: string }>(
+      statement.text
+        .replaceAll("FROM ha_projection_values v", `FROM ${source} v`)
+        .replaceAll("FROM ha_events e", `FROM ${events} e`),
+      [...statement.values],
+    );
   return result.rows.map(({ value }) => JSON.parse(value) as RuntimeSession);
 }

@@ -141,6 +141,8 @@ export interface TaskProjection {
   readonly catchUp?: () => ProjectionCatchUpReceipt;
   /** Catch up while yielding between bounded source batches. */
   readonly catchUpAsync?: () => Promise<ProjectionCatchUpReceipt>;
+  /** Writer-only online expansion: commit one bounded page, independently of source catch-up. */
+  readonly backfillReadIndexes?: () => { readonly processed: number; readonly done: boolean };
   readonly readStateDigest: () => `sha256:${string}` | null;
   readonly readCut: () => {
     readonly status: "ready" | "pending";
@@ -376,6 +378,7 @@ export type TaskProjectionQueries = Omit<
   | "rebuild"
   | "catchUp"
   | "catchUpAsync"
+  | "backfillReadIndexes"
   | "admitFact"
   | "admitDecision"
   | "reserveLease"

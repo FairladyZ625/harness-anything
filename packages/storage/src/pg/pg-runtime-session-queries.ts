@@ -1,16 +1,16 @@
 import type { PoolClient } from "pg";
 import type { RuntimeSession, RuntimeSessionPageQuery, RuntimeSessionPageRead } from "@harness-anything/kernel";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
-import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
+import { pgSessionTaskReadSource } from "./pg-read-index-migration.ts";
 
 export async function readPgTaskSessions(
   client: PoolClient,
   scope: PgProjectionScope,
   taskIds: readonly string[],
 ): Promise<ReadonlyMap<string, RuntimeSession[]>> {
-  await assertPgReadIndexReady(client, scope, "runtime-session");
+  const bindings = await pgSessionTaskReadSource(client, scope);
   const rows = await client.query<{ task_id: string; value: string }>(
-    `SELECT b.task_id,p.value FROM ha_runtime_session_tasks b JOIN ha_projection_values p
+    `SELECT b.task_id,p.value FROM ${bindings} b JOIN ha_projection_values p
       ON p.tenant_id=b.tenant_id AND p.project_id=b.project_id AND p.policy_epoch=b.policy_epoch
         AND p.model='runtime-session' AND p.owner_id='' AND p.entity_id=b.session_id
       WHERE b.tenant_id=$1 AND b.project_id=$2 AND b.policy_epoch=$3 AND b.task_id=ANY($5::text[])
@@ -35,7 +35,7 @@ export async function readPgSessionPage(
 ): Promise<RuntimeSessionPageRead> {
   if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
     throw new Error("runtime session page limit must be between 1 and 64");
-  await assertPgReadIndexReady(client, scope, "runtime-session");
+  const bindings = await pgSessionTaskReadSource(client, scope);
   const parameters = [
     scope.tenantId,
     scope.projectId,
@@ -45,7 +45,7 @@ export async function readPgSessionPage(
     ...(query.taskId ? [query.taskId] : []),
   ];
   const from = query.taskId
-    ? `ha_runtime_session_tasks b JOIN ha_projection_values p
+    ? `${bindings} b JOIN ha_projection_values p
       ON p.tenant_id=b.tenant_id AND p.project_id=b.project_id AND p.policy_epoch=b.policy_epoch
       AND p.model='runtime-session' AND p.owner_id='' AND p.entity_id=b.session_id`
     : "ha_projection_values p";

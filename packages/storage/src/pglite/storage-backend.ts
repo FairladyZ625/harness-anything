@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
-import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
+import type { PgProjectionScope } from "../pg/pg-task-event-materialize.ts";
+import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/index.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
@@ -27,7 +28,7 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   const scope = resolvePostgresEventStoreScope(options.storage.scope),
     storage = createPGliteStorage({ dataDir: options.storage.dataDir, pglite: options.pglite });
   try {
-    await initializeSchema(storage.pool, scope, options.repoId);
+    await initializeSchema(storage.pool, scope);
     return {
       ...createPgStorageBackend({
         pool: storage.pool,
@@ -49,11 +50,7 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   }
 }
 
-async function initializeSchema(
-  pool: PGliteStorage["pool"],
-  scope: PostgresScopeClaims,
-  repoId: string,
-): Promise<void> {
+async function initializeSchema(pool: PGliteStorage["pool"], scope: PgProjectionScope): Promise<void> {
   await withPostgresTransaction(pool, async (client) => {
     for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) {
       if (statement.startsWith("CREATE POLICY ")) await ensurePolicy(client, statement, POSTGRES_EVENT_LEDGER_TABLES);
@@ -80,60 +77,9 @@ async function initializeSchema(
     const page = await withPostgresTransaction(pool, (client) => backfillPgDecisionSearchPage(client, scope), scope);
     if (page.done) break;
   }
-  // Commit each bounded expansion page before admitting readers of this embedded scope.
-  for (;;) {
-    const processed = await withPostgresTransaction(
-      pool,
-      async (client) =>
-        (
-          await client.query<{ processed: number }>(
-            "SELECT ha_backfill_projection_read_indexes($1,$2,$3) AS processed",
-            [scope.tenantId, scope.projectId, scope.policyEpoch],
-          )
-        ).rows[0]!.processed,
-      scope,
-    );
-    if (processed === 0) break;
-  }
-  for (;;) {
-    const processed = await withPostgresTransaction(
-      pool,
-      async (client) =>
-        (
-          await client.query<{ processed: number }>("SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed", [
-            scope.tenantId,
-            scope.projectId,
-            scope.policyEpoch,
-            repoId,
-          ])
-        ).rows[0]!.processed,
-      scope,
-    );
-    if (processed === 0) break;
-  }
   // PGlite has exclusive schema ownership. Serving PostgreSQL contracts on its schema-owner
   // connection, using CONCURRENTLY outside transactions after every scope's page job commits.
   await withPostgresTransaction(pool, (client) => contractPgEventSummaryIndex(client, { indexBuild: "isolated" }));
-  // Embedded storage owns its schema: finish the dated v5 expansion before exposing this scope.
-  // Each committed primary-key page advances; processed=0, rather than the cursor, ends the scan.
-  let owner = "",
-    entity = "";
-  for (;;) {
-    const batch = await withPostgresTransaction(
-      pool,
-      async (client) =>
-        (
-          await client.query<{ processed: number; next_owner: string; next_entity: string }>(
-            "SELECT * FROM ha_backfill_document_metadata($1,$2,$3,$4,$5)",
-            [scope.tenantId, scope.projectId, scope.policyEpoch, owner, entity],
-          )
-        ).rows[0]!,
-      scope,
-    );
-    if (batch.processed === 0) break;
-    owner = batch.next_owner;
-    entity = batch.next_entity;
-  }
   // Documents projected before the artifact timeline index existed need one backfill before any
   // reader is admitted. The helper no-ops on a fresh projection, whose first materialization
   // already declares the index complete.

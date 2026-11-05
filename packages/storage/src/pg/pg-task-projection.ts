@@ -60,6 +60,7 @@ export function makePgTaskProjection(
     ...queries,
     path: reader.path,
     close: reader.close,
+    backfillReadIndexes: reader.backfillReadIndexes,
     apply: (event) => {
       const cut = queries.readCut();
       if (cut.watermark < event.workspaceRevision) throw new Error("PG projection apply requires canonical acceptance");

@@ -385,6 +385,7 @@ test("historical idempotencyKey dispatch is readable by the unified dispatch key
         serializePersistedCanonicalEvent(historical),
         current.opId,
       );
+      db.exec("UPDATE runtime_read_index_progress SET revision=0,complete=0");
       ensureRuntimeMemberIndex(db);
     } finally {
       db.close();

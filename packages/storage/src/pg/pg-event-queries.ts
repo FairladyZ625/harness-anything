@@ -1,4 +1,4 @@
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { pgEventReadSource } from "./pg-event-read-index-migration.ts";
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
@@ -389,14 +389,14 @@ export async function readEventRowsInTransaction(
   suffix = "",
   suffixValues: readonly unknown[] = [],
 ): Promise<PgEventRow[]> {
-  await assertPgEventReadIndexReady(client, claims, repoId);
+  const events = await pgEventReadSource(client, claims, repoId);
   const parameters = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, ...predicateValues];
   if (limit !== undefined) parameters.push(limit);
   parameters.push(...suffixValues);
   const limitClause = limit === undefined ? "" : `LIMIT $${6 + predicateValues.length}`;
   return (
     await client.query<PgEventRow>(
-      `SELECT revision::text, op_id, event_json FROM ha_events
+      `SELECT revision::text, op_id, event_json FROM ${events} AS ha_events
        WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
          AND event_type <> 'ci_run_observed'
          AND (cardinality($5::text[]) = 0 OR readers && $5::text[])

@@ -331,6 +331,7 @@ export async function openRepoWriterCell(
         causeClass = null;
         recoveryUncertain = false;
         recoveryProbe.clear();
+        setImmediate(backfillReadIndexes);
       } catch (error) {
         consumeKnownError(error);
         if (candidate) {
@@ -1020,6 +1021,27 @@ export async function openRepoWriterCell(
         `Runtime terminal waiting settlement was ${parked.outcome}.`,
       );
   };
+  // Maintenance uses the same queue and epoch as authored writes. One page per turn keeps
+  // attach/read admission independent; close skips queued work, restart resumes the durable cursor.
+  let readIndexBackfillQueued = false;
+  const backfillReadIndexes = (): void => {
+    if (mode === "remote-edge" || state !== "attached" || !projection.backfillReadIndexes || readIndexBackfillQueued)
+      return;
+    readIndexBackfillQueued = true;
+    void schedule(() => {
+      if (state !== "attached") return;
+      const page = defaultWriterEpochFence
+        ? defaultWriterEpochFence(() => projection.backfillReadIndexes!())
+        : projection.backfillReadIndexes!();
+      if (!page.done) setImmediate(backfillReadIndexes);
+    })
+      .finally(() => {
+        readIndexBackfillQueued = false;
+      })
+      .catch((error: unknown) => {
+        console.error("[read-index-backfill]", error);
+      });
+  };
   const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
   setImmediate(() => {
     if (state === "closed") return;
@@ -1165,5 +1187,6 @@ export async function openRepoWriterCell(
     },
     lock,
   };
+  setImmediate(backfillReadIndexes);
   return Object.assign(createRepoCellApi(apiContext), { backup, pruneReplicationLog });
 }

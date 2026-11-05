@@ -1,4 +1,4 @@
-import { assertRuntimeDispatchKeyIndexReady, assertRuntimeMemberIndexReady } from "./runtime-member-index.ts";
+import { runtimeReadIndexReady } from "./runtime-member-index.ts";
 import { prefixUpperBound } from "./document-read-range.ts";
 import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
@@ -262,8 +262,14 @@ export function repositoryEventQueries(
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_ID_SQL, dispatchId))),
     readRuntimeDispatchByDispatchKey: (dispatchKey) =>
       withRead((db) => {
-        assertRuntimeDispatchKeyIndexReady(db);
-        return projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_KEY_SQL, dispatchKey));
+        // Delete once every deployed repository is complete, no later than 2026-12-05.
+        const sql = runtimeReadIndexReady(db)
+          ? RUNTIME_DISPATCH_BY_KEY_SQL
+          : RUNTIME_DISPATCH_BY_KEY_SQL.replace(
+              "dispatch_key = ?",
+              "COALESCE(json_extract(event_json, '$.payload.dispatchKey'), json_extract(event_json, '$.payload.idempotencyKey')) = ?",
+            );
+        return projectedDispatch(db, queryRow(db, sql, dispatchKey));
       }),
     readRuntimeDispatchByResumeSource: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL, dispatchId))),
@@ -399,7 +405,6 @@ export function repositoryEventQueries(
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
-        assertRuntimeMemberIndexReady(db);
         const member: "agentId" | "squadId" = agentId === undefined ? "squadId" : "agentId",
           value = agentId ?? squadId!,
           raw = queryRows(db, RUNTIME_DISPATCHES_BY_MEMBER_SQL(member), value, limit + 1),
@@ -411,7 +416,18 @@ export function repositoryEventQueries(
                 isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
             )
             .map(publicRuntimeDispatch),
-          sessions = queryRows(db, RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member), value, value).map(
+          sessions = queryRows(
+            db,
+            runtimeReadIndexReady(db)
+              ? RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member)
+              : // Same deletion condition as the dispatch-key legacy reader above.
+                RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member).replaceAll(
+                  "runtime_session_present=1",
+                  "EXISTS (SELECT 1 FROM runtime_session s WHERE s.runtime_session_id=json_extract(event_index.event_json, '$.payload.runtimeSessionId'))",
+                ),
+            value,
+            value,
+          ).map(
             (row): RuntimeDispatchMemberSession => ({
               runtimeSessionId: String(row.runtimeSessionId),
               taskIds: String(row.taskIds ?? "")

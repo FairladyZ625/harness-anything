@@ -189,7 +189,7 @@ async function assertOnlineReadIndexUpgrade(pool: Pool, seedPool: Pool): Promise
     oldScope,
   );
   const source = createPgTaskProjectionSource({ pool, scope: oldScope, repoId: "old-index", ownsPool: false });
-  await assert.rejects(source.listPinnedEntities(), { code: "projection_pending" });
+  assert.equal((await source.listPinnedEntities()).length, 130, "pending historical pins remain readable");
   const pages: number[] = [];
   for (;;) {
     const processed = await withPostgresTransaction(

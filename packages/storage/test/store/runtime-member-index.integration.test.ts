@@ -5,7 +5,8 @@ import test from "node:test";
 import { applyDecision, projectionFixture, proposal } from "./relation-graph-projection.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import {
-  assertRuntimeDispatchKeyIndexReady,
+  backfillRuntimeReadIndexPage,
+  runtimeReadIndexReady,
   ensureRuntimeMemberIndex,
 } from "../../src/projection/runtime-member-index.ts";
 import { REPOSITORY_READ_TABLES_SQL } from "../../src/projection/projection-tables.ts";
@@ -42,7 +43,13 @@ test("SQLite dispatch key expansion backfills both historical and current spelli
     insert.run("new", 2, dispatch({ dispatchId: "dispatch-new", dispatchKey: "key-new" }));
     insert.run("task", 3, JSON.stringify({ schema: "task-event/v1", type: "task_created", payload: {} }));
     const progress: { applied: number; total: number }[] = [];
-    ensureRuntimeMemberIndex(db, (entry) => progress.push(entry));
+    ensureRuntimeMemberIndex(db);
+    assert.equal(runtimeReadIndexReady(db), false);
+    for (;;) {
+      const page = backfillRuntimeReadIndexPage(db);
+      if (page.done) break;
+      progress.push({ applied: (progress.at(-1)?.applied ?? 0) + page.processed, total: 3 });
+    }
     assert.deepEqual(
       db
         .prepare("SELECT op_id,dispatch_key FROM event_index ORDER BY workspace_revision")
@@ -65,7 +72,7 @@ test("SQLite dispatch key expansion backfills both historical and current spelli
       plan.map(({ detail }) => detail).join("\n"),
       /SEARCH event_index USING INDEX event_index_runtime_dispatch_key/u,
     );
-    assert.doesNotThrow(() => assertRuntimeDispatchKeyIndexReady(db));
+    assert.equal(runtimeReadIndexReady(db), true);
     // Old prepared statements and mixed-version writers insert only the original columns; the
     // AFTER INSERT trigger still derives the key.
     insert.run("after", 4, dispatch({ dispatchId: "dispatch-after", idempotencyKey: "key-after" }));
@@ -74,7 +81,10 @@ test("SQLite dispatch key expansion backfills both historical and current spelli
       "key-after",
     );
     db.exec("UPDATE event_index SET dispatch_key=NULL WHERE op_id='old'");
-    assert.throws(() => assertRuntimeDispatchKeyIndexReady(db), { code: "projection_pending" });
+    db.exec("UPDATE runtime_read_index_progress SET revision=0,complete=0");
+    assert.equal(runtimeReadIndexReady(db), false);
+    assert.equal(backfillRuntimeReadIndexPage(db).processed, 1);
+    assert.equal(backfillRuntimeReadIndexPage(db).done, true);
   } finally {
     db.close();
   }
@@ -170,11 +180,19 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
         guard.mock.restore();
       }
       db.exec("UPDATE event_index SET runtime_session_present=NULL");
-      assert.throws(() => projection.readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 }), {
-        code: "projection_pending",
-      });
+      db.exec("UPDATE runtime_read_index_progress SET revision=0,complete=0");
+      assert.deepEqual(
+        projection
+          .readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 })
+          .sessions.map((row) => row.runtimeSessionId),
+        ["session-a", "session-b"],
+      );
       const progress: number[] = [];
-      ensureRuntimeMemberIndex(db, ({ applied }) => progress.push(applied));
+      for (;;) {
+        const page = backfillRuntimeReadIndexPage(db);
+        if (page.done) break;
+        progress.push((progress.at(-1) ?? 0) + page.processed);
+      }
       assert.equal(progress.at(-1), 100003);
       assert.ok(progress.every((n, i) => n - (progress[i - 1] ?? 0) <= 64));
       const read = () =>
@@ -189,7 +207,8 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
       assert.deepEqual(read(), ["orphan-1", "session-a", "session-b"]);
       db.prepare("DELETE FROM runtime_session WHERE runtime_session_id=?").run("orphan-1");
       assert.deepEqual(read(), ["session-a", "session-b"]);
-      ensureRuntimeMemberIndex(db, () => assert.fail("ready expansion visited historical rows"));
+      ensureRuntimeMemberIndex(db);
+      assert.deepEqual(backfillRuntimeReadIndexPage(db), { processed: 0, done: true });
     } finally {
       db.close();
       projection.close();

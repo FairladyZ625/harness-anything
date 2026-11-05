@@ -9,11 +9,8 @@ const present = `CASE WHEN ${dispatch} AND EXISTS (SELECT 1 FROM runtime_session
 // column. Non-dispatch rows carry '' so NULL remains the "not yet expanded" marker.
 const dispatchKey = `CASE WHEN ${dispatch} THEN COALESCE(json_extract(event_json,'$.payload.dispatchKey'),json_extract(event_json,'$.payload.idempotencyKey'),'') ELSE '' END`;
 
-/** Additive, old-writer-compatible cache expansion; commit every 64 pending rows. */
-export function ensureRuntimeMemberIndex(
-  db: DatabaseSync,
-  onProgress?: (progress: { applied: number; total: number }) => void,
-): void {
+/** Expand only. Historical rows are owned by the daemon writer maintenance queue. */
+export function ensureRuntimeMemberIndex(db: DatabaseSync): void {
   if (!queryRows(db, "PRAGMA table_info(event_index)").some(({ name }) => name === "runtime_session_present"))
     runSql(db, "ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
   if (!queryRows(db, "PRAGMA table_info(event_index)").some(({ name }) => name === "dispatch_key"))
@@ -50,49 +47,61 @@ export function ensureRuntimeMemberIndex(
     ]),
   ];
   for (const statement of ddl) runSql(db, statement);
-  let applied = 0,
-    total = 0;
-  const pending = "runtime_session_present IS NULL OR dispatch_key IS NULL";
-  for (;;) {
+  runSql(
+    db,
+    `CREATE TABLE IF NOT EXISTS runtime_read_index_progress (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL, complete INTEGER NOT NULL
+  )`,
+  );
+  runSql(
+    db,
+    `INSERT OR IGNORE INTO runtime_read_index_progress
+    SELECT 1,0,CASE WHEN EXISTS(SELECT 1 FROM event_index WHERE runtime_session_present IS NULL LIMIT 1)
+      OR EXISTS(SELECT 1 FROM event_index WHERE dispatch_key IS NULL LIMIT 1) THEN 0 ELSE 1 END`,
+  );
+}
+
+/** One committed revision page; NULL partial indexes and the durable cursor skip completed history. */
+export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: number; done: boolean } {
+  return transaction(db, () => {
+    const progress = queryRows<{ revision: number; complete: number }>(
+      db,
+      "SELECT revision,complete FROM runtime_read_index_progress WHERE singleton=1",
+    )[0]!;
+    if (progress.complete) return { processed: 0, done: true };
     const rows = queryRows<{ workspace_revision: number }>(
       db,
-      `SELECT workspace_revision FROM event_index WHERE ${pending} ORDER BY workspace_revision LIMIT 64`,
+      `SELECT workspace_revision FROM (
+      SELECT workspace_revision FROM (SELECT workspace_revision FROM event_index
+        WHERE runtime_session_present IS NULL AND workspace_revision>? ORDER BY workspace_revision LIMIT 64)
+      UNION SELECT workspace_revision FROM (SELECT workspace_revision FROM event_index
+        WHERE dispatch_key IS NULL AND workspace_revision>? ORDER BY workspace_revision LIMIT 64)
+      ) ORDER BY workspace_revision LIMIT 64`,
+      progress.revision,
+      progress.revision,
     );
-    if (rows.length === 0) return;
-    if (total === 0)
-      total = Number(queryRows(db, `SELECT count(*) AS count FROM event_index WHERE ${pending}`)[0]!.count);
-    transaction(db, () => {
-      for (const row of rows)
-        runSql(
-          db,
-          `UPDATE event_index SET
-            runtime_session_present=CASE WHEN runtime_session_present IS NULL THEN ${present} ELSE runtime_session_present END,
-            dispatch_key=CASE WHEN dispatch_key IS NULL THEN ${dispatchKey} ELSE dispatch_key END
-          WHERE workspace_revision=?`,
-          row.workspace_revision,
-        );
-    });
-    applied += rows.length;
-    onProgress?.({ applied, total });
-  }
+    for (const row of rows)
+      runSql(
+        db,
+        `UPDATE event_index SET
+        runtime_session_present=CASE WHEN runtime_session_present IS NULL THEN ${present} ELSE runtime_session_present END,
+        dispatch_key=CASE WHEN dispatch_key IS NULL THEN ${dispatchKey} ELSE dispatch_key END
+        WHERE workspace_revision=?`,
+        row.workspace_revision,
+      );
+    if (rows.length === 0) runSql(db, "UPDATE runtime_read_index_progress SET complete=1 WHERE singleton=1");
+    else
+      runSql(
+        db,
+        "UPDATE runtime_read_index_progress SET revision=? WHERE singleton=1",
+        rows.at(-1)!.workspace_revision,
+      );
+    return { processed: rows.length, done: rows.length === 0 };
+  });
 }
 
-/** Read-only generations cannot silently answer from an incomplete expansion. */
-export function assertRuntimeMemberIndexReady(db: DatabaseSync): void {
-  if (
-    queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='index' AND name='event_index_runtime_member_pending'")
-      .length === 0 ||
-    queryRows(db, "SELECT 1 FROM event_index WHERE runtime_session_present IS NULL LIMIT 1").length > 0
-  )
-    throw Object.assign(new Error("Runtime member index catch-up is pending"), { code: "projection_pending" });
-}
-
-/** The dispatch-key read must not answer before the historical-key expansion is complete. */
-export function assertRuntimeDispatchKeyIndexReady(db: DatabaseSync): void {
-  if (
-    queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='index' AND name='event_index_runtime_dispatch_key_pending'")
-      .length === 0 ||
-    queryRows(db, "SELECT 1 FROM event_index WHERE dispatch_key IS NULL LIMIT 1").length > 0
-  )
-    throw Object.assign(new Error("Runtime dispatch key index catch-up is pending"), { code: "projection_pending" });
+export function runtimeReadIndexReady(db: DatabaseSync): boolean {
+  if (!queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_read_index_progress'").length)
+    return false;
+  return queryRows(db, "SELECT 1 FROM runtime_read_index_progress WHERE singleton=1 AND complete=1").length > 0;
 }

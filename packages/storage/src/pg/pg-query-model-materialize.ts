@@ -1,6 +1,6 @@
 import { materializePgEntityDeclaration } from "./pg-entity-declarations.ts";
 import { artifactRetirementEntry, artifactTimelineEntry, flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
-import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
+import { pgProjectionReadSource } from "./pg-read-index-migration.ts";
 import { interpretReplayDeclaration } from "../projection/entity-declaration-replay.ts";
 import type { PoolClient } from "pg";
 import type {
@@ -271,9 +271,9 @@ export async function materializePgQueryModels(
   }
   if (isTaskEvent(event)) {
     const openIntervals = async (executionId: string): Promise<readonly LeaseInterval[]> => {
-      await assertPgReadIndexReady(client, scope, "lease-interval");
+      const source = await pgProjectionReadSource(client, scope, "lease-interval");
       const rows = await client.query<{ value: string }>(
-        `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+        `SELECT value FROM ${source} AS ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
           AND model='lease-interval' AND owner_id=$4 AND execution_id=$5 AND interval_open
           AND (cardinality($6::text[])=0 OR readers && $6::text[]) ORDER BY order_revision`,
         [scope.tenantId, scope.projectId, scope.policyEpoch, event.taskId, executionId, [...(scope.readers ?? [])]],

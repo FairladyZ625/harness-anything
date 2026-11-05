@@ -1,3 +1,4 @@
+import { backfillRuntimeReadIndexPage } from "./runtime-member-index.ts";
 import { projectionCatchUpLimit } from "./catch-up-limit.ts";
 import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
@@ -182,6 +183,7 @@ export function makeTaskProjection(
   return {
     path: projectionPath,
     close: closeProjection,
+    backfillReadIndexes: () => withDatabase(projectionPath, readHead, backfillRuntimeReadIndexPage),
     apply: (event, plan) => {
       if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">);
       if (isEntityEvent(event)) assertEntityUpsertWritePlan(event, plan as FrozenWritePlan<"EntityUpsert">);

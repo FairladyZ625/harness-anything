@@ -111,14 +111,7 @@ test("external PG release sequence upgrades populated read indexes before reader
       await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       await grantPgProjectionRuntimeAccess(client);
     });
-    for (const operation of [
-      () => projection.readRuntimeSessions({ unsettledOnly: true }),
-      () => projection.listPinnedEntities(),
-      () => projection.readLeaseIntervals("task-parity"),
-      () => projection.readFactGraph("F-11111111"),
-      () => projection.readTaskEventExists("task-parity"),
-    ])
-      await assert.rejects(operation(), { code: "projection_pending" });
+    assert.deepEqual(await read(), before, "previous readers keep all queries correct during expansion");
 
     const countPending = () =>
         manage(async (client) =>

@@ -122,20 +122,31 @@ export function readIndexDdl(): readonly string[] {
   ];
 }
 
-/** Only legacy rows can lack these fields: current and previous writers both run the trigger. */
-export async function assertPgReadIndexReady(
+/** Keep the previous reader until every deployed scope is complete, no later than 2026-12-05. */
+export async function pgProjectionReadSource(
   client: PoolClient,
   scope: PgProjectionScope,
   model: string,
-): Promise<void> {
+): Promise<string> {
   const pending = await client.query(
     `SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       AND model=$4 AND ((model='runtime-session' AND read_index_version<2)
         OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)) LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, model],
   );
-  if (pending.rows.length)
-    throw Object.assign(new Error(`Projection read-index backfill is pending for ${model}`), {
-      code: "projection_pending",
-    });
+  if (!pending.rows.length) return "ha_projection_values";
+  return `(SELECT tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value,
+    v->>'liveness' AS runtime_liveness,v->>'outcome' AS runtime_outcome,v->>'pinnedAt' AS order_at,
+    (v->>'acquiredRevision')::bigint AS order_revision,v->>'executionId' AS execution_id,
+    v->>'releasedRevision' IS NULL AS interval_open,
+    (starts_with(v->>'ownerRef','fact/') OR starts_with(v->>'targetRef','fact/')) AS fact_edge
+    FROM ha_projection_values CROSS JOIN LATERAL (SELECT ha_read_index_json(value) AS v) parsed)`;
+}
+
+export async function pgSessionTaskReadSource(client: PoolClient, scope: PgProjectionScope): Promise<string> {
+  if ((await pgProjectionReadSource(client, scope, "runtime-session")) === "ha_projection_values")
+    return "ha_runtime_session_tasks";
+  return `(SELECT DISTINCT tenant_id,project_id,policy_epoch,readers,entity_id AS session_id,binding->>'taskId' AS task_id
+    FROM ha_projection_values CROSS JOIN LATERAL jsonb_array_elements(ha_read_index_json(value)->'taskBindings') binding
+    WHERE model='runtime-session' AND owner_id='')`;
 }

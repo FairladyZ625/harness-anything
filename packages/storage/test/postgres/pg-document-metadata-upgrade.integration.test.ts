@@ -79,7 +79,7 @@ test("populated v5 upgrades online with bounded backfill and previous/current re
       admin.release();
     }
     assert.equal(await pending(), 130);
-    await assert.rejects(source.readDocuments("docs/"), { code: "projection_pending" });
+    assert.equal((await source.readDocuments("docs/")).documents.length, 130, "legacy metadata remains readable");
     assert.equal((await transaction((client) => v5Documents(client, scope))).length, 130);
     await transaction((client) => materializePgProjectionEvents(client, scope, { revision: 0, events: [] }));
     const first = await backfill();
@@ -114,7 +114,7 @@ test("populated v5 upgrades online with bounded backfill and previous/current re
       }),
       transaction((client) => putPgProjectionValue(client, scope, "document", current.path, "", 2, current)),
     ]);
-    await assert.rejects(source.readDocuments(""), { code: "projection_pending" });
+    assert.equal((await source.readDocuments("")).documents.length, 132, "mixed old/current writes remain readable");
     const batches: number[] = [];
     let cursor = first;
     for (;;) {

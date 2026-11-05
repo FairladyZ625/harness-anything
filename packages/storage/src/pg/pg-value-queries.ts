@@ -2,8 +2,8 @@ import { prefixUpperBound } from "../projection/document-read-range.ts";
 import { documentPathAncestors } from "../projection/document-path-ancestors.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { readPgTaskSessions, readPgSessionPage } from "./pg-runtime-session-queries.ts";
-import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import { readPgArtifactTimeline } from "./pg-artifact-timeline.ts";
+import { pgProjectionReadSource } from "./pg-read-index-migration.ts";
 import type { PoolClient } from "pg";
 import type {
   EntityProjectionRow,
@@ -54,6 +54,14 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     prefix: string,
     page?: { readonly limit: number; readonly afterPath?: string },
   ) => {
+    // The legacy extractor can retire once NULL metadata has drained (deadline 2026-12-05).
+    const pending = await client.query(
+      "SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document' AND document_metadata IS NULL LIMIT 1",
+      [scope.tenantId, scope.projectId, scope.policyEpoch],
+    );
+    const metadata = pending.rows.length
+      ? "COALESCE(document_metadata,ha_document_metadata_from_value(value))"
+      : "document_metadata";
     const upper = prefixUpperBound(prefix),
       values: unknown[] = [
         scope.tenantId,
@@ -66,8 +74,8 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       after = page?.afterPath,
       afterPredicate = after === undefined ? "" : `AND entity_id COLLATE "C" > $${values.push(after)}`,
       limitClause = page === undefined ? "" : `LIMIT $${values.push(checkedPageLimit(page.limit, 500) + 1)}`,
-      result = await client.query<{ value: string | null }>(
-        `SELECT document_metadata AS value FROM ha_projection_values
+      result = await client.query<{ value: string }>(
+        `SELECT ${metadata} AS value FROM ha_projection_values
          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
            AND owner_id='' AND entity_id COLLATE "C" >= $5
            ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}
@@ -76,10 +84,6 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         values,
       );
     return result.rows.map(({ value }) => {
-      if (value === null)
-        throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
-          code: "projection_pending",
-        });
       const { path, blobSha256, size, mediaType, policyId } = JSON.parse(value) as Omit<DocumentState, "body">;
       return { path, blobSha256, size, mediaType, policyId: policyId ?? null };
     });
@@ -110,9 +114,9 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       }),
     listPinnedEntities: () =>
       read(async (client) => {
-        await assertPgReadIndexReady(client, scope, "pin");
+        const source = await pgProjectionReadSource(client, scope, "pin");
         const result = await client.query<{ value: string }>(
-          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          `SELECT value FROM ${source} AS ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
           AND model='pin' AND (cardinality($4::text[])=0 OR readers && $4::text[])
           ORDER BY order_at DESC,entity_id`,
           [scope.tenantId, scope.projectId, scope.policyEpoch, readers],
@@ -130,9 +134,9 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     readSquadRuns: () => list<SquadRunProjectionRow>("squad-run"),
     readLeaseIntervals: (taskId) =>
       read(async (client) => {
-        await assertPgReadIndexReady(client, scope, "lease-interval");
+        const source = await pgProjectionReadSource(client, scope, "lease-interval");
         const result = await client.query<{ value: string }>(
-          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          `SELECT value FROM ${source} AS ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
           AND model='lease-interval' AND owner_id=$5 AND (cardinality($4::text[])=0 OR readers && $4::text[])
           ORDER BY order_revision`,
           [scope.tenantId, scope.projectId, scope.policyEpoch, readers, taskId],

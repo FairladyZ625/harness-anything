@@ -1,4 +1,4 @@
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { pgEventReadSource } from "./pg-event-read-index-migration.ts";
 import { prefixUpperBound } from "../projection/document-read-range.ts";
 import type { PoolClient } from "pg";
 import type {
@@ -50,11 +50,11 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     order = "ha_events.revision",
     limit?: number,
   ): Promise<Dispatch[]> => {
-    await assertPgEventReadIndexReady(client, scope, repoId);
+    const events = await pgEventReadSource(client, scope, repoId);
     const parameters = [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, ...values];
     if (limit !== undefined) parameters.push(limit);
     const result = await client.query<{ event_json: string }>(
-      `SELECT event_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+      `SELECT event_json FROM ${events} AS ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
        AND (cardinality($5::text[])=0 OR readers && $5::text[])
        AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
        AND event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'
@@ -64,8 +64,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     return result.rows.map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as Dispatch));
   };
   const projected = async (client: PoolClient, event: Dispatch): Promise<RuntimeDispatchProjectionRow> => {
+    const events = await pgEventReadSource(client, scope, repoId);
     const result = await client.query<{ event_json: string }>(
-      `SELECT event_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+      `SELECT event_json FROM ${events} AS ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
        AND (cardinality($5::text[])=0 OR readers && $5::text[]) AND event_type='runtime_session_outcome_observed'
        AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
        AND event_schema='agent-runtime-event/v1' AND dispatch_id=$6
@@ -221,9 +222,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       }),
     countRuntimeDispatchesByAgent: (agentId) =>
       transaction(async (client) => {
-        await assertPgEventReadIndexReady(client, scope, repoId);
+        const events = await pgEventReadSource(client, scope, repoId);
         const result = await client.query<{ count: string }>(
-          `SELECT count(*) AS count FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+          `SELECT count(*) AS count FROM ${events} AS ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
            AND (cardinality($5::text[])=0 OR readers && $5::text[])
            AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
            AND event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'
@@ -244,6 +245,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       }),
     readRuntimeDispatchesByMember: ({ agentId, squadId, limit }) =>
       transaction(async (client) => {
+        const events = await pgEventReadSource(client, scope, repoId);
         if ((agentId === undefined) === (squadId === undefined))
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
@@ -258,7 +260,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
             limit + 1,
           ),
           candidate = (after: boolean) => `SELECT d.event_json,p.value AS session,d.runtime_session_id
-            FROM ha_events d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id
+            FROM ${events} d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id
               AND p.policy_epoch=d.policy_epoch AND p.model='runtime-session' AND p.owner_id='' AND p.entity_id=d.runtime_session_id COLLATE "default"
             WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.repo_id=$3 AND d.policy_epoch=$4
               AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')

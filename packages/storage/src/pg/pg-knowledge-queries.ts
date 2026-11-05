@@ -1,5 +1,5 @@
 import { readPgFactsInTransaction } from "./pg-fact-reads.ts";
-import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { pgEventReadSource } from "./pg-event-read-index-migration.ts";
 import type { PoolClient } from "pg";
 import type {
   TaskProjectionQueries,
@@ -12,7 +12,7 @@ import { coverageOf, type CoverageDecision } from "@harness-anything/kernel/inte
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
-import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
+import { pgProjectionReadSource } from "./pg-read-index-migration.ts";
 import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
@@ -34,9 +34,9 @@ export function pgKnowledgeQueries(
   const read = <Result>(operation: (client: PoolClient) => Promise<Result>) =>
     withPostgresTransaction(options.pool, operation, scope, { isolationLevel: "repeatable read" });
   const anchors = async (client: PoolClient, refs?: readonly string[]): Promise<readonly FactAnchorRow[]> => {
-    await assertPgEventReadIndexReady(client, scope, repoId);
+    const events = await pgEventReadSource(client, scope, repoId);
     const rows = await client.query<{ value: FactProjectionRow; op_id: string }>(
-      `SELECT f.value,(SELECT e.op_id FROM ha_events e WHERE e.tenant_id=f.tenant_id AND e.project_id=f.project_id AND e.policy_epoch=f.policy_epoch AND e.repo_id=$5
+      `SELECT f.value,(SELECT e.op_id FROM ${events} e WHERE e.tenant_id=f.tenant_id AND e.project_id=f.project_id AND e.policy_epoch=f.policy_epoch AND e.repo_id=$5
         AND (cardinality($4::text[])=0 OR e.readers && $4::text[]) AND
         e.fact_anchor_id=f.fact_id
         ORDER BY e.revision LIMIT 1) AS op_id FROM ha_facts f WHERE f.tenant_id=$1 AND f.project_id=$2 AND f.policy_epoch=$3
@@ -193,9 +193,9 @@ export function pgKnowledgeQueries(
       })),
     readFactGraph: () =>
       read(async (client) => {
-        await assertPgReadIndexReady(client, scope, "relation-write");
+        const source = await pgProjectionReadSource(client, scope, "relation-write");
         const result = await client.query<{ value: string }>(
-          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          `SELECT value FROM ${source} AS ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
           AND model='relation-write' AND fact_edge AND (cardinality($4::text[])=0 OR readers && $4::text[])
           ORDER BY entity_id,owner_id`,
           parameters,
