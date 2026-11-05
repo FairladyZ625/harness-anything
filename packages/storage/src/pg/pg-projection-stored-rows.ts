@@ -3,6 +3,8 @@
  * Unreferenced dictionary addresses have no search meaning and are excluded, like free index pages.
  */
 export function pgProjectionStoredRows(table: string): { readonly from: string; readonly row: string } {
+  if (table === "ha_decision_read_status")
+    return { from: `${table} projection`, row: "to_jsonb(projection)-'generation'" };
   if (table === "ha_search_terms")
     return {
       from: `(SELECT DISTINCT word.tenant_id,word.project_id,word.policy_epoch,word.readers,word.term_key,word.term

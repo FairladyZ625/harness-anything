@@ -1,6 +1,10 @@
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
-import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
+import {
+  POSTGRES_SCOPE_COLUMNS_SQL,
+  POSTGRES_SCOPE_SCHEMA_CONTRACT,
+  postgresScopeRlsStatements,
+} from "../postgres/scope-schema.ts";
 
 /** A nullable count means an older scope has not completed management backfill. */
 export function decisionReadStatusDdl(): readonly string[] {
@@ -10,8 +14,21 @@ export function decisionReadStatusDdl(): readonly string[] {
   return [
     `CREATE TABLE IF NOT EXISTS ha_decision_read_status (
       ${POSTGRES_SCOPE_COLUMNS_SQL},readers text[] NOT NULL DEFAULT '{}',
-      scalar_pending bigint,search_pending bigint,
+      scalar_pending bigint,search_pending bigint,generation bigint NOT NULL DEFAULT 0,
       PRIMARY KEY(tenant_id,project_id,policy_epoch))`,
+    ...postgresScopeRlsStatements("ha_decision_read_status").map((sql) =>
+      sql.startsWith("CREATE POLICY ")
+        ? `DO $policy$ BEGIN ${sql}; EXCEPTION WHEN duplicate_object THEN NULL; END $policy$`
+        : sql,
+    ),
+    // Install scoped access before the trigger starts serving the previous writer.
+    // Embedded PG has no external runtime/migrator roles.
+    ...[POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime, POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.migration].map(
+      (role) =>
+        `DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${role}') THEN
+        GRANT SELECT,INSERT,UPDATE,DELETE ON ha_decision_read_status TO "${role}";
+      END IF; END $grant$`,
+    ),
     // Transition tables charge aggregation to this statement's write set. A bulk
     // backfill updates each scope once, instead of leaving one counter version per owner.
     `CREATE OR REPLACE FUNCTION ha_decision_read_status_delta() RETURNS trigger
@@ -25,10 +42,8 @@ export function decisionReadStatusDdl(): readonly string[] {
           INSERT INTO ha_decision_read_status(tenant_id,project_id,policy_epoch)
             VALUES(changed.tenant_id,changed.project_id,changed.policy_epoch) ON CONFLICT DO NOTHING;
           UPDATE ha_decision_read_status SET scalar_pending=scalar_pending+changed.scalar_delta,
-            search_pending=search_pending+changed.search_delta
-          WHERE tenant_id=changed.tenant_id AND project_id=changed.project_id AND policy_epoch=changed.policy_epoch
-            AND ((scalar_pending IS NOT NULL AND changed.scalar_delta<>0)
-              OR (search_pending IS NOT NULL AND changed.search_delta<>0));
+            search_pending=search_pending+changed.search_delta,generation=generation+1
+          WHERE tenant_id=changed.tenant_id AND project_id=changed.project_id AND policy_epoch=changed.policy_epoch;
         END LOOP;
         RETURN NULL;
       END $function$`,
@@ -70,9 +85,8 @@ export async function assertPgDecisionReadReady(
     throw Object.assign(new Error(`Decision ${kind} backfill is pending`), { code: "projection_pending" });
 }
 
-/** Management alone may scan the pending index. Hold the summary row only while
- * checking completion, without owner locks: concurrent writer deltas then serialize
- * before or after initialization, without reversing writer/owner lock order.
+/** Management scans without writer locks, then publishes only if no pending-state
+ * transition raced its snapshot. CAS failure leaves unknown state and done=false.
  */
 export async function finishPgDecisionReadBackfill(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch];
@@ -80,10 +94,12 @@ export async function finishPgDecisionReadBackfill(client: PoolClient, scope: Pg
     `INSERT INTO ha_decision_read_status(tenant_id,project_id,policy_epoch) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
     keys,
   );
-  await client.query(
-    "SELECT 1 FROM ha_decision_read_status WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 FOR UPDATE",
-    keys,
-  );
+  const generation = (
+    await client.query<{ generation: string }>(
+      "SELECT generation FROM ha_decision_read_status WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+      keys,
+    )
+  ).rows[0]!.generation;
   const result = await client.query<{ scalar_pending: boolean; search_pending: boolean }>(
     `SELECT EXISTS(SELECT 1 FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       AND decision_sort_key IS NULL LIMIT 1) AS scalar_pending,
@@ -92,10 +108,11 @@ export async function finishPgDecisionReadBackfill(client: PoolClient, scope: Pg
     keys,
   );
   const row = result.rows[0]!;
-  await client.query(
+  const published = await client.query(
     `UPDATE ha_decision_read_status SET scalar_pending=CASE WHEN $4 THEN scalar_pending ELSE 0 END,
-      search_pending=CASE WHEN $5 THEN search_pending ELSE 0 END WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
-    [...keys, row.scalar_pending, row.search_pending],
+      search_pending=CASE WHEN $5 THEN search_pending ELSE 0 END WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+      AND generation=$6`,
+    [...keys, row.scalar_pending, row.search_pending, generation],
   );
-  return !row.search_pending;
+  return published.rowCount === 1 && !row.search_pending;
 }

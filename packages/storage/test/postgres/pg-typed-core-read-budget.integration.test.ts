@@ -94,6 +94,31 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
       );
       const guards = plans.filter((p) => JSON.stringify(p).includes("ha_decision_read_status"));
       assert.ok(guards.length > 0, "must observe production readiness point reads");
+      assert.ok(guards.length <= 2, "at most one scalar and one search readiness point read");
+      const readyNodes = explainNodes(guards).filter((n) => n["Relation Name"] === "ha_decision_read_status");
+      const readyRows = readyNodes.reduce(
+        (sum, n) =>
+          sum +
+          Math.max(
+            Number(n["Heap Fetches"] ?? 0),
+            Number(n["Actual Rows"]) + Number(n["Rows Removed by Filter"] ?? 0),
+          ) *
+            Number(n["Actual Loops"]),
+        0,
+      );
+      assert.ok(readyRows <= 2, "all readiness tuple/heap access must stay bounded");
+      process.stdout.write(
+        `READY_BUDGET ${JSON.stringify({
+          method,
+          queries: guards.length,
+          scanned: readyRows,
+          heapFetches: readyNodes.reduce(
+            (sum, n) => sum + Number(n["Heap Fetches"] ?? 0) * Number(n["Actual Loops"]),
+            0,
+          ),
+        })}\n`,
+      );
+
       for (const guard of guards) {
         const roots = (guard as { plan: { Plan: Record<string, unknown> }[] }).plan;
         const root = roots[0]!.Plan;

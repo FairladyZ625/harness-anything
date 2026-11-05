@@ -127,6 +127,60 @@ test("public management backfill completes a previous-writer Decision search exp
     await assert.rejects(() => source.listDecisions({ search: "needle", limit: 1 }), { code: "projection_pending" });
     assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 1, done: false });
     assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 0, done: true });
+    // Commit a real previous-writer transition after management's empty snapshot.
+    // It must not wait on a management scan lock, nor be overwritten by completion.
+    let raced = false;
+    const page = await manage((client) =>
+      backfill(
+        new Proxy(client, {
+          get(target, key) {
+            if (key !== "query") {
+              const value: unknown = Reflect.get(target, key);
+              return typeof value === "function" ? value.bind(target) : value;
+            }
+            return async (...args: unknown[]) => {
+              const result = await Reflect.apply(target.query, target, args);
+              if (!raced && typeof args[0] === "string" && args[0].includes("SELECT EXISTS(")) {
+                raced = true;
+                await storage.withPostgresTransaction(
+                  fixture.pool,
+                  async (writer) => {
+                    await writer.query("SET LOCAL statement_timeout='1s'");
+                    await writer.query("UPDATE ha_decisions SET value=value WHERE decision_id='dec_2'");
+                  },
+                  scope,
+                );
+              }
+              return result;
+            };
+          },
+        }),
+        scope,
+      ),
+    );
+    assert.ok(raced);
+    assert.deepEqual(page, { processed: 0, done: false });
+    assert.equal((await count()).search_pending, "1");
+    assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 1, done: false });
+    assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 0, done: true });
+    // Schema installation itself must grant the previous runtime before its new
+    // trigger becomes active, without waiting for the later reader grant step.
+    await fixture.adminPool.query("REVOKE ALL ON ha_decision_read_status FROM ha_runtime,ha_migrator");
+    const owner = await fixture.adminPool.connect();
+    try {
+      await owner.query("SET ROLE ha_schema_owner");
+      await storage.ensurePgProjectionSchema(owner);
+    } finally {
+      await owner.query("RESET ROLE");
+      owner.release();
+    }
+    await storage.withPostgresTransaction(
+      fixture.pool,
+      (client) => client.query("UPDATE ha_decisions SET value=value WHERE decision_id='dec_2'"),
+      scope,
+    );
+    assert.equal((await count()).search_pending, "1");
+    assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 1, done: false });
     const other = { ...scope, projectId: "other-project" };
     const isolated = await storage.withPostgresTransaction(
       fixture.pool,
