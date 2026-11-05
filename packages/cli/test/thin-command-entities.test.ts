@@ -5,13 +5,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { factMemoryTags } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import { packetJson } from "@harness-anything/daemon/internal/repo-cell-packets";
 import { readWorkspaceText } from "@harness-anything/daemon/internal/workspace-text-port";
 import {
   workspacePathFormat,
   workspacePathResolutionRule,
 } from "@harness-anything/preset/internal/preset-command-contract";
-import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { materializePacketStdin, rawDocumentBody, rawTemplateBody } from "../src/index.ts";
 
 test("Fact CLI exposes record, controlled types, and show while keeping local errors closed", () => {
@@ -280,6 +281,47 @@ test("fact record help declares the supersedes/rationale pairing the rejection e
         `${name} requires ${partner}. Example: ha fact record --statement "Updated observation" --source test:observation --supersedes fact/F-12345678 --rationale "Replaces the earlier observation." (replace the example with the target Fact ref).`,
         name,
       );
+  }
+});
+
+test("fact record rejects an unknown memory tag with the flag and its legal vocabulary", () => {
+  const parsed = parseThinCommand([
+    "fact",
+    "record",
+    "--statement",
+    "Observed",
+    "--source",
+    "test",
+    "--memory-tag",
+    "harness-bug",
+  ]);
+  assert.equal(parsed.ok, false);
+  if (!parsed.ok) {
+    assert.equal(parsed.code, "invalid_field");
+    assert.equal(
+      parsed.nextAction,
+      "Use --memory-tag with one of episode, procedural, tool_memory, pattern, task_skill, abstract_rule, other.",
+    );
+  }
+});
+
+test("fact record and reclassify help state the --type and --memory-tag vocabularies", () => {
+  const recordHelp = renderThinHelp([], "fact", "ha fact record"),
+    reclassifyHelp = renderThinHelp([], "fact", "ha fact reclassify"),
+    record = daemonProtocolCommands.find(({ id }) => id === "fact-record");
+  assert.ok(record);
+  // The declaration mirrors kernel factMemoryTags to keep the kernel module out of the thin CLI
+  // static graph; this assertion is what keeps the mirror from drifting.
+  assert.deepEqual(record.inputs.find(({ name }) => name === "--memory-tag")?.enum, [...factMemoryTags]);
+  assert.match(
+    recordHelp,
+    /--memory-tag — [^\n]*values: episode, procedural, tool_memory, pattern, task_skill, abstract_rule, other/u,
+  );
+  for (const help of [recordHelp, reclassifyHelp]) {
+    assert.match(
+      help,
+      /--type — [^\n]*format: <Fact domain type; 1-64 characters[^\n]*ha fact type list[^\n]*ha fact type register/u,
+    );
   }
 });
 

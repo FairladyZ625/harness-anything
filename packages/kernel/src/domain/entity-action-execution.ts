@@ -27,12 +27,12 @@ import {
 } from "./relation-event.ts";
 import type { EntityVersion } from "./entity-freshness.ts";
 import {
+  factConfidenceLevels,
+  factMemoryClasses,
   factMemoryTags,
   validDomainType,
-  type FactConfidence,
   type FactEventDraftV1,
   type FactEventV1,
-  type FactMemoryClass,
 } from "./fact-event.ts";
 import { timestamp } from "./timestamp.ts";
 import { assertTransitionDocumentReady } from "./transition-document-readiness.ts";
@@ -120,19 +120,20 @@ export type EntityActionCompileHook = (input: EntityActionCompileInput) => Entit
 
 export function compileFactRecordAction(input: EntityActionCompileInput): EntityActionDraft {
   const action = input.action,
-    confidence = action.confidence as FactConfidence,
+    confidence = factClassification(input, "--confidence", action.confidence, factConfidenceLevels),
     domainTypes = stringList(action.domainTypes),
-    memoryClass = action.memoryClass as FactMemoryClass,
-    memoryTags = stringList(action.memoryTags),
+    memoryClass = factClassification(input, "--memory-class", action.memoryClass, factMemoryClasses),
+    memoryTags = stringList(action.memoryTags).map((tag) =>
+      factClassification(input, "--memory-tag", tag, factMemoryTags),
+    ),
     observedAt = typeof action.observedAt === "string" ? action.observedAt : input.occurredAt,
     observedCommit = typeof action.observedCommit === "string" ? action.observedCommit : undefined;
-  if (
-    !(["low", "medium", "high"] as const).includes(confidence) ||
-    !(["semantic", "episodic", "procedural"] as const).includes(memoryClass) ||
-    domainTypes.some((domainType) => !validDomainType(domainType)) ||
-    memoryTags.some((tag) => !factMemoryTags.includes(tag as never))
-  )
-    invalid(input, "Fact classification is invalid.");
+  for (const domainType of domainTypes)
+    if (!validDomainType(domainType))
+      invalid(
+        input,
+        `--type ${JSON.stringify(domainType)} is invalid; expected 1-64 characters with no leading/trailing whitespace or control characters. Run ha fact type list for registered values or ha fact type register <type> --source <source> to register one.`,
+      );
   if (!timestamp(input.occurredAt) || !timestamp(observedAt))
     invalid(input, "Fact timestamps must be ISO-8601 UTC values ending in Z.");
   if (observedCommit !== undefined && !/^[0-9a-f]{40}$/u.test(observedCommit))
@@ -635,6 +636,15 @@ function short(input: EntityActionCompileInput, value: unknown, field: string): 
 function object(input: EntityActionCompileInput, value: unknown, field: string): Readonly<Record<string, unknown>> {
   if (plainRecordValue(value)) return value;
   invalid(input, `${field} must be an object.`);
+}
+function factClassification<T extends string>(
+  input: EntityActionCompileInput,
+  flag: string,
+  value: unknown,
+  allowed: readonly T[],
+): T {
+  if (typeof value === "string" && allowed.includes(value as T)) return value as T;
+  invalid(input, `${flag} ${JSON.stringify(value)} is invalid; expected one of: ${allowed.join(", ")}.`);
 }
 function choice<T extends string>(
   input: EntityActionCompileInput,

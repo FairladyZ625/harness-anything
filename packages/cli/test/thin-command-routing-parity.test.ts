@@ -1528,7 +1528,7 @@ const frozenMutations = Object.freeze([
     commandId: "fact-record",
     inputName: "--memory-tag",
     facet: "repeated",
-    argv: ["fact", "record", "--task", "task-1", "--statement", "s", "--source", "src", "--memory-tag", "a"],
+    argv: ["fact", "record", "--task", "task-1", "--statement", "s", "--source", "src", "--memory-tag", "pattern"],
   },
   {
     commandId: "decision-show",

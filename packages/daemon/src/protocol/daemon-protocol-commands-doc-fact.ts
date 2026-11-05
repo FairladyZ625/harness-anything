@@ -5,6 +5,10 @@ import {
   defineLedgerWriteCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
+const factDomainTypeFormat =
+  "<Fact domain type; 1-64 characters with no leading/trailing whitespace or control characters; " +
+  "run ha fact type list for registered values or ha fact type register <type> --source <source> to register one>";
+
 export const docFactProtocolCommands = Object.freeze([
   ...["assign", "unassign"].map((operation) =>
     defineCenterForwardWriteCommand({
@@ -182,7 +186,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "domainTypes" },
+        { field: "domainTypes", format: factDomainTypeFormat },
       ),
       cliInput(
         "--rationale",
@@ -377,8 +381,24 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
-      cliInput("--type", "repeated", false, { code: "invalid_field" }, { field: "domainTypes" }),
-      cliInput("--memory-tag", "repeated", false, { code: "invalid_field" }, { field: "memoryTags" }),
+      cliInput(
+        "--type",
+        "repeated",
+        false,
+        { code: "invalid_field" },
+        { field: "domainTypes", format: factDomainTypeFormat },
+      ),
+      cliInput(
+        "--memory-tag",
+        "repeated",
+        false,
+        { code: "invalid_field" },
+        // Mirrors kernel factMemoryTags; the thin CLI graph must not load a kernel module for help.
+        {
+          field: "memoryTags",
+          enum: ["episode", "procedural", "tool_memory", "pattern", "task_skill", "abstract_rule", "other"],
+        },
+      ),
       cliInput(
         "--supersedes",
         "single",
