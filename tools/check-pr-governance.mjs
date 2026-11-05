@@ -89,8 +89,8 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
     };
   }
 
-  const sections = governanceSections(body);
-  const sectionText = sections.map(({ text }) => text).join("\n\n");
+  const sections = extractGovernanceSections(body);
+  const sectionText = sections.join("\n\n");
   const issues = [];
 
   if (sections.length === 0) {
@@ -155,37 +155,20 @@ function makeSurfaceMatcher(surface) {
 function extractGovernanceSections(body) {
   const sections = [];
   const lines = body.split(/\r?\n/u);
-  const lineStarts = [0];
-  for (let index = 0; index < body.length; index += 1) {
-    if (body[index] === "\n") lineStarts.push(index + 1);
-  }
   for (let index = 0; index < lines.length; index += 1) {
     if (!GOVERNANCE_HEADING.test(lines[index])) {
       continue;
     }
-    let cursor = index + 1;
-    while (cursor < lines.length && !NEXT_HEADING.test(lines[cursor])) {
-      cursor += 1;
+    const sectionLines = [lines[index]];
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      if (NEXT_HEADING.test(lines[cursor])) {
+        break;
+      }
+      sectionLines.push(lines[cursor]);
     }
-    const start = lineStarts[index];
-    const end = cursor < lines.length ? lineStarts[cursor] : body.length;
-    sections.push({ start, end, text: body.slice(start, end) });
+    sections.push(sectionLines.join("\n"));
   }
   return sections;
-}
-
-/** The governance sections a body carries, with their offsets, for the lint and the renderer. */
-export function governanceSections(body) {
-  return extractGovernanceSections(body);
-}
-
-/** Whether any governance declaration section already cites an ADR, decision, or task. */
-export function governanceDeclarationCites(body) {
-  return GOVERNANCE_REFERENCE.test(
-    governanceSections(body)
-      .map(({ text }) => text)
-      .join("\n\n"),
-  );
 }
 
 function hasLabeledValue(text, labels) {

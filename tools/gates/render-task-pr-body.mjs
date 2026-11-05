@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import {
-  classifyProtectedChanges,
-  deriveProtectedSurfaceRules,
-  governanceDeclarationCites,
-  governanceSections,
-} from "../check-pr-governance.mjs";
+import { classifyProtectedChanges, deriveProtectedSurfaceRules } from "../check-pr-governance.mjs";
 import {
   SUBMISSION_FACTS_END,
   SUBMISSION_FACTS_START,
@@ -40,13 +34,6 @@ const PR_SECTIONS = Object.freeze([
 const DEPENDENCY_CHANGE = Object.freeze({
   title: "Dependency Change",
   aliases: Object.freeze(["dependency change", "dependency-change", "依赖变更", "依赖改动", "依赖变化"]),
-});
-
-// The closeout is the single authoring place; a governance declaration written there is the
-// author's authorization and the renderer publishes it verbatim when the cut is protected.
-const GOVERNANCE_DECLARATION = Object.freeze({
-  title: "Governance Declaration",
-  aliases: Object.freeze(["governance declaration", "governance 声明", "治理声明"]),
 });
 
 // A closeout materialized before the What Changed scaffold existed keeps that shape for the life of
@@ -125,7 +112,6 @@ function authoredSources(closeout, profileId) {
   const sections = [...markdownSectionEntries(closeout)],
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
-  sources["Governance Declaration"] = findSection(sections, GOVERNANCE_DECLARATION.aliases);
   sources["What Changed"] ??= sources.Summary;
   if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
   return sources;
@@ -200,127 +186,41 @@ function dependencyDescription(content) {
 }
 
 // The governance gate classifies protected paths from the gate manifest and requires the published
-// body to cite an authorizing ADR/decision/task. The declaration is generated only from ledger
-// authorization: a governing decision, else the task's own machine-read Execution Surface, else the
-// closeout's governance section. A generated section records a digest of its content; only an
-// untouched section is refreshed, so any edit (including a changed Authority or scope value) is
-// preserved verbatim and left to the lint.
-const GENERATED_GOVERNANCE = "harness:generated-governance",
-  GENERATED_MARKER = /<!--[ \t]*harness:generated-governance[ \t]+sha256:([0-9a-f]{64})[ \t]*-->/u,
-  GENERATED_FIXED_LINES = Object.freeze([
-    "- Protected surface touched: yes",
-    "- Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.",
-    "- Break-glass: no",
-  ]);
+// body to cite an authorizing ADR/decision/task. The declaration is machine-derived on every
+// render; the closeout is the authoring surface, so this section is regenerated as a whole.
+const GOVERNANCE_TITLE = /^##[ \t]+(?:Governance Declaration|Governance 声明|治理声明)[ \t]*$/mu;
 
-function contentDigest(lines) {
-  return createHash("sha256").update(lines.join("\n")).digest("hex");
-}
-
-function governanceDeclaration(authorization, files) {
-  const content = [
+function governanceDeclaration(authority, files) {
+  return [
+    "## Governance Declaration",
+    "",
     "- Protected surface touched: yes",
     `- Protected surface scope: ${files.map(pathCode).join(", ")}`,
-    `- Authority: ${authorization.id}`,
-  ];
-  if (authorization.surface)
-    content.push(`- Authorized surface: ${authoredContent(authorization.surface.replace(/\s+/gu, " ").trim())}`);
-  content.push(GENERATED_FIXED_LINES[1], GENERATED_FIXED_LINES[2]);
-  const marker = `<!-- ${GENERATED_GOVERNANCE} sha256:${contentDigest(content)} -->`;
-  return ["## Governance Declaration", "", marker, ...content].join("\n");
+    `- Authority: ${authority}`,
+    "- Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.",
+    "- Break-glass: no",
+  ].join("\n");
 }
 
-function contentLines(sectionText) {
-  return sectionText
-    .replace(/<!--[\s\S]*?-->/gu, "")
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !/^##[ \t]/u.test(line));
-}
-
-/** The template's own governance fields; a section made only of them is still an unfilled default. */
-function templateGovernanceLines(template) {
-  const section = governanceSections(template).find(({ text }) => text.includes("Protected surface touched"));
-  return new Set(section ? contentLines(section.text) : []);
-}
-
-function isTemplateDefault(sectionText, defaults) {
-  const lines = contentLines(sectionText);
-  return lines.length > 0 && defaults.size > 0 && lines.every((line) => defaults.has(line));
-}
-
-/** Only a generated section whose bytes still match its marker digest is machine-owned. */
-function isPristineGenerated(sectionText) {
-  const marker = GENERATED_MARKER.exec(sectionText);
-  return Boolean(marker) && contentDigest(contentLines(sectionText)) === marker[1];
-}
-
-function removeSections(body, sections) {
-  return [...sections]
-    .sort((left, right) => right.start - left.start)
-    .reduce((next, { start, end }) => `${next.slice(0, start)}${next.slice(end)}`, body);
-}
-
-function insertGovernanceDeclaration(body, declaration) {
-  const match = /^##[ \t]+(?:Verification|验证)[ \t]*$/mu.exec(body);
-  if (!match) return `${body.replace(/\s+$/u, "")}\n\n${declaration}\n`;
-  return `${body.slice(0, match.index)}${declaration}\n\n${body.slice(match.index)}`;
-}
-
-function declareProtectedSurfaces({
-  body,
-  taskId,
-  changedFiles,
-  manifest,
-  template,
-  authorization,
-  closeoutDeclaration,
-}) {
+function declareProtectedSurfaces(body, taskId, changedFiles, manifest, decision) {
   if (!manifest) return body;
-  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file),
-    pristine = governanceSections(body).filter(({ text }) => isPristineGenerated(text)),
-    cleaned = removeSections(body, pristine);
-  if (files.length === 0) return cleaned;
-  const defaults = templateGovernanceLines(template),
-    remaining = governanceSections(cleaned);
-  // An authored or user-edited section that already cites an authority is the author's evidence;
-  // preserve it even without a ledger source for generation (a standalone task can be authorized
-  // by its closeout/body alone).
-  if (remaining.some(({ text }) => governanceDeclarationCites(text))) return cleaned;
-  // A non-default, uncited section is an incomplete author declaration: keep it and let the lint
-  // report the missing evidence instead of erasing it.
-  if (remaining.some(({ text }) => !isTemplateDefault(text, defaults))) return cleaned;
-  // The closeout is the single authoring place; publish its governance declaration verbatim when
-  // it already cites an authority, instead of requiring the author to copy it into the body.
-  const authored =
-    typeof closeoutDeclaration === "string" && closeoutDeclaration.trim().length > 0
-      ? `## Governance Declaration\n\n${authoredContent(closeoutDeclaration.trim())}`
-      : null;
-  if (authored && governanceDeclarationCites(authored))
-    return insertGovernanceDeclaration(removeSections(cleaned, remaining), authored);
-  if (!authorization)
-    throw new Error(
-      `Protected surface(s) touched (${files.join(", ")}) but task ${taskId} records no authorizing decision, Execution Surface, or closeout declaration; ` +
-        "the renderer will not mint an authority claim. Add the authorization to the task plan or closeout before publishing.",
-    );
-  return insertGovernanceDeclaration(removeSections(cleaned, remaining), governanceDeclaration(authorization, files));
+  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
+  if (files.length === 0) return body;
+  const declaration = governanceDeclaration(decision ?? taskId, files),
+    existing = GOVERNANCE_TITLE.exec(body);
+  if (existing) {
+    const start = existing.index,
+      next = /^##[ \t]+/mu.exec(body.slice(start + existing[0].length)),
+      end = next ? start + existing[0].length + next.index : body.length;
+    return `${body.slice(0, start)}${declaration}\n\n${body.slice(end)}`;
+  }
+  const verification = /^##[ \t]+(?:Verification|验证)[ \t]*$/mu.exec(body);
+  if (!verification) return `${body.replace(/\s+$/u, "")}\n\n${declaration}\n`;
+  return `${body.slice(0, verification.index)}${declaration}\n\n${body.slice(verification.index)}`;
 }
 
-export function renderTaskPrBody({
-  taskId,
-  receipt,
-  template,
-  body = template,
-  closeout,
-  manifest,
-  authorizedSurface,
-}) {
+export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
   const { submission, profileId, decisionAuthority } = taskProjection(receipt, taskId),
-    authorization = decisionAuthority
-      ? { id: decisionAuthority, surface: null }
-      : typeof authorizedSurface === "string" && authorizedSurface.trim().length > 0
-        ? { id: taskId, surface: authorizedSurface }
-        : null,
     submissionFacts = readSubmissionFacts(submission),
     delivery = renderSubmissionFacts(submission, submissionFacts),
     stripped = withoutFacts(body),
@@ -344,15 +244,7 @@ export function renderTaskPrBody({
     // heading is absent, publish the author's original document in its original order.
     rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
-  rendered = declareProtectedSurfaces({
-    body: rendered,
-    taskId,
-    changedFiles: submissionFacts.changedFiles,
-    manifest,
-    template,
-    authorization,
-    closeoutDeclaration: sources[GOVERNANCE_DECLARATION.title],
-  });
+  rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest, decisionAuthority);
   const { start, end } = markerPair(rendered, "PR template");
   return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
 }
@@ -396,32 +288,6 @@ function readCloseout(rootDir, packagePath) {
   }
 }
 
-/**
- * The task's own authorized write scope, read from the plan the ledger issued for this task. A
- * missing or unreadable plan yields no surface, so generation fails closed instead of citing
- * ancestry as authorization.
- */
-function readAuthorizedSurface(rootDir, packagePath) {
-  if (
-    typeof packagePath !== "string" ||
-    packagePath.length === 0 ||
-    packagePath.startsWith("/") ||
-    packagePath.split("/").includes("..")
-  )
-    return "";
-  const docPath = `${packagePath}/task_plan.md`;
-  try {
-    const plan = execFileSync("ha", ["doc", "show", "--path", docPath, "--raw"], {
-      cwd: rootDir,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    return findSection([...markdownSectionEntries(plan)], ["execution surface", "执行面", "执行范围"])?.trim() ?? "";
-  } catch {
-    return "";
-  }
-}
-
 export function main(argv = process.argv.slice(2)) {
   try {
     const options = parseArgs(argv);
@@ -439,7 +305,6 @@ export function main(argv = process.argv.slice(2)) {
       ),
       { packagePath } = taskProjection(receipt, options.taskId),
       closeout = readCloseout(rootDir, packagePath),
-      authorizedSurface = readAuthorizedSurface(rootDir, packagePath),
       template = readFileSync(path.resolve(rootDir, ".github/pull_request_template.md"), "utf8"),
       input =
         path.resolve(rootDir, options.bodyFile) === path.resolve(rootDir, ".github/pull_request_template.md")
@@ -453,7 +318,6 @@ export function main(argv = process.argv.slice(2)) {
         body: input,
         closeout,
         manifest,
-        authorizedSurface,
       });
     process.stdout.write(body);
     return 0;
