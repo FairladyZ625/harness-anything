@@ -97,6 +97,7 @@ export function readArtifactsGui(
       nextCursor: read.hasMore && last ? encodeArtifactCursor(last) : null,
     } satisfies CursorPage,
     counts: read.counts,
+    countsCapped: read.countsCapped,
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
   };

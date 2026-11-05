@@ -306,7 +306,7 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
     ]),
   }),
   DAEMON_ARTIFACTS_LIST_SCHEMA = Object.freeze({
-    id: "daemon.artifacts-list/v3",
+    id: "daemon.artifacts-list/v4",
     required: Object.freeze([
       "ok",
       "status",
@@ -315,6 +315,7 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
       "artifacts",
       "page",
       "counts",
+      "countsCapped",
       "watermark",
       "sourceRevision",
     ]),

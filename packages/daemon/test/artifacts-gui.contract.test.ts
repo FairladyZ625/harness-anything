@@ -43,6 +43,7 @@ function projectionStub(
         rows: result.rows,
         hasMore: result.hasMore ?? false,
         counts: result.counts ?? { html: result.rows.length, md: 0, raw: 0 },
+        countsCapped: result.countsCapped ?? { html: false, md: false, raw: false },
         watermark: result.watermark ?? 9,
         sourceRevision: result.sourceRevision ?? 9,
       };
@@ -99,6 +100,7 @@ test("the read renders the projection page as a ledger-time artifact row", () =>
   assert.equal(parseDaemonGuiReadResult("repo.artifacts.list", result), result);
   assert.equal(result.kind, "html");
   assert.deepEqual(result.counts, { html: 2, md: 1, raw: 1 });
+  assert.deepEqual(result.countsCapped, { html: false, md: false, raw: false });
   assert.deepEqual(result.artifacts, [
     {
       taskId: "task_reported",
@@ -137,6 +139,23 @@ test("the read renders the projection page as a ledger-time artifact row", () =>
   assert.equal(raw.artifacts[0]!.taskId, null);
   assert.equal(raw.artifacts[0]!.packagePath, null);
   assert.equal(raw.artifacts[0]!.timeSource, "ledger");
+});
+
+test("a capped multi-reader count is surfaced per facet instead of being reported as exact", () => {
+  const result = readArtifactsGui(
+    {
+      projection: projectionStub(() => ({
+        rows: [row()],
+        counts: { html: 999, md: 12, raw: 0 },
+        countsCapped: { html: true, md: false, raw: false },
+      })),
+      input: { repoId: "artifacts-gui" },
+    },
+    {},
+  );
+  assert.deepEqual(validateArtifactsList(result), []);
+  assert.deepEqual(result.countsCapped, { html: true, md: false, raw: false });
+  assert.deepEqual(result.counts, { html: 999, md: 12, raw: 0 });
 });
 
 test("pagination forwards the decoded keyset and stops at the authoritative end signal", () => {
@@ -208,6 +227,7 @@ test("the artifacts list validator locks the wire shape", () => {
     ],
     page: { limit: 100, cursor: null, nextCursor: null },
     counts: { html: 1, md: 0, raw: 0 },
+    countsCapped: { html: false, md: false, raw: false },
     watermark: 9,
     sourceRevision: 9,
   };
@@ -217,6 +237,9 @@ test("the artifacts list validator locks the wire shape", () => {
     (value: ArtifactsListResult) => ({ ...value, kind: "pdf" }),
     (value: ArtifactsListResult) => ({ ...value, counts: { html: 1 } }),
     (value: ArtifactsListResult) => ({ ...value, counts: { html: 1, md: 0 } }),
+    (value: ArtifactsListResult) => ({ ...value, countsCapped: undefined }),
+    (value: ArtifactsListResult) => ({ ...value, countsCapped: { html: false, md: false } }),
+    (value: ArtifactsListResult) => ({ ...value, countsCapped: { html: "no", md: false, raw: false } }),
     (value: ArtifactsListResult) => ({ ...value, artifacts: "many" }),
     (value: ArtifactsListResult) => ({ ...value, apiKey: "secret" }),
     (value: ArtifactsListResult) => ({ ...value, nextCursor: null }),

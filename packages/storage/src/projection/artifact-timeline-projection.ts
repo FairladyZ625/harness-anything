@@ -178,7 +178,7 @@ const checkedTimelineLimit = (value: number): number => {
 export function readArtifactTimelineRows(
   db: DatabaseSync,
   query: ArtifactTimelineQuery,
-): Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts"> {
+): Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts" | "countsCapped"> {
   if (!ARTIFACT_TIMELINE_KINDS.includes(query.kind)) throw new Error("artifact timeline kind is invalid");
   const limit = checkedTimelineLimit(query.limit),
     values: (string | number)[] = [query.kind];
@@ -231,5 +231,7 @@ export function readArtifactTimelineRows(
     })),
     hasMore: rows.length > limit,
     counts,
+    // SQLite holds no reader union: every value above is a maintained exact total.
+    countsCapped: { html: false, md: false, raw: false },
   };
 }

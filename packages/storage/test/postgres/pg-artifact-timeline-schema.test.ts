@@ -20,9 +20,13 @@ test("the artifact timeline tables join the projection registry that owns grants
 test("the artifact timeline tables carry tenant scope, readers and the ordered page index", () => {
   const ddl = artifactTimelineDdl().join("\n");
   assert.match(ddl, /ha_artifact_documents[\s\S]*readers text\[\] NOT NULL/u);
-  assert.match(ddl, /PRIMARY KEY \(tenant_id, project_id, policy_epoch, reader, path\)/u);
-  assert.match(ddl, /ha_artifact_counts[\s\S]*PRIMARY KEY \(tenant_id, project_id, policy_epoch, reader, kind\)/u);
-  assert.match(ddl, /\(tenant_id, project_id, policy_epoch, reader, kind, sort_ms, relative, package_dir\)/u);
+  assert.match(ddl, /PRIMARY KEY \(tenant_id, project_id, policy_epoch, all_readers, reader, path\)/u);
+  assert.match(ddl, /PRIMARY KEY \(tenant_id, project_id, policy_epoch, all_readers, reader, kind\)/u);
+  assert.match(
+    ddl,
+    /\(tenant_id, project_id, policy_epoch, all_readers, reader, kind, sort_ms, relative, package_dir\)/u,
+  );
+  assert.match(ddl, /all_readers boolean NOT NULL/u);
   assert.match(ddl, /relative text NOT NULL COLLATE "C"/u);
   assert.match(ddl, /package_dir text NOT NULL COLLATE "C"/u);
   assert.match(ddl, /substr\(v\.entity_id, strpos\(v\.entity_id, '\/artifacts\/'\) \+ 1\)/u);

@@ -42,6 +42,8 @@ export interface ArtifactsListResult {
   readonly page: CursorPage;
   /** 遍历事实:三种 kind 的全量计数(与返回 facet 无关),筛选 chip 用。 */
   readonly counts: { readonly html: number; readonly md: number; readonly raw: number };
+  /** 超过计数上限的 facet 为 true:counts 已封顶,GUI 角标显示 `999+`。 */
+  readonly countsCapped: { readonly html: boolean; readonly md: boolean; readonly raw: boolean };
   readonly watermark: number;
   readonly sourceRevision: number;
 }
@@ -54,6 +56,7 @@ const artifactsListFields = [
   "artifacts",
   "page",
   "counts",
+  "countsCapped",
   "watermark",
   "sourceRevision",
 ] as const;
@@ -74,6 +77,12 @@ const artifactKinds = ["html", "md", "raw"] as const;
 function artifactCounts(value: unknown): boolean {
   if (!isJsonObject(value) || Object.keys(value).length !== artifactKinds.length) return false;
   return artifactKinds.every((name) => Number.isSafeInteger(value[name]) && Number(value[name]) >= 0);
+}
+
+/** 封顶标记与 counts 同形:每个 facet 都必须明确是否封顶。 */
+function artifactCountFlags(value: unknown): boolean {
+  if (!isJsonObject(value) || Object.keys(value).length !== artifactKinds.length) return false;
+  return artifactKinds.every((name) => typeof value[name] === "boolean");
 }
 
 function artifactNonEmptyText(value: unknown): value is string {
@@ -99,6 +108,7 @@ export function validateArtifactsList(value: unknown): readonly string[] {
     !Array.isArray(value.artifacts) ||
     !queryPageRow(value.page) ||
     !artifactCounts(value.counts) ||
+    !artifactCountFlags(value.countsCapped) ||
     !Number.isSafeInteger(value.watermark) ||
     !Number.isSafeInteger(value.sourceRevision)
   )

@@ -3,6 +3,7 @@ import {
   RAW_ARTIFACT_POLICY_ID,
   taskArtifactSubtreePath,
 } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
+import { ARTIFACT_TIMELINE_COUNT_CAP } from "@harness-anything/kernel";
 import type { ArtifactTimelineKind, ArtifactTimelineQuery, ArtifactTimelineRead } from "@harness-anything/kernel";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
@@ -13,15 +14,15 @@ import { checkedPageLimit } from "./pg-query-page.ts";
  * (`mediaType`/`policyId` of the committed claim), the stored `artifacts/...` relative path, and
  * the binary path order identical on both backends.
  *
- * The index stores one row per (path, reader), plus a `*` row that answers the unscoped timeline.
- * That makes both authorization and ordering structural rather than a post-filter: a scoped page
- * reads one ordered reader range per held reader, and counts are per reader. The `*` row keeps a
- * single ordered range for callers that hold no reader scope (the G38 case).
+ * The index stores one row per (path, reader), plus an `all_readers=true` row that answers the
+ * unscoped timeline. That makes both authorization and ordering structural rather than a
+ * post-filter: a scoped page reads one ordered reader range per held reader, and counts are per
+ * reader. The all-readers row keeps a single ordered range for callers that hold no reader scope
+ * (the G38 case), and no literal reader identity can reach it.
  *
- * `relative` and `package_dir` are explicitly `COLLATE "C"`. The previous in-memory timeline
- * compared strings with JavaScript `<` (no locale collation); relying on a deployment's default
- * collation could reorder case/accent variants or make distinct paths compare equal at a page
- * boundary.
+ * `relative` and `package_dir` are explicitly `COLLATE "C"`, whose UTF-8 byte order is Unicode
+ * code-point order. The in-memory merge of several reader ranges compares code points too, so it
+ * cannot reorder non-BMP names against the database pages at a page boundary.
  */
 export const artifactTimelineDdl = (): readonly string[] => [
   `CREATE TABLE IF NOT EXISTS ha_artifact_documents (
@@ -264,7 +265,21 @@ export async function projectPgArtifactDocument(
   if (entry !== null) await flushPgArtifactDocuments(client, scope, [entry]);
 }
 
-const compareText = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
+/** Compare Unicode code points, the order both stores use (`BINARY` / `COLLATE "C"`). JavaScript's
+ * `<` compares UTF-16 code units, which puts non-BMP characters before U+E000..U+FFFF; merging
+ * several reader ranges in memory must not disagree with the database order. */
+const compareText = (left: string, right: string): number => {
+  const leftPoints = left[Symbol.iterator](),
+    rightPoints = right[Symbol.iterator]();
+  for (;;) {
+    const leftStep = leftPoints.next(),
+      rightStep = rightPoints.next();
+    if (leftStep.done || rightStep.done) return Number(leftStep.done) - Number(rightStep.done);
+    const leftPoint = leftStep.value.codePointAt(0)!,
+      rightPoint = rightStep.value.codePointAt(0)!;
+    if (leftPoint !== rightPoint) return leftPoint < rightPoint ? -1 : 1;
+  }
+};
 
 const comparePageRows = (left: PageRow, right: PageRow): number =>
   Number(left.sort_ms) - Number(right.sort_ms) ||
@@ -272,12 +287,12 @@ const comparePageRows = (left: PageRow, right: PageRow): number =>
   compareText(left.package_dir, right.package_dir);
 
 /** One ordered page plus maintained totals. A caller holding readers reads one bounded range per
- * reader and merges them; the unscoped caller reads the single `*` range. */
+ * reader and merges them; the unscoped caller reads the single all-readers range. */
 export async function readPgArtifactTimeline(
   client: PoolClient,
   scope: PgProjectionScope,
   query: ArtifactTimelineQuery,
-): Promise<Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts">> {
+): Promise<Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts" | "countsCapped">> {
   if (query.kind !== "html" && query.kind !== "md" && query.kind !== "raw")
     throw new Error("artifact timeline kind is invalid");
   const limit = checkedPageLimit(query.limit, 500),
@@ -329,7 +344,8 @@ export async function readPgArtifactTimeline(
     }
   }
   const ordered = [...rowsByPath.values()].sort(comparePageRows),
-    counts: Record<ArtifactTimelineKind, number> = { html: 0, md: 0, raw: 0 };
+    counts: Record<ArtifactTimelineKind, number> = { html: 0, md: 0, raw: 0 },
+    countsCapped: Record<ArtifactTimelineKind, boolean> = { html: false, md: false, raw: false };
   if (scopedReaders.length <= 1) {
     const totals = await client.query<{ readonly kind: ArtifactTimelineKind; readonly total: string | number }>(
       `SELECT kind, total FROM ha_artifact_counts
@@ -339,17 +355,27 @@ export async function readPgArtifactTimeline(
     );
     for (const row of totals.rows) counts[row.kind] = Number(row.total);
   } else {
-    // Exact union across several held readers. This is the multi-reader authorization path; the
-    // single-reader and unscoped reads above stay index/count bounded. Intersections make an exact
-    // union count require visiting matching paths, so this path is measured separately from G38.
+    // A multi-reader union cannot be summed from per-reader totals (intersections), but the badge
+    // does not need an exact count above the cap. Each facet reads at most cap+1 distinct paths and
+    // reports the cap with countsCapped when the union is larger, so this path is O(cap x readers)
+    // regardless of repository size.
     const totals = await client.query<{ readonly kind: ArtifactTimelineKind; readonly total: string | number }>(
-      `SELECT kind, COUNT(DISTINCT path) AS total FROM ha_artifact_documents
-       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-         AND all_readers=false AND reader = ANY($4::text[])
-       GROUP BY kind`,
-      [...scopeValues(scope), scopedReaders],
+      `SELECT facet.kind, COUNT(page.path) AS total
+       FROM (VALUES ('html'::text), ('md'::text), ('raw'::text)) AS facet(kind)
+       LEFT JOIN LATERAL (
+         SELECT DISTINCT a.path FROM ha_artifact_documents a
+         WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3
+           AND a.all_readers=false AND a.reader = ANY($4::text[]) AND a.kind = facet.kind
+         LIMIT $5
+       ) page ON true
+       GROUP BY facet.kind`,
+      [...scopeValues(scope), scopedReaders, ARTIFACT_TIMELINE_COUNT_CAP + 1],
     );
-    for (const row of totals.rows) counts[row.kind] = Number(row.total);
+    for (const row of totals.rows) {
+      const total = Number(row.total);
+      counts[row.kind] = Math.min(total, ARTIFACT_TIMELINE_COUNT_CAP);
+      countsCapped[row.kind] = total > ARTIFACT_TIMELINE_COUNT_CAP;
+    }
   }
   return {
     rows: ordered.slice(0, limit).map((row) => ({
@@ -364,6 +390,7 @@ export async function readPgArtifactTimeline(
     })),
     hasMore: ordered.length > limit,
     counts,
+    countsCapped,
   };
 }
 

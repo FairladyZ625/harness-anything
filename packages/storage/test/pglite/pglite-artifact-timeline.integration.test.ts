@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { ARTIFACT_TIMELINE_COUNT_CAP } from "@harness-anything/kernel";
 import test from "node:test";
 import {
   artifactRetirementEntry,
@@ -21,6 +22,18 @@ import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 const base = { tenantId: "t", projectId: "p", policyEpoch: 1 },
   html = { mediaType: "text/html", policyId: "opaque-textual-whole-file/v1", size: 7 },
   markdown = { mediaType: "text/markdown", policyId: "markdown-body-replaceable/v1", size: 9 };
+
+/** The shared contract order: Unicode code points, matching SQLite BINARY and PostgreSQL COLLATE C. */
+const byCodePoint = (left: string, right: string): number => {
+  const leftPoints = [...left],
+    rightPoints = [...right];
+  for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
+    const leftPoint = leftPoints[index]!.codePointAt(0)!,
+      rightPoint = rightPoints[index]!.codePointAt(0)!;
+    if (leftPoint !== rightPoint) return leftPoint - rightPoint;
+  }
+  return leftPoints.length - rightPoints.length;
+};
 
 async function createTimelineSchema(db: PGlite): Promise<void> {
   await db.exec(`
@@ -291,7 +304,7 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
         const last = read.rows.at(-1)!;
         cursor = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };
       }
-      const expected = names.map((name) => `artifacts/${name}`).sort((left, right) => (left < right ? -1 : 1));
+      const expected = names.map((name) => `artifacts/${name}`).sort(byCodePoint);
       assert.deepEqual(seen, expected);
       assert.equal(new Set(seen).size, seen.length);
     } finally {
@@ -334,6 +347,77 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
         ["artifacts/a.html", "artifacts/star.html"],
       );
       assert.deepEqual(all.counts, { html: 2, md: 0, raw: 0 });
+    } finally {
+      await db.close();
+    }
+  });
+  test("a multi-reader union count caps at the badge limit while one reader stays exact", async () => {
+    const db = await PGlite.create();
+    const client = { query: (text: string, values?: unknown[]) => db.query(text, values) };
+    try {
+      await createTimelineSchema(db);
+      const occurredAt = "2026-08-01T00:00:00.000Z",
+        entries = Array.from({ length: ARTIFACT_TIMELINE_COUNT_CAP + 1 }, (_, index) => ({
+          path: `tasks/pkg-a/artifacts/doc-${String(index).padStart(4, "0")}.html`,
+          readers: ["a"],
+          kind: "html" as const,
+          sortMs: -Date.parse(occurredAt),
+          occurredAt,
+          sizeBytes: 7,
+        }));
+      await flushPgArtifactDocuments(client, { ...base, readers: ["a"] }, entries);
+      const single = await readPgArtifactTimeline(client, { ...base, readers: ["a"] }, { kind: "html", limit: 1 });
+      assert.equal(single.counts.html, ARTIFACT_TIMELINE_COUNT_CAP + 1, "one reader keeps the maintained exact total");
+      assert.deepEqual(single.countsCapped, { html: false, md: false, raw: false });
+      const union = await readPgArtifactTimeline(client, { ...base, readers: ["a", "b"] }, { kind: "html", limit: 1 });
+      assert.equal(union.counts.html, ARTIFACT_TIMELINE_COUNT_CAP, "a union above the cap reports the cap");
+      assert.deepEqual(union.countsCapped, { html: true, md: false, raw: false });
+    } finally {
+      await db.close();
+    }
+  });
+  test("non-BMP paths keep code-point order across reader pages and the in-memory merge", async () => {
+    const db = await PGlite.create();
+    const client = { query: (text: string, values?: unknown[]) => db.query(text, values) };
+    try {
+      await createTimelineSchema(db);
+      const occurredAt = "2026-08-01T00:00:00.000Z",
+        documents = [
+          { name: "a.html", reader: "r1" },
+          { name: "\uE000.html", reader: "r1" },
+          { name: "\uFFFF.html", reader: "r2" },
+          { name: "\u{10000}.html", reader: "r1" },
+        ];
+      for (const document of documents)
+        await projectPgArtifactDocument(
+          client,
+          { ...base, readers: [document.reader] },
+          `tasks/pkg-a/artifacts/${document.name}`,
+          html,
+          occurredAt,
+        );
+      const seen: string[] = [];
+      let cursor: { occurredAt: string; relative: string; packageDir: string } | undefined;
+      for (let page = 0; page < documents.length; page += 1) {
+        const read = await readPgArtifactTimeline(
+          client,
+          { ...base, readers: ["r1", "r2"] },
+          { kind: "html", limit: 2, ...(cursor ? { after: cursor } : {}) },
+        );
+        seen.push(...read.rows.map(({ relative }) => relative));
+        if (!read.hasMore) break;
+        const last = read.rows.at(-1)!;
+        cursor = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };
+      }
+      assert.deepEqual(
+        seen,
+        documents.map(({ name }) => `artifacts/${name}`).sort(byCodePoint),
+        "the database page order and the JavaScript merge both compare code points",
+      );
+      assert.deepEqual(
+        (await readPgArtifactTimeline(client, { ...base, readers: ["r1", "r2"] }, { kind: "html", limit: 1 })).counts,
+        { html: 4, md: 0, raw: 0 },
+      );
     } finally {
       await db.close();
     }

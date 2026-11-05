@@ -58,6 +58,7 @@ function dto(overrides: Partial<ArtifactsListResult> = {}): ArtifactsListResult 
     artifacts: [row()],
     page: { limit: 100, cursor: null, nextCursor: null },
     counts: { html: 2, md: 5729, raw: 3 },
+    countsCapped: { html: false, md: false, raw: false },
     watermark: 12,
     sourceRevision: 12,
     ...overrides,
@@ -214,6 +215,22 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(text).toContain("5729");
     expect(text).toContain("Binary");
     expect(text).toContain("3");
+  });
+
+  it("renders a capped facet count as the cap plus a plus sign, never as an exact total", async () => {
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto({ counts: { html: 2, md: 999, raw: 3 }, countsCapped: { html: false, md: true, raw: false } }),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("999+");
+    expect(text).not.toContain("1000");
   });
 
   it("lays out as a left drawer plus full-width preview on one row axis, never a stacked split", async () => {

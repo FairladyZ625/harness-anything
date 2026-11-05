@@ -6,6 +6,18 @@ import { ensureArtifactTimelineBackfill } from "../../src/projection/artifact-ti
 import { withTempStoreAsync } from "./helpers.ts";
 import { projectionFixture } from "./relation-graph-projection.fixtures.ts";
 
+/** The shared contract order: Unicode code points, matching SQLite BINARY and PostgreSQL COLLATE C. */
+const byCodePoint = (left: string, right: string): number => {
+  const leftPoints = [...left],
+    rightPoints = [...right];
+  for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
+    const leftPoint = leftPoints[index]!.codePointAt(0)!,
+      rightPoint = rightPoints[index]!.codePointAt(0)!;
+    if (leftPoint !== rightPoint) return leftPoint - rightPoint;
+  }
+  return leftPoints.length - rightPoints.length;
+};
+
 function addEvent(db: DatabaseSync, revision: number, occurredAt: string): void {
   db.prepare("INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)").run(
     `op-${revision}`,
@@ -272,8 +284,45 @@ test("case and accent paths keep binary order across keyset pages", async () => 
       const last = read.rows.at(-1)!;
       after = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };
     }
-    const expected = names.map((name) => `artifacts/${name}`).sort((left, right) => (left < right ? -1 : 1));
+    const expected = names.map((name) => `artifacts/${name}`).sort(byCodePoint);
     assert.deepEqual(seen, expected);
     assert.equal(new Set(seen).size, seen.length);
+  });
+});
+test("non-BMP paths page in code-point order, not UTF-16 code-unit order", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const { projection } = projectionFixture(rootDir);
+    projection.readCut();
+    const db = new DatabaseSync(projection.path);
+    const names = ["a.html", "\uE000.html", "\uFFFF.html", "\u{10000}.html"];
+    try {
+      db.exec("BEGIN");
+      addEvent(db, 1, "2026-08-01T00:00:00.000Z");
+      for (const name of names)
+        addDocument(db, {
+          revision: 1,
+          path: `tasks/pkg-a/artifacts/${name}`,
+          mediaType: "text/html",
+          policyId: "opaque-textual-whole-file/v1",
+        });
+      db.exec("COMMIT");
+    } finally {
+      db.close();
+    }
+    const seen: string[] = [];
+    let after: { occurredAt: string; relative: string; packageDir: string } | undefined;
+    for (let page = 0; page < names.length; page += 1) {
+      const read = projection.readArtifactTimelinePage({ kind: "html", limit: 1, ...(after ? { after } : {}) });
+      seen.push(...read.rows.map(({ relative }) => relative));
+      assert.deepEqual(read.countsCapped, { html: false, md: false, raw: false });
+      if (!read.hasMore) break;
+      const last = read.rows.at(-1)!;
+      after = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };
+    }
+    assert.deepEqual(
+      seen,
+      names.map((name) => `artifacts/${name}`).sort(byCodePoint),
+      "SQLite BINARY order and the shared code-point comparator agree for non-BMP names",
+    );
   });
 });

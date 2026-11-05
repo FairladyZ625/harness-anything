@@ -35,6 +35,7 @@ export const artifactsClient = {
         value.ok !== true ||
         !Array.isArray(value.artifacts) ||
         !isRendererRecord(value.counts) ||
+        !isRendererRecord(value.countsCapped) ||
         !isRendererRecord(value.page) ||
         !(
           value.page.nextCursor === null ||
