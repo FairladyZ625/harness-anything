@@ -109,6 +109,22 @@ async function initializeSchema(
     );
     if (processed === 0) break;
   }
+  // Fleet summaries are a bounded header cache. Old writers' rows are filled page by page in
+  // their own committed transaction; the fleet read refuses while any row in its window is null.
+  for (;;) {
+    const processed = await withPostgresTransaction(
+      pool,
+      async (client) =>
+        (
+          await client.query<{ processed: number }>(
+            "SELECT ha_backfill_fleet_event_summaries($1,$2,$3,500) AS processed",
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          )
+        ).rows[0]!.processed,
+      scope,
+    );
+    if (processed === 0) break;
+  }
   // Embedded storage owns its schema: finish the dated v5 expansion before exposing this scope.
   // Each committed primary-key page advances; processed=0, rather than the cursor, ends the scan.
   let owner = "",

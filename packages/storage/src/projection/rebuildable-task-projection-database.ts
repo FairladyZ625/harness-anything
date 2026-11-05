@@ -13,7 +13,7 @@ import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
-import { REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
+import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
   closeProjectionConnection,
@@ -478,6 +478,7 @@ function configureDatabase(db: DatabaseSync): void {
 function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
   ensureRuntimeSessionExecutionNodeColumn(db);
   ensureEventSummaryReadIndexColumns(db);
+  ensureLeaseTaskActiveColumn(db);
   /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
   db.exec(`
     CREATE TABLE IF NOT EXISTS archived_entity (

@@ -233,6 +233,17 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           // computed in JS at write time (and backfilled for old rows): parsing a whole event with
           // jsonb would reject legal NUL bytes in provider strings, and shipping whole bodies would
           // charge one large historical event to a fixed page.
+          const pending = await client.query(
+            `SELECT 1 FROM ha_events
+             WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+               AND summary_json IS NULL AND revision > $5 AND revision <= $6
+             LIMIT 1`,
+            [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, afterRevision, cut.watermark],
+          );
+          if (pending.rowCount)
+            throw new Error(
+              "fleet event summaries are not backfilled for this window; retry after the upgrade page job",
+            );
           const result = await client.query<{ event_json: string }>(
             `SELECT summary_json AS event_json
              FROM ha_events

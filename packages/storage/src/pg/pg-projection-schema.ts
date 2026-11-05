@@ -7,7 +7,6 @@ import { decisionReadStatusDdl } from "./pg-decision-read-status.ts";
 import { decisionSearchDdl } from "./pg-decision-search-schema.ts";
 import { decisionIndexDdl } from "./pg-decision-index-migration.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
-import { canonicalEventFleetSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import {
   POSTGRES_SCOPE_COLUMNS_SQL,
   POSTGRES_SCOPE_SCHEMA_CONTRACT,
@@ -84,51 +83,6 @@ export async function ensurePgProjectionSchema(
       }
     }
   }
-  await backfillFleetEventSummaries(client);
-}
-
-/**
- * One-time derived-cache backfill for existing event rows. The fleet summary is intentionally
- * bounded (no documentClaims), so historical rows must not fall back to transmitting whole
- * event bodies. Batched and marker-guarded: new writes fill the column inline.
- */
-async function backfillFleetEventSummaries(client: PoolClient): Promise<void> {
-  const exists = await client.query<{ events: boolean; meta: boolean }>(
-    "SELECT to_regclass('ha_events') IS NOT NULL AS events, to_regclass('ha_projection_meta') IS NOT NULL AS meta",
-  );
-  if (!exists.rows[0]?.events || !exists.rows[0]?.meta) return;
-  const marker = await client.query(
-    "SELECT 1 FROM ha_projection_meta WHERE projection_name='fleet-summary-backfill/v1' LIMIT 1",
-  );
-  if (marker.rowCount) return;
-  for (;;) {
-    const rows = await client.query<{
-      tenant_id: string;
-      project_id: string;
-      repo_id: string;
-      revision: string;
-      event_json: string;
-    }>(
-      `SELECT tenant_id,project_id,repo_id,revision::text,event_json FROM ha_events
-       WHERE summary_json IS NULL ORDER BY revision,tenant_id,project_id,repo_id LIMIT 500`,
-    );
-    if ((rows.rowCount ?? 0) === 0) break;
-    for (const row of rows.rows) {
-      const summary = JSON.stringify(canonicalEventFleetSummary(JSON.parse(row.event_json)));
-      await client.query(
-        `UPDATE ha_events SET summary_json=$1
-         WHERE tenant_id=$2 AND project_id=$3 AND repo_id=$4 AND revision=$5`,
-        [summary, row.tenant_id, row.project_id, row.repo_id, row.revision],
-      );
-    }
-    if ((rows.rowCount ?? 0) < 500) break;
-  }
-  await client.query(
-    `INSERT INTO ha_projection_meta(tenant_id,project_id,policy_epoch,readers,projection_name,schema_version,watermark,source_revision)
-     SELECT tenant_id,project_id,policy_epoch,'{}','fleet-summary-backfill/v1',1,0,0
-     FROM ha_projection_meta WHERE projection_name='task/v1'
-     ON CONFLICT DO NOTHING`,
-  );
 }
 
 /** Grant the runtime and migration roles access without granting either role schema ownership or BYPASSRLS. */

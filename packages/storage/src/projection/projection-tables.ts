@@ -222,9 +222,21 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1');
     `;
 
+/**
+ * Existing projections predate the lease visibility flag; add it before the DDL creates the
+ * index that references it. Fresh databases get the column from CREATE TABLE and skip this.
+ */
+export function ensureLeaseTaskActiveColumn(db: DatabaseSync): void {
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lease_interval'").all().length === 0) return;
+  const columns = db.prepare("PRAGMA table_info(lease_interval)").all() as { name: string }[];
+  if (columns.some(({ name }) => name === "task_active")) return;
+  db.exec("ALTER TABLE lease_interval ADD COLUMN task_active INTEGER NOT NULL DEFAULT 1");
+}
+
 export function createProjectionTables(db: DatabaseSync): void {
   db.exec(TASK_INDEX_TABLES_SQL);
   ensureEventSummaryReadIndexColumns(db);
+  ensureLeaseTaskActiveColumn(db);
   db.exec(REPOSITORY_READ_TABLES_SQL);
   ensureRuntimeMemberIndex(db);
   backfillEventSummaryReadIndex(db);
