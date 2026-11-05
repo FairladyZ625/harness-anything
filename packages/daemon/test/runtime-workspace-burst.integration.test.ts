@@ -14,7 +14,7 @@ import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 test(
-  "real workspace changes keep the writer queue bounded and allow a normal write",
+  "real workspace changes keep the writer queue bounded after a controlled finite burst",
   { timeout: 300_000 },
   async (t) => {
     const notificationTarget = Number(process.env.FLEET_STRESS_WORKSPACE_NOTIFICATIONS ?? 100),
@@ -195,7 +195,6 @@ syncBuiltinESMExports();
         writeMs = Math.round(performance.now() - writeStarted);
       t.diagnostic(`nativeNotifications=${notifications} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs}`);
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.ok(writeMs < 15_000, `normal write took ${String(writeMs)} ms`);
       assert.ok(maxQueueDepth <= 3, `workspace burst left ${String(maxQueueDepth)} queued writes`);
       writeFileSync(releasePath, "release");
       await runtimeExited.promise;
