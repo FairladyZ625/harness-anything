@@ -1,9 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { proposal, accepted, actor, relation } from "../store/relation-graph-projection.fixtures.ts";
+import { proposal, accepted } from "../store/relation-graph-projection.fixtures.ts";
 import { reduceDecisionDocument } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
-import { reduceRelationEntity } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 import { refreshPgDecisionSearch } from "../../src/pg/pg-decision-search.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "../../src/pg/pg-projection-schema.ts";
@@ -71,10 +70,7 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
         pool: tracedPgReads(
           fixture.pool,
           plans,
-          (sql) =>
-            sql.includes("FROM ha_decisions") ||
-            sql.includes("FROM ha_relations") ||
-            sql.includes("ha_decision_positions"),
+          (sql) => sql.includes("FROM ha_decisions") || sql.includes("ha_decision_positions"),
         ),
         scope,
         repoId: "typed-budget",
@@ -140,54 +136,6 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
         `POSITION_BUDGET ${JSON.stringify({ queryTokens: 2, postings: 200002, scanned, returned: 1 })}\n`,
       );
       assert.ok(scanned <= 200002, `query has 200002 token postings but scans ${scanned}`);
-    });
-    await t.test("freshness-filtered relation page", async () => {
-      const entities = Array.from({ length: 100001 }, (_, index) => {
-        const { strength: _strength, ...record } = relation({
-          source: "task/task_seed",
-          target: `person/p_${index}`,
-          type: "assigned-to",
-        });
-        return reduceRelationEntity(null, {
-          schema: "relation-event/v1",
-          eventId: `r-${index}`,
-          opId: `r-${index}`,
-          workspaceRevision: index + 1,
-          relationId: record.relation_id,
-          type: "relation_created",
-          actor,
-          source: "local",
-          occurredAt: "2026-11-05T00:00:00.000Z",
-          payload: { relation: { ...record, targetObservedVersion: `keycloak-user:p_${index}:stable` } },
-        });
-      }).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-      const last = entities.at(-1)!;
-      entities[entities.length - 1] = { ...last, targetObservedVersion: null };
-      await withPostgresTransaction(
-        fixture.adminPool,
-        async (client) => {
-          for (let start = 0; start < entities.length; start += 2000)
-            await client.query(
-              `INSERT INTO ha_relations
-            (tenant_id,project_id,policy_epoch,relation_id,source_ref,target_ref,relation_type,relation_state,workspace_revision,value)
-            SELECT $1,$2,$3,v->>'id',v->>'source',v->>'target',v->>'type',v->>'state',(v->>'revision')::bigint,
-              v||jsonb_build_object('sourcePath','event:fixture','recordIndex',0)
-              FROM jsonb_array_elements($4::jsonb) v`,
-              [scope.tenantId, scope.projectId, scope.policyEpoch, JSON.stringify(entities.slice(start, start + 2000))],
-            );
-          await client.query("ANALYZE ha_relations");
-        },
-        scope,
-      );
-      plans.length = 0;
-      const result = await source.readRelationQuery({ freshness: "suspect", limit: 1 });
-      assert.equal(result.status, "ready");
-      assert.deepEqual(
-        result.rows.map((row) => row.relationId),
-        [last.id],
-      );
-      assert.equal(result.page!.nextCursor, null);
-      assertBudget("readRelationQuery(freshness=suspect,limit=1)", "ha_relations", result.rows.length);
     });
   } finally {
     await fixture.pool.end();

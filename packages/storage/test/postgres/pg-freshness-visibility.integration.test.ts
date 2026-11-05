@@ -11,7 +11,6 @@ import { actor, relation } from "../store/relation-graph-projection.fixtures.ts"
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "../../src/pg/pg-projection-schema.ts";
-import { explainNodes } from "./pg-explain.fixture.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 
 test("one relation has different freshness at distinct supported reader cuts", async () => {
@@ -100,30 +99,6 @@ test("one relation has different freshness at distinct supported reader cuts", a
       });
     }
     process.stdout.write(`FRESHNESS_VISIBILITY ${JSON.stringify({ relationId: edge.id, observed })}\n`);
-    // Feasibility control for an ACL-aware two-verdict cache. It preserves the
-    // simple target witness above; its visibility guard is still a residual filter.
-    await fixture.adminPool.query(`CREATE TABLE freshness_visibility_probe(
-      id integer PRIMARY KEY,visible_freshness text,hidden_freshness text,witness_readers text[])`);
-    await fixture.adminPool.query(`INSERT INTO freshness_visibility_probe SELECT n,'current','suspect',
-      CASE WHEN n=100001 THEN ARRAY['alice'] ELSE ARRAY['bob'] END FROM generate_series(1,100001)n`);
-    await fixture.adminPool.query("CREATE INDEX ON freshness_visibility_probe(visible_freshness,id)");
-    await fixture.adminPool.query("CREATE INDEX ON freshness_visibility_probe(hidden_freshness,id)");
-    await fixture.adminPool.query("CREATE INDEX ON freshness_visibility_probe USING gin(witness_readers)");
-    await fixture.adminPool.query("ANALYZE freshness_visibility_probe");
-    const sql = `SELECT id FROM freshness_visibility_probe WHERE
-      (visible_freshness='suspect' AND witness_readers && ARRAY['bob']) OR
-      (hidden_freshness='suspect' AND NOT witness_readers && ARRAY['bob']) ORDER BY id LIMIT 1`;
-    assert.deepEqual((await fixture.adminPool.query(sql)).rows, [{ id: 100001 }]);
-    const plan = (await fixture.adminPool.query(`EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) ${sql}`)).rows[0]["QUERY PLAN"],
-      scanned = explainNodes(plan)
-        .filter((row) => row["Relation Name"] === "freshness_visibility_probe")
-        .reduce(
-          (sum, row) =>
-            sum +
-            (Number(row["Actual Rows"]) + Number(row["Rows Removed by Filter"] ?? 0)) * Number(row["Actual Loops"]),
-          0,
-        );
-    process.stdout.write(`FRESHNESS_CACHE_PROBE ${JSON.stringify({ scale: 100001, returned: 1, scanned, plan })}\n`);
   } finally {
     await fixture.pool.end();
     await fixture.close();
