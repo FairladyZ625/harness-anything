@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync, readSync, renameSync, statSync, unlinkSync } fr
 import path from "node:path";
 import { resolveHarnessLayout, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
+import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { withReadOnlyFile } from "../../storage/src/durable-file.ts";
 
 type Schedule = (work: () => void | Promise<void>) => void;
@@ -83,12 +84,18 @@ export function pruneDispatchStreamArchive(
     streams = archivedDispatchStreams(rootDir),
     protectedPrefixes = factEvidenceDispatchPrefixes(evidenceSources),
     protectedRecoveryIds = new Set(recoveryDispatchIds),
+    pendingEvidence = new Set(
+      streams
+        .filter((stream) => readDispatchEvidenceState(rootDir, stream.dispatchId) === "pending")
+        .map((stream) => stream.dispatchId),
+    ),
     doomed = new Set<string>();
   if (retention.retentionDays > 0)
     for (const stream of streams)
       if (
         !factEvidenceNames(protectedPrefixes, stream.dispatchId) &&
         !protectedRecoveryIds.has(stream.dispatchId) &&
+        !pendingEvidence.has(stream.dispatchId) &&
         nowMs - stream.startedAtMs > retention.retentionDays * msPerDay
       )
         doomed.add(stream.dispatchId);
@@ -102,7 +109,8 @@ export function pruneDispatchStreamArchive(
       if (
         doomed.has(stream.dispatchId) ||
         factEvidenceNames(protectedPrefixes, stream.dispatchId) ||
-        protectedRecoveryIds.has(stream.dispatchId)
+        protectedRecoveryIds.has(stream.dispatchId) ||
+        pendingEvidence.has(stream.dispatchId)
       )
         continue;
       total -= stream.sizeBytes;
@@ -114,6 +122,9 @@ export function pruneDispatchStreamArchive(
     // Re-check before deleting, like the compaction pass above: a dispatch purge may have taken
     // the file between the enumeration and this delete; either way the next pass re-enumerates.
     if (statSync(stream.file, { throwIfNoEntry: false })?.isFile()) unlinkSync(stream.file);
+    // A retained stream's sidecar is not independent evidence. Remove the stored/not-required
+    // disposition with the stream it describes; a pending disposition was never doomed above.
+    removeDispatchEvidenceState(rootDir, stream.dispatchId);
   }
 }
 

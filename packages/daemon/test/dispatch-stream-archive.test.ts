@@ -13,6 +13,7 @@ import {
   readAllDispatchStreamSummaries,
   readDispatchStream,
 } from "../src/dispatch-stream.ts";
+import { dispatchEvidenceStatePath, writeDispatchEvidenceState } from "../src/dispatch-evidence-state.ts";
 import {
   pruneDispatchStreamArchive,
   readFactEvidenceSources,
@@ -434,6 +435,39 @@ test("summary readers treat a pruned archive as expired instead of failing", () 
       false,
       "replay enumerates what remains and treats the missing stream as expired",
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("retention removes stored sidecars with their stream and preserves pending evidence", () => {
+  const rootDir = mkdtempSync(path.join(ROOT, "ha-dispatch-sidecar-prune-")),
+    now = Date.now(),
+    storedId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+    pendingId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb";
+  try {
+    for (const dispatchId of [storedId, pendingId]) {
+      openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: `runtime-${dispatchId}`,
+        instanceId: "instance-sidecar",
+        startedAt: new Date(now - 120 * 86_400_000).toISOString(),
+      });
+      archiveDispatchStream(rootDir, dispatchId);
+    }
+    writeDispatchEvidenceState(rootDir, storedId, "stored");
+    writeDispatchEvidenceState(rootDir, pendingId, "pending");
+    const storedStream = dispatchStreamPath(rootDir, storedId),
+      pendingStream = dispatchStreamPath(rootDir, pendingId),
+      storedSidecar = dispatchEvidenceStatePath(rootDir, storedId),
+      pendingSidecar = dispatchEvidenceStatePath(rootDir, pendingId);
+    pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, [], now);
+    assert.equal(existsSync(storedStream), false);
+    assert.equal(existsSync(storedSidecar), false, "a stored disposition is reclaimed with its stream");
+    assert.equal(existsSync(pendingStream), true, "pending evidence is never pruned");
+    assert.equal(existsSync(pendingSidecar), true, "the pending disposition stays with its stream");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

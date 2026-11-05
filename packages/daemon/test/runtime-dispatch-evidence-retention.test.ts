@@ -100,6 +100,67 @@ test("an archive publication failure keeps the abnormal stream out of compaction
   assert.match(readFileSync(streamPath, "utf8"), /"kind":"evidence_state"/u);
 });
 
+test("an archive failure after an initial success rewrites the disposition to pending", async (context) => {
+  const fixture = workerGitFixture(context, "forensics-success-archive-failure", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "delivered",
+      providerOutcome: "succeeded",
+      toolCallObserved: true,
+    }),
+    stream = fixtureStream(fixture, runtime),
+    submittedCommitSha = git(fixture.worker, "rev-parse", "HEAD").trim(),
+    settleContext = workerSettlementContext(fixture, async () => ({}), "delivered", submittedCommitSha);
+  stream.appendProviderEvent(
+    { type: "thread.started", thread_id: "provider-success-failure" },
+    "2026-11-05T00:00:01.000Z",
+  );
+  failingArchive(settleContext);
+  context.mock.method(console, "error", () => undefined);
+  await publishExit(settleContext, runtime, 0);
+  const streamPath = dispatchStreamPath(fixture.canonical, runtime.dispatchId),
+    summary = readDispatchStreamSummary(fixture.canonical, runtime.dispatchId);
+  assert.notEqual(summary?.terminalOutcome?.payload.outcome, "succeeded");
+  assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "pending");
+  assert.equal(path.basename(path.dirname(streamPath)), "dispatches");
+  const removed = purgeRepoCache(fixture.canonical);
+  assert.equal(removed.includes(".harness/runtime/dispatches"), false, JSON.stringify(removed));
+  assert.equal(existsSync(streamPath), true);
+});
+
+test("a post-archive settlement failure rewrites the disposition to pending", async (context) => {
+  const fixture = workerGitFixture(context, "forensics-success-settlement-failure", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "delivered",
+      providerOutcome: "succeeded",
+      toolCallObserved: true,
+    }),
+    stream = fixtureStream(fixture, runtime),
+    submittedCommitSha = git(fixture.worker, "rev-parse", "HEAD").trim(),
+    settleContext = workerSettlementContext(fixture, async () => ({}), "delivered", submittedCommitSha);
+  stream.appendProviderEvent(
+    { type: "thread.started", thread_id: "provider-settlement-failure" },
+    "2026-11-05T00:00:01.000Z",
+  );
+  settleContext.input.remote = {
+    archive: async () => ({ outcome: "applied" }),
+  } as never;
+  Object.assign(settleContext, {
+    settleFallback: async () => {
+      throw new Error("injected settlement failure");
+    },
+  });
+  context.mock.method(console, "error", () => undefined);
+  await publishExit(settleContext, runtime, 0);
+  const streamPath = dispatchStreamPath(fixture.canonical, runtime.dispatchId),
+    summary = readDispatchStreamSummary(fixture.canonical, runtime.dispatchId);
+  assert.equal(summary?.terminalOutcome?.payload.outcome, "unknown");
+  assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "pending");
+  assert.equal(path.basename(path.dirname(streamPath)), "dispatches");
+  const removed = purgeRepoCache(fixture.canonical);
+  assert.equal(removed.includes(".harness/runtime/dispatches"), false, JSON.stringify(removed));
+  assert.equal(existsSync(streamPath), true);
+});
+
 test("a large terminal body cannot hide the sidecar disposition from purge or archive", async (context) => {
   const fixture = workerGitFixture(context, "forensics-large-terminal", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {

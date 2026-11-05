@@ -586,7 +586,6 @@ export async function publishExit(
         // event honest when publication fails, while still publishing the exit
         // event so the runtime cannot remain live forever.
         console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
-        if (evidenceRequired) markEvidencePending(`runtime archive publication failed: ${detail || "unknown error"}`);
         // A local projection or the edge's center-backed read can witness a registered review
         // despite an archive failure.
         // Settlement honesty for a local reviewer is whether the review was registered, not whether
@@ -609,6 +608,9 @@ export async function publishExit(
                 : active.decisionReviewTarget !== null &&
                   decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))));
         if (!reviewWasRecorded && !reviewSuperseded.superseded) {
+          // This branch changes an otherwise successful terminal to failed: the earlier
+          // not-required disposition is no longer the final fact, so fail closed before cleanup.
+          markEvidencePending(`runtime archive publication failed: ${detail || "unknown error"}`);
           outcome = cancelled ? "cancelled" : "failed";
           reasonCode = "runtime_archive_failed";
         }
@@ -722,6 +724,16 @@ export async function publishExit(
           resultRef = `artifact:runtime-result/sha256/${sha256}`;
         }
       });
+    // settleFallback can still rewrite a successful terminal to failed/unknown. Re-read the final
+    // outcome after that call; if the required evidence was never captured, keep the raw stream
+    // and mark the sidecar pending before the terminal is appended.
+    if (
+      !evidencePending &&
+      (active.task !== null || active.decisionReviewTarget !== null) &&
+      dispatchForensicsRequired(outcome, attemptOutcome.classification, marked) &&
+      (forensics === null || !archivePublished)
+    )
+      markEvidencePending("final terminal became abnormal after the archive decision");
     if (escalationStop) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
