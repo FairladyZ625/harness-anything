@@ -102,6 +102,10 @@ own denominator or retained request history. Business requests, other observe
 kinds and repo-log follow reads keep their existing logging behavior; connection
 logs still record diagnostic traffic. Previously recorded diagnostics remain in
 retained history and statistics; they are neither rewritten nor filtered out.
+
+For an external liveness view that survives a wedged daemon — interval samples,
+OS process counters, automatic stack capture, and an offline availability
+summary — see [external daemon probe](daemon-external-probe.md).
 It reports completed request counts, observed first/last timestamps and silent
 intervals over one hour. Retained-history exhaustion does not establish continuous
 coverage: inactivity and retention loss cannot be distinguished. A 7d request

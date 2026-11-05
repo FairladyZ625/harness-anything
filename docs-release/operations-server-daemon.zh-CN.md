@@ -60,6 +60,9 @@ request 日志仅排除 `observe.tail` 的 `kind: repo-log`、`direction: histor
 输出已完成请求总数、观察首末时间，以及超过一小时的静默区间。读完保留历史不代表窗口连续覆盖：
 静默可能是无请求，也可能是留存丢失；7d 不会把较短的保留跨度外推成整周流量。
 
+daemon 卡死时，daemon 内部的监测可能一起失效。需要外部视角（定时探活、进程资源、
+自动抓栈与事后可用率统计）时，见[daemon 外部探针](daemon-external-probe.zh-CN.md)。
+
 P50/P95 对所有合格样本使用 nearest-rank。每个时间字段独立列出样本数与缺失数；不足 20 个样本
 标注 low sample，缺失值保持 unknown。主动 runtime await 单独计数，不进入延迟分母。
 这些是 daemon duration、service 与 dispatch 时间；未独立测量 CLI 端到端耗时或 handler 内部排队。
