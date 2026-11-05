@@ -241,3 +241,39 @@ test("a cache written before the artifact index backfills once from projected do
     }
   });
 });
+
+test("case and accent paths keep binary order across keyset pages", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const { projection } = projectionFixture(rootDir);
+    projection.readCut();
+    const db = new DatabaseSync(projection.path);
+    const names = ["Z.html", "a.html", "Ä.html", "ä.html", "A.html", "z.html"];
+    try {
+      db.exec("BEGIN");
+      addTask(db, "task_a", "pkg-a", "Package A");
+      addEvent(db, 1, "2026-08-01T00:00:00.000Z");
+      for (const name of names)
+        addDocument(db, {
+          revision: 1,
+          path: `tasks/pkg-a/artifacts/${name}`,
+          mediaType: "text/html",
+          policyId: "opaque-textual-whole-file/v1",
+        });
+      db.exec("COMMIT");
+    } finally {
+      db.close();
+    }
+    const seen: string[] = [];
+    let after: { occurredAt: string; relative: string; packageDir: string } | undefined;
+    for (let page = 0; page < names.length + 1; page += 1) {
+      const read = projection.readArtifactTimelinePage({ kind: "html", limit: 2, ...(after ? { after } : {}) });
+      seen.push(...read.rows.map(({ relative }) => relative));
+      if (!read.hasMore) break;
+      const last = read.rows.at(-1)!;
+      after = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };
+    }
+    const expected = names.map((name) => `artifacts/${name}`).sort((left, right) => (left < right ? -1 : 1));
+    assert.deepEqual(seen, expected);
+    assert.equal(new Set(seen).size, seen.length);
+  });
+});
