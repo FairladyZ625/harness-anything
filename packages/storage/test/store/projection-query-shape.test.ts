@@ -673,10 +673,12 @@ test("task context collection reads stay indexed, bounded, and constant in state
     context.diagnostic(`relation targets plan: ${targetPlan}`);
     assert.match(closurePlan, /SEARCH task_relation USING INDEX task_relation_source/u);
     assert.match(closurePlan, /SEARCH relation_edge USING INDEX relation_edge_source/u);
-    assert.match(targetPlan, /SEARCH task_relation USING INDEX task_relation_target/u);
-    assert.match(targetPlan, /SEARCH relation_edge USING INDEX relation_edge_target/u);
-    assert.match(sourcePlan, /SEARCH task_relation USING INDEX task_relation_source/u);
-    assert.match(sourcePlan, /SEARCH relation_edge USING INDEX relation_edge_source/u);
+    // The endpoint batch carries its declared type: type-leading indexes keep an unrelated
+    // same-target relation (e.g. runtime-session executes edges) out of the scan.
+    assert.match(targetPlan, /SEARCH task_relation USING INDEX task_relation_type_target/u);
+    assert.match(targetPlan, /SEARCH relation_edge USING INDEX relation_edge_type_target/u);
+    assert.match(sourcePlan, /SEARCH task_relation USING INDEX task_relation_type_source/u);
+    assert.match(sourcePlan, /SEARCH relation_edge USING INDEX relation_edge_type_source/u);
     assert.doesNotMatch(
       `${closurePlan}\n${targetPlan}\n${sourcePlan}`,
       /SCAN (?:task_relation|relation_edge)(?:\s|$)/u,

@@ -199,6 +199,7 @@ function dispatchContract(
       | "readRuntimeDispatchesBySession"
       | "readRuntimeDispatchEventsBySession"
       | "readRuntimeDispatchesByTaskIds"
+      | "readLatestRuntimeDispatchesByTaskIds"
       | "readRuntimeDispatchByDispatchIdPrefix"
       | "countRuntimeDispatchesByAgent"
       | "readRuntimeDispatchesByTaskExecution"
@@ -221,6 +222,11 @@ function dispatchContract(
     ["runtime-query-a", "runtime-query-b", "runtime-query-c"],
   );
   assert.deepEqual(queries.readRuntimeDispatchesByTaskIds(["missing-task"]), []);
+  assert.deepEqual(queries.readLatestRuntimeDispatchesByTaskIds(["missing-task"]), []);
+  assert.deepEqual(
+    queries.readLatestRuntimeDispatchesByTaskIds(["task-parity"]).map(({ payload }) => payload.dispatchId),
+    ["runtime-query-c"],
+  );
   assert.deepEqual(
     queries.readRuntimeDispatchByDispatchIdPrefix("runtime-query-", 10).map(({ event }) => event.payload.dispatchId),
     ["runtime-query-a", "runtime-query-b", "runtime-query-c"],
@@ -309,6 +315,7 @@ function dispatchContract(
     session: queries.readRuntimeDispatchesBySession("runtime-query-session"),
     sessionEvents: queries.readRuntimeDispatchEventsBySession("runtime-query-session"),
     taskRows: queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
+    latestTaskRows: queries.readLatestRuntimeDispatchesByTaskIds(["task-parity"]),
     prefix: queries.readRuntimeDispatchByDispatchIdPrefix("runtime-query-", 10),
     agentCount: queries.countRuntimeDispatchesByAgent("parity-agent"),
     execution: queries.readRuntimeDispatchesByTaskExecution("task-parity", "execution-parity"),

@@ -179,6 +179,14 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.payload.taskId'), json_extract(event_json, '$.payload.executionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    -- "The current dispatch for this task" is one index seek, not a walk over every dispatch the
+    -- task ever had: aggregate reads (fleet overview) only need each task's newest start.
+    CREATE INDEX IF NOT EXISTS event_index_runtime_task_started ON event_index(
+      json_extract(event_json, '$.payload.taskId'),
+      json_extract(event_json, '$.payload.startedAt') DESC,
+      json_extract(event_json, '$.payload.dispatchId') DESC
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_review_decision ON event_index(
       json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'

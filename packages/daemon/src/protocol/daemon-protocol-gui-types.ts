@@ -170,7 +170,13 @@ type ObserveTailRequestFor<K extends ObserveTailKind> =
     };
 
 export type ObserveTailPayload =
-  | ObserveTailRequestFor<"events">
+  | (ObserveTailRequestFor<"events"> & {
+      /**
+       * Opt into the fleet overview's header-only event projection. Default event tails keep the
+       * canonical summary; this narrows one aggregate read without changing the shared tail.
+       */
+      readonly fields?: "fleet";
+    })
   | ObserveTailRequestFor<"repo-log">
   | ObserveTailRequestFor<"daemon-log">
   | ObserveTailRequestFor<"lifecycle">
@@ -214,9 +220,13 @@ export type ObserveTailResult =
 export function validateObserveTailPayload(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return ["observe tail payload must be an object"];
   if (
-    Object.keys(value).some((key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId")
+    Object.keys(value).some(
+      (key) => key !== "kind" && key !== "direction" && key !== "cursor" && key !== "dispatchId" && key !== "fields",
+    )
   )
     return ["observe tail payload contains an unknown field"];
+  if (value.fields !== undefined && (value.kind !== "events" || value.fields !== "fleet"))
+    return ["observe tail fields is only valid as fleet on an events tail"];
   if (!observeTailKinds.includes(value.kind as ObserveTailKind)) return ["observe tail kind is invalid"];
   if (!observeTailDirections.includes(value.direction as ObserveTailDirection))
     return ["observe tail direction is invalid"];
@@ -572,6 +582,12 @@ export interface DaemonTaskQueryPayload {
   readonly updatedBefore?: string;
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * Lifecycle status is the default. `raw` skips the presentation-status derivation (which joins
+   * a task's subtree and cannot be index-bounded) for aggregate reads that show current lifecycle
+   * state, e.g. the fleet's in-flight leases and home's "completed in the last 24h" count.
+   */
+  readonly statusSource?: "raw";
 }
 
 export interface DaemonAgendaPayload {
@@ -579,6 +595,11 @@ export interface DaemonAgendaPayload {
   readonly cursor?: string;
   /** Narrow the agenda to one work: the root task and its subtree. */
   readonly work?: string;
+  /**
+   * Home's aggregation: only awaitingYou / awaitingRework / awaitingAdjudication / underReview,
+   * read by lifecycle status so the read is bounded by current work rather than task history.
+   */
+  readonly attentionOnly?: boolean;
 }
 
 export interface DaemonRelationQueryPayload {
@@ -731,7 +752,11 @@ export type DaemonDecisionListResult =
 /** The CLI-compatible single read and GUI batch read share the same stable method and
  * schema ids. Exactly one selector is allowed; pagination applies only to taskIds. The
  * member selector returns one executor's newest dispatches, bounded by the required limit. */
-export type DaemonTaskDispatchesPayload = { readonly advisorySurface?: DecisionReadSurface } & (
+export type DaemonTaskDispatchesPayload = {
+  readonly advisorySurface?: DecisionReadSurface;
+  /** With taskIds: return only each task's newest dispatch (aggregate readers), never its history. */
+  readonly latestOnly?: boolean;
+} & (
   | {
       readonly taskId: string;
       readonly taskIds?: never;

@@ -78,6 +78,11 @@ export interface TaskRuntimeBatchQuery {
   readonly taskIds: readonly string[];
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * Defaults to true. Label-only callers pass false so the read does not join every runtime
+   * session ever bound to the task just to obtain its title.
+   */
+  readonly includeSessions?: boolean;
 }
 export interface TaskRuntimeBatchRow {
   readonly taskId: string;

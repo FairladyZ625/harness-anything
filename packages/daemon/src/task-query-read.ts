@@ -110,6 +110,8 @@ export interface AgendaQuery {
   readonly ownerPersonId?: string;
   /** A work root task id; keeps that root and its subtree. */
   readonly work?: string;
+  /** Only the four "waiting on you" buckets, read with lifecycle status (home aggregation). */
+  readonly attentionOnly?: boolean;
 }
 export interface TaskQueryJudgments {
   readonly closeout: (
@@ -213,12 +215,12 @@ export function makeTaskQueryReadModel(input: {
    * agenda no longer pays for placement, decision scopes, or execution
    * evidence projection it never serves.
    */
-  function readBlockingAssessments(taskIds: readonly string[]) {
+  function readBlockingAssessments(taskIds: readonly string[], narrow = false) {
     const taskRefs = taskIds.map((taskId) => `task/${taskId}`),
-      dependencies = projection.readTaskDependencyClosure(taskRefs),
-      downstream = projection.readTaskRelationsByTargets(taskRefs, "depends-on"),
-      derives = projection.readTaskRelationsByTargets(taskRefs, "derives"),
-      awaits = projection.readTaskRelationsBySources(taskRefs, "awaits"),
+      dependencies = projection.readTaskDependencyClosure(taskRefs, undefined, narrow),
+      downstream = projection.readTaskRelationsByTargets(taskRefs, "depends-on", narrow),
+      derives = projection.readTaskRelationsByTargets(taskRefs, "derives", narrow),
+      awaits = projection.readTaskRelationsBySources(taskRefs, "awaits", narrow),
       edges = [...dependencies.rows, ...derives.rows, ...awaits.rows],
       downstreamByTaskId = new Map<string, number>(),
       relatedTaskIds = [
@@ -259,11 +261,19 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
-    const lifecycle = taskPresentationReads(projection).list({ ...query, limit: query.limit ?? 500 }),
+    // Aggregate readers that ask for the raw lifecycle status skip the presentation-status
+    // derivation: that CASE walks each task's subtree, so filtering on it cannot be index-bounded
+    // and would make a small page linear in the repository's task history.
+    const lifecycleQuery = { ...query, limit: query.limit ?? 500 },
+      lifecycle =
+        query.presentationStatus === false
+          ? projection.list(lifecycleQuery)
+          : taskPresentationReads(projection).list(lifecycleQuery),
       readPresetSnapshot = presetSnapshotReader(projection),
       { authoredRoot } = resolveHarnessLayout(rootDir),
       { dependencies, downstream, derives, awaits, taskStatuses, blockingByTaskId } = readBlockingAssessments(
         lifecycle.rows.map(({ taskId }) => taskId),
+        query.presentationStatus === false,
       ),
       decisionIds = [
         ...new Set(derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? [])),
@@ -272,6 +282,7 @@ export function makeTaskQueryReadModel(input: {
       assignmentRead = projection.readTaskRelationsBySources(
         lifecycle.rows.map(({ taskId }) => `task/${taskId}`),
         "assigned-to",
+        query.presentationStatus === false,
       ),
       assignmentByTaskId = new Map(
         lifecycle.rows.map(
@@ -415,19 +426,30 @@ export function makeTaskQueryReadModel(input: {
     sourceLimit: number,
     pageCursor: string | undefined,
     scope: AgendaWorkScope,
+    presentationStatus = true,
   ): AgendaSourcePage {
-    const lifecycle = taskPresentationReads(projection).list({
+    // The attention-only aggregation reads lifecycle status: presentation status derives each
+    // task's subtree and cannot be index-bounded, which would make a fixed-k home read scan the
+    // repository's whole task history.
+    const list = presentationStatus
+        ? taskPresentationReads(projection).list
+        : (query: Parameters<TaskProjection["list"]>[0]) => projection.list(query),
+      lifecycle = list({
         status,
         activePackagesOnly: true,
         limit: sourceLimit,
         pinnedFirst: true,
+        ...(presentationStatus ? {} : { presentationStatus: false }),
         ...(pageCursor ? { cursor: pageCursor } : {}),
         // --work narrows the page query itself, so a small limit returns that work's rows
         // instead of the repository's first page with the work's rows filtered away.
         ...(scope.members === null ? {} : { taskIds: [...scope.members] }),
       }),
       rows = lifecycle.rows,
-      graph = readBlockingAssessments(rows.map(({ taskId }) => taskId)),
+      graph = readBlockingAssessments(
+        rows.map(({ taskId }) => taskId),
+        !presentationStatus,
+      ),
       readPresetSnapshot = presetSnapshotReader(projection);
     return {
       page: lifecycle.page ?? null,
@@ -475,19 +497,22 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function agenda(query: AgendaQuery = {}): DaemonAgendaResult {
-    const todos = readTodos(projection).filter(todoIsOpen),
+    const attentionOnly = query.attentionOnly === true,
+      todos = attentionOnly ? [] : readTodos(projection).filter(todoIsOpen),
       sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
       scope = agendaWorkScope(query.work),
       readTaskPage = (status: "active" | "submitted" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
-        cursor?.[key] === null ? null : readAgendaTaskPage(status, sourceLimit, cursor?.[key] ?? undefined, scope),
+        cursor?.[key] === null || (attentionOnly && (status === "blocked" || status === "planned"))
+          ? null
+          : readAgendaTaskPage(status, sourceLimit, cursor?.[key] ?? undefined, scope, !attentionOnly),
       active = readTaskPage("active", "active"),
       blocked = readTaskPage("blocked", "blocked"),
       planned = readTaskPage("planned", "planned"),
       submitted = readTaskPage("submitted", "submitted"),
       inReview = readTaskPage("in_review", "inReview"),
       decisions =
-        cursor?.decisions === null
+        attentionOnly || cursor?.decisions === null
           ? null
           : projection.listDecisionAgendaPage({
               state: "proposed",
@@ -512,7 +537,7 @@ export function makeTaskQueryReadModel(input: {
             }),
       // 「已答复,待你跟进」候选:全部已退役的 awaits 边,再按源实体归属读者、答复后源实体未再写入收窄。
       answered =
-        cursor?.answeredForYou === null || query.principalId === undefined
+        attentionOnly || cursor?.answeredForYou === null || query.principalId === undefined
           ? null
           : projection.readRelationQuery({
               relationType: "awaits",
@@ -532,16 +557,16 @@ export function makeTaskQueryReadModel(input: {
       assignments =
         query.principalId === undefined
           ? null
-          : projection.readTaskRelationsBySources(assignmentSources, "assigned-to"),
-      workRoots = projection.readTaskIndex({ workRootsOnly: true, activePackagesOnly: true }),
+          : projection.readTaskRelationsBySources(assignmentSources, "assigned-to", attentionOnly),
+      workRoots = attentionOnly ? null : projection.readTaskIndex({ workRootsOnly: true, activePackagesOnly: true }),
       workRelations =
-        workRoots.rows.length === 0
+        workRoots === null || workRoots.rows.length === 0
           ? null
           : projection.readTaskRelationsBySources(
               workRoots.rows.map(({ taskId }) => `task/${taskId}`),
               "implements",
             ),
-      unanchoredWorks = workRoots.rows
+      unanchoredWorks = (workRoots?.rows ?? [])
         .filter(
           ({ taskId }) =>
             !workRelations?.rows.some(
@@ -560,7 +585,7 @@ export function makeTaskQueryReadModel(input: {
         ...(awaits === null ? [] : [awaits]),
         ...(answered === null ? [] : [answered]),
         ...(assignments === null ? [] : [assignments]),
-        workRoots,
+        ...(workRoots === null ? [] : [workRoots]),
         ...(workRelations === null ? [] : [workRelations]),
       ],
       assignmentFor = (sourceRef: string) => {
@@ -582,24 +607,28 @@ export function makeTaskQueryReadModel(input: {
       // 「在飞」只收真有人在干的行:有效 lease,或当前 active execution 上还有未结算的
       // dispatch / 存活的 runtime。active execution 本身不代表有人;它留在 active 是为了
       // `ha task start` 能重连(见 kernel completion-readiness 的同一判定)。
-      liveWorkerByTask = new Map<string, boolean>(
-        (active?.rows ?? []).map((row) => [row.taskId, hasLiveWorker(projection, row)]),
-      ),
+      liveWorkerByTask = attentionOnly
+        ? new Map<string, boolean>()
+        : new Map<string, boolean>((active?.rows ?? []).map((row) => [row.taskId, hasLiveWorker(projection, row)])),
       activeStatus = active?.status ?? ("ready" as const),
-      inFlight = (active?.rows ?? [])
-        .filter((row) => leaseIsEffective(row.snapshot.lease) || liveWorkerByTask.get(row.taskId) === true)
-        .map(agendaTaskRow)
-        .sort(compareAgendaTasks),
+      inFlight = attentionOnly
+        ? []
+        : (active?.rows ?? [])
+            .filter((row) => leaseIsEffective(row.snapshot.lease) || liveWorkerByTask.get(row.taskId) === true)
+            .map(agendaTaskRow)
+            .sort(compareAgendaTasks),
       // lease 已失效(释放或过期)、execution 仍 active、且没有存活 worker:这是 owner 的下一步,
       // next 取 `ha task show` 使用的完整 completion 判定,不在 agenda 复制第二套优先级。
-      awaitingRestart = (active?.rows ?? [])
-        .filter((row) => !leaseIsEffective(row.snapshot.lease) && !liveWorkerByTask.get(row.taskId))
-        .flatMap((row) => {
-          const restart = restartRow(projection, rootDir, activeStatus, row);
-          return restart === null ? [] : [restart];
-        })
-        .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
-        .sort(compareAgendaTasks),
+      awaitingRestart = attentionOnly
+        ? []
+        : (active?.rows ?? [])
+            .filter((row) => !leaseIsEffective(row.snapshot.lease) && !liveWorkerByTask.get(row.taskId))
+            .flatMap((row) => {
+              const restart = restartRow(projection, rootDir, activeStatus, row);
+              return restart === null ? [] : [restart];
+            })
+            .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
+            .sort(compareAgendaTasks),
       // 评审打回、球已回到使用者手里的那批:执行已关闭、lease 已失效,既不在飞也不待裁。
       awaitingRework = (active?.rows ?? [])
         .filter(
@@ -611,129 +640,141 @@ export function makeTaskQueryReadModel(input: {
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .map(agendaTaskRow)
         .sort(compareAgendaTasks),
-      waitingOnOthers = [
-        ...(blocked?.rows ?? []),
-        ...(planned?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"),
-        ...(active?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"),
-      ]
-        .map(agendaTaskRow)
-        .sort(compareAgendaTasks),
-      dispatchable = (planned?.rows ?? [])
-        .filter(({ blockingAssessment }) => blockingAssessment.state === "clear")
-        .map(agendaTaskRow)
-        .sort(compareAgendaTasks),
-      unsubmittedDeliveries = unsubmittedDeliveryAttentionRows(projection, active?.rows ?? []),
-      stalled = (active?.rows ?? [])
-        .filter(
-          (row) =>
-            !leaseIsEffective(row.snapshot.lease) &&
-            !row.snapshot.executions.some(({ state }) => state === "active") &&
-            now().getTime() - Date.parse(row.updatedAt) > 7 * 24 * 60 * 60 * 1_000,
-        )
-        .map(agendaTaskRow)
-        .sort(compareAgendaTasks),
+      waitingOnOthers = attentionOnly
+        ? []
+        : [
+            ...(blocked?.rows ?? []),
+            ...(planned?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"),
+            ...(active?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"),
+          ]
+            .map(agendaTaskRow)
+            .sort(compareAgendaTasks),
+      dispatchable = attentionOnly
+        ? []
+        : (planned?.rows ?? [])
+            .filter(({ blockingAssessment }) => blockingAssessment.state === "clear")
+            .map(agendaTaskRow)
+            .sort(compareAgendaTasks),
+      unsubmittedDeliveries = attentionOnly ? [] : unsubmittedDeliveryAttentionRows(projection, active?.rows ?? []),
+      stalled = attentionOnly
+        ? []
+        : (active?.rows ?? [])
+            .filter(
+              (row) =>
+                !leaseIsEffective(row.snapshot.lease) &&
+                !row.snapshot.executions.some(({ state }) => state === "active") &&
+                now().getTime() - Date.parse(row.updatedAt) > 7 * 24 * 60 * 60 * 1_000,
+            )
+            .map(agendaTaskRow)
+            .sort(compareAgendaTasks),
       // 三种「等你动手」按下一步动作分组(2026-09-20 业主裁定拆开):submitted 行 → 派审;
       // in_review 行 → 等评审/consent;decision 行 → 裁决。同一 execution 只落所属组,不再合并。
       // 无人值守派工裁决:从 lease 已交回的 active 行按 dispatch id 读 worker artifact 与
       // daemon decision receipt;不会为 agenda 引入一次全量派工读取。
-      awaitingRuling = (() => {
-        const rows = new Map<string, AgendaRulingRow>(),
-          isResumed = (dispatch: {
-            readonly payload: {
-              readonly dispatchId: string;
-              readonly attemptGroupId?: string | null;
-              readonly attemptIndex?: number;
-            };
-          }) =>
-            projection.readRuntimeDispatchByResumeSource(dispatch.payload.dispatchId) !== null ||
-            projection
-              .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId)
-              .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
-        for (const row of leaseReturnedRows([...(active?.rows ?? []), ...(blocked?.rows ?? [])]).filter(({ taskId }) =>
-          assignmentFor(`task/${taskId}`),
-        )) {
-          const packagePath = row.packagePath;
-          if (typeof packagePath === "string")
-            for (const { path } of projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents) {
-              if (!path.endsWith(".md") || path.endsWith(".resolution.md")) continue;
-              const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".md".length),
-                resolved = readDispatchRuling(
-                  (relative) => projection.readDocument(relative).document?.body ?? null,
-                  packagePath,
-                  `${dispatchId}.resolution`,
-                ),
-                ruling = readDispatchRuling(
-                  (relative) => (relative === path ? (projection.readDocument(relative).document?.body ?? null) : null),
-                  packagePath,
-                  dispatchId,
-                ),
-                dispatch = ruling === null ? null : (projection.readRuntimeDispatchById(dispatchId)?.event ?? null);
-              if (
-                resolved !== null ||
-                ruling === null ||
-                dispatch === null ||
-                !dispatch.payload.executionId ||
-                isResumed(dispatch)
-              )
-                continue;
-              rows.set(dispatchId, {
-                taskId: row.taskId,
-                title: row.snapshot.task?.title ?? row.taskId,
-                work: row.work,
-                pinned: row.snapshot.task?.pinned ?? false,
-                dispatchId,
-                executionId: dispatch.payload.executionId,
-                attention: "question",
-                question: ruling.question,
-                options: ruling.options,
-                rulingPath: ruling.path,
-                askedAt: dispatch.payload.startedAt ?? dispatch.occurredAt,
-                blockingAssessment: row.blockingAssessment,
-              });
+      awaitingRuling = attentionOnly
+        ? []
+        : (() => {
+            const rows = new Map<string, AgendaRulingRow>(),
+              isResumed = (dispatch: {
+                readonly payload: {
+                  readonly dispatchId: string;
+                  readonly attemptGroupId?: string | null;
+                  readonly attemptIndex?: number;
+                };
+              }) =>
+                projection.readRuntimeDispatchByResumeSource(dispatch.payload.dispatchId) !== null ||
+                projection
+                  .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId)
+                  .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
+            for (const row of leaseReturnedRows([...(active?.rows ?? []), ...(blocked?.rows ?? [])]).filter(
+              ({ taskId }) => assignmentFor(`task/${taskId}`),
+            )) {
+              const packagePath = row.packagePath;
+              if (typeof packagePath === "string")
+                for (const { path } of projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents) {
+                  if (!path.endsWith(".md") || path.endsWith(".resolution.md")) continue;
+                  const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".md".length),
+                    resolved = readDispatchRuling(
+                      (relative) => projection.readDocument(relative).document?.body ?? null,
+                      packagePath,
+                      `${dispatchId}.resolution`,
+                    ),
+                    ruling = readDispatchRuling(
+                      (relative) =>
+                        relative === path ? (projection.readDocument(relative).document?.body ?? null) : null,
+                      packagePath,
+                      dispatchId,
+                    ),
+                    dispatch = ruling === null ? null : (projection.readRuntimeDispatchById(dispatchId)?.event ?? null);
+                  if (
+                    resolved !== null ||
+                    ruling === null ||
+                    dispatch === null ||
+                    !dispatch.payload.executionId ||
+                    isResumed(dispatch)
+                  )
+                    continue;
+                  rows.set(dispatchId, {
+                    taskId: row.taskId,
+                    title: row.snapshot.task?.title ?? row.taskId,
+                    work: row.work,
+                    pinned: row.snapshot.task?.pinned ?? false,
+                    dispatchId,
+                    executionId: dispatch.payload.executionId,
+                    attention: "question",
+                    question: ruling.question,
+                    options: ruling.options,
+                    rulingPath: ruling.path,
+                    askedAt: dispatch.payload.startedAt ?? dispatch.occurredAt,
+                    blockingAssessment: row.blockingAssessment,
+                  });
+                }
+              const seenDispatches = new Set<string>(),
+                newestIteration = latestExecution(row.snapshot.executions)?.iteration ?? null;
+              for (const execution of row.snapshot.executions) {
+                // 终结派工的事故回执不进队列:所属 execution 已交付,或之后开了新一轮,这一轮的问题已被翻篇。
+                if (execution.submission !== null) continue;
+                if (newestIteration !== null && execution.iteration < newestIteration) continue;
+                const roundDispatches = projection.readRuntimeDispatchesByTaskExecution(
+                  row.taskId,
+                  execution.executionId,
+                );
+                for (let index = 0; index < roundDispatches.length; index += 1) {
+                  const { event: dispatch } = roundDispatches[index]!;
+                  const dispatchId = dispatch.payload.dispatchId;
+                  if (seenDispatches.has(dispatchId)) continue;
+                  seenDispatches.add(dispatchId);
+                  // 同一轮里之后还有派工(按台账追加序),这个事故已被接续动作翻篇。
+                  if (index < roundDispatches.length - 1) continue;
+                  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+                  if (
+                    receipt === null ||
+                    receipt.status === "claimed" ||
+                    receipt.action !== "needs_attention" ||
+                    receipt.attention === null ||
+                    receipt.reason === null ||
+                    !dispatch.payload.executionId ||
+                    isResumed(dispatch)
+                  )
+                    continue;
+                  rows.set(dispatchId, {
+                    taskId: row.taskId,
+                    title: row.snapshot.task?.title ?? row.taskId,
+                    work: row.work,
+                    pinned: row.snapshot.task?.pinned ?? false,
+                    dispatchId,
+                    executionId: dispatch.payload.executionId,
+                    attention: receipt.attention,
+                    question: receipt.reason,
+                    options: [],
+                    askedAt: receipt.decidedAt,
+                    blockingAssessment: row.blockingAssessment,
+                  });
+                }
+              }
             }
-          const seenDispatches = new Set<string>(),
-            newestIteration = latestExecution(row.snapshot.executions)?.iteration ?? null;
-          for (const execution of row.snapshot.executions) {
-            // 终结派工的事故回执不进队列:所属 execution 已交付,或之后开了新一轮,这一轮的问题已被翻篇。
-            if (execution.submission !== null) continue;
-            if (newestIteration !== null && execution.iteration < newestIteration) continue;
-            const roundDispatches = projection.readRuntimeDispatchesByTaskExecution(row.taskId, execution.executionId);
-            for (let index = 0; index < roundDispatches.length; index += 1) {
-              const { event: dispatch } = roundDispatches[index]!;
-              const dispatchId = dispatch.payload.dispatchId;
-              if (seenDispatches.has(dispatchId)) continue;
-              seenDispatches.add(dispatchId);
-              // 同一轮里之后还有派工(按台账追加序),这个事故已被接续动作翻篇。
-              if (index < roundDispatches.length - 1) continue;
-              const receipt = readIncidentActionReceipt(rootDir, dispatchId);
-              if (
-                receipt === null ||
-                receipt.status === "claimed" ||
-                receipt.action !== "needs_attention" ||
-                receipt.attention === null ||
-                receipt.reason === null ||
-                !dispatch.payload.executionId ||
-                isResumed(dispatch)
-              )
-                continue;
-              rows.set(dispatchId, {
-                taskId: row.taskId,
-                title: row.snapshot.task?.title ?? row.taskId,
-                work: row.work,
-                pinned: row.snapshot.task?.pinned ?? false,
-                dispatchId,
-                executionId: dispatch.payload.executionId,
-                attention: receipt.attention,
-                question: receipt.reason,
-                options: [],
-                askedAt: receipt.decidedAt,
-                blockingAssessment: row.blockingAssessment,
-              });
-            }
-          }
-        }
-        return [...rows.values()].sort((left, right) => left.askedAt.localeCompare(right.askedAt));
-      })(),
+            return [...rows.values()].sort((left, right) => left.askedAt.localeCompare(right.askedAt));
+          })(),
       awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? [])
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAwaitingExecutions),
@@ -742,23 +783,25 @@ export function makeTaskQueryReadModel(input: {
         .sort(compareAwaitingExecutions),
       // The durable cut is the blocker: a missing/failed dispatch needs no separate mutable flag.
       // Reuse dispatch admission's definition of an active review so recovery removes this attention row.
-      undispatchedReviews = underReview.flatMap((row) => {
-        const snapshot = projection.read(row.taskId).snapshot,
-          execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
-        if (
-          !execution?.submission ||
-          reviewsForExecution(snapshot.reviews, execution).length > 0 ||
-          activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
-        )
-          return [];
-        return [
-          {
-            taskId: row.taskId,
-            since: row.submittedAt,
-            title: `${row.title} — CEO: required review has no active dispatch; run ha task dispatch-review ${row.taskId}.`,
-          },
-        ];
-      }),
+      undispatchedReviews = attentionOnly
+        ? []
+        : underReview.flatMap((row) => {
+            const snapshot = projection.read(row.taskId).snapshot,
+              execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
+            if (
+              !execution?.submission ||
+              reviewsForExecution(snapshot.reviews, execution).length > 0 ||
+              activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
+            )
+              return [];
+            return [
+              {
+                taskId: row.taskId,
+                since: row.submittedAt,
+                title: `${row.title} — CEO: required review has no active dispatch; run ha task dispatch-review ${row.taskId}.`,
+              },
+            ];
+          }),
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
         if (decisionReviewRequirement === null) return { decision, signal: "ready" as const };
         const full = projection.readDecision(decision.decisionId).decision;
@@ -859,8 +902,8 @@ export function makeTaskQueryReadModel(input: {
           },
         ];
       }),
-      reckoning = readReckoningAgenda({ projection, store: input.store }),
-      allPinnedEntities = readPinnedEntities().map(resolvePinnedEntity),
+      reckoning = attentionOnly ? { items: [], reads: [] } : readReckoningAgenda({ projection, store: input.store }),
+      allPinnedEntities = attentionOnly ? [] : readPinnedEntities().map(resolvePinnedEntity),
       pinnedEntities = allPinnedEntities.slice(0, sourceLimit),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
       nextState: AgendaCursor = {
@@ -887,21 +930,23 @@ export function makeTaskQueryReadModel(input: {
         severity: "warning",
         message: "The agenda projection cache was rebuilt from canonical events.",
       })),
-      attentionItems = buildAttentionItems({
-        now: now().toISOString(),
-        awaitingYou,
-        answeredForYou,
-        awaitingRuling,
-        awaitingRework,
-        awaitingAdjudication,
-        awaitingDecision,
-        waitingOnOthers,
-        stalled,
-        auditFindings: reckoning.items,
-        unsubmittedDeliveries,
-        undispatchedReviews,
-        sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
-      }),
+      attentionItems = attentionOnly
+        ? []
+        : buildAttentionItems({
+            now: now().toISOString(),
+            awaitingYou,
+            answeredForYou,
+            awaitingRuling,
+            awaitingRework,
+            awaitingAdjudication,
+            awaitingDecision,
+            waitingOnOthers,
+            stalled,
+            auditFindings: reckoning.items,
+            unsubmittedDeliveries,
+            undispatchedReviews,
+            sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
+          }),
       regionWeights = attentionRegionWeights(attentionItems, {
         running: inFlight.length,
         review:

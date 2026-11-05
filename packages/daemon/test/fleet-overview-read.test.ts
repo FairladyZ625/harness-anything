@@ -342,13 +342,15 @@ test("the validator accepts a real overview and rejects each pinned negative fix
 });
 
 test("the host assembly maps task snapshots, dispatch rows, the event tail and registry failures", async () => {
-  const listCalls: { readonly status: unknown; readonly cursor: unknown }[] = [];
+  const listCalls: { readonly status: unknown; readonly cursor: unknown; readonly statusSource: unknown }[] = [];
+  const dispatchCalls: { readonly latestOnly: unknown }[] = [];
+  const eventTailCalls: (Readonly<Record<string, unknown>> | undefined)[] = [];
   const cell = {
     read: async (method: string, payload?: Readonly<Record<string, unknown>>) => {
       if (method === "repo.tasks.list") {
         // 仿真读面契约(task-query-read):按展示态过滤,keyset 按 task_id 升序,
         // 默认 limit 500;cursor 是上一页最后一行的 task_id,还有后续页才给 nextCursor。
-        listCalls.push({ status: payload?.status, cursor: payload?.cursor });
+        listCalls.push({ status: payload?.status, cursor: payload?.cursor, statusSource: payload?.statusSource });
         const limit = typeof payload?.limit === "number" ? payload.limit : 500,
           rows = hostTaskRows()
             .filter((row) => row.coordinationStatus === payload?.status)
@@ -367,6 +369,7 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
           },
         };
       }
+      dispatchCalls.push({ latestOnly: payload?.latestOnly });
       const result = {
         ok: true,
         status: "ready",
@@ -387,30 +390,33 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
       // result is intentionally allowed to exceed one frame.
       return result;
     },
-    observeTail: async () => ({
-      schema: "daemon.observe-tail/v3",
-      ok: true,
-      repoId: "repo-test",
-      mode: "remote-center",
-      kind: "events",
-      direction: "history",
-      status: "ready",
-      items: [
-        {
-          eventId: "evt-9",
-          type: "task_bootstrapped",
-          occurredAt: "2026-10-06T00:05:00.000Z",
-          workspaceRevision: 150,
-          taskId: "task_local",
-          actor: { executor: { id: "runtime-session:runtime_local" } },
-          payload: { title: "任务建立" },
-        },
-      ],
-      historyCursor: null,
-      liveCursor: null,
-      sourceCursor: null,
-      done: true,
-    }),
+    observeTail: async (payload?: Readonly<Record<string, unknown>>) => {
+      eventTailCalls.push(payload);
+      return {
+        schema: "daemon.observe-tail/v3",
+        ok: true,
+        repoId: "repo-test",
+        mode: "remote-center",
+        kind: "events",
+        direction: "history",
+        status: "ready",
+        items: [
+          {
+            eventId: "evt-9",
+            type: "task_bootstrapped",
+            occurredAt: "2026-10-06T00:05:00.000Z",
+            workspaceRevision: 150,
+            taskId: "task_local",
+            actor: { executor: { id: "runtime-session:runtime_local" } },
+            payload: { title: "任务建立" },
+          },
+        ],
+        historyCursor: null,
+        liveCursor: null,
+        sourceCursor: null,
+        done: true,
+      };
+    },
     statusCuts: () => ({ projectionWatermark: 164, ledgerRevision: 164 }),
   };
   const result = await readFleetOverviewFromHost({
@@ -451,6 +457,17 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
     listCalls.every((call) => call.status === "active"),
     "only the lease-holding status may be paged",
   );
+  // The aggregate wants lifecycle status: presentation status derives each task's subtree and
+  // cannot be index-bounded, so a fixed-k fleet read would scan the whole task history.
+  assert.ok(
+    listCalls.every((call) => call.statusSource === "raw"),
+    "fleet leases read raw lifecycle status, not the presentation bucket",
+  );
+  // One current dispatch per lease task, never the task's whole dispatch history.
+  assert.ok(dispatchCalls.length > 0);
+  assert.ok(dispatchCalls.every((call) => call.latestOnly === true));
+  // Header-only event tail: the overview renders no payload body, so it must not ship one.
+  assert.deepEqual(eventTailCalls, [{ kind: "events", direction: "history", fields: "fleet" }]);
   assert.equal(listCalls[1]!.cursor, "task_aa_0499");
   const lateEdge = result.nodes.find((node) => node.nodeId === "edge-late-01")!;
   const lateLease = (lateEdge.leases as { taskId: string; phase: string | null }[]).find(

@@ -789,6 +789,16 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
         .map(({ payload }) => payload.dispatchId),
       ["dispatch_history_1", "dispatch_history_2"],
     );
+    // The aggregate read returns one newest dispatch per task (startedAt desc), not the history.
+    assert.deepEqual(
+      projection
+        .readLatestRuntimeDispatchesByTaskIds(["task-history", "missing-task"])
+        .map(({ payload }) => payload.dispatchId),
+      ["dispatch_history_2"],
+    );
+    assert.deepEqual(projection.readLatestRuntimeDispatchesByTaskIds(["missing-task"]), []);
+    assert.throws(() => projection.readLatestRuntimeDispatchesByTaskIds([]), /1\.\.500/u);
+    assert.throws(() => projection.readLatestRuntimeDispatchesByTaskIds(["task-history", "task-history"]), /1\.\.500/u);
     assert.deepEqual(
       projection.readRuntimeDispatchEventsBySession("runtime-history-0").map(({ payload }) => payload.dispatchId),
       ["dispatch_history_1"],
@@ -803,6 +813,7 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
     assert.equal(projection.countRuntimeDispatchesByAgent("missing-agent"), 0);
     for (const keyed of [
       projection.readRuntimeDispatchesByTaskIds(["task-history"]),
+      projection.readLatestRuntimeDispatchesByTaskIds(["task-history"]),
       projection.readRuntimeDispatchEventsBySession("runtime-history-0"),
       projection.readRuntimeDispatchByDispatchIdPrefix("dispatch_history_", 10).map(({ event }) => event),
     ])

@@ -59,14 +59,39 @@ export function pgGraphQueries(options: PgTaskProjectionSourceOptions): PgGraphQ
           ),
         };
       }),
-    readTaskDependencyClosure: (refs, maxDepth = 256) =>
+    readTaskDependencyClosure: (refs, maxDepth = 256, narrow = false) =>
       read(async (client) => {
         checkedRefs(refs, "dependency closure");
         if (refs.length === 0) return { ...(await readCutInTransaction(client, scope, readers, repoId)), rows: [] };
         if (!Number.isSafeInteger(maxDepth) || maxDepth < 1 || maxDepth > 4096)
           throw new Error("dependency closure depth limit must be an integer between 1 and 4096");
         const result = await client.query<{ ids: string[]; overflow: boolean }>(
-          `WITH RECURSIVE visible AS (${visible} AND relation_type='depends-on'),
+          narrow
+            ? // Aggregate readers: a LATERAL lookup per walk row pins the source_ref index; a
+              // materialized/joined relation set would make a two-seed closure walk every
+              // depends-on relation in the repository.
+              `WITH RECURSIVE walk(seed_order,ref,depth,visited,relation_id) AS (
+           SELECT ordinal::int,ref,0,ARRAY[ref],NULL::text FROM unnest($5::text[]) WITH ORDINALITY AS seed(ref,ordinal) UNION ALL
+           SELECT walk.seed_order,edge.target_ref,walk.depth+1,walk.visited || edge.target_ref,edge.relation_id
+           FROM walk CROSS JOIN LATERAL (
+             SELECT target_ref, relation_id FROM ha_relations
+             WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+               AND (cardinality($4::text[])=0 OR readers && $4::text[])
+               AND relation_type='depends-on' AND source_ref=walk.ref
+           ) edge
+           WHERE walk.depth<$6 AND NOT edge.target_ref=ANY(walk.visited)
+         )
+         SELECT ARRAY(SELECT relation_id FROM (
+             SELECT relation_id,depth,seed_order,array_to_string(visited,chr(31)) AS visited_path
+             FROM walk WHERE relation_id IS NOT NULL
+           ) found ORDER BY depth,seed_order,visited_path,relation_id) AS ids,
+           EXISTS(SELECT 1 FROM walk CROSS JOIN LATERAL (
+             SELECT target_ref FROM ha_relations
+             WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+               AND (cardinality($4::text[])=0 OR readers && $4::text[])
+               AND relation_type='depends-on' AND source_ref=walk.ref
+           ) edge WHERE walk.depth=$6 AND NOT edge.target_ref=ANY(walk.visited)) AS overflow`
+            : `WITH RECURSIVE visible AS (${visible} AND relation_type='depends-on'),
          walk(seed_order,ref,depth,visited) AS (
            SELECT ordinal::int,ref,0,ARRAY[ref] FROM unnest($5::text[]) WITH ORDINALITY AS seed(ref,ordinal) UNION ALL
            SELECT walk.seed_order,edge.target_ref,walk.depth+1,walk.visited || edge.target_ref FROM walk JOIN visible edge ON edge.source_ref=walk.ref

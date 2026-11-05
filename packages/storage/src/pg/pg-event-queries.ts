@@ -215,7 +215,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (afterRevision, limit) =>
+  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (afterRevision, limit, fields) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
@@ -227,17 +227,63 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           limit > 2048
         )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
-        const cut = await readCutInTransaction(client, claims, readers, repoId),
-          rows = await readEventRowsInTransaction(
-            client,
-            claims,
-            readers,
-            repoId,
-            "revision > $6 AND revision <= $7",
-            [afterRevision, cut.watermark],
-            "ASC",
-            limit,
+        const cut = await readCutInTransaction(client, claims, readers, repoId);
+        if (fields === "fleet") {
+          // The fleet overview renders only the event header, title and executor. Select those
+          // columns as JSON instead of shipping whole event bodies: one large unrelated event in
+          // the tail must not be charged to this page. The shape is re-read through the same
+          // canonicalEventSummary below, so the summary definition stays in one place.
+          const result = await client.query<{ event_json: string }>(
+            `SELECT jsonb_build_object(
+               'eventId', event_json::jsonb->>'eventId',
+               'schema', event_json::jsonb->>'schema',
+               'type', event_json::jsonb->>'type',
+               'occurredAt', event_json::jsonb->>'occurredAt',
+               'workspaceRevision', (event_json::jsonb->>'workspaceRevision')::bigint,
+               'taskId', event_json::jsonb->>'taskId',
+               'actor', jsonb_build_object('executor', jsonb_build_object('id', event_json::jsonb#>>'{actor,executor,id}')),
+               'payload', jsonb_build_object(
+                 'taskId', event_json::jsonb#>>'{payload,taskId}',
+                 'title', left(event_json::jsonb#>>'{payload,title}', 280),
+                 'statement', left(event_json::jsonb#>>'{payload,statement}', 280),
+                 'text', left(event_json::jsonb#>>'{payload,text}', 280)
+               )
+             )::text AS event_json
+             FROM ha_events
+             WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+               AND event_type <> 'ci_run_observed'
+               AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
+               AND revision <= $7 AND revision > $6
+             ORDER BY revision ASC LIMIT $8`,
+            [
+              claims.tenantId,
+              claims.projectId,
+              repoId,
+              claims.policyEpoch,
+              readers,
+              afterRevision,
+              cut.watermark,
+              limit,
+            ],
           );
+          return {
+            ...cut,
+            events: result.rows.map(
+              ({ event_json }) =>
+                canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1) as CanonicalEventSummary,
+            ),
+          };
+        }
+        const rows = await readEventRowsInTransaction(
+          client,
+          claims,
+          readers,
+          repoId,
+          "revision > $6 AND revision <= $7",
+          [afterRevision, cut.watermark],
+          "ASC",
+          limit,
+        );
         return {
           ...cut,
           events: rows.map(

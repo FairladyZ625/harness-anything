@@ -605,7 +605,10 @@ export async function readFleetOverviewFromHost(input: {
       do {
         const page = await input.cell.read(
           "repo.tasks.list",
-          { status, limit: 500, ...(cursor === undefined ? {} : { cursor }) },
+          // A lease only exists on a raw-active task (the lifecycle contract), and the aggregate
+          // must not pay for the presentation-status subtree derivation: that filter cannot be
+          // index-bounded and would scan every task the repository ever had.
+          { status, limit: 500, statusSource: "raw", ...(cursor === undefined ? {} : { cursor }) },
           input.binding,
         );
         rows.push(...page.rows);
@@ -640,7 +643,9 @@ export async function readFleetOverviewFromHost(input: {
       // facts below. A transport page budget would reject prose that is never sent.
       const read = await input.cell.read(
         "repo.task.dispatches",
-        { taskIds: taskIds.slice(offset, offset + 500) },
+        // One current dispatch per lease task: the fleet view never renders the task's dispatch
+        // history, so a long-running task must not make this read linear in that history.
+        { taskIds: taskIds.slice(offset, offset + 500), latestOnly: true },
         input.binding,
       );
       dispatches.push(
@@ -658,7 +663,8 @@ export async function readFleetOverviewFromHost(input: {
     return { leases, dispatches };
   });
   const events = await input.cell.observeTail(
-    { kind: "events", direction: "history" },
+    // Header-only projection: the overview renders event type/time/title, never the payload body.
+    { kind: "events", direction: "history", fields: "fleet" },
     { daemonId: input.daemon.daemonId, userRoot: input.userRoot },
   );
   const eventFacts: FleetCanonicalEventFact[] = (events.status === "unavailable" ? [] : events.items).map((item) => {

@@ -328,7 +328,7 @@ function useCaseProjectionSelectorFields(name: UseCaseProjectionName): readonly 
   const base = ["name", "facet"];
   if (name === "schedule-plane") return base;
   if (name === "schedule-run-history") return [...base, "scheduleId", "limit"];
-  return [...base, "groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "limit"];
+  return [...base, "groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "unsettledOnly", "limit"];
 }
 
 export function isUseCaseProjectionName(value: unknown): value is UseCaseProjectionName {

@@ -135,6 +135,8 @@ export function readTaskDispatches(
 ): DaemonTaskDispatchesResult {
   const { projection, rootDir } = input;
   if (input.agentId !== undefined || input.squadId !== undefined) return readMemberTaskDispatches(input);
+  if (input.latestOnly === true && input.taskIds !== undefined)
+    return readLatestTaskDispatches({ ...input, taskIds: input.taskIds });
   const singleTaskId = input.taskId,
     paged = singleTaskId === undefined && (input.limit !== undefined || input.cursor !== undefined),
     batch = projection.readTaskRuntimeBatch(
@@ -205,6 +207,75 @@ export function readTaskDispatches(
       : { taskId: singleTaskId }),
   };
   return "page" in result && paged ? { ...result, page: { ...result.page, cursor: input.cursor ?? null } } : result;
+}
+
+/** The aggregate read: one current dispatch per requested task, never the task's whole history.
+ * Fleet overview only shows what each in-flight lease is running now, so its cost is the number
+ * of leases, not the number of dispatches those tasks accumulated. Rows are deliberately shallow:
+ * the full canonical row re-derives delivered/blocked/relations that this view never renders. */
+function readLatestTaskDispatches(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskIds: readonly string[];
+}): DispatchBatchRead {
+  const { projection } = input,
+    taskIds = [...input.taskIds],
+    dispatches = projection
+      .readLatestRuntimeDispatchesByTaskIds(taskIds)
+      .map((event) => {
+        const session = projection.readRuntimeSession(event.payload.runtimeSessionId),
+          payload = event.payload,
+          outcome = session?.outcome ?? null;
+        return {
+          dispatchId: payload.dispatchId,
+          taskId: payload.taskId ?? "",
+          taskTitle: undefined,
+          executionId: payload.executionId ?? "",
+          runtimeSessionId: payload.runtimeSessionId,
+          instanceId: payload.instanceId,
+          attemptGroupId: payload.attemptGroupId ?? payload.dispatchId,
+          attemptIndex: payload.attemptIndex ?? 1,
+          provider: {
+            instance: payload.definitionSnapshot?.providerId ?? payload.instanceId,
+            model: payload.definitionSnapshot?.model ?? null,
+          },
+          classification: null,
+          reason: null,
+          fallbackState: null,
+          nextDispatchId: null,
+          providerSessionId: null,
+          eventStreamRef: null,
+          startedAt: payload.startedAt ?? event.occurredAt,
+          endedAt: null,
+          outcome,
+          status: outcome ?? (session?.liveness === "live" ? "running" : "unknown"),
+          ...(payload.agentId === undefined ? {} : { agentId: payload.agentId }),
+          ...(payload.agentName === undefined ? {} : { agentName: payload.agentName }),
+          ...(payload.squadId === undefined ? {} : { squadId: payload.squadId }),
+          ...(payload.role === undefined ? {} : { role: payload.role }),
+          ...(session?.lastObservedAt === undefined ? {} : { lastObservedAt: session.lastObservedAt }),
+          ...(session?.resultRef === undefined ? {} : { resultRef: session.resultRef }),
+          ...(session?.exitCode === undefined ? {} : { exitCode: session.exitCode }),
+        } satisfies TaskDispatchRow;
+      })
+      .sort(
+        (left, right) =>
+          left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+      ),
+    resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
+    terminal = taskDispatchesOutcome(dispatches, resumed),
+    cut = projection.readCut();
+  return {
+    ok: true,
+    status: cut.status,
+    dispatches,
+    outcome: terminal.outcome,
+    exitCode: terminal.exitCode,
+    watermark: cut.watermark,
+    sourceRevision: cut.sourceRevision,
+    taskIds,
+    unavailableTaskIds: [],
+    page: { limit: taskIds.length, cursor: null, nextCursor: null },
+  };
 }
 
 /** The member-scoped page of `repo.task.dispatches`: an executor's newest dispatch rows, one
@@ -904,7 +975,10 @@ export function runtimeTaskLabels(
 ): ReadonlyMap<string, string> {
   const result = new Map<string, string>();
   for (let offset = 0; offset < taskIds.length; offset += 500)
-    for (const row of projection.readTaskRuntimeBatch({ taskIds: taskIds.slice(offset, offset + 500) }).rows)
+    for (const row of projection.readTaskRuntimeBatch({
+      taskIds: taskIds.slice(offset, offset + 500),
+      includeSessions: false,
+    }).rows)
       result.set(row.taskId, row.title);
   return result;
 }

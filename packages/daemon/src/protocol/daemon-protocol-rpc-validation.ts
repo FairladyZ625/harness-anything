@@ -237,6 +237,8 @@ export function validateAgendaQueryPayload(value: unknown): string[] {
     errors.push("repo.agenda.read.payload.limit is invalid");
   if (value.cursor !== undefined && !nonEmpty(value.cursor)) errors.push("repo.agenda.read.payload.cursor is invalid");
   if (value.work !== undefined && !nonEmpty(value.work)) errors.push("repo.agenda.read.payload.work is invalid");
+  if (value.attentionOnly !== undefined && typeof value.attentionOnly !== "boolean")
+    errors.push("repo.agenda.read.payload.attentionOnly is invalid");
   return errors;
 }
 
@@ -258,6 +260,8 @@ export function validateTaskDispatchesPayload(value: unknown): string[] {
   const single =
       nonEmpty(value.taskId) && value.taskIds === undefined && value.limit === undefined && value.cursor === undefined,
     taskIds = value.taskIds;
+  if (value.latestOnly !== undefined && (typeof value.latestOnly !== "boolean" || taskIds === undefined))
+    return ["repo.task.dispatches.payload.latestOnly requires taskIds and a boolean"];
   if (single) return [];
   if (
     value.taskId !== undefined ||

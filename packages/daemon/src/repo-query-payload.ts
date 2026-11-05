@@ -28,6 +28,8 @@ export function queryPayloadFacets(
   )
     throw codedError("invalid_command", "Query time window must use ordered ISO-8601 timestamps.");
   if (cursor !== undefined && !cursor) throw codedError("invalid_command", "Query cursor is invalid.");
+  if (payload.statusSource !== undefined && (method !== "repo.tasks.list" || payload.statusSource !== "raw"))
+    throw codedError("invalid_command", "Task statusSource must be raw when supplied.");
   const stateInvalid =
     status !== undefined &&
     (method === "repo.tasks.list" ? !isDomainStatus(status) : !(relationStates as readonly string[]).includes(status));
@@ -39,7 +41,8 @@ export function queryPayloadFacets(
       updatedAfter !== undefined ||
       updatedBefore !== undefined ||
       limit !== undefined ||
-      cursor !== undefined,
+      cursor !== undefined ||
+      payload.statusSource !== undefined,
     status,
     changedAfterRevision,
     updatedAfter,
@@ -63,5 +66,6 @@ export function taskListQueryFromPayload(
     ...(common.updatedBefore ? { updatedBefore: common.updatedBefore } : {}),
     ...(common.limit === undefined ? {} : { limit: common.limit }),
     ...(common.cursor ? { cursor: common.cursor } : {}),
+    ...(payload.statusSource === "raw" ? { presentationStatus: false } : {}),
   };
 }

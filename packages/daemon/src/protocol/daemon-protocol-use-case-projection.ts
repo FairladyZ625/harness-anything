@@ -54,6 +54,8 @@ export interface DaemonUseCaseProjectionPayload {
   /** Session status words the group read narrows to; the daemon owns the vocabulary. */
   readonly status?: readonly string[];
   readonly sessionIds?: readonly string[];
+  /** Only sessions whose canonical outcome is still unset ("in flight"); aggregate readers. */
+  readonly unsettledOnly?: boolean;
   readonly limit?: number;
 }
 

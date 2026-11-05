@@ -127,7 +127,7 @@ function readEventTail(
   const requested = payload.cursor?.revision;
   if (payload.direction === "follow") {
     const after = requested!,
-      page = projection.readEventSummaries(after, pageSize + 1);
+      page = projection.readEventSummaries(after, pageSize + 1, payload.fields);
     if (after > page.sourceRevision)
       throw observeError(
         "invalid_cursor",
@@ -147,7 +147,7 @@ function readEventTail(
     };
   }
 
-  const probe = projection.readEventSummaries(0, 1),
+  const probe = projection.readEventSummaries(0, 1, payload.fields),
     before = requested ?? probe.watermark + 1;
   if (before > probe.sourceRevision + 1)
     throw observeError(
@@ -155,7 +155,7 @@ function readEventTail(
       `Canonical event cursor ${before} is ahead of source revision ${probe.sourceRevision}.`,
     );
   const after = Math.max(0, before - pageSize - 1),
-    page = projection.readEventSummaries(after, pageSize + 1),
+    page = projection.readEventSummaries(after, pageSize + 1, payload.fields),
     eligible = page.events.filter((event) => event.workspaceRevision < before),
     selected = eligible.slice(-pageSize),
     firstRevision = selected.at(0)?.workspaceRevision ?? Math.max(0, before - 1),

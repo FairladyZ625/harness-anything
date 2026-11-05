@@ -54,6 +54,9 @@ const dispatchIndexes = [
   ["agent_session", "agent_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["squad_session", "squad_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["page", "dispatch_started_at,dispatch_id"],
+  // "Newest dispatch for this task" without walking every dispatch the task ever had:
+  // fleet overview reads one current dispatch per lease row. NULLS LAST matches the read order.
+  ["task_time", "payload_task_id,dispatch_started_at DESC NULLS LAST,dispatch_id DESC"],
 ] as const;
 
 /** RLS-safe scalar indexes over immutable event bytes; only a disposable parsing copy is JSONB.

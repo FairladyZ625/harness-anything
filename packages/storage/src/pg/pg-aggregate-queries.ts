@@ -95,7 +95,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
            AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND task_id=ANY($5::text[]) ORDER BY task_id`,
             [...parameters, taskIds],
           ),
-          sessions = await readPgTaskSessions(client, scope, taskIds);
+          sessions = query.includeSessions === false ? new Map() : await readPgTaskSessions(client, scope, taskIds);
         return {
           ...(await readCutInTransaction(client, scope, readers, repoId)),
           taskIds,

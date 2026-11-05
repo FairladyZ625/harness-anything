@@ -1613,24 +1613,6 @@
     },
     "knownScaling": [
       {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 309200 at 200 -> 309765 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 217606 at 200 -> 218124 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
         "probe": "repo.artifacts.list",
         "backend": "sqlite",
         "dimension": "task-history",
@@ -1649,125 +1631,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1314595 at 200 -> 10393634 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 1512 at 200 -> 8712 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1452850 at 200 -> 12601042 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 2388 at 200 -> 18588 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "fileReadBytes",
-        "reason": "Home/fleet historical dispatch aggregation; observed fileReadBytes 1620 at 5 -> 6480 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: fileReadBytes warm 1620 -> 6480, firstCall 1620 -> 6480 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 500933 at 5 -> 8664615 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlResultBytes warm 500933 -> 8664615, firstCall 500933 -> 8664615 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 1056 at 5 -> 8712 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlRowsRead warm 1056 -> 8712, firstCall 1056 -> 8712 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 434904 at 5 -> 8812000 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlResultBytes warm 434904 -> 8812000, firstCall 434904 -> 8812000 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 978 at 5 -> 8988 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlRowsRead warm 978 -> 8988, firstCall 978 -> 8988 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "task-outputs",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 305935 at 3400 -> 306500 at 34000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "task-outputs",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 216888 at 3400 -> 217406 at 34000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
         "probe": "repo.artifacts.list",
         "backend": "sqlite",
         "dimension": "task-outputs",
@@ -1775,24 +1638,6 @@
         "reason": "Task context or output directory enumerates historical entries; observed directoryEntries 3405 at 3400 -> 34005 at 34000 (cold/warm maximum).",
         "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
         "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "relations",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 306156 at 200 -> 306721 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "relations",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 216782 at 200 -> 217300 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
       },
       {
         "probe": "agenda",
@@ -1892,24 +1737,6 @@
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1020 at 200 -> 6420 at 2000 (cold/warm maximum).",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 12906 at 200 -> 66906 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 10165 at 200 -> 100645 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
       },
       {
         "probe": "in-flight-work",
@@ -2276,58 +2103,6 @@
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 450 at 200 -> 4050 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 150, firstCall 73 -> 150 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1328507 at 200 -> 10244536 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 397342 -> 587207, firstCall 397342 -> 587207 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 31820 at 200 -> 305420 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 3222 -> 9110, firstCall 3222 -> 9110 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "home-overview",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1357537 at 200 -> 11645047 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 245287 -> 501937, firstCall 245287 -> 501937 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "home-overview",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 26891 at 200 -> 257291 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 3461 -> 7821, firstCall 3461 -> 7821 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
         "measurementScales": {
           "small": 5,
           "large": 50
@@ -2731,24 +2506,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "relations",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 3705 at 200 -> 25305 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "pglite",
-        "dimension": "relations",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 3748 at 200 -> 27148 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
         "probe": "repo.workspace.scope.read",
         "backend": "pglite",
         "dimension": "relations",
@@ -2803,15 +2560,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "event-bytes",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 367287 at 200 -> 396088 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
         "probe": "repo.workspace.scope.read",
         "backend": "pglite",
         "dimension": "event-bytes",
@@ -2819,71 +2567,6 @@
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 100287 at 200 -> 129088 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 5186 at 5 -> 60745 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlRowsRead warm 5186 -> 60745, firstCall 5186 -> 60745 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "home-overview",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 429132 at 5 -> 8646300 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlResultBytes warm 429132 -> 8646300, firstCall 429132 -> 8646300 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 4742 at 5 -> 48321 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlRowsRead warm 4742 -> 48321, firstCall 4742 -> 48321 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlResultBytes",
-        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 569263 at 5 -> 8559357 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: sqlResultBytes warm 569263 -> 8559357, firstCall 569263 -> 8559357 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "fileReadBytes",
-        "reason": "Home/fleet historical dispatch aggregation; observed fileReadBytes 1620 at 5 -> 6480 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05. Required bounded-pair witness: fileReadBytes warm 1620 -> 6480, firstCall 1620 -> 6480 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
       },
       {
         "probe": "agenda",
@@ -3996,24 +3679,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 23343 at 200 -> 66543 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 23114 at 200 -> 68114 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
         "probe": "in-flight-work",
         "backend": "sqlite",
         "dimension": "task-history",
@@ -4084,24 +3749,6 @@
         "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 14124 at 200 -> 129324 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
         "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
         "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 33343 at 200 -> 166543 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 53714 at 200 -> 374114 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z"
       },
       {
         "probe": "in-flight-work",
@@ -4255,32 +3902,6 @@
         "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 6958 at 200 -> 51958 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
         "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
         "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "fleet-overview",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 27404 at 5 -> 174899 at 50 (counts). Same exact reader/dimension deletion responsibility; no margin change. Required bounded-pair witness: sqliteVmSteps warm 27404 -> 174899, firstCall 27832 -> 175327 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "home-overview",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 27879 at 5 -> 183265 at 50 (counts). Same exact reader/dimension deletion responsibility; no margin change. Required bounded-pair witness: sqliteVmSteps warm 27879 -> 183265, firstCall 28398 -> 183784 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
-        "expiresAt": "2026-11-19T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
       },
       {
         "probe": "cli-doctor-health",

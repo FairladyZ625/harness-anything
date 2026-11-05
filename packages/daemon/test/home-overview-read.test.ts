@@ -205,8 +205,15 @@ test("home overview: aggregates repos, calculates 3 numbers, top matters and han
     // 读面契约:投影走 runtime-session-groups(词表名),交付走服务端 updatedAfter 窄化。
     const projectionPayload = readPayloads.find((call) => call.method === "repo.projection.read");
     assert.equal((projectionPayload?.payload as { name?: string })?.name, "runtime-session-groups");
+    // 首页只数在飞会话:unsettledOnly 让投影走 (outcome, id) 索引,不读全部会话历史。
+    assert.equal((projectionPayload?.payload as { unsettledOnly?: boolean })?.unsettledOnly, true);
+    // 首页只要四个「等你」桶,不读整块 agenda 看板(展示态状态无法索引,会扫全历史)。
+    const agendaPayload = readPayloads.find((call) => call.method === "repo.agenda.read");
+    assert.equal((agendaPayload?.payload as { attentionOnly?: boolean })?.attentionOnly, true);
     const taskListPayload = readPayloads.find((call) => call.method === "repo.tasks.list");
     assert.equal((taskListPayload?.payload as { status?: string })?.status, "done");
+    // 刚交付是生命周期事实,不走展示态的子树推导。
+    assert.equal((taskListPayload?.payload as { statusSource?: string })?.statusSource, "raw");
     assert.match(String((taskListPayload?.payload as { updatedAfter?: string })?.updatedAfter), /^\d{4}-/);
 
     // 2. 只有待签发桶的仓:计数 1 且事项同口径露面

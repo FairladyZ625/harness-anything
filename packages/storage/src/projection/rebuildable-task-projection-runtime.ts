@@ -139,8 +139,9 @@ export function readSnapshots(
   db: DatabaseSync,
   taskIds: readonly string[],
   now?: string,
+  decisionRelationsOnly = false,
 ): ReadonlyMap<string, TaskLifecycleSnapshot> {
-  return readSnapshotsInternal(db, taskIds, now, true);
+  return readSnapshotsInternal(db, taskIds, now, true, decisionRelationsOnly);
 }
 
 /** Event reduction folds historical states until a migration event restores the current Task contract. */
@@ -157,6 +158,7 @@ function readSnapshotsInternal(
   taskIds: readonly string[],
   now: string | undefined,
   validateTask: boolean,
+  decisionRelationsOnly = false,
 ): ReadonlyMap<string, TaskLifecycleSnapshot> {
   if (taskIds.length === 0) return new Map();
   const requested = JSON.stringify(taskIds),
@@ -223,10 +225,16 @@ function readSnapshotsInternal(
         requested,
       ).map((row) => [row.task_id, checkedLease(JSON.parse(row.lease_json) as LeaseV1, true)]),
     ),
-    relationRows = readRelationProjectionRowsForTargets(
-      db,
-      taskIds.map((taskId) => `task/${taskId}`),
-    ),
+    relationRows = decisionRelationsOnly
+      ? readRelationProjectionRowsForTargets(
+          db,
+          taskIds.map((taskId) => `task/${taskId}`),
+          { relationType: "derives", sourcePrefix: "decision/" },
+        )
+      : readRelationProjectionRowsForTargets(
+          db,
+          taskIds.map((taskId) => `task/${taskId}`),
+        ),
     relations = new Map<string, ReturnType<typeof lifecycleRelation>[]>();
   for (const row of relationRows) {
     const values = relations.get(row.targetRef) ?? [];
@@ -387,7 +395,7 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
     values: string[] = [];
   // runtime_session_unsettled_order covers the outcome filter and the recovery ORDER BY together,
   // so the read cannot fall back to scanning the repository's settled history.
-  if (query?.unsettledOnly) clauses.push("json_extract(value_json, '$.outcome') IS NULL");
+  if (query?.unsettledOnly || query?.inFlightOnly) clauses.push("json_extract(value_json, '$.outcome') IS NULL");
   // Edge recovery is scoped by the canonical dispatch source stored beside the session. The
   // node_unsettled index applies both predicates before any session row is visited.
   if (query?.executionOwnerNodeId !== undefined) {

@@ -133,6 +133,9 @@ export function readTaskListAtCut(
       db,
       page.rows.map((row) => row.task_id),
       at,
+      // Aggregate reads that ask for lifecycle status never render decision lineage beyond
+      // `derives`; every other list read keeps the full snapshot relation set.
+      query.presentationStatus === false,
     );
   return {
     status: cut.status,

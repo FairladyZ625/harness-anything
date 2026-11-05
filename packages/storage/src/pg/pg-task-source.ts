@@ -333,6 +333,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             options.scope,
             result.rows.map((row) => row.snapshot),
             now(),
+            query.presentationStatus === false,
           ),
           rows = (limit === null ? result.rows : result.rows.slice(0, limit)).map((row, index) => ({
             taskId: row.task_id,
@@ -633,11 +634,28 @@ async function hydrateSnapshots(
   scope: PgProjectionScope,
   snapshots: readonly TaskLifecycleSnapshot[],
   now: string,
+  decisionRelationsOnly = false,
 ): Promise<readonly TaskLifecycleSnapshot[]> {
   if (!snapshots.length) return [];
-  const relations = await readRelationsInTransaction(client, scope, [...(scope.readers ?? [])], {
-    targets: snapshots.flatMap(({ task }) => (task ? [`task/${task.taskId}`] : [])),
-  });
+  const relations: Awaited<ReturnType<typeof readRelationsInTransaction>>[number][] = [];
+  if (decisionRelationsOnly) {
+    // One indexed seek per task: an ANY list over task ids lets the planner scan every relation
+    // that targets an unrelated task, which is the session history an aggregate page must not pay.
+    for (const { task } of snapshots)
+      if (task)
+        relations.push(
+          ...(await readRelationsInTransaction(client, scope, [...(scope.readers ?? [])], {
+            target: `task/${task.taskId}`,
+            sourceRoot: "decision/",
+            relationType: "derives",
+          })),
+        );
+  } else
+    relations.push(
+      ...(await readRelationsInTransaction(client, scope, [...(scope.readers ?? [])], {
+        targets: snapshots.flatMap(({ task }) => (task ? [`task/${task.taskId}`] : [])),
+      })),
+    );
   return snapshots.map((snapshot) => {
     const effective = effectiveLeaseValue(snapshot.lease, now),
       lease = effective?.phase === "released" ? null : effective;

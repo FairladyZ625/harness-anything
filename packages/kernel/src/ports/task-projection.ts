@@ -57,6 +57,12 @@ export interface RuntimeSessionReadQuery {
   readonly runtimeSessionId?: string;
   /** Only sessions whose canonical outcome is still unset. Recovery must not scan settled history. */
   readonly unsettledOnly?: boolean;
+  /**
+   * The current in-flight set as a bounded projection (home aggregation). Unlike
+   * `unsettledOnly`, a backend may serve this from a write-maintained current-set table so the
+   * read is sized by what is running now, not by the history of settled sessions.
+   */
+  readonly inFlightOnly?: boolean;
   /** Only sessions whose canonical dispatch names this execution node as its source. Edge recovery
    *  must not traverse another node's unsettled runtimes. */
   readonly executionOwnerNodeId?: string;
@@ -154,14 +160,21 @@ export interface TaskProjection {
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;
   readonly readTaskRelationNeighborhood: (query: TaskRelationNeighborhoodQuery) => TaskRelationNeighborhoodRead;
-  readonly readTaskDependencyClosure: (sourceRefs: readonly string[], maxDepth?: number) => TaskRelationProjectionRead;
+  readonly readTaskDependencyClosure: (
+    sourceRefs: readonly string[],
+    maxDepth?: number,
+    /** Aggregate readers request one indexed seek per endpoint; default keeps the batch read. */
+    narrow?: boolean,
+  ) => TaskRelationProjectionRead;
   readonly readTaskRelationsByTargets: (
     targetRefs: readonly string[],
     relationType: string,
+    narrow?: boolean,
   ) => TaskRelationProjectionRead;
   readonly readTaskRelationsBySources: (
     sourceRefs: readonly string[],
     relationType: string,
+    narrow?: boolean,
   ) => TaskRelationProjectionRead;
   readonly readTaskStatuses: (taskIds?: readonly string[]) => {
     readonly status: "ready" | "pending";
@@ -212,6 +225,14 @@ export interface TaskProjection {
   readonly readRuntimeDispatchesByTaskIds: (
     taskIds: readonly string[],
   ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  /**
+   * The newest dispatch per requested task (startedAt desc, revision desc), one index seek per id.
+   * Aggregate reads that only show a task's current dispatch must use this instead of the full
+   * history read. At most 500 task ids.
+   */
+  readonly readLatestRuntimeDispatchesByTaskIds: (
+    taskIds: readonly string[],
+  ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   /** Dispatch ids starting with `prefix`, id order, capped at `limit` (`1..500`). */
   readonly readRuntimeDispatchByDispatchIdPrefix: (
     prefix: string,
@@ -245,6 +266,8 @@ export interface TaskProjection {
   readonly readEventSummaries: (
     afterRevision: number,
     limit: number,
+    /** Header-only projection for aggregate tails; omitted reads return the canonical summary. */
+    fields?: "fleet",
   ) => {
     readonly status: "ready" | "pending";
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];
