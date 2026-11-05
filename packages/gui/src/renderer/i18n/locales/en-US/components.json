@@ -178,7 +178,6 @@
   "components.appSidebar.ledgerNeverRefreshed": "ledger not read yet",
   "components.appSidebar.ledgerRefreshTitle": "Refresh the ledger reads now",
   "components.appSidebar.ledgerDisconnected": "the last ledger read failed",
-  "components.appSidebar.ledgerAuthenticationRequired": "Sign in to read the ledger",
   "components.appSidebar.healthOk": "healthy",
   "components.appSidebar.healthDegraded": "degraded",
   "components.appSidebar.healthSyncing": "syncing",

@@ -98,7 +98,6 @@ import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.ts
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
 import { requestAccountLogin } from "./account-login-request.ts";
 import { appMainSurface } from "./app-main-surface.ts";
-import { t } from "./i18n/index.tsx";
 type DecisionPoolGroupId = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
@@ -150,14 +149,18 @@ function AppShell() {
 
   // 侧栏左下角系统运行区的第一行输入(原左上角状态栏,task_b2fb4bc7):
   // 全部来自上面两条既有查询,不加第二条读路。
-  const ledgerReadError = [workspaceSummaryQuery.error, tasksQuery.error].find(
+  const ledgerErrors = [workspaceSummaryQuery.error, tasksQuery.error].filter(
     (error): error is Error => error instanceof Error,
   );
+  const ledgerReadError = ledgerErrors[0];
+  // 两条读各自失败时,认证错误不能盖掉另一条读的非认证故障:侧栏优先显示可展示的
+  // 非认证错误;只有现存错误全是认证错误时才把整行交给顶部横幅。
+  const ledgerStatusError =
+    ledgerErrors.find((error) => !("code" in error && error.code === "authentication_required")) ?? ledgerReadError;
   const ledgerReadCode =
-      ledgerReadError && "code" in ledgerReadError && typeof ledgerReadError.code === "string"
-        ? ledgerReadError.code
-        : undefined,
-    ledgerAuthRequired = ledgerReadCode === "authentication_required";
+    ledgerStatusError && "code" in ledgerStatusError && typeof ledgerStatusError.code === "string"
+      ? ledgerStatusError.code
+      : undefined;
   const ledgerUnavailable = [workspaceSummaryQuery.error, tasksQuery.error].some(
     (error) =>
       error && "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
@@ -169,12 +172,8 @@ function AppShell() {
     connected: !tasksQuery.isRefetchError && !tasksQuery.isError && !workspaceSummaryQuery.isError,
     refreshing: tasksQuery.isFetching,
     empty: workspaceSummaryQuery.isSuccess === true && workspaceSummaryQuery.data.tasks.total === 0,
-    error:
-      workspaceSummaryQuery.isError || tasksQuery.isError
-        ? ledgerAuthRequired
-          ? t("components.appSidebar.ledgerAuthenticationRequired")
-          : (ledgerReadError?.message ?? "")
-        : null,
+    error: workspaceSummaryQuery.isError || tasksQuery.isError ? (ledgerStatusError?.message ?? "") : null,
+    errorCode: ledgerReadCode,
   };
   const refreshLedger = useCallback(() => {
     void tasksQuery.refetch();
