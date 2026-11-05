@@ -69,11 +69,14 @@ test("preflight rejects the production daemon root while HOME is redirected", ()
   const redirectedHome = mkdtempSync(path.join(tmpdir(), "ha-preflight-redirected-home-"));
   try {
     const productionRoot = path.join(userInfo().homedir, ".harness");
-    const child = runPreflight(redirectedHome, ["--user-root", productionRoot, "--daemon-id", "default"]);
+    // The worker runtime redirects HOME into its own instance directory under the production root.
+    for (const home of [redirectedHome, path.join(productionRoot, "runtime-instances", "fixture", "home")]) {
+      const child = runPreflight(home, ["--user-root", productionRoot, "--daemon-id", "default"]);
 
-    assert.equal(child.status, 1, child.stderr);
-    assert.ok(child.stderr.includes(`user-root path: ${productionRoot} is the default daemon root`), child.stderr);
-    assert.match(child.stderr, /socket namespace: .* default daemon endpoint/u);
+      assert.equal(child.status, 1, child.stderr);
+      assert.ok(child.stderr.includes(`user-root path: ${productionRoot} is the default daemon root`), child.stderr);
+      assert.match(child.stderr, /socket namespace: .* default daemon endpoint/u);
+    }
   } finally {
     rmSync(redirectedHome, { recursive: true, force: true });
   }
