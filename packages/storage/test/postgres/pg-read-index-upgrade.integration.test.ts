@@ -334,12 +334,12 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
   });
   await admin.query("SET statement_timeout=15000");
   const build = ensurePgProjectionSchema(proxy);
-  const insert = (client: PoolClient, id: string) =>
+  const insert = (client: PoolClient, id: string, writerScope = keys) =>
     client.query(
       `INSERT INTO ha_decisions
     (tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
     VALUES($1,$2,$3,$4,1,'{"state":"proposed"}'::jsonb)`,
-      [...keys, id],
+      [...writerScope, id],
     );
   try {
     await Promise.race([
@@ -361,7 +361,9 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
       await yieldTurn();
     }
     await observer.query("SET statement_timeout=2000");
-    await insert(observer, "dec_online_new_writer");
+    // Independent project writers share the physical table, not its readiness
+    // aggregate. Keep row contention out of the test for table-wide DDL locks.
+    await insert(observer, "dec_online_new_writer", [keys[0], `${String(keys[1])}-online`, keys[2]]);
     await observer.query("RESET statement_timeout");
     await blocker.query("COMMIT");
     holding = false;
