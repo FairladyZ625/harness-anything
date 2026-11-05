@@ -25,23 +25,28 @@ async function retainedDatabases() {
   return queryObjects(DatabaseSync);
 }
 
-test("a live projection connection prepares queries again after statement collection", async () => {
+test("a live projection connection reuses its prepared statement across garbage collection", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-statement-reuse-"));
   const file = path.join(root, "projection.sqlite");
   const readHead = () => null;
   const seed = new DatabaseSync(file);
   seed.close();
   const before = countQueryOnlyProjectionOpens();
+  let preparations = 0;
   try {
     for (let round = 0; round < 3; round++) {
       withQueryOnlyDatabaseSession(file, readHead, (db) => {
-        const first = prepareQuery(db, "SELECT 1 AS value");
+        const first = prepareQuery(db, "SELECT 1 AS value", (sql) => {
+          preparations++;
+          return db.prepare(sql);
+        });
         assert.equal(prepareQuery(db, "SELECT 1 AS value"), first, "a live statement is reused");
         assert.equal(first.get().value, 1);
       });
       await retainedDatabases();
     }
-    assert.equal(countQueryOnlyProjectionOpens(), before + 1, "statement collection must preserve the live connection");
+    assert.equal(countQueryOnlyProjectionOpens(), before + 1, "GC must preserve the live connection");
+    assert.equal(preparations, 1, "GC must not add prepare work to a live connection");
   } finally {
     closeQueryOnlyReader(file);
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

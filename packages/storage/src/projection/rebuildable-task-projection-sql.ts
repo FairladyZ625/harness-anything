@@ -139,11 +139,14 @@ export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlVal
     /* @gate-identity check-bypass-write-boundary/bypass-write-035 */ db.prepare(text),
   ).run(...values).changes;
 }
-// Native statements retain their database owner even after close. Weak values break that
-// reference back to the WeakMap key, so retired connections can be collected too.
-const connectionStatements = new WeakMap<DatabaseSync, Map<string, WeakRef<StatementSync>>>();
-/** Reuse a live statement for `sql`, preparing again after collection. Call sites that carry
- * their own write-boundary identity pass the `prepare` that performs it. */
+const connectionStatements = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
+/** Release the cache before close finalizes the connection's native statements. */
+export function closeProjectionConnection(db: DatabaseSync): void {
+  connectionStatements.delete(db);
+  db.close();
+}
+/** Reuse a statement for the connection's lifetime. Call sites that carry their own
+ * write-boundary identity pass the `prepare` that performs it. */
 export function prepareQuery(
   db: DatabaseSync,
   sql: string,
@@ -151,11 +154,8 @@ export function prepareQuery(
 ): StatementSync {
   let statements = connectionStatements.get(db);
   if (statements === undefined) connectionStatements.set(db, (statements = new Map()));
-  let statement = statements.get(sql)?.deref();
-  if (statement === undefined) {
-    statement = prepare(sql);
-    statements.set(sql, new WeakRef(statement));
-  }
+  let statement = statements.get(sql);
+  if (statement === undefined) statements.set(sql, (statement = prepare(sql)));
   return statement;
 }
 /** Table names read once per connection: every table is created while a connection initializes. */

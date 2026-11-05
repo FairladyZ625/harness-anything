@@ -14,7 +14,13 @@ import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
-import { prepareQuery, queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
+import {
+  closeProjectionConnection,
+  prepareQuery,
+  queryRows,
+  runSql,
+  transaction,
+} from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
@@ -106,7 +112,7 @@ export function countQueryOnlyProjectionOpens(): number {
 
 function closeQueryOnlyConnection(connection: QueryOnlyConnection): void {
   connection.unregister();
-  connection.db?.close();
+  if (connection.db !== null) closeProjectionConnection(connection.db);
   connection.db = null;
   connection.fingerprint = null;
 }
@@ -307,7 +313,7 @@ function projectionDatabaseOwner(
     };
   };
   const close = () => {
-    db?.close();
+    if (db !== null) closeProjectionConnection(db);
     db = null;
     fingerprint = null;
     unregister();
