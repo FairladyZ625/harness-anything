@@ -52,6 +52,7 @@ export const PG_TASK_QUERY_METHODS = [
   "readDocument",
   "readDocumentMetadata",
   "readDocuments",
+  "readArtifactTimelinePage",
   "readReplicaBasis",
   "taskIdForDocumentPath",
   "readArtifactEntityState",

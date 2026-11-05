@@ -1,200 +1,57 @@
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
-import { readdirSync } from "node:fs";
-import path from "node:path";
-import {
-  classifyRawArtifactPath,
-  consumeKnownError,
-  normalizeRelativeDocumentPath,
-  mediaTypeForBinaryPath,
-  RAW_ARTIFACT_MEDIA_TYPE,
-  resolveHarnessLayout,
-} from "@harness-anything/kernel";
-import { paginateRows } from "./task-index-query.ts";
-import { statFileSync, statLinkSync } from "./doc-sync-reads.ts";
+import { consumeKnownError, mediaTypeForBinaryPath, RAW_ARTIFACT_MEDIA_TYPE } from "@harness-anything/kernel";
+import type { ArtifactTimelineCursor, ArtifactTimelineKind, TaskProjection } from "@harness-anything/kernel";
+import type { CursorPage } from "./task-index-query.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 
-/** 本读需要的投影面(结构性窄口,真实 TaskProjection 天然满足;测试可注入 stub)。 */
+/** The GUI timeline needs exactly one projection read: the ordered artifact index page. Tests can
+ * inject the narrow port without a filesystem or a full projection. */
 export interface ArtifactsProjectionReads {
-  readonly readTaskStatuses: () => {
-    readonly status: "ready" | "pending";
-    readonly rows: readonly { readonly taskId: string }[];
-    readonly watermark: number;
-    readonly sourceRevision: number;
-  };
-  readonly readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => {
-    readonly rows: readonly {
-      readonly taskId: string;
-      readonly title: string | null;
-      readonly packagePath: string | null;
-    }[];
-  };
-  readonly readDocument: (path: string) => {
-    readonly document: { readonly workspaceRevision: number } | null;
-  };
-  readonly readEventWitness: (
-    revision: number,
-  ) => { readonly workspaceRevision: number; readonly occurredAt: string } | null;
+  readonly readArtifactTimelinePage: TaskProjection["readArtifactTimelinePage"];
 }
 
-/** Artifacts GUI 读侧 join:跨全部 task 包扫 `artifacts/` 下的 html/md/raw,按时间倒序
- * 返回。归属(taskId/title)走投影批量 join(readTaskStatuses + readTaskRuntimeBatch,
- * ≤500/批);时间优先取台账 doc 事件 occurredAt(文档投影 workspaceRevision 定位事件),
- * 投影缺行回落文件 mtime 并在 DTO 标 timeSource。纯只读:不写台账、不改任何文件。 */
+/** Artifacts GUI 读侧:任务包 `artifacts/` 下的 html/md/raw 由投影的 artifact timeline 索引
+ * 按台账时间倒序分页。旧实现先遍历全部 task 包的 `artifacts/` 子树再内存切片，页代价随
+ * 历史产出线性增长（G38 3405→34005）；现在一页只读索引的一段区间，counts 是维护好的
+ * 全量计数而不是对匹配集重扫。只有已 doc-sync 的产物进入时间线——文件系统里从未入账的
+ * 草稿不是台账产出。 */
 export interface ArtifactsGuiReadContext {
-  readonly rootDir: string;
   readonly projection: ArtifactsProjectionReads;
   readonly input: { readonly repoId: string };
 }
 
-const artifactExtensions: ReadonlyMap<string, { readonly kind: ArtifactGuiKind; readonly mediaType: string }> = new Map(
-  [
-    [".html", { kind: "html", mediaType: "text/html" }],
-    [".htm", { kind: "html", mediaType: "text/html" }],
-    [".md", { kind: "md", mediaType: "text/markdown" }],
-  ] as const,
-);
-/** 时间线之前只认 html/md,于是一个 PDF/PNG/日志既不在列表里也没有理由——它就是不存在。
- * raw 面按 kernel 的 raw-artifact 策略判定(任务包 artifacts/ 子树 × 不声明文本格式),
- * 与 task-artifact-add 接受它时用的是同一个判据,所以这里的行与台账里的策略同源。 */
-function artifactKindOf(
-  packageDir: string,
-  relative: string,
-  fileName: string,
-): { readonly kind: ArtifactGuiKind; readonly mediaType: string } | null {
-  const textual = artifactExtensions.get(path.extname(fileName).toLowerCase());
-  if (textual !== undefined) return textual;
-  return classifyRawArtifactPath(`tasks/${packageDir}/${relative}`) === null
-    ? null
-    : { kind: "raw", mediaType: mediaTypeForBinaryPath(relative, RAW_ARTIFACT_MEDIA_TYPE)! };
-}
-/** 防御病理树:遍历规模上限。超限截断且截断发生时打一行可见告警——列表是投影不是审计,
- * 但操作者必须能从日志知道这份列表不全。 */
-const artifactWalkMaxFiles = 20_000;
-const artifactWalkMaxVisits = 80_000;
+const artifactKinds: readonly ArtifactGuiKind[] = ["html", "md", "raw"];
+const defaultArtifactLimit = 100,
+  maximumArtifactLimit = 500;
 
-interface ArtifactFileRow {
-  readonly packageDir: string;
-  readonly relative: string;
-  readonly kind: ArtifactGuiKind;
-  readonly mediaType: string;
-  readonly sizeBytes: number;
-  readonly mtimeMs: number;
-}
+const invalidCursor = (): Error =>
+  Object.assign(new Error("Artifact list cursor is invalid; restart the query."), { code: "invalid_command" });
 
-/** 一棵 artifacts/ 子树下的产物文件;符号链接一律不跟(产物只认真实文件)。
- * kind 下推进 walk:三种 kind 都计数(计数只需 Dirent 与扩展名分类,零额外
- * syscall),但只有请求的 kind 才 stat 取 size/mtime——非请求 kind 的文件
- * 不再付每文件 2 次 stat 的代价。遍历规模上限按分类文件总数计,与收窄前
- * 一致。 */
-function walkArtifactTree(
-  artifactsRoot: string,
-  packageDir: string,
-  wanted: ArtifactGuiKind,
-  counts: { [K in ArtifactGuiKind]: number },
-): { readonly rows: readonly ArtifactFileRow[]; readonly truncated: boolean } {
-  const rows: ArtifactFileRow[] = [],
-    classifiedTotal = () => counts.html + counts.md + counts.raw;
-  const rootStat = statLinkSync(artifactsRoot);
-  if (rootStat === null || rootStat.isSymbolicLink() || !rootStat.isDirectory()) return { rows, truncated: false };
-  const queue: (readonly [string, string])[] = [[artifactsRoot, "artifacts"]];
-  let visited = 0;
-  while (queue.length > 0 && classifiedTotal() < artifactWalkMaxFiles && visited < artifactWalkMaxVisits) {
-    const [directory, prefix] = queue.shift()!;
-    let entries: readonly import("node:fs").Dirent[];
-    try {
-      entries = readdirSync(directory, { withFileTypes: true });
-    } catch (error) {
-      consumeKnownError(error);
-      continue;
-    }
-    for (const entry of entries) {
-      visited += 1;
-      if (entry.name.startsWith(".")) continue;
-      const target = path.join(directory, entry.name),
-        relative = `${prefix}/${entry.name}`;
-      if (entry.isDirectory()) {
-        queue.push([target, relative]);
-        continue;
-      }
-      const classified = artifactKindOf(packageDir, relative, entry.name);
-      if (classified === null || !entry.isFile() || entry.isSymbolicLink()) continue;
-      counts[classified.kind] += 1;
-      if (classifiedTotal() >= artifactWalkMaxFiles) break;
-      if (classified.kind !== wanted) continue;
-      const stat = statFileSync(target);
-      if (stat === null || !stat.isFile()) continue;
-      rows.push({ packageDir, relative, ...classified, sizeBytes: stat.size, mtimeMs: stat.mtimeMs });
-    }
-  }
-  // The while loop exits early only on a scale bound; a drained queue is the complete walk.
-  return { rows, truncated: classifiedTotal() >= artifactWalkMaxFiles || visited >= artifactWalkMaxVisits };
-}
-
-/** 全部 task 包的 artifacts 文件:只进各包的 artifacts/ 子树,包内其它目录不扫,
- * 因此非 artifacts/ 的 html 永远不会出现在时间线里。 */
-function walkAllTaskArtifacts(
-  tasksRoot: string,
-  wanted: ArtifactGuiKind,
-): { readonly rows: readonly ArtifactFileRow[]; readonly counts: { [K in ArtifactGuiKind]: number } } {
-  let entries: readonly import("node:fs").Dirent[];
+/** Same opaque keyset shape the previous implementation emitted: [time, relative, packageDir]. */
+function decodeArtifactCursor(value: string): ArtifactTimelineCursor {
   try {
-    entries = readdirSync(tasksRoot, { withFileTypes: true });
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((part) => typeof part === "string" && part)) {
+      const [occurredAt, relative, packageDir] = parsed as [string, string, string];
+      if (Number.isFinite(Date.parse(occurredAt))) return { occurredAt, relative, packageDir };
+    }
   } catch (error) {
     consumeKnownError(error);
-    return { rows: [], counts: { html: 0, md: 0, raw: 0 } };
   }
-  const rows: ArtifactFileRow[] = [],
-    counts = { html: 0, md: 0, raw: 0 };
-  let truncated = false;
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    const walked = walkArtifactTree(path.join(tasksRoot, entry.name, "artifacts"), entry.name, wanted, counts);
-    rows.push(...walked.rows);
-    truncated ||= walked.truncated;
-    if (counts.html + counts.md + counts.raw >= artifactWalkMaxFiles) {
-      truncated = true;
-      break;
-    }
-  }
-  // 截断可见:超限的时间线不完整,操作者从 daemon 日志能发现,而不是对着缺行的界面猜。
-  if (truncated)
-    console.warn(
-      `[artifacts-gui] artifact listing truncated at ${artifactWalkMaxFiles} classified files / ${artifactWalkMaxVisits} visits; the timeline is incomplete`,
-    );
-  return { rows, counts };
+  throw invalidCursor();
 }
 
-/** 投影批量 join:packagePath → {taskId, title}。标题列取自 readTaskRuntimeBatch 的
- * snapshot json_extract 批量查询;per-task projection.read 走 entity_projection 执行态
- * 查询(实测 ~2ms/个,千包级 >2s),不用于此读。 */
-function taskIndexByPackage(
-  projection: ArtifactsProjectionReads,
-  taskIds: readonly string[],
-): ReadonlyMap<string, { taskId: string; title: string | null }> {
-  const result = new Map<string, { taskId: string; title: string | null }>();
-  const ordered = [...taskIds].sort();
-  for (let offset = 0; offset < ordered.length; offset += 500) {
-    for (const row of projection.readTaskRuntimeBatch({ taskIds: ordered.slice(offset, offset + 500) }).rows)
-      if (row.packagePath !== null) result.set(row.packagePath, { taskId: row.taskId, title: row.title });
-  }
-  return result;
-}
+const encodeArtifactCursor = (row: {
+  readonly occurredAt: string;
+  readonly relative: string;
+  readonly packageDir: string;
+}): string => Buffer.from(JSON.stringify([row.occurredAt, row.relative, row.packageDir]), "utf8").toString("base64url");
 
-/** 文档投影行 → 台账事件时间(workspaceRevision 定位事件,occurredAt 按 revision 记忆:
- * 一次 doc-sync 事件落多文件时只查一次)。投影缺行/事件不在该 revision 时返回 null。 */
-function ledgerTimeOf(
-  projection: ArtifactsProjectionReads,
-  documentKey: string,
-  eventTimes: Map<number, string>,
-): string | null {
-  const document = projection.readDocument(documentKey).document;
-  if (document === null) return null;
-  const cached = eventTimes.get(document.workspaceRevision);
-  if (cached !== undefined) return cached;
-  const event = projection.readEventWitness(document.workspaceRevision),
-    time = event !== null && event.workspaceRevision === document.workspaceRevision ? event.occurredAt : null;
-  if (time !== null) eventTimes.set(document.workspaceRevision, time);
-  return time;
+/** Timeline media type: text facets keep their declared type, raw names claim their MIME. */
+function artifactMediaType(row: { readonly kind: ArtifactTimelineKind; readonly relative: string }): string {
+  if (row.kind === "html") return "text/html";
+  if (row.kind === "md") return "text/markdown";
+  return mediaTypeForBinaryPath(row.relative, RAW_ARTIFACT_MEDIA_TYPE)!;
 }
 
 export function readArtifactsGui(
@@ -202,71 +59,45 @@ export function readArtifactsGui(
   payload: Readonly<Record<string, unknown>> = {},
 ): ArtifactsListResult {
   markDaemonOperationPhase("artifacts.scan");
-  const kind: ArtifactGuiKind = payload.kind === "md" || payload.kind === "raw" ? payload.kind : "html",
-    cut = context.projection.readTaskStatuses(),
-    walk = walkAllTaskArtifacts(resolveHarnessLayout(context.rootDir).tasksRoot, kind),
-    files = walk.rows,
-    counts = walk.counts,
-    neededPackageDirs = new Set(files.map((row) => row.packageDir)),
-    candidateTaskIds = cut.rows.map(({ taskId }) => taskId).filter((taskId) => neededPackageDirs.has(taskId)),
-    targetTaskIds =
-      candidateTaskIds.length >= neededPackageDirs.size ? candidateTaskIds : cut.rows.map(({ taskId }) => taskId),
-    tasksByPackage = taskIndexByPackage(context.projection, targetTaskIds),
-    eventTimes = new Map<number, string>(),
-    entries = files
-      .map((row) => {
-        const packagePath = `tasks/${row.packageDir}`,
-          task = tasksByPackage.get(packagePath) ?? null,
-          time = ledgerTimeOf(
-            context.projection,
-            normalizeRelativeDocumentPath(`${packagePath}/${row.relative}`),
-            eventTimes,
-          );
-        const artifact: ArtifactGuiRowDto = {
-          taskId: task?.taskId ?? null,
-          taskTitle: task?.title ?? null,
-          packagePath: task === null ? null : packagePath,
-          path: row.relative,
-          kind: row.kind,
-          mediaType: row.mediaType,
-          sizeBytes: row.sizeBytes,
-          time: time ?? new Date(row.mtimeMs).toISOString(),
-          timeSource: time === null ? "mtime" : "ledger",
-        };
-        return { artifact, key: [artifact.time, row.relative, row.packageDir] };
-      })
-      .sort((left, right) => compareArtifactKeys(left.key, right.key)),
-    selected = paginateRows(
-      entries,
-      typeof payload.limit === "number" ? payload.limit : 100,
-      typeof payload.cursor === "string" ? payload.cursor : undefined,
-      {
-        key: (row) => row.key,
-        keySize: 3,
-        compare: compareArtifactKeys,
-        invalidCursor: Object.assign(new Error("Artifact list cursor is invalid; restart the query."), {
-          code: "invalid_command",
-        }),
-      },
-    );
+  const kind: ArtifactGuiKind = artifactKinds.includes(payload.kind as ArtifactGuiKind)
+      ? (payload.kind as ArtifactGuiKind)
+      : "html",
+    requested = typeof payload.limit === "number" ? payload.limit : defaultArtifactLimit,
+    limit = Number.isSafeInteger(requested)
+      ? Math.min(Math.max(requested, 1), maximumArtifactLimit)
+      : defaultArtifactLimit,
+    cursor = typeof payload.cursor === "string" ? payload.cursor : undefined,
+    read = context.projection.readArtifactTimelinePage({
+      kind,
+      limit,
+      ...(cursor === undefined ? {} : { after: decodeArtifactCursor(cursor) }),
+    }),
+    last = read.rows.at(-1);
   return {
     ok: true,
-    status: cut.status,
+    status: read.status,
     repoId: context.input.repoId,
     kind,
-    artifacts: selected.rows.map(({ artifact }) => artifact),
-    page: selected.page!,
-    counts,
-    watermark: cut.watermark,
-    sourceRevision: cut.sourceRevision,
+    artifacts: read.rows.map(
+      (row): ArtifactGuiRowDto => ({
+        taskId: row.taskId,
+        taskTitle: row.taskTitle,
+        packagePath: row.packagePath,
+        path: row.relative,
+        kind: row.kind,
+        mediaType: artifactMediaType(row),
+        sizeBytes: row.sizeBytes,
+        time: row.occurredAt,
+        timeSource: "ledger",
+      }),
+    ),
+    page: {
+      limit,
+      cursor: cursor ?? null,
+      nextCursor: read.hasMore && last ? encodeArtifactCursor(last) : null,
+    } satisfies CursorPage,
+    counts: read.counts,
+    watermark: read.watermark,
+    sourceRevision: read.sourceRevision,
   };
-}
-
-function compareArtifactKeys(left: readonly string[], right: readonly string[]): number {
-  // Cursor boundaries need a strict order: locale collation can equate distinct paths.
-  for (let index = 0; index < left.length; index += 1) {
-    const compared = left[index]! < right[index]! ? -1 : left[index]! > right[index]! ? 1 : 0;
-    if (compared !== 0) return index === 0 ? -compared : compared;
-  }
-  return 0;
 }

@@ -74,6 +74,39 @@ export interface TaskIndexProjectionRead {
   readonly sourceRevision: number;
   readonly warnings: readonly TaskProjectionWarning[];
 }
+/** The GUI timeline's three display facets. `raw` is a claimed non-text artifact. */
+export type ArtifactTimelineKind = "html" | "md" | "raw";
+export interface ArtifactTimelineCursor {
+  readonly occurredAt: string;
+  readonly relative: string;
+  readonly packageDir: string;
+}
+export interface ArtifactTimelineQuery {
+  readonly kind: ArtifactTimelineKind;
+  readonly limit: number;
+  /** Exclusive keyset boundary: (occurredAt DESC, relative ASC, packageDir ASC). */
+  readonly after?: ArtifactTimelineCursor;
+}
+export interface ArtifactTimelineRow {
+  readonly packageDir: string;
+  /** Artifact path relative to the task package root (`artifacts/...`). */
+  readonly relative: string;
+  readonly kind: ArtifactTimelineKind;
+  readonly occurredAt: string;
+  readonly sizeBytes: number;
+  readonly taskId: string | null;
+  readonly taskTitle: string | null;
+  readonly packagePath: string | null;
+}
+export interface ArtifactTimelineRead {
+  readonly status: "ready" | "pending";
+  readonly rows: readonly ArtifactTimelineRow[];
+  readonly hasMore: boolean;
+  /** Per-kind totals for the whole repository timeline, not this page. */
+  readonly counts: Readonly<Record<ArtifactTimelineKind, number>>;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+}
 export interface TaskRuntimeBatchQuery {
   readonly taskIds: readonly string[];
   readonly limit?: number;

@@ -1,4 +1,5 @@
 import { materializePgEntityDeclaration } from "./pg-entity-declarations.ts";
+import { projectPgArtifactDocument, retirePgArtifactDocument } from "./pg-artifact-timeline.ts";
 import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import { interpretReplayDeclaration } from "../projection/entity-declaration-replay.ts";
 import type { PoolClient } from "pg";
@@ -244,8 +245,12 @@ export async function materializePgQueryModels(
         : new TextDecoder("utf-8", { fatal: true, ignoreBOM: policyId === OPAQUE_TEXTUAL_POLICY_ID }).decode(bytes),
     };
     await put("document", claim.path, document as DocumentState);
+    await projectPgArtifactDocument(client, scope, claim.path, document, event.occurredAt);
   }
-  for (const retirement of canonicalDocumentRetirements(event)) await drop("document", retirement.path);
+  for (const retirement of canonicalDocumentRetirements(event)) {
+    await drop("document", retirement.path);
+    await retirePgArtifactDocument(client, scope, retirement.path);
+  }
   if ("presetSnapshotClaim" in event.payload) {
     const claim = event.payload.presetSnapshotClaim as { readonly digest: string; readonly sha256: string },
       bytes = await input.readContentBlob?.(claim.sha256);

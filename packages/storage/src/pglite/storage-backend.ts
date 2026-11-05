@@ -5,6 +5,7 @@ import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
 import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
+import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { createPGliteStorage, type PGliteStorage, type PGliteStorageOptions } from "./transaction.ts";
@@ -133,6 +134,22 @@ async function initializeSchema(
     owner = batch.next_owner;
     entity = batch.next_entity;
   }
+  // Documents projected before the artifact timeline index existed need one bounded backfill.
+  // Fresh projections declare the index complete on first materialization, so this is a no-op.
+  const artifactIndexVersion = await withPostgresTransaction(
+    pool,
+    async (client) =>
+      (
+        await client.query<{ artifact_index_version: number }>(
+          `SELECT artifact_index_version FROM ha_projection_meta
+           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
+        )
+      ).rows[0]?.artifact_index_version ?? null,
+    scope,
+  );
+  if (artifactIndexVersion === 0)
+    await withPostgresTransaction(pool, (client) => backfillPgArtifactDocuments(client, scope, repoId), scope);
 }
 
 async function ensurePolicy(client: PoolClient, statement: string, tables: readonly string[]): Promise<void> {

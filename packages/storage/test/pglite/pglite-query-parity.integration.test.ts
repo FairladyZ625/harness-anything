@@ -13,7 +13,7 @@ import {
 } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
-import { initRepo } from "../store/task-event-store.fixtures.ts";
+import { docBundle, initRepo } from "../store/task-event-store.fixtures.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { appendLeaseReplayFixtures } from "../postgres/pg-lease-replay.fixture.ts";
 import { appendQueryParityFixtures } from "../postgres/pg-query-parity.fixture.ts";
@@ -79,6 +79,16 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
           embedded.append(candidate);
           sqlite.append(candidate);
         }
+        // A task-package artifact gives the timeline index a document on both backends to compare.
+        await append(
+          docBundle(
+            sqlite,
+            "# Parity artifact\n",
+            revision,
+            "parity-artifact",
+            "tasks/task-parity-fixture/artifacts/parity.md",
+          ),
+        );
         projection.catchUp();
         const reader = makeTaskProjectionReader({ repoId, storage });
         try {

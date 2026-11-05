@@ -6,6 +6,7 @@ import { taskParentIndexDdl } from "./pg-task-parent-index.ts";
 import { decisionReadStatusDdl } from "./pg-decision-read-status.ts";
 import { decisionSearchDdl } from "./pg-decision-search-schema.ts";
 import { decisionIndexDdl } from "./pg-decision-index-migration.ts";
+import { artifactTimelineDdl } from "./pg-artifact-timeline.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
 import {
   POSTGRES_SCOPE_COLUMNS_SQL,
@@ -30,6 +31,8 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_runtime_unsettled",
   "ha_event_summary_state",
   "ha_entity_declaration_heads",
+  "ha_artifact_documents",
+  "ha_artifact_counts",
 ] as const);
 
 /** Read/digest tables compared with the other backend. The current-set projection is derived
@@ -180,6 +183,7 @@ export function projectionDdl(): readonly string[] {
           DO UPDATE SET readers=EXCLUDED.readers, value=EXCLUDED.value;
         END IF;
       END $migration$`,
+    ...artifactTimelineDdl(),
     ...eventReadIndexDdl(),
     // Retire only the disposable nonunique expression index after its scalar replacement exists.
     // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
@@ -281,6 +285,9 @@ export function projectionDdl(): readonly string[] {
     ),
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS raw_lease jsonb",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS package_path text",
+    // Old binary wrote projections before the artifact timeline index existed; the version asks
+    // the embedded upgrade path to backfill once. Fresh inserts declare themselves complete.
+    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS artifact_index_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",

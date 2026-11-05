@@ -497,13 +497,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     "repo.artifacts.list": (payload) =>
       readArtifactsGui(
         {
-          rootDir: context.rootDir,
-          projection: {
-            readTaskStatuses: context.projection.readTaskStatuses,
-            readTaskRuntimeBatch: context.projection.readTaskRuntimeBatch,
-            readDocument: context.projection.readDocumentMetadata,
-            readEventWitness: context.projection.readEventWitness,
-          },
+          projection: { readArtifactTimelinePage: context.projection.readArtifactTimelinePage },
           input: { repoId: context.input.repoId },
         },
         payload,

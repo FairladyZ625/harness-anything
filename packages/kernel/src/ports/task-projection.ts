@@ -15,6 +15,8 @@ import type { LeaseV1 } from "../domain/execution.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import type {
+  ArtifactTimelineQuery,
+  ArtifactTimelineRead,
   DecisionAgendaProjectionPageRead,
   DecisionCoverageProjectionRead,
   DecisionGraphProjectionRead,
@@ -298,6 +300,10 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  /** Task-package artifact timeline, ordered by ledger time desc then package-relative path.
+   * Backed by the projection's artifact index so one page costs the page, never the repository's
+   * output history. Counts are maintained totals, not a scan of the matching set. */
+  readonly readArtifactTimelinePage: (query: ArtifactTimelineQuery) => ArtifactTimelineRead;
   readonly readCanonicalEvents: (
     afterRevision: number,
     limit: number,
