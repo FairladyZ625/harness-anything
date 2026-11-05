@@ -4,12 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import {
-  classifyProtectedChanges,
-  deriveProtectedSurfaceRules,
-  governanceDeclarationCites,
-  governanceSections,
-} from "../check-pr-governance.mjs";
+import { classifyProtectedChanges, deriveProtectedSurfaceRules, governanceSections } from "../check-pr-governance.mjs";
 import {
   SUBMISSION_FACTS_END,
   SUBMISSION_FACTS_START,
@@ -61,6 +56,25 @@ function pathCode(value) {
   return `${delimiter}${encoded}${delimiter}`;
 }
 
+const AUTHORING_TASK = /^task_[0-9a-zA-Z]{26}$/u;
+
+/** The ledger authorization a protected-surface cut must cite: a governing decision, else the parent task. */
+function taskAuthority(projection, taskId) {
+  const relations = Array.isArray(projection.decisionRelations) ? projection.decisionRelations : [],
+    decision = relations.find(
+      (relation) =>
+        record(relation) &&
+        relation.state === "active" &&
+        typeof relation.sourceRef === "string" &&
+        relation.sourceRef.startsWith("decision/") &&
+        (relation.relationType === "derives" || relation.relationType === "narrows"),
+    );
+  if (decision) return decision.sourceRef.slice("decision/".length);
+  const parent =
+    record(projection.task) && record(projection.task.metadata) ? projection.task.metadata.parentTaskId : undefined;
+  return typeof parent === "string" && AUTHORING_TASK.test(parent) && parent !== taskId ? parent : null;
+}
+
 function taskProjection(receipt, taskId) {
   if (!record(receipt) || receipt.ok !== true || typeof receipt.evidence !== "string")
     throw new Error(`ha task show ${taskId} did not return a successful task projection`);
@@ -83,6 +97,7 @@ function taskProjection(receipt, taskId) {
     submission: current.submission,
     packagePath: projection.packagePath,
     profileId: record(task.metadata) && typeof task.metadata.profileId === "string" ? task.metadata.profileId : null,
+    authority: taskAuthority(projection, taskId),
   };
 }
 
@@ -176,20 +191,47 @@ function dependencyDescription(content) {
 }
 
 // The governance gate classifies protected paths from the gate manifest and requires the published
-// body to cite an authorizing ADR/decision/task. The renderer reuses that classification and the
-// lint's own section detection: a protected cut gets the declaration even when the input body (for
-// example a worker-authored pr-body.md) never carried the template defaults, and an existing cited
-// declaration is left untouched so re-rendering cannot lose it.
-function governanceDeclaration(taskId, files) {
+// body to cite an authorizing ADR/decision/task. The declaration is generated only from ledger
+// authorization (a governing decision, else the parent task) and is marked as generated, so a
+// re-render refreshes its scope while an authored section is never overwritten or erased.
+const GENERATED_GOVERNANCE = "<!-- harness:generated-governance -->";
+
+function governanceDeclaration(authority, files) {
   return [
     "## Governance Declaration",
     "",
+    GENERATED_GOVERNANCE,
     "- Protected surface touched: yes",
     `- Protected surface scope: ${files.map(pathCode).join(", ")}`,
-    `- Authority: ${taskId}`,
+    `- Authority: ${authority}`,
     "- Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.",
     "- Break-glass: no",
   ].join("\n");
+}
+
+function contentLines(sectionText) {
+  return sectionText
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^##[ \t]/u.test(line));
+}
+
+/** The template's own governance fields; a section made only of them is still an unfilled default. */
+function templateGovernanceLines(template) {
+  const section = governanceSections(template).find(({ text }) => text.includes("Protected surface touched"));
+  return new Set(section ? contentLines(section.text) : []);
+}
+
+function isTemplateDefault(sectionText, defaults) {
+  const lines = contentLines(sectionText);
+  return lines.length > 0 && defaults.size > 0 && lines.every((line) => defaults.has(line));
+}
+
+function removeSections(body, sections) {
+  return [...sections]
+    .sort((left, right) => right.start - left.start)
+    .reduce((next, { start, end }) => `${next.slice(0, start)}${next.slice(end)}`, body);
 }
 
 function insertGovernanceDeclaration(body, declaration) {
@@ -198,18 +240,34 @@ function insertGovernanceDeclaration(body, declaration) {
   return `${body.slice(0, match.index)}${declaration}\n\n${body.slice(match.index)}`;
 }
 
-function declareProtectedSurfaces(body, taskId, changedFiles, manifest) {
+function declareProtectedSurfaces({ body, taskId, changedFiles, manifest, template, authority }) {
   if (!manifest) return body;
-  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
-  if (files.length === 0 || governanceDeclarationCites(body)) return body;
-  const declaration = governanceDeclaration(taskId, files),
-    [existing] = governanceSections(body);
-  if (!existing) return insertGovernanceDeclaration(body, declaration);
-  return `${body.slice(0, existing.start)}${declaration}\n\n${body.slice(existing.end)}`;
+  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file),
+    sections = governanceSections(body),
+    generated = sections.filter(({ text }) => text.includes(GENERATED_GOVERNANCE)),
+    withoutGenerated = removeSections(body, generated);
+  if (files.length === 0) return withoutGenerated;
+  if (!authority)
+    throw new Error(
+      `Protected surface(s) touched (${files.join(", ")}) but task ${taskId} records no authorizing decision or parent task; ` +
+        "the renderer will not mint an authority claim. Associate an authorizing decision with the task before publishing.",
+    );
+  const defaults = templateGovernanceLines(template),
+    remaining = governanceSections(withoutGenerated),
+    authored = remaining.filter(({ text }) => !isTemplateDefault(text, defaults));
+  if (authored.length > 0)
+    return removeSections(
+      withoutGenerated,
+      remaining.filter(({ text }) => isTemplateDefault(text, defaults)),
+    );
+  return insertGovernanceDeclaration(
+    removeSections(withoutGenerated, remaining),
+    governanceDeclaration(authority, files),
+  );
 }
 
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
-  const { submission, profileId } = taskProjection(receipt, taskId),
+  const { submission, profileId, authority } = taskProjection(receipt, taskId),
     submissionFacts = readSubmissionFacts(submission),
     delivery = renderSubmissionFacts(submission, submissionFacts),
     stripped = withoutFacts(body),
@@ -233,7 +291,14 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     // heading is absent, publish the author's original document in its original order.
     rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
-  rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest);
+  rendered = declareProtectedSurfaces({
+    body: rendered,
+    taskId,
+    changedFiles: submissionFacts.changedFiles,
+    manifest,
+    template,
+    authority,
+  });
   const { start, end } = markerPair(rendered, "PR template");
   return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
 }
