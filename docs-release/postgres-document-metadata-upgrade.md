@@ -89,7 +89,30 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
    merge scopes.
 
-5. Verify readiness on the same claims before enabling current readers. All three probes must
+4b. Backfill the fleet event-summary header for each tenant/project/policy-epoch and repo.
+   This derived text is what the fleet overview reads; old writers fill it through the shared
+   `ha_event_read_index_fields` trigger, but rows written before that trigger existed need
+   this page job:
+
+   ```sql
+   BEGIN;
+   SET LOCAL ROLE ha_schema_owner;
+   SELECT set_config('ha.tenant_id', 'tenant-id', true),
+          set_config('ha.project_id', 'project-id', true),
+          set_config('ha.policy_epoch', '1', true);
+   SELECT ha_backfill_fleet_event_summaries('tenant-id', 'project-id', 1, 64) AS processed;
+   COMMIT;
+   ```
+
+   Commit each <=64-row call and repeat until a committed call returns `processed=0`.
+   `processed` counts rows whose `summary_json` changed; the partial
+   `ha_events_summary_pending` index is the durable remainder, so an interrupted or rolled
+   back call is safe to repeat. The function never rewrites canonical `event_json`, never
+   changes `read_index_version`, and is independent of phase 4. Keep the shared trigger
+   installed: previous writers continue to populate the header during the compatibility
+   window. Do not run the loop inside the `ensurePgProjectionSchema` DDL transaction.
+
+5. Verify readiness on the same claims before enabling current readers. All probes must
    return no rows (use the actual deployment identifiers):
 
    ```sql
@@ -104,6 +127,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    SELECT 1 FROM ha_task_snapshots
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1
      AND parent_index_version=0 LIMIT 1;
+   SELECT 1 FROM ha_events
+   WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
+     AND summary_json IS NULL LIMIT 1;
    ```
 
    Document metadata must also be complete as in phase 2. Finish the current declaration
@@ -114,7 +140,10 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    phases 3/4. A canonical gap must be rebuilt through the existing projection rebuild
    entry before declaration catch-up; never promote the declaration watermark by SQL.
 
-6. Switch readers after every scope and repo is complete. During a partially filled snapshot,
+6. Switch readers after every scope and repo is complete. A fleet reader whose event window
+   still contains a NULL `summary_json` refuses with `fleet event summaries are not backfilled`
+   rather than silently omitting the event; rerun phase 4b or wait for the trigger/backfill
+   to reach zero. The fleet backfill is ready only when the phase-5 NULL probe is empty. During a partially filled snapshot,
    current document lists return `projection_pending` instead of a partial list or reading
    bodies; runtime/event reads likewise return `projection_pending` until their own expansion
    is complete. Parent-dependent task reads also return `projection_pending` until their
