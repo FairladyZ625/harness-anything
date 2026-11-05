@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,22 +9,26 @@ import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 test(
-  "real workspace changes keep the writer queue bounded after a controlled finite burst",
+  "ordinary writes remain available while an active runtime workspace continuously changes thousands of files",
   { timeout: 300_000 },
   async (t) => {
-    const notificationTarget = Number(process.env.FLEET_STRESS_WORKSPACE_NOTIFICATIONS ?? 100),
+    const fileCount = Number(process.env.FLEET_STRESS_WORKSPACE_FILES ?? 2_000),
       parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
       repoId = workspaceId("writer-queue-depth"),
       stateRoot = path.join(parent, "writer-epochs"),
       releasePath = path.join(parent, "release-provider"),
+      readyPath = path.join(parent, "provider-ready"),
+      watcherReady = path.join(parent, "watcher-ready"),
       executablePath = writeProviderExecutable(
         path.join(parent, "provider.mjs"),
         `import fs from "node:fs";
+      fs.writeFileSync(${JSON.stringify(readyPath)}, "ready");
       await new Promise(resolve => { const watcher = fs.watch(${JSON.stringify(parent)}, () => {
         if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); }
       }); if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); } });
@@ -69,18 +73,14 @@ test(
         isolationState: "enforced" as const,
       };
     let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>> | undefined;
+    let churn: Worker | undefined;
+    const stopChurn = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
     try {
       const repoRoot = path.join(parent, "repo");
       mkdirSync(repoRoot);
       mkdirSync(path.join(repoRoot, "node_modules"));
       const rootDir = canonicalRoot(repoRoot);
       initRepo(rootDir);
-      // Keep the file churn out of Git snapshots so this measures writer queue contention.
-      writeFileSync(path.join(repoRoot, ".git", "info", "exclude"), "node_modules/\n");
-      // Populate before watching: the measured burst modifies files, avoiding recursive watcher
-      // directory-discovery work for each newly created entry.
-      for (let index = 0; index < Math.max(1_000, notificationTarget); index += 1)
-        writeFileSync(path.join(repoRoot, "node_modules", `file-${index}`), "before");
       const authority = openPersistentWriterEpoch({ stateRoot, holderId: "writer-queue-depth" }),
         lease = authority.acquire(repoId),
         fence = {
@@ -101,30 +101,20 @@ test(
         })
       ).close();
       const runtimeExited = deferred<void>(),
-        burstObserved = deferred<number>(),
         publishedQueueDepths: (number | null)[] = [];
-      // Buffer actual native notifications in the writer thread and release them together. This
-      // makes the queue contention deterministic without inventing file events or sleeping.
-      // Drop later notifications in the fixture so only the measured burst competes with the write.
+      let workspaceWatchRegistrations = 0;
+      // The watcher must not be installed in the writer thread, even if the workspace churns.
       const preload = `
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { parentPort } from "node:worker_threads";
+import { parentPort, workerData } from "node:worker_threads";
 const nativeWatch = fs.watch;
 fs.watch = function(target, options, listener) {
-  if (String(target) !== ${JSON.stringify(repoRoot)}) return nativeWatch.call(this, target, options, listener);
-  const pending = [];
-  let released = false;
-  const watcher = nativeWatch.call(this, target, options, (event, filename) => {
-    if (released) return;
-    pending.push([event, filename]);
-    if (pending.length === ${notificationTarget}) {
-      released = true;
-      watcher.close();
-      for (const args of pending) listener(...args);
-      parentPort.postMessage({ schema: "test-native-workspace-burst", count: pending.length });
-    }
-  });
+  const watcher = nativeWatch.call(this, target, options, listener);
+  if (String(target) === ${JSON.stringify(repoRoot)} && options?.recursive) {
+    if (workerData?.cwd === ${JSON.stringify(repoRoot)}) fs.writeFileSync(${JSON.stringify(watcherReady)}, "ready");
+    else parentPort.postMessage({ schema: "test-recursive-workspace-watch" });
+  }
   return watcher;
 };
 syncBuiltinESMExports();
@@ -162,14 +152,14 @@ syncBuiltinESMExports();
               ...options,
               execArgv: [...options.execArgv, "--import", `data:text/javascript,${encodeURIComponent(preload)}`],
             });
-            worker.on("message", (message: { schema?: string; count?: number }) => {
-              if (message.schema === "test-native-workspace-burst") burstObserved.resolve(message.count!);
+            worker.on("message", (message: { schema?: string }) => {
+              if (message.schema === "test-recursive-workspace-watch") workspaceWatchRegistrations += 1;
             });
             return worker;
           },
         },
       );
-      const spawned = await supervisor.request<{ readonly runtimeSessionId: string }>(
+      const spawned = await supervisor.request<{ readonly runtimeSessionId: string; readonly dispatchId: string }>(
         "spawnRuntime",
         {
           runtimeInstanceId: instance.instanceId,
@@ -181,24 +171,68 @@ syncBuiltinESMExports();
         binding,
       );
       assert.equal(typeof spawned.runtimeSessionId, "string");
+      await waitForFile(readyPath);
+      await waitForFile(watcherReady);
+      assert.equal(workspaceWatchRegistrations, 0, "the writer must not recursively watch the workspace");
       publishedQueueDepths.length = 0;
-      for (let index = 0; index < Math.max(1_000, notificationTarget); index += 1)
-        writeFileSync(path.join(repoRoot, "node_modules", `file-${index}`), "workspace activity");
-      const notifications = await burstObserved.promise,
-        maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null)),
-        writeStarted = performance.now(),
+      churn = new Worker(
+        `const fs = require("node:fs");
+         const path = require("node:path");
+         const { parentPort, workerData } = require("node:worker_threads");
+         const stop = new Int32Array(workerData.stop);
+         for (let i = 0; i < workerData.files; i++) fs.writeFileSync(path.join(workerData.dir, "file-" + i), "created");
+         parentPort.postMessage({ ready: true });
+         let writes = 0;
+         while (Atomics.load(stop, 0) === 0 && writes < 100000) {
+           fs.writeFileSync(path.join(workerData.dir, "file-" + (writes % workerData.files)), "changed");
+           writes++;
+         }
+         parentPort.postMessage({ writes, limitReached: writes === 100000 });`,
+        {
+          eval: true,
+          workerData: { dir: path.join(repoRoot, "node_modules"), files: fileCount, stop: stopChurn.buffer },
+        },
+      );
+      let churnWrites = 0,
+        churnLimitReached = false;
+      const ready = new Promise<void>((resolve, reject) => {
+        churn!.on("message", (message: { ready?: boolean; writes?: number; limitReached?: boolean }) => {
+          if (message.ready) resolve();
+          if (typeof message.writes === "number") churnWrites = message.writes;
+          if (message.limitReached) churnLimitReached = true;
+        });
+        churn!.once("error", reject);
+      });
+      const churnExited = new Promise<void>((resolve, reject) => {
+        churn!.once("error", reject);
+        churn!.once("exit", (code) =>
+          code === 0 ? resolve() : reject(new Error(`churn worker exited ${String(code)}`)),
+        );
+      });
+      await ready;
+      await waitForWorkspaceProgress(repoRoot, spawned.dispatchId);
+      const writeStarted = performance.now(),
         receipt = await supervisor.request<{ readonly outcome: string }>(
           "run",
-          { action: { kind: "task-create", taskId: "task_workspace_burst", title: "Write during a workspace burst" } },
+          { action: { kind: "task-create", taskId: "task_workspace_burst", title: "Write during workspace churn" } },
           binding,
         ),
         writeMs = Math.round(performance.now() - writeStarted);
-      t.diagnostic(`nativeNotifications=${notifications} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs}`);
+      Atomics.store(stopChurn, 0, 1);
+      await churnExited;
+      const maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null));
+      t.diagnostic(
+        `workspaceFiles=${fileCount} churnWrites=${churnWrites} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs}`,
+      );
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.ok(maxQueueDepth <= 3, `workspace burst left ${String(maxQueueDepth)} queued writes`);
+      assert.ok(churnWrites > 0, "changes continued while the ordinary write ran");
+      assert.equal(churnLimitReached, false, "the bounded churn must still be active during the ordinary write");
+      assert.ok(maxQueueDepth <= 3, `workspace churn left ${String(maxQueueDepth)} queued writes`);
       writeFileSync(releasePath, "release");
       await runtimeExited.promise;
     } finally {
+      Atomics.store(stopChurn, 0, 1);
+      await churn?.terminate();
       writeFileSync(releasePath, "release");
       await supervisor?.close();
       rmSync(parent, { recursive: true, force: true });
@@ -209,4 +243,32 @@ syncBuiltinESMExports();
 function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   return { promise: new Promise<T>((settle) => (resolve = settle)), resolve };
+}
+
+function waitForFile(file: string): Promise<void> {
+  return new Promise((resolve) => {
+    const watcher = watch(path.dirname(file), () => {
+      if (existsSync(file)) {
+        watcher.close();
+        resolve();
+      }
+    });
+    if (existsSync(file)) {
+      watcher.close();
+      resolve();
+    }
+  });
+}
+
+function waitForWorkspaceProgress(rootDir: string, dispatchId: string): Promise<void> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (readDispatchStream(rootDir, dispatchId)?.records.some((record) => record.kind === "workspace_activity")) {
+        watcher.close();
+        resolve();
+      }
+    };
+    const watcher = watch(path.dirname(dispatchStreamPath(rootDir, dispatchId)), check);
+    check();
+  });
 }
