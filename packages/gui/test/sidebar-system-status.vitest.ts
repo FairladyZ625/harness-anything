@@ -507,7 +507,7 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
   it("turns the lamp red and still names every degraded signal instead of hiding it", async () => {
     const { div, root } = await mount(
       createElement(SystemStatusPanel, {
-        status: { ...ledgerStatus, connected: false, error: "bridge down" },
+        status: { ...ledgerStatus, connected: false, error: "bridge down", errorCode: "replica_unavailable" },
         health: degraded,
         onRefresh: () => undefined,
         onOpenSystem: () => undefined,
@@ -520,6 +520,12 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
       "落后 7 revisions",
     );
     expect(panel.textContent).toContain("bridge down");
+    // 非认证失败照常显示,并且错误行独占整行宽度、允许折行:刷新时间不再把它挤到溢出裁切。
+    const errorLine = panel.querySelector('[data-testid="ledger-error"]') as HTMLElement;
+    expect(errorLine.textContent).toContain("台账桥读取失败: bridge down");
+    expect(errorLine.className).toContain("break-words");
+    expect(errorLine.className).not.toContain("shrink-0");
+    expect(panel.textContent).not.toContain("刚刚刷新");
     const detail = systemHealthDetail(degraded);
     expect(detail).toContain("无响应");
     expect(detail).toContain("unavailable");
@@ -527,6 +533,37 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
     expect(detail).toContain("cell crashed during scan");
     expect(detail).toContain("投影追赶中");
     expect(detail).toContain("本会话未观察到台账变化");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("leaves an expired session to the read banner instead of repeating an authentication failure", async () => {
+    // 缺陷现场(#4332 后):顶部读面横幅已给出「需要登录」和唯一登录入口,侧栏底部仍显示
+    // 「台账桥读取失败: 需要登录后才能…」并被裁断,与横幅、账号卡「尚未登录」三处重复。
+    const { div, root } = await mount(
+      createElement(SystemStatusPanel, {
+        status: {
+          ...ledgerStatus,
+          revision: null,
+          refreshedAgoSec: null,
+          connected: false,
+          error: "Sign in with the configured identity provider.",
+          errorCode: "authentication_required",
+        },
+        health: healthy,
+        onRefresh: () => undefined,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = div.querySelector('[data-testid="sidebar-system-status"]') as HTMLElement;
+    expect(panel.textContent).not.toContain("台账桥读取失败");
+    expect(panel.textContent).not.toContain("Sign in with the configured identity provider.");
+    expect(panel.querySelector('[data-testid="task-error-state"]')).toBeNull();
+    expect(panel.querySelector('[data-testid="ledger-refresh-button"]')).toBeNull();
+    // 健康行仍在:删掉的只是重复的认证错误行,不是整个系统运行区。
+    expect(panel.querySelector('[data-testid="sidebar-system-status-open"]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid="sidebar-system-status-projection"]')).not.toBeNull();
     await act(async () => {
       root.unmount();
     });

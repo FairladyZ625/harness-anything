@@ -178,7 +178,6 @@
   "components.appSidebar.ledgerNeverRefreshed": "尚未读到台账",
   "components.appSidebar.ledgerRefreshTitle": "手动刷新台账读面",
   "components.appSidebar.ledgerDisconnected": "最近一次台账读取失败",
-  "components.appSidebar.ledgerAuthenticationRequired": "需要登录后才能读取台账",
   "components.appSidebar.healthOk": "运行正常",
   "components.appSidebar.healthDegraded": "降级运行",
   "components.appSidebar.healthSyncing": "同步中",

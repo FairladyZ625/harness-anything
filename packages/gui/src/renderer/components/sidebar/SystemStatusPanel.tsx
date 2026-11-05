@@ -152,6 +152,8 @@ export interface LedgerStatusBarInput {
   readonly refreshing: boolean;
   readonly empty: boolean;
   readonly error: string | null;
+  /** 读失败的 daemon 错误码;认证类失败由顶部读面横幅与账号卡承担。 */
+  readonly errorCode?: string;
 }
 
 /**
@@ -162,6 +164,10 @@ export interface LedgerStatusBarInput {
  * 重数行;刷新走既有 react-query refetch,不加轮询密度。`real-task-summary` /
  * `task-empty-state` / `task-error-state` 三个 testid 是 e2e 与读基线工具的就绪探针,
  * 随本组件一起搬家,不随总览删除。
+ *
+ * `authentication_required` 不在这里再报一次:会话失效时顶部读面横幅与账号卡已经给出
+ * 「需要登录」和唯一登录入口,侧栏这行只会重复且被截断。其他读失败照常显示;错误行让
+ * 出整行宽度并允许折行,不再和刷新时间抢宽度后被裁掉关键信息。
  */
 export function LedgerStatusBar({
   status,
@@ -170,22 +176,23 @@ export function LedgerStatusBar({
   readonly status: LedgerStatusBarInput;
   readonly onRefresh: () => void;
 }) {
-  const testId = status.error !== null ? "task-error-state" : status.empty ? "task-empty-state" : "real-task-summary";
-  const headline =
-    status.error !== null
-      ? `${t("components.appSidebar.failedReadLedgerBridge")}: ${status.error}`
-      : status.revision === null && status.refreshing
-        ? t("components.appSidebar.ledgerReadingEvents")
-        : status.empty
-          ? t("components.appSidebar.noTaskRowsFromLocalBridge")
-          : t("components.appSidebar.ledgerEvents", {
-              count: status.revision === null ? "—" : new Intl.NumberFormat("en-US").format(status.revision),
-            });
+  if (status.errorCode === "authentication_required") return null;
+  const failed = status.error !== null;
+  const testId = failed ? "task-error-state" : status.empty ? "task-empty-state" : "real-task-summary";
+  const headline = failed
+    ? `${t("components.appSidebar.failedReadLedgerBridge")}: ${status.error}`
+    : status.revision === null && status.refreshing
+      ? t("components.appSidebar.ledgerReadingEvents")
+      : status.empty
+        ? t("components.appSidebar.noTaskRowsFromLocalBridge")
+        : t("components.appSidebar.ledgerEvents", {
+            count: status.revision === null ? "—" : new Intl.NumberFormat("en-US").format(status.revision),
+          });
   return (
     <span
       data-testid={testId}
-      className={`flex h-[22px] min-w-0 items-center gap-1.5 font-mono ui-micro ${
-        status.error !== null ? "text-status-blocked" : "text-text-faint"
+      className={`flex min-w-0 items-center gap-1.5 font-mono ui-micro ${
+        failed ? "min-h-[22px] py-0.5 text-status-blocked" : "h-[22px] text-text-faint"
       }`}
     >
       <span
@@ -193,15 +200,23 @@ export function LedgerStatusBar({
         title={status.connected ? undefined : t("components.appSidebar.ledgerDisconnected")}
         className={`size-2 shrink-0 rounded-full ${status.connected ? "bg-success" : "bg-danger"}`}
       />
-      <span className={`shrink-0 tabular-nums ${status.empty ? "" : "text-text"}`}>{headline}</span>
-      <span className="min-w-0 flex-1 truncate">
-        ·{" "}
-        {status.refreshedAgoSec === null
-          ? status.refreshing
-            ? t("components.appSidebar.ledgerReading")
-            : t("components.appSidebar.ledgerNeverRefreshed")
-          : t("components.appSidebar.ledgerRefreshedAgo", { ago: ageText(status.refreshedAgoSec) })}
-      </span>
+      {failed ? (
+        <span data-testid="ledger-error" className="min-w-0 flex-1 whitespace-normal break-words">
+          {headline}
+        </span>
+      ) : (
+        <>
+          <span className={`shrink-0 tabular-nums ${status.empty ? "" : "text-text"}`}>{headline}</span>
+          <span className="min-w-0 flex-1 truncate">
+            ·{" "}
+            {status.refreshedAgoSec === null
+              ? status.refreshing
+                ? t("components.appSidebar.ledgerReading")
+                : t("components.appSidebar.ledgerNeverRefreshed")
+              : t("components.appSidebar.ledgerRefreshedAgo", { ago: ageText(status.refreshedAgoSec) })}
+          </span>
+        </>
+      )}
       <button
         type="button"
         data-testid="ledger-refresh-button"

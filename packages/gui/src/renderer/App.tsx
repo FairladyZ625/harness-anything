@@ -98,7 +98,6 @@ import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.ts
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
 import { requestAccountLogin } from "./account-login-request.ts";
 import { appMainSurface } from "./app-main-surface.ts";
-import { t } from "./i18n/index.tsx";
 type DecisionPoolGroupId = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
@@ -154,10 +153,9 @@ function AppShell() {
     (error): error is Error => error instanceof Error,
   );
   const ledgerReadCode =
-      ledgerReadError && "code" in ledgerReadError && typeof ledgerReadError.code === "string"
-        ? ledgerReadError.code
-        : undefined,
-    ledgerAuthRequired = ledgerReadCode === "authentication_required";
+    ledgerReadError && "code" in ledgerReadError && typeof ledgerReadError.code === "string"
+      ? ledgerReadError.code
+      : undefined;
   const ledgerUnavailable = [workspaceSummaryQuery.error, tasksQuery.error].some(
     (error) =>
       error && "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
@@ -169,12 +167,8 @@ function AppShell() {
     connected: !tasksQuery.isRefetchError && !tasksQuery.isError && !workspaceSummaryQuery.isError,
     refreshing: tasksQuery.isFetching,
     empty: workspaceSummaryQuery.isSuccess === true && workspaceSummaryQuery.data.tasks.total === 0,
-    error:
-      workspaceSummaryQuery.isError || tasksQuery.isError
-        ? ledgerAuthRequired
-          ? t("components.appSidebar.ledgerAuthenticationRequired")
-          : (ledgerReadError?.message ?? "")
-        : null,
+    error: workspaceSummaryQuery.isError || tasksQuery.isError ? (ledgerReadError?.message ?? "") : null,
+    errorCode: ledgerReadCode,
   };
   const refreshLedger = useCallback(() => {
     void tasksQuery.refetch();
