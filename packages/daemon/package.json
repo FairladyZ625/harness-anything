@@ -107,6 +107,7 @@
       "./internal/fleet/edge-join": "./dist/daemon/src/fleet/edge-join.js",
       "./internal/lifecycle-log": "./dist/daemon/src/lifecycle-log.js",
       "./internal/offline-storage-command": "./dist/daemon/src/offline-storage-command.js",
+      "./internal/probe-log-sink": "./dist/daemon/src/probe-log-sink.js",
       "./internal/process-port": "./dist/daemon/src/process-port.js",
       "./internal/protocol/daemon-protocol-commands": "./dist/daemon/src/protocol/daemon-protocol-commands.js",
       "./internal/protocol/daemon-protocol-commands-task": "./dist/daemon/src/protocol/daemon-protocol-commands-task.js",
