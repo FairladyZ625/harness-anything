@@ -88,9 +88,31 @@ test("public management backfill completes a previous-writer Decision search exp
     assert.equal((await count()).search_pending, "1");
     await manage((client) => client.query("DELETE FROM ha_decisions WHERE decision_id='dec_1'"));
     assert.equal((await count()).search_pending, "0");
-    // Old installation has no summary yet. Pin the management completion transaction
-    // and observe the previous writer waiting on its summary, then release it.
+    // An old installation can have fully ready owners but no summary. Its first
+    // page only initializes unknown state; it must not scan while holding that key.
     await manage((client) => client.query("DELETE FROM ha_decision_read_status"));
+    assert.deepEqual(
+      await manage((client) =>
+        backfill(
+          new Proxy(client, {
+            get(target, key) {
+              if (key !== "query") return Reflect.get(target, key);
+              return (...args: unknown[]) => {
+                assert.ok(
+                  !String(args[0]).includes("SELECT EXISTS("),
+                  "initialization must commit before history scan",
+                );
+                return Reflect.apply(target.query, target, args);
+              };
+            },
+          }),
+          scope,
+        ),
+      ),
+      { processed: 0, done: false },
+    );
+    // Pin completion after its scan and observe the previous writer waiting on
+    // the publication row, then release it without losing the pending transition.
     const peers = new Pool({ host: "127.0.0.1", port: fixture.port, user: "postgres", database: "postgres", max: 2 });
     const locked = Promise.withResolvers<void>(),
       release = Promise.withResolvers<void>(),

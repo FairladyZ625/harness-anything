@@ -204,7 +204,8 @@ preserves both pending owners and the readiness summary. Readiness uses scoped p
 counts maintained by statement transition triggers, including previous-writer invalidations
 and deletes. Old scopes remain unknown until management confirms completion and atomically publishes
 against the scope generation. A concurrent transition leaves `done=false` for the next page.
-The management scan holds no writer locks; readers never probe the historical pending
+An absent summary is initialized as unknown in its own page (`done=false`); commit it
+before the next page scans history. The management scan holds no writer locks; readers never probe the historical pending
 index or depend on VACUUM.
 Current writers initialize empty scopes before writing. The additive summary table and
 triggers must be installed before deploying readers and retained across the current/previous

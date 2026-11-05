@@ -90,10 +90,14 @@ export async function assertPgDecisionReadReady(
  */
 export async function finishPgDecisionReadBackfill(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch];
-  await client.query(
-    `INSERT INTO ha_decision_read_status(tenant_id,project_id,policy_epoch) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
+  const initialized = await client.query(
+    `INSERT INTO ha_decision_read_status(tenant_id,project_id,policy_epoch) VALUES($1,$2,$3)
+      ON CONFLICT DO NOTHING RETURNING 1`,
     keys,
   );
+  // Commit an absent scope's unknown state before scanning history: the inserted
+  // unique key would otherwise keep previous writers waiting for that whole scan.
+  if (initialized.rowCount === 1) return false;
   const generation = (
     await client.query<{ generation: string }>(
       "SELECT generation FROM ha_decision_read_status WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
