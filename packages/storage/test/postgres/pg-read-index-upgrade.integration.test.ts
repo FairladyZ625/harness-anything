@@ -298,11 +298,50 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
         true,
       );
       await assertOnlineIndexDml(admin, fixture.port, keys);
+      assert.equal(
+        (await admin.query("SELECT to_regclass('ha_events_summary_pending') AS pending")).rows[0]!.pending,
+        null,
+        "an empty ledger has no summary work and skips the pending index",
+      );
+      const repoId = "summary-upgrade",
+        { eventStore } = createPgStorageBackend({ pool: fixture.pool, repoId, scope }),
+        event = eventAt(1);
+      await eventStore.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] }, 0, {
+        repoId,
+        holderId: "upgrade",
+        epoch: 1,
+      });
+      // A populated previous writer has completed v5, but predates fleet summaries.
+      // UPDATE on an empty event table would let the global contraction skip this build.
       await admin.query(
         "UPDATE ha_events SET summary_json=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
         keys,
       );
+      assert.deepEqual((await admin.query("SELECT read_index_version,summary_json FROM ha_events")).rows, [
+        { read_index_version: 5, summary_json: null },
+      ]);
       await assertOnlineIndexDml(admin, fixture.port, keys, true);
+      const repositories = await admin.query<{
+        tenant_id: string;
+        project_id: string;
+        policy_epoch: string;
+        repo_id: string;
+      }>("SELECT tenant_id,project_id,policy_epoch,repo_id FROM ha_repo_heads");
+      for (const repo of repositories.rows) {
+        const parameters = [repo.tenant_id, repo.project_id, repo.policy_epoch, repo.repo_id];
+        while (
+          (await admin.query("SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed", parameters)).rows[0]!
+            .processed > 0
+        ) {
+          // Each committed page advances pending rows; processed=0 publishes this repo's readiness.
+        }
+      }
+      await ensurePgProjectionSchema(admin);
+      assert.equal(
+        (await admin.query("SELECT to_regclass('ha_events_summary_pending') AS pending")).rows[0]!.pending,
+        null,
+        "all repositories backfilled and ready contract the pending index",
+      );
     } finally {
       admin.release();
     }
