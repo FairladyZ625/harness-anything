@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { checkPrBody } from "../check-pr-body.mjs";
 import { classifyProtectedChanges, deriveProtectedSurfaceRules } from "../check-pr-governance.mjs";
 import {
   SUBMISSION_FACTS_END,
@@ -12,13 +11,8 @@ import {
   readSubmissionFacts,
   renderSubmissionFacts,
 } from "../../packages/kernel/src/domain/submission-facts.ts";
-import { markdownSections } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
-import {
-  hasDependencyChange,
-  readDependencyDeclarations,
-  replaceDependencyDeclaration,
-  validateDependencyDeclaration,
-} from "./dependency-policy.mjs";
+import { markdownSectionEntries } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
+import { hasDependencyChange, replaceDependencyDeclaration } from "./dependency-policy.mjs";
 import { repoRoot } from "./git.mjs";
 
 const START = SUBMISSION_FACTS_START,
@@ -36,7 +30,7 @@ const PR_SECTIONS = Object.freeze([
 
 // The PR template keeps Dependency-Change on one machine-readable line, not as a `##` section.
 // G31 rejects the `none` sentinel whenever the cut touches a package.json or the lockfile, so the
-// renderer takes the description from this closeout section and reuses G31's own validation.
+// renderer takes the description from this closeout section and renders it on the template declaration line. G31 validates the published body separately.
 const DEPENDENCY_CHANGE = Object.freeze({
   title: "Dependency Change",
   aliases: Object.freeze(["dependency change", "dependency-change", "依赖变更", "依赖改动", "依赖变化"]),
@@ -88,15 +82,19 @@ function taskProjection(receipt, taskId) {
 }
 
 function findSection(sections, aliases) {
-  for (const alias of aliases) if (sections.has(alias)) return sections.get(alias);
-  for (const [heading, content] of sections)
-    for (const alias of aliases)
-      if (heading.startsWith(alias) && /^[ \t(（—–\-:：]/u.test(heading.slice(alias.length))) return content;
-  return undefined;
+  const matched = sections
+    .filter(([heading]) =>
+      aliases.some(
+        (alias) =>
+          heading === alias || (heading.startsWith(alias) && /^[ \t(（—–\-:：]/u.test(heading.slice(alias.length))),
+      ),
+    )
+    .map(([, content]) => content);
+  return matched.length > 0 ? matched.join("\n\n") : undefined;
 }
 
 function authoredSources(closeout, profileId) {
-  const sections = markdownSections(closeout),
+  const sections = [...markdownSectionEntries(closeout)],
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
   sources["What Changed"] ??= sources.Summary;
@@ -147,18 +145,19 @@ function normalizedSection(body, title) {
     .join("\n");
 }
 
-function assertInjectable(title, content) {
-  if (/^##[ \t]/mu.test(content))
-    throw new Error(`closeout.md ## ${title} contains a top-level "## " heading; it cannot be injected as-is`);
-  if (content.includes(START) || content.includes(END))
-    throw new Error(`closeout.md ## ${title} contains a submission-facts marker; it cannot be injected as-is`);
+// Closeout prose cannot introduce machine-owned markers or template section boundaries.
+function authoredContent(content) {
+  return content
+    .replace(/^##(?=[ \t])/gmu, "###")
+    .replaceAll(START, "&lt;!-- harness:submission-facts:start --&gt;")
+    .replaceAll(END, "&lt;!-- harness:submission-facts:end --&gt;");
 }
 
 function fillSection(body, title, content) {
   const { start, end } = sectionBounds(body, title),
     section = body.slice(start, end),
     keptMarkers = section.includes(START) && section.includes(END) ? `\n\n${START}\n${END}` : "";
-  return `${body.slice(0, start)}\n\n${content.trim()}${keptMarkers}\n\n${body.slice(end)}`;
+  return `${body.slice(0, start)}\n\n${authoredContent(content).trim()}${keptMarkers}\n\n${body.slice(end)}`;
 }
 
 /** Collapse closeout prose onto the one machine-readable line G31 parses. */
@@ -169,17 +168,6 @@ function dependencyDescription(content) {
     .filter((line) => line.length > 0)
     .map((line) => line.replace(/^(?:[-*+]|\d+\.)[ \t]+/u, ""))
     .join(" ");
-}
-
-function declareDependencyChange(body, content) {
-  assertInjectable(DEPENDENCY_CHANGE.title, content);
-  const description = dependencyDescription(content),
-    declarations = readDependencyDeclarations(body);
-  if (declarations.length !== 1)
-    throw new Error(
-      `PR body must contain exactly one Dependency-Change: declaration line; found ${declarations.length}`,
-    );
-  return replaceDependencyDeclaration(body, description);
 }
 
 // The governance gate classifies protected paths from the gate manifest; the renderer reuses that
@@ -203,29 +191,26 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     baseline = withoutFacts(template),
     sources = authoredSources(typeof closeout === "string" ? closeout : "", profileId);
   let rendered = stripped;
-  const missing = [];
+  if (hasDependencyChange(submissionFacts.changedFiles) && sources[DEPENDENCY_CHANGE.title]?.trim()) {
+    const { start, end } = sectionBounds(rendered, "Machine-Readable Declarations");
+    rendered =
+      rendered.slice(0, start) +
+      replaceDependencyDeclaration(
+        rendered.slice(start, end),
+        authoredContent(dependencyDescription(sources[DEPENDENCY_CHANGE.title])),
+      ) +
+      rendered.slice(end);
+  }
   for (const { title } of PR_SECTIONS) {
     if (normalizedSection(stripped, title) !== normalizedSection(baseline, title)) continue;
     const content = sources[title];
-    if (typeof content !== "string" || content.trim().length === 0) {
-      missing.push(title);
-      continue;
-    }
-    assertInjectable(title, content);
-    rendered = fillSection(rendered, title, content);
+    // CH2: headings are authoring conventions, not a second admission contract. When a
+    // heading is absent, publish the author's original document in its original order.
+    rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
-  if (hasDependencyChange(submissionFacts.changedFiles)) {
-    const content = sources[DEPENDENCY_CHANGE.title];
-    if (typeof content !== "string" || content.trim().length === 0) missing.push(DEPENDENCY_CHANGE.title);
-    else rendered = declareDependencyChange(rendered, content);
-  }
-  if (missing.length > 0) throw new Error(`closeout.md is missing required section(s): ${missing.join(", ")}`);
   rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest);
-  const { start, end } = markerPair(rendered, "PR template"),
-    finalBody = `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`,
-    declarationErrors = validateDependencyDeclaration(submissionFacts.changedFiles, finalBody);
-  if (declarationErrors.length > 0) throw new Error(declarationErrors.join("\n"));
-  return finalBody;
+  const { start, end } = markerPair(rendered, "PR template");
+  return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
 }
 
 function parseArgs(argv) {
@@ -282,7 +267,7 @@ export function main(argv = process.argv.slice(2)) {
           maxBuffer: 16 * 1024 * 1024,
         }),
       ),
-      { submission, packagePath } = taskProjection(receipt, options.taskId),
+      { packagePath } = taskProjection(receipt, options.taskId),
       closeout = readCloseout(rootDir, packagePath),
       template = readFileSync(path.resolve(rootDir, ".github/pull_request_template.md"), "utf8"),
       input =
@@ -290,12 +275,7 @@ export function main(argv = process.argv.slice(2)) {
           ? template
           : readFileSync(path.resolve(rootDir, options.bodyFile), "utf8"),
       manifest = JSON.parse(readFileSync(path.resolve(rootDir, "tools/gate-manifest.json"), "utf8")),
-      body = renderTaskPrBody({ taskId: options.taskId, receipt, template, body: input, closeout, manifest }),
-      check = checkPrBody(body, {
-        prTemplate: template,
-        eventMigration: { files: readSubmissionFacts(submission).changedFiles },
-      });
-    if (!check.ok) throw new Error(["rendered PR body fails check-pr-body:", ...check.issues].join("\n"));
+      body = renderTaskPrBody({ taskId: options.taskId, receipt, template, body: input, closeout, manifest });
     process.stdout.write(body);
     return 0;
   } catch (error) {

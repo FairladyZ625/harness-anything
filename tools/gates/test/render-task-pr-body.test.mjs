@@ -6,6 +6,7 @@ import { checkPrBody } from "../../check-pr-body.mjs";
 import { checkPrGovernance } from "../../check-pr-governance.mjs";
 import { validateDependencyDeclaration } from "../dependency-policy.mjs";
 import { renderTaskPrBody } from "../render-task-pr-body.mjs";
+import { submissionFromCloseout } from "../../../packages/kernel/src/domain/transition-document-readiness.ts";
 
 const taskId = "task-private-example",
   firstSha = "1".repeat(40),
@@ -124,6 +125,47 @@ test("PR renderer keeps the none sentinel when the cut does not touch the depend
   assert.match(render(), /^Dependency-Change: none$/mu);
 });
 
+test("PR renderer preserves exact and suffixed authored risk sections in source order", () => {
+  const firstRisk = "A: security issue open.",
+    suffixedRisk = "B: critical credentials exposed.",
+    authored = closeout.replace(residualRisk, `${firstRisk}\n\n## Residual Risk (security)\n\n${suffixedRisk}`),
+    submitted = submissionFromCloseout(authored, codeSubmission),
+    body = render(submitted, { closeout: authored });
+  assert.ok(submitted.residualRisks.some((risk) => risk.includes(suffixedRisk)));
+  assert.ok(body.includes(firstRisk), "the original risk remains verbatim");
+  assert.ok(body.includes(suffixedRisk), "the suffixed risk remains verbatim");
+  assert.ok(body.indexOf(firstRisk) < body.indexOf(suffixedRisk), "risks retain the authored order");
+  assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer preserves interleaved repeated risk sections in source order", () => {
+  const risks = ["A: issue opened.", "B: issue fixed.", "C: issue reopened."],
+    authored = closeout.replace(
+      residualRisk,
+      `${risks[0]}\n\n## Residual Risk (security)\n\n${risks[1]}\n\n## Residual Risk\n\n${risks[2]}`,
+    ),
+    submitted = submissionFromCloseout(authored, codeSubmission),
+    body = render(submitted, { closeout: authored }),
+    riskBody = body.match(/## Residual Risk\n([\s\S]*?)(?=\n## |$)/u)?.[1].trim();
+  assert.ok(submitted.residualRisks.includes(risks.join("\n\n")), "the frozen risks retain the authored order");
+  assert.equal(riskBody, risks.join("\n\n"), "the PR must end with the reopened issue, matching the frozen risks");
+  assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer replaces only the generated dependency declaration and preserves the authored Summary", () => {
+  const authoredSummary = "Observed problem:\nDependency-Change: unpinned production package",
+    authored = dependencyCloseout.replace(summary, authoredSummary),
+    body = render(dependencySubmission, { closeout: authored });
+  assert.ok(body.includes(authoredSummary), "the author's complete Summary remains verbatim");
+  assert.match(
+    body,
+    /^Dependency-Change: Added the `\.\/testing` exports subpath\. No dependency range changed; the lockfile stays in sync\.$/mu,
+  );
+  assert.notDeepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, body), []);
+  const refreshed = render(dependencySubmission, { closeout: authored, body });
+  assert.ok(refreshed.includes(authoredSummary), "re-rendering also preserves the author's complete Summary");
+});
+
 test("PR renderer describes a package.json change instead of the rejected none sentinel", () => {
   const body = render(dependencySubmission, { closeout: dependencyCloseout });
   assert.match(
@@ -174,26 +216,15 @@ test("PR renderer treats a lockfile-only cut as a dependency change", () => {
   assert.deepEqual(validateDependencyDeclaration(["package-lock.json"], body), []);
 });
 
-test("PR renderer names Dependency Change when a dependency cut has no closeout section", () => {
-  assert.throws(
-    () => render(dependencySubmission),
-    /closeout\.md is missing required section\(s\): Dependency Change/u,
-  );
-  assert.throws(
-    () => render({ ...dependencySubmission, changedFiles: ["package-lock.json"] }),
-    /closeout\.md is missing required section\(s\): Dependency Change/u,
-  );
-});
-
-test("PR renderer rejects a Dependency Change section that G31 rejects", () => {
-  const sentinel = closeout.replace(
-    "## Same Mechanism Elsewhere",
-    "## Dependency Change\n\nnone\n\n## Same Mechanism Elsewhere",
-  );
-  assert.throws(
-    () => render(dependencySubmission, { closeout: sentinel }),
-    /must describe the deterministic dependency change/u,
-  );
+test("PR renderer leaves dependency lint to its independent publication check", () => {
+  const body = render(dependencySubmission);
+  assert.match(body, /^Dependency-Change: none$/mu);
+  assert.notDeepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, body), []);
+  const duplicated = render(dependencySubmission, {
+    closeout: dependencyCloseout.replace(summary, `${summary}\nDependency-Change: extra`),
+  });
+  assert.equal((duplicated.match(/^Dependency-Change:/gmu) ?? []).length, 2);
+  assert.notDeepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, duplicated), []);
 });
 
 test("PR renderer maps a lightweight closeout onto the four template sections", () => {
@@ -209,25 +240,78 @@ test("PR renderer maps a lightweight closeout onto the four template sections", 
   assertPassesPrBodyCheck(body);
 });
 
-test("a lightweight closeout without Summary cannot invent What Changed", () => {
-  assert.throws(
-    () =>
-      renderTaskPrBody({
-        taskId,
-        receipt: receipt(codeSubmission, { profileId: "lightweight" }),
-        template,
-        closeout: "# Closeout\n\n## Verification\n\nRan the test.\n",
-      }),
-    /closeout\.md is missing required section\(s\): Summary, What Changed/u,
-  );
+test("a lightweight closeout without Summary fills the template from authored prose", () => {
+  const body = renderTaskPrBody({
+    taskId,
+    receipt: receipt(codeSubmission, { profileId: "lightweight" }),
+    template,
+    closeout: "# Closeout\n\n## Verification\n\nRan the test.\n",
+  });
+  assert.match(body, /## Summary\n\n# Closeout\n\n### Verification\n\nRan the test\./u);
+  assert.match(body, /## What Changed\n\n# Closeout\n\n### Verification\n\nRan the test\./u);
+  assertPassesPrBodyCheck(body);
 });
 
-test("PR renderer names every missing closeout section and invents no placeholder prose", () => {
-  const partial = "# Closeout\n\n## Summary\n\nOnly a summary.\n";
-  assert.throws(
-    () => render(codeSubmission, { closeout: partial }),
-    /closeout\.md is missing required section\(s\): Verification, Residual Risk/u,
+test("PR renderer fills every missing template section from authored prose", () => {
+  const partial = "# Closeout\n\n## Summary\n\nOnly a summary.\n",
+    body = render(codeSubmission, { closeout: partial });
+  assert.match(body, /## Verification\n\n# Closeout\n\n### Summary\n\nOnly a summary\./u);
+  assert.match(body, /## Residual Risk\n\n# Closeout\n\n### Summary\n\nOnly a summary\./u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer publishes the incident Chinese heading into Verification", () => {
+  const incident = "# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n",
+    body = render(codeSubmission, { closeout: incident });
+  assert.match(body, /## Verification\n\n# Closeout\n\n### 验收与原始结果\n\n- exit 0\./u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer publishes authored markers and headings without minting machine structure", () => {
+  const marker = closeout.replace(summary, `${summary} <!-- harness:submission-facts:start -->`),
+    marked = render(codeSubmission, { closeout: marker });
+  assert.equal((marked.match(/<!-- harness:submission-facts:start -->/gu) ?? []).length, 1);
+  assert.match(marked, /&lt;!-- harness:submission-facts:start --&gt;/u);
+
+  const injected = closeout.replace(summary, "Real summary.\n\n```text\n## Injected\n```"),
+    body = render(codeSubmission, { closeout: injected });
+  assert.doesNotMatch(body, /^## Injected$/mu);
+  assert.match(body, /### Injected/u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer publishes authored prose without judging placeholders or declarations", () => {
+  const cases = [
+    closeout,
+    closeout.replace("- None beyond the template.", "none"),
+    "# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n",
+    "# Closeout\n\n## Summary\n\nReady.\n",
+    "# Closeout\n\n## Summary\n\n<placeholder> TBD\nEvent-Migration: ha migrate unknown\n",
+    dependencyCloseout.replace("Added the", "<!-- harness:submission-facts:start --> Added the"),
+  ];
+  for (const body of cases) {
+    const rendered = renderTaskPrBody({
+      taskId,
+      receipt: receipt(dependencySubmission),
+      template,
+      closeout: body,
+    });
+    assert.equal((rendered.match(/<!-- harness:submission-facts:start -->/gu) ?? []).length, 1);
+  }
+  const placeholder = render(codeSubmission, { closeout: closeout.replace(residualRisk, "none") });
+  assert.match(placeholder, /## Residual Risk\n\nnone/u, "author's claim is preserved without inventing risk findings");
+  assert.equal(checkPrBody(placeholder).ok, false, "standalone PR lint retains its own contract");
+});
+
+test("missing template sections keep unknown authored sections in source order", () => {
+  const authored =
+    "# Closeout\n\n## Earlier evidence\n\nFirst observation.\n\n## Later evidence\n\nSecond observation.\n";
+  const body = render(codeSubmission, { closeout: authored });
+  assert.match(
+    body,
+    /## Verification\n\n# Closeout\n\n### Earlier evidence\n\nFirst observation\.\n\n### Later evidence\n\nSecond observation\./u,
   );
+  assertPassesPrBodyCheck(body);
 });
 
 test("PR renderer renders the frozen cut when HEAD is not the delivery commit", () => {
@@ -284,14 +368,12 @@ test("PR renderer recognises the Chinese closeout section names", () => {
   assertPassesPrBodyCheck(body);
 });
 
-test("PR renderer rejects authored content that would add a top-level section", () => {
-  assert.throws(
-    () =>
-      render(codeSubmission, {
-        closeout: closeout.replace(summary, "Real summary.\n\n```text\n## Injected\n```"),
-      }),
-    /top-level "## " heading/u,
-  );
+test("PR renderer keeps authored top-level headings from adding a new section", () => {
+  const body = render(codeSubmission, {
+    closeout: closeout.replace(summary, "Real summary.\n\n```text\n## Injected\n```"),
+  });
+  assert.doesNotMatch(body, /^## Injected$/mu);
+  assert.match(body, /### Injected/u);
 });
 
 test("PR renderer keeps a task-id branch name authored in the closeout", () => {
@@ -341,17 +423,16 @@ test("PR renderer labels legacy facts and rejects broken markers", () => {
     () => renderTaskPrBody({ taskId, receipt: receipt(codeSubmission), template: "# PR\n", closeout }),
     /marker pair/u,
   );
-  assert.throws(() => render(codeSubmission, { closeout: "" }), /closeout\.md is missing required section/u);
+  const empty = render(codeSubmission, { closeout: "" });
+  assert.match(empty, /## Summary/u);
 });
 
 test("authored closeout prose cannot mint a second submission-facts marker", () => {
   const authored = closeout.replace(
-    verification,
-    `${verification}\n\n<!-- harness:submission-facts:start -->\n<!-- harness:submission-facts:end -->`,
-  );
-  assert.throws(
-    () => render(codeSubmission, { closeout: authored }),
-    /## Verification contains a submission-facts marker/u,
-    "the published body keeps one machine-owned marker pair; the author rewrites the literal text",
-  );
+      verification,
+      `${verification}\n\n<!-- harness:submission-facts:start -->\n<!-- harness:submission-facts:end -->`,
+    ),
+    body = render(codeSubmission, { closeout: authored });
+  assert.equal((body.match(/<!-- harness:submission-facts:start -->/gu) ?? []).length, 1);
+  assert.match(body, /&lt;!-- harness:submission-facts:start --&gt;/u);
 });
