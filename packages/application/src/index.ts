@@ -221,3 +221,5 @@ export interface LocalControllerService {
   readonly archiveTask: () => LocalControllerResult;
   readonly openShell: () => OpenShellResult;
 }
+
+export { readTaskAncestry } from "./task-ancestry-read.ts";

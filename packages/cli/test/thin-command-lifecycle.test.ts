@@ -1365,3 +1365,36 @@ test("task assign states the whole person/node/team choice when the group rule i
       nodeId: "node-1",
     });
 });
+
+test("doc show accepts bounded version-pinned byte ranges", () => {
+  const digest = "a".repeat(64);
+  const args = [
+    "doc",
+    "show",
+    "--path",
+    "tasks/work/task_plan.md",
+    "--raw",
+    "--offset",
+    "65536",
+    "--length",
+    "17",
+    "--content-sha256",
+    digest,
+    "--content-revision",
+    "42",
+  ];
+  const parsed = parseThinCommand(args);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok)
+    assert.deepEqual(parsed.command.action, {
+      kind: "doc-show",
+      path: "tasks/work/task_plan.md",
+      raw: true,
+      offset: 65536,
+      length: 17,
+      contentSha256: digest,
+      contentRevision: 42,
+    });
+  assert.equal(parseThinCommand(args.slice(0, -2)).ok, false);
+  assert.equal(parseThinCommand(["doc", "show", "--path", "x", "--offset", "0", "--length", "65537"]).ok, false);
+});

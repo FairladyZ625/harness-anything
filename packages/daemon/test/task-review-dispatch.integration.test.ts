@@ -1128,7 +1128,7 @@ test(
 
 test(
   "a re-review resumes the prior reviewer provider session for the same task lane",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
@@ -1137,7 +1137,35 @@ test(
     });
     try {
       await f.install();
+      const parent = await f.run({ kind: "task-create", taskId: "task_review_parent", title: "Review Work" });
+      assert.equal(parent.outcome, "applied", JSON.stringify(parent));
+      const parentPackage = String((parent as Record<string, unknown>).packagePath);
+      await realizeTaskPlanFixture(
+        f.root,
+        parentPackage,
+        (planPath) => f.run({ kind: "doc-submit", paths: [planPath] }),
+        "Review Work",
+      );
+      const parentPlan = `${parentPackage}/task_plan.md`,
+        file = path.join(f.root, "harness", parentPlan);
+      writeFileSync(
+        file,
+        readFileSync(file, "utf8").replace(
+          "## Constraints",
+          "## Constraints\n\nReviewers must see the publication restriction.",
+        ),
+      );
+      assert.equal((await f.run({ kind: "doc-submit", paths: [parentPlan] })).outcome, "applied");
+      assert.equal(
+        (await f.run({ kind: "task-amend", taskId, patches: [{ field: "parentTaskId", value: "task_review_parent" }] }))
+          .outcome,
+        "applied",
+      );
       assert.equal((await f.submit()).outcome, "applied");
+      const firstPrompt = f.launches.at(-1)!.prompt;
+      assert.match(firstPrompt, /Reviewers must see the publication restriction\./u);
+      const parentVersion = /task\/task_review_parent — [^\n]+revision=(\d+); sha256=([a-f0-9]{64})/u.exec(firstPrompt);
+      assert.ok(parentVersion);
       const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(first?.type === "runtime_dispatch_requested");
       const reviewId = `review-${first.payload.dispatchId}`;
@@ -1159,6 +1187,9 @@ test(
         secondProvider = readDispatchStream(f.root, second.payload.dispatchId);
       assert.equal(firstProvider?.providerSessionId, "review-provider-session");
       assert.equal(secondProvider?.providerSessionId, firstProvider?.providerSessionId);
+      const resumedPrompt = f.launches.at(-1)!.prompt;
+      assert.match(resumedPrompt, /Reviewers must see the publication restriction\./u);
+      assert.ok(resumedPrompt.includes(`revision=${parentVersion[1]}; sha256=${parentVersion[2]}`));
       assert.ok(
         f.launches.at(-1)!.args.includes("review-provider-session"),
         "the provider argv resumes the same session",

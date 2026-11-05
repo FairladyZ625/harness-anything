@@ -32,6 +32,7 @@ interface ReadSetEvidence {
     readonly authority: string;
     readonly freshness: string;
     readonly locator: string | null;
+    readonly contentVersion: string | number | null;
     readonly whyIncluded: { readonly source: string; readonly relationId: string; readonly type: string };
   }[];
   readonly blocked: boolean;
@@ -163,6 +164,25 @@ test("task read-set derives one ordered projection per cut and never writes back
     assert.deepEqual(isolated.entries, []);
     assert.equal(isolated.blocked, false);
     assert.equal(isolated.taskRef, "task/task_read_set_isolated");
+
+    const moved = await cell.run(
+      {
+        kind: "task-amend",
+        taskId: "task_read_set_isolated",
+        patches: [{ field: "parentTaskId", value: "task_read_set_host" }],
+      },
+      binding,
+    );
+    assert.equal(moved.outcome, "applied", JSON.stringify(moved));
+    const inherited = JSON.parse(String((await readSet("task_read_set_isolated")).evidence)) as ReadSetEvidence;
+    assert.equal(inherited.blocked, false, JSON.stringify(inherited));
+    assert.equal(inherited.entries.length, 1);
+    assert.equal(inherited.entries[0]?.entityRef, "task/task_read_set_host");
+    assert.equal(inherited.entries[0]?.whyIncluded.source, "ancestor");
+    assert.equal(inherited.entries[0]?.required, true);
+    assert.equal(inherited.entries[0]?.authority, "normative");
+    assert.match(String(inherited.entries[0]?.locator), /task_plan\.md$/u);
+    assert.equal(typeof inherited.entries[0]?.contentVersion, "number");
 
     // Negative control: an unknown id and a short prefix of a real id are the same not-found
     // answer from the shared judgment, naming the id that was asked for.

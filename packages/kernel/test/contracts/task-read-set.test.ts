@@ -269,3 +269,31 @@ test("every entry says which edge admitted it and the cut it was read at", () =>
   });
   assert.deepEqual(derived.projectionCut, cut);
 });
+
+test("parent plans are required normative reading and missing locators block", () => {
+  const derived = deriveTaskReadSet({
+    taskRef,
+    edges: [],
+    counterparts: new Map(),
+    projectionCut: cut,
+    ancestors: [
+      { taskId: "task_work", packagePath: "tasks/work" },
+      { taskId: "task_parent", packagePath: null },
+    ],
+  });
+  assert.deepEqual(
+    derived.entries.map(({ entityRef, locator, required, authority, whyIncluded }) => [
+      entityRef,
+      locator,
+      required,
+      authority,
+      whyIncluded.source,
+    ]),
+    [
+      ["task/task_parent", null, true, "normative", "ancestor"],
+      ["task/task_work", "tasks/work/task_plan.md", true, "normative", "ancestor"],
+    ],
+  );
+  assert.equal(derived.blocked, true);
+  assert.equal(derived.blockedReasons[0]?.entityRef, "task/task_parent");
+});

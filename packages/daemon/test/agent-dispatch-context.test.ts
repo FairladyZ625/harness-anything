@@ -198,7 +198,23 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         terminate: () => undefined,
       }),
     });
-    await createTask(cell, root, { taskId: "task_ctx_root", title: "Causal work", taskClass: "work" });
+    const workPackage = await createTask(cell, root, {
+      taskId: "task_ctx_root",
+      title: "Causal work",
+      taskClass: "work",
+    });
+    const workPlanPath = `${workPackage}/task_plan.md`;
+    const workPlanFile = path.join(root, "harness", workPlanPath);
+    writeFileSync(
+      workPlanFile,
+      readFileSync(workPlanFile, "utf8").replace(
+        "## Constraints",
+        "## Constraints\n\nNever publish to shared systems before acceptance.",
+      ),
+    );
+    const updatedWork = await cell.run({ kind: "doc-submit", paths: [workPlanPath] }, binding);
+    assert.equal(updatedWork.outcome, "applied", JSON.stringify(updatedWork));
+    await waitForFixturePublication(cell, updatedWork.opId, binding);
     // Each spawn holds the task lease for its runtime session, so every dispatch
     // in this test gets its own leaf task under the same causal neighborhood.
     for (const taskId of ["task_ctx_leaf", "task_ctx_explicit", "task_ctx_agent"])
@@ -315,6 +331,9 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       "the living deliverable protocol rides every task-bound mission",
     );
     assertScopedGuidance(prompt!, "task_ctx_leaf");
+    assert.match(prompt!, /Never publish to shared systems before acceptance\./u);
+    const inheritedVersion = /task\/task_ctx_root — [^\n]+revision=(\d+); sha256=([a-f0-9]{64})/u.exec(prompt!);
+    assert.ok(inheritedVersion, "Work plan identity accompanies the inherited constraint");
 
     // An explicit prompt on a task-bound dispatch still gets the same block prepended.
     prompt = null;
@@ -337,6 +356,8 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       "an explicit prompt carries the inlined plan too",
     );
     assertScopedGuidance(prompt!, "task_ctx_explicit");
+    assert.match(prompt!, /Never publish to shared systems before acceptance\./u);
+    assert.ok(prompt!.includes(`revision=${inheritedVersion[1]}; sha256=${inheritedVersion[2]}`));
     assert.ok(prompt!.endsWith("Finish the leaf task."), "explicit caller text stays intact");
 
     // An agent-bound dispatch (ha agent run shape) assembles the same mission body.
@@ -369,6 +390,8 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.match(prompt!, /# Agent Identity: Causal Worker/u);
     assert.ok(causalBlock(prompt!) !== null, "agent-bound dispatch lost the causal block");
     assertScopedGuidance(prompt!, "task_ctx_agent");
+    assert.match(prompt!, /Never publish to shared systems before acceptance\./u);
+    assert.ok(prompt!.includes(`revision=${inheritedVersion[1]}; sha256=${inheritedVersion[2]}`));
 
     // A task with no causal neighborhood injects no causal block, but the fixed
     // guidance still directs the worker to its own read-set and owner for missing context.

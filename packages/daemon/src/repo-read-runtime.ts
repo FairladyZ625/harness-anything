@@ -38,7 +38,7 @@ import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-type
 import { repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
 import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
-import { readEdgeViewBlob } from "./runtime-result-read.ts";
+import { readEdgeViewBlob, readEdgeViewBlobRange } from "./runtime-result-read.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
@@ -157,6 +157,9 @@ export function makeRepoReadRuntime(
               if (property === "currentCut")
                 return () => ({ repoId: input.repoId, revision: edgeView.revision, headDigest: edgeView.headDigest });
               if (property === "readContentBlob") return (sha256: string) => readEdgeViewBlob(edgeView, sha256);
+              if (property === "readContentBlobRange")
+                return (sha256: string, offset: number, length: number) =>
+                  readEdgeViewBlobRange(edgeView, sha256, offset, length);
               throw cellCodedError(
                 "replica_unavailable",
                 `Replica query requires unmaterialized canonical store operation ${String(property)}.`,

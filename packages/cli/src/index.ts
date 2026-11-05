@@ -298,10 +298,10 @@ export function rawTemplateBody(receipt: Record<string, unknown>): string {
 
 // doc-show --raw: evidence is the projected document body itself; it is written
 // verbatim (no receipt decoration) so its sha256 matches the file on disk.
-export function rawDocumentBody(receipt: Record<string, unknown>): string {
+export function rawDocumentBody(receipt: Record<string, unknown>): string | Uint8Array {
   if (receipt.ok !== true || typeof receipt.evidence !== "string")
     throw new TypeError("Raw document output requires a successful doc-show receipt.");
-  return receipt.evidence;
+  return receipt.evidenceEncoding === "base64" ? Buffer.from(receipt.evidence, "base64") : receipt.evidence;
 }
 
 /** Stream an edge-owned sealed document without materializing the full receipt in the CLI. */

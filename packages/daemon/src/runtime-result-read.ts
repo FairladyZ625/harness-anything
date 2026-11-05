@@ -32,6 +32,31 @@ export function readEdgeViewBlob(view: FleetMirrorView, sha256: string): Uint8Ar
   return bytes;
 }
 
+/** Read one bounded slice; the caller verifies the complete content identity across slices. */
+export function readEdgeViewBlobRange(
+  view: FleetMirrorView,
+  sha256: string,
+  offset: number,
+  length: number,
+): Uint8Array | null {
+  if (!/^[a-f0-9]{64}$/u.test(sha256)) return null;
+  return withReplicaGeneration(view.viewDir, (generation) => {
+    if (!generation)
+      throw Object.assign(new Error("Replica generation is unavailable."), { code: "replica_unavailable" });
+    const store = openSqliteEventStore({
+      databasePath: generation.ledgerPath,
+      repoId: generation.metadata.repoId,
+      generation: generation.metadata.ledgerGeneration,
+      readOnly: true,
+    });
+    try {
+      return store.readContentObjectRange(sha256, offset, length);
+    } finally {
+      store.close();
+    }
+  });
+}
+
 function edgeObject(view: FleetMirrorView, sha256: string): Uint8Array | null {
   if (!/^[a-f0-9]{64}$/u.test(sha256)) return null;
   return withReplicaGeneration(view.viewDir, (generation) => {

@@ -12,10 +12,8 @@ export const READ_SET_SCHEMA = "read-set/v1" as const;
 export type ReadSetAuthority = "normative" | "descriptive" | "historical";
 
 /**
- * Only the edges the task itself declares enter the read set
- * (`context-assembly-design.md` §3.2 step 1, "显式 active relations"). Generated and
- * inferred edges are execution provenance — the execution that runs the task, the
- * runtime session bound to it, the facts it emitted — not reading material.
+ * Relation-derived entries use only declared or imported edges. Generated execution
+ * provenance is not reading material; ancestor plans enter separately via the parent chain.
  */
 const explicitRelationOrigins: readonly RelationOrigin[] = ["declared", "imported_snapshot"];
 
@@ -25,10 +23,10 @@ export interface ReadSetEntry {
   readonly contentVersion: EntityVersion | null;
   readonly freshness: RelationFreshness;
   readonly whyIncluded: {
-    /** W3 adds `context-route` here; this wave derives entries from the task's own edges only. */
-    readonly source: "task-relation";
+    /** The relation projection or the parent chain that admitted this entry. */
+    readonly source: "task-relation" | "ancestor";
     readonly relationId: string;
-    readonly type: RelationType;
+    readonly type: RelationType | "ancestor";
     readonly rationale: string;
   };
   /** The relation revisions carried through unchanged so two edge nodes can compare answers. */
@@ -58,6 +56,8 @@ export interface TaskReadSetCounterpart {
   readonly witness: EntityVersionWitness;
   /** Only the projection knows a task package path; every other kind derives from its ref. */
   readonly packagePath?: string | null;
+  readonly documentAvailable?: boolean;
+  readonly documentPath?: string;
 }
 
 export interface ReadSetProjectionCut {
@@ -71,12 +71,22 @@ export interface TaskReadSetInput {
   readonly edges: readonly TaskReadSetEdge[];
   readonly counterparts: ReadonlyMap<string, TaskReadSetCounterpart>;
   readonly projectionCut: ReadSetProjectionCut;
+  readonly ancestors?: readonly {
+    readonly taskId: string;
+    readonly packagePath: string | null;
+    readonly contentVersion?: EntityVersion | null;
+    readonly documentAvailable?: boolean;
+  }[];
 }
 
 export interface ReadSetBlockedReason {
   readonly entityRef: string;
   readonly relationId: string;
-  readonly code: "required_target_orphaned" | "required_target_unknown" | "required_locator_unresolved";
+  readonly code:
+    | "required_target_orphaned"
+    | "required_target_unknown"
+    | "required_locator_unresolved"
+    | "required_document_missing";
   readonly detail: string;
 }
 
@@ -123,6 +133,34 @@ export function deriveTaskReadSet(input: TaskReadSetInput): TaskReadSet {
       };
     entries.push(entry);
     if (entry.required) blockedReasons.push(...readSetGaps(entry, counterpart));
+  }
+  for (const ancestor of input.ancestors ?? []) {
+    const entityRef = `task/${ancestor.taskId}`,
+      locator = ancestor.packagePath === null ? null : `${ancestor.packagePath}/task_plan.md`;
+    entries.push({
+      entityRef,
+      locator,
+      contentVersion: ancestor.contentVersion ?? null,
+      freshness: "current",
+      whyIncluded: { source: "ancestor", relationId: "", type: "ancestor", rationale: "Inherited task plan" },
+      edgeVersions: { targetObservedVersion: null, currentTargetVersion: null },
+      required: true,
+      authority: "normative",
+    });
+    if (locator === null)
+      blockedReasons.push({
+        entityRef,
+        relationId: "",
+        code: "required_locator_unresolved",
+        detail: `Required ancestor ${entityRef} has no task plan locator.`,
+      });
+    else if (ancestor.documentAvailable === false)
+      blockedReasons.push({
+        entityRef,
+        relationId: "",
+        code: "required_document_missing",
+        detail: `Required ancestor plan is unavailable: ${locator}`,
+      });
   }
   entries.sort(compareReadSetEntries);
   return Object.freeze({
@@ -185,6 +223,12 @@ function readSetGaps(
       ...anchor,
       code: "required_locator_unresolved",
       detail: `Required ${entry.entityRef} resolves to no locator.`,
+    });
+  else if (counterpart?.documentAvailable === false)
+    reasons.push({
+      ...anchor,
+      code: "required_document_missing",
+      detail: `Required document is unavailable: ${counterpart.documentPath ?? entry.locator}`,
     });
   return reasons;
 }
