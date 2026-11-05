@@ -18,6 +18,9 @@ test(
   "ordinary writes remain available while an active runtime workspace continuously changes thousands of files",
   { timeout: 300_000 },
   async (t) => {
+    // Acceptance scope: at most 4,000 files under continuous churn, CPU idle >= 20%,
+    // with ordinary-write p95 <= 500 ms. This regression samples individual writes;
+    // it does not measure CPU idle, churn rate, or a statistically meaningful p95.
     const fileCount = Number(process.env.FLEET_STRESS_WORKSPACE_FILES ?? 2_000),
       parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
       repoId = workspaceId("writer-queue-depth"),
