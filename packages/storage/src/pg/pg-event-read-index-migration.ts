@@ -113,15 +113,8 @@ export function eventReadIndexDdl(): readonly string[] {
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json ON ha_events
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
-    `DO $summary_index$
-      BEGIN
-        IF EXISTS (SELECT 1 FROM ha_events WHERE summary_json IS NULL LIMIT 1) THEN
-          CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
-            (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL;
-        ELSE
-          DROP INDEX IF EXISTS ha_events_summary_pending;
-        END IF;
-      END $summary_index$`,
+    `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
@@ -200,7 +193,6 @@ export function eventReadIndexDdl(): readonly string[] {
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
         ) SELECT count(*)::integer INTO processed FROM filled;
         IF processed = 0 THEN
-          DROP INDEX IF EXISTS ha_events_summary_pending;
           INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
           VALUES (tenant,project,epoch,repo,true)
           ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true;
@@ -222,4 +214,33 @@ export async function assertPgEventReadIndexReady(
   );
   if (pending.rows.length)
     throw Object.assign(new Error("Event read-index backfill is pending"), { code: "projection_pending" });
+}
+
+/** Schema-owner contract step, outside serving PostgreSQL transactions. A scoped page only
+ * certifies its own repo; the physical index remains until all scopes have committed readiness.
+ * The shared event trigger fills every subsequent old/current writer insert atomically.
+ */
+export async function contractPgEventSummaryIndex(
+  client: PoolClient,
+  options: { readonly indexBuild?: "concurrent" | "isolated" } = {},
+): Promise<boolean> {
+  // A tenant-filtered empty result cannot certify global completion. A schema owner still
+  // subject to FORCE RLS safely leaves the index for the deployment's all-scope manager.
+  const visibility = await client.query<{ scoped: boolean }>(`SELECT
+    row_security_active('ha_events') OR row_security_active('ha_repo_heads') OR
+    row_security_active('ha_event_summary_state') AS scoped`);
+  if (visibility.rows[0]!.scoped) return false;
+  const pending = await client.query(`
+    SELECT 1 FROM ha_events WHERE summary_json IS NULL
+    UNION ALL
+    SELECT 1 FROM ha_repo_heads h WHERE NOT EXISTS (
+      SELECT 1 FROM ha_event_summary_state s
+      WHERE (s.tenant_id,s.project_id,s.policy_epoch,s.repo_id) =
+        (h.tenant_id,h.project_id,h.policy_epoch,h.repo_id) AND s.ready
+    ) LIMIT 1`);
+  if (pending.rows.length) return false;
+  await client.query(
+    `DROP INDEX ${options.indexBuild === "isolated" ? "" : "CONCURRENTLY "}IF EXISTS ha_events_summary_pending`,
+  );
+  return true;
 }

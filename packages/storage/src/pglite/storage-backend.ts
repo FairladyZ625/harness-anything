@@ -3,6 +3,7 @@ import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/t
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/index.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
+import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
@@ -109,6 +110,9 @@ async function initializeSchema(
     );
     if (processed === 0) break;
   }
+  // PGlite has exclusive schema ownership. Serving PostgreSQL contracts on its schema-owner
+  // connection, using CONCURRENTLY outside transactions after every scope's page job commits.
+  await withPostgresTransaction(pool, (client) => contractPgEventSummaryIndex(client, { indexBuild: "isolated" }));
   // Embedded storage owns its schema: finish the dated v5 expansion before exposing this scope.
   // Each committed primary-key page advances; processed=0, rather than the cursor, ends the scan.
   let owner = "",

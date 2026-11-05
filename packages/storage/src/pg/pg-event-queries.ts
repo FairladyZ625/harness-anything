@@ -239,10 +239,24 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
              LIMIT 1`,
             [claims.tenantId, claims.projectId, claims.policyEpoch, repoId],
           );
-          if (!ready.rowCount)
-            throw new Error(
-              "fleet event summaries are not backfilled for this window; retry after the upgrade page job",
+          if (!ready.rowCount) {
+            // During the current/previous upgrade window, preserve the existing event reader
+            // until this repo's bounded summary projection has been certified.
+            const rows = await readEventRowsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              "revision > $6 AND revision <= $7",
+              [afterRevision, cut.watermark],
+              "ASC",
+              limit,
             );
+            return {
+              ...cut,
+              events: rows.map(({ event_json }) => canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1)),
+            };
+          }
           const result = await client.query<{ event_json: string }>(
             `SELECT summary_json AS event_json
              FROM ha_events

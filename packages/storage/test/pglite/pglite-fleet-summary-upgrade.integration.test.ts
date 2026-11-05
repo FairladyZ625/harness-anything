@@ -5,6 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
+import { createPgStorageBackend } from "../../src/pg/backend.ts";
+import { contractPgEventSummaryIndex } from "../../src/pg/pg-event-read-index-migration.ts";
+import { ensurePgProjectionSchema } from "../../src/pg/pg-projection-schema.ts";
+import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
+import { openPgMigrationEndpoint } from "../../src/migration/postgres-endpoint.ts";
+import { migrateStorage } from "../../src/migration/engine.ts";
+import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 
 pgliteIntegrationSuite("fleet summary upgrade", () => {
@@ -51,18 +59,12 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       // old database has no readiness row yet.
       await backend.pool.query("UPDATE ha_events SET summary_json=NULL, read_index_version=5");
       await backend.pool.query("DELETE FROM ha_event_summary_state");
-      await assert.rejects(
-        () => backend.projection.readEventSummaries(0, 100, "fleet"),
-        /fleet event summaries are not backfilled/u,
-      );
+      assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 65);
       const first = (
         await backend.pool.query("SELECT ha_backfill_event_read_indexes('t','p',0,'summary-upgrade') AS processed")
       ).rows[0].processed;
       assert.equal(first, 64);
-      await assert.rejects(
-        () => backend.projection.readEventSummaries(0, 100, "fleet"),
-        /fleet event summaries are not backfilled/u,
-      );
+      assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 65);
       let processed = first;
       while (processed > 0)
         processed = (
@@ -77,6 +79,149 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
     } finally {
       await backend.close();
       rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+pgliteIntegrationSuite("fleet summary lifecycle", () => {
+  test("cold rebuild restores readiness and fleet reads before and after reopening", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-rebuild-")),
+      repoId = "fleet-rebuild",
+      scope = { tenantId: "t", projectId: "p", policyEpoch: 0 },
+      storage = { backend: "pglite" as const, dataDir: root, materialize: false, scope };
+    let backend = await createPGliteStorageBackend({ repoId, storage });
+    try {
+      await backend.eventStore.append(bundle(eventAt(1)), 0, { repoId, holderId: "seed", epoch: 1 });
+      const before = await backend.projection.readEventSummaries(0, 100, "fleet");
+      await withPostgresTransaction(
+        backend.pool,
+        (client) =>
+          rebuildPgProjection(client, scope, {
+            events: [eventAt(1)],
+            sourceRevision: 1,
+          }),
+        scope,
+      );
+      assert.equal(
+        (await backend.pool.query("SELECT ready FROM ha_event_summary_state WHERE repo_id=$1", [repoId])).rows[0]
+          ?.ready,
+        true,
+      );
+      assert.deepEqual(await backend.projection.readEventSummaries(0, 100, "fleet"), before);
+      await backend.close();
+      backend = await createPGliteStorageBackend({ repoId, storage });
+      assert.deepEqual(await backend.projection.readEventSummaries(0, 100, "fleet"), before);
+    } finally {
+      await backend.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("migration import publishes fleet readiness on the activated target without reopening", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-import-")),
+      repoId = "fleet-import",
+      scope = { tenantId: "t", projectId: "p", policyEpoch: 0 },
+      source = await createPGliteStorageBackend({
+        repoId,
+        storage: { backend: "pglite", dataDir: path.join(root, "source"), scope },
+      }),
+      target = await createPGliteStorageBackend({
+        repoId,
+        storage: { backend: "pglite", dataDir: path.join(root, "target"), scope },
+      });
+    try {
+      await source.eventStore.append(bundle(eventAt(1)), 0, { repoId, holderId: "seed", epoch: 1 });
+      const before = await source.projection.readEventSummaries(0, 100, "fleet"),
+        endpoint = (backend: typeof source, identity: string) =>
+          openPgMigrationEndpoint({ pool: backend.pool, repoId, scope, backend: "pglite", identity });
+      await migrateStorage({
+        repoId,
+        runId: "fleet-import",
+        source: await endpoint(source, "source"),
+        target: await endpoint(target, "target"),
+        exportDirectory: path.join(root, "export"),
+      });
+      assert.equal(
+        (await target.pool.query("SELECT ready FROM ha_event_summary_state WHERE repo_id=$1", [repoId])).rows[0]?.ready,
+        true,
+      );
+      assert.deepEqual(await target.projection.readEventSummaries(0, 100, "fleet"), before);
+    } finally {
+      await source.close();
+      await target.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("finishing one scope or repo retains the global pending index until every scope is ready", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-scopes-")),
+      scope = { tenantId: "t", projectId: "p", policyEpoch: 0 },
+      backend = await createPGliteStorageBackend({
+        repoId: "first",
+        storage: { backend: "pglite", dataDir: root, scope },
+      }),
+      stores = [
+        backend,
+        createPgStorageBackend({ pool: backend.pool, repoId: "second", scope }),
+        createPgStorageBackend({ pool: backend.pool, repoId: "third", scope: { ...scope, tenantId: "other" } }),
+      ],
+      identities = [
+        ["t", "first"],
+        ["t", "second"],
+        ["other", "third"],
+      ];
+    const ensure = () =>
+        withPostgresTransaction(backend.pool, (client) => ensurePgProjectionSchema(client, { indexBuild: "isolated" })),
+      index = async () =>
+        (await backend.pool.query("SELECT to_regclass('ha_events_summary_pending')::text AS name")).rows[0].name;
+    try {
+      for (let i = 0; i < stores.length; i++)
+        await stores[i]!.eventStore.append(bundle(eventAt(1)), 0, {
+          repoId: identities[i]![1]!,
+          holderId: "seed",
+          epoch: 1,
+        });
+      await backend.pool.query("UPDATE ha_events SET summary_json=NULL");
+      await backend.pool.query("DELETE FROM ha_event_summary_state");
+      await ensure();
+      assert.equal(await index(), "ha_events_summary_pending");
+      for (let i = 0; i < identities.length; i++) {
+        const [tenant, repo] = identities[i]!;
+        assert.equal(
+          (await backend.pool.query("SELECT ha_backfill_event_read_indexes($1,'p',0,$2) AS processed", [tenant, repo]))
+            .rows[0].processed,
+          1,
+        );
+        // The last data page does not certify completion; interrupted callers can resume.
+        assert.equal(
+          (await backend.pool.query("SELECT ha_backfill_event_read_indexes($1,'p',0,$2) AS processed", [tenant, repo]))
+            .rows[0].processed,
+          0,
+        );
+        assert.equal(await index(), "ha_events_summary_pending", "page transactions never perform global DDL");
+        if (i === 0) {
+          // A manager filtered to the completed scope cannot certify global completion.
+          await backend.pool.query("CREATE ROLE summary_index_scope NOBYPASSRLS");
+          await backend.pool.query(
+            "GRANT SELECT ON ha_events,ha_repo_heads,ha_event_summary_state TO summary_index_scope",
+          );
+          await withPostgresTransaction(
+            backend.pool,
+            async (client) => {
+              await client.query("SET LOCAL ROLE summary_index_scope");
+              assert.equal(await contractPgEventSummaryIndex(client, { indexBuild: "isolated" }), false);
+            },
+            scope,
+          );
+          assert.equal(await index(), "ha_events_summary_pending");
+        }
+        await ensure();
+        assert.equal(await index(), i === identities.length - 1 ? null : "ha_events_summary_pending");
+      }
+      assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 1);
+    } finally {
+      await backend.close();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

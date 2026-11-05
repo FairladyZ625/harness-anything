@@ -119,17 +119,29 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    phases 3/4. A canonical gap must be rebuilt through the existing projection rebuild
    entry before declaration catch-up; never promote the declaration watermark by SQL.
 
-6. Switch readers after every scope and repo is complete. A fleet reader whose event window
-   still contains a NULL `summary_json` refuses with `fleet event summaries are not backfilled`
-   rather than silently omitting the event; rerun phase 4 or wait for the trigger/backfill
-   to reach zero. The fleet backfill is ready only when the phase-5 NULL probe is empty; phase 4 fills it in the same calls as the event read indexes. During a partially filled snapshot,
-   current document lists return `projection_pending` instead of a partial list or reading
-   bodies; runtime/event reads likewise return `projection_pending` until their own expansion
-   is complete. Parent-dependent task reads also return `projection_pending` until their
-   scalar expansion completes; raw task point reads remain available. A ready projection
-   generation alone does not certify these extensions.
-   Previous readers and writers stay usable throughout. Rollback to the previous
-   binary leaves the additive column and trigger in place; keep both through the window.
+6. Switch readers after every scope and repo is complete. A committed phase-4 call returning
+   `processed=0` publishes that repo's `ha_event_summary_state` readiness. Until it is ready,
+   fleet uses the existing event reader, preserving availability while transferring full events;
+   after readiness it reads only bounded fleet headers. Event read-index versions still need
+   phase 4 as before. Projection cold rebuild and migration import atomically reconstruct the
+   scoped readiness rows along with the projection cut, without a restart or manual marker.
+   Current document lists return `projection_pending` until their own expansion is complete.
+   Parent-dependent task reads also return `projection_pending` until their scalar expansion
+   completes; raw task point reads remain available.
+   A ready projection generation alone does not certify these extensions.
+
+7. Contract the summary pending index only after all scope/repo page jobs commit completion.
+   On the existing schema-management connection, outside any transaction, call
+   `contractPgEventSummaryIndex(client)` (from the event read-index migration module), or rerun
+   `ensurePgProjectionSchema(client)`. These retain the global index while any scope has NULL
+   summaries or any repo lacks committed readiness, and use `DROP INDEX CONCURRENTLY` only
+   when all are complete. Phase-4 page transactions never perform index DDL. The management
+   connection must see all scopes: if FORCE RLS still filters it, contraction safely defers
+   and leaves the index installed. Do not change serving RLS policies to retire an index.
+   PGlite uses the same completion check with isolated DDL on its exclusively owned schema.
+
+   Previous readers and writers stay usable throughout. Rollback to the previous binary
+   leaves the additive column and shared trigger in place through the compatibility window.
 
 Read-index triggers are the **shared materialization path for current and previous writers**,
 including inserts and updates during backfill. Runtime presence updates touch that session's

@@ -12,6 +12,7 @@ import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { backfillPgEntityDeclarationPage } from "../../src/pg/pg-entity-declaration-catchup.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
+import { eventAt } from "../store/task-event-store.fixtures.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 import { appendBootstrapQueryFixture } from "./query-bootstrap.fixture.ts";
 import { appendQueryParityFixtures } from "./pg-query-parity.fixture.ts";
@@ -297,6 +298,11 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
         true,
       );
       await assertOnlineIndexDml(admin, fixture.port, keys);
+      await admin.query(
+        "UPDATE ha_events SET summary_json=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+        keys,
+      );
+      await assertOnlineIndexDml(admin, fixture.port, keys, true);
     } finally {
       admin.release();
     }
@@ -309,20 +315,21 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
 /** Pin a real concurrent build at PostgreSQL's writer wait, then commit a new writer.
  * No desktop/system services or timed scheduling participate in this test.
  */
-async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: readonly unknown[]) {
+async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: readonly unknown[], summary = false) {
+  const index = summary ? "ha_events_summary_pending" : "ha_decisions_state_order";
   const peers = new Pool({ host: "127.0.0.1", port, user: "postgres", database: "postgres", max: 2 }),
     blocker = await peers.connect(),
     observer = await peers.connect(),
     entered = Promise.withResolvers<void>(),
     resume = Promise.withResolvers<void>();
   let holding = false;
-  await admin.query("DROP INDEX ha_decisions_state_order");
+  await admin.query(`DROP INDEX IF EXISTS ${index}`);
   const pid = (await admin.query("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
   const proxy = new Proxy(admin, {
     get(target, key) {
       if (key === "query")
         return async (sql: string, ...args: unknown[]) => {
-          if (sql.startsWith("CREATE INDEX CONCURRENTLY IF NOT EXISTS ha_decisions_state_order")) {
+          if (sql.startsWith(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ${index}`)) {
             entered.resolve();
             await resume.promise;
           }
@@ -335,17 +342,23 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
   await admin.query("SET statement_timeout=15000");
   const build = ensurePgProjectionSchema(proxy);
   const insert = (client: PoolClient, id: string, writerScope = keys) =>
-    client.query(
-      `INSERT INTO ha_decisions
+    summary
+      ? client.query(
+          `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at)
+       VALUES($1,$2,$3,'online-summary',1,$4,$4,'task_created',$5,'sha256:x','2026-11-05T00:00:00Z')`,
+          [...writerScope, id, JSON.stringify({ ...eventAt(1), opId: id, eventId: id })],
+        )
+      : client.query(
+          `INSERT INTO ha_decisions
     (tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
     VALUES($1,$2,$3,$4,1,'{"state":"proposed"}'::jsonb)`,
-      [...writerScope, id],
-    );
+          [...writerScope, id],
+        );
   try {
     await Promise.race([
       entered.promise,
       build.then(() => {
-        throw new Error("concurrent build did not reach the Decision index");
+        throw new Error(`concurrent build did not reach ${index}`);
       }),
     ]);
     await blocker.query("BEGIN");
@@ -368,7 +381,9 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
     await blocker.query("COMMIT");
     holding = false;
     await build;
-    process.stdout.write('ONLINE_INDEX_DML {"phase":"waiting for writers before build","newWriterCommitted":true}\n');
+    process.stdout.write(
+      `ONLINE_INDEX_DML ${JSON.stringify({ index, phase: "waiting for writers before build", newWriterCommitted: true })}\n`,
+    );
   } finally {
     resume.resolve();
     try {

@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
-import { eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
+import { contractPgEventSummaryIndex, eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
 import { readIndexDdl } from "./pg-read-index-migration.ts";
 import { taskParentIndexDdl } from "./pg-task-parent-index.ts";
 import { decisionReadStatusDdl } from "./pg-decision-read-status.ts";
@@ -64,6 +64,7 @@ export async function ensurePgProjectionSchema(
 ): Promise<void> {
   for (const statement of projectionDdl()) {
     const index = /^CREATE INDEX IF NOT EXISTS ([a-z0-9_]+)/u.exec(statement);
+    if (index?.[1] === "ha_events_summary_pending" && (await contractPgEventSummaryIndex(client, options))) continue;
     if (index && options.indexBuild !== "isolated") {
       // An interrupted concurrent build leaves an invalid index. IF NOT EXISTS alone
       // would silently keep it forever. Only disposable, invalid indexes are removed.
@@ -101,7 +102,7 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
     `GRANT USAGE ON SEQUENCE ha_search_terms_term_slot_seq TO "${roles.runtime}", "${roles.migration}"`,
   );
   await client.query(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")}, ha_event_summary_state TO "${roles.runtime}", "${roles.migration}"`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")} TO "${roles.runtime}", "${roles.migration}"`,
   );
 }
 
