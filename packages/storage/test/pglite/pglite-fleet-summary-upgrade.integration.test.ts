@@ -29,7 +29,7 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
     });
     try {
       await backend.pool.query(
-        "INSERT INTO ha_repo_heads(tenant_id,project_id,repo_id,revision,policy_epoch) VALUES ('t','p','summary-upgrade',0,0)",
+        "INSERT INTO ha_repo_heads(tenant_id,project_id,repo_id,revision,policy_epoch,readers) VALUES ('t','p','summary-upgrade',0,0,'{}')",
       );
       for (let revision = 1; revision <= 65; revision += 1) {
         const event = {
@@ -87,7 +87,7 @@ pgliteIntegrationSuite("fleet summary lifecycle", () => {
   test("cold rebuild restores readiness and fleet reads before and after reopening", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-rebuild-")),
       repoId = "fleet-rebuild",
-      scope = { tenantId: "t", projectId: "p", policyEpoch: 0 },
+      scope = { tenantId: "t", projectId: "p", policyEpoch: 0, readers: [] },
       storage = { backend: "pglite" as const, dataDir: root, materialize: false, scope };
     let backend = await createPGliteStorageBackend({ repoId, storage });
     try {
@@ -120,7 +120,7 @@ pgliteIntegrationSuite("fleet summary lifecycle", () => {
   test("migration import publishes fleet readiness on the activated target without reopening", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-import-")),
       repoId = "fleet-import",
-      scope = { tenantId: "t", projectId: "p", policyEpoch: 0 },
+      scope = { tenantId: "t", projectId: "p", policyEpoch: 0, readers: [] },
       source = await createPGliteStorageBackend({
         repoId,
         storage: { backend: "pglite", dataDir: path.join(root, "source"), scope },
@@ -155,7 +155,7 @@ pgliteIntegrationSuite("fleet summary lifecycle", () => {
 
   test("finishing one scope or repo retains the global pending index until every scope is ready", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-scopes-")),
-      scope = { tenantId: "t", projectId: "p", policyEpoch: 0 },
+      scope = { tenantId: "t", projectId: "p", policyEpoch: 0, readers: [] },
       backend = await createPGliteStorageBackend({
         repoId: "first",
         storage: { backend: "pglite", dataDir: root, scope },
@@ -176,7 +176,7 @@ pgliteIntegrationSuite("fleet summary lifecycle", () => {
         (await backend.pool.query("SELECT to_regclass('ha_events_summary_pending')::text AS name")).rows[0].name;
     try {
       for (let i = 0; i < stores.length; i++)
-        await stores[i]!.eventStore.append(bundle(eventAt(1)), 0, {
+        await stores[i]!.eventStore.append(bundle({ ...eventAt(i + 1), workspaceRevision: 1 }), 0, {
           repoId: identities[i]![1]!,
           holderId: "seed",
           epoch: 1,

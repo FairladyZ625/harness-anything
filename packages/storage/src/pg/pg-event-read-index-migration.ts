@@ -78,9 +78,9 @@ export function eventReadIndexDdl(): readonly string[] {
         SELECT jsonb_build_object(
           'eventId', v->>'eventId', 'schema', v->>'schema', 'type', v->>'type',
           'occurredAt', v->>'occurredAt', 'workspaceRevision', v->'workspaceRevision',
-          'taskId', v->>'taskId', 'actor', jsonb_build_object('executor', jsonb_build_object('id', v#>>'{actor,executor,id}')),
+          'taskId', COALESCE(v->>'taskId', v#>>'{payload,taskId}'), 'actor', jsonb_build_object('executor', jsonb_build_object('id', v#>>'{actor,executor,id}')),
           'payload', jsonb_build_object(
-            'taskId', v#>>'{payload,taskId}',
+            'taskId', COALESCE(v->>'taskId', v#>>'{payload,taskId}'),
             'title', left(v#>>'{payload,title}', 280),
             'statement', left(v#>>'{payload,statement}', 280),
             'text', left(v#>>'{payload,text}', 280)))

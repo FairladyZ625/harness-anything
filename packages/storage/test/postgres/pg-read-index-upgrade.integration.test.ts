@@ -341,19 +341,26 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
   });
   await admin.query("SET statement_timeout=15000");
   const build = ensurePgProjectionSchema(proxy);
-  const insert = (client: PoolClient, id: string, writerScope = keys) =>
-    summary
-      ? client.query(
-          `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at)
-       VALUES($1,$2,$3,'online-summary',1,$4,$4,'task_created',$5,'sha256:x','2026-11-05T00:00:00Z')`,
-          [...writerScope, id, JSON.stringify({ ...eventAt(1), opId: id, eventId: id })],
-        )
-      : client.query(
-          `INSERT INTO ha_decisions
-    (tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
-    VALUES($1,$2,$3,$4,1,'{"state":"proposed"}'::jsonb)`,
-          [...writerScope, id],
-        );
+  const insert = async (client: PoolClient, id: string, writerScope = keys) => {
+    if (summary) {
+      await client.query(
+        `INSERT INTO ha_repo_heads(tenant_id,project_id,policy_epoch,repo_id,readers)
+         VALUES($1,$2,$3,'online-summary','{}') ON CONFLICT DO NOTHING`,
+        writerScope,
+      );
+      return client.query(
+        `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,readers)
+         VALUES($1,$2,$3,'online-summary',1,$4,$4,'task_created',$5,'sha256:x','2026-11-05T00:00:00Z','{}')`,
+        [...writerScope, id, JSON.stringify({ ...eventAt(1), opId: id, eventId: id })],
+      );
+    }
+    return client.query(
+      `INSERT INTO ha_decisions
+       (tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
+       VALUES($1,$2,$3,$4,1,'{"state":"proposed"}'::jsonb)`,
+      [...writerScope, id],
+    );
+  };
   try {
     await Promise.race([
       entered.promise,
