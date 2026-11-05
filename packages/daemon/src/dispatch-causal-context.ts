@@ -69,20 +69,18 @@ export function assembleTaskCausalContext(input: {
 }): string | null {
   const { projection, taskId } = input,
     reads: ProjectionCut[] = [projection.readCut()],
-    taskIndex = projection.readTaskIndex({}),
-    byId = new Map(taskIndex.rows.map((row) => [row.taskId, row] as const)),
-    self = byId.get(taskId),
     ancestors: TaskIndexProjectionRow[] = [],
-    visited = new Set([taskId]);
-  reads.push(taskIndex);
-  // Parent chain terminates on the ledger's own parentTaskId field, a missing
-  // row, or a cycle guard — each round strictly consumes one unseen ancestor.
-  for (let parentId = self?.parentTaskId ?? null; parentId !== null && !visited.has(parentId); ) {
-    visited.add(parentId);
-    const row = byId.get(parentId);
+    visited = new Set<string>();
+  // Each lookup uses the indexed identity; siblings and unrelated tasks are never loaded.
+  let currentId: string | null = taskId;
+  while (currentId !== null && !visited.has(currentId)) {
+    visited.add(currentId);
+    const index = projection.readTaskIndex({ taskIds: [currentId] });
+    reads.push(index);
+    const row: TaskIndexProjectionRow | undefined = index.rows.find((candidate) => candidate.taskId === currentId);
     if (row === undefined) break;
-    ancestors.push(row);
-    parentId = row.parentTaskId;
+    if (currentId !== taskId) ancestors.push(row);
+    currentId = row.parentTaskId;
   }
   const parent = ancestors[0] ?? null,
     work = ancestors.find((row) => row.taskClass === "work") ?? ancestors.at(-1) ?? null,

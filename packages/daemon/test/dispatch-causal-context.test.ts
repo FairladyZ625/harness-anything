@@ -781,3 +781,21 @@ test("a block with no served facts carries no facts note", () => {
   assert.match(block, /<decision ref="decision\/dec_ABC"/u);
   assert.doesNotMatch(block, /<note>/u, "no facts served means no facts note");
 });
+
+test("ancestry lookup queries only the current task and each parent", () => {
+  const rows = [
+    { taskId: "task_work", title: "Work", taskClass: "work", parentTaskId: null, packagePath: null },
+    { taskId: "task_middle", title: "Middle", taskClass: "standard", parentTaskId: "task_work", packagePath: null },
+    { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_middle", packagePath: null },
+  ];
+  const queries: string[][] = [];
+  const projection = stub({
+    readTaskIndex: (query: { taskIds?: string[] }) => {
+      assert.ok(query.taskIds, "the query must be scoped to explicit task IDs");
+      queries.push(query.taskIds);
+      return { ...cut(), rows: rows.filter((row) => query.taskIds!.includes(row.taskId)) };
+    },
+  });
+  assert.ok(assembleTaskCausalContext({ projection, taskId: "task_leaf" }));
+  assert.deepEqual(queries, [["task_leaf"], ["task_middle"], ["task_work"]]);
+});
