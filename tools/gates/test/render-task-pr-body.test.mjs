@@ -303,6 +303,19 @@ test("PR renderer treats a lockfile-only cut as a dependency change", () => {
   assert.deepEqual(validateDependencyDeclaration(["package-lock.json"], body), []);
 });
 
+test("PR renderer writes the dependency declaration when the body deleted the template line", () => {
+  const withoutLine = template.replace(/^Dependency-Change: none\n/mu, ""),
+    body = renderTaskPrBody({
+      taskId,
+      receipt: receipt(dependencySubmission),
+      template: withoutLine,
+      closeout: dependencyCloseout,
+    });
+  assert.match(body, /^Dependency-Change: Added the `\.\/testing` exports subpath\./mu);
+  assert.equal((body.match(/^Dependency-Change:/gmu) ?? []).length, 1);
+  assert.deepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, body), []);
+});
+
 test("PR renderer leaves dependency lint to its independent publication check", () => {
   const body = render(dependencySubmission);
   assert.match(body, /^Dependency-Change: none$/mu);

@@ -61,6 +61,11 @@ export function readDependencyDeclarations(prBody) {
 }
 
 export function replaceDependencyDeclaration(prBody, description) {
+  // The template tells authors to delete the line when no dependency changed, so a later dependency
+  // cut reaches the renderer with no declaration at all. Write the line G31 parses instead of
+  // silently leaving the body undeclared.
+  if (readDependencyDeclarations(prBody).length === 0)
+    return `${prBody.replace(/\s*$/u, "")}\n\nDependency-Change: ${description}\n\n`;
   return prBody.replace(DECLARATION, (declaration) => {
     // G31's line pattern tolerates whitespace after the value (including CRLF); keep it so
     // replacing the declaration never changes the body's line structure.
