@@ -1,4 +1,4 @@
-import { isPgDecisionReadReady, finishPgDecisionReadBackfill } from "./pg-decision-read-status.ts";
+import { assertPgDecisionReadReady, finishPgDecisionReadBackfill } from "./pg-decision-read-status.ts";
 import type { PoolClient } from "pg";
 import type { DecisionDocumentState } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { decisionDocumentProse } from "@harness-anything/kernel/internal/domain/decision-event.ts";
@@ -98,6 +98,7 @@ export async function searchPgDecisionIds(
   query: string,
   repoId: string,
 ): Promise<readonly string[]> {
+  await assertPgDecisionReadReady(client, scope, "search");
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
     readers = [...(scope.readers ?? [])];
   const terms = unicode61Positions([query]).map((p) => p.term);
@@ -114,32 +115,5 @@ export async function searchPgDecisionIds(
         AND (p.column_id<>4 OR (p.head_readers && $5::text[] AND p.blob_readers && $5::text[]))))`,
     [...keys, [...new Set(terms)], readers, repoId],
   );
-  if (await isPgDecisionReadReady(client, scope, "search")) return phraseMatches(terms, result.rows);
-  // Previous reader during expansion; remove after all deployed scopes finish, no later than 2026-12-05.
-  const pending = await client.query<{ decision_id: string; value: DecisionDocumentState; body: Buffer | null }>(
-    `SELECT d.decision_id,d.value,blob.body FROM ha_decisions d
-      LEFT JOIN ha_document_heads head ON head.tenant_id=d.tenant_id AND head.project_id=d.project_id
-        AND head.policy_epoch=d.policy_epoch AND head.repo_id=$5 AND head.path='decisions/decision-'||d.decision_id||'/decision.md'
-        AND (cardinality($4::text[])=0 OR head.readers && $4::text[])
-      LEFT JOIN ha_content_blobs blob ON blob.tenant_id=head.tenant_id AND blob.project_id=head.project_id
-        AND blob.sha256=head.sha256 AND (cardinality($4::text[])=0 OR blob.readers && $4::text[])
-      WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.policy_epoch=$3 AND NOT d.search_ready
-        AND (cardinality($4::text[])=0 OR d.readers && $4::text[])`,
-    [...keys, readers, repoId],
-  );
-  const previous = pending.rows.flatMap(({ decision_id, value, body }) =>
-    [
-      ...unicode61Positions([
-        value.title,
-        value.question,
-        [...value.chosen, ...value.rejected].map((v) => v.text).join(" "),
-        value.claims.map((v) => v.text).join(" "),
-      ]),
-      ...(body
-        ? unicode61Positions([decisionDocumentProse(body.toString("utf8"))]).map((p) => ({ ...p, column: 4 }))
-        : []),
-    ].map((position) => ({ id: decision_id, ...position })),
-  );
-  const pendingIds = new Set(pending.rows.map((row) => row.decision_id));
-  return phraseMatches(terms, [...result.rows.filter((row) => !pendingIds.has(row.id)), ...previous]);
+  return phraseMatches(terms, result.rows);
 }

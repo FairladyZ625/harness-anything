@@ -35,7 +35,10 @@ pgliteIntegrationSuite("PGlite online read-index expansion", () => {
           );
           const readAvailableMs = performance.now() - started;
           assert.equal(reader.withSession((q) => q.readScheduleEvents("target")).events.length, 1);
-          assert.equal(reader.withSession((q) => q.listDecisions({ state: "proposed", limit: 1 })).decisions.length, 1);
+          assert.throws(() => reader.withSession((q) => q.listDecisions({ state: "proposed", limit: 1 })), {
+            code: "projection_pending",
+            message: /migration is not ready.*progress generation=.*Retry/u,
+          });
           t.diagnostic(
             `PGLITE_OWNER_ATTACH ${JSON.stringify({ events: size, decisions: size / 100, attachedMs, readAvailableMs })}`,
           );
@@ -91,7 +94,9 @@ pgliteIntegrationSuite("PGlite online read-index expansion", () => {
               .rows[0]!.cursor,
             cursor,
           );
-          assert.equal((await backend.projection.listDecisions({ search: "needle", limit: 1 })).decisions.length, 1);
+          await assert.rejects(backend.projection.listDecisions({ search: "needle", limit: 1 }), {
+            code: "projection_pending",
+          });
           assert.equal((await backend.projection.readScheduleEvents("target")).events.length, 1);
           assert.equal(
             (await backend.pool.query("SELECT count(*)::integer AS n FROM ha_events WHERE read_index_version=0"))
@@ -139,7 +144,9 @@ pgliteIntegrationSuite("PGlite online read-index expansion", () => {
         await seed(backend, 130, 130);
         await backend.close();
         backend = await createPGliteStorageBackend({ repoId, storage });
-        assert.equal((await backend.projection.listDecisions({ search: "needle", limit: 1 })).decisions.length, 1);
+        await assert.rejects(backend.projection.listDecisions({ search: "needle", limit: 1 }), {
+          code: "projection_pending",
+        });
         const stage = (
           await backend.pool.query("SELECT staging FROM ha_pglite_index_backfill WHERE table_name='ha_decisions'")
         ).rows[0]!.staging;

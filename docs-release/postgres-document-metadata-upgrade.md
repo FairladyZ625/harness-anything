@@ -183,7 +183,7 @@ DROP FUNCTION ha_document_metadata_from_value(text);
 
 Remove their DDL from `pg-document-metadata-migration.ts` and the embedded PGlite startup
 backfill loop in that contract release, retaining the column expansion for fresh installs.
-PGlite owns its schema and commits the same bounded batches before exposing an opened scope;
+PGlite owns its schema and commits the same bounded batches in the writer background loop after opening;
 external PostgreSQL uses the management sequence above. Current writes and reads already work without
 these temporary objects; the upgrade test exercises this contract phase. Do not remove
 the original `value` document representation during the previous-binary window.
@@ -250,6 +250,34 @@ Current writers initialize empty scopes before writing. The additive summary tab
 triggers must be installed before deploying readers and retained across the current/previous
 writer window; no canonical bytes or previous columns are removed.
 
-PGlite performs both bounded backfills before opening its scope. Only disposable isolated
+PGlite opens the scope after additive schema setup and performs both backfills in bounded background pages. Only disposable isolated
 replay schemas and PGlite pass `{ indexBuild: "isolated" }` to schema initialization;
 external production schemas use the default concurrent build.
+
+
+### Decision queries during an online upgrade
+
+**Fill before switching readers.** Install the additive schema with the schema-owner
+connection, complete scalar batches, then run `backfillPgDecisionSearchPage` to a committed
+`done: true` for every serving scope before deploying/routing to the new Decision readers.
+Do not treat a schema generation, a short batch, or `processed: 0` alone as completion.
+This order minimizes the visible migration window; the new reader also checks readiness
+at each transaction snapshot so previous-writer invalidations cannot silently return stale results.
+
+If a populated scope has no completed summary, Decision lists, agenda lists and searches
+return `projection_pending` with a readable "index migration is not ready" message.
+The message includes remaining owners when known and the scope's progress generation;
+`remaining=unknown` means management has not certified completion, not zero remaining.
+The generation advances with pending-state transitions (including concurrent writes), so it
+is a progress signal, not a completion percentage. Retry the read after background backfill
+advances. CLI prints this error and GUI surfaces the read failure; neither treats it as a
+successful empty list. No request scans history to compute a progress count.
+
+Attachment, Decision canonical-ID point reads and reads that do not depend on these Decision
+indexes remain available. A pristine empty scope needs no backfill. Once completion is
+committed, subsequent reads automatically use the indexed global ordering and existing
+result cursors; the pagination contract is unchanged. Do not serve a truncated pending
+scan as a complete search result. For local PGlite, the daemon writer performs background
+pages after opening; keep it running until the Decision queries succeed before switching
+users. Reopening resumes committed pending rows/index-copy cursors. Fleet edges do not
+perform backfill; the center's writer or scoped management process owns it.

@@ -1848,3 +1848,15 @@ test("parsed commands name their route id and sole-method attribution matches th
   assert.equal(commandIdForDaemonMethod("repo.task.run"), null);
   assert.equal(commandIdForDaemonMethod("protocol.hello"), null);
 });
+
+test("Decision migration failure prints progress and retry guidance on stderr", () => {
+  const hint =
+    "Decision list index migration is not ready. Backfill remaining=12, progress generation=5. Retry after background backfill advances.";
+  assert.deepEqual(
+    renderCliReceipt({ ok: false, command: "decision-list", error: { code: "projection_pending", hint } }),
+    {
+      stream: "stderr",
+      text: `error code=projection_pending hint=${hint}`,
+    },
+  );
+});

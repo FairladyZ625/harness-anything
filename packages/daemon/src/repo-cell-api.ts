@@ -526,6 +526,11 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       withBody: payload.projection !== "summary",
       ...(typeof payload.state === "string" ? { state: payload.state as DecisionProjectionRow["state"] } : {}),
     });
+    if (read.status !== "ready")
+      throw context.cellCodedError(
+        "projection_pending",
+        `Decision list is not ready (projection ${read.watermark}/${read.sourceRevision}). Retry after catch-up.`,
+      );
     if (payload.projection === "summary")
       return {
         ok: true,

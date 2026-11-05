@@ -1,6 +1,9 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { WorkspaceSummaryPending } from "../src/renderer/components/WorkspaceSummaryPending.tsx";
 import { localErrorHint } from "../src/renderer/result-validation.ts";
 import { invoke } from "../src/renderer/api-client-invoke.ts";
 import { resetGuiTransportForTest } from "../src/renderer/gui-transport.ts";
@@ -123,6 +126,34 @@ describe("renderer invoke assembles wire params per protocol declaration", () =>
     } finally {
       window.removeEventListener("harness-auth-changed", wake);
     }
+  });
+
+  it("keeps Decision migration progress and retry guidance for both list projections", async () => {
+    const hint =
+      "Decision list index migration is not ready. Backfill remaining=12, progress generation=5. Retry after background backfill advances.";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: false,
+              error: { code: "projection_pending", hint },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    window.sessionStorage.setItem("harness.browser.access-token", "secret");
+    await expect(harnessClient.getDecisions({ repoId: "canonical" })).rejects.toMatchObject({
+      code: "projection_pending",
+      message: hint,
+    });
+    await expect(harnessClient.getDecisionSummaries({ repoId: "canonical" })).rejects.toMatchObject({
+      code: "projection_pending",
+      message: hint,
+    });
+    expect(renderToStaticMarkup(createElement(WorkspaceSummaryPending, { error: new Error(hint) }))).toContain(hint);
   });
 
   it("keeps repo-only and empty-input methods free of a payload key", async () => {

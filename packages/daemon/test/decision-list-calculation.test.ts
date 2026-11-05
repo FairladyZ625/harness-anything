@@ -53,6 +53,8 @@ test("full decision lists reuse Git calculation across unrelated cuts and invali
         assert.equal(filters.withBody, true);
         return {
           decisions: rows.filter((row) => filters.state === undefined || row.state === filters.state),
+          status: "ready",
+          watermark: revision,
           sourceRevision: revision,
         };
       },
@@ -98,4 +100,37 @@ test("full decision lists reuse Git calculation across unrelated cuts and invali
     /Decision list projection or state filter is invalid/u,
   );
   assert.equal(lists, 12);
+});
+
+test("Decision summary and full reads preserve pending and migration errors instead of returning empty success", async () => {
+  let migration = false;
+  const failure = Object.assign(
+    new Error("Decision search index migration is not ready. Backfill remaining=12. Retry after backfill."),
+    { code: "projection_pending" },
+  );
+  const cell = createRepoCellApi({
+    extracted: {},
+    mode: "local",
+    fleetRoster: null,
+    input: { repoId: "probe" },
+    state: "attached",
+    rootDir: "/unused",
+    dispatchRead,
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    projection: {
+      listDecisions: () => {
+        if (migration) throw failure;
+        return { status: "pending", decisions: [], watermark: 4, sourceRevision: 9 };
+      },
+    },
+  } as unknown as RepoCellApiContext);
+  for (const projection of ["summary", "full"] as const) {
+    await assert.rejects(cell.read("repo.decisions.list", { projection }), {
+      code: "projection_pending",
+      message: /projection 4\/9.*Retry/u,
+    });
+  }
+  migration = true;
+  for (const projection of ["summary", "full"] as const)
+    await assert.rejects(cell.read("repo.decisions.list", { projection }), (error) => error === failure);
 });

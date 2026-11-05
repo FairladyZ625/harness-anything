@@ -57,7 +57,7 @@ export function decisionReadStatusDdl(): readonly string[] {
 }
 
 /** Current writers initialize pristine scopes before their first Decision insert.
- * Existing rows leave both counters unknown; readers keep the previous path until backfill.
+ * Existing rows leave both counters unknown; list readers report migration pending until backfill.
  */
 export async function initializePgDecisionReadStatus(client: PoolClient, scope: PgProjectionScope): Promise<void> {
   await client.query(
@@ -71,17 +71,13 @@ export async function initializePgDecisionReadStatus(client: PoolClient, scope: 
   );
 }
 
-export async function isPgDecisionReadReady(
-  client: PoolClient,
-  scope: PgProjectionScope,
-  kind: "scalar" | "search",
-): Promise<boolean> {
-  const result = await client.query<{ pending: string | null }>(
-    `SELECT ${kind === "scalar" ? "scalar_pending" : "search_pending"} AS pending FROM ha_decision_read_status
+async function readPgDecisionReadStatus(client: PoolClient, scope: PgProjectionScope, kind: "scalar" | "search") {
+  const result = await client.query<{ pending: string | null; generation: string }>(
+    `SELECT ${kind === "scalar" ? "scalar_pending" : "search_pending"} AS pending,generation FROM ha_decision_read_status
       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  if (Number(result.rows[0]?.pending ?? NaN) === 0) return true;
+  if (Number(result.rows[0]?.pending ?? NaN) === 0) return { ready: true as const };
   if (result.rows.length === 0) {
     // A pristine scope needs no backfill. Check all owners at the caller's read
     // snapshot, without filtering by readiness, state or reader visibility.
@@ -90,9 +86,35 @@ export async function isPgDecisionReadReady(
         ORDER BY decision_id LIMIT 1`,
       [scope.tenantId, scope.projectId, scope.policyEpoch],
     );
-    if (owners.rows.length === 0) return true;
+    if (owners.rows.length === 0) return { ready: true as const };
   }
-  return false;
+  return { ready: false as const, ...result.rows[0] };
+}
+
+export async function isPgDecisionReadReady(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  kind: "scalar" | "search",
+): Promise<boolean> {
+  return (await readPgDecisionReadStatus(client, scope, kind)).ready;
+}
+
+/** Readiness is a scope-key lookup; never scan pending owners on a request. */
+export async function assertPgDecisionReadReady(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  kind: "scalar" | "search",
+): Promise<void> {
+  const status = await readPgDecisionReadStatus(client, scope, kind);
+  if (status.ready) return;
+  throw Object.assign(
+    new Error(
+      `Decision ${kind === "scalar" ? "list" : "search"} index migration is not ready. ` +
+        `Backfill remaining=${status.pending ?? "unknown"}, progress generation=${status.generation ?? "uninitialized"}. ` +
+        "Retry after background backfill advances; Decision point reads remain available.",
+    ),
+    { code: "projection_pending" },
+  );
 }
 
 /** Management scans without writer locks, then publishes only if no pending-state

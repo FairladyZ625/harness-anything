@@ -36,7 +36,7 @@ import type { FactProjectionRow } from "@harness-anything/kernel/internal/ports/
 import type { EventListPage, EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
-import { pgDecisionReadSource } from "./pg-decision-index-migration.ts";
+import { assertPgDecisionReadReady } from "./pg-decision-read-status.ts";
 import { listPgDecisionRows } from "./pg-decision-list.ts";
 import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -514,7 +514,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        const source = await pgDecisionReadSource(client, options.scope);
+        await assertPgDecisionReadReady(client, options.scope, "scalar");
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           cursor = query.cursor === undefined ? null : (decodeTaskListCursor(query.cursor, 1)[0] ?? null),
           limit = checkedPageLimit(query.limit ?? 100),
@@ -522,7 +522,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         if (cursor !== null) values.push(cursor);
         values.push(limit + 1);
         const rows = await client.query<{ decision_id: string; value: DecisionDocumentShape }>(
-          `SELECT decision_id, value FROM ${source} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND decision_state=$5${cursor === null ? "" : ' AND decision_id COLLATE "C" > $6'} ORDER BY decision_id COLLATE "C" LIMIT $${values.length}`,
+          `SELECT decision_id, value FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND decision_state=$5${cursor === null ? "" : ' AND decision_id COLLATE "C" > $6'} ORDER BY decision_id COLLATE "C" LIMIT $${values.length}`,
           values,
         );
         const visible = rows.rows.slice(0, limit),

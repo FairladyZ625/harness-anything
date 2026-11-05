@@ -1,6 +1,3 @@
-import { isPgDecisionReadReady } from "./pg-decision-read-status.ts";
-import type { PoolClient } from "pg";
-import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { decisionIdSortKey } from "../projection/decision-projection-reads.ts";
 
 /** Additive v5 expansion. Keep the previous-writer trigger through 2026-11-19.
@@ -57,14 +54,4 @@ function decisionSortSql(column: string): string {
     secondary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[1]).join("");
   const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
   return `translate(${column},${literal(alphabet)},${literal(primary)}) || ' ' || translate(${column},${literal(alphabet)},${literal(secondary)})`;
-}
-
-/** Delete the previous reader after all deployed scopes complete, no later than 2026-12-05. */
-export async function pgDecisionReadSource(client: PoolClient, scope: PgProjectionScope): Promise<string> {
-  if (await isPgDecisionReadReady(client, scope, "scalar")) return "ha_decisions";
-  return `(SELECT tenant_id,project_id,policy_epoch,readers,decision_id,workspace_revision,value,updated_at,
-    COALESCE(decision_state,value->>'state') AS decision_state,
-    CASE WHEN legacy IS NULL THEN 1 ELSE 0 END AS legacy_group,COALESCE(legacy::double precision,0) AS legacy_number,
-    COALESCE(decision_sort_key,${decisionSortSql("decision_id")}) AS decision_sort_key
-    FROM ha_decisions CROSS JOIN LATERAL (SELECT substring(decision_id from '(?:^|_)E([1-9][0-9]*)(?:_|$)') AS legacy) parsed)`;
 }
