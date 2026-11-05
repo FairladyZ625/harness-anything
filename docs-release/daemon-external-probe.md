@@ -53,7 +53,7 @@ Counter sources: `/proc/<pid>/{stat,status,fd}` on Linux, `ps`/`lsof` on macOS, 
 `Get-Process` on Windows. Windows is best-effort and less tested; fields that cannot be read
 stay `null` and are listed in `metricsUnavailable`.
 
-A capture runs at most once for an ongoing event. The event must clear before it can arm
+A skipped capture (unknown PID or no scene produced) remains pending and is retried while the event persists. A successful capture runs at most once for an ongoing event. The event must clear before it can arm
 again, and a cleared/re-fired event waits out `--cooldown`. Capture artifacts go to
 `<user-root>/logs/probe-captures/`:
 
@@ -84,7 +84,7 @@ The summary prints two independent views:
    capture artifacts. With no samples it prints `unobserved`; absence is never reported as
    0% availability.
    The summary also reports observed and unobserved time: a gap between probe runs or
-   between samples wider than the run interval is reported as unobserved, not as downtime.
+   between samples wider than max(three sample intervals, 15 seconds) is reported as unobserved, not as downtime.
 
 2. **Offline log view**, always available even if the probe never ran: process starts per
    UTC day from the lifecycle log, repository attach durations from
@@ -94,7 +94,7 @@ The summary prints two independent views:
    wedge on 2026-11-03 appears. The conn log also yields "silent" intervals with no request
    activity; they are reported separately and are not counted as downtime.
 
-Both logs are streamed line by line; the summary keeps only per-pid first/last timestamps and
+A fixed cutoff uses only log evidence at or before that time, never the current PID. Both logs are streamed line by line; the summary keeps only per-pid first/last timestamps and
 a one-byte-per-minute activity bitmap, so a 70 MB conn day is not loaded into memory.
 
 ## Keep it running without installing it here

@@ -77,8 +77,6 @@ export interface LogHistoryOptions {
   readonly sinceMs: number;
   readonly untilMs: number;
   readonly minSilenceMs: number;
-  readonly currentPid: number | null;
-  readonly currentPidAlive: boolean;
 }
 
 export async function readDaemonLogHistory(options: LogHistoryOptions): Promise<LogHistory> {
@@ -113,19 +111,20 @@ async function readConnHistory(
   for (const [index, start] of starts.entries())
     startIndicesByPid.set(start.pid, [...(startIndicesByPid.get(start.pid) ?? []), index]);
   let records = 0,
+    filesWithEvidence = 0,
     requests = 0,
     firstAt: number | null = null,
     lastAt: number | null = null;
   for (const file of files) {
+    let hasEvidence = false;
     const completed = await forEachJsonLine(path.join(dir, file), (record) => {
       const at = Date.parse(String(record.at)),
         pid = typeof record.pid === "number" ? record.pid : null;
-      if (!Number.isFinite(at) || pid === null) return;
+      if (!Number.isFinite(at) || pid === null || at > options.untilMs) return;
+      hasEvidence = true;
       lastByPid.set(pid, Math.max(lastByPid.get(pid) ?? 0, at));
-      if (at <= options.untilMs) {
-        const generation = latestStartIndex(startIndicesByPid.get(pid) ?? [], starts, at);
-        if (generation !== null) lastByStart.set(generation, Math.max(lastByStart.get(generation) ?? 0, at));
-      }
+      const generation = latestStartIndex(startIndicesByPid.get(pid) ?? [], starts, at);
+      if (generation !== null) lastByStart.set(generation, Math.max(lastByStart.get(generation) ?? 0, at));
       if (at >= options.sinceMs && at <= options.untilMs) {
         records += 1;
         if (record.event === "request") requests += 1;
@@ -135,10 +134,10 @@ async function readConnHistory(
         if (bucket >= 0 && bucket < activity.length) activity[bucket] = 1;
       }
     });
-    if (!completed) continue;
+    if (completed && hasEvidence) filesWithEvidence += 1;
   }
   return {
-    files: files.length,
+    files: filesWithEvidence,
     records,
     requests,
     firstAt,
@@ -156,13 +155,16 @@ async function readLifecycleHistory(dir: string, options: LogHistoryOptions): Pr
     exits = new Map<number, number[]>(),
     attachDurationsMs: number[] = [];
   let records = 0,
+    filesWithEvidence = 0,
     attachFailed = 0,
     attachTimedOut = 0;
   for (const file of files) {
+    let hasEvidence = false;
     const completed = await forEachJsonLine(path.join(dir, file), (record) => {
       const at = Date.parse(String(record.at)),
         pid = typeof record.pid === "number" ? record.pid : null;
-      if (!Number.isFinite(at) || pid === null) return;
+      if (!Number.isFinite(at) || pid === null || at > options.untilMs) return;
+      hasEvidence = true;
       records += 1;
       if (record.event === "process_start") starts.push({ at, pid });
       else if (record.event === "process_exit") exits.set(pid, [...(exits.get(pid) ?? []), at]);
@@ -173,12 +175,12 @@ async function readLifecycleHistory(dir: string, options: LogHistoryOptions): Pr
       else if (record.event === "repo_attach_timed_out" && at >= options.sinceMs && at <= options.untilMs)
         attachTimedOut += 1;
     });
-    if (!completed) continue;
+    if (completed && hasEvidence) filesWithEvidence += 1;
   }
   starts.sort((left, right) => left.at - right.at);
   for (const exitsForPid of exits.values()) exitsForPid.sort((left, right) => left - right);
   return {
-    files: files.length,
+    files: filesWithEvidence,
     records,
     starts,
     exitsByPid: exits,
@@ -191,7 +193,7 @@ async function readLifecycleHistory(dir: string, options: LogHistoryOptions): Pr
 export function deriveAvailability(
   lifecycle: LifecycleHistory,
   conn: ConnHistory,
-  options: Pick<LogHistoryOptions, "sinceMs" | "untilMs" | "currentPid" | "currentPidAlive">,
+  options: Pick<LogHistoryOptions, "sinceMs" | "untilMs">,
 ): AvailabilityEvidence {
   const starts = lifecycle.starts.filter((start) => start.at <= options.untilMs),
     live: LiveSegment[] = [],
@@ -206,12 +208,7 @@ export function deriveAvailability(
     if (exitAt !== null) end = exitAt;
     else {
       const lastActivity = conn.lastActivityByStartIndex.get(index) ?? null;
-      end =
-        nextStart !== null
-          ? Math.max(start.at, lastActivity ?? start.at)
-          : options.currentPid === start.pid && options.currentPidAlive
-            ? options.untilMs
-            : Math.max(start.at, lastActivity ?? start.at);
+      end = Math.max(start.at, lastActivity ?? start.at);
     }
     if (end > start.at) live.push({ fromMs: start.at, toMs: end, pid: start.pid });
     lastEvidenceAt = Math.max(lastEvidenceAt ?? 0, end, start.at);
@@ -241,7 +238,10 @@ export function deriveAvailability(
       toMs = Math.min(segment.toMs, options.untilMs);
     return toMs > fromMs ? [{ ...segment, fromMs, toMs }] : [];
   });
-  const coveredTo = clippedLive.reduce((max, segment) => Math.max(max, segment.toMs), Number.NEGATIVE_INFINITY);
+  const coveredTo = Math.max(
+    clippedLive.reduce((max, segment) => Math.max(max, segment.toMs), Number.NEGATIVE_INFINITY),
+    lastEvidenceAt ?? Number.NEGATIVE_INFINITY,
+  );
   return {
     starts: startsInWindow.length,
     startsPerDay,

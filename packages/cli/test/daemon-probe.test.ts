@@ -294,6 +294,7 @@ test("trigger fires once per event, disarms on recovery, and honors cooldown", (
   assert.equal(tracker.evaluate(down(0)), null);
   assert.equal(tracker.evaluate(down(100)), null);
   assert.equal(tracker.evaluate(down(300)), "unresponsive");
+  tracker.captured("unresponsive", 300);
   assert.equal(tracker.evaluate(down(400)), null);
   assert.equal(tracker.evaluate(down(900)), null);
   assert.equal(tracker.evaluate(up(1_000)), null);
@@ -323,6 +324,7 @@ test("trigger fires once per event, disarms on recovery, and honors cooldown", (
     cooldownMs: 0,
   });
   assert.equal(rss.evaluate({ at: 0, state: "up", cpuPercent: 0, rssBytes: 2_000 }), "rss");
+  rss.captured("rss", 0);
   assert.equal(rss.evaluate({ at: 1, state: "up", cpuPercent: 0, rssBytes: 2_000 }), null);
 });
 
@@ -336,6 +338,7 @@ test("one sustained multi-signal event captures exactly once", () => {
   });
   const combined = (at: number): TriggerSample => ({ at, state: "down", cpuPercent: 95, rssBytes: 200 });
   assert.equal(tracker.evaluate(combined(0)), "rss");
+  tracker.captured("rss", 0);
   for (const at of [30_000, 35_000, 60_000, 65_000]) assert.equal(tracker.evaluate(combined(at)), null);
   assert.equal(tracker.evaluate({ at: 700_000, state: "up", cpuPercent: 0, rssBytes: 0 }), null);
   assert.equal(tracker.evaluate(combined(700_001)), "rss");
@@ -356,10 +359,12 @@ test("an event starting inside the cooldown is captured when the cooldown expire
     rssBytes,
   });
   assert.equal(tracker.evaluate(sample(0, "up", 200)), "rss");
+  tracker.captured("rss", 0);
   assert.equal(tracker.evaluate(sample(1_000, "up", 0)), null);
   assert.equal(tracker.evaluate(sample(2_000, "down", 0)), null);
   assert.equal(tracker.evaluate(sample(32_000, "down", 0)), null);
   assert.equal(tracker.evaluate(sample(602_000, "down", 0)), "unresponsive");
+  tracker.captured("unresponsive", 602_000);
   assert.equal(tracker.evaluate(sample(3_600_000, "down", 0)), null);
 });
 
@@ -395,6 +400,7 @@ test("unresponsive loop captures one scene and writes a capture record", async (
         capture: async (request) => {
           captures.push(request);
           return {
+            captured: true,
             files: [path.join(request.dir, "scene.sample.txt")],
             errors: [],
             jsStack: { method: request.jsStackMethod, status: "not-advertised", file: null, detail: null },
@@ -603,3 +609,89 @@ async function collectTimelineRange(
     records.push(record as Record<string, unknown>);
   return records;
 }
+
+test("a skipped capture retries after PID recovery and captures once", async (t) => {
+  const fake = await startFakeDaemon();
+  t.after(async () => fake.close());
+  fake.setMode("hang");
+  let clock = 0,
+    reads = 0,
+    calls = 0;
+  const records: Readonly<Record<string, unknown>>[] = [];
+  const result = await runProbeLoop(
+    {
+      socketPath: fake.socketPath,
+      timeoutMs: 20,
+      slowMs: 500,
+      now: () => clock,
+      wait: async (ms) => {
+        clock += ms;
+      },
+      readPid: () => (++reads <= 2 ? null : 1234),
+      readMetrics: async () => zeroMetrics,
+      writer: {
+        append: async (record) => {
+          records.push(record);
+        },
+        close: async () => undefined,
+      },
+      capture: {
+        capture: async () => {
+          calls += 1;
+          return {
+            captured: calls > 1,
+            files: calls > 1 ? ["scene.txt"] : [],
+            errors: [],
+            jsStack: { method: "daemon.diagnostics.stack", status: "not-advertised", file: null, detail: null },
+          };
+        },
+      },
+      jsStackMethod: "daemon.diagnostics.stack",
+      sampleSeconds: 1,
+      shouldStop: () => false,
+    },
+    {
+      intervalMs: 250,
+      iterations: 5,
+      durationMs: null,
+      unresponsiveMs: 250,
+      cpuPercent: 90,
+      cpuSustainMs: 60_000,
+      rssBytes: 8 * 1024 * 1024 * 1024,
+      cooldownMs: 600_000,
+      captureDir: "/tmp",
+    },
+  );
+  assert.equal(calls, 2);
+  assert.equal(result.captures, 1);
+  assert.deepEqual(
+    records.filter((record) => record.kind === "capture").map((record) => record.status),
+    ["skipped", "skipped", "captured"],
+  );
+});
+
+test("failed macOS sampler records an error without claiming a scene was captured", async () => {
+  const port = createCapturePort({
+    platform: "darwin",
+    runCommand: async () => ({ stdout: "", stderr: "sample failed", exitCode: 1, error: null }),
+    writeCaptureFile: async (dir, name) => path.join(dir, name),
+    ensureDirectory: async () => undefined,
+    jsStackProbe: async (_socketPath, method) => ({ method, status: "unreachable", file: null, detail: null }),
+  });
+  const result = await port.capture({
+    pid: 42,
+    reason: "unresponsive",
+    at: 0,
+    dir: "/tmp/captures",
+    socketPath: "/tmp/daemon.sock",
+    jsStackMethod: "daemon.diagnostics.stack",
+    jsStackTimeoutMs: 1_000,
+    sampleSeconds: 1,
+  });
+  assert.equal(result.captured, false);
+  assert.equal(
+    result.files.some((file) => file.endsWith(".sample.txt")),
+    false,
+  );
+  assert.equal(result.errors.length, 1);
+});

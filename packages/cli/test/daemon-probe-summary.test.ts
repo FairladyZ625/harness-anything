@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -67,7 +67,7 @@ test("availability derivation dates a missing exit by the pid's last conn activi
       ]),
       activityMinutes: new Uint8Array(1),
     },
-    { sinceMs: 0, untilMs: 2 * HOUR, currentPid: null, currentPidAlive: false },
+    { sinceMs: 0, untilMs: 2 * HOUR },
   );
   assert.equal(evidence.starts, 3);
   assert.deepEqual(evidence.startsPerDay, { "1970-01-01": 3 });
@@ -80,9 +80,9 @@ test("availability derivation dates a missing exit by the pid's last conn activi
   assert.equal(evidence.unobservedFromMs, HOUR + 1);
 });
 
-test("a live current pid covers the window end and is not unobserved", () => {
+test("a start without later log evidence does not extend to the window end", () => {
   const evidence = deriveAvailability(
-    lifecycle([{ at: 0, pid: 7 }], []),
+    lifecycle([{ at: 1_000, pid: 7 }], []),
     {
       files: 0,
       records: 0,
@@ -93,9 +93,10 @@ test("a live current pid covers the window end and is not unobserved", () => {
       lastActivityByStartIndex: new Map(),
       activityMinutes: new Uint8Array(1),
     },
-    { sinceMs: 0, untilMs: HOUR, currentPid: 7, currentPidAlive: true },
+    { sinceMs: 0, untilMs: HOUR },
   );
-  assert.equal(evidence.unobservedFromMs, null);
+  assert.equal(evidence.unobservedFromMs, 1_000);
+  assert.equal(evidence.lastEvidenceAt, 1_000);
   assert.equal(evidence.downtimeMs, 0);
 });
 
@@ -122,7 +123,7 @@ test("PID reuse does not carry a later generation's activity or exit backwards",
       ]),
       activityMinutes: new Uint8Array(1),
     },
-    { sinceMs: 0, untilMs: 30_000, currentPid: null, currentPidAlive: false },
+    { sinceMs: 0, untilMs: 30_000 },
   );
   assert.deepEqual(evidence.live, [
     { fromMs: 0, toMs: 5_000, pid: 1 },
@@ -146,7 +147,7 @@ test("a later future start cannot change a frozen --until result", () => {
       lastActivityByStartIndex: new Map([[0, 5_000]]),
       activityMinutes: new Uint8Array(1),
     },
-    options = { sinceMs: 0, untilMs: 10_000, currentPid: null, currentPidAlive: false },
+    options = { sinceMs: 0, untilMs: 10_000 },
     withoutFuture = deriveAvailability(lifecycle([{ at: 0, pid: 1 }], []), conn, options),
     withFuture = deriveAvailability(
       lifecycle(
@@ -221,8 +222,6 @@ test("log history streams both conn generations and derives starts, attach, and 
       sinceMs,
       untilMs,
       minSilenceMs: 300_000,
-      currentPid: null,
-      currentPidAlive: false,
     });
   assert.equal(history.conn.files, 2);
   assert.equal(history.conn.records, 5);
@@ -475,3 +474,82 @@ function record(event: string, at: string, pid: number, extra: Readonly<Record<s
 function connRecord(at: string, pid: number): string {
   return JSON.stringify({ schema: "daemon-conn-log/v1", daemonId: "default", at, pid, event: "request" });
 }
+
+test("declared sample interval bounds gaps even without a start record", () => {
+  const a = createTimelineAccumulator(0, 40_000);
+  for (const at of [0, 20_000])
+    a.add({ kind: "sample", at: new Date(at).toISOString(), state: "down", intervalMs: 5_000 });
+  const result = a.finish();
+  assert.deepEqual(result.downSegments, [
+    { fromMs: 0, toMs: 5_000, durationMs: 5_000 },
+    { fromMs: 20_000, toMs: 25_000, durationMs: 5_000 },
+  ]);
+  assert.equal(result.observedMs, 10_000);
+});
+
+test("fallback samples and a later run contribute their combined observation", () => {
+  const a = createTimelineAccumulator(0, 30_000);
+  for (const at of [0, 5_000])
+    a.add({ kind: "sample", at: new Date(at).toISOString(), state: "down", intervalMs: 5_000 });
+  a.add({ kind: "probe_start", at: new Date(20_000).toISOString(), options: { intervalMs: 5_000 } });
+  a.add({ kind: "sample", at: new Date(20_000).toISOString(), state: "up", intervalMs: 5_000 });
+  const result = a.finish();
+  assert.equal(result.observedMs, 15_000);
+  assert.deepEqual(result.unobservedSegments, [
+    { fromMs: 10_000, toMs: 20_000, durationMs: 10_000 },
+    { fromMs: 25_000, toMs: 30_000, durationMs: 5_000 },
+  ]);
+  assert.deepEqual(result.downSegments, [{ fromMs: 0, toMs: 10_000, durationMs: 10_000 }]);
+});
+
+test("fixed history is unchanged by current PID and records appended after cutoff", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-cut-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  const dir = path.join(userRoot, "logs");
+  mkdirSync(dir, { recursive: true });
+  const life = path.join(dir, "daemon-default-lifecycle.jsonl"),
+    conn = path.join(dir, "daemon-default-conn-19700101.jsonl"),
+    probe = path.join(dir, "daemon-default-probe-19700101.jsonl"),
+    at = (ms: number) => new Date(ms).toISOString();
+  writeFileSync(life, record("process_start", at(1_000), process.pid) + "\n");
+  writeFileSync(conn, connRecord(at(5_000), process.pid) + "\n");
+  writeFileSync(
+    probe,
+    JSON.stringify({ schema: "daemon-probe/v1", kind: "sample", at: at(5_000), state: "up", intervalMs: 5_000 }) + "\n",
+  );
+  const options = {
+    sinceMs: 0,
+    untilMs: 10_000,
+    windowLabel: "fixed",
+    dayLabel: null,
+    minSilenceMs: 300_000,
+    json: false,
+  };
+  writeFileSync(path.join(userRoot, "daemon-default.pid"), String(process.pid));
+  const before = await runProbeSummary({ options, userRoot, daemonId: "default" });
+  assert.equal(before.probe.samples, 1);
+  rmSync(path.join(userRoot, "daemon-default.pid"));
+  appendFileSync(
+    life,
+    record("process_exit", at(20_000), process.pid) + "\n" + record("process_start", at(21_000), 42) + "\n",
+  );
+  appendFileSync(conn, connRecord(at(22_000), process.pid) + "\n");
+  appendFileSync(
+    probe,
+    JSON.stringify({ schema: "daemon-probe/v1", kind: "sample", at: at(23_000), state: "down", intervalMs: 5_000 }) +
+      "\n",
+  );
+  writeFileSync(life + ".1", record("process_start", at(24_000), 42) + "\n");
+  writeFileSync(conn + ".1", connRecord(at(25_000), 42) + "\n");
+  const after = await runProbeSummary({ options, userRoot, daemonId: "default" });
+  assert.deepEqual(after, before);
+  assert.deepEqual(after.logs.evidence.live, [{ fromMs: 1_000, toMs: 5_000, pid: process.pid }]);
+  assert.equal(after.logs.evidence.unobservedFromMs, 5_000);
+});
+
+test("a run start without a sample does not itself establish observation", () => {
+  const a = createTimelineAccumulator(0, 30_000);
+  a.add({ kind: "probe_start", at: new Date(0).toISOString(), options: { intervalMs: 5_000 } });
+  a.add({ kind: "sample", at: new Date(20_000).toISOString(), state: "up", intervalMs: 5_000 });
+  assert.equal(a.finish().observedMs, 5_000);
+});

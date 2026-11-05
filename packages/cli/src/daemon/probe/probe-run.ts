@@ -186,10 +186,15 @@ export async function runProbeLoop(deps: ProbeLoopDeps, options: ProbeLoopOption
     const reason = tracker.evaluate(sample);
     if (reason !== null) {
       const captured = await runCapture(deps, sample, reason, options, errors);
-      captures += 1;
-      captureFiles.push(...captured.files);
+      const status = captured.captured ? "captured" : "skipped";
+      if (status === "captured") {
+        tracker.captured(reason, sample.at);
+        captures += 1;
+        captureFiles.push(...captured.files);
+      }
       await appendSafely(deps.writer, errors, {
         kind: "capture",
+        status,
         at: new Date(deps.now()).toISOString(),
         reason,
         pid: sample.pid,
@@ -233,8 +238,9 @@ async function runCapture(
   errors: string[],
 ): Promise<CaptureResult> {
   if (sample.pid === null) {
-    errors.push(`capture skipped (${reason}): daemon pid is unknown`);
+    recordError(errors, `capture skipped (${reason}): daemon pid is unknown`);
     return {
+      captured: false,
       files: [],
       errors: [`capture skipped: daemon pid is unknown`],
       jsStack: { method: deps.jsStackMethod, status: "unreachable", file: null, detail: "daemon pid is unknown" },
@@ -253,8 +259,9 @@ async function runCapture(
     });
   } catch (error) {
     const failure = errorMessage(error);
-    errors.push(`capture failed (${reason}): ${failure}`);
+    recordError(errors, `capture failed (${reason}): ${failure}`);
     return {
+      captured: false,
       files: [],
       errors: [`capture failed: ${failure}`],
       jsStack: { method: deps.jsStackMethod, status: "failed", file: null, detail: failure },
@@ -294,11 +301,15 @@ async function appendSafely(
   return writer.append(record).then(
     () => true,
     (error: unknown) => {
-      if (errors.length < 20) errors.push(`timeline: ${errorMessage(error)}`);
-      else if (errors.length === 20) errors.push("timeline: further errors suppressed");
+      recordError(errors, `timeline: ${errorMessage(error)}`);
       return false;
     },
   );
+}
+
+function recordError(errors: string[], message: string): void {
+  if (errors.length < 20) errors.push(message);
+  else if (errors.length === 20) errors.push("further errors suppressed");
 }
 
 function attemptSync<T>(

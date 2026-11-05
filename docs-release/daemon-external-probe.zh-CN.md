@@ -39,7 +39,7 @@ ha daemon probe --duration 10m
 
 计数器来源：Linux 读 `/proc/<pid>/{stat,status,fd}`，macOS 用 `ps`/`lsof`，Windows 用 PowerShell `Get-Process`（尽力而为、验证较少；取不到的字段保持 `null` 并列入 `metricsUnavailable`）。
 
-同一次事件只抓一次现场。条件消失后才会重新武装；清除后再次发生要等过 `--cooldown`。现场文件写到 `<user-root>/logs/probe-captures/`：
+PID 暂不可读或抓取未产出现场时标记为 skipped，事件持续时会再尝试；成功后同一次事件只抓一次现场。条件消失后才会重新武装；清除后再次发生要等过 `--cooldown`。现场文件写到 `<user-root>/logs/probe-captures/`：
 
 - macOS：`sample <pid> <seconds> -file <文件>`；
 - Linux：把 `/proc/<pid>/{status,stack,wchan,syscall,stat}` 拼成一个文本文件；读不到的文件在正文里写明，不让整次抓现场失败；
@@ -59,12 +59,12 @@ ha daemon probe summary --window 1h --min-silence 5m --json
 汇总输出两个互相独立的视图：
 
 1. **探针时间线**：样本数、可用率（有应答样本 / 全部样本）、健康率、延迟分位、停机段、慢段与现场文件。窗口内没有样本时输出 `unobserved`，不会把缺数据算成 0% 可用。
-   汇总还会报告已观测与未观测时长：探针两次运行之间、或样本间隔超过运行间隔的缺口记为
+   汇总还会报告已观测与未观测时长：探针两次运行之间、或样本间隔超过 max(3 × 采样周期, 15 秒) 的缺口记为
    未观测，不计入停机。
 
 2. **离线日志视图**（探针从未运行也能用）：按 UTC 日的 `process_start` 启动次数、`repo_attach_completed.durationMs` 的挂载耗时，以及不可用段。正常重启由 `process_exit → 下一次 process_start` 定界；有 start 无 exit 的进程用该 pid 最后一条 conn 活动定界并标 `unrecorded-stop`——2026-11-03 的 56 分钟卡死就是这样出现的。conn 日志还能给出“没有请求活动”的静默段，单独列出，不计入停机。
 
-两种日志都逐行流式读取；汇总只为每个 pid 保留首末时间戳和每分钟 1 bit 的活动位图，因此一天 70 MB 的 conn 日志不会整体读入内存。
+固定截止时间的离线视图只使用截止前的日志，不读取当前 PID 来推断历史。两种日志都逐行流式读取；汇总只为每个 pid 保留首末时间戳和每分钟 1 bit 的活动位图，因此一天 70 MB 的 conn 日志不会整体读入内存。
 
 ## 常驻运行（不在本仓安装）
 

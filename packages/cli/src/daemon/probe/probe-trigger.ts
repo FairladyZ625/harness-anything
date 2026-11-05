@@ -22,15 +22,14 @@ export interface TriggerOptions {
 
 export interface TriggerTracker {
   readonly evaluate: (sample: TriggerSample) => TriggerReason | null;
-  readonly armedReasons: () => readonly TriggerReason[];
+  readonly captured: (reason: TriggerReason, at: number) => void;
 }
 
 export function createTriggerTracker(options: TriggerOptions): TriggerTracker {
   let downSince: number | null = null,
     cpuSince: number | null = null,
     eventCaptured = false,
-    lastCaptureAt: number | null = null,
-    lastReason: TriggerReason | null = null;
+    lastCaptureAt: number | null = null;
   return {
     evaluate: (sample) => {
       const down = sample.state === "down",
@@ -56,11 +55,11 @@ export function createTriggerTracker(options: TriggerOptions): TriggerTracker {
       // A cooldown does not discard the event: leave it uncaptured so the next sample after the
       // cooldown captures the still-running failure once.
       if (lastCaptureAt !== null && sample.at - lastCaptureAt < options.cooldownMs) return null;
-      eventCaptured = true;
-      lastReason = reason;
-      lastCaptureAt = sample.at;
       return reason;
     },
-    armedReasons: () => (eventCaptured && lastReason !== null ? [lastReason] : []),
+    captured: (_reason, at) => {
+      eventCaptured = true;
+      lastCaptureAt = at;
+    },
   };
 }

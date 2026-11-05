@@ -28,6 +28,7 @@ export interface JsStackResult {
 }
 
 export interface CaptureResult {
+  readonly captured: boolean;
   readonly files: readonly string[];
   readonly errors: readonly string[];
   readonly jsStack: JsStackResult;
@@ -63,6 +64,7 @@ export function createCapturePort(options: CaptureOptions = {}): CapturePort {
       const files: string[] = [],
         errors: string[] = [],
         stamp = new Date(request.at).toISOString().replace(/[-:.]/gu, "");
+      let captured = false;
       await ensureDirectory(request.dir);
       if (platform === "darwin") {
         const name = `${stamp}-${request.reason}.sample.txt`,
@@ -72,15 +74,18 @@ export function createCapturePort(options: CaptureOptions = {}): CapturePort {
             [String(request.pid), String(request.sampleSeconds), "-file", file],
             15_000 + request.sampleSeconds * 1000,
           );
-        files.push(file);
         if (result.error !== null || result.exitCode !== 0) {
           const body = `sample failed for pid ${request.pid}: ${result.error ?? `exit ${String(result.exitCode)}`}\n${result.stderr}`;
           files.push(await writeCapture(request.dir, `${name}.error.txt`, body));
           errors.push(body.trim());
+        } else {
+          files.push(file);
+          captured = true;
         }
       } else if (platform === "linux") {
         const body = await linuxProcDump(request.pid, readText);
         files.push(await writeCapture(request.dir, `${stamp}-${request.reason}.proc.txt`, body));
+        captured = true;
       } else {
         files.push(
           await writeCapture(
@@ -97,8 +102,9 @@ export function createCapturePort(options: CaptureOptions = {}): CapturePort {
         request.dir,
       );
       if (jsStack.file !== null) files.push(jsStack.file);
+      captured ||= jsStack.status === "captured" && jsStack.file !== null;
       if (jsStack.detail !== null && jsStack.status !== "captured") errors.push(`js stack: ${jsStack.detail}`);
-      return { files, errors, jsStack };
+      return { captured, files, errors, jsStack };
     },
   };
 }
