@@ -37,6 +37,10 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.match(prompt, /verdict: approved\|changes_requested\|dismissed/u);
   assert.doesNotMatch(prompt, /Owner adjudication context/u);
   assert.match(prompt, /execution-frozen delivery baseline.*b{40}/u);
+  assert.match(prompt, /comparison cut frozen at execution start, before the first submission/u);
+  assert.match(prompt, /not the delivery head/u);
+  assert.match(prompt, /--amend never refreshes it/u);
+  assert.match(prompt, /delivered head is the submission's commitSha/u);
   assert.match(prompt, /Read the G33 production-delta result/u);
   assert.match(prompt, /shared Kernel readSubmissionFacts result/u);
   assert.ok(prompt.includes(historicalReadConclusions[0]!.conclusion));

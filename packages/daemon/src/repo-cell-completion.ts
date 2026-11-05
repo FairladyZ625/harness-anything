@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   completionGateIds,
   compileCompletionGateWitness,
+  EXECUTION_DELIVERY_BASELINE_NOTE,
   judgeCompletionEvidence,
   type CompletionEvidenceJudgment,
   deriveTaskRoot,
@@ -228,6 +229,9 @@ export function taskShowFromProjection(
       currentExecutions: read.snapshot.executions
         .filter((value) => value.iteration === task?.iteration)
         .map(({ executionId, state }) => ({ executionId, state })),
+      // The raw execution field is start-frozen; ship its semantics beside it so a JSON reader
+      // does not mistake the comparison cut for the delivered HEAD (task_199ad30eb5cdd072cd65317919).
+      deliveryBaselineNote: EXECUTION_DELIVERY_BASELINE_NOTE,
       assignmentRevision,
       task: task
         ? {

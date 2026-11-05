@@ -100,6 +100,17 @@ export type ExecutionDeliveryBaseline =
     }
   | { readonly kind: "empty-tree" };
 
+/**
+ * The one sentence every surface prints beside an execution's frozen delivery baseline. The field
+ * names the comparison point observed at execution start — the delivery branch's fork on the
+ * default branch — not the delivered HEAD: advancing main or amending a cut never re-derives it.
+ * A reader who mistakes it for the delivery head manufactures a "stale" finding against an
+ * artifact-only or already-merged cut (task_199ad30eb5cdd072cd65317919).
+ */
+export const EXECUTION_DELIVERY_BASELINE_NOTE =
+  "the comparison cut frozen at execution start, before the first submission — not the delivery head; " +
+  "advancing main or --amend never refreshes it";
+
 export interface ExecutionV1 {
   readonly schema: "execution/v1";
   readonly gateRuns: readonly GateRun[];

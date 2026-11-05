@@ -200,6 +200,7 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
     `status: ${String(payload.task.status)}`,
     `graph cursor: ${String(payload.task.currentNode)}`,
     ...executionLines(payload),
+    ...deliveryBaselineLines(payload),
     // Optional on the write-receipt schema: legacy receipts predate the field and render no line.
     ...(typeof receipt.expectedVersion === "number"
       ? [
@@ -236,6 +237,38 @@ function executionLines(payload: Record<string, unknown>): readonly string[] {
   return [
     `execution: ${rows.length ? rows.join(", ") : "none"} (pass as --execution-id to review/review-consent/complete)`,
   ];
+}
+
+/**
+ * The comparison cut each current execution froze at start. Printing the raw sha without its
+ * semantics is what let a reviewer read an old baseline as a stale delivery head
+ * (task_199ad30eb5cdd072cd65317919), so the value and the sentence always travel together.
+ */
+function deliveryBaselineLines(payload: Record<string, unknown>): readonly string[] {
+  if (
+    !Array.isArray(payload.executions) ||
+    !Array.isArray(payload.currentExecutions) ||
+    typeof payload.deliveryBaselineNote !== "string" ||
+    payload.deliveryBaselineNote === ""
+  )
+    return [];
+  const current = payload.currentExecutions.flatMap((execution) =>
+    isRecord(execution) && typeof execution.executionId === "string" ? [execution.executionId] : [],
+  );
+  return payload.executions.flatMap((execution) => {
+    if (!isRecord(execution) || typeof execution.executionId !== "string" || !current.includes(execution.executionId))
+      return [];
+    const baseline = isRecord(execution.deliveryBaseline) ? execution.deliveryBaseline : null,
+      ref =
+        baseline === null
+          ? null
+          : baseline.kind === "empty-tree"
+            ? "empty-tree"
+            : typeof baseline.commitSha === "string"
+              ? baseline.commitSha
+              : null;
+    return ref === null ? [] : [`delivery baseline: ${ref} (${payload.deliveryBaselineNote})`];
+  });
 }
 
 /** dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4: one line tells where every task works. */

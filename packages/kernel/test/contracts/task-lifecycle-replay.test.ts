@@ -516,6 +516,11 @@ test("an amended delivery re-derives the record anchors; the closeout prose carr
   assert.match(amendedRecord, new RegExp(`- Commit: ${amendedCommit}`));
   assert.doesNotMatch(amendedRecord, new RegExp(firstCommit));
   assert.equal(amendedCut.changedPaths.includes(recordPath), true);
+  // The start-frozen comparison baseline is not the delivery head: a later amend keeps it.
+  assert.deepEqual(
+    amended.snapshot.executions.find((execution) => execution.executionId === "execution-1")?.deliveryBaseline,
+    { kind: "commit", commitSha: "0".repeat(40) },
+  );
 });
 
 test("a late changes_requested review may reopen a consented cut for a fresh iteration", () => {
