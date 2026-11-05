@@ -588,6 +588,8 @@ export interface DaemonTaskQueryPayload {
    * state, e.g. the fleet's in-flight leases and home's "completed in the last 24h" count.
    */
   readonly statusSource?: "raw";
+  /** Only tasks holding a live lease; the fleet lease page starts from leases, not raw actives. */
+  readonly leaseOnly?: boolean;
 }
 
 export interface DaemonAgendaPayload {

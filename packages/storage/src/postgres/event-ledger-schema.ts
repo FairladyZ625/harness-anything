@@ -40,6 +40,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     event_id text NOT NULL,
     event_type text NOT NULL,
     event_json text NOT NULL,
+    summary_json text,
     event_digest text NOT NULL,
     occurred_at text NOT NULL,
     actor_refs text[] NOT NULL DEFAULT '{}',

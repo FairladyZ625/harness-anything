@@ -182,6 +182,8 @@ export interface TaskProjectionListQuery {
   readonly search?: string;
   readonly slug?: string;
   readonly activePackagesOnly?: boolean;
+  /** Only tasks carrying a live lease; the aggregate lease page must not scan lease-less actives. */
+  readonly leaseOnly?: boolean;
   readonly taskIds?: readonly string[];
   readonly presentationStatus?: boolean;
 }

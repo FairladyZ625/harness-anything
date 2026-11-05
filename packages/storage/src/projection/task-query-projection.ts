@@ -774,9 +774,12 @@ export function listTaskRowsNarrow(
       values.push(taskId!);
     }
   }
-  const paged = query.limit !== undefined || query.cursor !== undefined,
+  const leaseJoin = query.leaseOnly
+      ? " JOIN (SELECT DISTINCT task_id FROM lease_interval WHERE released_revision IS NULL AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) lease_task ON lease_task.task_id = task_snapshot.task_id"
+      : "",
+    paged = query.limit !== undefined || query.cursor !== undefined,
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
-  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, ${taskCompletedAtSql("task_snapshot.task_id")} AS completed_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned, ${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, ${taskCompletedAtSql("task_snapshot.task_id")} AS completed_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned, ${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${leaseJoin}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(pageLimit + 1);
   const raw = queryRows<NarrowTaskRow & ProjectionSqlRow>(db, sql, ...values),
     visible = pageLimit === null ? raw : raw.slice(0, pageLimit);

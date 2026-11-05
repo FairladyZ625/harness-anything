@@ -15,7 +15,8 @@ export function repositoryRuntimeReads(
   return makeAgentRuntimeReadModel({
     readAttemptChain: (id) => readRuntimeAttemptChain(id, projection),
     readDispatch: (taskId, dispatchId) => readTaskDispatchSession(projection, taskId, dispatchId),
-    readDispatches: ({ sessions, events }) => readSessionGroupDispatches({ sessions, events, projection }),
+    readDispatches: ({ sessions, events, shallow }) =>
+      readSessionGroupDispatches({ sessions, events, projection, ...(shallow ? { shallow } : {}) }),
     projection,
     store,
     ...(rootDir === undefined ? {} : { rootDir }),

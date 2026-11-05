@@ -55,8 +55,9 @@ const dispatchIndexes = [
   ["squad_session", "squad_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["page", "dispatch_started_at,dispatch_id"],
   // "Newest dispatch for this task" without walking every dispatch the task ever had:
-  // fleet overview reads one current dispatch per lease row. NULLS LAST matches the read order.
-  ["task_time", "payload_task_id,dispatch_started_at DESC NULLS LAST,dispatch_id DESC"],
+  // fleet overview reads one current dispatch per lease row. Effective time is
+  // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.
+  ["task_effective_time", "payload_task_id,(COALESCE(dispatch_started_at, occurred_at)) DESC,dispatch_id DESC"],
 ] as const;
 
 /** RLS-safe scalar indexes over immutable event bytes; only a disposable parsing copy is JSONB.
@@ -70,6 +71,7 @@ export function eventReadIndexDdl(): readonly string[] {
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS read_index_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
+    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
     `CREATE OR REPLACE FUNCTION ha_event_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       DECLARE v jsonb;

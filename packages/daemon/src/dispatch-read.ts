@@ -583,11 +583,66 @@ export function readSessionGroupDispatches(input: {
   readonly sessions: readonly RuntimeSession[];
   readonly events: readonly DispatchEvent[];
   readonly projection: DispatchQueries;
+  /** Aggregate pages need grouping fields, not the full delivered/blocked dispatch derivation. */
+  readonly shallow?: boolean;
 }): readonly TaskDispatchRow[] {
   const sessions = new Map(input.sessions.map((session) => [session.runtimeSessionId, session]));
   return input.events.map((event) =>
-    canonicalDispatchRow(input.projection, event, sessions.get(event.payload.runtimeSessionId)),
+    input.shallow
+      ? shallowSessionGroupRow(event, sessions.get(event.payload.runtimeSessionId))
+      : canonicalDispatchRow(input.projection, event, sessions.get(event.payload.runtimeSessionId)),
   );
+}
+
+/** Bounded group-row projection: only fields the session-group aggregation renders are filled;
+ * delivered/blocked, task snapshot, document and dispatch-stream reads are intentionally absent. */
+function shallowSessionGroupRow(event: DispatchEvent, session: RuntimeSession | undefined): TaskDispatchRow {
+  const payload = event.payload,
+    outcome = session?.outcome ?? null,
+    status = outcome ?? (session?.liveness === "live" ? "running" : "unknown");
+  return {
+    dispatchId: payload.dispatchId,
+    taskId: payload.taskId ?? "",
+    executionId: payload.executionId ?? "",
+    ...(payload.reviewTarget?.kind === "decision" && payload.reviewTarget.decisionId
+      ? {
+          reviewTarget: {
+            kind: "decision" as const,
+            decisionId: payload.reviewTarget.decisionId,
+            digest: payload.reviewTarget.digest,
+          },
+        }
+      : payload.reviewTarget?.kind === "task" && payload.reviewTarget.taskId && payload.reviewTarget.executionId
+        ? {
+            reviewTarget: {
+              kind: "task" as const,
+              taskId: payload.reviewTarget.taskId,
+              executionId: payload.reviewTarget.executionId,
+              digest: payload.reviewTarget.digest,
+            },
+          }
+        : {}),
+    runtimeSessionId: payload.runtimeSessionId,
+    ...(payload.role ? { role: payload.role } : {}),
+    instanceId: payload.instanceId,
+    attemptGroupId: payload.attemptGroupId ?? payload.dispatchId,
+    attemptIndex: payload.attemptIndex ?? 0,
+    provider: { instance: payload.instanceId, model: payload.definitionSnapshot?.model ?? null },
+    classification: null,
+    reason: null,
+    fallbackState: null,
+    nextDispatchId: null,
+    ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
+    ...(payload.squadId ? { squadId: payload.squadId } : {}),
+    providerSessionId: session?.providerSessionId ?? null,
+    eventStreamRef: null,
+    startedAt: payload.startedAt ?? event.occurredAt,
+    endedAt: outcome === null ? null : (session?.lastObservedAt ?? event.occurredAt),
+    outcome,
+    status,
+    resultRef: session?.resultRef ?? null,
+    exitCode: session?.exitCode ?? null,
+  };
 }
 
 /**

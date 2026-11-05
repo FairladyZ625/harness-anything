@@ -354,6 +354,40 @@ test("public dispatch, session group and attempt chain queries tolerate a filesy
   }
 });
 
+test("shallow session group rows keep the decision reviewer and agent fields without task snapshots", () => {
+  const f = fixture(session("live", null)),
+    event = {
+      ...f.event,
+      payload: {
+        ...f.event.payload,
+        agentId: "agent-reviewer",
+        agentName: "Reviewer One",
+        reviewTarget: { kind: "decision" as const, decisionId: "dec_0123456789abcdef", digest: "sha256:abc" },
+      },
+    },
+    projection = {
+      ...f.projection,
+      read: () => {
+        throw new Error("shallow group row must not read the task snapshot");
+      },
+    },
+    [row] = readSessionGroupDispatches({
+      projection,
+      sessions: [session("live", null)],
+      events: [event],
+      shallow: true,
+    });
+  assert.equal(row?.dispatchId, dispatchId);
+  assert.equal(row?.agentId, "agent-reviewer");
+  assert.equal(row?.agentName, "Reviewer One");
+  assert.deepEqual(row?.reviewTarget, {
+    kind: "decision",
+    decisionId: "dec_0123456789abcdef",
+    digest: "sha256:abc",
+  });
+  assert.equal(row?.status, "running");
+});
+
 test("resume is derived from canonical provider identity and withdrawn by an accepted successor", () => {
   const f = fixture(session("exited", "failed"));
   assert.deepEqual(f.rows()[0]?.resume, { dispatchId, agentId: "terra" });

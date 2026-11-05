@@ -179,7 +179,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
                   AND ha_events.event_schema='agent-runtime-event/v1'
                   AND ha_events.event_type='runtime_dispatch_requested'
                   AND ha_events.payload_task_id=requested.task_id
-                ORDER BY ha_events.dispatch_started_at DESC NULLS LAST, ha_events.dispatch_id DESC
+                ORDER BY COALESCE(ha_events.dispatch_started_at, ha_events.occurred_at) DESC, ha_events.dispatch_id DESC
                 LIMIT 1
              ) AS latest
             ORDER BY requested.position`,

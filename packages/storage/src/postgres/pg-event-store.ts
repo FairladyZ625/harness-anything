@@ -12,6 +12,7 @@ import {
   type CanonicalEventStore,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import {
   canonicalEventContentClaims,
   canonicalEventCut,
@@ -285,11 +286,12 @@ export async function executePostgresAppend(
 
       const recordedAt = new Date().toISOString();
       for (const event of events) {
+        const parsedEvent = JSON.parse(event.eventJson) as CanonicalEventV1;
         await client.query(
           `INSERT INTO ha_events
-              (tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,
+              (tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,summary_json,event_digest,occurred_at,
                actor_refs,entity_refs,readers,policy_epoch,recorded_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
           [
             scope.tenantId,
             scope.projectId,
@@ -299,6 +301,9 @@ export async function executePostgresAppend(
             event.eventId,
             event.eventType,
             event.eventJson,
+            // One bounded header computed by the same canonical summary used at read time. Keeping
+            // it as text (never jsonb) is what makes legal NUL provider bytes readable.
+            JSON.stringify(canonicalEventSummary(parsedEvent)),
             event.eventDigest,
             event.occurredAt,
             event.actorRefs,
@@ -308,7 +313,7 @@ export async function executePostgresAppend(
             recordedAt,
           ],
         );
-        await updateDocumentHeads(client, scope, repoId, JSON.parse(event.eventJson) as CanonicalEventV1);
+        await updateDocumentHeads(client, scope, repoId, parsedEvent);
       }
 
       const finalEvent = events.at(-1),

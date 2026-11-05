@@ -229,26 +229,13 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
         if (fields === "fleet") {
-          // The fleet overview renders only the event header, title and executor. Select those
-          // columns as JSON instead of shipping whole event bodies: one large unrelated event in
-          // the tail must not be charged to this page. The shape is re-read through the same
-          // canonicalEventSummary below, so the summary definition stays in one place.
+          // The fleet overview renders only the event header. `summary_json` is computed in JS at
+          // write time and stored as text: parsing a whole event with jsonb would reject legal
+          // NUL bytes in provider strings, and shipping whole bodies would charge one large event
+          // to a fixed page. Old rows without a summary fall back to the canonical text and are
+          // still parsed by the same JS summary function.
           const result = await client.query<{ event_json: string }>(
-            `SELECT jsonb_build_object(
-               'eventId', event_json::jsonb->>'eventId',
-               'schema', event_json::jsonb->>'schema',
-               'type', event_json::jsonb->>'type',
-               'occurredAt', event_json::jsonb->>'occurredAt',
-               'workspaceRevision', (event_json::jsonb->>'workspaceRevision')::bigint,
-               'taskId', event_json::jsonb->>'taskId',
-               'actor', jsonb_build_object('executor', jsonb_build_object('id', event_json::jsonb#>>'{actor,executor,id}')),
-               'payload', jsonb_build_object(
-                 'taskId', event_json::jsonb#>>'{payload,taskId}',
-                 'title', left(event_json::jsonb#>>'{payload,title}', 280),
-                 'statement', left(event_json::jsonb#>>'{payload,statement}', 280),
-                 'text', left(event_json::jsonb#>>'{payload,text}', 280)
-               )
-             )::text AS event_json
+            `SELECT COALESCE(summary_json, event_json) AS event_json
              FROM ha_events
              WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
                AND event_type <> 'ci_run_observed'

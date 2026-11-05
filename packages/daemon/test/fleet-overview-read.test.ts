@@ -342,7 +342,12 @@ test("the validator accepts a real overview and rejects each pinned negative fix
 });
 
 test("the host assembly maps task snapshots, dispatch rows, the event tail and registry failures", async () => {
-  const listCalls: { readonly status: unknown; readonly cursor: unknown; readonly statusSource: unknown }[] = [];
+  const listCalls: {
+    readonly status: unknown;
+    readonly cursor: unknown;
+    readonly statusSource: unknown;
+    readonly leaseOnly: unknown;
+  }[] = [];
   const dispatchCalls: { readonly latestOnly: unknown }[] = [];
   const eventTailCalls: (Readonly<Record<string, unknown>> | undefined)[] = [];
   const cell = {
@@ -350,7 +355,12 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
       if (method === "repo.tasks.list") {
         // 仿真读面契约(task-query-read):按展示态过滤,keyset 按 task_id 升序,
         // 默认 limit 500;cursor 是上一页最后一行的 task_id,还有后续页才给 nextCursor。
-        listCalls.push({ status: payload?.status, cursor: payload?.cursor, statusSource: payload?.statusSource });
+        listCalls.push({
+          status: payload?.status,
+          cursor: payload?.cursor,
+          statusSource: payload?.statusSource,
+          leaseOnly: payload?.leaseOnly,
+        });
         const limit = typeof payload?.limit === "number" ? payload.limit : 500,
           rows = hostTaskRows()
             .filter((row) => row.coordinationStatus === payload?.status)
@@ -466,6 +476,8 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
   // One current dispatch per lease task, never the task's whole dispatch history.
   assert.ok(dispatchCalls.length > 0);
   assert.ok(dispatchCalls.every((call) => call.latestOnly === true));
+  // Start from lease rows: a growing lease-less active population must not enlarge this read.
+  assert.ok(listCalls.every((call) => call.leaseOnly === true));
   // Header-only event tail: the overview renders no payload body, so it must not ship one.
   assert.deepEqual(eventTailCalls, [{ kind: "events", direction: "history", fields: "fleet" }]);
   assert.equal(listCalls[1]!.cursor, "task_aa_0499");

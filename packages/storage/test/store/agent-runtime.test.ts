@@ -777,6 +777,30 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
         projection.apply(event);
       }
     }
+    // A later event may omit startedAt: it must win on its occurredAt fallback instead of losing
+    // to an older event that happened to carry startedAt.
+    const unstarted = eventFromProviderWitness(
+      {
+        ...requestedBase,
+        payload: {
+          ...requestedBase.payload,
+          dispatchId: "dispatch_unstarted",
+          runtimeSessionId: "runtime-unstarted",
+          taskId: "task-history-unstarted",
+          executionId: "execution-unstarted",
+          agentId: "agent-unstarted",
+        },
+      },
+      { ...envelope(7), occurredAt: "2026-09-03T00:00:00.000Z" },
+    )!;
+    store.append(bundle(unstarted));
+    projection.apply(unstarted);
+    assert.deepEqual(
+      projection
+        .readLatestRuntimeDispatchesByTaskIds(["task-history", "task-history-unstarted"])
+        .map(({ payload }) => payload.dispatchId),
+      ["dispatch_history_2", "dispatch_unstarted"],
+    );
     assert.equal(projection.readRuntimeDispatchById("dispatch_history_1")?.metrics?.totalTokens, 3);
     assert.equal(
       projection.readRuntimeDispatchByResumeSource("dispatch_history_1")?.event.payload.dispatchId,

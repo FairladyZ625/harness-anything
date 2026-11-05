@@ -30,6 +30,8 @@ export function queryPayloadFacets(
   if (cursor !== undefined && !cursor) throw codedError("invalid_command", "Query cursor is invalid.");
   if (payload.statusSource !== undefined && (method !== "repo.tasks.list" || payload.statusSource !== "raw"))
     throw codedError("invalid_command", "Task statusSource must be raw when supplied.");
+  if (payload.leaseOnly !== undefined && (method !== "repo.tasks.list" || typeof payload.leaseOnly !== "boolean"))
+    throw codedError("invalid_command", "Task leaseOnly must be boolean on repo.tasks.list.");
   const stateInvalid =
     status !== undefined &&
     (method === "repo.tasks.list" ? !isDomainStatus(status) : !(relationStates as readonly string[]).includes(status));
@@ -42,7 +44,8 @@ export function queryPayloadFacets(
       updatedBefore !== undefined ||
       limit !== undefined ||
       cursor !== undefined ||
-      payload.statusSource !== undefined,
+      payload.statusSource !== undefined ||
+      payload.leaseOnly !== undefined,
     status,
     changedAfterRevision,
     updatedAfter,
@@ -67,5 +70,6 @@ export function taskListQueryFromPayload(
     ...(common.limit === undefined ? {} : { limit: common.limit }),
     ...(common.cursor ? { cursor: common.cursor } : {}),
     ...(payload.statusSource === "raw" ? { presentationStatus: false } : {}),
+    ...(payload.leaseOnly === true ? { leaseOnly: true } : {}),
   };
 }

@@ -279,6 +279,10 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             where.push(`snapshot #>> '{task,metadata,${key}}' = $${values.length}`);
           }
         if (query.openOnly === true) where.push(`snapshot #>> '{task,status}' NOT IN ('done', 'cancelled')`);
+        if (query.leaseOnly === true)
+          where.push(`raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'
+            AND (raw_lease->>'expiresAt' IS NULL OR raw_lease->>'expiresAt' >
+              to_char((now() AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))`);
         if (query.activePackagesOnly === true)
           where.push(`COALESCE(snapshot #>> '{task,packageDisposition}', 'active') = 'active'`);
         if (query.workRootsOnly === true)

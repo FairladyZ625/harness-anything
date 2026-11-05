@@ -45,6 +45,7 @@ export function makeAgentRuntimeReadModel(input: {
   readonly readDispatches?: (input: {
     readonly sessions: readonly RuntimeSession[];
     readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+    readonly shallow?: boolean;
   }) => readonly TaskDispatchRow[];
   readonly readAttemptChain?: (runtimeSessionId: string) => AgentRuntimeAttemptChainDto | undefined;
   readonly projection: TaskProjection;
@@ -293,12 +294,15 @@ export function makeAgentRuntimeReadModel(input: {
           input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
         ),
         dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
-        // The in-flight aggregation needs only live members; the full dispatch row re-derives
-        // delivered/blocked/TaskSnapshot relations and would make a fixed-k home read follow
-        // the task's historical session relations.
-        dispatches = query.unsettledOnly
-          ? []
-          : (input.readDispatches?.({ sessions, events: windowedDispatchEvents }) ?? []),
+        // The in-flight aggregation needs the same grouping fields (reviewTarget, agent/squad)
+        // as the full page; a shallow row keeps those bounded and drops the task-snapshot,
+        // document and delivered/blocked derivations that made this read follow history.
+        dispatches =
+          input.readDispatches?.({
+            sessions,
+            events: windowedDispatchEvents,
+            ...(query.unsettledOnly ? { shallow: true } : {}),
+          }) ?? [],
         taskIds = [
           ...new Set([
             ...sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)),

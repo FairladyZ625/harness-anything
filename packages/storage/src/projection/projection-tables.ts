@@ -120,6 +120,8 @@ export const REPOSITORY_READ_TABLES_SQL = `
       reason TEXT NOT NULL,
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     );
+    CREATE INDEX IF NOT EXISTS lease_interval_current ON lease_interval(task_id, lease_expires_at)
+      WHERE released_revision IS NULL;
     CREATE TABLE IF NOT EXISTS event_index (
       op_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL UNIQUE,
@@ -180,10 +182,11 @@ export const REPOSITORY_READ_TABLES_SQL = `
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     -- "The current dispatch for this task" is one index seek, not a walk over every dispatch the
-    -- task ever had: aggregate reads (fleet overview) only need each task's newest start.
+    -- task ever had: aggregate reads (fleet overview) only need each task's newest effective
+    -- start, startedAt falling back to occurredAt, matching the dispatch row timestamp fallback.
     CREATE INDEX IF NOT EXISTS event_index_runtime_task_started ON event_index(
       json_extract(event_json, '$.payload.taskId'),
-      json_extract(event_json, '$.payload.startedAt') DESC,
+      COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,
       json_extract(event_json, '$.payload.dispatchId') DESC
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';

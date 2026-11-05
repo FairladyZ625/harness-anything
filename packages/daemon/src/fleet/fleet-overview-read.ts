@@ -608,7 +608,15 @@ export async function readFleetOverviewFromHost(input: {
           // A lease only exists on a raw-active task (the lifecycle contract), and the aggregate
           // must not pay for the presentation-status subtree derivation: that filter cannot be
           // index-bounded and would scan every task the repository ever had.
-          { status, limit: 500, statusSource: "raw", ...(cursor === undefined ? {} : { cursor }) },
+          {
+            status,
+            limit: 500,
+            statusSource: "raw",
+            // Start from live lease rows, not from every raw-active task: active work without a
+            // lease must not make a fixed lease count scan history.
+            leaseOnly: true,
+            ...(cursor === undefined ? {} : { cursor }),
+          },
           input.binding,
         );
         rows.push(...page.rows);

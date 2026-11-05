@@ -60,13 +60,14 @@ const RUNTIME_DISPATCHES_BY_TASK_IDS_SQL = (count: number) =>
     `AND json_extract(event_json, '$.payload.taskId') IN (${Array.from({ length: count }, () => "?").join(",")}) ORDER BY workspace_revision`,
   );
 // One index seek per requested task, never the task's total dispatch history: the event index
-// carries (taskId, startedAt DESC, revision DESC), so the newest row is the first hit.
+// carries (taskId, effective time DESC, dispatchId DESC), where effective time is
+// `startedAt ?? occurredAt`, the same fallback the dispatch row uses.
 const RUNTIME_LATEST_DISPATCH_BY_TASK_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
   "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
   "AND json_extract(event_json, '$.payload.taskId') = ?",
-  "ORDER BY json_extract(event_json, '$.payload.startedAt') DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT 1",
+  "ORDER BY COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT 1",
 ].join(" ");
 const RUNTIME_DISPATCH_BY_ID_PREFIX_SQL = RUNTIME_DISPATCHES_SQL.replace(
   "ORDER BY workspace_revision",
