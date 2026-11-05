@@ -56,7 +56,7 @@ function pathCode(value) {
   return `${delimiter}${encoded}${delimiter}`;
 }
 
-/** The governing decision recorded on the task, if any. Task identity alone is not authorization. */
+/** The governing decision recorded on the task, if any; otherwise the caller cites the task itself. */
 function decisionAuthority(projection) {
   const relations = Array.isArray(projection.decisionRelations) ? projection.decisionRelations : [],
     decision = relations.find(
