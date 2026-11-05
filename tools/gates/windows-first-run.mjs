@@ -17,6 +17,15 @@ import { repoRoot } from "./git.mjs";
 const STEP_TIMEOUT_MS = 180_000;
 const STOP_SETTLE_MS = 30_000;
 
+/** The resident daemon materializes its ledger asynchronously: it commits to SQLite first and
+ * then writes loose Git objects (tmp_obj_* renamed into place) after the command has returned.
+ * A local-path clone copies .git/objects file by file and can enumerate one of those temp files
+ * just before it is renamed, so --no-local makes it read a ref snapshot through upload-pack
+ * instead. The byte-fidelity check below is unaffected by how the objects arrive. */
+export function ledgerCloneArgs(source, destination) {
+  return ["clone", "-q", "--no-local", source, destination];
+}
+
 function harness(entry, repo, env, args, input) {
   const result = spawnSync(process.execPath, [entry, "--root", repo, "--json", ...args], {
     cwd: repo,
@@ -99,7 +108,7 @@ export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SET
     // host's global end-of-line setting and no local pin travels with it, so this is the only
     // shape of the check that can fail. Windows is where the global default makes it certain.
     const clone = path.join(root, "clone");
-    const cloned = spawnSync("git", ["clone", "-q", path.join(repo, "harness"), clone], {
+    const cloned = spawnSync("git", ledgerCloneArgs(path.join(repo, "harness"), clone), {
       encoding: "utf8",
       windowsHide: true,
     });
