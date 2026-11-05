@@ -1039,6 +1039,12 @@ export async function openRepoWriterCell(
         readIndexBackfillQueued = false;
       })
       .catch((error: unknown) => {
+        // Maintenance has no RPC to publish its failure. Reuse the latch/recovery path,
+        // and notify the supervisor even though queue depth has already drained.
+        if (state !== "closed") {
+          latchWith(error);
+          input.onQueueDepthChange?.(queueDepth);
+        }
         console.error("[read-index-backfill]", error);
       });
   };

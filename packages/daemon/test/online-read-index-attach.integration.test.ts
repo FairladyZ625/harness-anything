@@ -12,8 +12,9 @@ import { sqliteLedgerPath } from "../../storage/src/store/sqlite-ledger-layout.t
 import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
-test("100000-event populated cache attaches before read-index backfill and continues serving reads", async (t) => {
+test("100000-event cache attaches before backfill and resumes a failed page through recovery", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     execFileSync("git", ["init", "-q", rootDir]);
     const progress = new EventEmitter();
@@ -88,6 +89,9 @@ test("100000-event populated cache attaches before read-index backfill and conti
         head,
         digest,
       );
+      // The first 64-row page commits; the next transaction must roll back and publish a latch.
+      db.exec(`CREATE TRIGGER cache.inject_backfill_failure BEFORE UPDATE OF dispatch_key ON event_index
+        WHEN OLD.workspace_revision=65 BEGIN SELECT RAISE(ABORT,'injected read-index page failure'); END`);
       db.exec("COMMIT; DETACH DATABASE cache");
     } finally {
       db.close();
@@ -110,6 +114,40 @@ test("100000-event populated cache attaches before read-index backfill and conti
         "dispatch-100000",
       );
       const readMs = performance.now() - readStart;
+      await assert.doesNotReject(async () => {
+        const signal = AbortSignal.timeout(5000);
+        while (cell.status().state === "attached") await once(progress, "page", { signal });
+      }, "a failed migration must publish an unavailable status without a foreground request");
+      assert.equal(cell.status().state, "unavailable");
+      assert.match(cell.status().lastError!, /injected read-index page failure/u);
+      assert.equal(cell.status().queueDepth, 0);
+      await assert.rejects(cell.verifyReadiness(), { code: "repo_unavailable" });
+      const failedProgress = inspect.prepare("SELECT revision,complete FROM runtime_read_index_progress").get()!;
+      assert.equal(failedProgress.revision, 64, "the failed page must preserve the last committed cursor");
+      assert.equal(failedProgress.complete, 0);
+      assert.equal(
+        inspect.prepare("SELECT dispatch_key FROM event_index WHERE workspace_revision=65").get()!.dispatch_key,
+        null,
+      );
+      assert.equal(
+        reader.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-100000"))?.event.payload.dispatchId,
+        "dispatch-100000",
+        "the previous reader remains correct while maintenance is latched",
+      );
+      const repair = new DatabaseSync(projectionPath);
+      try {
+        repair.exec("DROP TRIGGER inject_backfill_failure");
+      } finally {
+        repair.close();
+      }
+      // Normal writer admission owns recovery; it reopens the handles and kicks maintenance.
+      const recovered = await cell.run(
+        { kind: "task-create", taskId: "task_after_backfill_fault", title: "After backfill fault" },
+        withPolicyGroup({ actor: { principal: { personId: "fixture" }, executor: null }, source: "local" }, "admin"),
+      );
+      assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+      assert.equal(cell.status().state, "attached");
+      assert.equal(cell.status().lastError, null);
       // Wait on durable progress, with bounded event-loop turns, never a wall-clock sleep.
       for (let turn = 0; turn < 5000; turn++) {
         if (inspect.prepare("SELECT complete FROM runtime_read_index_progress").get()!.complete === 1) break;
@@ -120,7 +158,9 @@ test("100000-event populated cache attaches before read-index backfill and conti
         reader.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-100000"))?.event.payload.dispatchId,
         "dispatch-100000",
       );
-      t.diagnostic(`ONLINE_ATTACH ${JSON.stringify({ events: head, attachMs, pendingAtAttach, readMs })}`);
+      t.diagnostic(
+        `ONLINE_ATTACH ${JSON.stringify({ events: head, attachMs, pendingAtAttach, readMs, resumedFrom: failedProgress.revision })}`,
+      );
     } finally {
       reader.close();
       inspect.close();
