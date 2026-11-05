@@ -5,7 +5,12 @@ import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { validateCurrentAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { sqliteLedgerPath } from "../../storage/src/store/sqlite-ledger-layout.ts";
 
-export function seedLegacyReadIndexEvents(rootDir: string, count: number, injectFailure = false): number {
+export function seedLegacyReadIndexEvents(
+  rootDir: string,
+  count: number,
+  injectFailure = false,
+  lastDispatchAgentId?: string,
+): number {
   const projectionPath = resolveHarnessLayout(rootDir).taskProjectionPath,
     db = new DatabaseSync(sqliteLedgerPath(rootDir));
   db.exec("ATTACH DATABASE '" + projectionPath.replaceAll("'", "''") + "' AS cache");
@@ -38,6 +43,7 @@ export function seedLegacyReadIndexEvents(rootDir: string, count: number, inject
           installationId: "installation",
           kindId: "claude",
           dispatchKey: `key-${n}`,
+          ...(n === count && lastDispatchAgentId ? { agentId: lastDispatchAgentId } : {}),
           definitionSnapshotRef: "artifact:runtime-definitions/fixture/v1",
           definitionSnapshot: {
             schema: "agent-definition-snapshot/v1",

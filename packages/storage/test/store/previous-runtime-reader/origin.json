@@ -1,0 +1,14 @@
+{
+  "runtime-member-index": {
+    "commit": "ade23d2010209e91cc53b6f317464b5c35c936db",
+    "path": "packages/storage/src/projection/runtime-member-index.ts",
+    "originalSha256": "c0ee229da6c9f4a1f1527f3a996b8c1d7a36fc5ed3fe885da35465db2589461a",
+    "changes": "Only relative imports relocated; two provenance comment lines added."
+  },
+  "repository-event-queries": {
+    "commit": "ade23d2010209e91cc53b6f317464b5c35c936db",
+    "path": "packages/storage/src/projection/repository-event-queries.ts",
+    "originalSha256": "439f653ac38ab59d39a5a2b38d7ee28515c4d88968304aa916493c085bceb697",
+    "changes": "Only relative imports relocated; two provenance comment lines added."
+  }
+}

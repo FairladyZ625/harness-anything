@@ -110,6 +110,12 @@
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",
         "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/storage/src/fleet-basebackup-worker.ts#prepareSqliteBackup#await-in-loop",
+        "event": "A committed read-index page advances the persistent revision cursor; the next bounded page is ready for computation.",
+        "ref": "task_9e275cf8d906ed369af63a5627",
+        "reason": "Cooperative migration of a private basebackup copy, at most 64 source rows per transaction; yield between committed pages until the authoritative done result. No wall-clock polling or external completion wait. Removed with the previous-reader window by 2026-12-05 (dec_659E15CF)."
       }
     ]
   }

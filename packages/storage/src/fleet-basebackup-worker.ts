@@ -18,6 +18,12 @@ import type {
   SqliteBaseBackupInput,
 } from "./fleet-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
+import { setImmediate as nextTurn } from "node:timers/promises";
+import {
+  backfillRuntimeReadIndexPage,
+  ensureRuntimeMemberIndex,
+  legacyRuntimeIndexReady,
+} from "./projection/runtime-member-index.ts";
 
 const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
 installStorageWorkerContext(storageContext);
@@ -78,6 +84,19 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
     await mkdir(cache, { recursive: true });
     await backup(ledger, path.join(store, "ledger.sqlite"));
     await backup(projection, path.join(cache, "task.sqlite"));
+    // A previous-version edge cannot run the new migration. Finish only the missing legacy
+    // surface on this job's private copy, after pinning/releasing the center writer barrier.
+    // The same bounded migration owns center and replica schema; no edge-specific builder.
+    // Remove with the previous-reader window, no later than 2026-12-05.
+    const replica = new DatabaseSync(path.join(cache, "task.sqlite"));
+    try {
+      if (!legacyRuntimeIndexReady(replica)) {
+        ensureRuntimeMemberIndex(replica);
+        while (!backfillRuntimeReadIndexPage(replica).done) await nextTurn();
+      }
+    } finally {
+      replica.close();
+    }
     const activation = `${input.ledgerPath}.activation.json`;
     if (existsSync(activation)) await copyFile(activation, path.join(store, "ledger.sqlite.activation.json"));
     const copied = new Set<string>();
