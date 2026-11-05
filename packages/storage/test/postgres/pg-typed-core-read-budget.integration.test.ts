@@ -75,7 +75,7 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
         repoId: "typed-budget",
         ownsPool: false,
       });
-    const assertBudget = (method: string, table: string, returned: number) => {
+    const assertBudget = (method: string, table: string, returned: number, maxScanned = 2) => {
       const scans = explainNodes(plans).filter((row) => row["Relation Name"] === table),
         scanned = scans.reduce(
           (total, row) =>
@@ -128,7 +128,7 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
         );
       }
       assert.ok(scans.length > 0, "must observe the production SQL");
-      assert.ok(scanned <= 2, `${method} returns ${returned} but scans ${scanned}`);
+      assert.ok(scanned <= maxScanned, `${method} returns ${returned} but scans ${scanned}`);
     };
     await t.test("state-filtered decision page", async () => {
       plans.length = 0;
@@ -186,7 +186,9 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
       await assert.rejects(() => source.listDecisions({ state: "proposed", limit: 1 }), {
         code: "projection_pending",
       });
-      assertBudget("missing summary at 100001 owners", "ha_decisions", 0);
+      // The first owner has three heap versions: insertion, its search refresh,
+      // then the bulk ready update. Do not VACUUM away these visibility checks.
+      assertBudget("missing summary at 100001 owners", "ha_decisions", 0, 3);
       const ownerPlan = explainNodes(plans).find((node) => node["Relation Name"] === "ha_decisions")!;
       assert.ok(
         Number(ownerPlan["Shared Hit Blocks"] ?? 0) + Number(ownerPlan["Shared Read Blocks"] ?? 0) <= 32,
