@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { statSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,16 +12,57 @@ import {
   toolValue,
 } from "./tool-command-contract.mjs";
 
-export function assessHermeticConfig({ userRoot, daemonId, userRootSource, identityHome = userInfo().homedir }) {
+function readDirectoryIdentity(target) {
+  const { dev, ino } = statSync(target);
+  return { dev, ino };
+}
+
+function sameIdentity(left, right) {
+  return left !== undefined && right !== undefined && left.dev === right.dev && left.ino === right.ino;
+}
+
+function identityOrMissing(target, readIdentity) {
+  try {
+    return readIdentity(target);
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return undefined;
+    throw error;
+  }
+}
+
+export function assessHermeticConfig({
+  userRoot,
+  daemonId,
+  userRootSource,
+  identityHome = userInfo().homedir,
+  readIdentity = readDirectoryIdentity,
+}) {
   const failures = [];
   // The production daemon root belongs to the account, not to the mutable HOME a runtime may
   // redirect; otherwise an injected HOME makes the real default root look dedicated.
   const defaultUserRoot = path.resolve(identityHome, ".harness");
   const effectiveDaemonId = daemonId ?? toolOption(testHermeticPreflightCommand, "--daemon-id").defaultValue;
+  const resolvedUserRoot = userRoot === undefined ? undefined : path.resolve(userRoot);
+  let sameDefaultRoot = resolvedUserRoot !== undefined && resolvedUserRoot === defaultUserRoot;
+  let identityFailure;
+
+  // A different path spelling can still be the same directory: case-insensitive file systems and
+  // symlinks both resolve to the production root's device/inode. Compare that identity whenever
+  // both paths exist; a path that cannot be inspected is rejected rather than assumed distinct.
+  if (resolvedUserRoot !== undefined && !sameDefaultRoot) {
+    try {
+      sameDefaultRoot = sameIdentity(
+        identityOrMissing(defaultUserRoot, readIdentity),
+        identityOrMissing(resolvedUserRoot, readIdentity),
+      );
+    } catch (error) {
+      identityFailure = error;
+    }
+  }
 
   if (userRoot === undefined) {
     failures.push("user-root source: pass --user-root explicitly; implicit daemon configuration is not permitted.");
-  } else if (path.resolve(userRoot) === defaultUserRoot) {
+  } else if (sameDefaultRoot) {
     failures.push(`user-root path: ${defaultUserRoot} is the default daemon root; choose a dedicated directory.`);
   } else if (userRootSource !== "flag") {
     failures.push(
@@ -28,7 +70,13 @@ export function assessHermeticConfig({ userRoot, daemonId, userRootSource, ident
     );
   }
 
-  if (userRoot !== undefined && path.resolve(userRoot) === defaultUserRoot && effectiveDaemonId === "default") {
+  if (identityFailure !== undefined) {
+    failures.push(
+      `user-root path: cannot verify ${resolvedUserRoot} is not the default daemon root: ${identityFailure.code ?? identityFailure.message}`,
+    );
+  }
+
+  if (sameDefaultRoot && effectiveDaemonId === "default") {
     failures.push(
       "socket namespace: the default user-root with daemon-id default resolves to the user's default daemon endpoint.",
     );
