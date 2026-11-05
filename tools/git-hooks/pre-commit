@@ -25,4 +25,7 @@ if [ -n "$canonical_root" ] && [ -d "$canonical_root" ]; then
   fi
 fi
 
-npx --no-install lint-staged
+# refs/stash is shared by every linked worktree, so lint-staged's default backup
+# stash can race another worker's entries. --no-stash keeps commits off that stack;
+# partially staged files are still hidden via a worktree-local patch, not a stash.
+npx --no-install lint-staged --no-stash

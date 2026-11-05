@@ -44,6 +44,45 @@ test("public pre-commit rejects artifacts and harness paths", { skip: posixShell
   }
 });
 
+test("pre-commit formats staged files without touching the shared git stash", { skip: posixShellSkip }, (context) => {
+  const root = makeLintStagedRepo(context, "hook-lint-staged-"),
+    trace = path.join(root, "git-trace.log"),
+    env = {
+      ...process.env,
+      GIT_TRACE: trace,
+      HARNESS_ACTOR: "agent:worker-test",
+      HARNESS_CANONICAL_ROOT: path.join(root, "other"),
+    },
+    commit = (message) =>
+      spawnSync("git", ["-C", root, "commit", "--quiet", "-m", message], { cwd: root, encoding: "utf8", env });
+
+  writeFileSync(path.join(root, "src/app.ts"), "const  answer=42\nexport default answer\n");
+  git(root, "add", "package.json", "src/app.ts");
+  const first = commit("add app");
+  assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
+  assert.equal(git(root, "stash", "list"), "", "the hook must not push an entry onto the shared stash stack");
+  // Every git process inherits GIT_TRACE, so a stash backup shows up here even
+  // though lint-staged drops it before the hook returns and `git stash list` is empty.
+  assert.doesNotMatch(readFileSync(trace, "utf8"), /\bgit stash\b/u, "the hook must not invoke git stash");
+  assert.match(git(root, "show", "HEAD:src/app.ts"), /^const answer = 42;$/mu);
+  assert.match(readFileSync(path.join(root, "src/app.ts"), "utf8"), /^const answer = 42;$/mu);
+
+  // A partially staged file must keep its unstaged hunk. Passing
+  // `--no-hide-partially-staged` would avoid the stash too, but it would also
+  // commit that hunk, so `--no-stash` must not imply it.
+  writeFileSync(path.join(root, "src/partial.ts"), "const  staged=1\nexport default staged\n");
+  git(root, "add", "src/partial.ts");
+  writeFileSync(path.join(root, "src/partial.ts"), "const  staged=1\nexport default staged\nconst  unstaged=2\n");
+  const second = commit("add partial");
+  assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+  assert.equal(git(root, "stash", "list"), "");
+  assert.doesNotMatch(readFileSync(trace, "utf8"), /\bgit stash\b/u);
+  const committedPartial = git(root, "show", "HEAD:src/partial.ts");
+  assert.match(committedPartial, /^const staged = 1;$/mu);
+  assert.doesNotMatch(committedPartial, /unstaged/u, "the unstaged hunk must stay out of the commit");
+  assert.match(readFileSync(path.join(root, "src/partial.ts"), "utf8"), /^const  unstaged=2$/mu);
+});
+
 test("canonical hooks reject worker commit and checkout", { skip: posixShellSkip }, (context) => {
   const root = makeRepo(context, "hook-canonical-guard-");
   installHook(root, "pre-commit");
@@ -252,6 +291,29 @@ function makeRepo(context, prefix) {
   writeFileSync(path.join(root, "README.md"), "fixture\n");
   git(root, "add", "README.md");
   git(root, "commit", "--quiet", "--no-verify", "-m", "fixture");
+  return root;
+}
+
+// A fixture that can actually run lint-staged: it reuses the repository's
+// installed node_modules and configures prettier for staged TypeScript files.
+function makeLintStagedRepo(context, prefix) {
+  const root = makeRepo(context, prefix);
+  installHook(root, "pre-commit");
+  symlinkSync(
+    path.join(repositoryRoot, "node_modules"),
+    path.join(root, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  writeFileSync(path.join(root, ".git/info/exclude"), "node_modules/\ngit-trace.log\n");
+  writeFileSync(
+    path.join(root, "package.json"),
+    `${JSON.stringify(
+      { name: "hook-lint-staged-fixture", private: true, "lint-staged": { "*.ts": "prettier --write" } },
+      null,
+      2,
+    )}\n`,
+  );
+  mkdirSync(path.join(root, "src"), { recursive: true });
   return root;
 }
 
