@@ -451,18 +451,44 @@ export async function spawnCutReviewDispatch(
   | { readonly outcome: "failed"; readonly error: string }
 > {
   const cutReviewKey = reviewDispatchKey(input.taskId, input.execution, input.reviewerId),
-    key = input.dispatchKey ?? cutReviewKey,
+    submission = input.execution.submission!;
+  let key = input.dispatchKey ?? cutReviewKey,
     ids = reviewDispatchIds(cell.input.repoId, key);
   const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  if (existing !== null)
-    return {
-      outcome: "already_dispatched",
-      ids: {
-        dispatchId: existing.payload.dispatchId,
-        runtimeSessionId: existing.payload.runtimeSessionId,
-        dispatchOpId: existing.opId,
-      },
-    };
+  if (existing !== null) {
+    // One cut holds one live review seat. A row whose session already reached its terminal verdict
+    // is spent — a resumed submit or an amendment that re-derives the same cut after its review was
+    // cancelled must advance to the next attempt, exactly as `ha task dispatch-review` does, instead
+    // of reporting the dead dispatch as if a reviewer were still running.
+    const cutReviewed = cell.projection
+      .read(input.taskId)
+      .snapshot.reviews.some(
+        (review) =>
+          review.executionId === input.execution.executionId &&
+          review.submissionDigest === submissionDigest(submission),
+      );
+    if (cutReviewed || !reviewAttemptEnded(cell, existing.payload.runtimeSessionId))
+      return {
+        outcome: "already_dispatched",
+        ids: {
+          dispatchId: existing.payload.dispatchId,
+          runtimeSessionId: existing.payload.runtimeSessionId,
+          dispatchOpId: existing.opId,
+        },
+      };
+    const attempt = reviewDispatchAttempt(cell, key);
+    if (attempt.existing !== null)
+      return {
+        outcome: "already_dispatched",
+        ids: {
+          dispatchId: attempt.existing.payload.dispatchId,
+          runtimeSessionId: attempt.existing.payload.runtimeSessionId,
+          dispatchOpId: attempt.existing.opId,
+        },
+      };
+    key = attempt.key;
+    ids = attempt.ids;
+  }
   if (input.dispatchKey === undefined || key === cutReviewKey) {
     const inFlight = activeCutReviewDispatches(cell, input.taskId, input.execution).at(-1)?.event ?? null;
     if (inFlight !== null) {
@@ -756,7 +782,12 @@ export async function dispatchInReviewCutReview(
               `Ask the CEO to recover with ha task dispatch-review ${taskId}. ` +
               "Workers cannot dispatch reviewers; give the CEO this submit receipt.",
           ]
-        : [],
+        : dispatch.outcome === "already_dispatched"
+          ? [
+              `Task ${taskId} already holds review dispatch ${dispatch.ids.dispatchId} ` +
+                `(runtime session ${dispatch.ids.runtimeSessionId}); no new reviewer was dispatched.`,
+            ]
+          : [],
   };
 }
 
