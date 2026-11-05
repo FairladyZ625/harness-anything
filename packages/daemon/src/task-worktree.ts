@@ -138,6 +138,11 @@ export interface TaskWorktreeCheckoutOptions {
    * the frozen delivery it will register a verdict against. Absent for every non-reviewer caller.
    */
   readonly pinnedCommit?: string | null;
+  /**
+   * A reviewer whose cut has no code delivery has no commit to pin. It still reviews in the task worktree, but does
+   * not sample or advance the published branch: the artifact submission is the subject, not the checkout tip.
+   */
+  readonly followPublishedBranch?: boolean;
 }
 
 export async function checkoutTaskWorktree(
@@ -223,13 +228,17 @@ export async function checkoutTaskWorktree(
     // as. A worker may move a task to another delivery branch, and judging it against origin/<task id> then measures
     // the abandoned branch.
     const branch = fresh ? binding.branch : ((await heldBranch(cwd)) ?? binding.branch),
-      published = await publishedBranchRef(rootDir, branch);
+      followPublished = options.followPublishedBranch !== false,
+      // An artifact-only reviewer has no frozen code commit; it must not turn a publication state into its subject.
+      published = followPublished || fresh ? await publishedBranchRef(rootDir, branch) : null;
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch, baseRef: published ?? defaultRef! });
-    // A checkout this node already had, or a branch that survived one, may predate another node's push.
-    if (published) await continuePublishedBranch(cwd, published);
-    // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
-    // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
-    else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
+    if (followPublished) {
+      // A checkout this node already had, or a branch that survived one, may predate another node's push.
+      if (published) await continuePublishedBranch(cwd, published);
+      // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
+      // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
+      else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
+    }
     return {
       cwd,
       branch,

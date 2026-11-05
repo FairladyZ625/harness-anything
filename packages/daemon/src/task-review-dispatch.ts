@@ -607,7 +607,7 @@ export async function spawnCutReviewDispatch(
     return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
   try {
     // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-    const worktree = await cell.runtimeSpawner.prepareWorktree(payload);
+    const worktree = await cell.runtimeSpawner.prepareWorktree(payload, input.execution.submission?.commitSha ?? null);
     await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision }, worktree);
   } catch (error) {
     if (continuation?.resume && runtimeErrorCode(error) === "runtime_resume_failed") {
@@ -629,7 +629,7 @@ export async function spawnCutReviewDispatch(
       // authorization decision was evaluated over the same actor, target, and repository revision,
       // so carrying it forward adds no permission the cut dispatch did not already have.
       const fallbackError = await cell.runtimeSpawner
-        .prepareWorktree(fallbackPayload)
+        .prepareWorktree(fallbackPayload, input.execution.submission?.commitSha ?? null)
         .then((worktree) =>
           cell.runtimeSpawner.spawn(fallbackPayload, { ...input.binding, authorizationDecision }, worktree),
         )
@@ -1013,7 +1013,7 @@ export async function dispatchTaskReview(
     }
     try {
       // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-      const worktree = await cell.runtimeSpawner.prepareWorktree(payload);
+      const worktree = await cell.runtimeSpawner.prepareWorktree(payload, execution.submission?.commitSha ?? null);
       const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree),
         selection = spawned.runtimeSelection;
       if (selection !== null && typeof selection === "object" && !Array.isArray(selection)) {

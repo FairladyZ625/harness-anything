@@ -194,6 +194,11 @@ export async function prepareDispatchWorktree(
       );
     return null;
   }
+  if (payload.role === "reviewer" && pinnedCommit === undefined)
+    throw runtimeSpawnError(
+      "review_target_missing",
+      `Reviewer dispatch for task ${taskId} has no resolved submitted cut to check out.`,
+    );
   const checkout = await checkoutTaskWorktree(
     input.rootDir,
     taskId,
@@ -201,7 +206,7 @@ export async function prepareDispatchWorktree(
     input.readSettings?.().worktree ?? noWorktreeSetup(),
     payload.acceptedCommit,
     undefined,
-    payload.role === "reviewer" ? { pinnedCommit: pinnedCommit ?? null } : {},
+    payload.role === "reviewer" ? (pinnedCommit === null ? { followPublishedBranch: false } : { pinnedCommit }) : {},
   );
   if (checkout && !checkout.setup.ok)
     throw runtimeSpawnError(

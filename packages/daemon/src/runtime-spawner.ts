@@ -409,7 +409,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
               () => remoteTask.worktree,
               reviewerBinding
-                ? (reviewTarget?.submission?.commitSha ?? remoteTask.reviewerSubmission?.commitSha ?? null)
+                ? reviewTarget?.submission !== undefined || remoteTask.reviewerSubmission !== undefined
+                  ? ((reviewTarget?.submission ?? remoteTask.reviewerSubmission)!.commitSha ?? null)
+                  : undefined
                 : undefined,
             )
           : preparedWorktree,
@@ -1313,17 +1315,19 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   }
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
-    prepareWorktree: async (payload: JsonObject) => {
+    prepareWorktree: async (payload: JsonObject, reviewedCommit?: string | null) => {
       // Explicit-instance and declared-Agent model failures must surface before checkout/setup
       // work, which can run repository-configured install commands.
       await preflightRuntimeSelection(payload);
       const taskId = payload.role === "reviewer" && typeof payload.taskId === "string" ? payload.taskId : null,
         pinnedCommit =
           taskId !== null && !input.remote
-            ? reviewerPinnedCommit(
-                payload,
-                requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot,
-              )
+            ? reviewedCommit !== undefined
+              ? reviewedCommit
+              : reviewerPinnedCommit(
+                  payload,
+                  requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot,
+                )
             : undefined;
       return prepareDispatchWorktree(
         input,
