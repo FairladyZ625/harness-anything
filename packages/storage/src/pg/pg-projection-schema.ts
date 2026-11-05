@@ -26,7 +26,6 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_squads",
   "ha_projection_meta",
   "ha_projection_values",
-  "ha_runtime_unsettled",
   "ha_runtime_session_tasks",
   "ha_entity_declaration_heads",
 ] as const);
@@ -93,7 +92,7 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
     `GRANT USAGE ON SEQUENCE ha_search_terms_term_slot_seq TO "${roles.runtime}", "${roles.migration}"`,
   );
   await client.query(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")} TO "${roles.runtime}", "${roles.migration}"`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")}, ha_runtime_unsettled TO "${roles.runtime}", "${roles.migration}"`,
   );
 }
 
@@ -152,17 +151,11 @@ export function projectionDdl(): readonly string[] {
     `DO $migration$
       BEGIN
         IF to_regclass('ha_projection_meta') IS NOT NULL THEN
-          IF NOT EXISTS (SELECT 1 FROM ha_projection_meta WHERE projection_name='runtime-unsettled-backfill/v1') THEN
           INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value)
           SELECT tenant_id,project_id,policy_epoch,readers,entity_id,value FROM ha_projection_values
           WHERE model='runtime-session' AND owner_id='' AND runtime_outcome IS NULL
           ON CONFLICT (tenant_id,project_id,policy_epoch,entity_id)
           DO UPDATE SET readers=EXCLUDED.readers, value=EXCLUDED.value;
-          INSERT INTO ha_projection_meta(tenant_id,project_id,policy_epoch,readers,projection_name,schema_version,watermark,source_revision)
-          SELECT tenant_id,project_id,policy_epoch,'{}','runtime-unsettled-backfill/v1',1,0,0
-          FROM ha_projection_meta WHERE projection_name='task/v1'
-          ON CONFLICT DO NOTHING;
-          END IF;
         END IF;
       END $migration$`,
     ...eventReadIndexDdl(),

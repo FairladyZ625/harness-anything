@@ -269,9 +269,9 @@ test("attentionOnly agenda reads raw lifecycle status and skips the presentation
   // Home consumes only the four waiting buckets: blocked/planned pages and the full work-root
   // scan are not read, and the three remaining pages ask for lifecycle status (index-bounded).
   assert.deepEqual(listCalls, [
-    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true },
-    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true },
-    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true },
+    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
+    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
+    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
   ]);
   assert.deepEqual(decisionCalls, []);
   assert.deepEqual(result.attentionItems, []);

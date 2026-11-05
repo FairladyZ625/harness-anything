@@ -132,8 +132,6 @@ export const REPOSITORY_READ_TABLES_SQL = `
       event_json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
-    UPDATE lease_interval SET task_active = 0 WHERE task_active = 1
-      AND NOT EXISTS (SELECT 1 FROM task_snapshot WHERE task_snapshot.task_id = lease_interval.task_id AND status = 'active');
     -- The task list derives created_at and completed_at per row from that task's event history. Both
     -- lookups take the first event in revision order, and event_index_task_id has no revision column,
     -- so each one sorts the task's whole history before returning its first row: one long-lived task
@@ -229,8 +227,11 @@ export const REPOSITORY_READ_TABLES_SQL = `
 export function ensureLeaseTaskActiveColumn(db: DatabaseSync): void {
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lease_interval'").all().length === 0) return;
   const columns = db.prepare("PRAGMA table_info(lease_interval)").all() as { name: string }[];
-  if (columns.some(({ name }) => name === "task_active")) return;
-  db.exec("ALTER TABLE lease_interval ADD COLUMN task_active INTEGER NOT NULL DEFAULT 1");
+  if (!columns.some(({ name }) => name === "task_active"))
+    db.exec("ALTER TABLE lease_interval ADD COLUMN task_active INTEGER NOT NULL DEFAULT 1");
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_snapshot'").all().length === 0) return;
+  db.exec(`UPDATE lease_interval SET task_active = 0 WHERE task_active = 1
+    AND NOT EXISTS (SELECT 1 FROM task_snapshot WHERE task_snapshot.task_id = lease_interval.task_id AND status = 'active')`);
 }
 
 export function createProjectionTables(db: DatabaseSync): void {

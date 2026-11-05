@@ -200,6 +200,10 @@ export async function rebuildPgProjection(
       `DELETE FROM ${table} WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3`,
       scopeValues,
     );
+  await client.query(
+    "DELETE FROM ha_runtime_unsettled WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+    scopeValues,
+  );
   await initializePgDecisionReadStatus(client, scope);
   let receipt: PgProjectionMaterializationReceipt = {
     revision: 0,
