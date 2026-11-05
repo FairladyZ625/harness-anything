@@ -38,7 +38,7 @@ export default {
     await page.getByRole("button", { name: /外观|Appearance/u }).click();
     await page.getByRole("button", { name: /亮色|Light/u }).click();
     await page.getByRole("button", { name: /语言|Language/u }).click();
-    await page.getByLabel(/^语言$|^Language$/).selectOption("zh-CN");
+    await page.getByLabel(/^语言$|^Language$/).selectOption("en-US");
     await openTask();
     const panel = page.getByTestId("task-rework-panel");
     await panel.waitFor();
@@ -67,7 +67,9 @@ export default {
       globalThis.document.querySelector('[data-testid="task-rework-feedback"]')?.textContent.includes("success"),
     );
     await page.waitForFunction(() =>
-      globalThis.document.querySelector('[data-testid="task-rework-state"]')?.textContent.includes("交接已完成"),
+      globalThis.document
+        .querySelector('[data-testid="task-rework-state"]')
+        ?.textContent.includes("handoff is complete"),
     );
     const completed = await read();
     assert.equal(completed.task.executionArrangement.ready, true);
@@ -89,7 +91,9 @@ export default {
     await page.getByRole("button", { name: /暗色|Dark/u }).click();
     await openTask();
     await page.waitForFunction(() =>
-      globalThis.document.querySelector('[data-testid="task-rework-state"]')?.textContent.includes("交接已完成"),
+      globalThis.document
+        .querySelector('[data-testid="task-rework-state"]')
+        ?.textContent.includes("handoff is complete"),
     );
     assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
     const geometry = await panel.evaluate((element) => ({

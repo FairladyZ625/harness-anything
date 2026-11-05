@@ -44,3 +44,32 @@ test("GUI show/rework facets consume the CLI's generated payload and canonical a
     );
   }
 });
+
+test("GUI admits task-show metadata and rework outcomes only on their own receipt, preserving transport closure", async () => {
+  const { validateDaemonGuiCommandReceipt } = await import("../src/protocol/daemon-protocol-validate-results.ts");
+  const receipt = {
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "task-show",
+    outcome: "applied",
+    opId: "read:task-one",
+    revision: 3,
+    visibility: "center",
+    evidence: "{}",
+    proof: { committedRevision: 3, appliedCut: 3, durable: true, canonicalVisible: true, worktreeVisible: null },
+  };
+  assert.deepEqual(validateDaemonGuiCommandReceipt({ ...receipt, assignmentRevision: 2 }), []);
+  assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, assignmentRevision: -1 }), []);
+  assert.notDeepEqual(
+    validateDaemonGuiCommandReceipt({ ...receipt, command: "task-start", assignmentRevision: 2 }),
+    [],
+  );
+  for (const outcome of ["applied", "no_changes", "pending", "indeterminate", "op_rejected"]) {
+    const continued = { ...receipt, command: "task-rework", continuation: { outcome, code: "original-code" } };
+    assert.deepEqual(validateDaemonGuiCommandReceipt(continued), []);
+    assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...continued, command: "task-start" }), []);
+  }
+  for (const continuation of [null, "applied", { outcome: "succeeded" }])
+    assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, command: "task-rework", continuation }), []);
+  assert.notDeepEqual(validateDaemonGuiCommandReceipt({ ...receipt, undeclared: true }), []);
+});

@@ -36,6 +36,7 @@ const task: TaskRow = {
   packageDisposition: "active",
   closeoutReadiness: "not_required",
   engine: "kernel/task-lifecycle/v1",
+  origin: "native",
   source: "local-document",
   packagePath: "tasks/task-rework",
   gates: [],
@@ -48,6 +49,14 @@ async function selectedTab(initialTab?: "closeout" | "dispatch") {
     harness: {
       getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: task.taskId, documents: [] })),
       getTaskDocument: vi.fn(),
+      showTask: vi.fn(async () => ({
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "task-show",
+        outcome: "applied",
+        opId: "read:task-rework",
+        evidence: JSON.stringify({ reworkTargets: [], task: {} }),
+      })),
       getTaskCompletion: vi.fn(async () => ({ ok: true, status: "ready", completionBlocker: null })),
     },
     // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize;document/localStorage

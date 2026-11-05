@@ -5,12 +5,19 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { resolveE2EProbeElectronForTest } from "../e2e-probe.mjs";
 
-// Keep the scenario callable from the isolated dispatcher as well as the GUI catalog. Linux
-// uses the repository's existing xvfb-run convention inside the disposable test environment.
+// Use the same native display/Electron availability contract as driver.test.mjs.
+// This entry makes the GUI catalog scenario callable from the isolated dispatcher.
 test("the real hidden task page arranges one round and shows the actual failure receipt", { timeout: 300000 }, (t) => {
   const root = path.resolve(import.meta.dirname, "../.."),
-    out = mkdtempSync(path.join(tmpdir(), "gui-rework-shots-"));
+    runtime = resolveE2EProbeElectronForTest(root);
+  if (!runtime.available) {
+    t.skip(runtime.reason);
+    return;
+  }
+  t.after(runtime.close);
+  const out = mkdtempSync(path.join(tmpdir(), "gui-rework-shots-"));
   t.after(() => rmSync(out, { recursive: true, force: true }));
   const args = [
     path.join(root, "tools/gui-e2e.mjs"),
@@ -23,15 +30,20 @@ test("the real hidden task page arranges one round and shows the actual failure 
   ];
   let result;
   try {
-    const text =
-      process.platform === "linux" && !process.env.DISPLAY
-        ? execFileSync("xvfb-run", ["--auto-servernum", process.execPath, ...args], {
-            cwd: root,
-            encoding: "utf8",
-            maxBuffer: 16 * 1024 * 1024,
-          })
-        : execFileSync(process.execPath, args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-    result = JSON.parse(text);
+    const diagnostics = execFileSync(process.execPath, args, {
+      cwd: root,
+      env: runtime.env,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    if (diagnostics.trim()) t.diagnostic(diagnostics.trim());
+    // The runner persists its authoritative result. Fixture child diagnostics are not
+    // a second machine-result protocol to parse.
+    const runs = readdirSync(out, { withFileTypes: true }).filter(
+      (entry) => entry.isDirectory() && entry.name.startsWith("gui-e2e-"),
+    );
+    assert.equal(runs.length, 1);
+    result = JSON.parse(readFileSync(path.join(out, runs[0].name, "result.json"), "utf8"));
   } finally {
     // Emit only intended screenshots/measurements so the dispatcher's remote stdout can carry
     // review evidence back without exposing profiles, browser storage or fixture credentials.

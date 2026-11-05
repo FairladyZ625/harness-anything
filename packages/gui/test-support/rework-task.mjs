@@ -8,7 +8,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 /** A real submitted, review-exempt cut in the caller's disposable GUI fixture. */
 export async function prepareGuiReworkCut(fixture) {
   const taskId = "task-gui-rework",
-    title = "本轮安排 GUI 验收",
+    title = "GUI rework handoff",
     executionId = "execution-gui-rework";
   const run = async (action) => {
     const receipt = await requestDaemonJsonRpcAt(
