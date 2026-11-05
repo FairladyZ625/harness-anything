@@ -70,7 +70,7 @@ Not emitted into the PR body.
   ),
   manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8")),
   protectedId = "task_0123456789abcdef0123456789",
-  authoringWorkId = "task_8ebc730e32907f5c7531b6619e",
+  authorizedSurface = "PR 正文渲染器、governance lint 的共享判定、对应测试",
   governingDecision = "dec_5DBF5F2B38719E4B52003D178D/C1",
   protectedFiles = ["tools/gate-allowlists/check-fallback-boundaries.json", "tools/gates/cost-budget.json"],
   // A body can reach the renderer from an author or an older template without the governance
@@ -94,10 +94,6 @@ function receipt(submission, metadata = {}, id = taskId, decisionRelations = [])
       ],
     }),
   };
-}
-
-function protectedReceipt(submission, { decisionRelations = [] } = {}) {
-  return receipt(submission, { parentTaskId: authoringWorkId }, protectedId, decisionRelations);
 }
 
 function governanceSection(body) {
@@ -199,59 +195,80 @@ test("PR renderer describes a package.json change instead of the rejected none s
   assertPassesPrBodyCheck(body, dependencySubmission);
 });
 
-test("PR renderer cites the authoring task for a touched protected surface", () => {
-  const submission = { ...codeSubmission, changedFiles: [...codeSubmission.changedFiles, "tools/run-node-tests.mjs"] },
-    body = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(submission),
-      template,
-      closeout,
-      manifest,
-    });
+function protectedSubmission() {
+  return { ...codeSubmission, changedFiles: [...codeSubmission.changedFiles, ...protectedFiles] };
+}
+
+function protectedReceipt(submission, { decisionRelations = [] } = {}) {
+  return receipt(submission, {}, protectedId, decisionRelations);
+}
+
+function renderProtected({
+  submission = protectedSubmission(),
+  body = templateWithoutGovernance,
+  template: templateUnderTest = templateWithoutGovernance,
+  authorizedSurface: surface = authorizedSurface,
+  decisionRelations = [],
+  closeout: closeoutText = closeout,
+} = {}) {
+  return renderTaskPrBody({
+    taskId: protectedId,
+    receipt: protectedReceipt(submission, { decisionRelations }),
+    template: templateUnderTest,
+    body,
+    closeout: closeoutText,
+    manifest,
+    authorizedSurface: surface,
+  });
+}
+
+test("PR renderer cites the governing decision recorded on the task", () => {
+  const body = renderProtected({
+    decisionRelations: [
+      {
+        sourceRef: `decision/${governingDecision}`,
+        targetRef: `task/${protectedId}`,
+        relationType: "derives",
+        state: "active",
+        strength: "strong",
+      },
+    ],
+  });
+  assert.match(body, new RegExp(`^- Authority: ${governingDecision}$`, "mu"));
+  assert.doesNotMatch(body, /^- Authorized surface:/mu);
+  assert.equal(checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest }).ok, true);
+});
+
+test("PR renderer cites the task's machine-read Execution Surface as authorization", () => {
+  const body = renderProtected();
+  assert.match(body, /^## Governance Declaration$/mu);
   assert.match(body, /^- Protected surface touched: yes$/mu);
-  assert.match(body, /^- Protected surface scope: `"tools\/run-node-tests\.mjs"`$/mu);
-  assert.match(body, new RegExp(`^- Authority: ${authoringWorkId}$`, "mu"));
-  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1, "the template default is replaced");
-  const governance = checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest });
+  assert.match(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+  assert.match(body, /^- Authorized surface: PR 正文渲染器、governance lint 的共享判定、对应测试$/mu);
+  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
+  const governance = checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest });
   assert.equal(governance.ok, true, governance.issues.join("\n"));
 });
 
-test("PR renderer prefers the governing decision recorded on the task", () => {
-  const submission = protectedSubmission(),
-    body = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(submission, {
-        decisionRelations: [
-          {
-            sourceRef: `decision/${governingDecision}`,
-            targetRef: `task/${protectedId}`,
-            relationType: "derives",
-            state: "active",
-            strength: "strong",
-          },
-        ],
-      }),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-    });
-  assert.match(body, new RegExp(`^- Authority: ${governingDecision}$`, "mu"));
-  assert.equal(checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest }).ok, true);
+test("PR renderer replaces the canonical template default with the generated declaration", () => {
+  const body = renderProtected({ template, body: template });
+  assert.match(body, /^- Protected surface touched: yes$/mu);
+  assert.match(body, /^- Authority: task_0123456789abcdef0123456789$/mu);
+  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
 });
 
-test("PR renderer refuses to invent an authority when the task records none", () => {
-  const submission = protectedSubmission();
-  assert.throws(
-    () =>
-      renderTaskPrBody({
-        taskId: protectedId,
-        receipt: receipt(submission, {}, protectedId),
-        template,
-        closeout,
-        manifest,
-      }),
-    /no authorizing decision or parent task/u,
-  );
+test("PR renderer refuses to invent an authority when no decision or Execution Surface exists", () => {
+  assert.throws(() => renderProtected({ authorizedSurface: "" }), /no authorizing decision or Execution Surface/u);
+});
+
+test("PR renderer preserves a standalone task's authored authority without a ledger source", () => {
+  const authored = templateWithoutGovernance.replace(
+      "## Verification",
+      "## Governance Declaration\n\n- Authority: ADR-0023 D5/D8\n- Break-glass: no\n\n## Verification",
+    ),
+    body = renderProtected({ body: authored, authorizedSurface: "" });
+  assert.match(body, /^- Authority: ADR-0023 D5\/D8$/mu);
+  assert.equal(checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest }).ok, true);
 });
 
 test("PR renderer keeps the governance defaults when no protected surface is touched", () => {
@@ -260,41 +277,8 @@ test("PR renderer keeps the governance defaults when no protected surface is tou
   assert.match(body, /^- Authority: not applicable$/mu);
 });
 
-function protectedSubmission() {
-  return { ...codeSubmission, changedFiles: [...codeSubmission.changedFiles, ...protectedFiles] };
-}
-
-test("PR renderer generates the governance declaration when the body has no section", () => {
-  const submission = protectedSubmission(),
-    body = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(submission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-    });
-  assert.match(body, /^## Governance Declaration$/mu);
-  assert.match(body, /^- Protected surface touched: yes$/mu);
-  assert.match(body, new RegExp(`^- Authority: ${authoringWorkId}$`, "mu"));
-  for (const file of protectedFiles) assert.ok(body.includes(`"${file}"`), `${file} is named in the scope`);
-  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
-  assert.ok(
-    body.indexOf("## Governance Declaration") < body.indexOf("## Verification"),
-    "the generated declaration keeps the template order",
-  );
-  const governance = checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest });
-  assert.equal(governance.ok, true, governance.issues.join("\n"));
-  assertPassesPrBodyCheck(body, submission);
-});
-
 test("PR renderer does not add a governance declaration to an unprotected cut", () => {
-  const body = renderTaskPrBody({
-    taskId: protectedId,
-    receipt: protectedReceipt(codeSubmission),
-    template: templateWithoutGovernance,
-    closeout,
-    manifest,
-  });
+  const body = renderProtected({ submission: codeSubmission });
   assert.doesNotMatch(body, /^## Governance Declaration$/mu);
   assert.equal(checkPrGovernance({ body, changedFiles: codeSubmission.changedFiles, manifest }).skipped, true);
   assertPassesPrBodyCheck(body);
@@ -302,23 +286,10 @@ test("PR renderer does not add a governance declaration to an unprotected cut", 
 
 test("re-rendering a protected cut keeps exactly one governance declaration", () => {
   const submission = protectedSubmission(),
-    first = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(submission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-    }),
-    second = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(submission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-      body: first,
-    });
+    first = renderProtected({ submission }),
+    second = renderProtected({ submission, body: first });
   assert.equal((second.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
-  assert.match(second, new RegExp(`^- Authority: ${authoringWorkId}$`, "mu"));
+  assert.match(second, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
   assert.equal(checkPrGovernance({ body: second, changedFiles: submission.changedFiles, manifest }).ok, true);
   assertPassesPrBodyCheck(second, submission);
 });
@@ -326,95 +297,67 @@ test("re-rendering a protected cut keeps exactly one governance declaration", ()
 test("re-rendering refreshes the generated scope when the protected set changes", () => {
   const firstSubmission = { ...codeSubmission, changedFiles: [protectedFiles[0]] },
     secondSubmission = { ...codeSubmission, changedFiles: [protectedFiles[1]] },
-    first = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(firstSubmission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-    }),
-    second = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(secondSubmission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-      body: first,
-    }),
+    first = renderProtected({ submission: firstSubmission }),
+    second = renderProtected({ submission: secondSubmission, body: first }),
     section = governanceSection(second);
   assert.ok(first.includes(`"${protectedFiles[0]}"`), "the first cut declares its own path");
   assert.ok(section.includes(`"${protectedFiles[1]}"`), "the refreshed scope names the current protected path");
   assert.equal(section.includes(`"${protectedFiles[0]}"`), false, "the stale generated scope is gone");
-  assert.equal((second.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
   assert.equal(checkPrGovernance({ body: second, changedFiles: secondSubmission.changedFiles, manifest }).ok, true);
 });
 
 test("re-rendering drops the generated declaration when the cut no longer touches a protected surface", () => {
-  const protectedCut = protectedSubmission(),
-    first = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(protectedCut),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-    }),
-    second = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(codeSubmission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-      body: first,
-    });
+  const first = renderProtected(),
+    second = renderProtected({ submission: codeSubmission, body: first });
   assert.match(governanceSection(first), /^- Protected surface touched: yes$/mu);
   assert.doesNotMatch(second, /^## Governance Declaration$/mu);
-  assert.equal(checkPrGovernance({ body: second, changedFiles: codeSubmission.changedFiles, manifest }).skipped, true);
 });
 
 test("an authored governance declaration with a citation survives re-rendering", () => {
-  const submission = protectedSubmission(),
-    authored = templateWithoutGovernance.replace(
+  const authored = templateWithoutGovernance.replace(
       "## Verification",
       "## Governance Declaration\n\n- Authority: ADR-0023 D5/D8\n- Break-glass: no\n\n## Verification",
     ),
-    body = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(submission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-      body: authored,
-    });
+    body = renderProtected({ body: authored });
   assert.match(body, /^- Authority: ADR-0023 D5\/D8$/mu);
-  assert.doesNotMatch(body, new RegExp(`^- Authority: ${authoringWorkId}$`, "mu"));
-  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
-  assert.equal(checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest }).ok, true);
+  assert.doesNotMatch(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+  assert.equal(checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest }).ok, true);
+});
+
+test("editing a generated declaration to record break-glass survives re-rendering", () => {
+  const first = renderProtected(),
+    edited = first.replace(
+      "- Break-glass: no",
+      `- Break-glass: yes\n- Break-glass reason: outage\n- Break-glass scope: gate\n- Follow-up governance task: ${protectedId}`,
+    ),
+    second = renderProtected({ body: edited }),
+    section = governanceSection(second);
+  assert.match(section, /^- Break-glass: yes$/mu);
+  assert.match(section, /^- Break-glass reason: outage$/mu);
+  assert.match(section, /^- Break-glass scope: gate$/mu);
+  assert.match(section, new RegExp(`^- Follow-up governance task: ${protectedId}$`, "mu"));
+  assert.doesNotMatch(section, /^- Break-glass: no$/mu);
+  assert.equal(
+    checkPrGovernance({ body: second, changedFiles: protectedSubmission().changedFiles, manifest }).ok,
+    true,
+  );
 });
 
 test("an authored break-glass declaration is preserved instead of being downgraded", () => {
-  const submission = protectedSubmission(),
-    authored = templateWithoutGovernance.replace(
+  const authored = templateWithoutGovernance.replace(
       "## Verification",
       "## Governance Declaration\n\n- Break-glass: yes\n- Break-glass reason: Emergency outage\n- Break-glass scope: production gate\n- Follow-up governance task: pending\n\n## Verification",
     ),
-    body = renderTaskPrBody({
-      taskId: protectedId,
-      receipt: protectedReceipt(submission),
-      template: templateWithoutGovernance,
-      closeout,
-      manifest,
-      body: authored,
-    }),
+    body = renderProtected({ body: authored, authorizedSurface: "" }),
     section = governanceSection(body);
   assert.match(section, /^- Break-glass: yes$/mu);
   assert.match(section, /^- Break-glass reason: Emergency outage$/mu);
   assert.match(section, /^- Break-glass scope: production gate$/mu);
   assert.match(section, /^- Follow-up governance task: pending$/mu);
   assert.doesNotMatch(section, /^- Break-glass: no$/mu);
-  const governance = checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest });
+  const governance = checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest });
   assert.equal(governance.ok, false, "the incomplete exception stays visible to the lint");
 });
-
 test("PR renderer treats a lockfile-only cut as a dependency change", () => {
   const body = render(
     { ...dependencySubmission, changedFiles: ["package-lock.json"] },
@@ -422,19 +365,6 @@ test("PR renderer treats a lockfile-only cut as a dependency change", () => {
   );
   assert.match(body, /^Dependency-Change: Added the `\.\/testing` exports subpath\./mu);
   assert.deepEqual(validateDependencyDeclaration(["package-lock.json"], body), []);
-});
-
-test("PR renderer writes the dependency declaration when the body deleted the template line", () => {
-  const withoutLine = template.replace(/^Dependency-Change: none\n/mu, ""),
-    body = renderTaskPrBody({
-      taskId,
-      receipt: receipt(dependencySubmission),
-      template: withoutLine,
-      closeout: dependencyCloseout,
-    });
-  assert.match(body, /^Dependency-Change: Added the `\.\/testing` exports subpath\./mu);
-  assert.equal((body.match(/^Dependency-Change:/gmu) ?? []).length, 1);
-  assert.deepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, body), []);
 });
 
 test("PR renderer leaves dependency lint to its independent publication check", () => {

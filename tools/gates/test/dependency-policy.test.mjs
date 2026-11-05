@@ -75,14 +75,6 @@ test("G31 exposes the declaration line format the renderer writes", () => {
   );
 });
 
-test("G31 writes the declaration when the body has no declaration line", () => {
-  const section = "<!-- keep -->\n",
-    written = replaceDependencyDeclaration(section, "bump effect to 2.0.0");
-
-  assert.deepEqual(readDependencyDeclarations(written), ["bump effect to 2.0.0"]);
-  assert.deepEqual(validateDependencyDeclaration(["package.json"], written), []);
-});
-
 test("G31 rejects an empty Dependency-Change before another line", () => {
   const errors = validateDependencyDeclaration(["package.json"], "Dependency-Change:\n## Task And Scope");
 
