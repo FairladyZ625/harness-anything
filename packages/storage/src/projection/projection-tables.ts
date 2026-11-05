@@ -1,4 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+import {
+  EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL,
+  backfillEventSummaryReadIndex,
+  ensureEventSummaryReadIndexColumns,
+} from "./event-summary-read-index.ts";
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
@@ -32,8 +37,36 @@ export const REPOSITORY_READ_TABLES_SQL = `
       workspace_revision INTEGER PRIMARY KEY,
       summary_json TEXT NOT NULL,
       witness_json TEXT NOT NULL,
-      row_json TEXT NOT NULL
+      row_json TEXT NOT NULL,
+      -- Filter columns derived from row_json at write time. SQLite cannot range-probe the JSON
+      -- expressions directly, and the event-list reader is shared by every agent/history/doc surface.
+      event_type TEXT,
+      occurred_at TEXT,
+      actor_person_id TEXT,
+      actor_executor_id TEXT,
+      read_index_version INTEGER NOT NULL DEFAULT 0
     );
+    -- One row per expandable entity ref suffix: entity matches a full kind/id ref or a bare id,
+    -- and the primary key carries revision order for the DESC page read.
+    CREATE TABLE IF NOT EXISTS event_summary_entity_ref (
+      workspace_revision INTEGER NOT NULL,
+      entity_ref TEXT NOT NULL,
+      PRIMARY KEY(entity_ref, workspace_revision)
+    ) WITHOUT ROWID;
+    -- Re-expanding one revision deletes its rows; without this the delete would scan the ref table.
+    CREATE INDEX IF NOT EXISTS event_summary_entity_ref_revision
+      ON event_summary_entity_ref(workspace_revision);
+    CREATE INDEX IF NOT EXISTS event_summary_type_revision
+      ON event_summary(event_type, workspace_revision DESC);
+    CREATE INDEX IF NOT EXISTS event_summary_occurred_revision
+      ON event_summary(occurred_at, workspace_revision DESC);
+    CREATE INDEX IF NOT EXISTS event_summary_actor_person_revision
+      ON event_summary(actor_person_id, workspace_revision DESC);
+    CREATE INDEX IF NOT EXISTS event_summary_actor_executor_revision
+      ON event_summary(actor_executor_id, workspace_revision DESC);
+    CREATE INDEX IF NOT EXISTS event_summary_read_index_pending
+      ON event_summary(workspace_revision) WHERE read_index_version < 1;
+    ${EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL};
     CREATE TABLE IF NOT EXISTS runtime_installation (
       installation_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
@@ -169,6 +202,8 @@ export const REPOSITORY_READ_TABLES_SQL = `
 
 export function createProjectionTables(db: DatabaseSync): void {
   db.exec(TASK_INDEX_TABLES_SQL);
+  ensureEventSummaryReadIndexColumns(db);
   db.exec(REPOSITORY_READ_TABLES_SQL);
   ensureRuntimeMemberIndex(db);
+  backfillEventSummaryReadIndex(db);
 }

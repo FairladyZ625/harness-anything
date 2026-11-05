@@ -1,4 +1,5 @@
 import { prefixUpperBound } from "../projection/document-read-range.ts";
+import { documentPathAncestors } from "../projection/document-path-ancestors.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { readPgTaskSessions, readPgSessionPage } from "./pg-runtime-session-queries.ts";
 import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
@@ -204,11 +205,4 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         return result.rows[0]?.task_id ?? null;
       }),
   };
-}
-/** Raw path ancestors preserve the port's literal prefix semantics, including repeated slashes. */
-function documentPathAncestors(path: string): readonly string[] {
-  const paths = [path];
-  for (let index = path.indexOf("/"); index !== -1; index = path.indexOf("/", index + 1))
-    paths.push(path.slice(0, index));
-  return paths;
 }

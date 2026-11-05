@@ -149,3 +149,64 @@ test("event list scan keeps only the newest window and entity refs cover envelop
   });
   assert.deepEqual(eventEntityRefs(entityEvent), ["software/coding/adr@1/ADR-1"]);
 });
+
+test("event list entity filter matches every slash-delimited suffix exactly", () => {
+  const events = [
+      event({
+        workspaceRevision: 1,
+        type: "entity_upserted",
+        schema: "entity-event/v1",
+        payload: { entityKind: "software/coding/adr@1", entityId: "ADR-1" },
+      }),
+      event({
+        workspaceRevision: 2,
+        type: "entity_upserted",
+        schema: "entity-event/v1",
+        payload: { entityKind: "software/coding/adr@1", entityId: "ADR-1-neighbor" },
+      }),
+    ],
+    ledger = store(events);
+  for (const entity of ["software/coding/adr@1/ADR-1", "coding/adr@1/ADR-1", "adr@1/ADR-1", "ADR-1"])
+    assert.deepEqual(
+      selectLedgerEvents(ledger, { entity, limit: 50 }).rows.map(({ revision }) => revision),
+      [1],
+      entity,
+    );
+  assert.deepEqual(
+    selectLedgerEvents(ledger, { entity: "ADR-1-neighbor", limit: 50 }).rows.map(({ revision }) => revision),
+    [2],
+  );
+});
+
+test("event list combines indexed type, entity, revision bound and either actor identity", () => {
+  const events = [
+      event({ workspaceRevision: 1, type: "entity_upserted", payload: { entityKind: "agent", entityId: "g38" } }),
+      event({ workspaceRevision: 2, type: "entity_upserted", payload: { entityKind: "agent", entityId: "g38" } }),
+      event({
+        workspaceRevision: 3,
+        type: "entity_upserted",
+        payload: { entityKind: "agent", entityId: "g38" },
+        actor: { principal: { personId: "person-b" }, executor: null },
+      }),
+      event({ workspaceRevision: 4, type: "task_created", payload: { entityKind: "agent", entityId: "g38" } }),
+    ],
+    ledger = store(events);
+  assert.deepEqual(
+    selectLedgerEvents(ledger, { entity: "agent/g38", type: "entity_upserted", revisionBound: 4, limit: 50 }).rows.map(
+      ({ revision }) => revision,
+    ),
+    [3, 2, 1],
+  );
+  assert.deepEqual(
+    selectLedgerEvents(ledger, { entity: "agent/g38", type: "entity_upserted", actor: "person-b", limit: 50 }).rows.map(
+      ({ revision }) => revision,
+    ),
+    [3],
+  );
+  assert.deepEqual(
+    selectLedgerEvents(ledger, { entity: "agent/g38", type: "entity_upserted", actor: "agent-a", limit: 1 }).rows.map(
+      ({ revision }) => revision,
+    ),
+    [2],
+  );
+});
