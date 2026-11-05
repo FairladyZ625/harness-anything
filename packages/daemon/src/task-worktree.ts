@@ -131,6 +131,20 @@ export interface TaskWorktreeCheckout {
  * An accepted handoff commit instead requires that exact, retrievable SHA and a clean checkout before and after
  * setup. An existing checkout at another commit is preserved and refused.
  */
+export interface TaskWorktreeCheckoutOptions {
+  /**
+   * The exact commit a reviewer must inspect. The checkout is created at this commit when absent, and an existing
+   * checkout at any other commit is refused instead of being advanced: a review must never run on bytes other than
+   * the frozen delivery it will register a verdict against. Absent for every non-reviewer caller.
+   */
+  readonly pinnedCommit?: string | null;
+  /**
+   * A reviewer whose cut has no code delivery has no commit to pin. It still reviews in the task worktree, but does
+   * not sample or advance the published branch: the artifact submission is the subject, not the checkout tip.
+   */
+  readonly followPublishedBranch?: boolean;
+}
+
 export async function checkoutTaskWorktree(
   rootDir: string,
   taskId: string,
@@ -138,11 +152,33 @@ export async function checkoutTaskWorktree(
   worktree: WorktreeSetupSettings,
   acceptedCommit?: string,
   stackedCommit?: string,
+  options: TaskWorktreeCheckoutOptions = {},
 ): Promise<TaskWorktreeCheckout | null> {
   const cwd = path.join(rootDir, binding.path),
     steps = worktree.setup,
     stepTimeoutMs = worktree.setupStepTimeoutMs;
   return inWorktreeTurn(cwd, async () => {
+    if (options.pinnedCommit !== undefined) {
+      const pinnedCommit = options.pinnedCommit;
+      if (pinnedCommit === null || !/^[0-9a-f]{40}$/u.test(pinnedCommit))
+        throw cellCodedError(
+          "review_checkout_commit_unavailable",
+          `Task ${taskId}'s reviewer dispatch has no frozen delivery commit to check out.`,
+        );
+      const fresh = !existsSync(cwd);
+      await ensurePinnedCommit(rootDir, binding.branch, pinnedCommit);
+      if (fresh) await addPinnedReviewWorktree(rootDir, cwd, binding.branch, pinnedCommit);
+      const verify = () => verifyReviewCheckout(cwd, pinnedCommit);
+      await verify();
+      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs, fresh });
+      await verify();
+      return {
+        cwd,
+        branch: fresh ? binding.branch : ((await heldBranch(cwd)) ?? binding.branch),
+        baseRef: fresh ? pinnedCommit : null,
+        setup: prepared,
+      };
+    }
     if (acceptedCommit !== undefined) {
       if (!/^[0-9a-f]{40}$/u.test(acceptedCommit))
         throw cellCodedError("runtime_handoff_sha_invalid", "Handoff requires a complete commit SHA.");
@@ -192,13 +228,17 @@ export async function checkoutTaskWorktree(
     // as. A worker may move a task to another delivery branch, and judging it against origin/<task id> then measures
     // the abandoned branch.
     const branch = fresh ? binding.branch : ((await heldBranch(cwd)) ?? binding.branch),
-      published = await publishedBranchRef(rootDir, branch);
+      followPublished = options.followPublishedBranch !== false,
+      // An artifact-only reviewer has no frozen code commit; it must not turn a publication state into its subject.
+      published = followPublished || fresh ? await publishedBranchRef(rootDir, branch) : null;
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch, baseRef: published ?? defaultRef! });
-    // A checkout this node already had, or a branch that survived one, may predate another node's push.
-    if (published) await continuePublishedBranch(cwd, published);
-    // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
-    // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
-    else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
+    if (followPublished) {
+      // A checkout this node already had, or a branch that survived one, may predate another node's push.
+      if (published) await continuePublishedBranch(cwd, published);
+      // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
+      // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
+      else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
+    }
     return {
       cwd,
       branch,
@@ -216,6 +256,152 @@ export async function checkoutTaskWorktree(
 async function heldBranch(cwd: string): Promise<string | null> {
   const branch = (await runProcessTextAsync("git", ["-C", cwd, "branch", "--show-current"])).trim();
   return branch || null;
+}
+
+/** A reviewer's cut must be readable here: its own commit, the published task branch, or nothing to review. */
+async function ensurePinnedCommit(rootDir: string, branch: string, commit: string): Promise<void> {
+  const hasCommit = async () =>
+    (
+      await runProcessExitAsync(
+        "git",
+        ["-C", rootDir, "cat-file", "-e", `${commit}^{commit}`],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { timeoutMs: 30_000 },
+      )
+    ).exitCode === 0;
+  if (await hasCommit()) return;
+  // The cut may already be published on the task branch, including when this node never fetched it.
+  for (const ref of [commit, `+refs/heads/${branch}:refs/remotes/origin/${branch}`])
+    await runProcessExitAsync(
+      "git",
+      ["-C", rootDir, "fetch", "--quiet", "origin", ref],
+      undefined,
+      { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      undefined,
+      undefined,
+      { timeoutMs: 30_000 },
+    ).then(
+      () => undefined,
+      () => undefined,
+    );
+  if (await hasCommit()) return;
+  throw cellCodedError(
+    "review_checkout_commit_unavailable",
+    `The frozen delivery commit ${commit} is not available in ${rootDir}. Push the frozen cut or dispatch the review ` +
+      "on a node that holds it; a reviewer must not inspect another commit.",
+  );
+}
+
+/**
+ * Creates a fresh reviewer checkout at the frozen commit. `addManagedWorktree` reuses a surviving
+ * branch and ignores its baseRef, which would check out the stale cut this review must not read;
+ * here a diverged branch is preserved under its own name before the task branch is created at the
+ * frozen commit. A branch that is an ancestor of the frozen commit is simply advanced.
+ */
+async function addPinnedReviewWorktree(rootDir: string, cwd: string, branch: string, commit: string): Promise<void> {
+  // Renaming or force-updating a branch that another worktree has checked out rewrites that
+  // worktree's symbolic HEAD and breaks its delivery path. Preserve the other checkout instead.
+  const otherOwner = (await branchWorktrees(rootDir, branch)).find(
+    (owner) => path.resolve(owner) !== path.resolve(cwd),
+  );
+  if (otherOwner !== undefined)
+    throw cellCodedError(
+      "review_checkout_branch_in_use",
+      `A reviewer checkout cannot use branch ${branch}: it is checked out at ${otherOwner}. ` +
+        "Leave that worktree untouched; dispatch the review on a node without that branch, or remove the old checkout first.",
+    );
+  const branchTip = await refTip(rootDir, `refs/heads/${branch}`);
+  if (branchTip === null) {
+    await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
+    return;
+  }
+  if (branchTip === commit) {
+    await reviewGit(rootDir, "worktree", "add", cwd, branch);
+    return;
+  }
+  const ancestor = await runProcessExitAsync(
+    "git",
+    ["-C", rootDir, "merge-base", "--is-ancestor", branchTip, commit],
+    undefined,
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    undefined,
+    undefined,
+    { timeoutMs: 30_000 },
+  );
+  if (ancestor.exitCode === 0) {
+    await reviewGit(rootDir, "branch", "-f", branch, commit);
+    await reviewGit(rootDir, "worktree", "add", cwd, branch);
+    return;
+  }
+  const preserved = `${branch}-superseded-${branchTip.slice(0, 12)}`;
+  try {
+    await reviewGit(rootDir, "branch", "-m", branch, preserved);
+  } catch (error) {
+    throw cellCodedError(
+      "review_checkout_branch_in_use",
+      `A reviewer checkout cannot move branch ${branch} aside to the frozen commit: ${errorText(error)}`,
+    );
+  }
+  await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
+}
+
+/** Every worktree currently checking out this branch; a linked worktree's symbolic HEAD names it too. */
+async function branchWorktrees(rootDir: string, branch: string): Promise<readonly string[]> {
+  return (await reviewGit(rootDir, "worktree", "list", "--porcelain")).split("\n\n").flatMap((entry) => {
+    const lines = entry.split("\n"),
+      worktree = lines.find((line) => line.startsWith("worktree ")),
+      ref = lines.find((line) => line.startsWith("branch "));
+    return worktree !== undefined && ref === `branch refs/heads/${branch}` ? [worktree.slice("worktree ".length)] : [];
+  });
+}
+
+async function refTip(rootDir: string, ref: string): Promise<string | null> {
+  const result = await runProcessExitAsync(
+    "git",
+    ["-C", rootDir, "rev-parse", "--verify", "--quiet", ref],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { timeoutMs: 30_000 },
+  );
+  return result.exitCode === 0 ? result.stdout.trim() : null;
+}
+
+function reviewGit(rootDir: string, ...args: string[]): Promise<string> {
+  return runProcessTextAsync(
+    "git",
+    ["-C", rootDir, ...args],
+    undefined,
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    undefined,
+    undefined,
+    { timeoutMs: 30_000 },
+  ).then((output) => output.trim());
+}
+
+/** The reviewer's checkout is the frozen cut or it is not prepared: never advance, reset, or silently accept another HEAD. */
+async function verifyReviewCheckout(cwd: string, commit: string): Promise<void> {
+  const head = (
+    await runProcessTextAsync(
+      "git",
+      ["-C", cwd, "rev-parse", "HEAD"],
+      undefined,
+      { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      undefined,
+      undefined,
+      { timeoutMs: 30_000 },
+    )
+  ).trim();
+  if (head !== commit)
+    throw cellCodedError(
+      "review_checkout_commit_mismatch",
+      `Reviewer checkout ${cwd} is at ${head}, not the frozen delivery commit ${commit}; ` +
+        "the cut must be reviewed at its frozen commit.",
+    );
 }
 
 /**

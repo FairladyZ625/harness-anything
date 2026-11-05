@@ -91,7 +91,12 @@ import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spaw
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { taskExecutionSurfaces } from "./runtime-execution-scope.ts";
-import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
+import {
+  assertReviewerTarget,
+  reviewerPinnedCommit,
+  selectReadOnlyAttachTarget,
+  selectReviewTarget,
+} from "./review-dispatch-admission.ts";
 import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
 import {
@@ -403,6 +408,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               input,
               { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
               () => remoteTask.worktree,
+              reviewerBinding
+                ? reviewTarget?.submission !== undefined || remoteTask.reviewerSubmission !== undefined
+                  ? ((reviewTarget?.submission ?? remoteTask.reviewerSubmission)!.commitSha ?? null)
+                  : undefined
+                : undefined,
             )
           : preparedWorktree,
         taskPackageRoot,
@@ -1305,14 +1315,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   }
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
-    prepareWorktree: async (payload: JsonObject) => {
+    prepareWorktree: async (payload: JsonObject, reviewedCommit?: string | null) => {
       // Explicit-instance and declared-Agent model failures must surface before checkout/setup
       // work, which can run repository-configured install commands.
       await preflightRuntimeSelection(payload);
+      const taskId = payload.role === "reviewer" && typeof payload.taskId === "string" ? payload.taskId : null,
+        pinnedCommit =
+          taskId !== null && !input.remote
+            ? reviewedCommit !== undefined
+              ? reviewedCommit
+              : reviewerPinnedCommit(
+                  payload,
+                  requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot,
+                )
+            : undefined;
       return prepareDispatchWorktree(
         input,
         payload,
         readOnlyAttachDispatch(input, payload) ? () => null : projectedWorktreeBinding(input),
+        pinnedCommit,
       );
     },
     spawnHandoff: (

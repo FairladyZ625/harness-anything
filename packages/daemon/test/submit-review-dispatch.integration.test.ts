@@ -20,6 +20,50 @@ import { dispatchStreamPath } from "../src/dispatch-stream.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 
+function gitIn(cwd: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+}
+
+/** Publish a WIP cut, then replace it locally with a different final commit the branch lacks. */
+function publishSupersededWipCut(f: ChildFixture, worktree: string): { readonly wip: string; readonly frozen: string } {
+  const baseline = gitIn(worktree, "rev-parse", "HEAD"),
+    origin = path.join(f.root, "origin.git");
+  execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", origin]);
+  gitIn(f.root, "remote", "add", "origin", origin);
+  gitIn(f.root, "push", "-q", "origin", "main:main");
+  writeFileSync(path.join(worktree, "wip.txt"), "superseded WIP cut\n");
+  gitIn(worktree, "add", "wip.txt");
+  gitIn(worktree, "commit", "-qm", "test: superseded WIP cut");
+  const wip = gitIn(worktree, "rev-parse", "HEAD");
+  gitIn(worktree, "push", "-q", "origin", `HEAD:refs/heads/${taskId}`);
+  // The final cut replaces the WIP commit instead of extending it, so the two histories
+  // diverge: the checkout is "behind" the published branch and holds a commit it lacks.
+  gitIn(worktree, "reset", "--hard", baseline);
+  writeFileSync(path.join(worktree, "final.txt"), "frozen delivery\n");
+  gitIn(worktree, "add", "final.txt");
+  gitIn(worktree, "commit", "-qm", "test: final frozen cut");
+  return { wip, frozen: gitIn(worktree, "rev-parse", "HEAD") };
+}
+
+/** Freeze a missing reviewer so submit cannot auto-dispatch; install the real one for the manual lane. */
+async function submitWithDeferredReview(f: ChildFixture): Promise<Record<string, unknown>> {
+  await f.install();
+  const settings = await f.runPrincipal({
+    kind: "settings-update",
+    roles: { defaultReviewer: "missing-reviewer" },
+    dispatchKey: "freeze-missing-for-review-checkout",
+  });
+  assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+  const submitted = (await f.submit()) as Record<string, unknown>;
+  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  assert.equal(
+    f.launches.length,
+    0,
+    `the missing reviewer must not launch: ${JSON.stringify(submitted.warnings ?? [])}`,
+  );
+  return submitted;
+}
+
 async function runChildSlice(
   f: ChildFixture,
   childTaskId: string,
@@ -258,6 +302,161 @@ test("submit and amend dispatch their own frozen cuts without owner forward", { 
       /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
       "reviewer dispatches carry no worker delivery protocols",
     );
+  } finally {
+    await f.close();
+  }
+});
+
+test(
+  "submit dispatches its reviewer when the published task branch still points at a replaced WIP commit",
+  { timeout: 30_000 },
+  async () => {
+    // The worker's delivery order is commit → submit → push. A WIP commit pushed earlier can
+    // therefore be the remote task branch's only tip while the frozen cut replaces it locally.
+    // Review dispatch must not require the checkout to be behind that published branch.
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      create: { presetId: "standard-task" },
+    });
+    try {
+      await f.install();
+      const worktree = path.join(f.root, ".worktrees", taskId),
+        { frozen } = publishSupersededWipCut(f, worktree),
+        submitted = (await f.submit()) as Record<string, unknown>;
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      assert.equal(
+        f.launches.length,
+        1,
+        `the frozen cut must dispatch one reviewer: ${JSON.stringify(submitted.warnings ?? [])}`,
+      );
+      assert.equal(f.launches[0]!.cwd, worktree, "the reviewer inspects the frozen cut in the task worktree");
+      assert.equal(gitIn(worktree, "rev-parse", "HEAD"), frozen, "the reviewer checkout is the frozen commit");
+      assert.doesNotMatch(JSON.stringify(submitted.warnings ?? []), /task_worktree_diverged|is behind/u);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a reviewer dispatched without a task worktree is created at the frozen delivery commit",
+  { timeout: 30_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      create: { presetId: "standard-task" },
+    });
+    try {
+      const worktree = path.join(f.root, ".worktrees", taskId),
+        { wip, frozen } = publishSupersededWipCut(f, worktree);
+      await submitWithDeferredReview(f);
+      // A node that takes the review over has no checkout at all, but its task branch may survive
+      // at the replaced WIP cut. The branch is preserved under a new name; the checkout must still
+      // be the frozen commit rather than whatever the stale branch names.
+      gitIn(f.root, "worktree", "remove", "--force", worktree);
+      gitIn(f.root, "branch", "-f", taskId, wip);
+      const dispatched = (await f.run({
+        kind: "task-dispatch-review",
+        taskIds: [taskId],
+        agentId: "closeout-reviewer",
+      })) as Record<string, unknown>;
+      assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
+      assert.equal(f.launches.length, 1, JSON.stringify(dispatched));
+      assert.equal(f.launches[0]!.cwd, worktree);
+      assert.equal(
+        gitIn(worktree, "rev-parse", "HEAD"),
+        frozen,
+        "a fresh reviewer checkout is created at the frozen cut",
+      );
+      assert.equal(
+        gitIn(f.root, "rev-parse", `refs/heads/${taskId}-superseded-${wip.slice(0, 12)}`),
+        wip,
+        "the surviving stale branch is preserved under its own name",
+      );
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a reviewer refuses a stale existing worktree instead of reviewing the wrong commit",
+  { timeout: 30_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      create: { presetId: "standard-task" },
+    });
+    try {
+      const worktree = path.join(f.root, ".worktrees", taskId),
+        { frozen } = publishSupersededWipCut(f, worktree);
+      await submitWithDeferredReview(f);
+      // Another node may still hold an old checkout of this task. A review must not silently
+      // inspect that tree and register a verdict against the frozen cut.
+      gitIn(worktree, "reset", "--hard", `${frozen}~1`);
+      const dispatched = (await f.run({
+        kind: "task-dispatch-review",
+        taskIds: [taskId],
+        agentId: "closeout-reviewer",
+      })) as Record<string, unknown>;
+      assert.equal(dispatched.outcome, "op_rejected", JSON.stringify(dispatched));
+      assert.equal(dispatched.code, "review_dispatch_failed", JSON.stringify(dispatched));
+      assert.match(
+        String(dispatched.rejectionExplanation),
+        /review_checkout_commit_mismatch|frozen delivery commit/u,
+        JSON.stringify(dispatched),
+      );
+      assert.equal(f.launches.length, 0, "a mismatched checkout must not start a reviewer");
+      assert.notEqual(gitIn(worktree, "rev-parse", "HEAD"), frozen);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test("a reviewer never moves a task branch checked out by another worktree", { timeout: 30_000 }, async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    create: { presetId: "standard-task" },
+  });
+  try {
+    const worktree = path.join(f.root, ".worktrees", taskId),
+      { wip, frozen } = publishSupersededWipCut(f, worktree);
+    await submitWithDeferredReview(f);
+    gitIn(f.root, "worktree", "remove", "--force", worktree);
+    // A peer worktree owns the task branch at the replaced WIP cut. Renaming or moving that
+    // branch would rewrite the peer's symbolic HEAD and break its delivery path.
+    const peer = path.join(f.root, "peer-worktree");
+    gitIn(f.root, "worktree", "add", peer, taskId);
+    gitIn(peer, "reset", "--hard", wip);
+    const peerEntry = () => {
+      const entry = gitIn(f.root, "worktree", "list", "--porcelain")
+        .split("\n\n")
+        .find((block) => block.startsWith(`worktree ${peer}\n`));
+      assert.ok(entry, "the peer worktree is registered");
+      return entry;
+    };
+    const peerBefore = peerEntry();
+    assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`);
+    assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip);
+    const dispatched = (await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "closeout-reviewer",
+    })) as Record<string, unknown>;
+    assert.equal(dispatched.outcome, "op_rejected", JSON.stringify(dispatched));
+    assert.equal(dispatched.code, "review_dispatch_failed", JSON.stringify(dispatched));
+    assert.match(
+      String(dispatched.rejectionExplanation),
+      /cannot use branch .* checked out at/u,
+      JSON.stringify(dispatched),
+    );
+    assert.equal(f.launches.length, 0, "a branch owned by another worktree must not start a reviewer");
+    assert.equal(gitIn(peer, "branch", "--show-current"), taskId, "the peer keeps its branch name");
+    assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`, "the peer keeps its symbolic HEAD");
+    assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip, "the peer keeps its HEAD commit");
+    assert.equal(peerEntry(), peerBefore, "the peer worktree entry keeps its branch, HEAD and config identity");
+    assert.notEqual(frozen, wip);
   } finally {
     await f.close();
   }
