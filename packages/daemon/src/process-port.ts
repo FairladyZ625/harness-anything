@@ -115,6 +115,7 @@ function launchProcessText(
   signal: AbortSignal | undefined,
   options: {
     readonly timeoutMs?: number;
+    readonly timeoutSignal?: "SIGTERM" | "SIGKILL";
     readonly windowsVerbatimArguments?: boolean;
     readonly maxBuffer?: number;
   },
@@ -131,7 +132,9 @@ function launchProcessText(
         cwd,
         ...(env ? { env } : {}),
         ...(signal ? { signal } : {}),
-        ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+        ...(options.timeoutMs === undefined
+          ? {}
+          : { timeout: options.timeoutMs, killSignal: options.timeoutSignal ?? "SIGTERM" }),
         ...(options.windowsVerbatimArguments === undefined
           ? {}
           : { windowsVerbatimArguments: options.windowsVerbatimArguments }),
@@ -172,7 +175,7 @@ function launchProcessText(
         ? null
         : setTimeout(() => {
             if (child.pid === undefined) return;
-            terminateRuntimePid(child.pid);
+            terminateRuntimePid(child.pid, options.timeoutSignal);
           }, options.timeoutMs);
     timeout?.unref();
     child.stdin?.end(input);
@@ -218,6 +221,7 @@ export function runProcessExitAsync(
   signal?: AbortSignal,
   options: {
     readonly timeoutMs?: number;
+    readonly timeoutSignal?: "SIGTERM" | "SIGKILL";
     readonly windowsVerbatimArguments?: boolean;
     readonly maxBuffer?: number;
   } = {},

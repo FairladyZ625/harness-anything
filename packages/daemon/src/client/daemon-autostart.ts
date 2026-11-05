@@ -189,10 +189,10 @@ export async function ensureLocalDaemonRunning(input: {
             }),
             daemonStdioLogPath(target.userRoot, target.daemonId),
           );
-          for (const step of daemonServiceCommands(scheduled).load) await runDaemonServiceCommand(step);
+          for (const step of daemonServiceCommands(scheduled).load) await runDaemonServiceCommand(step, readyTimeoutMs);
           return;
         }
-        if (unit) return startDaemonServiceUnit(unit);
+        if (unit) return startDaemonServiceUnit(unit, readyTimeoutMs);
         spawnCwd = daemonCheckoutRoot(input.invokingRoot);
         return startDetachedProcessChecked(
           launch.command,

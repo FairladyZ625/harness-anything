@@ -25,8 +25,8 @@ export interface DaemonServeDeferred {
   readonly witness: "unix-socket" | "singleton-lock";
 }
 export type DaemonServeStart = RunningDaemon | DaemonServeDeferred;
-/** Teardown must reach the pid file and the lock even when an earlier step rejects; the drain's own
- *  rejection is the one that propagates, so a failing teardown step must not mask or replace it. */
+/** Teardown must reach the lock even when an earlier step rejects; resident supersession keeps
+ *  its pid until process exit. A teardown failure must not mask the drain's own rejection. */
 async function settleTeardownStep(step: () => Promise<void>): Promise<void> {
   try {
     await step();
@@ -55,10 +55,14 @@ export async function startDaemon(input: {
   /** Optional platform skill evaluation capability supplied by the daemon composition root. */
   readonly skillEval?: DaemonHostOpenInput["skillEval"];
   readonly skillEvalRunner?: DaemonHostOpenInput["skillEvalRunner"];
-  /** Called after a build-superseded exit released everything, so the resident entry can hand the
-   * slot to the disk build. */
+  /** Called after a build-superseded exit released the socket and singleton, so the resident
+   * entry can hand the slot to the disk build. */
   readonly onSupersededExit?: () => void | Promise<void>;
+  /** A failed handoff may leave writers alive: a resident must exit before its replacement opens them. */
+  readonly onSupersededFailure?: () => void | Promise<void>;
   readonly buildSupersessionEnabled?: boolean;
+  /** Resident entries retain the outgoing pid until actual process exit for force-stop discovery. */
+  readonly retainPidUntilExit?: boolean;
   readonly shutdownDeadlineMs?: number;
   readonly shutdownDeadlineExceeded?: () => void;
 }): Promise<DaemonServeStart> {
@@ -103,12 +107,19 @@ export async function startDaemon(input: {
       attachingRepositories: repos.filter((repo) => repo.state === "warming").length,
     };
   };
+  const notifySupersessionFailure = async (): Promise<void> => {
+    const [recovery] = await Promise.allSettled([Promise.resolve().then(() => input.onSupersededFailure?.())]);
+    if (recovery?.status === "rejected")
+      console.error(
+        `daemon build-supersession failure recovery failed: ${recovery.reason instanceof Error ? recovery.reason.message : String(recovery.reason)}`,
+      );
+  };
   // Shutdown used to close the socket first and release the pid file and the singleton lock after the
   // Git follower drain, so for the whole length of that drain the endpoint said "gone" while the pid file and
   // the lock said "here". Three observers each guessed differently in that gap. Admission is now this
   // flag rather than a closed socket, so the endpoint stays bound and answers `daemon_stopping` until
-  // the drain finishes, and endpoint, pid file and lock are released together: an observer either
-  // finds a daemon that can speak for itself, or finds nothing at all.
+  // the drain finishes. A resident supersession may retain the outgoing pid until process exit;
+  // the singleton remains the authority for claiming the released socket.
   const stop = (outcome: "stop_requested" | "build_superseded" = "stop_requested"): Promise<void> => {
     if (stopPromise) return stopPromise;
     stopping = true;
@@ -136,6 +147,7 @@ export async function startDaemon(input: {
       // never claim it. Each teardown step is also individually guarded, because one of them failing
       // must not strand the ones after it: a half-released daemon is the state this whole comment
       // exists to prevent.
+      let drainFailed = false;
       try {
         // RepoCell.close drains each Git follower before the daemon advertises its terminal boundary.
         await observation.withDaemonObservation(diagnostics!.observer, () =>
@@ -143,20 +155,42 @@ export async function startDaemon(input: {
             host!.close(),
           ),
         );
+      } catch (error) {
+        drainFailed = true;
+        if (outcome === "build_superseded")
+          console.error(
+            `daemon build-supersession drain failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        throw error;
       } finally {
         lifecycle.record({ event: "process_exit", outcome });
         await settleTeardownStep(() => transport!.stop());
         await settleTeardownStep(() => connLog.settle());
         await settleTeardownStep(() => requestLog?.settle() ?? Promise.resolve());
         await settleTeardownStep(() => diagnostics!.close());
-        // Same shape for the pid file: an unremovable pid file must not strand the lock behind it.
-        await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
-        singleton.release();
+        // A resident being superseded keeps its pid until it really exits, so force-stop can find
+        // it after the socket closes. Its exit hook removes only its own pid; a successor may replace it.
+        if (outcome !== "build_superseded" || input.retainPidUntilExit !== true)
+          await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
+        // A rejected drain cannot prove its writer threads stopped. Keep the singleton until
+        // the resident actually dies; the next claimant removes the now-stale PID lock.
+        if (!(drainFailed && outcome === "build_superseded" && input.retainPidUntilExit === true)) singleton.release();
+        if (drainFailed && outcome === "build_superseded") await notifySupersessionFailure();
         clearTimeout(deadline);
       }
       // Only the supersession outcome restarts itself: an operator stop means stop, and the
       // stopped marker the CLI wrote for it blocks autostart until the operator says otherwise.
-      if (outcome === "build_superseded") await input.onSupersededExit?.();
+      if (outcome === "build_superseded") {
+        try {
+          await input.onSupersededExit?.();
+        } catch (error) {
+          console.error(
+            `daemon build-supersession successor failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          await notifySupersessionFailure();
+          throw error;
+        }
+      }
     })();
     return stopPromise;
   };
@@ -174,7 +208,7 @@ export async function startDaemon(input: {
       if (!fleetDrainExpired && host!.pendingFleetDeliveries() > 0) return;
       void stop("build_superseded").catch((error: unknown) => {
         console.error(
-          `daemon build-supersession drain failed: ${error instanceof Error ? error.message : String(error)}`,
+          `daemon build-supersession stop failed: ${error instanceof Error ? error.message : String(error)}`,
         );
       });
     });

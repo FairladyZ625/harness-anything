@@ -747,10 +747,12 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
     repoId = "superseded-readopt",
     release = path.join(parent, "release"),
     providerPidFile = path.join(parent, "provider.pid"),
+    cliBefore = path.join(parent, "cli-before"),
+    cliAfter = path.join(parent, "cli-after"),
     endpoint = localUserDaemonEndpoint(userRoot, repoId),
     executablePath = writeProviderExecutable(
       path.join(parent, "readopt-provider.mjs"),
-      `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(providerPidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-readopt-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon supersession" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
+      `import fs from "node:fs";\nimport { execFile } from "node:child_process";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(providerPidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-readopt-session" }));\nconst env = { ...process.env }; for (const name of ["HARNESS_ACTOR", "HARNESS_EXECUTION_CREDENTIAL", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_RELAY"]) delete env[name];\nfunction probe() { if (fs.existsSync(${JSON.stringify(release)})) return; execFile(process.execPath, [${JSON.stringify(path.resolve("packages/cli/src/index.ts"))}, "--root", ${JSON.stringify(rootDir)}, "--json", "daemon", "status", "--user-root", ${JSON.stringify(userRoot)}, "--daemon-id", ${JSON.stringify(repoId)}], { env }, (error, stdout) => { if (!error) fs.writeFileSync(stdout.includes('"loadedBuildId":"build-b"') ? ${JSON.stringify(cliAfter)} : ${JSON.stringify(cliBefore)}, String(Date.now())); setImmediate(probe); }); }\nprobe();\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon supersession" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
     ),
     installation = {
       installationId: "installation-superseded-readopt",
@@ -906,7 +908,9 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         return null;
       }
     });
+    await waitUntil(() => existsSync(cliBefore), 10_000);
     queuedStatusHeld = true;
+    const upgradeStartedAt = Date.now();
     writeFileSync(buildIdPath, "build-b\n", "utf8");
     const served = await requestDaemonJsonRpcAt(
       daemon.endpoint,
@@ -969,6 +973,10 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         ).length === 2,
       10_000,
     );
+    await waitUntil(() => existsSync(cliAfter), 10_000);
+    const cliRecoveryMs = Date.now() - upgradeStartedAt;
+    assert.ok(cliRecoveryMs < 30_000, `CLI recovery took ${cliRecoveryMs}ms`);
+    console.log(`runtime CLI recovered in ${cliRecoveryMs}ms after build replacement`);
     const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
     assert.deepEqual(current.build, {
       ...(current.build as Record<string, unknown>),

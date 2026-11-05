@@ -28,14 +28,14 @@ export function terminateRuntimeProcess(child: Pick<ChildProcess, "killed" | "pi
   child.kill("SIGTERM");
 }
 
-export function terminateRuntimePid(pid: number): void {
+export function terminateRuntimePid(pid: number, signal: "SIGTERM" | "SIGKILL" = "SIGTERM"): void {
   if (!Number.isInteger(pid) || pid < 1) return;
   if (process.platform === "win32") {
     terminateRuntimeProcess({ killed: false, pid, kill: () => false });
     return;
   }
   try {
-    process.kill(-pid, "SIGTERM");
+    process.kill(-pid, signal);
   } catch (error) {
     if (childProcessErrorCode(error) !== "ESRCH") throw error;
     consumeKnownError(error);
