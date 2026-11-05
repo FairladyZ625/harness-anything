@@ -3,7 +3,8 @@ import type { Pool } from "pg";
 import { compileDecisionWrite } from "@harness-anything/kernel";
 import { reduceDecisionDocument } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
-import { refreshPgDecisionSearch, backfillPgDecisionSearchPage } from "../../src/pg/pg-decision-search.ts";
+import { backfillPgDecisionSearchPage } from "@harness-anything/storage";
+import { refreshPgDecisionSearch } from "../../src/pg/pg-decision-search.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { decisionProjectionDatabase, proposal } from "../store/relation-graph-projection.fixtures.ts";
 import { listDecisionRowsPage, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
@@ -110,6 +111,13 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
       },
       scope,
     );
+    await withPostgresTransaction(
+      pool,
+      async (client) => {
+        assert.deepEqual(await backfillPgDecisionSearchPage(client, scope), { processed: 0, done: true });
+      },
+      scope,
+    );
     for (const sample of samples) {
       const expected = listDecisionRowsPage(sqlite, { search: sample.query, withBody: true }).rows;
       const actual = await pg.listDecisions({ search: sample.query, withBody: true });
@@ -180,7 +188,8 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
     await assert.rejects(() => pg.listDecisions({ search: "replacement" }), { code: "projection_pending" });
     await withPostgresTransaction(
       pool,
-      async (client) => assert.equal(await backfillPgDecisionSearchPage(client, scope), 1),
+      async (client) =>
+        assert.deepEqual(await backfillPgDecisionSearchPage(client, scope), { processed: 1, done: false }),
       scope,
     );
     assert.deepEqual(

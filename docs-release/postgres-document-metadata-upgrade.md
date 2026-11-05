@@ -175,11 +175,38 @@ its budget is query terms times their postings, including nonadjacent phrase can
 Body postings retain the document repository and both head/blob reader sets.
 
 Before switching readers, use `backfillPgDecisionSearchPage(client, scope)` in a management
-transaction per page, until it returns 0. It locks at most 64 pending owners and computes
+transaction per page, until `done` is true. `processed` reports the number of owners handled;
+a zero `processed` count alone does not signal completion during concurrent writes. It locks at most 64 pending owners and computes
 tokens in the storage adapter. Current projection writes refresh the same representation
 within their existing transaction. Previous-writer updates invalidate affected Decisions;
 current search returns `projection_pending` until the current writer or management
 backfill refreshes them. Retain invalidation triggers through 2026-11-19.
+
+The entry is exported by the public package (including its published ESM build):
+
+```ts
+import { Pool } from "pg";
+import { backfillPgDecisionSearchPage, withPostgresTransaction } from "@harness-anything/storage";
+
+const pool = new Pool({ connectionString: managementConnectionString });
+try {
+  for (;;) {
+    const page = await withPostgresTransaction(pool, (client) => backfillPgDecisionSearchPage(client, scope), scope);
+    if (page.done) break;
+  }
+} finally {
+  await pool.end();
+}
+```
+
+Each page is its own transaction under the existing management scope/role. A rollback
+preserves both pending owners and the readiness summary. Readiness uses scoped pending
+counts maintained by statement transition triggers, including previous-writer invalidations
+and deletes. Old scopes remain unknown until management confirms completion while holding
+only the summary row; readers never probe the historical pending index or depend on VACUUM.
+Current writers initialize empty scopes before writing. The additive summary table and
+triggers must be installed before deploying readers and retained across the current/previous
+writer window; no canonical bytes or previous columns are removed.
 
 PGlite performs both bounded backfills before opening its scope. Only disposable isolated
 replay schemas and PGlite pass `{ indexBuild: "isolated" }` to schema initialization;

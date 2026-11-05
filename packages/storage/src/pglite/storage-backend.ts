@@ -75,12 +75,8 @@ async function initializeSchema(
     if (processed === 0) break;
   }
   for (;;) {
-    const processed = await withPostgresTransaction(
-      pool,
-      (client) => backfillPgDecisionSearchPage(client, scope),
-      scope,
-    );
-    if (processed === 0) break;
+    const page = await withPostgresTransaction(pool, (client) => backfillPgDecisionSearchPage(client, scope), scope);
+    if (page.done) break;
   }
   // Commit each bounded expansion page before admitting readers of this embedded scope.
   for (;;) {

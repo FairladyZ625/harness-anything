@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
 import { eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
 import { readIndexDdl } from "./pg-read-index-migration.ts";
+import { decisionReadStatusDdl } from "./pg-decision-read-status.ts";
 import { decisionSearchDdl } from "./pg-decision-search-schema.ts";
 import { decisionIndexDdl } from "./pg-decision-index-migration.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
@@ -15,6 +16,7 @@ import {
 export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_task_snapshots",
   "ha_decisions",
+  "ha_decision_read_status",
   "ha_search_terms",
   "ha_decision_positions",
   "ha_facts",
@@ -199,6 +201,7 @@ export function projectionDdl(): readonly string[] {
     )`,
     ...entityDeclarationDdl,
     ...decisionSearchDdl(),
+    ...decisionReadStatusDdl(),
     `CREATE INDEX IF NOT EXISTS ha_document_heads_search_owner ON ha_document_heads
       (tenant_id,project_id,policy_epoch,path,repo_id)`,
     ...PG_PROJECTION_TABLES.map(

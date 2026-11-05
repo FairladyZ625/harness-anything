@@ -1,3 +1,4 @@
+import { assertPgDecisionReadReady, finishPgDecisionReadBackfill } from "./pg-decision-read-status.ts";
 import type { PoolClient } from "pg";
 import type { DecisionDocumentState } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { decisionDocumentProse } from "@harness-anything/kernel/internal/domain/decision-event.ts";
@@ -75,14 +76,20 @@ export async function refreshPgDecisionSearch(client: PoolClient, scope: PgProje
 }
 
 /** Each transaction locks at most 64 owners; processed=0 is the termination signal. */
-export async function backfillPgDecisionSearchPage(client: PoolClient, scope: PgProjectionScope): Promise<number> {
+export async function backfillPgDecisionSearchPage(
+  client: PoolClient,
+  scope: PgProjectionScope,
+): Promise<{ readonly processed: number; readonly done: boolean }> {
   const pending = await client.query<{ decision_id: string }>(
     `SELECT decision_id FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND NOT search_ready
       ORDER BY decision_id LIMIT 64 FOR UPDATE`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
   for (const row of pending.rows) await refreshPgDecisionSearch(client, scope, row.decision_id);
-  return pending.rows.length;
+  return {
+    processed: pending.rows.length,
+    done: pending.rows.length === 0 && (await finishPgDecisionReadBackfill(client, scope)),
+  };
 }
 
 export async function searchPgDecisionIds(
@@ -92,13 +99,8 @@ export async function searchPgDecisionIds(
   repoId: string,
 ): Promise<readonly string[]> {
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
-    readers = [...(scope.readers ?? [])],
-    pending = await client.query(
-      "SELECT 1 FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND NOT search_ready LIMIT 1",
-      keys,
-    );
-  if (pending.rows.length)
-    throw Object.assign(new Error("Decision search backfill is pending"), { code: "projection_pending" });
+    readers = [...(scope.readers ?? [])];
+  await assertPgDecisionReadReady(client, scope, "search");
   const terms = unicode61Positions([query]).map((p) => p.term);
   if (terms.length === 0) return [];
   const result = await client.query<{ id: string; term: string; column: number; offset: number }>(

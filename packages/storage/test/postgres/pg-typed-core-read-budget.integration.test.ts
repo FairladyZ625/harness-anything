@@ -4,6 +4,7 @@ import test from "node:test";
 import { proposal, accepted } from "../store/relation-graph-projection.fixtures.ts";
 import { reduceDecisionDocument } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
+import { backfillPgDecisionSearchPage } from "@harness-anything/storage";
 import { refreshPgDecisionSearch } from "../../src/pg/pg-decision-search.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "../../src/pg/pg-projection-schema.ts";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
@@ -17,6 +18,7 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
     inEffect = reduceDecisionDocument(proposed, accepted(2, "dec_template"));
   try {
     await reportPgVersion(fixture.pool, "postgres");
+    await fixture.adminPool.query("ALTER TABLE ha_decisions SET (autovacuum_enabled=false)");
     await withPostgresTransaction(
       fixture.adminPool,
       async (client) => {
@@ -59,6 +61,7 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
           "UPDATE ha_decisions SET search_ready=true WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
           [scope.tenantId, scope.projectId, scope.policyEpoch],
         );
+        assert.deepEqual(await backfillPgDecisionSearchPage(client, scope), { processed: 0, done: true });
         await client.query("ANALYZE ha_decision_positions");
         await client.query("ANALYZE ha_search_terms");
         await client.query("ANALYZE ha_decisions");
@@ -67,11 +70,7 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
     );
     const plans: unknown[] = [],
       source = createPgTaskProjectionSource({
-        pool: tracedPgReads(
-          fixture.pool,
-          plans,
-          (sql) => sql.includes("FROM ha_decisions") || sql.includes("ha_decision_positions"),
-        ),
+        pool: tracedPgReads(fixture.pool, plans, (sql) => /^\s*(SELECT|WITH)\b/iu.test(sql)),
         scope,
         repoId: "typed-budget",
         ownsPool: false,
@@ -81,13 +80,28 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
         scanned = scans.reduce(
           (total, row) =>
             total +
-            (Number(row["Actual Rows"]) +
-              Number(row["Rows Removed by Filter"] ?? 0) +
-              Number(row["Rows Removed by Index Recheck"] ?? 0)) *
+            Math.max(
+              Number(row["Heap Fetches"] ?? 0),
+              Number(row["Actual Rows"]) +
+                Number(row["Rows Removed by Filter"] ?? 0) +
+                Number(row["Rows Removed by Index Recheck"] ?? 0),
+            ) *
               Number(row["Actual Loops"]),
           0,
         );
-      process.stdout.write(`TYPED_BUDGET ${JSON.stringify({ method, returned, scanned, scale: 100001 })}\n`);
+      process.stdout.write(
+        `TYPED_BUDGET ${JSON.stringify({ method, returned, scanned, scale: 100001, heapFetches: scans.reduce((n, r) => n + Number(r["Heap Fetches"] ?? 0) * Number(r["Actual Loops"]), 0) })}\n`,
+      );
+      const guards = plans.filter((p) => JSON.stringify(p).includes("ha_decision_read_status"));
+      assert.ok(guards.length > 0, "must observe production readiness point reads");
+      for (const guard of guards) {
+        const roots = (guard as { plan: { Plan: Record<string, unknown> }[] }).plan;
+        const root = roots[0]!.Plan;
+        assert.ok(
+          Number(root["Shared Hit Blocks"] ?? 0) + Number(root["Shared Read Blocks"] ?? 0) <= 32,
+          "readiness must have bounded physical buffer access",
+        );
+      }
       assert.ok(scans.length > 0, "must observe the production SQL");
       assert.ok(scanned <= 2, `${method} returns ${returned} but scans ${scanned}`);
     };

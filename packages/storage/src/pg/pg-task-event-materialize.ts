@@ -1,3 +1,4 @@
+import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
@@ -107,6 +108,7 @@ async function materializeProjectionEvent(
   scope: PgProjectionScope,
   input: PgProjectionEventInput,
 ): Promise<PgProjectionMaterializationReceipt> {
+  await initializePgDecisionReadStatus(client, scope);
   const event = normalizeHistoricalEvent(input.event),
     revision = input.sourceRevision ?? event.workspaceRevision,
     tables = new Set<string>();
@@ -198,6 +200,7 @@ export async function rebuildPgProjection(
       `DELETE FROM ${table} WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3`,
       scopeValues,
     );
+  await initializePgDecisionReadStatus(client, scope);
   let receipt: PgProjectionMaterializationReceipt = {
     revision: 0,
     taskId: null,
