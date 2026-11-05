@@ -145,6 +145,85 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
       `${key} must only seek the selected task and its children: ${small} -> ${large}`,
     );
   }
+  // Default raw point read is the read a subtask creation performs on its parent before creating
+  // the child. It must not walk the parent's descendants: grow the target's child count and check
+  // the default read's plan stays constant. This is the production shape F14 regressed.
+  const rawScope = { tenantId: "task-status-cost-raw", projectId: "task-status-cost-raw", policyEpoch: 1 },
+    rawPairs: Record<string, number[]> = {};
+  await withPostgresTransaction(
+    seedPool,
+    async (client) => {
+      await client.query(
+        `INSERT INTO ha_task_snapshots
+           (tenant_id,project_id,policy_epoch,task_id,workspace_revision,snapshot)
+         VALUES($1,$2,$3,'target',1,$4::jsonb) ON CONFLICT DO NOTHING`,
+        [rawScope.tenantId, rawScope.projectId, rawScope.policyEpoch, JSON.stringify(snapshot)],
+      );
+      await client.query(
+        `INSERT INTO ha_repo_heads
+           (tenant_id,project_id,policy_epoch,repo_id,revision,head_op_id,head_event_digest,head_digest)
+         VALUES($1,$2,$3,'task-status-cost',1,'fixture','fixture','fixture') ON CONFLICT DO NOTHING`,
+        [rawScope.tenantId, rawScope.projectId, rawScope.policyEpoch],
+      );
+      await client.query(
+        `INSERT INTO ha_projection_meta
+           (tenant_id,project_id,policy_epoch,schema_version,watermark,source_revision)
+         VALUES($1,$2,$3,$4,1,1) ON CONFLICT DO NOTHING`,
+        [rawScope.tenantId, rawScope.projectId, rawScope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION],
+      );
+    },
+    rawScope,
+  );
+  for (const childCount of [2, 200]) {
+    await withPostgresTransaction(
+      seedPool,
+      async (client) => {
+        await client.query(
+          `INSERT INTO ha_task_snapshots
+             (tenant_id,project_id,policy_epoch,task_id,workspace_revision,snapshot)
+           SELECT $1,$2,$3,'child-'||n,1,
+             jsonb_set(jsonb_set($4::jsonb,'{task,taskId}',to_jsonb('child-'||n)),
+               '{task,metadata}',jsonb_build_object('parentTaskId','target'))
+           FROM generate_series(1,$5::integer)n
+           ON CONFLICT DO NOTHING`,
+          [rawScope.tenantId, rawScope.projectId, rawScope.policyEpoch, JSON.stringify(snapshot), childCount],
+        );
+        await client.query("ANALYZE ha_task_snapshots");
+      },
+      rawScope,
+    );
+    const plans: unknown[] = [],
+      source = createPgTaskProjectionSource({
+        pool: tracedPgReads(pool, plans, (sql) => /^\s*(SELECT|WITH)\b/iu.test(sql)),
+        scope: rawScope,
+        repoId: "task-status-cost",
+        ownsPool: false,
+      });
+    plans.length = 0;
+    assert.equal((await source.read("target")).snapshot.task?.taskId, "target");
+    const scans = explainNodes(plans).filter((row) => row["Relation Name"] === "ha_task_snapshots"),
+      visited = scans.reduce(
+        (sum, row) =>
+          sum +
+          Math.max(
+            Number(row["Heap Fetches"] ?? 0),
+            Number(row["Actual Rows"]) +
+              Number(row["Rows Removed by Filter"] ?? 0) +
+              Number(row["Rows Removed by Index Recheck"] ?? 0),
+          ) *
+            Number(row["Actual Loops"]),
+        0,
+      );
+    (rawPairs[`default-raw/${childCount}`] ??= []).push(visited);
+    process.stdout.write(
+      `TASK_STATUS_COST ${JSON.stringify({ backend, size: childCount, key: "default-raw", resultSize: 1, visited })}\n`,
+    );
+  }
+  const [[rawSmall], [rawLarge]] = Object.values(rawPairs);
+  assert.ok(
+    rawLarge! <= rawSmall! + 20 && rawLarge! <= 4,
+    `default raw read scans must not grow with descendants: ${rawSmall} -> ${rawLarge}`,
+  );
   // A nullable parent is also a valid root: legacy rows must stay distinguishable
   // until the management path has filled their scalar, without blocking raw reads.
   const manage = <T>(operation: (client: import("pg").PoolClient) => Promise<T>) =>

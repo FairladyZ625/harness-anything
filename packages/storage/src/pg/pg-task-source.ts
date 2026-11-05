@@ -191,9 +191,14 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       async (client) => {
         if (presentationStatus) await assertPgTaskParentIndexReady(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
-          // The rollup walks the task's subtree. A raw caller that never reads the column can
-          // skip it: runtime context dispatches every task and has no use for presentation status.
-          presentation = presentationStatus || presentationRollup ? presentationStatusSql(5) : "NULL::text",
+          // Keep main's bounded raw path: presentationStatus=false only projects the task's own
+          // snapshot status, never the recursive subtree rollup. The rollup is computed only when
+          // the caller reads presentation status; an explicit raw caller may skip even the scalar.
+          presentation = presentationStatus
+            ? presentationStatusSql(5)
+            : presentationRollup
+              ? "snapshot #>> '{task,status}'"
+              : "NULL::text",
           result = await client.query<{
             snapshot: TaskLifecycleSnapshot;
             package_path: string | null;
@@ -320,7 +325,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         const paged = query.limit !== undefined || query.cursor !== undefined,
           limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
         if (limit !== null) values.push(limit + 1);
-        const presentation = query.presentationStatus ? presentationStatusSql(4) : "NULL::text",
+        const presentation = query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'",
           result = await client.query<{
             task_id: string;
             package_path: string | null;
