@@ -72,7 +72,9 @@ function mustPreserveDispatch(rootDir: string, dispatchId: string): boolean {
   const summary = readDispatchStreamSummary(rootDir, dispatchId);
   if (summary?.header.evidenceTrackingVersion === 1) return true;
   if (summary?.evidenceState === "pending") return true;
-  if (summary === null || summary.terminalOutcome === null) return true;
+  // Legacy streams carry no sidecar and no tracking header: keep the historical cache-purge
+  // behavior unless the readable terminal is actually abnormal.
+  if (summary === null || summary.terminalOutcome === null) return false;
   const outcome = summary.terminalOutcome.payload.outcome,
     classification = summary.terminalOutcome.payload.attempt?.classification;
   return outcome !== "succeeded" && classification !== "awaiting_ruling";
