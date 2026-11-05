@@ -47,6 +47,32 @@ test("an empty edge set yields an empty read set instead of an error or a filena
   assert.deepEqual(derived.projectionCut, cut);
 });
 
+test("assignment targets are not reading requirements while strong documents still block", () => {
+  const derived = deriveTaskReadSet({
+    taskRef,
+    edges: [
+      ...["node/node-one", "person/person-one", "team/team-one"].map((targetRef, index) =>
+        edge({ relationId: `rel_assignment_${index}`, targetRef, relationType: "assigned-to", strength: "strong" }),
+      ),
+      edge({
+        relationId: "rel_required_decision",
+        sourceRef: "decision/dec_ABCDEF0123456789/C1",
+        targetRef: taskRef,
+        relationType: "derives",
+        strength: "strong",
+      }),
+    ],
+    counterparts: new Map(),
+    projectionCut: cut,
+  });
+  assert.deepEqual(
+    derived.entries.map(({ entityRef }) => entityRef),
+    ["decision/dec_ABCDEF0123456789/C1"],
+  );
+  assert.equal(derived.blocked, true);
+  assert.ok(derived.blockedReasons.some(({ entityRef }) => entityRef.startsWith("decision/")));
+});
+
 test("only explicitly declared active edges become reading material", () => {
   const derived = deriveTaskReadSet({
     taskRef,

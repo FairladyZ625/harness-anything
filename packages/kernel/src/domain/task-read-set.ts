@@ -13,7 +13,7 @@ export type ReadSetAuthority = "normative" | "descriptive" | "historical";
 
 /**
  * Relation-derived entries use only declared or imported edges. Generated execution
- * provenance is not reading material; ancestor plans enter separately via the parent chain.
+ * provenance and assignee routing are not reading material; ancestor plans enter separately via the parent chain.
  */
 const explicitRelationOrigins: readonly RelationOrigin[] = ["declared", "imported_snapshot"];
 
@@ -52,9 +52,12 @@ export interface TaskReadSetEdge {
   readonly currentTargetVersion: EntityVersion | null;
 }
 
-/** Only explicit active relations can contribute reading requirements. */
+/** Only explicit active relations other than assignee routing can contribute reading requirements. */
 export function taskReadSetRelationCandidates(edges: readonly TaskReadSetEdge[]): readonly TaskReadSetEdge[] {
-  return edges.filter((edge) => edge.state === "active" && explicitRelationOrigins.includes(edge.origin));
+  return edges.filter(
+    (edge) =>
+      edge.state === "active" && edge.relationType !== "assigned-to" && explicitRelationOrigins.includes(edge.origin),
+  );
 }
 
 export interface TaskReadSetCounterpart {
