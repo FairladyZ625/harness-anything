@@ -868,6 +868,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         model: definition.model,
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
+        evidenceTrackingVersion: 1,
         ...(tokenLimit === null ? {} : { tokenLimit }),
         stallTimeoutMs,
         resumeProviderSessionId: providerSessionId ?? null,

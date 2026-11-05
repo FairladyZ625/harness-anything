@@ -21,6 +21,7 @@ import {
 import { adjudicateDocIntent } from "./doc-sync-adjudication.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
 import type { DispatchExitClassification } from "./runtime-fallback-contract.ts";
+import type { RuntimeDispatchForensics } from "./runtime-dispatch-evidence.ts";
 import { detail, directPaths, matches, recycleClaims } from "./doc-sync-details.ts";
 import {
   docSyncError,
@@ -79,6 +80,12 @@ export interface RuntimeDispatchArchive {
   readonly ruling?: { readonly path: string; readonly body: string };
   /** A reviewer report that exists only in the worker worktree is carried into the normal archive. */
   readonly reviewReport?: { readonly path: string; readonly body: string };
+  /**
+   * The abnormal dispatch's raw stream, provider transcript and request trace, captured by the
+   * execution node before compaction. Published with the archive so later archive retention and
+   * cache purge passes cannot erase the only correlation record.
+   */
+  readonly forensics?: RuntimeDispatchForensics;
 }
 
 export function archiveRuntimeDispatch(
@@ -145,6 +152,17 @@ export function archiveRuntimeDispatch(
     // already at the authored path settlement would publish to. That file is this archive's own
     // input, not a collision: identical bytes are accepted, divergent bytes are not.
     rulingRef = `${packagePath}/artifacts/rulings/${value.dispatchId}.md`,
+    forensicsRoot = `${packagePath}/artifacts/dispatches/${value.dispatchId}`,
+    forensicsRef =
+      value.forensics === undefined
+        ? null
+        : {
+            stream: `${forensicsRoot}/stream.jsonl`,
+            requestTrace: `${forensicsRoot}/request-trace.json`,
+            ...(value.forensics.providerRollout === null
+              ? {}
+              : { providerRollout: `${forensicsRoot}/provider-rollout.jsonl` }),
+          },
     layout = resolveHarnessLayout(input.rootDir),
     // A reviewer the completion facade dispatches authors its own report at the dispatch report path
     // before the runtime settles. That authored report is the dispatch report; the final message is
@@ -191,6 +209,7 @@ export function archiveRuntimeDispatch(
       ...(value.lastConclusion === undefined ? {} : { lastConclusion: value.lastConclusion }),
       ...(value.exitHead === undefined ? {} : { exitHead: value.exitHead }),
       ...(value.eventStreamRef ? { eventStreamRef: value.eventStreamRef } : {}),
+      ...(forensicsRef === null ? {} : { forensicsRef }),
       attemptGroupId: value.attemptGroupId,
       attemptIndex: value.attemptIndex,
       provider: value.provider,
@@ -212,6 +231,32 @@ export function archiveRuntimeDispatch(
         body: `${JSON.stringify(dispatch, null, 2)}\n`,
         mediaType: "text/plain" as const,
       },
+      // The abnormal dispatch's transport evidence. These are ordinary task artifacts, so the
+      // archive retention pass and a later cache purge cannot reach them even though they still
+      // delete the local live/archived stream the bytes were copied from.
+      ...(value.forensics === undefined
+        ? []
+        : [
+            {
+              path: `${forensicsRoot}/stream.jsonl`,
+              body: value.forensics.stream,
+              mediaType: "text/plain" as const,
+            },
+            {
+              path: `${forensicsRoot}/request-trace.json`,
+              body: value.forensics.requestTrace,
+              mediaType: "application/json" as const,
+            },
+            ...(value.forensics.providerRollout === null
+              ? []
+              : [
+                  {
+                    path: `${forensicsRoot}/provider-rollout.jsonl`,
+                    body: value.forensics.providerRollout,
+                    mediaType: "text/plain" as const,
+                  },
+                ]),
+          ]),
       // A cancelled run never authored its dispatch report: archiving the interrupted final
       // text as one leaves a daemon-managed fragment the worker cannot retire. The dispatch
       // record keeps outcome/resultRef/eventStreamRef, so that partial output stays reachable.

@@ -1,4 +1,4 @@
-import { globSync, readFileSync } from "node:fs";
+import { globSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -50,6 +50,88 @@ export function deepSeekSessionUsageTotals(providerHome: string, sessionId: stri
     consumeKnownError(error);
     return null;
   }
+}
+
+export interface DeepSeekSessionTranscript {
+  readonly body: Buffer;
+  readonly truncated: boolean;
+}
+
+/**
+ * The raw transcript bytes the provider itself durably logged, for the same session the usage
+ * fold reads. The evidence caller passes a byte budget: zstd frames are decoded one at a time
+ * with a per-frame output cap and only the bounded prefix is retained, so a high-ratio log
+ * cannot allocate its full decompressed size on the settlement path.
+ */
+export function readDeepSeekSessionTranscript(
+  providerHome: string,
+  sessionId: string,
+  maxBytes: number,
+): DeepSeekSessionTranscript | null {
+  const sessionsRoot = path.join(providerHome, "sessions"),
+    matches = globSync(`**/${sessionId}/session.v4.jsonl*`, { cwd: sessionsRoot });
+  if (matches.length !== 1) return null;
+  try {
+    const file = path.join(sessionsRoot, matches[0]!),
+      stat = statSync(file, { throwIfNoEntry: false });
+    // The compressed input itself is bounded before any frame decode starts.
+    if (!stat?.isFile() || stat.size > 16 * 1024 * 1024) return null;
+    const raw = readFileSync(file);
+    return decompressSessionLogBounded(raw, matches[0]!.endsWith(".zstd"), maxBytes);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+function decompressSessionLogBounded(raw: Buffer, zstd: boolean, maxBytes: number): DeepSeekSessionTranscript {
+  const limit = Math.max(0, Math.floor(maxBytes));
+  if (!zstd)
+    return raw.length <= limit ? { body: raw, truncated: false } : { body: raw.subarray(0, limit), truncated: true };
+  const frames: Buffer[] = [];
+  let offset = 0,
+    total = 0,
+    truncated = false;
+  while (offset < raw.length) {
+    if (frames.length >= 4096 || total >= limit) {
+      truncated = true;
+      break;
+    }
+    const frame = zstdFrameRange(raw, offset);
+    if (frame === null) {
+      truncated = true;
+      break;
+    }
+    let chunk: Buffer;
+    try {
+      chunk = zstdDecompressSync(raw.subarray(frame.start, frame.end), {
+        maxOutputLength: Math.max(1, limit - total + 1),
+      });
+    } catch (error) {
+      if (isOutputLimitError(error)) {
+        truncated = true;
+        break;
+      }
+      throw error;
+    }
+    if (total + chunk.length > limit) {
+      frames.push(chunk.subarray(0, limit - total));
+      truncated = true;
+      break;
+    }
+    frames.push(chunk);
+    total += chunk.length;
+    offset = frame.end;
+  }
+  return { body: Buffer.concat(frames), truncated };
+}
+
+function isOutputLimitError(error: unknown): boolean {
+  return (
+    error instanceof RangeError &&
+    "code" in error &&
+    (error as { readonly code?: unknown }).code === "ERR_BUFFER_TOO_LARGE"
+  );
 }
 
 /**

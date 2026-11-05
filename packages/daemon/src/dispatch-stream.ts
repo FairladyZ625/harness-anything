@@ -31,7 +31,24 @@ import { isFallbackProvider } from "./dispatch-stream-value.ts";
 import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
 import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
-export { archiveDispatchStream } from "./dispatch-stream-archive.ts";
+import { archiveDispatchStream as archiveDispatchStreamUnchecked } from "./dispatch-stream-archive.ts";
+import { readDispatchEvidenceState, removeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
+
+/**
+ * The guarded archive entry every settlement/adoption/fallback caller uses. A stream whose
+ * evidence copy is still `pending` is not renamed or compacted: the raw live bytes are the
+ * only recoverable copy until the canonical artifact write end accepts the snapshot.
+ */
+export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
+  const sidecar = readDispatchEvidenceState(rootDir, dispatchId);
+  if (sidecar === "pending") return;
+  const summary = readDispatchStreamSummary(rootDir, dispatchId);
+  if (summary?.evidenceState === "pending") return;
+  // New settlements always write a sidecar. If it is missing while the header advertises
+  // tracking, the disposition write failed: fail closed instead of compacting the only copy.
+  if (sidecar === null && summary?.header.evidenceTrackingVersion === 1) return;
+  archiveDispatchStreamUnchecked(rootDir, dispatchId);
+}
 
 export { scrubProviderValue } from "./secret-scrub.ts";
 
@@ -103,6 +120,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly mission?: string;
   readonly fallbackAttempt?: RuntimeFallbackAttempt;
   readonly transcriptCompactionVersion?: 1;
+  /** New settlements carry a sidecar evidence disposition; a missing sidecar is then fail-closed. */
+  readonly evidenceTrackingVersion?: 1;
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
@@ -144,6 +163,15 @@ export type DispatchStallEvidence = {
 
 export interface DispatchStreamWriter {
   readonly ref: string;
+  /**
+   * Whether the abnormal dispatch's evidence copy reached the canonical artifact write end.
+   * `pending` blocks every archive/compaction/purge pass for this stream until a later settlement
+   * or operator action stores it; `stored` is the normal compaction permit.
+   */
+  readonly appendEvidenceState?: (
+    value: { readonly state: "pending" | "stored"; readonly reason?: string; readonly files?: readonly string[] },
+    occurredAt: string,
+  ) => void;
   /** `connectionFailure` stamps a reconnect frame with the last real progress known when the
    * frame was written. A bounded tail read can then recover the true progress clock even when
    * the reconnect diagnostics themselves fill more than the retained tail window. */
@@ -229,6 +257,7 @@ const summaryKinds = new Set([
   "process_exit",
   "process_lost",
   "attempt_outcome",
+  "evidence_state",
   "terminal_outcome",
   "fallback_state",
   "squad_run_state",
@@ -315,6 +344,13 @@ export function openDispatchStream(
         occurredAt,
         ...value,
       }),
+    appendEvidenceState: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "evidence_state",
+        occurredAt,
+        ...value,
+      }),
     appendTerminalOutcome: (value, occurredAt) =>
       appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
         schema: streamSchema,
@@ -354,6 +390,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
     removeDispatchLiveIndexEntries(rootDir, [
       { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
     ]);
+  removeDispatchEvidenceState(rootDir, dispatchId);
 }
 
 export function readDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {
@@ -615,6 +652,8 @@ export function readDispatchStream(
   readonly process: DispatchProcessState | null;
   readonly attemptOutcome: RuntimeAttemptOutcome | null;
   readonly terminalOutcome: DispatchTerminalOutcome | null;
+  /** The latest evidence-copy disposition; absent streams settle and compact as before. */
+  readonly evidenceState: "pending" | "stored" | null;
   readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
   readonly fallbackSchedule: {
     readonly notBeforeAt: string;
@@ -895,6 +934,7 @@ function summarizeDispatch(
     processState: DispatchProcessState | null = null,
     attemptOutcome: RuntimeAttemptOutcome | null = null,
     terminalOutcome: DispatchTerminalOutcome | null = null,
+    evidenceState: "pending" | "stored" | null = null,
     fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
     fallbackSchedule: DispatchStreamSummary["fallbackSchedule"] = null,
     nextDispatchId: string | null = null,
@@ -922,6 +962,8 @@ function summarizeDispatch(
           ? { processGroupPid: Number(record.processGroupPid) }
           : {}),
       };
+    if (record.kind === "evidence_state" && (record.state === "pending" || record.state === "stored"))
+      evidenceState = record.state;
     if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
       fallbackState = record.state as typeof fallbackState;
       fallbackSchedule =
@@ -951,6 +993,7 @@ function summarizeDispatch(
     process: processState,
     attemptOutcome,
     terminalOutcome,
+    evidenceState,
     fallbackState,
     fallbackSchedule,
     nextDispatchId,

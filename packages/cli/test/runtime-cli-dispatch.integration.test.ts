@@ -101,6 +101,13 @@ test("Delegated dispatches archive identity, mission and separate reports and re
           unknown
         >,
     );
+  const evidenceRoot = path.join(root, "harness", packagePath, "artifacts", "dispatches", boundDispatchId);
+  assert.equal(existsSync(path.join(evidenceRoot, "stream.jsonl")), true, "abnormal stream evidence is published");
+  assert.equal(
+    existsSync(path.join(evidenceRoot, "request-trace.json")),
+    true,
+    "abnormal settlement publishes the correlation trace",
+  );
   assert.notEqual(firstDispatchId, boundDispatchId, "independent runtime reports must not share an artifact key");
   assert.equal(sameNamedReportPaths.every(existsSync), true, "each runtime report must remain materialized");
   assert.equal(
@@ -148,6 +155,12 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     exitHead: null,
     resultRef: (bound.result as Record<string, unknown>).ref,
     eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl`,
+    // A task-bound worker that exits stopped is an abnormal terminal in this task's contract, so
+    // settlement publishes the redacted stream and correlation trace beside the dispatch record.
+    forensicsRef: {
+      stream: `${packagePath}/artifacts/dispatches/${boundDispatchId}/stream.jsonl`,
+      requestTrace: `${packagePath}/artifacts/dispatches/${boundDispatchId}/request-trace.json`,
+    },
     attemptGroupId: boundDispatchId,
     attemptIndex: 0,
     provider: { instance: "cli-worker", model: "runtime-test-model" },
