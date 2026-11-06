@@ -607,24 +607,24 @@ export function prepareTaskStartWorktree(
     // committed start being reported as rejected.
     let warnings = checkout.warnings;
     if (checkout.cwd !== null && executionId !== null) {
-      const acquiredRevision = input.readLeaseAcquiredRevision?.(action.taskId as string, executionId);
-      if (acquiredRevision === null || acquiredRevision === undefined) {
-        warnings = [
-          ...warnings,
-          `Worktree ${checkout.cwd} was checked out but its lease generation was not readable. ` +
-            "Execution reads for this start remain unobservable.",
-        ];
-      } else {
-        try {
-          writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId, acquiredRevision);
-        } catch (error) {
-          consumeKnownError(error);
+      try {
+        const acquiredRevision = input.readLeaseAcquiredRevision?.(action.taskId as string, executionId);
+        if (acquiredRevision === null || acquiredRevision === undefined) {
           warnings = [
             ...warnings,
-            `Worktree ${checkout.cwd} was checked out but its execution marker was not written: ${errorText(error)}. ` +
+            `Worktree ${checkout.cwd} was checked out but its lease generation was not readable. ` +
               "Execution reads for this start remain unobservable.",
           ];
+        } else {
+          writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId, acquiredRevision);
         }
+      } catch (error) {
+        consumeKnownError(error);
+        warnings = [
+          ...warnings,
+          `Worktree ${checkout.cwd} was checked out but its execution marker was not written: ${errorText(error)}. ` +
+            "Execution reads for this start remain unobservable.",
+        ];
       }
     }
     return withNotes(receipt, checkout.notes, warnings);

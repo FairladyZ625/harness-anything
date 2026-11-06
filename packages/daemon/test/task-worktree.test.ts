@@ -24,6 +24,7 @@ import {
   applyTaskWorktreeLifecycle,
   checkoutTaskWorktree,
   prepareTaskStartWorktree,
+  taskWorktreeExecutionBindingPath,
   reconcileClosedTaskWorktrees,
   taskWorkspaceView,
 } from "../src/task-worktree.ts";
@@ -215,6 +216,36 @@ async function lifecycle(
     annotate = (await prepareTaskStartWorktree(input, action, source)) ?? ((receipt: WriteReceiptDraft) => receipt);
   return annotate(await applyTaskWorktreeLifecycle(input, action, source, async () => (options.write ?? applied)()));
 }
+
+test("a failed acquisition read preserves the applied start and leaves its marker unpublished", async (t) => {
+  const fixture = repositoryFixture(t);
+  try {
+    const annotate = await prepareTaskStartWorktree(
+      {
+        rootDir: fixture.root,
+        readTask: () => boundTask("active"),
+        readPresetSnapshot: repositoryDiff,
+        readWorktree: noWorktreeSetup,
+        readLeaseAcquiredRevision: () => {
+          throw Object.assign(new Error("index migration; progress 0/64"), { code: "projection_pending" });
+        },
+      },
+      { kind: "task-start", taskId, executionId: "execution-pending" },
+      "local",
+    );
+    assert.ok(annotate);
+    const receipt = annotate(applied());
+    assert.equal(receipt.outcome, "applied");
+    assert.match(String(receipt.warnings), /marker was not written.*progress 0\/64/u);
+    assert.match(String(receipt.warnings), /remain unobservable/u);
+    assert.equal(
+      existsSync(taskWorktreeExecutionBindingPath(path.join(fixture.root, binding.path), "execution-pending")),
+      false,
+    );
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
 
 test("the first start checks the bound worktree out once, from the default branch, and names both", async (t) => {
   const fixture = repositoryFixture(t);
