@@ -142,6 +142,9 @@ direct-push protection, read-only mirrors, and the remote boundary.
 Studio and other daemon-only clients should use the [Task Lifecycle RPC
 Capability Contract](task-lifecycle-rpc-capability-contract.md) for lifecycle
 actions and authorization scopes.
+For an authorization precheck before rendering an action, use the [Entity Action
+explanation contract](entity-actions-explain.md): one authenticated person, one
+canonical cut, and an answer that is never a write permit.
 For a PostgreSQL-backed center, see [PostgreSQL daemon deployment](postgres-daemon.md).
 
 ## Configure hosted Git credentials

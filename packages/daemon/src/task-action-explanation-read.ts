@@ -1,4 +1,3 @@
-import { runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import {
   makePersonActionExplanationService,
   makeSquadActionExplanationService,
@@ -266,7 +265,9 @@ export function readTaskActionExplanation(
   return Object.freeze(result);
 }
 
-/** Resolve Person identity and action decisions online before entering the synchronous read cut. */
+/** Resolve Person identity and action decisions online before entering the synchronous read cut.
+ * Transport failures already surface as `keycloak_unavailable` from the authorization port; every
+ * other error keeps its own code so a malformed authority response is not mistaken for an outage. */
 export async function preparePersonActionExplanationBinding(
   input: {
     readonly revision: number;
@@ -331,11 +332,6 @@ export async function preparePersonActionExplanationBinding(
             revision,
             now: input.now(),
             targetOverride: entity.ref,
-          }).catch((cause: unknown) => {
-            throw Object.assign(
-              new Error(`Live action authorization is unavailable: ${runtimeErrorMessage(cause)}`, { cause }),
-              { code: "keycloak_unavailable" },
-            );
           });
         decisions.set(`${entity.ref}:${action.id}`, decision);
       }),

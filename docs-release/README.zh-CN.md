@@ -123,6 +123,8 @@ daemon 文档说明当前运维形态和限制：本地 daemon 服务管理、�
 
 → **[operations-server-daemon.zh-CN.md](operations-server-daemon.zh-CN.md)**
 
+渲染动作按钮前的授权预检使用 [Entity Action explanation 合同](entity-actions-explain.zh-CN.md)：一个已认证的人、一个 canonical cut，结论永远不是写入许可。
+
 PostgreSQL 中心的部署配置、可选 Git 与边缘恢复见 [PostgreSQL daemon deployment](postgres-daemon.md)。
 
 ## 配置托管 Git 凭据
