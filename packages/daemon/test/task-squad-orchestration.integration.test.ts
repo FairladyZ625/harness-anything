@@ -159,7 +159,7 @@ test(
       const context = await fixture.cell.read("repo.tasks.runtimeContext.read", { taskId: child.taskId! });
       assert.equal(context.snapshot.workspace?.kind, "worktree");
       assert.equal(
-        child.worktree?.cwd,
+        fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)?.cwd,
         path.resolve(fixture.root, context.snapshot.workspace!.path),
         "the worker must commit in the same bound worktree that task submit reads",
       );
