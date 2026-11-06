@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { openSqliteEventStore } from "@harness-anything/storage";
+import { consent as validSnapshotConsent } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 import type { FleetFrameV1 } from "../src/fleet/command-protocol.ts";
@@ -132,9 +133,12 @@ test(
     try {
       const consent = store.events().findLast((event) => event.type === "review_consent_recorded");
       assert.ok(consent);
-      const value = (consent.payload as { consent: { actor: unknown; azp: string; source: unknown } }).consent;
+      const payload = consent.payload as { azp: string; consent: { actor: unknown; source: unknown } },
+        value = payload.consent;
       assert.deepEqual(value.actor, { principal: { personId: "person-owner" }, executor: null });
-      assert.equal(value.azp, "web-bff");
+      assert.equal(payload.azp, "web-bff");
+      assert.equal(validSnapshotConsent(value), true, "the public v1 consent DTO retains its previous shape");
+      assert.equal(Object.hasOwn(value, "azp"), false);
       assert.deepEqual(value.source, { kind: "node", nodeId });
     } finally {
       store.close();
@@ -222,7 +226,7 @@ test("one BFF connection uses each request person without changing the node owne
     revoked = await annotate("web-b", "revoked-grant");
   assert.equal(
     revoked.schema === "fleet.task.result/v1" && revoked.code,
-    "actor_unauthorized",
+    "authorization_denied",
     JSON.stringify(revoked),
   );
   keycloak.endInteractiveSession("web-a");

@@ -125,7 +125,7 @@ test("an approved review recorded before Review/v1 required findings and resolut
 });
 
 test("owner override consent accepts the same historical review copy", () => {
-  const { event } = recordedConsent(),
+  const { event, snapshot } = recordedConsent(),
     execution = event.payload.execution,
     submission = execution.submission;
   assert.ok(submission);
@@ -191,19 +191,20 @@ test("a newly written review still needs the current Review/v1 shape", () => {
 });
 
 // dec_E610E1D99A39003886D1B5EE7C CH1: additive audit data keeps the previous consent shape readable.
-test("consent client azp survives current validation and replay; absent historical azp stays valid", () => {
+test("consent event azp survives admission while the historical public consent shape stays valid", () => {
   const { event } = recordedConsent(),
     withClient = recordedConsent(undefined, "web-bff").event;
   assert.deepEqual(validateCurrentTaskEvent(event), []);
   assert.deepEqual(validateCurrentTaskEvent(withClient), []);
   assert.deepEqual(validateTaskEvent(withClient), []);
   const replayed = reduceTaskEvent(historySnapshot().snapshot, withClient);
-  assert.equal((replayed.consents.at(-1) as unknown as { azp: string }).azp, "web-bff");
+  assert.equal((withClient.payload as { azp?: string }).azp, "web-bff");
+  assert.equal(Object.hasOwn(replayed.consents.at(-1)!, "azp"), false);
   for (const azp of ["", 42, null])
     assert.ok(
       validateCurrentTaskEvent({
         ...withClient,
-        payload: { ...withClient.payload, consent: { ...withClient.payload.consent, azp } },
+        payload: { ...withClient.payload, azp },
       }).length > 0,
     );
 });

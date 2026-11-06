@@ -101,8 +101,6 @@ export interface ReviewConsentV1 {
   readonly submissionDigest?: SubmissionDigest;
   readonly actor: ActorAxes;
   readonly source: WriteSource;
-  /** OAuth token issued-to client; does not identify the bearer presenting the token. */
-  readonly azp?: string;
   readonly consentedAt: string;
 }
 export interface ReviewDispositionV1 {
@@ -388,13 +386,12 @@ export function validateReviewConsentV1(
     !isRecord(value) ||
     !(allowUnknownFields
       ? hasRequiredFields(value, historicalFields)
-      : hasOnlyFields(value, [...REVIEW_CONSENT_V1_SCHEMA.required, ...(Object.hasOwn(value, "azp") ? ["azp"] : [])]))
+      : hasOnlyFields(value, REVIEW_CONSENT_V1_SCHEMA.required))
   )
     return [invalidReviewIssue("ReviewConsent/v1 fields are incomplete or unknown")];
   const valid =
     value.schema === "review-consent/v1" &&
     [value.consentId, value.taskId, value.executionId, value.reviewId].every(isNonEmptyString) &&
-    (value.azp === undefined || isNonEmptyString(value.azp)) &&
     timestamp(value.consentedAt) &&
     digest(value.reviewDigest) &&
     digest(value.contentDigest) &&

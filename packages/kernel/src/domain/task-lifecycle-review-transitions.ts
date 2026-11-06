@@ -459,6 +459,7 @@ export const consent: Transition = {
   },
   reduce: (snapshot, raw, rawProof) => {
     const command = raw as RecordReviewConsentCommand,
+      clientAudit = (rawProof as ReviewConsentProof).azp ? { azp: (rawProof as ReviewConsentProof).azp } : {},
       current = execution(snapshot, command.executionId) as ExecutionV1,
       recorded = snapshot.reviews.find((value) => value.reviewId === command.reviewId) as ReviewV1,
       value: ReviewConsentV1 = {
@@ -472,7 +473,6 @@ export const consent: Transition = {
         submissionDigest: submissionDigest(current.submission as NonNullable<ExecutionV1["submission"]>),
         actor: command.actor,
         source: command.source,
-        ...((rawProof as ReviewConsentProof).azp ? { azp: (rawProof as ReviewConsentProof).azp } : {}),
         consentedAt: command.occurredAt,
       },
       hasDispositionAction = Boolean(command.disposedReviewIds?.length),
@@ -504,6 +504,7 @@ export const consent: Transition = {
             execution: current,
             review: recorded,
             consent: value,
+            ...clientAudit,
             disposition,
           })
         : envelope<ReviewConsentRecordedEvent>(command, "review_consent_recorded", {
@@ -511,6 +512,7 @@ export const consent: Transition = {
             execution: current,
             review: recorded,
             consent: value,
+            ...clientAudit,
           }),
     };
   },

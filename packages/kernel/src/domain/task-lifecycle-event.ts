@@ -207,6 +207,8 @@ export type ReviewConsentRecordedEvent = TaskEventEnvelope<
     readonly execution: ExecutionV1;
     readonly review: ReviewV1;
     readonly consent: ReviewConsentV1;
+    /** Verified OAuth token issued-to client; optional for local/historical consent. */
+    readonly azp?: string;
   }
 >;
 export type ReviewConsentOverrideRecordedEvent = TaskEventEnvelope<
@@ -216,6 +218,8 @@ export type ReviewConsentOverrideRecordedEvent = TaskEventEnvelope<
     readonly execution: ExecutionV1;
     readonly review: ReviewV1;
     readonly consent: ReviewConsentV1;
+    /** Verified OAuth token issued-to client; optional for local/historical consent. */
+    readonly azp?: string;
     readonly disposition: ReviewDispositionV1;
   }
 >;
@@ -438,16 +442,22 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     payloadWithoutCarried = isRecord(payload)
       ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "carriedDocumentClaims"))
       : payload,
-    fields = lifecyclePayloadFields(
-      String(value.type),
-      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "edge"),
-      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "factRetirementAttestations"),
-      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "dispatchTaskId"),
-      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "supersedesSubmissionId"),
-      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "closeoutGates"),
-      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "siblingResolution"),
-      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "reviewId"),
-    ),
+    fields = [
+      ...lifecyclePayloadFields(
+        String(value.type),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "edge"),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "factRetirementAttestations"),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "dispatchTaskId"),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "supersedesSubmissionId"),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "closeoutGates"),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "siblingResolution"),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "reviewId"),
+      ),
+      ...((value.type === "review_consent_recorded" || value.type === "review_consent_overridden") &&
+      Object.hasOwn(payload, "azp")
+        ? ["azp"]
+        : []),
+    ],
     claims = payload.documentClaims;
   const claimlessFields =
     value.type === "task_created"
@@ -596,6 +606,9 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     issues.push(
       ...validateAdmittedReviewV1(payload.review),
       ...validateReviewConsentV1(payload.consent, allowUnknownFields),
+      ...(payload.azp === undefined || isNonEmptyString(payload.azp)
+        ? []
+        : [invalidEventPayloadIssue("consent azp must identify the token issued-to client")]),
       ...(payload.disposition === undefined
         ? []
         : validateReviewDispositionV1(payload.disposition, allowUnknownFields)),
