@@ -27,8 +27,6 @@ import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-pro
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { requestFleetReplicaToken, resolveFleetReplicaAuthority } from "./fleet/replica-token.ts";
-import { systemCaCertificates } from "./tls-ca-certificate.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import {
   evaluateFleetAction,
@@ -600,35 +598,7 @@ export function createDaemonHostRuntimeApi(
         context.localOnly(auth);
         const receipt = await syncFleetEdgeMirror(
           { payload: request },
-          async () => {
-            let userToken: string | undefined;
-            try {
-              const bound = await context.oidc.bind(auth, request.workspaceRoot);
-              userToken = bound.localSessionAccessToken
-                ? await bound.localSessionAccessToken()
-                : bound.oidcPrincipal?.accessToken;
-            } catch (error) {
-              const errorCode =
-                typeof error === "object" && error !== null && "code" in error
-                  ? (error as { readonly code?: unknown }).code
-                  : undefined;
-              if (errorCode !== "authentication_required") throw error;
-            }
-            if (userToken) return userToken;
-            const config = readFleetEdgeConfig(request.workspaceRoot),
-              authority = config
-                ? resolveFleetReplicaAuthority(config, (nodeId) => context.oidc.discovery(nodeId))
-                : null;
-            if (!config || !authority) return undefined;
-            return requestFleetReplicaToken({
-              url: authority.url,
-              realm: authority.realm,
-              nodeId: config.nodeId,
-              credential: config.credential,
-              ca: config.loginCertificate ?? systemCaCertificates(),
-              ...(config.loginServername ? { servername: config.loginServername } : {}),
-            });
-          },
+          async () => (await context.oidc.bind(auth, request.workspaceRoot)).oidcPrincipal?.accessToken,
           () => context.startReplicaSyncs(),
         );
         await context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile();
