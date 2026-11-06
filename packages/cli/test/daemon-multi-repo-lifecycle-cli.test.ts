@@ -398,11 +398,11 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "--evidence",
       "test:reports/cli.txt:passed",
     ]);
-    assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md");
+    assert.equal(progress.progressPath, "harness/tasks/task-alpha-alpha/progress.md");
     assert.equal(progress.summary, "appended progress for task-alpha at harness/tasks/task-alpha-alpha/progress.md");
     assert.match(String(settleFollower(fixture.alpha, fixture.userRoot, progress).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(progress.cut);
-    assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u);
+    assert.match(String(progress.evidence), /file:harness\/tasks\/task-alpha-alpha\/progress\.md/u);
     assert.match(
       readFileSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"), "utf8"),
       /CLI progress is canonical\..*Evidence: test:reports\/cli\.txt:passed/su,

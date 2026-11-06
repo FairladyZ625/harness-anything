@@ -291,7 +291,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "missing_field" },
-        { conflictsWith: ["--run"], description: "Read artifact bytes from a local file" },
+        { conflictsWith: ["--run"], description: "Read artifact bytes from a local file", pathKind: "cli-local" },
       ),
       cliInput(
         "--run",
@@ -310,6 +310,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         { code: "missing_field" },
         {
           description: "Required with --source; with --run defaults to a unique artifacts/evidence path",
+          pathKind: "workspace-file",
         },
       ),
     ],

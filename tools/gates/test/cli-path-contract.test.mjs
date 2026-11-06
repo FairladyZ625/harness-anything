@@ -49,6 +49,19 @@ test("a new command whose path input declares no coordinate turns the gate red a
   assert.match(result.stderr, /gate-probe-untyped-path --path: path input must declare pathKind/u);
 });
 
+test("a new command whose topology path flag declares no coordinate also turns the gate red", () => {
+  const result = run([
+    {
+      id: "gate-probe-untyped-source",
+      path: ["probe", "source"],
+      commandClass: "repo-read",
+      inputs: [{ name: "--source", kind: "single", required: false, error: { code: "invalid_field" } }],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /gate-probe-untyped-source --source: path input must declare pathKind/u);
+});
+
 test("a new command that carries a document path outside the doc parser turns the gate red", () => {
   const result = run([
     {
