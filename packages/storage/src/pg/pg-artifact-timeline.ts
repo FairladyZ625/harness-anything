@@ -75,7 +75,9 @@ export const artifactTimelineDdl = (): readonly string[] => [
       JOIN ha_events e
         ON e.tenant_id = v.tenant_id AND e.project_id = v.project_id
        AND e.repo_id = repo AND e.revision = v.workspace_revision
-      CROSS JOIN LATERAL (SELECT v.document_metadata::jsonb AS metadata) m
+      -- Metadata columns may still be migrating. Reuse the canonical extractor rather
+      -- than certifying an incomplete artifact index after silently skipping old documents.
+      CROSS JOIN LATERAL (SELECT COALESCE(v.document_metadata, ha_document_metadata_from_value(v.value))::jsonb AS metadata) m
       CROSS JOIN LATERAL (
         SELECT true AS all_readers, ''::text AS reader
         UNION ALL
@@ -84,7 +86,6 @@ export const artifactTimelineDdl = (): readonly string[] => [
       WHERE v.tenant_id = tenant AND v.project_id = project AND v.policy_epoch = epoch
         AND v.model = 'document' AND v.owner_id = ''
         AND v.entity_id LIKE 'tasks/%/artifacts/%'
-        AND v.document_metadata IS NOT NULL
         AND ((metadata->>'mediaType') IN ('text/html', 'text/markdown')
           OR (metadata->>'policyId') = 'raw-artifact-bytes/v1')
       ON CONFLICT (tenant_id, project_id, policy_epoch, all_readers, reader, path) DO UPDATE SET

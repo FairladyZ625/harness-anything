@@ -16,9 +16,9 @@ import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 
 pgliteIntegrationSuite("fleet summary upgrade", () => {
-  test("a completed-v5 old database is backfilled by the existing event upgrade call before fleet reads", async () => {
+  test("the background queue resumes completed-v5 summary pages and publishes its terminal page", async () => {
     const dataDir = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-summary-upgrade-"));
-    const backend = await createPGliteStorageBackend({
+    const input = {
       repoId: "summary-upgrade",
       storage: {
         backend: "pglite",
@@ -26,7 +26,8 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
         materialize: false,
         scope: { tenantId: "t", projectId: "p", policyEpoch: 0 },
       },
-    });
+    } as const;
+    let backend = await createPGliteStorageBackend(input);
     try {
       await backend.pool.query(
         "INSERT INTO ha_repo_heads(tenant_id,project_id,repo_id,revision,policy_epoch,readers) VALUES ('t','p','summary-upgrade',0,0,'{}')",
@@ -60,16 +61,23 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       await backend.pool.query("UPDATE ha_events SET summary_json=NULL, read_index_version=5");
       await backend.pool.query("DELETE FROM ha_event_summary_state");
       assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 65);
-      const first = (
-        await backend.pool.query("SELECT ha_backfill_event_read_indexes('t','p',0,'summary-upgrade') AS processed")
-      ).rows[0].processed;
-      assert.equal(first, 64);
+      assert.deepEqual(await backend.backfillReadIndexes(), { processed: 64, done: false });
       assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 65);
-      let processed = first;
-      while (processed > 0)
-        processed = (
-          await backend.pool.query("SELECT ha_backfill_event_read_indexes('t','p',0,'summary-upgrade') AS processed")
-        ).rows[0].processed;
+      await backend.close();
+      backend = await createPGliteStorageBackend(input);
+      assert.equal(
+        (await backend.pool.query("SELECT count(*)::int AS n FROM ha_events WHERE summary_json IS NULL")).rows[0].n,
+        1,
+        "reopen must retain progress without draining the remaining history",
+      );
+      assert.deepEqual(await backend.backfillReadIndexes(), { processed: 1, done: false });
+      assert.equal((await backend.pool.query("SELECT ready FROM ha_event_summary_state")).rows.length, 0);
+      // Interrupt after the last data page: completion still requires the existing empty page.
+      await backend.close();
+      backend = await createPGliteStorageBackend(input);
+      assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: false });
+      assert.deepEqual((await backend.pool.query("SELECT ready FROM ha_event_summary_state")).rows, [{ ready: true }]);
+      assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: true });
       assert.equal(
         (await backend.pool.query("SELECT count(*)::int AS count FROM ha_events WHERE summary_json IS NULL")).rows[0]
           .count,
@@ -84,6 +92,29 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
 });
 
 pgliteIntegrationSuite("fleet summary lifecycle", () => {
+  test("a fresh empty repo certifies summaries before its first write and retains readiness on reopen", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-cold-")),
+      repoId = "fleet-cold",
+      storage = { backend: "pglite" as const, dataDir: root, scope: { tenantId: "t", projectId: "p", policyEpoch: 0 } };
+    let backend = await createPGliteStorageBackend({ repoId, storage });
+    const ready = async () =>
+      (await backend.pool.query("SELECT ready FROM ha_event_summary_state WHERE repo_id=$1", [repoId])).rows;
+    try {
+      assert.deepEqual(await ready(), [{ ready: true }]);
+      await backend.eventStore.append(bundle(eventAt(1)), 0, { repoId, holderId: "seed", epoch: 1 });
+      const before = await backend.projection.readEventSummaries(0, 100, "fleet");
+      assert.equal(before.events.length, 1);
+      await backend.close();
+      backend = await createPGliteStorageBackend({ repoId, storage });
+      assert.deepEqual(await ready(), [{ ready: true }]);
+      assert.deepEqual(await backend.projection.readEventSummaries(0, 100, "fleet"), before);
+      assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: true });
+    } finally {
+      await backend.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("cold rebuild restores readiness and fleet reads before and after reopening", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ha-fleet-rebuild-")),
       repoId = "fleet-rebuild",

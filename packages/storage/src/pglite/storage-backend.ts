@@ -33,6 +33,20 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
     await withPostgresTransaction(storage.pool, async (client) => {
       await initializePGliteReadSchema(client);
     });
+    // An empty repo has no historical summaries to migrate. Certify only that
+    // bounded case here; nonempty upgrades publish readiness on their background zero page.
+    await withPostgresTransaction(
+      storage.pool,
+      (client) =>
+        client.query(
+          `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
+        SELECT $1,$2,$3,$4,true WHERE NOT EXISTS (
+          SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$4 LIMIT 1)
+        ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO NOTHING`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, options.repoId],
+        ),
+      scope,
+    );
     await withPostgresTransaction(storage.pool, (client) =>
       contractPgEventSummaryIndex(client, { indexBuild: "isolated" }),
     );

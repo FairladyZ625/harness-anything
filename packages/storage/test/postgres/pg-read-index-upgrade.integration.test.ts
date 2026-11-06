@@ -10,6 +10,7 @@ import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { ensurePgProjectionSchema, grantPgProjectionRuntimeAccess } from "../../src/pg/pg-projection-schema.ts";
 import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { backfillPgEntityDeclarationPage } from "../../src/pg/pg-entity-declaration-catchup.ts";
+import { backfillPgReadIndexPage } from "../../src/pg/pg-read-index-backfill.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
 import { eventAt } from "../store/task-event-store.fixtures.ts";
@@ -322,12 +323,26 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
       }>("SELECT tenant_id,project_id,policy_epoch,repo_id FROM ha_repo_heads");
       for (const repo of repositories.rows) {
         const parameters = [repo.tenant_id, repo.project_id, repo.policy_epoch, repo.repo_id];
-        while (
-          (await admin.query("SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed", parameters)).rows[0]!
-            .processed > 0
-        ) {
-          // Each committed page advances pending rows; processed=0 publishes this repo's readiness.
+        for (;;) {
+          const page = await backfillPgReadIndexPage(
+            fixture.adminPool,
+            { tenantId: repo.tenant_id, projectId: repo.project_id, policyEpoch: Number(repo.policy_epoch) },
+            repo.repo_id,
+          );
+          assert.ok(page.processed <= 64);
+          if (page.done) break;
         }
+        assert.deepEqual(
+          (
+            await admin.query(
+              `SELECT ready FROM ha_event_summary_state
+            WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4`,
+              parameters,
+            )
+          ).rows,
+          [{ ready: true }],
+          "the shared scheduler must commit the terminal publication before reporting done",
+        );
       }
       await ensurePgProjectionSchema(admin);
       assert.equal(

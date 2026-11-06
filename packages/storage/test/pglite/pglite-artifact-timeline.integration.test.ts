@@ -13,6 +13,7 @@ import {
   readPgArtifactTimeline,
 } from "../../src/pg/pg-artifact-timeline.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
+import { documentMetadataDdl } from "../../src/pg/pg-document-metadata-migration.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { docBundle } from "../store/task-event-store.fixtures.ts";
@@ -49,7 +50,7 @@ async function createTimelineSchema(db: PGlite): Promise<void> {
       projection_name text, artifact_index_version smallint NOT NULL DEFAULT 0,
       PRIMARY KEY(tenant_id,project_id,policy_epoch,projection_name));
   `);
-  for (const statement of artifactTimelineDdl()) await db.exec(statement);
+  for (const statement of [...documentMetadataDdl(), ...artifactTimelineDdl()]) await db.exec(statement);
 }
 
 pgliteIntegrationSuite("PGlite artifact timeline index", () => {
@@ -155,6 +156,7 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
         );
         await backend.pool.query("UPDATE ha_artifact_counts SET total=99 WHERE kind='md'");
         await backend.pool.query("UPDATE ha_projection_meta SET artifact_index_version=0");
+        await backend.pool.query("UPDATE ha_projection_values SET document_metadata=NULL WHERE model='document'");
       } finally {
         await backend.close();
       }

@@ -8,8 +8,9 @@ read indexes **v6** (v5 dispatch keys plus stored event-list descriptors and ent
 index. JSON parent expressions cannot serve indexed predicates under runtime RLS; the
 shared snapshot trigger maintains `parent_task_id` for both writer versions. External PostgreSQL does not backfill these automatically: ordinary
 reader startup and `TaskProjection.catchUp` do not run the two management SQL functions.
-Complete every phase below before switching readers. PGlite commits the same bounded
-SQL batches during its schema-owner initialization.
+Complete every phase below before switching readers that require the new indexes. PGlite
+opens after additive schema setup; its existing daemon writer commits bounded background
+pages after attach, resuming the persisted remainder on restart.
 
 The schema-owner connection, transaction-local claims and release workflow here are the
 existing migration path; no ad-hoc repair script or canonical attach conversion is needed.
@@ -96,7 +97,12 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    `idempotencyKey`); reviewer dispatches stay out of that scalar column because the
    projection's normalized `runtime-dispatch-key` rows carry their qualified keys. Resume by
    repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
-   merge scopes.
+   merge scopes. The committed empty page also publishes fleet-summary readiness;
+   finishing version 5 or the last data page is insufficient. Until that publication, fleet
+   reads retain the canonical event path. A fresh empty PGlite repo is certified at open
+   without consuming history. Artifact expansion can use the existing canonical metadata
+   extractor while document metadata pages are still pending, so it cannot certify a
+   partial timeline by skipping those documents.
 
 5. Verify readiness on the same claims before enabling current readers. All probes must
    return no rows (use the actual deployment identifiers):

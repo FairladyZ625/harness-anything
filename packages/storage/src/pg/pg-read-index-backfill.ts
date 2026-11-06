@@ -30,7 +30,10 @@ export function backfillPgReadIndexPage(pool: Pool, scope: PgProjectionScope, re
         ),
         sqlPage(
           `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-        AND read_index_version<5 LIMIT 1`,
+        AND read_index_version<5
+        UNION ALL SELECT 1 WHERE NOT EXISTS (
+          SELECT 1 FROM ha_event_summary_state WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND repo_id=$4 AND ready) LIMIT 1`,
           "SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed",
           [...keys, repoId],
         ),
