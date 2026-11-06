@@ -48,7 +48,9 @@ test("an in-effect deriving chosen decision grants a bounded surface in the actu
   assert.match(mission, /closeout 和 PR 治理声明.*引用决策 id.*保留并补齐负例/su);
   assert.doesNotMatch(mission, /硬红线|Hard prohibitions|remain prohibited/u);
   assert.match(mission, /没有决策依据的写明‘需要业主授权’/u);
-  assert.match(mission, /凭据、宿主服务、对外发布.*未经明确授权就停手/u);
+  // The host-access and secret boundaries come only from the role prompt the Agent declaration selects.
+  assert.match(mission, /宿主访问、秘密值与对外发布的边界以 Harness Execution Discipline 节为准/u);
+  assert.doesNotMatch(mission, /宿主服务|凭据、/u);
   assert.match(mission, /grants no additional daemon command or ledger permissions/u);
   assert.match(mission, /决策条款写到的面按条款做/u);
   assert.ok(mission.endsWith("Implement the contract."));

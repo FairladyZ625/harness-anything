@@ -295,7 +295,7 @@ function decisionExecutionSurface(
     ...sources,
     "决策条款写到的面按条款做；条款没写到的门禁文件改动照做，在 closeout 和 PR 治理声明里逐个列出，" +
       "引用决策 id、保留并补齐负例；没有决策依据的写明‘需要业主授权’。" +
-      "凭据、宿主服务、对外发布这类收不回的动作，未经明确授权就停手并报告精确请求。" +
+      "宿主访问、秘密值与对外发布的边界以 Harness Execution Discipline 节为准。" +
       " This section grants no additional daemon command or ledger permissions.",
   ].join("\n\n");
 }

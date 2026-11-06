@@ -53,7 +53,7 @@ Declare the repository, worktree, branch/base, and write boundary for each wave.
 
 ### Hard Prohibitions
 
-Do not change CI workflows, thresholds and budgets, required checks, credentials or host services, delete assertions, or change allowlist counts. Stop and report an exact request on these boundaries.
+Do not change CI workflows, thresholds and budgets, required checks, delete assertions, or change allowlist counts. Stop and report an exact request on these boundaries. Host access and secret-value boundaries come from the dispatch prompt selected by the agent declaration's hostAccess; this section does not restate them.
 
 ### Decision-Derived Authorization
 

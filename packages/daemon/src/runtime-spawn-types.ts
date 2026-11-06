@@ -17,6 +17,7 @@ import type {
   WriteSource,
 } from "@harness-anything/kernel";
 import type {
+  AgentHostAccess,
   AgentPermissionMode,
   AgentRole,
   AgentRuntimeTargetV1,
@@ -178,6 +179,7 @@ export type RuntimeAgent = {
    *  never fails a dispatch when a preferred instance is unavailable on this node. */
   readonly preferredInstances?: readonly string[];
   readonly permissionMode?: AgentPermissionMode;
+  readonly hostAccess?: AgentHostAccess;
   readonly role?: AgentRole;
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];

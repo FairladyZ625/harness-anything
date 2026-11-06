@@ -758,6 +758,12 @@ const agentDoc: EntityKindDoc = {
     field("instance", false, "string", "硬绑定一个节点实例;该实例不可用即派工失败,不回退。"),
     field("preferredInstances", false, "array", "有序软偏好;实例就绪时优先,不可用时回退到其余候选,不阻塞派工。"),
     field("role", false, "enum", "worker / commander / reviewer。"),
+    field(
+      "hostAccess",
+      false,
+      "enum",
+      "isolated(默认)/ operator:派工注入的宿主访问红线;operator 可用宿主已有工具与服务,二者都不得新建或启动 VM 与 Docker。",
+    ),
     field("skills", false, "array", "技能引用:{id, path}。"),
     field("prompts", false, "array", "提示词引用。"),
   ],

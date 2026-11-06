@@ -1,11 +1,30 @@
-import type { AgentRole } from "@harness-anything/kernel";
+import type { AgentHostAccess, AgentRole } from "@harness-anything/kernel";
 
-export const sharedExecutionDiscipline = `# Harness Execution Discipline
+// The only source of the host-access and secret-value boundaries a dispatch states; the Agent
+// declaration's hostAccess selects the host line, and every other surface points here.
+const hostAccessBoundary: Readonly<Record<AgentHostAccess, string>> = {
+  isolated:
+    "- Host access: isolated. Do not use host tools or services outside this repository's own toolchain: " +
+    "no executing inside VMs, no host virtualization, networking, or system service operations, " +
+    "and do not create or start VMs or Docker containers.",
+  operator:
+    "- Host access: operator. You may use host tools and services that already exist when the task needs them, " +
+    "such as `prlctl exec` into an existing VM or a local CLI. Do not create or start VMs or Docker containers.",
+};
+const secretValueBoundary =
+  "- Secrets: do not read, copy, or print real secret values, and never write a secret into logs, reports, PRs, " +
+  "facts, or artifacts. Implementing credential-handling product code and using test credentials in tests are allowed.";
+
+function sharedExecutionDiscipline(hostAccess: AgentHostAccess): string {
+  return `# Harness Execution Discipline
 
 - Your responsibility is bounded; your inspection can span the repository. Preserve unrelated changes. If the plan conflicts with code or established decisions, report the evidence, risk, alternative and smallest useful verification.
 - Before concluding something is absent, what methods and locations did you search? Try another route. Before stopping for a ruling, is the action reversible and already authorized? Complete such work and report it.
-- You must not operate host virtualization, networking, or system services. Stop for credentials and external publication unless explicitly authorized; report the exact request.
+${hostAccessBoundary[hostAccess]}
+${secretValueBoundary}
+- Stop for external publication unless explicitly authorized; report the exact request.
 - Which evidence did you observe in this run, and which conclusions are inferred? Include real test and gate results; label unchecked items unverified.`;
+}
 
 const mutatorDiscipline = `# Implementation Permissions
 
@@ -74,9 +93,10 @@ const commanderDiscipline = `<very_important>
 - Include combined child evidence in the delivery; submit automatically dispatches the required ledger reviewers; track review through approval and hand the PR and evidence to the CEO. Do not merge the PR or main.
 </very_important>`;
 
-export function agentRolePrompt(role: AgentRole | undefined): string {
+/** An undeclared hostAccess is isolated, so unbound dispatches never gain host access. */
+export function agentRolePrompt(role: AgentRole | undefined, hostAccess: AgentHostAccess = "isolated"): string {
   return [
-    sharedExecutionDiscipline,
+    sharedExecutionDiscipline(hostAccess),
     ...(role === "reviewer"
       ? [reviewerDiscipline]
       : [mutatorDiscipline, role === "commander" ? commanderDiscipline : workerDiscipline]),

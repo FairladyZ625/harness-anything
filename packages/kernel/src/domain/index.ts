@@ -375,6 +375,7 @@ export {
 export type {
   AgentDeclarationV1,
   AgentEntityKind,
+  AgentHostAccess,
   AgentPermissionMode,
   AgentRole,
   AgentRuntimeTargetV1,
