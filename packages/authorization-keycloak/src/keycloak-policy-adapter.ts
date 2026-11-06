@@ -751,7 +751,20 @@ export class KeycloakPolicyAdapter
           permission: `${candidate}#${input.action}`,
           response_mode: "decision",
         }),
+      }).catch((cause: unknown) => {
+        // A fetch rejection never produced an HTTP answer; keep the adapter's transport sentinel
+        // so the authorization layer can distinguish it from a policy denial.
+        throw Object.assign(new Error("Keycloak authorization endpoint could not be reached.", { cause }), {
+          code: "daemon_error",
+        });
       });
+      // A 5xx carries no policy decision. Do not keep trying other candidates and report
+      // `keycloak_denied`: the authorization layer must turn this into an availability failure.
+      if (response.status >= 500 && response.status <= 599)
+        throw Object.assign(new Error(`Keycloak authorization endpoint returned HTTP ${response.status}.`), {
+          code: "keycloak_admin_rejected",
+          status: response.status,
+        });
       if (response.ok && ((await response.json()) as { readonly result?: unknown }).result === true)
         return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
     }

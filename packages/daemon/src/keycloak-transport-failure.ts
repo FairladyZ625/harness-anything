@@ -9,9 +9,13 @@
 export function isKeycloakTransportFailure(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const code = (error as { readonly code?: unknown }).code,
+    status = (error as { readonly status?: unknown }).status,
     name = (error as { readonly name?: unknown }).name,
     message = (error as { readonly message?: unknown }).message;
   if (code === "daemon_error") return true;
+  // A reachable authority can still answer 5xx without a policy decision (for example 503 while
+  // Keycloak is starting or overloaded). That is an availability answer, not a denial.
+  if (typeof status === "number" && status >= 500 && status <= 599) return true;
   if (
     typeof code === "string" &&
     ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EHOSTUNREACH"].includes(code)

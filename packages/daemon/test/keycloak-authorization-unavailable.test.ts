@@ -52,6 +52,27 @@ test("a Keycloak transport failure keeps the real cause but is not a generic dae
   );
 });
 
+test("an HTTP 5xx from the authority is a transport failure, not a policy rejection", () => {
+  assert.equal(
+    isKeycloakTransportFailure(
+      Object.assign(new Error("Keycloak userinfo returned HTTP 503."), {
+        code: "keycloak_admin_rejected",
+        status: 503,
+      }),
+    ),
+    true,
+  );
+  assert.equal(
+    isKeycloakTransportFailure(
+      Object.assign(new Error("Keycloak userinfo returned HTTP 401."), {
+        code: "keycloak_admin_rejected",
+        status: 401,
+      }),
+    ),
+    false,
+  );
+});
+
 test("a typed session failure keeps its code instead of inheriting a nested fetch failure", () => {
   const sessionFailure = Object.assign(
     new Error("Keycloak could not be reached to renew the session.", {

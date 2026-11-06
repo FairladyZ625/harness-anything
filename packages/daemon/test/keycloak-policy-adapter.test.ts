@@ -195,7 +195,14 @@ test("online evaluation returns explicit allow and denies unknown, negative, and
       action: "task-create",
       resource: { kind: "entity", repoId: "repo-a", entityRef: "task/task_123" },
     }),
-    /offline/u,
+    (error: Error & { readonly code?: string; readonly cause?: unknown }) => {
+      // A rejected fetch never produced an HTTP answer: the adapter keeps its transport sentinel
+      // and the original cause instead of leaking an unclassified TypeError.
+      assert.equal(error.code, "daemon_error");
+      assert.match(error.message, /could not be reached/u);
+      assert.equal((error.cause as Error).message, "offline");
+      return true;
+    },
   );
 });
 
@@ -508,7 +515,9 @@ test("center policy evaluates the matching live session once and can still deny 
   assert.equal(centerCalls, 3);
   assert.equal(adminReads, 3, "center ids are retained in process memory");
   centerFails = true;
-  await assert.rejects(evaluate({ center, session: authenticatedSession }), { code: "keycloak_admin_rejected" });
+  // A reachable center that answers 503 carries no policy decision; the authorization boundary
+  // reports a retryable identity outage instead of a rejection.
+  await assert.rejects(evaluate({ center, session: authenticatedSession }), { code: "keycloak_unavailable" });
 });
 
 test("center policy rejects a session after its current user token is rejected", async () => {
