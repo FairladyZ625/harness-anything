@@ -14,8 +14,7 @@ import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sq
  * changed ref through triggers; the event application drains that set in the same transaction,
  * so every committed cut carries freshness computed at that cut.
  */
-const maintenanceKey = "relation-freshness/v1",
-  backfillBatchSize = 512,
+const settleBatchSize = 512,
   sourceAnchoredTypes = relationTypes.filter((type) => relationFreshnessAnchorForType(type) === "source");
 
 /** Endpoint tables whose rows supply an entity version witness, with the columns the witness reads. */
@@ -60,70 +59,81 @@ export function createRelationFreshnessMaintenance(db: DatabaseSync): void {
         BEGIN INSERT OR IGNORE INTO relation_freshness_dirty(ref) VALUES (${oldRef}); END`,
     );
   }
-  backfillRelationFreshness(db);
-}
-
-/** Existing projections predate the column; fill it once in bounded transactions before serving reads. */
-function backfillRelationFreshness(db: DatabaseSync): void {
-  if (queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key = ?", maintenanceKey).length > 0) return;
-  let cursor = "";
-  for (;;) {
-    const rows = queryRows<RelationFreshnessInput>(
-      db,
-      `SELECT ${relationInputColumns} FROM relation_edge WHERE relation_id > ? ORDER BY relation_id LIMIT ?`,
-      cursor,
-      backfillBatchSize,
-    );
-    if (rows.length === 0) break;
-    transaction(db, () => storeRelationFreshness(db, rows));
-    cursor = rows.at(-1)!.relation_id;
-  }
-  runSql(db, "DELETE FROM relation_freshness_dirty");
-  runSql(
-    db,
-    "INSERT INTO projection_maintenance(key, completed_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
-    maintenanceKey,
-  );
+  settleRelationFreshness(db);
 }
 
 /**
- * Recompute every relation whose freshness can follow a ref changed since the last drain: edges
- * targeting the ref or one of its anchors, source-anchored edges leaving it, and a changed relation
- * itself. Each lookup is an endpoint index range, so the work is proportional to the changed
- * endpoints' incident relations. Returns how many relations were recomputed.
+ * Settle every relation whose stored freshness is missing or behind before this writer serves reads.
+ * Rows that predate the column, or were written by a previous build that does not maintain it, have
+ * NULL freshness; endpoint changes made by a previous build still fire the persisted triggers and
+ * leave their refs in the dirty table. Both are drained here in bounded pages, each committed on its
+ * own, so an interrupted settle resumes from what is still pending on the next open.
  */
-export function refreshDirtyRelationFreshness(db: DatabaseSync): number {
-  const refs = queryRows<{ readonly ref: string }>(db, "SELECT ref FROM relation_freshness_dirty ORDER BY ref").map(
-    ({ ref }) => ref,
-  );
+function settleRelationFreshness(db: DatabaseSync): void {
+  while (queryRows(db, "SELECT 1 FROM relation_freshness_dirty LIMIT 1").length > 0)
+    transaction(db, () => refreshDirtyRelationFreshness(db, settleBatchSize));
+  for (;;) {
+    const rows = queryRows<RelationFreshnessInput>(
+      db,
+      `SELECT ${relationInputColumns} FROM relation_edge WHERE freshness IS NULL ORDER BY relation_id LIMIT ?`,
+      settleBatchSize,
+    );
+    if (rows.length === 0) return;
+    transaction(db, () => storeRelationFreshness(db, rows));
+  }
+}
+
+/**
+ * Recompute every relation whose freshness can follow a changed ref: edges targeting the ref or one
+ * of its anchors (`<ref>/<anchor>`), source-anchored edges leaving it or one of its anchors, and a
+ * changed relation itself. Each lookup is an exact or slash-descendant endpoint index range, so the
+ * work is proportional to the changed endpoints' incident relations. The event application drains
+ * the whole set its own transaction marked; `limit` bounds a settle page. Returns how many relations
+ * were recomputed.
+ */
+export function refreshDirtyRelationFreshness(db: DatabaseSync, limit?: number): number {
+  const refs = queryRows<{ readonly ref: string }>(
+    db,
+    "SELECT ref FROM relation_freshness_dirty ORDER BY ref LIMIT ?",
+    limit ?? -1,
+  ).map(({ ref }) => ref);
   if (refs.length === 0) return 0;
-  runSql(db, "DELETE FROM relation_freshness_dirty");
+  runSql(
+    db,
+    "DELETE FROM relation_freshness_dirty WHERE ref IN (SELECT value FROM json_each(?))",
+    JSON.stringify(refs),
+  );
   const affected = new Map<string, RelationFreshnessInput>();
   for (const ref of refs) {
     const relationId = ref.match(/^relation\/([^/]+)$/u)?.[1] ?? null;
     for (const row of queryRows<RelationFreshnessInput>(
       db,
       [
-        // [ref, ref0) covers the ref and every `<ref>/<anchor>` form through one index range.
-        `SELECT ${relationInputColumns} FROM relation_edge WHERE target_ref >= ? AND target_ref < ?`,
+        `SELECT ${relationInputColumns} FROM relation_edge`,
+        "WHERE target_ref = ? OR (target_ref >= ? AND target_ref < ?)",
         "UNION",
         `SELECT ${relationInputColumns} FROM relation_edge`,
-        "WHERE relation_type IN (SELECT value FROM json_each(?)) AND source_ref >= ? AND source_ref < ?",
+        "WHERE relation_type IN (SELECT value FROM json_each(?))",
+        "AND (source_ref = ? OR (source_ref >= ? AND source_ref < ?))",
         ...(relationId === null
           ? []
           : ["UNION", `SELECT ${relationInputColumns} FROM relation_edge WHERE relation_id = ?`]),
       ].join(" "),
-      ref,
-      `${ref}0`,
+      ...endpointRange(ref),
       JSON.stringify(sourceAnchoredTypes),
-      ref,
-      `${ref}0`,
+      ...endpointRange(ref),
       ...(relationId === null ? [] : [relationId]),
     ))
       affected.set(row.relation_id, row);
   }
   storeRelationFreshness(db, [...affected.values()]);
   return affected.size;
+}
+
+/** The ref itself and its `<ref>/...` anchors; `0` is the character after `/`, so a sibling such as
+ * `<ref>-backup` falls outside the range. */
+function endpointRange(ref: string): readonly [string, string, string] {
+  return [ref, `${ref}/`, `${ref}0`];
 }
 
 type RelationFreshnessInput = {

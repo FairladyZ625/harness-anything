@@ -37,7 +37,6 @@ function ledger() {
       "snapshot_json TEXT NOT NULL, status TEXT, package_disposition TEXT NOT NULL GENERATED ALWAYS AS (" +
       "COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active')) STORED, " +
       "updated_at TEXT NOT NULL DEFAULT ''); " +
-      "CREATE TABLE projection_maintenance (key TEXT PRIMARY KEY, completed_at TEXT NOT NULL); " +
       "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
       "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
       "PRIMARY KEY(entity_kind, task_id, entity_id))",

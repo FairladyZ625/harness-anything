@@ -58,13 +58,18 @@ test("relation freshness is stored at the write cut and recomputed only for the 
       hotPresence = relation({ source: "task/task_source", target: "task/task_hot", type: "depends-on" }),
       cold = (["relates", "blocks"] as const).map((type) =>
         relation({ source: "task/task_source", target: "task/task_cold", type }),
+      ),
+      // A legal sibling id sharing the cold task's prefix is a different endpoint.
+      sibling = (["relates", "blocks", "implements"] as const).map((type) =>
+        relation({ source: "task/task_source", target: "task/task_cold-backup", type }),
       );
     apply(taskCreated(1, "task_source"));
     const hot = taskCreated(2, "task_hot");
     apply(hot);
     apply(taskCreated(3, "task_cold"));
-    let revision = 3;
-    for (const record of [...hotTargeted, hotPresence, ...cold]) apply(created(++revision, record));
+    apply(taskCreated(4, "task_cold-backup"));
+    let revision = 4;
+    for (const record of [...hotTargeted, hotPresence, ...cold, ...sibling]) apply(created(++revision, record));
     const freshnessOf = () =>
       new Map(fixture.projection.readRelationQuery({}).rows.map((row) => [row.relationId, row.freshness]));
     assert.deepEqual(new Set(freshnessOf().values()), new Set(["current"]));
@@ -98,7 +103,8 @@ test("relation freshness is stored at the write cut and recomputed only for the 
     fixture.projection.close();
 
     // Recompute locates relations through the endpoint indexes: a change to the cold target
-    // revisits its two edges and nothing anchored on the hot target.
+    // revisits its two edges, nothing anchored on the hot target, and none of the edges of the
+    // `task/task_cold-backup` sibling that shares its prefix.
     const db = new DatabaseSync(path);
     try {
       assert.equal(refreshDirtyRelationFreshness(db), 0);
@@ -121,6 +127,73 @@ test("relation freshness is stored at the write cut and recomputed only for the 
       assert.equal(refreshDirtyRelationFreshness(db), 0);
     } finally {
       db.close();
+    }
+  });
+});
+
+test("a restarted writer settles freshness a previous build left missing or behind before serving reads", () => {
+  withTempStore((rootDir) => {
+    const fixture = projectionFixture(rootDir),
+      apply = (event: TaskEventV1 | RelationEventV1) => {
+        fixture.appendEvent(event);
+        fixture.projection.apply(event);
+      },
+      // More edges than one settle page, so the backlog drains across several committed pages.
+      bulk = Array.from({ length: 600 }, (_, index) =>
+        relation({ source: `task/task_bulk_${index}`, target: "task/task_hot", type: "relates" }),
+      ),
+      cold = relation({ source: "task/task_source", target: "task/task_cold", type: "relates" });
+    apply(taskCreated(1, "task_hot"));
+    apply(taskCreated(2, "task_cold"));
+    let revision = 2;
+    for (const record of [...bulk, cold]) apply(created(++revision, record));
+    const path = fixture.projection.path;
+    fixture.projection.close();
+
+    // A previous build writes without maintaining the column: rows it rewrites lose their stored
+    // value, and its endpoint writes still fire the persisted triggers into the dirty table.
+    const db = new DatabaseSync(path);
+    try {
+      db.prepare("UPDATE relation_edge SET freshness = NULL, current_target_version = NULL WHERE target_ref = ?").run(
+        "task/task_hot",
+      );
+      db.prepare("UPDATE task_snapshot SET workspace_revision = workspace_revision + 1000 WHERE task_id = ?").run(
+        "task_cold",
+      );
+      for (let index = 0; index < 600; index += 1)
+        db.prepare("INSERT OR IGNORE INTO relation_freshness_dirty(ref) VALUES (?)").run(`task/task_gone_${index}`);
+      assert.equal(
+        Number((db.prepare("SELECT count(*) AS n FROM relation_freshness_dirty").get() as { n: number }).n),
+        601,
+      );
+    } finally {
+      db.close();
+    }
+
+    const reopened = fixture.reopen();
+    try {
+      const rows = new Map(reopened.readRelationQuery({}).rows.map((row) => [row.relationId, row.freshness]));
+      for (const record of bulk) assert.equal(rows.get(record.relation_id), "current");
+      assert.equal(rows.get(cold.relation_id), "suspect", "the previous build's endpoint change is applied");
+      assert.equal(reopened.readRelationQuery({ freshness: "suspect" }).rows.length, 1);
+    } finally {
+      reopened.close();
+    }
+    const settled = new DatabaseSync(path);
+    try {
+      assert.deepEqual(
+        {
+          ...settled
+            .prepare(
+              "SELECT (SELECT count(*) FROM relation_freshness_dirty) AS dirty, " +
+                "(SELECT count(*) FROM relation_edge WHERE freshness IS NULL) AS missing",
+            )
+            .get(),
+        },
+        { dirty: 0, missing: 0 },
+      );
+    } finally {
+      settled.close();
     }
   });
 });

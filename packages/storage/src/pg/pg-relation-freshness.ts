@@ -13,12 +13,14 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 /**
  * dec_E34C4284B48AFAF152D7BF1980: relation freshness is one global value stored on ha_relations.
- * Endpoint tables record changed refs through triggers (for current and previous writers alike);
- * the current writer drains them inside the same materialization transaction, recomputing only
- * the relations anchored on those refs with the kernel judgment over unfiltered witnesses.
+ * Endpoint tables record changed refs, tagged with the marking transaction, through triggers (for
+ * current and previous writers alike). A current writer drains the refs its own transaction marked
+ * inside that materialization transaction, recomputing only the relations anchored on them with the
+ * kernel judgment over unfiltered witnesses. Marks a previous writer committed form a backlog.
  *
- * Expansion step: the columns are nullable and filled by `backfillPgRelationFreshnessPage`.
- * Until a scope has no unfilled row and no undrained ref, readers keep the previous witness path
+ * Expansion step: the columns are nullable; `backfillPgRelationFreshnessPage` fills unfilled rows
+ * and drains the backlog in bounded, separately committed pages. Until a scope has no unfilled row
+ * and no backlog, readers keep the previous witness path
  * (`pgRelationFreshnessReady`). Remove that previous read path, the readiness probe and the
  * pending index on 2026-11-26, after pre-freshness binaries have drained.
  */
@@ -41,12 +43,14 @@ export function relationFreshnessDdl(): readonly string[] {
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       ref text NOT NULL,
+      xact xid8 NOT NULL DEFAULT pg_current_xact_id(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, ref)
     )`,
     `CREATE OR REPLACE FUNCTION ha_relation_freshness_mark(tenant text, project text, epoch bigint, changed text)
       RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS $function$
         INSERT INTO ${PG_RELATION_FRESHNESS_DIRTY_TABLE}(tenant_id, project_id, policy_epoch, ref)
-        VALUES (tenant, project, epoch, changed) ON CONFLICT DO NOTHING
+        VALUES (tenant, project, epoch, changed)
+        ON CONFLICT (tenant_id, project_id, policy_epoch, ref) DO UPDATE SET xact = EXCLUDED.xact
       $function$`,
     ...endpointTables.flatMap(({ table, ref, columns }) => endpointTriggerDdl(table, ref, columns)),
     // A relation row is an endpoint of relations targeting `relation/<id>`; an executes row also
@@ -128,57 +132,98 @@ const relationInputColumns =
   "relation_id, source_ref, target_ref, relation_type, value->'targetObservedVersion' AS target_observed_version, freshness, current_target_version";
 
 /**
- * Drain the refs changed in this transaction and recompute the relations anchored on them: edges
- * targeting the ref or one of its `<ref>/<anchor>` forms, source-anchored edges leaving it, and a
- * changed relation itself. Each arm is one endpoint index range. Returns the recomputed count.
+ * Recompute the relations anchored on drained refs: edges targeting the ref or one of its
+ * `<ref>/<anchor>` forms, source-anchored edges leaving the ref or one of its anchors, and a changed
+ * relation itself. Each arm is an exact or slash-descendant endpoint index range, so a sibling such
+ * as `<ref>-backup` is never visited. Returns the recomputed count.
  */
-export async function refreshPgDirtyRelationFreshness(client: PoolClient, scope: PgProjectionScope): Promise<number> {
-  const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
-    dirty = await client.query<{ ref: string }>(
-      `DELETE FROM ${PG_RELATION_FRESHNESS_DIRTY_TABLE} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 RETURNING ref`,
-      keys,
-    );
-  if (dirty.rows.length === 0) return 0;
+async function recomputeAnchoredRelations(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  refs: readonly string[],
+): Promise<number> {
+  if (refs.length === 0) return 0;
   const affected = await client.query<RelationFreshnessInput>(
     `SELECT DISTINCT ON (relation_id) ${relationInputColumns} FROM (
        SELECT r.* FROM unnest($4::text[]) d(ref) CROSS JOIN LATERAL (
          SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND target_ref COLLATE "C" >= d.ref AND target_ref COLLATE "C" < d.ref || '0'
+           AND target_ref = d.ref
          UNION ALL
          SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND source_ref COLLATE "C" >= d.ref AND source_ref COLLATE "C" < d.ref || '0'
+           AND target_ref COLLATE "C" >= d.ref || '/' AND target_ref COLLATE "C" < d.ref || '0'
+         UNION ALL
+         SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+           AND source_ref = d.ref AND relation_type = ANY($5::text[])
+         UNION ALL
+         SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+           AND source_ref COLLATE "C" >= d.ref || '/' AND source_ref COLLATE "C" < d.ref || '0'
            AND relation_type = ANY($5::text[])
          UNION ALL
          SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
            AND starts_with(d.ref, 'relation/') AND relation_id = substr(d.ref, 10)
        ) r
      ) affected ORDER BY relation_id`,
-    [...keys, dirty.rows.map(({ ref }) => ref), sourceAnchoredTypes],
+    [scope.tenantId, scope.projectId, scope.policyEpoch, refs, sourceAnchoredTypes],
   );
   await storePgRelationFreshness(client, scope, affected.rows);
   return affected.rows.length;
 }
 
 /**
- * Expansion backfill: fill one bounded page of rows written before the column existed (or by a
- * previous writer) and drain refs previous writers marked. `done` means the scope is ready for the
- * stored-value read path. Run one call per management transaction with the scope's claims.
+ * Drain the refs this transaction marked and recompute their anchored relations in the same
+ * materialization cut. Refs left by other transactions (a previous writer's backlog) are not
+ * taken here, so one write's cost stays proportional to the endpoints it changed; the bounded
+ * expansion pages drain that backlog.
+ */
+export async function refreshPgDirtyRelationFreshness(client: PoolClient, scope: PgProjectionScope): Promise<number> {
+  const dirty = await client.query<{ ref: string }>(
+    `DELETE FROM ${PG_RELATION_FRESHNESS_DIRTY_TABLE}
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND xact = pg_current_xact_id() RETURNING ref`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch],
+  );
+  return recomputeAnchoredRelations(
+    client,
+    scope,
+    dirty.rows.map(({ ref }) => ref),
+  );
+}
+
+const expansionPageSize = 256;
+
+/**
+ * Expansion backfill: one bounded page of at most 256 unfilled rows (written before the column
+ * existed or by a previous writer) and at most 256 refs previous writers marked. Each page commits
+ * on its own, so an interrupted backfill resumes from what is still pending. `done` means the scope
+ * is ready for the stored-value read path. Run one call per management transaction with the
+ * scope's claims.
  */
 export async function backfillPgRelationFreshnessPage(
   client: PoolClient,
   scope: PgProjectionScope,
 ): Promise<{ readonly processed: number; readonly done: boolean }> {
-  const pending = await client.query<RelationFreshnessInput>(
-    `SELECT ${relationInputColumns} FROM ha_relations
-     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND freshness IS NULL
-     ORDER BY relation_id LIMIT 256 FOR UPDATE`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch],
-  );
+  const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
+    pending = await client.query<RelationFreshnessInput>(
+      `SELECT ${relationInputColumns} FROM ha_relations
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND freshness IS NULL
+       ORDER BY relation_id LIMIT $4 FOR UPDATE`,
+      [...keys, expansionPageSize],
+    );
   await storePgRelationFreshness(client, scope, pending.rows);
-  const drained = await refreshPgDirtyRelationFreshness(client, scope);
+  const backlog = await client.query<{ ref: string }>(
+    `DELETE FROM ${PG_RELATION_FRESHNESS_DIRTY_TABLE} WHERE (tenant_id, project_id, policy_epoch, ref) IN (
+       SELECT tenant_id, project_id, policy_epoch, ref FROM ${PG_RELATION_FRESHNESS_DIRTY_TABLE}
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 ORDER BY ref LIMIT $4 FOR UPDATE SKIP LOCKED
+     ) RETURNING ref`,
+    [...keys, expansionPageSize],
+  );
+  await recomputeAnchoredRelations(
+    client,
+    scope,
+    backlog.rows.map(({ ref }) => ref),
+  );
   return {
-    processed: pending.rows.length + drained,
-    done: pending.rows.length === 0 && drained === 0 && (await pgRelationFreshnessReady(client, scope)),
+    processed: pending.rows.length + backlog.rows.length,
+    done: pending.rows.length === 0 && backlog.rows.length === 0 && (await pgRelationFreshnessReady(client, scope)),
   };
 }
 

@@ -33,7 +33,6 @@ function ledger() {
       "INSERT INTO projection_meta VALUES (1, 1); " +
       "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, " +
       "snapshot_json TEXT NOT NULL, status TEXT); " +
-      "CREATE TABLE projection_maintenance (key TEXT PRIMARY KEY, completed_at TEXT NOT NULL); " +
       "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
       "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
       "PRIMARY KEY(entity_kind, task_id, entity_id))",

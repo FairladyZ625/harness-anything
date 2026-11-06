@@ -264,14 +264,21 @@ triggers on tasks, decisions, facts, agents, squads, relations and entity projec
 Run `grantPgProjectionRuntimeAccess` afterwards so previous and current writers can record
 changed endpoints through those triggers.
 
-Current writers recompute the relations anchored on every changed endpoint in the same
-materialization transaction, located through the source/target indexes, and store the
-kernel judgment over unfiltered endpoint witnesses. Readers filter relation visibility only.
-Rows written before the expansion, or by a previous writer, have no stored value; until a
-scope has none left and no undrained changed endpoint, readers keep the previous read path.
+Current writers recompute the relations anchored on every endpoint their own transaction changed,
+in that same materialization transaction. Endpoints are located through the source/target
+indexes as the exact ref or a `<ref>/...` anchor, so a sibling id that only shares a prefix is
+never visited. The value stored is the kernel judgment over unfiltered endpoint witnesses;
+readers filter relation visibility only.
 
-Backfill each tenant/project/policy-epoch scope with the exported page function, one
-management transaction per page, until `done` is true:
+Rows written before the expansion, or rewritten by a previous writer, have no stored value or
+an outdated one. A previous writer's endpoint changes still fire the triggers, but their marks
+stay in `ha_relation_freshness_dirty` because current writers drain only the marks of their own
+transaction. Until a scope has no unfilled row and no backlog mark, its readers keep the previous
+read path.
+
+Backfill each tenant/project/policy-epoch scope with the exported page function. Run one
+management transaction per page until `done` is true. Run the loop again after the last
+previous-version writer has stopped, because that writer may have left a backlog:
 
 ```ts
 import { backfillPgRelationFreshnessPage, withPostgresTransaction } from "@harness-anything/storage";
@@ -282,6 +289,7 @@ for (;;) {
 }
 ```
 
-Each page fills at most 256 pending relations and drains endpoints marked by previous writers.
-PGlite runs the same loop before exposing an opened scope. The previous read path, its readiness
+Each page fills at most 256 unfilled relations and drains at most 256 backlog marks, then
+commits. An interrupted loop resumes from whatever is still pending. PGlite runs the same loop
+before exposing an opened scope. The previous read path, its readiness
 probe and the pending index are removed on 2026-11-26; the columns, triggers and current writes stay.
