@@ -60,6 +60,8 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       // old database has no readiness row yet.
       await backend.pool.query("UPDATE ha_events SET summary_json=NULL, read_index_version=5");
       await backend.pool.query("DELETE FROM ha_event_summary_state");
+      await backend.pool.query(`CREATE INDEX ha_events_summary_pending ON ha_events
+        (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`);
       assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 65);
       assert.deepEqual(await backend.backfillReadIndexes(), { processed: 64, done: false });
       assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 65);

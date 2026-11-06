@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
 import { ensurePgProjectionSchema, projectionDdl } from "../pg/pg-projection-schema.ts";
+import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
 
 interface IndexJob {
   table_name: string;
@@ -30,6 +31,9 @@ export async function initializePGliteReadSchema(client: PoolClient): Promise<vo
     } else await client.query(statement);
   }
   await ensurePgProjectionSchema(client, { indexBuild: "deferred" });
+  // Match the schema owner's existing contraction rule before scheduling trees:
+  // a retired summary pending index must not restart a completed copy on every open.
+  const summariesComplete = await contractPgEventSummaryIndex(client, { indexBuild: "isolated" });
   await client.query(`CREATE TABLE IF NOT EXISTS ha_pglite_index_backfill (
     table_name text PRIMARY KEY, staging text NOT NULL, retired text NOT NULL,
     columns text[] NOT NULL, keys text[] NOT NULL, indexes jsonb NOT NULL,
@@ -39,6 +43,7 @@ export async function initializePGliteReadSchema(client: PoolClient): Promise<vo
   for (const sql of statements) {
     const match = indexPattern.exec(sql);
     if (!match) continue;
+    if (match[1] === "ha_events_summary_pending" && summariesComplete) continue;
     const bucket = candidates.get(match[2]!) ?? [];
     bucket.push({ name: match[1]!, sql });
     candidates.set(match[2]!, bucket);
