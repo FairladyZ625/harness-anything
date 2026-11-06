@@ -317,6 +317,27 @@ export function validateDaemonDocumentRead(value: unknown): readonly string[] {
   return [];
 }
 
+/** Client inbound compatibility: a previous daemon's v2 response has no source/syncState and must
+ * still parse during a rolling upgrade. Missing v3 fields normalize to an explicit unobservable
+ * answer, never a guessed canonical/authorship claim. */
+export function validateDaemonDocumentReadPrevious(value: unknown): readonly string[] {
+  if (!isJsonObject(value) || Object.hasOwn(value, "source")) return validateDaemonDocumentRead(value);
+  return validateDaemonDocumentRead({
+    ...value,
+    source: "unobservable",
+    syncState: "unobservable",
+    body: "",
+    blobSha256: null,
+    size: null,
+    bytes: null,
+    worktreeBody: null,
+    uncommitted: false,
+    canonicalVersion: null,
+    execution: null,
+    unobservableReason: "previous_daemon_response",
+  });
+}
+
 export function validateDaemonTaskDocumentList(value: unknown): readonly string[] {
   const entityId = validationEntityId(value, ["taskId"], "task:<unknown>"),
     shapeError = recordShapeError(

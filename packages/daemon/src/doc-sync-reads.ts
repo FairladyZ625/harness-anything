@@ -544,7 +544,7 @@ export function readProjectedDocument(
   });
 
   if (workExplainer) {
-    if (view !== "canonical") return unobservable("derived_document_has_no_requested_source");
+    if (view !== "default" && view !== "canonical") return unobservable("derived_document_has_no_requested_source");
     const rendered = renderWorkExplainer(projection, taskId),
       derived = {
         contentKind: "text" as const,
@@ -584,7 +584,16 @@ export function readProjectedDocument(
     return observed(cut, "authored-copy", syncStateOf(cut, canonicalVersion));
   }
 
-  // Canonical view: the accepted cut is the answer. Only when there is no accepted cut, or when a raw
+  // An explicit canonical view is a strict request for the accepted cut. A missing accepted
+  // document is unobservable; the authored copy is never substituted for it.
+  if (view === "canonical") {
+    if (document === null) return unobservable("document_not_observed");
+    const { cut, syncState } = canonicalCutAndSync(context, document, authored, binary, requested),
+      result = observed(cut, "canonical", syncState === "unobservable" ? "unobservable" : syncState);
+    return authored === null ? { ...result, unobservableReason: "authored_copy_not_observed" } : result;
+  }
+
+  // Default view keeps the previous behaviour: the accepted cut is the answer. Only when there is no accepted cut, or when a raw
   // artifact's live bytes differ from the accepted object, does the returned content come from the
   // authored copy — and then `source` says so instead of silently mixing digest and bytes.
   if (document === null) {
@@ -596,6 +605,23 @@ export function readProjectedDocument(
     const cut = cutOfWorktree(authored, requested, binary);
     return observed(cut, "authored-copy", "unsynced");
   }
+  const { cut, syncState } = canonicalCutAndSync(context, document, authored, binary, requested),
+    result = observed(cut, "canonical", syncState === "unobservable" ? "unobservable" : syncState);
+  return authored === null ? { ...result, unobservableReason: "authored_copy_not_observed" } : result;
+}
+
+function canonicalCutAndSync(
+  context: ProjectedDocumentReadContext,
+  document: {
+    readonly body: string;
+    readonly blobSha256: string;
+    readonly size: number | bigint;
+    readonly mediaType: string;
+  },
+  authored: ObservedDocumentRow | null,
+  binary: boolean,
+  requested: string,
+): { readonly cut: DocumentCut; readonly syncState: "synced" | "unsynced" | "unobservable" } {
   const canonicalBytes =
       binary && Number(document.size) <= TASK_DOCUMENT_INLINE_BYTES_MAX
         ? context.store.readContentBlob(document.blobSha256)
@@ -603,12 +629,15 @@ export function readProjectedDocument(
     cut = cutOfCanonical(document, binary, canonicalBytes, requested),
     syncState: "synced" | "unsynced" | "unobservable" =
       authored === null ? "unobservable" : authored.blobSha256 === document.blobSha256 ? "synced" : "unsynced";
-  const result = observed(cut, "canonical", syncState === "unobservable" ? "unobservable" : syncState);
-  return authored === null ? { ...result, unobservableReason: "authored_copy_not_observed" } : result;
+  return { cut, syncState };
 }
 
-function documentReadView(value: unknown): "canonical" | "authored-copy" | "execution" {
-  if (value === undefined || value === null) return "canonical";
+type DocumentReadView = "default" | "canonical" | "authored-copy" | "execution";
+
+/** Absent view keeps the previous default: a binary whose live copy differs may answer that copy,
+ * labelled authored-copy. An explicit `view: "canonical"` is strict and never falls back. */
+function documentReadView(value: unknown): DocumentReadView {
+  if (value === undefined || value === null) return "default";
   if (value === "canonical" || value === "authored-copy" || value === "execution") return value;
   throw docSyncError("invalid_command", 'document read view must be "canonical", "authored-copy" or "execution"');
 }
@@ -670,11 +699,16 @@ function observeExecution(
   binary: boolean,
   executionId: string,
 ): { readonly cut: DocumentCut; readonly binding: ExecutionObservationBinding } | { readonly reason: string } {
-  if (!task.snapshot.executions.some((execution) => execution.executionId === executionId))
-    return { reason: "execution_not_found" };
+  const execution = task.snapshot.executions.find((candidate) => candidate.executionId === executionId);
+  if (execution === undefined) return { reason: "execution_not_found" };
   const lease = task.snapshot.lease;
   if (lease === null || !leaseIsEffective(lease) || lease.executionId !== executionId)
     return { reason: "execution_not_leased" };
+  if (execution.state !== "active") return { reason: "execution_not_active" };
+  // A local lease is the only ownership this daemon can prove. A node lease belongs to a remote
+  // workspace; the center's local worktree or authored package may be an older cut from another
+  // execution, so it must not wear this execution's label.
+  if (lease.source !== "local") return { reason: "execution_owner_not_local" };
   const workspace = executionWorkspaceRoot(context, task, packagePath);
   if (workspace.root === null) return { reason: workspace.reason };
   const row = readWorktreeDocument(workspace.root, requested, binary);
@@ -690,18 +724,16 @@ function observeExecution(
   };
 }
 
-/** A task with a worktree observes that worktree; a task-package task observes its authored package.
- * A bound-but-absent worktree is unobservable, never silently replaced by the center's copy. */
+/** An execution is observed only in its materialized task worktree. A task-package task's authored
+ * copy is not proof of execution ownership, and a bound-but-absent worktree is unobservable — never
+ * silently replaced by the center's copy. */
 function executionWorkspaceRoot(
   context: ProjectedDocumentReadContext,
   task: ReturnType<TaskProjection["read"]> & { readonly packagePath: string },
   packagePath: string,
 ): { readonly root: string | null; readonly reason: string } {
-  const binding = taskWorktreeBinding(task.snapshot.task, presetSnapshotReader(context.projection));
-  if (binding === null) {
-    const root = taskPackageWorktreeRoot(context.rootDir, packagePath);
-    return root === null ? { root: null, reason: "execution_workspace_unavailable" } : { root, reason: "" };
-  }
+  if (taskWorktreeBinding(task.snapshot.task, presetSnapshotReader(context.projection)) === null)
+    return { root: null, reason: "execution_workspace_unavailable" };
   const taskRoot = taskWorktreeRoot(context, task.snapshot);
   if (taskRoot === null) return { root: null, reason: "execution_workspace_not_materialized" };
   const layout = resolveHarnessLayout(context.rootDir),

@@ -64,6 +64,7 @@ import {
   validateDaemonAgenda,
   validateDaemonDecisionList,
   validateDaemonDocumentRead,
+  validateDaemonDocumentReadPrevious,
   validateDaemonGuiCommandReceipt,
   validateDaemonProtocolError,
   validateDaemonRelationGraph,
@@ -395,10 +396,36 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
       ? validateDaemonProtocolError(value)
       : [
           ...validateRepositoryReadFrame(value),
-          ...(method === "repo.tasks.list" ? validateDaemonTaskSnapshotList(data) : resultValidators[method](data)),
+          ...(method === "repo.tasks.list"
+            ? validateDaemonTaskSnapshotList(data)
+            : method === "repo.tasks.document.read"
+              ? validateDaemonDocumentReadPrevious(data)
+              : resultValidators[method](data)),
         ];
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
+  return (method === "repo.tasks.document.read" ? previousDocumentReadResult(value, data) : value) as
+    | DaemonGuiReadResultMap[M]
+    | DaemonProtocolErrorResult;
+}
+
+/** A v2 daemon answer has no source/syncState; it crossed a rolling-upgrade boundary, so the client
+ * presents it as unobservable rather than inventing canonical/authorship metadata. */
+function previousDocumentReadResult(value: unknown, data: unknown): unknown {
+  if (!isJsonObject(value) || !isJsonObject(data) || Object.hasOwn(data, "source")) return value;
+  return {
+    ...value,
+    source: "unobservable",
+    syncState: "unobservable",
+    body: "",
+    blobSha256: null,
+    size: null,
+    bytes: null,
+    worktreeBody: null,
+    uncommitted: false,
+    canonicalVersion: null,
+    execution: null,
+    unobservableReason: "previous_daemon_response",
+  };
 }
 export function parseDaemonGuiActionResult(method: DaemonGuiActionMethod, value: unknown): DaemonGuiActionResult {
   const errors =

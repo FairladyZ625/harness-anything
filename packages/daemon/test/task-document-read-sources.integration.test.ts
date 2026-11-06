@@ -50,7 +50,7 @@ const taskId = "task-doc-sources",
   V1_APPENDIX = "Canonical V1 body.",
   V2_APPENDIX = "Worker V2 body.";
 
-async function startTaskWithTwoCuts() {
+async function startTaskWithTwoCuts(options: { readonly startBinding?: RepoCellBinding } = {}) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-sources-")),
     repoId = workspaceId("task-doc-sources");
   initRepo(rootDir);
@@ -76,7 +76,7 @@ async function startTaskWithTwoCuts() {
   writeFileSync(planPath, v1Body);
   const submitted = await cell.run({ kind: "doc-submit", paths: [`${packagePath}/task_plan.md`] }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-  const started = await cell.run({ kind: "task-start", taskId, executionId }, binding);
+  const started = await cell.run({ kind: "task-start", taskId, executionId }, options.startBinding ?? binding);
   assert.equal(started.outcome, "applied", JSON.stringify(started));
   await waitForFixturePublication(cell, started.opId, binding);
   writeFileSync(planPath, v2Body);
@@ -106,6 +106,15 @@ test("canonical V1 and worker V2 reads each label the source that owns their byt
     assert.equal(canonical.uncommitted, true);
     assert.equal(canonical.canonicalVersion?.blobSha256, sha256Text(fixture.v1Body));
     assert.equal(canonical.canonicalVersion?.size, Buffer.byteLength(fixture.v1Body));
+
+    const strictCanonical = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "canonical",
+    })) as DocumentRead;
+    assert.equal(strictCanonical.source, "canonical");
+    assert.equal(strictCanonical.body, fixture.v1Body);
+    assert.equal(strictCanonical.blobSha256, sha256Text(fixture.v1Body));
 
     const authored = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
@@ -202,6 +211,32 @@ test("a missing authored copy is unobservable, not a clean workspace", async () 
     assert.equal(authored.syncState, "unobservable");
     assert.equal(authored.unobservableReason, "authored_copy_not_observed");
     assert.equal(authored.blobSha256, null);
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a remote lease never relabels the center's local worktree as its observation", async () => {
+  const remoteBinding: RepoCellBinding = withPolicyGroup(
+    { actor, source: { kind: "node" as const, nodeId: "edge-remote" } },
+    "admin",
+  );
+  const fixture = await startTaskWithTwoCuts({ startBinding: remoteBinding });
+  try {
+    // The center still has a materialized worktree with a V2 copy from this fixture; the lease,
+    // however, belongs to edge-remote. That local copy cannot be presented as edge-remote's view.
+    const observed = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(observed.source, "unobservable");
+    assert.equal(observed.syncState, "unobservable");
+    assert.equal(observed.unobservableReason, "execution_owner_not_local");
+    assert.equal(observed.body, "");
+    assert.equal(observed.blobSha256, null);
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });

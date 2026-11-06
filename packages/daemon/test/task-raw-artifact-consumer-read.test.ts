@@ -246,6 +246,18 @@ test("a binary file in a task's artifacts tree is listed and routed, not hidden 
     assert.deepEqual(Buffer.from(String(read.bytes), "base64"), png, "unpublished worktree bytes remain unmodified");
     assert.deepEqual([read.mediaType, read.size], ["image/png", png.byteLength]);
     assert.equal(read.repositoryPath, `harness/${packagePath}/artifacts/capture.png`);
+
+    const strictCanonical = (await cell.read("repo.tasks.document.read", {
+      taskId: "task-loose",
+      path: "artifacts/capture.png",
+      view: "canonical",
+    })) as DocumentRead;
+    serializeDaemonDocumentRead(strictCanonical);
+    assert.deepEqual(
+      [strictCanonical.source, strictCanonical.syncState, strictCanonical.unobservableReason, strictCanonical.bytes],
+      ["unobservable", "unobservable", "document_not_observed", null],
+      "an explicit canonical read never falls back to the authored binary",
+    );
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -286,6 +298,22 @@ test("an edited canonical binary serves the live worktree bytes with that copy's
     assert.equal(read.blobSha256, sha256Bytes(edited), "the digest belongs to the bytes returned");
     assert.equal(read.size, edited.byteLength);
     assert.equal(read.canonicalVersion?.blobSha256, sha256Bytes(png), "the accepted cut is still reported separately");
+
+    const strictCanonical = (await cell.read("repo.tasks.document.read", {
+      taskId: "task-live",
+      path: "artifacts/live.png",
+      view: "canonical",
+    })) as DocumentRead;
+    assert.equal(strictCanonical.source, "canonical");
+    assert.equal(strictCanonical.syncState, "unsynced");
+    assert.deepEqual(
+      Buffer.from(String(strictCanonical.bytes), "base64"),
+      png,
+      "an explicit canonical read returns the accepted V1 bytes, not the live V2 copy",
+    );
+    assert.equal(strictCanonical.blobSha256, sha256Bytes(png));
+    assert.equal(strictCanonical.size, png.byteLength);
+    assert.equal(strictCanonical.worktreeBody, null);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
