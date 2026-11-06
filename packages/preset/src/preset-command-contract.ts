@@ -399,7 +399,15 @@ export const presetCommands = Object.freeze([
     path: ["preset", "validate"],
     summary: "Validate one self-contained preset package.",
     method: "repo.preset.validate",
-    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
+    inputs: [
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
+    ],
   }),
   defineLedgerWriteCommand({
     id: "preset-install",
@@ -408,7 +416,13 @@ export const presetCommands = Object.freeze([
     summary: "Install a whole package behind an atomic active pointer.",
     method: "repo.preset.install",
     inputs: [
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
@@ -453,7 +467,13 @@ export const presetCommands = Object.freeze([
     summary: "Validate a vertical and an installed preset completion source catalog.",
     method: "repo.vertical.validate",
     inputs: [
-      cliInput("--source", "single", false, { code: "invalid_field" }, { field: "verticalSource" }),
+      cliInput(
+        "--source",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "verticalSource", pathKind: "host-path" },
+      ),
       cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
     ],
   }),

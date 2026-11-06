@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   compileEntityDocumentRematerialization,
   DECISION_DOCUMENT_POLICY_ID,
+  documentWorkspacePath,
   factLiveness,
   FACT_DOCUMENT_POLICY_ID,
   parseEntityRef,
@@ -115,7 +116,13 @@ export function runEntityDocumentRematerialize(
       changedCount: updates.length,
       unchangedCount: targets.reduce((count, target) => count + target.unchangedPaths.length, 0),
       conflictCount: targets.reduce((count, target) => count + target.conflictPaths.length, 0),
-      targets: targets.map(({ updates: _updates, ...target }) => target),
+      targets: targets.map(({ updates: _updates, ...target }) => ({
+        ...target,
+        paths: target.paths.map((targetPath) => documentWorkspacePath(cell.rootDir, targetPath)),
+        changedPaths: target.changedPaths.map((targetPath) => documentWorkspacePath(cell.rootDir, targetPath)),
+        unchangedPaths: target.unchangedPaths.map((targetPath) => documentWorkspacePath(cell.rootDir, targetPath)),
+        conflictPaths: target.conflictPaths.map((targetPath) => documentWorkspacePath(cell.rootDir, targetPath)),
+      })),
     };
   if (updates.length === 0)
     return {
@@ -162,7 +169,7 @@ export function runEntityDocumentRematerialize(
     revision,
     evidence: JSON.stringify({
       ...report,
-      changedPaths: bundle.event.payload.documentClaims.map((claim) => claim.path),
+      changedPaths: bundle.event.payload.documentClaims.map((claim) => documentWorkspacePath(cell.rootDir, claim.path)),
     }),
     proof: {
       committedRevision: revision,

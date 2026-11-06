@@ -192,10 +192,22 @@ export const agentProtocolCommands = Object.freeze([
         { code: "missing_field" },
         { enum: ["sqlite", "postgres", "pglite"], field: "to" },
       ),
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "sourceLocation" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "sourceLocation", pathKind: "host-path" },
+      ),
       cliInput("--target", "single", true, { code: "missing_field" }, { field: "targetLocation" }),
       cliInput("--run-id", "single", true, { code: "missing_field" }, { field: "runId" }),
-      cliInput("--export-directory", "single", true, { code: "missing_field" }, { field: "exportDirectory" }),
+      cliInput(
+        "--export-directory",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "exportDirectory", pathKind: "host-path" },
+      ),
       cliInput(
         "--mode",
         "single",
@@ -224,7 +236,7 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "sourceRoots" },
+        { field: "sourceRoots", pathKind: "host-path" },
       ),
       cliInput(
         "--resolve",
@@ -483,7 +495,15 @@ export const agentProtocolCommands = Object.freeze([
     path: ["agent", "validate"],
     summary: "Validate one Agent declaration package before installing it.",
     method: "repo.task.read",
-    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
+    inputs: [
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
+    ],
   }),
   // Version management reads the declaration history the ledger already keeps: every
   // entity_upserted carries its body digest, so a version is addressed by revision and read back
@@ -547,7 +567,13 @@ export const agentProtocolCommands = Object.freeze([
       "Install an Agent declaration, or update an existing one in place; --expected-version guards the update against concurrent edits.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
       cliInput(
         "--expected-version",
@@ -664,9 +690,15 @@ export const agentProtocolCommands = Object.freeze([
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),
-      cliInput("--cwd", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--cwd",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "host-path" },
+      ),
       cliInput("--task", "single", true, {
         code: "missing_field",
       }),
@@ -682,7 +714,15 @@ export const agentProtocolCommands = Object.freeze([
     path: ["squad", "validate"],
     summary: "Validate one Squad declaration package before installing it.",
     method: "repo.task.read",
-    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
+    inputs: [
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "squad-install",
@@ -694,7 +734,13 @@ export const agentProtocolCommands = Object.freeze([
       "Install a Squad declaration, or update an existing one in place; --expected-version guards the update against concurrent edits.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
       cliInput("--expected-version", "single", false, { code: "invalid_field" }, { projection: "number" }),
     ],
@@ -721,7 +767,7 @@ export const agentProtocolCommands = Object.freeze([
     // One operation of the managed RBAC surface, like login; it declares no Action of its own.
     actionKind: "rbac-bootstrap",
     inputs: [
-      cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot" }),
+      cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot", pathKind: "host-path" }),
       cliInput(
         "--quota-bytes",
         "single",
@@ -804,7 +850,13 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--realm", "single", false, { code: "invalid_field" }),
       cliInput("--client-secret-stdin", "boolean", false, { code: "invalid_field" }, { field: "clientSecretStdin" }),
       cliInput("--client-id", "single", false, { code: "invalid_field" }, { field: "clientId" }),
-      cliInput("--backup-dir", "single", false, { code: "invalid_field" }, { field: "backupDir" }),
+      cliInput(
+        "--backup-dir",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "backupDir", pathKind: "host-path" },
+      ),
       cliInput(
         "--seconds",
         "single",
