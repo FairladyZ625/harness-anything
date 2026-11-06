@@ -308,6 +308,7 @@ test(
         assert.equal(config?.host, "127.0.0.1");
         assert.equal(config?.servername, "localhost");
         assert.equal(config?.loginUrl, `https://127.0.0.1:${loginPort}`);
+        assert.equal(config?.loginRealm, "harness");
         assert.equal(config?.loginServername, "localhost");
         assert.equal(config?.loginBrowserUrl, loginUrl);
       }
@@ -352,6 +353,7 @@ test(
     // accepted workspace config, so the positive control reaches its actual resident replica.
     const {
       loginUrl: _loginUrl,
+      loginRealm: _loginRealm,
       loginServername: _loginServername,
       loginBrowserUrl: _loginBrowserUrl,
       loginCertificate: _loginCertificate,

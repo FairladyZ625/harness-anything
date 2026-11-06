@@ -20,7 +20,16 @@ export interface ReplicaSyncActivity {
   readonly lastProgressAt: string;
   readonly bytesSent: number | null;
   readonly totalBytes: number | null;
+  readonly queuePosition: number | null;
+  readonly estimatedWaitMs: number | null;
 }
+
+export type ReplicaSyncActivityUpdate = {
+  readonly bytesSent?: number;
+  readonly totalBytes?: number;
+  readonly queuePosition?: number;
+  readonly estimatedWaitMs?: number | null;
+};
 
 export interface ReplicaSyncFailure {
   readonly code: string;
@@ -38,11 +47,7 @@ export function createReplicaStatusTracker(input: {
   const activity = new Map<string, ReplicaSyncActivity>();
   const failures = new Map<string, ReplicationSlotKey & { readonly failure: ReplicaSyncFailure }>();
   return {
-    recordActivity(
-      key: ReplicationSlotKey,
-      phase: ReplicaSyncPhase,
-      transfer?: { readonly bytesSent: number; readonly totalBytes: number },
-    ): void {
+    recordActivity(key: ReplicationSlotKey, phase: ReplicaSyncPhase, transfer?: ReplicaSyncActivityUpdate): void {
       const id = replicationSlotKey(key),
         previous = activity.get(id),
         now = input.now?.() ?? new Date().toISOString();
@@ -56,6 +61,8 @@ export function createReplicaStatusTracker(input: {
         totalBytes:
           transfer?.totalBytes ??
           (phase === "awaiting_ack" || phase === "waiting_socket_drain" ? (previous?.totalBytes ?? null) : null),
+        queuePosition: transfer?.queuePosition ?? null,
+        estimatedWaitMs: transfer?.estimatedWaitMs ?? null,
       });
     },
     clearActivity(key: ReplicationSlotKey): void {

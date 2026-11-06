@@ -26,6 +26,7 @@ import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import {
   evaluateFleetAction,
@@ -499,6 +500,9 @@ export function createDaemonHostRuntimeApi(
                   }
                 : {}),
               verifyHuman: (auth) => context.oidc.bind(auth),
+              ...(context.oidc.bindReplica
+                ? { verifyReplica: (auth: DaemonAuthenticationContext) => context.oidc.bindReplica!(auth) }
+                : {}),
               createMemberEdgeJoin: (repos, person, token) =>
                 context.accessAdmin.createMemberEdgeJoin(repos, person, token),
               edgeJoinStatus: (input) => context.accessAdmin.edgeJoinStatus(input),

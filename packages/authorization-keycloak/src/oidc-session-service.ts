@@ -25,7 +25,7 @@ import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
 import type { KeycloakSessionHost } from "./session-host.ts";
 import { managedRbacListenerUrl, managedRbacSessionStore } from "./managed-rbac-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
+import { verifyFleetHuman, verifyFleetReplica } from "./oidc-fleet-principal.ts";
 import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 import { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from "./oidc-device-confirmation-gateway.ts";
 
@@ -659,6 +659,30 @@ export class OidcSessionService {
         },
       },
     };
+  }
+
+  async bindReplica<T extends IdentityAuthenticationContext>(
+    auth: T,
+  ): Promise<(T & IdentityAuthenticationContext) | null> {
+    if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal || !auth.humanAccessToken) return null;
+    const config = this.#config(),
+      adminAccessToken = await this.#centerToken(),
+      provider = new KeycloakPolicyAdapter(
+        { url: config.url, realm: config.realm, resourceServerClientId: "harness-center" },
+        this.#ports.fetch,
+      );
+    return verifyFleetReplica({
+      auth,
+      url: config.url,
+      issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
+      realm: config.realm,
+      clientId: "harness-center",
+      clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
+      adminAccessToken,
+      fetch: this.#ports.fetch,
+      now: this.#ports.now(),
+      readNode: (nodeId) => provider.readNode(adminAccessToken, nodeId),
+    });
   }
 
   /** Public metadata comes from the center; an edge never writes a second Keycloak configuration. */

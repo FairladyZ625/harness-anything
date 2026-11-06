@@ -35,6 +35,8 @@ import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { verifyFleetReplica } from "@harness-anything/authorization-keycloak/oidc-fleet-principal";
+import { requestFleetReplicaToken } from "../src/fleet/replica-token.ts";
 
 export const replicationNodes = ["edge-one", "edge-two", "edge-three"] as const;
 export type ReplicationNodeId = (typeof replicationNodes)[number];
@@ -72,6 +74,7 @@ export async function fleetReplicationFixture(
     readonly replicationKeepaliveMs?: number;
     readonly now?: () => string;
     readonly storage?: DaemonStorageConfig;
+    readonly replicaAdmission?: boolean;
   } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-repl-")),
@@ -195,6 +198,23 @@ export async function fleetReplicationFixture(
     track: (close: () => void) => {
       trackedClosers.push(close);
     },
+    machineAccessToken: (nodeId: string) =>
+      requestFleetReplicaToken(
+        {
+          url: "https://keycloak.fixture",
+          realm: "harness",
+          nodeId,
+          credential: `secret-${nodeId}`,
+          ca: cert.toString(),
+        },
+        async (_input, init) => {
+          const form = new URLSearchParams(init?.body as URLSearchParams);
+          assert.equal(form.get("grant_type"), "client_credentials");
+          assert.equal(form.get("client_id"), `harness-node-${nodeId}`);
+          assert.equal(form.get("client_secret"), `secret-${nodeId}`);
+          return Response.json({ access_token: `service-token-${nodeId}`, expires_in: 300 });
+        },
+      ),
     /** Opens (or re-opens after a close) the fleet TLS center for this host. */
     openCenter: async (): Promise<FleetTlsCenter> => {
       const opened = await listenFleetTls({
@@ -216,6 +236,58 @@ export async function fleetReplicationFixture(
           (replicationNodes as readonly string[]).includes(nodeId) && credential === `secret-${nodeId}`,
         nodeOwner: owners.nodeOwner,
         verifyHuman: owners.verifyHuman,
+        ...(options.replicaAdmission === false
+          ? {}
+          : {
+              verifyReplica: async (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) => {
+                const token = auth.humanAccessToken;
+                if (!token?.startsWith("service-token-")) return null;
+                const claimedNodeId = token.slice("service-token-".length),
+                  clientId = `harness-node-${claimedNodeId}`;
+                return verifyFleetReplica({
+                  auth,
+                  url: "https://keycloak.fixture",
+                  issuerUrl: "https://keycloak.fixture",
+                  realm: "harness",
+                  clientId: "harness-center",
+                  clientSecret: "test-center-secret",
+                  adminAccessToken: "test-admin-token",
+                  now: Date.now(),
+                  readNode: async (nodeId) => {
+                    const personId = owners.nodeOwner(nodeId);
+                    return personId === null ? undefined : { personId, state: "active", revocation: "complete" };
+                  },
+                  fetch: (async (input, init) => {
+                    if (String(input).endsWith("/introspect")) {
+                      const form = new URLSearchParams(init?.body as URLSearchParams);
+                      if (form.get("token") !== token) return Response.json({ active: false });
+                      return Response.json({
+                        active: true,
+                        exp: Math.floor(Date.now() / 1000) + 300,
+                        iss: "https://keycloak.fixture/realms/harness",
+                        azp: clientId,
+                        aud: ["harness-center"],
+                        sub: `service-account-harness-node-${claimedNodeId}`,
+                      });
+                    }
+                    if (String(input).includes("/clients?clientId="))
+                      return Response.json([
+                        {
+                          id: `client-${claimedNodeId}`,
+                          clientId,
+                          enabled: true,
+                          serviceAccountsEnabled: true,
+                          fullScopeAllowed: false,
+                        },
+                      ]);
+                    return Response.json({
+                      id: `service-account-${clientId}`,
+                      enabled: true,
+                    });
+                  }) as typeof fetch,
+                });
+              },
+            }),
         revokeDeviceSessions: (nodeId: string) => createIdentitySession(userRoot).revokeDeviceSessions(nodeId),
         onError: (entry) => transportErrors.push({ nodeId: entry.nodeId, error: entry.error }),
       });

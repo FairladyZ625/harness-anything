@@ -47,6 +47,7 @@ test(
     writeFleetEdgeConfig(e.edgeRoot, {
       ...connection,
       loginUrl: f.owners.url,
+      loginRealm: "harness",
       loginBrowserUrl: f.owners.url,
     });
     f.owners.keycloak.interactiveSession(
@@ -68,6 +69,7 @@ test(
     const persisted = readFleetEdgeConfig(e.edgeRoot)!;
     const {
       loginUrl: _loginUrl,
+      loginRealm: _loginRealm,
       loginServername: _loginServername,
       loginBrowserUrl: _loginBrowserUrl,
       loginCertificate: _loginCertificate,
@@ -75,6 +77,7 @@ test(
     } = persisted;
     assert.deepEqual(persistedConnection, changed);
     assert.equal(persisted?.loginUrl, f.owners.url);
+    assert.equal(persisted?.loginRealm, "harness");
     assert.equal(persisted?.loginBrowserUrl, f.owners.url);
     const listed = await e.command({ kind: "task-list" });
     const rows = listed.rows as Array<{ readonly taskId?: string }>;

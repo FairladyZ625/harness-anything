@@ -16,6 +16,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import { fleetBaseBackupTrace } from "@harness-anything/storage";
 import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import {
@@ -124,6 +125,164 @@ test(
     await stream.stop();
   },
 );
+
+test("a service-account edge token completes replication without a human session", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-machine-auth-"));
+  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  const stream = startStream(t, fixture, viewRoot, fixture.centerPort(), 64 * 1024 * 1024, "edge-one", () =>
+    fixture.machineAccessToken("edge-one"),
+  );
+  assert.equal(
+    await waitForFleetReplicaReady({ viewRoot, repoId: replicationRepoId, nodeId: "edge-one" }),
+    true,
+    "the machine token admits the initial base backup and durable ACK",
+  );
+  const generation = readReplicaGeneration(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"));
+  assert.equal(generation?.metadata.readerProfile?.personId, "person-owner");
+  assert.equal(stream.failures.length, 0);
+  await stream.stop();
+
+  const humanPeer = await rawPeer(fixture.track, fixture.centerPort(), fixture.cert, "edge-one", "secret-edge-one"),
+    assignment = await humanPeer.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "machine-negative-control-assignment",
+      repoId: replicationRepoId,
+    });
+  humanPeer.close();
+  assert.equal(assignment.schema, "fleet.repo.metadata.result/v1");
+  if (assignment.schema !== "fleet.repo.metadata.result/v1") return;
+  const peer = await rawPeer(fixture.track, fixture.centerPort(), fixture.cert, "edge-one", "secret-edge-one", {
+    accessToken: await fixture.machineAccessToken("edge-one"),
+  });
+  const requireHuman = async (frame: Parameters<typeof peer.request>[0], message: string) => {
+      const result = await peer.request(frame);
+      assert.equal(result.schema, "fleet.error/v1", message);
+      if (result.schema === "fleet.error/v1") assert.equal(result.code, "human_confirmation_required", message);
+    },
+    eventsBefore = fixture.eventCount();
+  await requireHuman(
+    {
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "machine-metadata",
+      repoId: replicationRepoId,
+    },
+    "machine identity cannot read ordinary repository metadata",
+  );
+  await requireHuman(
+    { schema: "fleet.receipt.get/v1", messageId: "machine-receipt", repoId: replicationRepoId, opId: "unknown" },
+    "machine identity cannot read command receipts",
+  );
+  await requireHuman(
+    {
+      schema: "fleet.upload.begin/v1",
+      messageId: "machine-upload",
+      repoId: replicationRepoId,
+      opId: "machine-upload-op",
+      content: { sha256: "a".repeat(64), size: 1, mediaType: "application/octet-stream" },
+    },
+    "machine identity cannot upload content",
+  );
+  await requireHuman(
+    {
+      schema: "fleet.task.command/v1",
+      messageId: "machine-consent",
+      writerEpoch: assignment.writerEpoch,
+      opId: "machine-consent-op",
+      repoId: replicationRepoId,
+      taskId: seededTask.taskId,
+      action: {
+        kind: "task-review-consent",
+        taskId: seededTask.taskId,
+        executionId: "exe_machine",
+        reviewId: "review_machine",
+      },
+      docChanges: null,
+      mirrorBaseCut: null,
+    },
+    "machine identity cannot give task review consent",
+  );
+  assert.equal(fixture.eventCount(), eventsBefore, "machine task consent writes no canonical event");
+  await requireHuman(
+    {
+      schema: "fleet.edge.link.create/v1",
+      messageId: "machine-edge-link",
+      repoId: replicationRepoId,
+      repoIds: [replicationRepoId],
+    },
+    "machine identity cannot create human-authorized edge links",
+  );
+  peer.close();
+});
+
+test("a rejected replica identity is retained as the node's last failure without exposing its token", async (t) => {
+  const fixture = await fleetReplicationFixture(t),
+    center = await fixture.openCenter(),
+    viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-wrong-machine-"));
+  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  const stream = startStream(t, fixture, viewRoot, center.port, 64 * 1024 * 1024, "edge-one", () =>
+    fixture.machineAccessToken("edge-two"),
+  );
+  await waitForState(() => stream.failures.length > 0, "the center to reject a token for another node", 10_000);
+  const session = center.status().nodeSessions.find((row) => row.nodeId === "edge-one");
+  assert.equal(session?.lastFailure?.code, "fleet_replica_credential_rejected");
+  assert.match(session?.lastFailure?.message ?? "", /Fleet replica credential was rejected/u);
+  assert.doesNotMatch(session?.lastFailure?.message ?? "", /service-token-edge-two/u);
+  await stream.stop();
+});
+
+test("a machine token fails the human-only replica admission control", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t, { replicaAdmission: false }),
+    center = await fixture.openCenter(),
+    viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-human-only-control-"));
+  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  const stream = startStream(t, fixture, viewRoot, center.port, 64 * 1024 * 1024, "edge-one", () =>
+    fixture.machineAccessToken("edge-one"),
+  );
+  await waitForState(
+    () => stream.failures.length > 0,
+    "the human-only admission path to reject the machine token",
+    10_000,
+  );
+  assert.equal(
+    center.status().nodeSessions.find((row) => row.nodeId === "edge-one")?.lastFailure?.code,
+    "human_confirmation_required",
+  );
+  await stream.stop();
+});
+
+test("two edges starting together share one first base backup", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  await fixture.openCenter();
+  const viewRoots = ["edge-one", "edge-two"].map((nodeId) =>
+      mkdtempSync(path.join(tmpdir(), `ha-replica-${nodeId}-shared-backup-`)),
+    ),
+    started: unknown[] = [],
+    onStart = (message: unknown) => started.push(message);
+  fleetBaseBackupTrace.start.subscribe(onStart);
+  t.after(() => fleetBaseBackupTrace.start.unsubscribe(onStart));
+  t.after(() => viewRoots.forEach((viewRoot) => rmSync(viewRoot, { recursive: true, force: true })));
+  const streams = [
+    startStream(t, fixture, viewRoots[0]!, fixture.centerPort(), 64 * 1024 * 1024, "edge-one", () =>
+      fixture.machineAccessToken("edge-one"),
+    ),
+    startStream(t, fixture, viewRoots[1]!, fixture.centerPort(), 64 * 1024 * 1024, "edge-two", () =>
+      fixture.machineAccessToken("edge-two"),
+    ),
+  ];
+  assert.deepEqual(
+    await Promise.all(
+      ["edge-one", "edge-two"].map((nodeId, index) =>
+        waitForFleetReplicaReady({ viewRoot: viewRoots[index]!, repoId: replicationRepoId, nodeId }),
+      ),
+    ),
+    [true, true],
+  );
+  assert.equal(started.length, 1, "a repository has one archive build shared by all first-time replicas");
+  await Promise.all(streams.map((stream) => stream.stop()));
+});
 test("a legacy base-backup frame ends only its TLS replication session", { timeout: 30_000 }, async (t) => {
   const fixture = await fleetReplicationFixture(t),
     legacyMetadata = {
@@ -264,6 +423,8 @@ function startStream(
   viewRoot: string,
   port: number,
   diskQuotaBytes = 64 * 1024 * 1024,
+  nodeId = "edge-one",
+  accessToken: string | (() => Promise<string>) = `device-token-${nodeId}`,
 ) {
   const controller = new AbortController(),
     failures: unknown[] = [],
@@ -274,16 +435,16 @@ function startStream(
     port,
     ca: fixture.cert,
     servername: "localhost",
-    nodeId: "edge-one",
-    credential: "secret-edge-one",
-    readAccessToken: async () => "device-token-edge-one",
+    nodeId,
+    credential: `secret-${nodeId}`,
+    readAccessToken: async () => (typeof accessToken === "string" ? accessToken : accessToken()),
     repoId: replicationRepoId,
     viewRoot,
     diskQuotaBytes,
     signal: controller.signal,
     onFailure: (error) => {
       failures.push(error);
-      healthAtFailure.push(readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")));
+      healthAtFailure.push(readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", nodeId)));
     },
   });
   const stop = async () => {
@@ -630,7 +791,9 @@ test(
       viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"),
       mirrorSequence = () => readReplicaGeneration(viewDir)?.metadata.position.sequence ?? -1;
     const link = await relay(t, fixture.centerPort());
-    const stream = startStream(t, fixture, viewRoot, link.port);
+    const stream = startStream(t, fixture, viewRoot, link.port, 64 * 1024 * 1024, "edge-one", () =>
+      fixture.machineAccessToken("edge-one"),
+    );
     await waitForState(() => mirrorSequence() === centerSequence(fixture), "initial convergence", 60_000);
     fixture.owners.keycloak.revoke("person-owner", replicationRepoId, ["repository-read"]);
     // An explicit edge sync the center denies withholds the delivered rows at once, before the stream

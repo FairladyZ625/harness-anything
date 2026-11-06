@@ -52,6 +52,7 @@ export interface FleetCenterAdmissionRequest {
     | "nodeOwner"
     | "loginAuthority"
     | "verifyHuman"
+    | "verifyReplica"
     | "createMemberEdgeJoin"
     | "edgeJoinStatus"
     | "deviceLoginNotice"
@@ -318,6 +319,7 @@ function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
     nodeId: request.nodeId,
     credential: request.credential,
     ...(previous?.loginUrl ? { loginUrl: previous.loginUrl } : {}),
+    ...(previous?.loginRealm ? { loginRealm: previous.loginRealm } : {}),
     ...(previous?.loginServername ? { loginServername: previous.loginServername } : {}),
     ...(previous?.loginBrowserUrl ? { loginBrowserUrl: previous.loginBrowserUrl } : {}),
     ...(previous?.loginCertificate ? { loginCertificate: previous.loginCertificate } : {}),

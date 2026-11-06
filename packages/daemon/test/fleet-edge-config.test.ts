@@ -12,6 +12,8 @@ const valid = {
   host: "center",
   port: 7443,
   caPath: "/data/shared/fleet/fleet.crt",
+  loginUrl: "https://login.example",
+  loginRealm: "tenant-realm",
   nodeId: "edge-1",
   credential: "issued-at-registration",
   viewRoot: "/data/view",

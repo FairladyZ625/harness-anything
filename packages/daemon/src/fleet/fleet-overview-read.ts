@@ -302,7 +302,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
           ? { kind: "unavailable", reason: WATCH_REASON }
           : {
               kind: "value",
-              text: `center phase=${replica.activity.phase} since=${replica.activity.since} lastProgressAt=${replica.activity.lastProgressAt}${replica.activity.bytesSent === null ? "" : ` bytesSent=${replica.activity.bytesSent}/${replica.activity.totalBytes}`}; edge watch unavailable (${WATCH_REASON})`,
+              text: `center phase=${replica.activity.phase} since=${replica.activity.since} lastProgressAt=${replica.activity.lastProgressAt}${replica.activity.bytesSent === null ? "" : ` bytesSent=${replica.activity.bytesSent}/${replica.activity.totalBytes}`}${replica.activity.queuePosition === null ? "" : ` queuePosition=${replica.activity.queuePosition} estimatedWait=${replica.activity.estimatedWaitMs === null ? "unavailable (no completed backup sample)" : `${replica.activity.estimatedWaitMs}ms`}`}; edge watch unavailable (${WATCH_REASON})`,
             },
       lastFailure:
         session?.lastFailure == null

@@ -208,7 +208,15 @@ export async function fleetEdgeHostFixture(
   /** One CLI edge task command, as `ha task ...` sends it to the local daemon. */
   const command = async (action: Record<string, unknown>): Promise<Record<string, unknown>> => {
     id += 1;
-    const { schema: _schema, ...payload } = config;
+    const {
+      schema: _schema,
+      loginUrl: _loginUrl,
+      loginRealm: _loginRealm,
+      loginServername: _loginServername,
+      loginBrowserUrl: _loginBrowserUrl,
+      loginCertificate: _loginCertificate,
+      ...payload
+    } = config;
     const response = await rpc.handle({
       jsonrpc: "2.0",
       id,

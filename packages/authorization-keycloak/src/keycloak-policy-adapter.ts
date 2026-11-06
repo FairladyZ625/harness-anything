@@ -288,8 +288,9 @@ export class KeycloakPolicyAdapter
     for (const client of await this.#pages<NodeClient>(adminAccessToken, "/clients", "")) {
       if (client.clientId !== "harness-gui" && !client.clientId.startsWith(nodeClientPrefix)) continue;
       const current = await this.#json<Record<string, unknown>>(adminAccessToken, `/clients/${client.id}`);
+      const isNodeClient = client.clientId.startsWith(nodeClientPrefix);
       // Migrate the existing registry at its write boundary; business readers only consume device records.
-      const device = client.clientId.startsWith(nodeClientPrefix)
+      const device = isNodeClient
         ? (client.attributes?.harness_device ??
           JSON.stringify({
             ...newDevice({
@@ -305,10 +306,12 @@ export class KeycloakPolicyAdapter
           ...current,
           standardFlowEnabled: true,
           directAccessGrantsEnabled: false,
-          serviceAccountsEnabled: false,
+          serviceAccountsEnabled: isNodeClient,
+          ...(isNodeClient ? { fullScopeAllowed: false } : {}),
           redirectUris: ["http://127.0.0.1/*"],
           attributes: {
             ...client.attributes,
+            ...(isNodeClient ? { "access.token.lifespan": "300" } : {}),
             ...keycloakLoginAttributes,
             ...(device ? { harness_device: device } : {}),
           },
@@ -1028,11 +1031,17 @@ function nodeClientBody(config: KeycloakPolicyAdapterConfig, node: KeycloakNode)
     clientId: `${nodeClientPrefix}${node.nodeId}`,
     enabled: node.state === "active" && node.revocation === "complete",
     publicClient: false,
-    serviceAccountsEnabled: false,
+    serviceAccountsEnabled: true,
+    fullScopeAllowed: false,
     standardFlowEnabled: true,
     directAccessGrantsEnabled: false,
     redirectUris: ["http://127.0.0.1/*"],
-    attributes: { [personAttribute]: node.personId, harness_device: JSON.stringify(node), ...keycloakLoginAttributes },
+    attributes: {
+      [personAttribute]: node.personId,
+      harness_device: JSON.stringify(node),
+      "access.token.lifespan": "300",
+      ...keycloakLoginAttributes,
+    },
     protocolMappers: keycloakLoginMappers(config.resourceServerClientId),
   };
 }

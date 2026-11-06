@@ -141,6 +141,8 @@ import { createIdentitySession } from "./authorization-provider.ts";
 import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
+import { requestFleetReplicaToken } from "./fleet/replica-token.ts";
+import { systemCaCertificates } from "./tls-ca-certificate.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
@@ -294,6 +296,25 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   ) => {
     // Session authorization also consults Keycloak, without using the center supplier.
     await rbacResumed;
+    const replicaPrincipal = auth.fleetReplicaPrincipal;
+    if (replicaPrincipal) {
+      if (
+        auth.transportKind !== "fleet-tls" ||
+        auth.nodePrincipal?.nodeId !== replicaPrincipal.nodeId ||
+        auth.nodePrincipal.personId !== replicaPrincipal.personId ||
+        replicaPrincipal.expiresAt <= Date.now()
+      )
+        throw hostCodedError("fleet_replica_credential_rejected", "The Fleet replica credential was rejected.");
+      const base = {
+        actor: { principal: { personId: replicaPrincipal.personId }, executor: null },
+        source: { kind: "node" as const, nodeId: replicaPrincipal.nodeId },
+        keycloakAuthorization: {
+          center: keycloakCenter,
+          fleetReplicaPrincipal: replicaPrincipal,
+        },
+      };
+      return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
+    }
     const execution = auth.executionCredential
       ? await authenticateRuntimeExecutionPrincipal(keycloakCenter, auth.executionCredential)
       : auth.executionPrincipal;
@@ -1229,9 +1250,31 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
       const task = runFleetReplicaSync({
         readAccessToken: async () => {
-          const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
-          // Resolve the current session token at request time so refreshes are observed.
-          return auth.localSessionAccessToken ? await auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
+          let userToken: string | undefined;
+          try {
+            const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
+            userToken = auth.localSessionAccessToken
+              ? await auth.localSessionAccessToken()
+              : auth.oidcPrincipal?.accessToken;
+          } catch (error) {
+            const errorCode =
+              typeof error === "object" && error !== null && "code" in error
+                ? (error as { readonly code?: unknown }).code
+                : undefined;
+            if (errorCode !== "authentication_required") throw error;
+            consumeKnownError(error);
+          }
+          if (userToken) return userToken;
+          if (config.loginUrl && config.loginRealm)
+            return requestFleetReplicaToken({
+              url: config.loginUrl,
+              realm: config.loginRealm,
+              nodeId: config.nodeId,
+              credential: config.credential,
+              ca: config.loginCertificate ?? systemCaCertificates(),
+              ...(config.loginServername ? { servername: config.loginServername } : {}),
+            });
+          return undefined;
         },
         hostname: config.host,
         port: config.port,
@@ -1323,6 +1366,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                 }
               : {}),
             verifyHuman: (auth) => oidc.bind(auth),
+            ...(oidc.bindReplica
+              ? { verifyReplica: (auth: DaemonAuthenticationContext) => oidc.bindReplica!(auth) }
+              : {}),
             createMemberEdgeJoin: (repos, person, token) => accessAdmin.createMemberEdgeJoin(repos, person, token),
             edgeJoinStatus: (input) => accessAdmin.edgeJoinStatus(input),
             edgeJoin: (input) =>
