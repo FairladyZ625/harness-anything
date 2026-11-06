@@ -1,20 +1,24 @@
 ---
 name: harness-dsh-install
-description: 在 macOS 的 DeepSeek Harness 桌面端安装 Harness Anything、全部使用技能与 DSH 插件，并验证 ha、预设和教程入口。用于用户要求同时安装 Harness 与 DeepSeek Harness 插件；已有 Harness 时复用，不重新安装。
+description: 在 macOS 或 Windows 的 DeepSeek Harness 桌面端安装 Harness Anything、全部使用技能与 DSH 插件，并验证 ha、预设和教程入口。用于用户要求同时安装 Harness 与 DeepSeek Harness 插件；已有 Harness 时复用，不重新安装。
 ---
 
 # Harness + DeepSeek Harness 安装
 
 ## 边界与来源
 
-本技能从「已安装 DSH、尚未安装 Harness」带到工具、技能和插件可用；已有 Harness 时只补缺项。仅支持 macOS 桌面端。只装 Harness 使用 [harness-download](../harness-download/SKILL.md)；项目接入由 [harness-install](../harness-install/SKILL.md) 负责。下载、依赖与 CLI/daemon/GUI 构建配方只在 harness-download 维护，不在这里复制。
+本技能从「已安装 DSH、尚未安装 Harness」带到工具、技能和插件可用；已有 Harness 时只补缺项。支持 macOS 与 Windows 桌面端，以插件 `dsh.bundle.platforms` 为准。只装 Harness 使用 [harness-download](../harness-download/SKILL.md)；项目接入由 [harness-install](../harness-install/SKILL.md) 负责。下载、依赖与 CLI/daemon/GUI 构建配方只在 harness-download 维护，不在这里复制。
 
 安装对象以同一持久源码中的 `packages/dsh-plugin/package.json`、`cordis.patch.yml` 和本机 `dsh --help` 为准。插件为 private 时不得假定 npm 可安装；使用构建后的本地目录 `link:`。源码目录不能移动或删除。若所选正式源码中还没有该包，停止插件阶段，报告缺失路径与版本；不要自动切到其他人的开发分支。
 
 ## 1. 环境、版本和 profile（先只读）
 
-1. 检查 `uname -s`、`node --version`、`npm --version`、`git --version`、`command -v ha`，并核对已有 Harness 来源与版本。Node 要求取 Harness 根 `package.json` 的 `engines`，不能只满足插件较低的 Node 下限。
-2. DSH CLI 通常不在 PATH。先查用户已给的 App 位置，否则检查 `/Applications/DeepSeek Harness.app` 和 `~/Applications/DeepSeek Harness.app`。实际入口是 `<DSH App>/Contents/Resources/runtime/cli/bin/dsh`。使用完整引号路径运行 `--version` 和 `plugin --help`，不要依赖 shell alias。App 或 CLI 不存在时请用户先安装 macOS 桌面 DSH；本技能不代装或降级为 web profile。
+1. 检查操作系统（`uname -s`，Windows 上为 `MINGW*`/`MSYS*` 或 `node -p process.platform` 输出 `win32`）、`node --version`、`npm --version`、`git --version`、`command -v ha`，并核对已有 Harness 来源与版本。Node 要求取 Harness 根 `package.json` 的 `engines`，不能只满足插件较低的 Node 下限。
+2. DSH CLI 通常不在 PATH。先查用户已给的 App 位置：
+   - macOS：否则检查 `/Applications/DeepSeek Harness.app` 和 `~/Applications/DeepSeek Harness.app`，实际入口是 `<DSH App>/Contents/Resources/runtime/cli/bin/dsh`。
+   - Windows：安装目录由用户在安装时选择，不猜默认位置；从用户给出的目录或开始菜单快捷方式的目标定位 `DeepSeek Harness.exe` 所在目录，实际入口是 `<安装目录>\resources\runtime\cli\bin\dsh.cmd`。
+
+   使用完整引号路径运行 `--version` 和 `plugin --help`，不要依赖 shell alias。App 或 CLI 不存在时请用户先安装桌面 DSH；本技能不代装或降级为 web profile。
 3. 获取同一版本技能包对应的持久源码（复用 harness-download 的源码发现/获取步骤）。读取插件的 `engines.dsh`，用 SemVer CLI 对比上一步实测版本，包含 prerelease，与 DSH 自己的兼容规则相同。将占位值替换为该字段的实际范围和实测版本；`npm exec` 可临时取得工具，不要求先安装 Harness 依赖：
 
    ```bash
@@ -62,12 +66,14 @@ npm run build -w @harness-anything/dsh-plugin
 
 **普通用户首选：** DSH 桌面「插件 → 添加插件」，填入 `link:<持久源码绝对路径>/packages/dsh-plugin`，查看安装预览后确认。该入口识别本机绝对路径并走与 CLI 相同的 profile 包安装；不填写未发布的 npm 包名。安装作用于当前 App profile，先确认它正是用户选定的那个。提示重载/重启时先保存会话，按 UI 回执办理；不要自动终止 App 或宿主服务。
 
-**Agent 自动安装或 UI 不可用时的备选：** 用户确认 profile 后，以本机 CLI 的真实路径执行：
+**Agent 自动安装或 UI 不可用时的备选：** 用户确认 profile 后，以第 1 节找到的本机 DSH CLI 真实路径（macOS 为 `.../bin/dsh`，Windows 为 `...\bin\dsh.cmd`）执行：
 
 ```bash
-"<DSH App>/Contents/Resources/runtime/cli/bin/dsh" plugin --profile "<已确认的桌面 profile>" add "link:<持久源码绝对路径>/packages/dsh-plugin"
-"<DSH App>/Contents/Resources/runtime/cli/bin/dsh" plugin --profile "<已确认的桌面 profile>" list --depth 0
+"<DSH CLI>" plugin --profile "<已确认的桌面 profile>" add "link:<持久源码绝对路径>/packages/dsh-plugin"
+"<DSH CLI>" plugin --profile "<已确认的桌面 profile>" list --depth 0
 ```
+
+Windows 上 `link:` 后的源码路径用正斜杠书写（如 `link:D:/src/harness-anything/packages/dsh-plugin`）。插件在 Windows 上从 PATH 找到 npm 生成的 `ha.cmd`，直接以其中的 Node 入口启动 `ha`，不经过 `cmd.exe`；`ha` 若不是 npm 安装的命令脚本，看板会报 `ha_unavailable` 并给出原因。
 
 若插件已安装且来源、构建与版本均正确，只做回读验证，不重复 add。来源不同时先展示具体替换结果，不直接改用户版本。只通过插件管理入口修改选定 profile；不手改整个配置、不清空 overrides、不读取或打印 provider token。安装失败保留原始错误与现场，不静默换源、降级或修改 DSH。
 
@@ -84,4 +90,4 @@ npm run build -w @harness-anything/dsh-plugin
 
 ## 交付记录
 
-给出 macOS/Node/DSH 版本、插件 engines 范围、CLI 与持久源码位置和版本、确认的 profile、安装方式及回读结果、技能新增/保留/冲突、重启或刷新提示、实际验证命令与输出、教程/看板验收及未完成阶段。不记录凭据、浏览器存储或个人配置正文。下载成功、技能文件存在和插件安装回执是三个不同结果，分别报告。
+给出操作系统/Node/DSH 版本、插件 engines 范围、CLI 与持久源码位置和版本、确认的 profile、安装方式及回读结果、技能新增/保留/冲突、重启或刷新提示、实际验证命令与输出、教程/看板验收及未完成阶段。不记录凭据、浏览器存储或个人配置正文。下载成功、技能文件存在和插件安装回执是三个不同结果，分别报告。

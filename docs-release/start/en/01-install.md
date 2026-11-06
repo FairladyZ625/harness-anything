@@ -5,7 +5,7 @@ The CLI and daemon require Node.js 24 or newer. They are not currently published
 ## Choose your setup
 
 - **Harness Anything only:** ask your agent to follow [harness-download](../../../skills/harness-download/SKILL.md).
-- **Harness + the DeepSeek Harness plugin:** use the [copyable DSH setup prompt in the README](../../../README.md#harness-anything--deepseek-harness-plugin-macos). The [harness-dsh-install skill](../../../skills/harness-dsh-install/SKILL.md) reuses an existing Harness installation, fills missing skills while preserving custom versions, and installs the source-built private plugin into a desktop profile you confirm. Requires macOS and an installed DSH desktop App; the source checkout must contain `packages/dsh-plugin`. After the agent prepares the plugin, **Plugins → Add plugin** accepts its absolute `link:` path; the CLI is the fallback.
+- **Harness + the DeepSeek Harness plugin:** use the [copyable DSH setup prompt in the README](../../../README.md#harness-anything--deepseek-harness-plugin-macos-windows). The [harness-dsh-install skill](../../../skills/harness-dsh-install/SKILL.md) reuses an existing Harness installation, fills missing skills while preserving custom versions, and installs the source-built private plugin into a desktop profile you confirm. Requires an installed DSH desktop App on macOS or Windows; the source checkout must contain `packages/dsh-plugin`. After the agent prepares the plugin, **Plugins → Add plugin** accepts its absolute `link:` path; the CLI is the fallback.
 
 ## CLI and daemon
 

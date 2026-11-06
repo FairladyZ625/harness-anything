@@ -40,7 +40,7 @@ Choose the setup you need, then paste its prompt into your coding agent:
 
 | Harness Anything only | Harness Anything + DeepSeek Harness plugin |
 | --- | --- |
-| CLI, daemon, GUI and skills for your coding agents | The same Harness setup plus the plugin for an installed **macOS DSH desktop App** |
+| CLI, daemon, GUI and skills for your coding agents | The same Harness setup plus the plugin for an installed **DSH desktop App (macOS, Windows)** |
 | [harness-download](./skills/harness-download/SKILL.md) | [harness-dsh-install](./skills/harness-dsh-install/SKILL.md), reusing an existing Harness installation |
 
 ### Harness Anything only
@@ -56,12 +56,12 @@ approval is needed, show me the concrete proposal first, and do not ask again ab
 something I have already confirmed.
 ```
 
-### Harness Anything + DeepSeek Harness plugin (macOS)
+### Harness Anything + DeepSeek Harness plugin (macOS, Windows)
 
 Copy this single paragraph to your agent:
 
 ```text
-Read skills/harness-dsh-install/SKILL.md from https://github.com/FairladyZ625/harness-anything and use it to install Harness Anything, its complete skill set, and the plugin for my macOS DeepSeek Harness desktop App. Reuse my existing Harness installation and preserve customized skills; install only what is missing. Check the DSH version, list my profiles and let me confirm the desktop profile, then install the plugin and verify ha from DSH, the ha-ceo/ha-worker presets, the tutorial, and the Harness panel. Continue repository onboarding if this project needs it, and report any prerequisites or checks that remain incomplete.
+Read skills/harness-dsh-install/SKILL.md from https://github.com/FairladyZ625/harness-anything and use it to install Harness Anything, its complete skill set, and the plugin for my DeepSeek Harness desktop App (macOS or Windows). Reuse my existing Harness installation and preserve customized skills; install only what is missing. Check the DSH version, list my profiles and let me confirm the desktop profile, then install the plugin and verify ha from DSH, the ha-ceo/ha-worker presets, the tutorial, and the Harness panel. Continue repository onboarding if this project needs it, and report any prerequisites or checks that remain incomplete.
 ```
 
 The [installation skill](./skills/harness-dsh-install/SKILL.md) prepares the plugin
@@ -185,7 +185,7 @@ repository gets the same compounding mechanism.
 ## Install and run
 
 Choose [Harness Anything only](#harness-anything-only) or
-[Harness + DSH](#harness-anything--deepseek-harness-plugin-macos) above. Both setup
+[Harness + DSH](#harness-anything--deepseek-harness-plugin-macos-windows) above. Both setup
 skills use a persistent source checkout and require Node.js 24+.
 
 Find desktop App builds on the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).

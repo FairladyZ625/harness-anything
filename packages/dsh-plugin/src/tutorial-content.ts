@@ -112,11 +112,11 @@ const zh: TutorialCopy = {
     {
       id: "install",
       title: "一键安装 Harness 和全部 skill",
-      intro: "还没装 `ha`，或换了一台 Mac，把这句话发给 Agent。已经装好的部分会直接复用，不会重装。",
+      intro: "还没装 `ha`，或换了一台电脑，把这句话发给 Agent。已经装好的部分会直接复用，不会重装。",
       items: [
         {
           tag: "harness-dsh-install",
-          say: `用 harness-dsh-install skill（${skillUrl("harness-dsh-install")}）在这台 Mac 上安装 Harness Anything 和 DeepSeek Harness 插件：已装的直接复用，缺哪个 skill 补哪个，不要覆盖我改过的 skill，装完逐项验证并告诉我结果。`,
+          say: `用 harness-dsh-install skill（${skillUrl("harness-dsh-install")}）在这台电脑上安装 Harness Anything 和 DeepSeek Harness 插件：已装的直接复用，缺哪个 skill 补哪个，不要覆盖我改过的 skill，装完逐项验证并告诉我结果。`,
         },
         {
           title: "skill 装在哪",
@@ -400,11 +400,11 @@ const en: TutorialCopy = {
       id: "install",
       title: "Install Harness and every skill",
       intro:
-        "If `ha` is missing or you are on a new Mac, send this to the Agent. Anything already installed is reused, not reinstalled.",
+        "If `ha` is missing or you are on a new computer, send this to the Agent. Anything already installed is reused, not reinstalled.",
       items: [
         {
           tag: "harness-dsh-install",
-          say: `Use the harness-dsh-install skill (${skillUrl("harness-dsh-install")}) to install Harness Anything and the DeepSeek Harness plugin on this Mac. Reuse whatever is already installed, add only missing skills, do not overwrite skills I changed, then verify each part and report.`,
+          say: `Use the harness-dsh-install skill (${skillUrl("harness-dsh-install")}) to install Harness Anything and the DeepSeek Harness plugin on this computer. Reuse whatever is already installed, add only missing skills, do not overwrite skills I changed, then verify each part and report.`,
         },
         {
           title: "Where skills live",

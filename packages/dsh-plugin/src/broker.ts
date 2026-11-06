@@ -1,4 +1,6 @@
+import { readFileSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
 import type { BrokerFailure, BrokerResponse } from "./shared.ts";
 
 export { BROKER_ROUTE } from "./shared.ts";
@@ -134,6 +136,61 @@ function spawnCli(subprocess: BrokerSubprocessRuntime, argv: readonly string[], 
     };
   }
 }
+
+export interface WindowsCommandLookup {
+  readonly path: string;
+  readonly pathext: string;
+  isFile(file: string): boolean;
+  readText(file: string): string;
+}
+
+/** npm cmd-shim's launch line: `"%_prog%"  "%dp0%\<entry>" %*`. */
+const NPM_CMD_SHIM_ENTRY = /"%dp0%\\([^"]+)"\s+%\*/u;
+
+function windowsCommandPath(command: string, lookup: WindowsCommandLookup): string | undefined {
+  const extensions =
+    path.win32.extname(command) === "" ? lookup.pathext.toLowerCase().split(";").filter(Boolean) : [""];
+  const directories = path.win32.isAbsolute(command) ? [""] : lookup.path.split(";").filter(Boolean);
+  for (const directory of directories) {
+    for (const extension of extensions) {
+      const candidate =
+        directory === "" ? `${command}${extension}` : path.win32.join(directory, `${command}${extension}`);
+      if (lookup.isFile(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Windows argv for `ha`. The DSH Windows runner only tries `.com`/`.exe` for a
+ * bare name, and an npm-installed `ha` is a `.cmd` shim; running that shim would
+ * hand the user-controlled workspace path to cmd.exe. Run the shim's Node entry
+ * directly instead, and refuse any other batch file.
+ */
+export function windowsCliArgv(argv: readonly string[], lookup: WindowsCommandLookup): readonly string[] {
+  const [command = "", ...args] = argv;
+  const resolved = windowsCommandPath(command, lookup);
+  if (resolved === undefined) throw new Error(`${command} was not found on PATH`);
+  const extension = path.win32.extname(resolved).toLowerCase();
+  if (extension !== ".cmd" && extension !== ".bat") return [resolved, ...args];
+  const entry = NPM_CMD_SHIM_ENTRY.exec(lookup.readText(resolved))?.[1];
+  if (entry === undefined) {
+    throw new Error(
+      `${resolved} is not an npm command shim; set the plugin executable to an .exe or reinstall ha with npm`,
+    );
+  }
+  const directory = path.win32.dirname(resolved);
+  const bundledNode = path.win32.join(directory, "node.exe");
+  return [lookup.isFile(bundledNode) ? bundledNode : "node", path.win32.join(directory, entry), ...args];
+}
+
+/** Host lookup over the live environment; Windows environment names are case-insensitive in `process.env`. */
+export const hostWindowsCommandLookup = (): WindowsCommandLookup => ({
+  path: process.env.PATH ?? "",
+  pathext: process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+  isFile: (file) => statSync(file, { throwIfNoEntry: false })?.isFile() ?? false,
+  readText: (file) => readFileSync(file, "utf8"),
+});
 
 function launchBroker(
   subprocess: BrokerSubprocessRuntime,

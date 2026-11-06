@@ -6,6 +6,7 @@ import {
   chooseWorkspace,
   createBrokerManager,
   readRegisteredRepos,
+  windowsCliArgv,
   type BrokerSubprocessHandle,
   type BrokerSubprocessRuntime,
 } from "../src/broker.ts";
@@ -517,42 +518,46 @@ test("Host obtains embedding origin from its profile and webServer, never reques
     let dispose!: () => Promise<void>;
     let originReads = 0;
     const argv: string[][] = [];
-    applyHost({
-      subprocess: {
-        spawn(spec: { argv: string[] }) {
-          argv.push(spec.argv);
-          const next = child();
-          const status = spec.argv[1] === "daemon";
-          queueMicrotask(() => {
-            next.stdout.emit(
-              JSON.stringify(
-                status
-                  ? { ok: true, repos: [{ rootDir: "/repo", state: "attached" }] }
-                  : { ok: true, url: "http://127.0.0.1:4001/" },
-              ),
-            );
-            if (status) next.resolve({ exitCode: 0, signal: null });
-          });
-          return next.handle;
+    applyHost(
+      {
+        subprocess: {
+          spawn(spec: { argv: string[] }) {
+            argv.push(spec.argv);
+            const next = child();
+            const status = spec.argv[1] === "daemon";
+            queueMicrotask(() => {
+              next.stdout.emit(
+                JSON.stringify(
+                  status
+                    ? { ok: true, repos: [{ rootDir: "/repo", state: "attached" }] }
+                    : { ok: true, url: "http://127.0.0.1:4001/" },
+                ),
+              );
+              if (status) next.resolve({ exitCode: 0, signal: null });
+            });
+            return next.handle;
+          },
         },
-      },
-      get: () => ({ name: profile }),
-      workspaceRegistry: { list: () => [{ path: "/skills" }, { path: "/repo" }] },
-      webServer: {
-        getOrigin: () => {
-          originReads += 1;
-          return "http://127.0.0.1:4000";
+        get: () => ({ name: profile }),
+        workspaceRegistry: { list: () => [{ path: "/skills" }, { path: "/repo" }] },
+        webServer: {
+          getOrigin: () => {
+            originReads += 1;
+            return "http://127.0.0.1:4000";
+          },
+          register: (route: { handler: typeof handler }) => {
+            handler = route.handler;
+            return () => {};
+          },
         },
-        register: (route: { handler: typeof handler }) => {
-          handler = route.handler;
-          return () => {};
+        effect: (factory: () => typeof dispose) => {
+          dispose = factory();
         },
-      },
-      effect: (factory: () => typeof dispose) => {
-        dispose = factory();
-      },
-      logger: { info() {} },
-    } as never);
+        logger: { info() {} },
+      } as never,
+      {},
+      "darwin",
+    );
     assert.equal(originReads, 0, "origin is read only after the Host listener is ready");
     await handler(
       {
@@ -581,34 +586,38 @@ test("Host obtains embedding origin from its profile and webServer, never reques
 test("a Workspace registry failure is reported and never opens another repository", async () => {
   const argv: string[][] = [];
   let handler!: (request: never, response: never) => Promise<void>;
-  applyHost({
-    subprocess: {
-      spawn(command: readonly string[]) {
-        argv.push([...command]);
-        const next = child();
-        queueMicrotask(() => {
-          next.stdout.emit(JSON.stringify({ ok: true, repos: [{ rootDir: "/other", state: "attached" }] }));
-          next.resolve({ exitCode: 0, signal: null });
-        });
-        return next.handle;
+  applyHost(
+    {
+      subprocess: {
+        spawn(command: readonly string[]) {
+          argv.push([...command]);
+          const next = child();
+          queueMicrotask(() => {
+            next.stdout.emit(JSON.stringify({ ok: true, repos: [{ rootDir: "/other", state: "attached" }] }));
+            next.resolve({ exitCode: 0, signal: null });
+          });
+          return next.handle;
+        },
       },
-    },
-    get: () => ({ name: "desktop" }),
-    workspaceRegistry: {
-      list: () => {
-        throw new Error("registry offline");
+      get: () => ({ name: "desktop" }),
+      workspaceRegistry: {
+        list: () => {
+          throw new Error("registry offline");
+        },
       },
-    },
-    webServer: {
-      getOrigin: () => "http://127.0.0.1:4000",
-      register: (route: { handler: typeof handler }) => {
-        handler = route.handler;
-        return () => {};
+      webServer: {
+        getOrigin: () => "http://127.0.0.1:4000",
+        register: (route: { handler: typeof handler }) => {
+          handler = route.handler;
+          return () => {};
+        },
       },
-    },
-    effect: () => {},
-    logger: { info() {} },
-  } as never);
+      effect: () => {},
+      logger: { info() {} },
+    } as never,
+    {},
+    "darwin",
+  );
   let status = 0;
   let body = "";
   await handler(
@@ -630,4 +639,90 @@ test("a Workspace registry failure is reported and never opens another repositor
     false,
     "no broker starts on a repository the selection could not be checked against",
   );
+});
+
+const NPM_SHIM = [
+  "@ECHO off",
+  String.raw`IF EXIST "%dp0%\node.exe" (`,
+  String.raw`  SET "_prog=%dp0%\node.exe"`,
+  ")",
+  String.raw`endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_modules\@harness-anything\cli\dist\cli\src\index.js" %*`,
+].join("\r\n");
+
+function windowsLookup(files: Record<string, string>) {
+  return {
+    path: String.raw`C:\Windows;C:\npm`,
+    pathext: ".COM;.EXE;.BAT;.CMD",
+    isFile: (file: string) => Object.hasOwn(files, file),
+    readText: (file: string) => files[file] ?? "",
+  };
+}
+
+test("Windows runs an npm ha shim's Node entry directly, never through cmd.exe", () => {
+  const entry = String.raw`C:\npm\node_modules\@harness-anything\cli\dist\cli\src\index.js`;
+  const workspace = String.raw`C:\a&b %x%`;
+  // The extensionless POSIX shim beside ha.cmd is never selected.
+  const files = { [String.raw`C:\npm\ha`]: "#!/bin/sh", [String.raw`C:\npm\ha.cmd`]: NPM_SHIM };
+  assert.deepEqual(windowsCliArgv(["ha", "gui", "--root", workspace], windowsLookup(files)), [
+    "node",
+    entry,
+    "gui",
+    "--root",
+    workspace,
+  ]);
+  const bundledNode = String.raw`C:\npm\node.exe`;
+  assert.deepEqual(
+    windowsCliArgv(["ha", "--json"], windowsLookup({ ...files, [bundledNode]: "" })),
+    [bundledNode, entry, "--json"],
+    "the shim's bundled node.exe wins, as in the shim itself",
+  );
+});
+
+test("Windows keeps an .exe ha and refuses batch files and missing commands", () => {
+  const onPath = String.raw`C:\Windows\ha.exe`;
+  assert.deepEqual(windowsCliArgv(["ha", "--json"], windowsLookup({ [onPath]: "" })), [onPath, "--json"]);
+  const absolute = String.raw`D:\tools\ha.exe`;
+  assert.deepEqual(windowsCliArgv([absolute], windowsLookup({ [absolute]: "" })), [absolute]);
+  assert.throws(
+    () => windowsCliArgv(["ha"], windowsLookup({ [String.raw`C:\npm\ha.bat`]: "@echo off\r\nnode ha.js %*" })),
+    /not an npm command shim/u,
+  );
+  assert.throws(() => windowsCliArgv(["ha"], windowsLookup({})), /ha was not found on PATH/u);
+});
+
+test("on Windows the Host reports an unresolvable ha instead of spawning it", async () => {
+  const spawned: unknown[] = [];
+  let handler!: (request: never, response: never) => Promise<void>;
+  applyHost(
+    {
+      subprocess: {
+        spawn(spec: unknown) {
+          spawned.push(spec);
+          return child().handle;
+        },
+      },
+      get: () => ({ name: "desktop" }),
+      workspaceRegistry: { list: () => [{ path: String.raw`C:\repo` }] },
+      webServer: {
+        getOrigin: () => "http://127.0.0.1:4000",
+        register: (route: { handler: typeof handler }) => {
+          handler = route.handler;
+          return () => {};
+        },
+      },
+      effect: () => {},
+      logger: { info() {} },
+    } as never,
+    { executable: String.raw`Z:\missing-harness-anything\ha` },
+    "win32",
+  );
+  let body = "";
+  await handler(
+    { method: "GET", url: "/__harness_anything/broker", headers: {} } as never,
+    { setHeader() {}, end: (text: string) => (body = text) } as never,
+  );
+  assert.deepEqual(spawned, []);
+  const error = (JSON.parse(body) as { error: { code: string; hint: string } }).error;
+  assert.equal(error.code, "ha_unavailable");
+  assert.match(error.hint, /was not found on PATH/u);
 });
