@@ -32,7 +32,7 @@ import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
+import { presetSnapshotReader, reclaimReviewWorktree, taskOutputShape } from "./task-worktree.ts";
 import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
@@ -782,6 +782,11 @@ export async function publishExit(
     rejectSettlement(error);
     throw error;
   } finally {
+    if (!settlementFailed && active.role === "reviewer") {
+      const reviewCleanupFailure = await reclaimReviewWorktree(context.input.rootDir, active.cwd);
+      if (reviewCleanupFailure)
+        console.error(`[review-worktree] ${active.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+    }
     context.exiting.delete(active.runtimeSessionId);
     if (context.processes.get(active.runtimeSessionId) !== active) active.releaseAuthorization?.();
     if (!settlementFailed) resolveSettlement();

@@ -329,8 +329,13 @@ test(
         1,
         `the frozen cut must dispatch one reviewer: ${JSON.stringify(submitted.warnings ?? [])}`,
       );
-      assert.equal(f.launches[0]!.cwd, worktree, "the reviewer inspects the frozen cut in the task worktree");
-      assert.equal(gitIn(worktree, "rev-parse", "HEAD"), frozen, "the reviewer checkout is the frozen commit");
+      assert.notEqual(f.launches[0]!.cwd, worktree, "the reviewer does not reuse the mutable task worktree");
+      assert.equal(
+        gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"),
+        frozen,
+        "the reviewer snapshot is the frozen commit",
+      );
+      assert.equal(gitIn(worktree, "rev-parse", "HEAD"), frozen, "the worker checkout remains untouched");
       assert.doesNotMatch(JSON.stringify(submitted.warnings ?? []), /task_worktree_diverged|is behind/u);
     } finally {
       await f.close();
@@ -362,57 +367,44 @@ test(
       })) as Record<string, unknown>;
       assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
       assert.equal(f.launches.length, 1, JSON.stringify(dispatched));
-      assert.equal(f.launches[0]!.cwd, worktree);
+      assert.notEqual(f.launches[0]!.cwd, worktree);
       assert.equal(
-        gitIn(worktree, "rev-parse", "HEAD"),
+        gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"),
         frozen,
-        "a fresh reviewer checkout is created at the frozen cut",
+        "a fresh reviewer snapshot is created at the frozen cut",
       );
-      assert.equal(
-        gitIn(f.root, "rev-parse", `refs/heads/${taskId}-superseded-${wip.slice(0, 12)}`),
-        wip,
-        "the surviving stale branch is preserved under its own name",
-      );
+      assert.equal(gitIn(f.root, "rev-parse", `refs/heads/${taskId}`), wip, "the stale task branch is untouched");
     } finally {
       await f.close();
     }
   },
 );
 
-test(
-  "a reviewer refuses a stale existing worktree instead of reviewing the wrong commit",
-  { timeout: 30_000 },
-  async () => {
-    const f = await fixture(false, true, false, false, false, {
-      autoSubmit: false,
-      create: { presetId: "standard-task" },
-    });
-    try {
-      const worktree = path.join(f.root, ".worktrees", taskId),
-        { frozen } = publishSupersededWipCut(f, worktree);
-      await submitWithDeferredReview(f);
-      // Another node may still hold an old checkout of this task. A review must not silently
-      // inspect that tree and register a verdict against the frozen cut.
-      gitIn(worktree, "reset", "--hard", `${frozen}~1`);
-      const dispatched = (await f.run({
-        kind: "task-dispatch-review",
-        taskIds: [taskId],
-        agentId: "closeout-reviewer",
-      })) as Record<string, unknown>;
-      assert.equal(dispatched.outcome, "op_rejected", JSON.stringify(dispatched));
-      assert.equal(dispatched.code, "review_dispatch_failed", JSON.stringify(dispatched));
-      assert.match(
-        String(dispatched.rejectionExplanation),
-        /review_checkout_commit_mismatch|frozen delivery commit/u,
-        JSON.stringify(dispatched),
-      );
-      assert.equal(f.launches.length, 0, "a mismatched checkout must not start a reviewer");
-      assert.notEqual(gitIn(worktree, "rev-parse", "HEAD"), frozen);
-    } finally {
-      await f.close();
-    }
-  },
-);
+test("a reviewer ignores a stale worker worktree and reviews the frozen snapshot", { timeout: 30_000 }, async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    create: { presetId: "standard-task" },
+  });
+  try {
+    const worktree = path.join(f.root, ".worktrees", taskId),
+      { frozen } = publishSupersededWipCut(f, worktree);
+    await submitWithDeferredReview(f);
+    // Another node may still hold an old checkout of this task. The review uses an independent
+    // snapshot, so it must not reject or inspect that tree.
+    gitIn(worktree, "reset", "--hard", `${frozen}~1`);
+    const dispatched = (await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "closeout-reviewer",
+    })) as Record<string, unknown>;
+    assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
+    assert.equal(f.launches.length, 1, "a stale worker checkout must not block the reviewer");
+    assert.equal(gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"), frozen);
+    assert.notEqual(gitIn(worktree, "rev-parse", "HEAD"), frozen);
+  } finally {
+    await f.close();
+  }
+});
 
 test("a reviewer never moves a task branch checked out by another worktree", { timeout: 30_000 }, async () => {
   const f = await fixture(false, true, false, false, false, {
@@ -444,18 +436,13 @@ test("a reviewer never moves a task branch checked out by another worktree", { t
       taskIds: [taskId],
       agentId: "closeout-reviewer",
     })) as Record<string, unknown>;
-    assert.equal(dispatched.outcome, "op_rejected", JSON.stringify(dispatched));
-    assert.equal(dispatched.code, "review_dispatch_failed", JSON.stringify(dispatched));
-    assert.match(
-      String(dispatched.rejectionExplanation),
-      /cannot use branch .* checked out at/u,
-      JSON.stringify(dispatched),
-    );
-    assert.equal(f.launches.length, 0, "a branch owned by another worktree must not start a reviewer");
+    assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
+    assert.equal(f.launches.length, 1, "a branch owned by another worktree must not block a reviewer");
     assert.equal(gitIn(peer, "branch", "--show-current"), taskId, "the peer keeps its branch name");
     assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`, "the peer keeps its symbolic HEAD");
     assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip, "the peer keeps its HEAD commit");
     assert.equal(peerEntry(), peerBefore, "the peer worktree entry keeps its branch, HEAD and config identity");
+    assert.equal(gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"), frozen);
     assert.notEqual(frozen, wip);
   } finally {
     await f.close();

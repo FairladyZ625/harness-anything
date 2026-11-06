@@ -24,6 +24,7 @@ import {
   applyTaskWorktreeLifecycle,
   checkoutTaskWorktree,
   prepareTaskStartWorktree,
+  reclaimReviewWorktree,
   reconcileClosedTaskWorktrees,
   taskWorkspaceView,
 } from "../src/task-worktree.ts";
@@ -957,6 +958,28 @@ test("handoff checkout uses the accepted SHA even when the published branch adva
   assert.ok(checkout);
   assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), accepted);
   assert.equal(checkout.baseRef, accepted);
+});
+
+test("review checkout uses a detached frozen snapshot beside the worker worktree", async (t) => {
+  const fixture = repositoryFixture(t);
+  t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
+  const worker = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!,
+    frozen = git(worker.cwd, "rev-parse", "HEAD");
+  writeFileSync(path.join(worker.cwd, "worker-change.txt"), "worker change\n");
+  git(worker.cwd, "add", "worker-change.txt");
+  git(worker.cwd, "commit", "-qm", "worker change");
+  const workerHead = git(worker.cwd, "rev-parse", "HEAD");
+  const review = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup(), undefined, undefined, {
+    pinnedCommit: frozen,
+  }))!;
+  assert.notEqual(review.cwd, worker.cwd);
+  assert.equal(git(review.cwd, "rev-parse", "HEAD"), frozen);
+  assert.equal(git(review.cwd, "branch", "--show-current"), "");
+  assert.equal(git(worker.cwd, "rev-parse", "HEAD"), workerHead);
+  assert.equal(existsSync(path.join(review.cwd, "worker-change.txt")), false);
+  assert.equal(await reclaimReviewWorktree(fixture.root, review.cwd), null);
+  assert.equal(existsSync(review.cwd), false);
+  assert.equal(existsSync(worker.cwd), true);
 });
 
 test("handoff checkout rejects dirty, mismatched, missing and non-SHA anchors without changing the tree", async (t) => {
