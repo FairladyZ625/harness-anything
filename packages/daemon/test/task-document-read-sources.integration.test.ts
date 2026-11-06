@@ -14,7 +14,13 @@ import test, { type TestContext } from "node:test";
 import threads, { type WorkerOptions } from "node:worker_threads";
 import { sha256Text } from "@harness-anything/kernel";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
-import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import {
+  makeDaemonProjectionReader,
+  makeTaskEventReader,
+  makeTaskEventStore,
+  makeTaskProjection,
+} from "@harness-anything/storage";
+import { readProjectedDocument } from "../src/doc-sync-reads.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
 import { readTaskWorktreeExecutionBinding, taskWorktreeExecutionBindingPath } from "../src/task-worktree.ts";
@@ -498,6 +504,70 @@ test("a same-execution re-entry publishes a marker for the new lease generation"
     assert.equal(observed.execution?.leaseVersion, after?.snapshot.lease?.version);
     assert.equal(observed.body, fixture.v2Body);
   } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("release and same-execution re-entry between snapshot and bytes cannot mix lease A with workspace B", async () => {
+  const fixture = await startTaskWithTwoCuts(),
+    repoId = workspaceId("task-doc-sources"),
+    reader = makeDaemonProjectionReader({ repoId, rootDir: fixture.rootDir }),
+    store = makeTaskEventReader({ repoId, rootDir: fixture.rootDir });
+  try {
+    // Pause the observation at the projection.read boundary after it has obtained A. The rest
+    // resumes only after the real writer has accepted release/re-entry and published B's marker.
+    const before = reader.withSession((projection) => projection.read(taskId)),
+      leaseA = before.snapshot.lease,
+      markerA = readTaskWorktreeExecutionBinding(executionWorktree(fixture), executionId).binding;
+    assert.ok(leaseA);
+    assert.ok(markerA);
+    assert.equal((await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding)).outcome, "applied");
+    const restarted = await fixture.cell.run({ kind: "task-start", taskId, executionId }, fixture.binding);
+    assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
+    const markerB = readTaskWorktreeExecutionBinding(executionWorktree(fixture), executionId).binding,
+      leaseB = reader.withSession((projection) => projection.currentLease(taskId)),
+      bodyB = `${fixture.v2Body}\nNew acquisition B.\n`;
+    assert.ok(markerB);
+    assert.ok(leaseB);
+    assert.ok(markerB.acquiredRevision > markerA.acquiredRevision);
+    assert.notEqual(leaseB.version, leaseA.version);
+    writeFileSync(path.join(executionWorktree(fixture), "harness", fixture.packagePath, "task_plan.md"), bodyB);
+
+    let snapshotReads = 0;
+    const observed = reader.withSession((projection) =>
+      readProjectedDocument(
+        {
+          rootDir: fixture.rootDir,
+          store,
+          projection: {
+            ...projection,
+            // Return the paused A once; subsequent reads see the actual B projection cut.
+            read: (...args) => (++snapshotReads === 1 ? before : projection.read(...args)),
+          } as Parameters<typeof readProjectedDocument>[0]["projection"],
+        },
+        { taskId, path: "task_plan.md", view: "execution", executionId },
+      ),
+    );
+    assert.equal(observed.source, "unobservable", "B bytes must never carry A's released lease");
+    assert.equal(observed.body, "");
+    assert.equal(observed.execution, null);
+    assert.equal(observed.blobSha256, null);
+
+    // A fresh observation must remain usable and bind B's actual bytes and lease together.
+    const fresh = await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    });
+    assert.equal(fresh.source, "execution");
+    assert.equal(fresh.body, bodyB);
+    assert.equal(fresh.execution?.leaseVersion, leaseB.version);
+    assert.equal(fresh.execution?.leaseExpiresAt, leaseB.expiresAt);
+  } finally {
+    reader.close();
+    await store.drain();
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
   }

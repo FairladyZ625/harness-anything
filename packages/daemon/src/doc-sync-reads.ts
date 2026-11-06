@@ -726,10 +726,21 @@ function observeExecution(
     marker.binding.executionId !== executionId
   )
     return { reason: "execution_workspace_unbound" };
-  if (marker.binding.acquiredRevision !== taskLeaseAcquiredRevision(context.projection, lease.taskId, executionId))
-    return { reason: "execution_workspace_stale_marker" };
   const row = readWorktreeDocument(workspace.root, requested, binary);
   if (row === null) return { reason: "document_not_observed" };
+  // Validate after the filesystem read: a release/re-entry may have published a new workspace
+  // since the task snapshot. Lease and interval use the same projection context/cut; neither a
+  // new marker nor new bytes may be paired with the old snapshot's lease.
+  const currentLease = context.projection.currentLease(lease.taskId);
+  if (
+    currentLease === null ||
+    !leaseIsEffective(currentLease) ||
+    currentLease.executionId !== executionId ||
+    currentLease.source !== "local" ||
+    currentLease.version !== lease.version ||
+    marker.binding.acquiredRevision !== taskLeaseAcquiredRevision(context.projection, lease.taskId, executionId)
+  )
+    return { reason: "execution_workspace_stale_marker" };
   return {
     cut: cutOfWorktree(row, requested, binary),
     binding: {
