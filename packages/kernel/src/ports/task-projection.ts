@@ -348,6 +348,9 @@ export interface TaskProjection {
   readonly readDecisionIncomingRelations: (decisionId: string) => DecisionGraphProjectionRead["edges"];
   readonly readDecisionCoverage: (decisionIds: readonly string[]) => DecisionCoverageProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[];
+  /** The task's newest acquisition only (highest acquiredRevision), one index seek rather than its
+   * re-entry history. `null` means no lease was ever acquired for the task. */
+  readonly readLatestLeaseInterval: (taskId: string) => LeaseInterval | null;
   readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
   readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1;

@@ -395,7 +395,7 @@ async function renewFixtureLease(fixture: Awaited<ReturnType<typeof startTaskWit
   try {
     const service = makeTaskLifecycleService({ eventStore: store, projection }),
       before = projection.currentLease(taskId),
-      beforeInterval = projection.readLeaseIntervals(taskId).at(-1);
+      beforeInterval = projection.readLatestLeaseInterval(taskId);
     assert.ok(before, "renewal requires the started lease");
     const revision = store.read().revision + 1,
       renewed = await service.renewLease({
@@ -412,7 +412,7 @@ async function renewFixtureLease(fixture: Awaited<ReturnType<typeof startTaskWit
       });
     assert.equal(renewed.version, before.version + 1);
     assert.equal(store.readTaskEvent("op-document-source-renew")?.type, "lease_renewed");
-    const interval = projection.readLeaseIntervals(taskId).at(-1);
+    const interval = projection.readLatestLeaseInterval(taskId);
     assert.ok(interval);
     assert.equal(interval.releasedRevision, null);
     assert.equal(interval.acquiredRevision, beforeInterval?.acquiredRevision, "renewal preserves acquisition identity");
