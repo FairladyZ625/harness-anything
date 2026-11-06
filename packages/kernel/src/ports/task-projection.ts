@@ -57,6 +57,8 @@ import type { EntityFreshness, EntityVersion, EntityVersionWitness } from "../do
 export interface RuntimeSessionReadQuery {
   /** Point lookup for a local live stream whose canonical session may already be settled. */
   readonly runtimeSessionId?: string;
+  /** Sessions bound to this provider session, settled or not. A resume names one native session. */
+  readonly providerSessionId?: string;
   /** Only sessions whose canonical outcome is still unset. Recovery must not scan settled history. */
   readonly unsettledOnly?: boolean;
   /**

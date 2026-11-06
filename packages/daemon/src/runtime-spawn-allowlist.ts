@@ -1,4 +1,4 @@
-import type { RepositorySettingsV1, TaskProjection } from "@harness-anything/kernel";
+import type { RepositorySettingsV1, RuntimeSessionReadQuery, TaskProjection } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
 import type { ActiveRuntime, RuntimeSessionSelection, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
@@ -8,6 +8,7 @@ export async function resolveRuntimeDispatchResources(
   remote: RuntimeSpawnerInput["remote"],
   projection: TaskProjection | null,
   processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
+  providerSessionId?: string,
 ): Promise<
   readonly [
     readonly RuntimeSessionSelection[],
@@ -17,7 +18,17 @@ export async function resolveRuntimeDispatchResources(
     readonly RuntimeSessionSelection[],
   ]
 > {
-  const runtimeSessions = remote ? await remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
+  // Dispatch needs instance load and recovery from the unsettled set, plus the one native session a
+  // resume names (usually settled). Settled history beyond that is never read.
+  const read = (query: RuntimeSessionReadQuery) =>
+      remote ? remote.readRuntimeSessions(query) : projection!.readRuntimeSessions(query),
+    byId = new Map<string, RuntimeSessionSelection>();
+  for (const session of [
+    ...(await read({ unsettledOnly: true })),
+    ...(providerSessionId === undefined ? [] : await read({ providerSessionId })),
+  ])
+    byId.set(session.runtimeSessionId, session);
+  const runtimeSessions = [...byId.values()].sort((a, b) => (a.runtimeSessionId < b.runtimeSessionId ? -1 : 1)),
     localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
     runtimeInstances = input.runtimeInstances?.() ?? [];
   const settings = remote

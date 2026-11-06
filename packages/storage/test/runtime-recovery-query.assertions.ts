@@ -58,6 +58,12 @@ export async function appendRecoveryQueryFixtures(
       launchGeneration: 1,
       attachable: false,
     });
+    // a (unsettled) and c (settled) resumed one native session; b has its own.
+    await put("runtime_session_provider_bound", {
+      runtimeSessionId: id,
+      providerSessionId: suffix === "b" ? "provider-query-b" : "provider-query-shared",
+      transcriptRef: `artifact:runtime-transcript/${id}`,
+    });
     if (suffix === "c")
       await put("runtime_session_outcome_observed", {
         runtimeSessionId: id,
@@ -86,6 +92,9 @@ export function assertRecoveryQueryContract(queries: TaskProjectionQueries): voi
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", executionOwnerNodeId: "node-query-b" }), []);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", unsettledOnly: true }), []);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-a", unsettledOnly: true }), ["recovery-query-a"]);
+  assert.deepEqual(ids({ providerSessionId: "provider-query-shared" }), ["recovery-query-a", "recovery-query-c"]);
+  assert.deepEqual(ids({ providerSessionId: "provider-query-shared", unsettledOnly: true }), ["recovery-query-a"]);
+  assert.deepEqual(ids({ providerSessionId: "provider-query-missing" }), []);
   assert.deepEqual(
     queries.readRuntimeSessions({ runtimeSessionId: "recovery-query-a" })[0],
     queries.readRuntimeSession("recovery-query-a"),

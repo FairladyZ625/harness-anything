@@ -223,3 +223,56 @@ test("a new node-origin session records its execution owner for recovery", async
     projection.close();
   });
 });
+
+test("a provider-session read seeks its index on a projection written before the index existed", async (t) => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "runtime-provider-read", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store });
+    projection.catchUp();
+    const projectionPath = projection.path;
+    projection.close();
+
+    const db = new DatabaseSync(projectionPath);
+    db.exec("DROP INDEX runtime_session_provider_session");
+    const insert = db.prepare(
+      "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?)",
+    );
+    const withProvider = (runtimeSessionId: string, outcome: string | null, providerSessionId: string) =>
+      JSON.stringify({ ...session(runtimeSessionId, outcome), providerSessionId });
+    for (let index = 0; index < settledCount; index += 1) {
+      const runtimeSessionId = `runtime-settled-${String(index).padStart(5, "0")}`;
+      insert.run(runtimeSessionId, index + 1, withProvider(runtimeSessionId, "succeeded", `native-${index}`));
+    }
+    insert.run("runtime-resumed-b", settledCount + 1, withProvider("runtime-resumed-b", null, "native-7"));
+    db.close();
+
+    const reopened = makeTaskProjection({ rootDir, eventStore: store, projectionPath });
+    assert.deepEqual(
+      reopened.readRuntimeSessions({ providerSessionId: "native-7" }).map(({ runtimeSessionId }) => runtimeSessionId),
+      ["runtime-resumed-b", "runtime-settled-00007"],
+      "settled and unsettled sessions of the named provider session, in id order",
+    );
+    assert.deepEqual(reopened.readRuntimeSessions({ providerSessionId: "native-missing" }), []);
+    reopened.close();
+
+    const planDb = new DatabaseSync(projectionPath);
+    planDb.exec("ANALYZE");
+    const planText = planDb
+      .prepare(
+        [
+          "EXPLAIN QUERY PLAN",
+          "SELECT value_json FROM runtime_session",
+          "WHERE json_extract(value_json, '$.providerSessionId') = ? ORDER BY runtime_session_id",
+        ].join(" "),
+      )
+      .all("native-7")
+      .map(({ detail }) => String(detail))
+      .join("\n");
+    planDb.close();
+    t.diagnostic(planText);
+    assert.match(planText, /SEARCH runtime_session USING INDEX runtime_session_provider_session \(<expr>=\?\)/u);
+    assert.doesNotMatch(planText, /SCAN runtime_session/u, planText);
+    await store.drain();
+  });
+});

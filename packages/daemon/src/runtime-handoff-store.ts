@@ -290,8 +290,9 @@ export function admitHandoffDispatch(
     throw runtimeSpawnError("runtime_handoff_missing", "The handoff checkpoint does not match its source dispatch.");
   if (!checkpoint) {
     if (!sourceId && typeof payload.resumeProviderSessionId === "string") {
-      for (const session of cell.projection.readRuntimeSessions()) {
-        if (session.providerSessionId !== payload.resumeProviderSessionId) continue;
+      for (const session of cell.projection.readRuntimeSessions({
+        providerSessionId: payload.resumeProviderSessionId,
+      })) {
         const dispatch = cell.projection.readRuntimeDispatch(session.runtimeSessionId);
         if (dispatch && readHandoffCheckpoint(cell.rootDir, dispatch.payload.dispatchId))
           throw runtimeSpawnError(
