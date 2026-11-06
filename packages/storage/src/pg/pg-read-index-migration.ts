@@ -1,4 +1,4 @@
-import { assertPgPhysicalIndexesReady } from "./pg-read-index-status.ts";
+import { pendingPgPhysicalIndex } from "./pg-read-index-status.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -128,11 +128,11 @@ export function readIndexDdl(): readonly string[] {
 }
 
 /** Missing derived fields never become a second, history-scanning read path. */
-export async function pgProjectionReadSource(
+export async function pgProjectionReadProgress(
   client: PoolClient,
   scope: PgProjectionScope,
   model: string,
-): Promise<string> {
+): Promise<string | null> {
   const runtime = model === "runtime-session";
   const indexes = runtime
     ? [
@@ -148,24 +148,31 @@ export async function pgProjectionReadSource(
             ? ["ha_projection_interval_order", "ha_projection_interval_open"]
             : ["ha_projection_fact_edges"]),
       ];
-  await assertPgPhysicalIndexesReady(
+  const index = await pendingPgPhysicalIndex(
     client,
     ["ha_projection_values", "ha_runtime_session_tasks", "ha_runtime_unsettled"],
     indexes,
   );
+  if (index) return `index=${index}`;
   const pending = await client.query<{ entity_id: string }>(
     `SELECT entity_id FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       AND model=$4 AND read_index_version${runtime ? "<3" : "=0"}
       ORDER BY owner_id,entity_id LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, model],
   );
-  if (pending.rows.length)
-    throw Object.assign(
-      new Error(
-        `索引迁移中; progress model=${model}, next=${pending.rows[0]!.entity_id}; retry after background backfill.`,
-      ),
-      { code: "projection_pending" },
-    );
+  return pending.rows.length ? `model=${model}, next=${pending.rows[0]!.entity_id}` : null;
+}
+
+export async function pgProjectionReadSource(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  model: string,
+): Promise<string> {
+  const progress = await pgProjectionReadProgress(client, scope, model);
+  if (progress !== null)
+    throw Object.assign(new Error(`索引迁移中; progress ${progress}; retry after background backfill.`), {
+      code: "projection_pending",
+    });
   return "ha_projection_values";
 }
 

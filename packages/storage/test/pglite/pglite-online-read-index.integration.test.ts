@@ -13,6 +13,46 @@ import { backfillPGliteIndexPage } from "../../src/pglite/read-index-schema.ts";
 const scope = { tenantId: "online", projectId: "online", policyEpoch: 1 },
   repoId = "online";
 pgliteIntegrationSuite("PGlite online read-index expansion without table replacement", () => {
+  test("latest lease read reports pending without throwing and switches only after backfill", async () => {
+    await withTempStoreAsync(async (root) => {
+      const backend = await createPGliteStorageBackend({
+        repoId,
+        storage: { backend: "pglite", dataDir: join(root, "db"), scope },
+      });
+      try {
+        assert.deepEqual(await backend.projection.readLatestLeaseInterval("target"), {
+          status: "ready",
+          interval: null,
+        });
+        await backend.pool.query(
+          `INSERT INTO ha_projection_values
+          (tenant_id,project_id,policy_epoch,model,owner_id,entity_id,workspace_revision,value)
+          VALUES($1,$2,$3,'lease-interval','target','1',1,
+          '{"taskId":"target","executionId":"old","acquiredRevision":1,"releasedRevision":2}'),
+          ($1,$2,$3,'lease-interval','target','3',3,
+          '{"taskId":"target","executionId":"new","acquiredRevision":3,"releasedRevision":null}')`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
+        );
+        await backend.pool.query(
+          "UPDATE ha_projection_values SET read_index_version=0,order_revision=NULL WHERE model='lease-interval'",
+        );
+        const pending = await backend.projection.readLatestLeaseInterval("target");
+        assert.equal(pending.status, "pending");
+        assert.match(pending.progress, /model=lease-interval/u);
+        await assert.rejects(backend.projection.readLeaseIntervals("target"), { code: "projection_pending" });
+        for (let turns = 0; ; turns++) {
+          assert.ok(turns < 20);
+          if ((await backend.backfillReadIndexes()).done) break;
+        }
+        const ready = await backend.projection.readLatestLeaseInterval("target");
+        assert.equal(ready.status, "ready");
+        assert.equal(ready.interval?.executionId, "new");
+        assert.equal(ready.interval?.acquiredRevision, 3);
+      } finally {
+        await backend.close();
+      }
+    });
+  });
   for (const size of [10000, 100000]) {
     test(`attach preserves OIDs and admits point reads with ${size} events`, async (t) => {
       await withTempStoreAsync(async (root) => {

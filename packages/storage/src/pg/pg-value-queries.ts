@@ -3,7 +3,7 @@ import { documentPathAncestors } from "../projection/document-path-ancestors.ts"
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { readPgTaskSessions, readPgSessionPage } from "./pg-runtime-session-queries.ts";
 import { readPgArtifactTimeline } from "./pg-artifact-timeline.ts";
-import { pgProjectionReadSource } from "./pg-read-index-migration.ts";
+import { pgProjectionReadSource, pgProjectionReadProgress } from "./pg-read-index-migration.ts";
 import type { PoolClient } from "pg";
 import type {
   EntityProjectionRow,
@@ -32,6 +32,7 @@ export type PgValueQueries = AsyncQueries<
   | "readSquadRun"
   | "readSquadRuns"
   | "readLeaseIntervals"
+  | "readLatestLeaseInterval"
   | "readDocumentMetadata"
   | "readDocument"
   | "readDocuments"
@@ -49,6 +50,16 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
   const get = <Result>(model: string, id: string) =>
     read((client) => getPgProjectionValue<Result>(client, scope, model, id));
   const list = <Result>(model: string) => read((client) => listPgProjectionValues<Result>(client, scope, model));
+  const intervals = async (client: PoolClient, taskId: string, latestOnly = false) => {
+    const source = "ha_projection_values";
+    const result = await client.query<{ value: string }>(
+      `SELECT value FROM ${source} AS ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='lease-interval' AND owner_id=$5 AND (cardinality($4::text[])=0 OR readers && $4::text[])
+          ORDER BY order_revision${latestOnly ? " DESC LIMIT 1" : ""}`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, readers, taskId],
+    );
+    return result.rows.map(({ value }) => JSON.parse(value) as LeaseInterval);
+  };
   const documents = async (
     client: PoolClient,
     prefix: string,
@@ -134,14 +145,14 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     readSquadRuns: () => list<SquadRunProjectionRow>("squad-run"),
     readLeaseIntervals: (taskId) =>
       read(async (client) => {
-        const source = await pgProjectionReadSource(client, scope, "lease-interval");
-        const result = await client.query<{ value: string }>(
-          `SELECT value FROM ${source} AS ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-          AND model='lease-interval' AND owner_id=$5 AND (cardinality($4::text[])=0 OR readers && $4::text[])
-          ORDER BY order_revision`,
-          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, taskId],
-        );
-        return result.rows.map(({ value }) => JSON.parse(value) as LeaseInterval);
+        await pgProjectionReadSource(client, scope, "lease-interval");
+        return intervals(client, taskId);
+      }),
+    readLatestLeaseInterval: (taskId) =>
+      read(async (client) => {
+        const progress = await pgProjectionReadProgress(client, scope, "lease-interval");
+        if (progress !== null) return { status: "pending", progress };
+        return { status: "ready", interval: (await intervals(client, taskId, true))[0] ?? null };
       }),
     readArtifactEntityState: (kind, id) => get(`artifact:${kind}`, id),
     readPresetSnapshot: (id) =>

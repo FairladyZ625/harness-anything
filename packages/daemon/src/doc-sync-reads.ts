@@ -603,12 +603,14 @@ function readProjectedDocumentAtCut(context: ProjectedDocumentReadContext, paylo
     // a new session, since snapshot A contains no proof about the live files read above.
     return (projection: TaskProjectionQueries) => {
       const lease = projection.currentLease(taskId);
+      const acquisition = taskLeaseAcquiredRevision(projection, taskId, executionId);
+      if (acquisition.status === "pending") return unobservable("execution_lease_generation_pending");
       if (
         lease === null ||
         !leaseIsEffective(lease) ||
         lease.executionId !== executionId ||
         lease.source !== "local" ||
-        observation.acquiredRevision !== taskLeaseAcquiredRevision(projection, taskId, executionId)
+        observation.acquiredRevision !== acquisition.acquiredRevision
       )
         return unobservable("execution_workspace_stale_marker");
       return observed(observation.cut, "execution", syncStateOf(observation.cut, canonicalVersion), {

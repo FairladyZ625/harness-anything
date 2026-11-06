@@ -350,6 +350,11 @@ export interface TaskProjection {
   readonly readDecisionIncomingRelations: (decisionId: string) => DecisionGraphProjectionRead["edges"];
   readonly readDecisionCoverage: (decisionIds: readonly string[]) => DecisionCoverageProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[];
+  readonly readLatestLeaseInterval: (
+    taskId: string,
+  ) =>
+    | { readonly status: "pending"; readonly progress: string }
+    | { readonly status: "ready"; readonly interval: LeaseInterval | null };
   readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
   readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;
   readonly reserveLease: (lease: LeaseV1, now: string) => LeaseV1;

@@ -1,5 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
+import type { TaskProjection } from "@harness-anything/kernel";
+import { leaseIntervalIndexProgress } from "./runtime-member-index.ts";
 import {
   emptyTaskLifecycleSnapshot,
   type LeaseChangeReason,
@@ -281,10 +283,21 @@ export function effectiveLeaseValue(current: LeaseV1 | null, now: string): Lease
   return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
 }
 
-export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
+export function readLatestInterval(
+  db: DatabaseSync,
+  taskId: string,
+): ReturnType<TaskProjection["readLatestLeaseInterval"]> {
+  const progress = leaseIntervalIndexProgress(db);
+  if (progress !== null) return { status: "pending", progress };
+  return { status: "ready", interval: readIntervals(db, taskId, true)[0] ?? null };
+}
+
+export function readIntervals(db: DatabaseSync, taskId: string, latestOnly = false): readonly LeaseInterval[] {
   const rows = queryPreparedRows(
-    prepareQuery(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", (sql) =>
-      /* @gate-identity check-bypass-write-boundary/bypass-write-025 */ db.prepare(sql),
+    prepareQuery(
+      db,
+      `SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision${latestOnly ? " DESC LIMIT 1" : ""}`,
+      (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-025 */ db.prepare(sql),
     ),
     taskId,
   );

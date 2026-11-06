@@ -474,7 +474,10 @@ export interface TaskWorktreeLifecycleInput {
   readonly readPresetSnapshot: PresetSnapshotRead;
   readonly readWorktree: () => WorktreeSetupSettings;
   /** Stable acquisition revision after the start write; renewal leaves it unchanged. */
-  readonly readLeaseAcquiredRevision?: (taskId: string, executionId: string) => number | null;
+  readonly readLeaseAcquiredRevision?: (
+    taskId: string,
+    executionId: string,
+  ) => ReturnType<typeof taskLeaseAcquiredRevision>;
 }
 
 type TaskWorktreeAction = {
@@ -500,12 +503,20 @@ export interface TaskWorktreeExecutionBindingV2 {
 /** The latest canonical acquisition fences re-entry even when it reuses the execution id.
  * Lease CAS versions change on renewal; the interval's acquisition revision does not. */
 export function taskLeaseAcquiredRevision(
-  projection: Pick<TaskProjection, "readLeaseIntervals">,
+  projection: Pick<TaskProjection, "readLatestLeaseInterval">,
   taskId: string,
   executionId: string,
-): number | null {
-  const interval = projection.readLeaseIntervals(taskId).at(-1);
-  return interval?.executionId === executionId && interval.releasedRevision === null ? interval.acquiredRevision : null;
+):
+  | { readonly status: "pending"; readonly progress: string }
+  | { readonly status: "ready"; readonly acquiredRevision: number | null } {
+  const result = projection.readLatestLeaseInterval(taskId);
+  if (result.status === "pending") return result;
+  const interval = result.interval;
+  return {
+    status: "ready",
+    acquiredRevision:
+      interval?.executionId === executionId && interval.releasedRevision === null ? interval.acquiredRevision : null,
+  };
 }
 
 /** One file per execution: a rejected or competing start can only write its own id, never the
@@ -608,15 +619,25 @@ export function prepareTaskStartWorktree(
     let warnings = checkout.warnings;
     if (checkout.cwd !== null && executionId !== null) {
       try {
-        const acquiredRevision = input.readLeaseAcquiredRevision?.(action.taskId as string, executionId);
-        if (acquiredRevision === null || acquiredRevision === undefined) {
+        const acquisition = input.readLeaseAcquiredRevision?.(action.taskId as string, executionId);
+        if (acquisition?.status === "pending") {
+          warnings = [
+            ...warnings,
+            `Worktree ${checkout.cwd} was checked out but its execution marker was not written: index migration; progress ${acquisition.progress}. Execution reads for this start remain unobservable.`,
+          ];
+        } else if (acquisition === undefined || acquisition.acquiredRevision === null) {
           warnings = [
             ...warnings,
             `Worktree ${checkout.cwd} was checked out but its lease generation was not readable. ` +
               "Execution reads for this start remain unobservable.",
           ];
         } else {
-          writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId, acquiredRevision);
+          writeTaskWorktreeExecutionBinding(
+            checkout.cwd,
+            action.taskId as string,
+            executionId,
+            acquisition.acquiredRevision,
+          );
         }
       } catch (error) {
         consumeKnownError(error);

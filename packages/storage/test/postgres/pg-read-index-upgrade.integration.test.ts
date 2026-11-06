@@ -14,6 +14,8 @@ import { backfillPgReadIndexPage } from "../../src/pg/pg-read-index-backfill.ts"
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
 import { eventAt } from "../store/task-event-store.fixtures.ts";
+import { tracedPgReads, explainNodes } from "./pg-explain.fixture.ts";
+import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 import { appendBootstrapQueryFixture } from "./query-bootstrap.fixture.ts";
 import { appendQueryParityFixtures } from "./pg-query-parity.fixture.ts";
@@ -466,3 +468,61 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
     }
   }
 }
+
+test("latest lease query uses the ordered index at 10000 and 100000 acquisitions", async (t) => {
+  const fixture = await pgRuntimeFixture();
+  try {
+    for (const size of [10000, 100000]) {
+      const scope = { tenantId: "latest-lease", projectId: String(size), policyEpoch: 1, readers: ["owner"] };
+      await withPostgresTransaction(
+        fixture.adminPool,
+        async (client) => {
+          await client.query(
+            `INSERT INTO ha_projection_values
+          (tenant_id,project_id,policy_epoch,readers,model,owner_id,entity_id,workspace_revision,value)
+          SELECT $1,$2,$3,ARRAY['owner'],'lease-interval','target','interval-'||n,n,
+          json_build_object('taskId','target','executionId','execution-'||(n%17),'acquiredRevision',n,
+            'releasedRevision',CASE WHEN n=$4 THEN NULL ELSE n+1 END,'holder',json_build_object(),
+            'previousHolder',NULL,'leaseExpiresAt','2099','reason','start')::text
+          FROM generate_series(1,$4::integer)n`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch, size],
+          );
+          await client.query("ANALYZE ha_projection_values");
+        },
+        scope,
+      );
+      const plans: unknown[] = [],
+        source = createPgTaskProjectionSource({
+          pool: tracedPgReads(fixture.pool, plans, (sql) => /^\s*SELECT/u.test(sql)),
+          scope,
+          repoId: "latest-lease",
+          ownsPool: false,
+        });
+      const latest = await source.readLatestLeaseInterval("target");
+      assert.equal(latest.status, "ready");
+      assert.equal(latest.interval?.acquiredRevision, size);
+      assert.equal(latest.interval?.executionId, `execution-${size % 17}`);
+      const nodes = explainNodes(
+        plans.filter((plan) => (plan as { sql: string }).sql.includes("FROM ha_projection_values")),
+      );
+      assert.ok(nodes.some((row) => row["Index Name"] === "ha_projection_interval_order"));
+      assert.ok(!nodes.some((row) => row["Node Type"] === "Sort"));
+      const scans = nodes.filter((row) => row["Relation Name"] === "ha_projection_values");
+      const visited = scans.reduce(
+        (sum, row) =>
+          sum +
+          (Number(row["Actual Rows"]) +
+            Number(row["Rows Removed by Filter"] ?? 0) +
+            Number(row["Rows Removed by Index Recheck"] ?? 0)) *
+            Number(row["Actual Loops"]),
+        0,
+      );
+      assert.ok(visited <= 2, `ready guard + latest must stay bounded: ${visited}`);
+      assert.deepEqual(await source.readLatestLeaseInterval("missing"), { status: "ready", interval: null });
+      t.diagnostic(`LATEST_LEASE_PG ${JSON.stringify({ size, visited, returned: latest.interval ? 1 : 0 })}`);
+    }
+  } finally {
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});

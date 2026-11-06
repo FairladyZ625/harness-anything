@@ -28,6 +28,9 @@ const materialize = `INSERT INTO runtime_dispatch_index(workspace_revision,${col
 /** Indexes start empty: both key extraction and B-tree insertion belong to bounded writer pages. */
 export function ensureRuntimeMemberIndex(db: DatabaseSync): void {
   transaction(db, () => {
+    // Empty databases can build immediately; historical leases use the same background turn.
+    if (leaseIntervalIndexMissing(db) && !queryRows(db, "SELECT 1 FROM lease_interval LIMIT 1").length)
+      runSql(db, leaseIntervalIndexDdl);
     const legacy = expandLegacyRuntimeIndex(db);
     const existed =
       queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_dispatch_index'").length > 0;
@@ -73,6 +76,10 @@ export function ensureRuntimeMemberIndex(db: DatabaseSync): void {
 /** Seek the existing revision index; one transaction materializes at most 64 source rows. */
 export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: number; done: boolean } {
   return transaction(db, () => {
+    if (leaseIntervalIndexMissing(db)) {
+      runSql(db, leaseIntervalIndexDdl);
+      return { processed: 0, done: false };
+    }
     const progress = queryRows<{ revision: number; complete: number }>(
       db,
       "SELECT revision,complete FROM runtime_read_index_progress WHERE singleton=1",
@@ -109,6 +116,20 @@ export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: num
       );
     return { processed: rows.length, done: rows.length === 0 };
   });
+}
+
+const leaseIntervalIndexDdl =
+  "CREATE INDEX IF NOT EXISTS lease_interval_task_revision ON lease_interval(task_id,acquired_revision)";
+
+function leaseIntervalIndexMissing(db: DatabaseSync): boolean {
+  return (
+    queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='lease_interval'").length > 0 &&
+    !queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='index' AND name='lease_interval_task_revision'").length
+  );
+}
+
+export function leaseIntervalIndexProgress(db: DatabaseSync): string | null {
+  return leaseIntervalIndexMissing(db) ? "index=lease_interval_task_revision" : null;
 }
 
 export function runtimeReadIndexReady(db: DatabaseSync): boolean {
