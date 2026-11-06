@@ -3,6 +3,7 @@ import {
   defineCenterForwardWriteCommand,
   cliInput,
   defineLedgerWriteCommand,
+  workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 const factDomainTypeFormat =
@@ -42,9 +43,15 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--task", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -58,9 +65,15 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--task", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -77,9 +90,15 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--task", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
       cliInput(
         "--all",
         "boolean",
@@ -101,9 +120,15 @@ export const docFactProtocolCommands = Object.freeze([
     ].join(""),
     method: "repo.task.run",
     inputs: [
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
       cliInput(
         "--all",
         "boolean",
@@ -123,9 +148,15 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Show a canonical projected document; --raw prints only the document body.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--path", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--path",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
       cliInput("--raw", "boolean", false, {
         code: "invalid_field",
       }),
@@ -148,9 +179,15 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Retire one or more canonical documents with one audited reason.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--path", "repeated", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
       cliInput("--reason", "single", true, {
         code: "missing_field",
       }),
@@ -236,9 +273,15 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
-      cliInput("--ids-file", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--ids-file",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "workspace-file", format: workspacePathFormat },
+      ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),

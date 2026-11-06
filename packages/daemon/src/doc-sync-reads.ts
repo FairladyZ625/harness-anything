@@ -11,6 +11,7 @@ import {
   canonicalEventCut,
   classifyRawArtifactPath,
   documentPath,
+  documentWorkspacePath,
   RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
   resolveDocRoute,
@@ -345,7 +346,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
     baseLedgerSha: event.payload.baseLedgerSha,
     currentLedgerSha: current,
     paths: event.payload.changes.map((change, index) => ({
-      path: change.path,
+      path: documentWorkspacePath(input.rootDir, change.path),
       baseBlobSha256: change.baseBlobSha256,
       currentBlobSha256: reads[index]?.document?.blobSha256 ?? null,
       candidateBlobSha256: change.candidate?.sha256 ?? null,
@@ -357,7 +358,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
       retirement === null
         ? []
         : retirement.map((change) => ({
-            path: change.path,
+            path: documentWorkspacePath(input.rootDir, change.path),
             baseBlobSha256: change.baseBlobSha256!,
             source: "intent" as const,
           })),
@@ -368,7 +369,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
         : {
             schema: "doc-retirement-receipt/v1",
             retirements: retirement.map((change) => ({
-              path: change.path,
+              path: documentWorkspacePath(input.rootDir, change.path),
               baseBlobSha256: change.baseBlobSha256!,
             })),
             reason: event.payload.retirementReason,

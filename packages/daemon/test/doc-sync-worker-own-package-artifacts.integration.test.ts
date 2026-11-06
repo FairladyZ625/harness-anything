@@ -226,7 +226,7 @@ test("a worker materializes an owner-declared non-task document surface", async 
   initRepo(rootDir);
   const selected: { paths?: readonly string[] } = {};
   const input = (surfaces: readonly string[]) => ({
-    action: { kind: "doc-materialize", paths: ["harness/skills/test-isolation/dispatch-isolated-test.mjs"] },
+    action: { kind: "doc-materialize", paths: ["skills/test-isolation/dispatch-isolated-test.mjs"] },
     binding: {
       ...holder,
       executionPrincipal: {
@@ -260,7 +260,7 @@ test("a worker materializes an owner-declared non-task document surface", async 
     const receipt = await runDocAction(input(["harness/skills/test-isolation/**"]));
 
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    assert.deepEqual(selected.paths, ["harness/skills/test-isolation/dispatch-isolated-test.mjs"]);
+    assert.deepEqual(selected.paths, ["skills/test-isolation/dispatch-isolated-test.mjs"]);
     assert.throws(() => runDocAction(input([])), { code: "execution_credential_rejected" });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -279,7 +279,7 @@ test("doc sync carries a worker's atomic replacement of an existing own-package 
     assert.notEqual(statSync(fixture.workerArtifact).ino, statSync(fixture.canonicalArtifact).ino);
     assert.notEqual(readFileSync(fixture.canonicalArtifact, "utf8"), body);
 
-    const receipt = await fixture.cell.run({ kind: "doc-submit", paths: [`harness/${fixture.artifactPath}`] }, holder);
+    const receipt = await fixture.cell.run({ kind: "doc-submit", paths: [fixture.artifactPath] }, holder);
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     await waitForFixturePublication(fixture.cell, receipt.opId, holder);
     assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), body);
@@ -318,7 +318,7 @@ test("artifact add refuses an existing destination and names the base-sha doc ch
     );
 
     writeFileSync(fixture.workerArtifact, body);
-    const receipt = await fixture.cell.run({ kind: "doc-submit", paths: [`harness/${fixture.artifactPath}`] }, holder);
+    const receipt = await fixture.cell.run({ kind: "doc-submit", paths: [fixture.artifactPath] }, holder);
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     await waitForFixturePublication(fixture.cell, receipt.opId, holder);
     assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), body);
@@ -337,7 +337,7 @@ test("a worker's path selection that leaves its task package stays a cross-task 
     await assert.rejects(
       async () =>
         runDocAction({
-          action: { kind: "doc-submit", paths: ["harness/tasks/task-someone-else-artifacts/artifacts/report.md"] },
+          action: { kind: "doc-submit", paths: ["tasks/task-someone-else-artifacts/artifacts/report.md"] },
           binding: {
             ...holder,
             executionPrincipal: {
@@ -367,7 +367,7 @@ test("a worker's path selection that leaves its task package stays a cross-task 
     await assert.rejects(
       async () =>
         runDocAction({
-          action: { kind: "doc-materialize", paths: ["harness/tasks/task-someone-else-artifacts/artifacts/report.md"] },
+          action: { kind: "doc-materialize", paths: ["tasks/task-someone-else-artifacts/artifacts/report.md"] },
           binding: {
             ...holder,
             executionPrincipal: {
