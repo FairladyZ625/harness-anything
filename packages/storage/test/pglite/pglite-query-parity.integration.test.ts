@@ -78,6 +78,9 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
             };
           embedded.append(candidate);
           sqlite.append(candidate);
+          // Provider events advance the same canonical head as the helper above; keep the next
+          // document bundle's expected revision in step with it.
+          revision++;
         }
         // A task-package artifact gives the timeline index a document on both backends to compare.
         await append(
