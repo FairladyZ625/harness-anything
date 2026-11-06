@@ -112,6 +112,8 @@ export function taskQueryApi(
   | "readRuntimeDispatchesBySession"
   | "readRuntimeDispatchEventsBySession"
   | "readRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchBySession"
   | "readRuntimeDispatchByDispatchIdPrefix"
   | "countRuntimeDispatchesByAgent"
   | "readRuntimeDispatchesByTaskExecution"

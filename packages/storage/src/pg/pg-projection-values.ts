@@ -104,11 +104,22 @@ export function pgRuntimeSessionReadStatement(
   query: {
     readonly runtimeSessionId?: string;
     readonly unsettledOnly?: boolean;
+    readonly inFlightOnly?: boolean;
     readonly executionOwnerNodeId?: string;
   } = {},
 ): { readonly text: string; readonly values: readonly unknown[] } {
-  const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, [...(scope.readers ?? [])]],
-    where = [
+  const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, [...(scope.readers ?? [])]];
+  if (query.inFlightOnly)
+    // Current-set projection maintained by the same write transaction: sized by what is running
+    // now, never by the settled sessions' index entries.
+    return {
+      text: `SELECT v.value FROM ha_runtime_unsettled v
+        WHERE v.tenant_id=$1 AND v.project_id=$2 AND v.policy_epoch=$3
+          AND (cardinality($4::text[])=0 OR v.readers && $4::text[])
+        ORDER BY v.entity_id`,
+      values,
+    };
+  const where = [
       "v.tenant_id=$1",
       "v.project_id=$2",
       "v.policy_epoch=$3",

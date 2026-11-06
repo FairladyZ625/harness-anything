@@ -777,6 +777,30 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
         projection.apply(event);
       }
     }
+    // A later event may omit startedAt: it must win on its occurredAt fallback instead of losing
+    // to an older event that happened to carry startedAt.
+    const unstarted = eventFromProviderWitness(
+      {
+        ...requestedBase,
+        payload: {
+          ...requestedBase.payload,
+          dispatchId: "dispatch_unstarted",
+          runtimeSessionId: "runtime-unstarted",
+          taskId: "task-history-unstarted",
+          executionId: "execution-unstarted",
+          agentId: "agent-unstarted",
+        },
+      },
+      { ...envelope(7), occurredAt: "2026-09-03T00:00:00.000Z" },
+    )!;
+    store.append(bundle(unstarted));
+    projection.apply(unstarted);
+    assert.deepEqual(
+      projection
+        .readLatestRuntimeDispatchesByTaskIds(["task-history", "task-history-unstarted"])
+        .map(({ payload }) => payload.dispatchId),
+      ["dispatch_history_2", "dispatch_unstarted"],
+    );
     assert.equal(projection.readRuntimeDispatchById("dispatch_history_1")?.metrics?.totalTokens, 3);
     assert.equal(
       projection.readRuntimeDispatchByResumeSource("dispatch_history_1")?.event.payload.dispatchId,
@@ -789,6 +813,21 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
         .map(({ payload }) => payload.dispatchId),
       ["dispatch_history_1", "dispatch_history_2"],
     );
+    // The aggregate read returns one newest dispatch per task (startedAt desc), not the history.
+    assert.deepEqual(
+      projection
+        .readLatestRuntimeDispatchesByTaskIds(["task-history", "missing-task"])
+        .map(({ payload }) => payload.dispatchId),
+      ["dispatch_history_2"],
+    );
+    assert.deepEqual(projection.readLatestRuntimeDispatchesByTaskIds(["missing-task"]), []);
+    assert.equal(
+      projection.readLatestRuntimeDispatchBySession("runtime-history-0")?.payload.dispatchId,
+      "dispatch_history_1",
+    );
+    assert.equal(projection.readLatestRuntimeDispatchBySession("missing-session"), null);
+    assert.throws(() => projection.readLatestRuntimeDispatchesByTaskIds([]), /1\.\.500/u);
+    assert.throws(() => projection.readLatestRuntimeDispatchesByTaskIds(["task-history", "task-history"]), /1\.\.500/u);
     assert.deepEqual(
       projection.readRuntimeDispatchEventsBySession("runtime-history-0").map(({ payload }) => payload.dispatchId),
       ["dispatch_history_1"],
@@ -803,6 +842,7 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
     assert.equal(projection.countRuntimeDispatchesByAgent("missing-agent"), 0);
     for (const keyed of [
       projection.readRuntimeDispatchesByTaskIds(["task-history"]),
+      projection.readLatestRuntimeDispatchesByTaskIds(["task-history"]),
       projection.readRuntimeDispatchEventsBySession("runtime-history-0"),
       projection.readRuntimeDispatchByDispatchIdPrefix("dispatch_history_", 10).map(({ event }) => event),
     ])
@@ -824,6 +864,43 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
     assert.equal(second.done, true);
     assert.equal(second.nextCursor, null);
     assert.equal(second.rows[0]?.event.payload.dispatchId, "dispatch_history_2");
+  });
+});
+
+test("latest dispatch uses occurredAt when a newer event omits startedAt on the same task", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "runtime-race", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      requestedBase = witness("runtime_dispatch_requested");
+    for (const [index, payload] of [
+      {
+        dispatchId: "dispatch_race_old",
+        startedAt: "2026-09-01T10:00:00.000Z",
+      },
+      { dispatchId: "dispatch_race_new" },
+    ].entries()) {
+      const raced = eventFromProviderWitness(
+        {
+          ...requestedBase,
+          payload: {
+            ...requestedBase.payload,
+            ...payload,
+            runtimeSessionId: `runtime-race-${index}`,
+            taskId: "task-race",
+            executionId: "execution-race",
+            agentId: "agent-race",
+          },
+        },
+        { ...envelope(index + 1), occurredAt: `2026-09-0${index + 1}T11:00:00.000Z` },
+      )!;
+      store.append(bundle(raced));
+      projection.apply(raced);
+    }
+    assert.deepEqual(
+      projection.readLatestRuntimeDispatchesByTaskIds(["task-race"]).map(({ payload }) => payload.dispatchId),
+      ["dispatch_race_new"],
+    );
   });
 });
 

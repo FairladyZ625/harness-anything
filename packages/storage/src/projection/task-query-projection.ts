@@ -298,7 +298,12 @@ export function taskCompletedAtSql(taskIdExpression: string): string {
  * variable-size bind list can cross SQLite's parameter ceiling. */
 export function readTaskRuntimeBatchPage(
   db: DatabaseSync,
-  query: { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string },
+  query: {
+    readonly taskIds: readonly string[];
+    readonly limit?: number;
+    readonly cursor?: string;
+    readonly includeSessions?: boolean;
+  },
 ): {
   readonly taskIds: readonly string[];
   readonly rows: readonly {
@@ -340,20 +345,25 @@ export function readTaskRuntimeBatchPage(
   );
   const tasks = new Map(taskRows.map((row) => [row.task_id, row])),
     sessions = new Map<string, RuntimeSession[]>();
-  const sessionRows = queryRows<{
-    readonly task_id: string;
-    readonly value_json: string;
-  }>(
-    db,
-    `WITH requested(task_order, task_id) AS MATERIALIZED (
+  // Label-only reads stop at the title: joining every historical binding would make a one-row
+  // title lookup linear in the task's session history.
+  const sessionRows =
+    query.includeSessions === false
+      ? []
+      : queryRows<{
+          readonly task_id: string;
+          readonly value_json: string;
+        }>(
+          db,
+          `WITH requested(task_order, task_id) AS MATERIALIZED (
       SELECT CAST(key AS INTEGER), value FROM json_each(?)
     )
     SELECT requested.task_id, runtime_session.value_json FROM requested
     JOIN runtime_session_task_binding USING(task_id) JOIN runtime_session USING(runtime_session_id)
     ORDER BY requested.task_order, runtime_session.runtime_session_id,
       runtime_session_task_binding.bound_at, runtime_session_task_binding.execution_id`,
-    encoded,
-  );
+          encoded,
+        );
   for (const row of sessionRows) {
     const values = sessions.get(row.task_id) ?? [];
     values.push(publicRuntimeSession(JSON.parse(row.value_json) as RuntimeSession));
@@ -391,6 +401,8 @@ export function createTaskRelationProjectionTable(db: DatabaseSync): void {
       source_path TEXT NOT NULL, record_index INTEGER NOT NULL, workspace_revision INTEGER NOT NULL, updated_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS task_relation_source ON task_relation(source_ref, state, relation_id);
     CREATE INDEX IF NOT EXISTS task_relation_target ON task_relation(target_ref, state, relation_id);
+    CREATE INDEX IF NOT EXISTS task_relation_type_source ON task_relation(relation_type, source_ref, state, relation_id);
+    CREATE INDEX IF NOT EXISTS task_relation_type_target ON task_relation(relation_type, target_ref, state, relation_id);
     CREATE INDEX IF NOT EXISTS task_relation_type ON task_relation(relation_type, state, relation_id);
     CREATE INDEX IF NOT EXISTS task_relation_updated ON task_relation(updated_at DESC, relation_id ASC);
     CREATE INDEX IF NOT EXISTS task_relation_task ON task_relation(task_id, relation_id);
@@ -472,7 +484,7 @@ function readTaskRelationsByEndpoint(
         task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength,
         task_relation.origin, task_relation.state, NULL AS target_observed_version, task_relation.rationale,
         task_relation.owner_ref, task_relation.source_path, task_relation.record_index, NULL AS relation_revision
-      FROM requested_refs CROSS JOIN task_relation INDEXED BY task_relation_${endpoint}
+      FROM requested_refs CROSS JOIN task_relation INDEXED BY task_relation_type_${endpoint}
       WHERE task_relation.${endpoint}_ref = requested_refs.ref AND task_relation.relation_type = ? AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
       UNION ALL
       SELECT requested_refs.ref_order, relation_edge.relation_id, relation_edge.source_ref,
@@ -483,7 +495,7 @@ function readTaskRelationsByEndpoint(
         json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref,
         json_extract(relation_edge.row_json, '$.sourcePath'),
         json_extract(relation_edge.row_json, '$.recordIndex'), relation_edge.workspace_revision
-      FROM requested_refs CROSS JOIN relation_edge INDEXED BY relation_edge_${endpoint}
+      FROM requested_refs CROSS JOIN relation_edge INDEXED BY relation_edge_type_${endpoint}
       WHERE relation_edge.${endpoint}_ref = requested_refs.ref AND relation_edge.relation_type = ?
     )
     SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state,
@@ -762,9 +774,12 @@ export function listTaskRowsNarrow(
       values.push(taskId!);
     }
   }
-  const paged = query.limit !== undefined || query.cursor !== undefined,
+  const leaseJoin = query.leaseOnly
+      ? " JOIN (SELECT DISTINCT task_id FROM lease_interval WHERE released_revision IS NULL AND task_active = 1) lease_task ON lease_task.task_id = task_snapshot.task_id"
+      : "",
+    paged = query.limit !== undefined || query.cursor !== undefined,
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
-  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, ${taskCompletedAtSql("task_snapshot.task_id")} AS completed_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned, ${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, ${taskCompletedAtSql("task_snapshot.task_id")} AS completed_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned, ${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${leaseJoin}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(pageLimit + 1);
   const raw = queryRows<NarrowTaskRow & ProjectionSqlRow>(db, sql, ...values),
     visible = pageLimit === null ? raw : raw.slice(0, pageLimit);

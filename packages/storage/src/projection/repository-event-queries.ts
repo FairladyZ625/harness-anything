@@ -59,6 +59,23 @@ const RUNTIME_DISPATCHES_BY_TASK_IDS_SQL = (count: number) =>
     "ORDER BY workspace_revision",
     `AND json_extract(event_json, '$.payload.taskId') IN (${Array.from({ length: count }, () => "?").join(",")}) ORDER BY workspace_revision`,
   );
+// One index seek per requested task, never the task's total dispatch history: the event index
+// carries (taskId, effective time DESC, dispatchId DESC), where effective time is
+// `startedAt ?? occurredAt`, the same fallback the dispatch row uses.
+const RUNTIME_LATEST_DISPATCH_BY_TASK_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "AND json_extract(event_json, '$.payload.taskId') = ?",
+  "ORDER BY COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT 1",
+].join(" ");
+const RUNTIME_LATEST_DISPATCH_BY_SESSION_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+  "ORDER BY COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT 1",
+].join(" ");
 const RUNTIME_DISPATCH_BY_ID_PREFIX_SQL = RUNTIME_DISPATCHES_SQL.replace(
   "ORDER BY workspace_revision",
   "AND json_extract(event_json, '$.payload.dispatchId') >= ? AND json_extract(event_json, '$.payload.dispatchId') < ? ORDER BY json_extract(event_json, '$.payload.dispatchId')",
@@ -143,6 +160,8 @@ export function repositoryEventQueries(
   | "readRuntimeDispatchesBySession"
   | "readRuntimeDispatchEventsBySession"
   | "readRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchBySession"
   | "readRuntimeDispatchByDispatchIdPrefix"
   | "countRuntimeDispatchesByAgent"
   | "readRuntimeDispatchesByTaskExecution"
@@ -282,6 +301,36 @@ export function repositoryEventQueries(
               isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
           )
           .map(publicRuntimeDispatch);
+      }),
+    readLatestRuntimeDispatchesByTaskIds: (taskIds) =>
+      withRead((db) => {
+        if (
+          !Array.isArray(taskIds) ||
+          taskIds.length === 0 ||
+          taskIds.length > 500 ||
+          taskIds.some((taskId) => typeof taskId !== "string" || taskId.length === 0) ||
+          new Set(taskIds).size !== taskIds.length
+        )
+          throw new Error("runtime dispatch task latest read requires 1..500 unique task ids");
+        return taskIds.flatMap((taskId) => {
+          const row = queryRow(db, RUNTIME_LATEST_DISPATCH_BY_TASK_SQL, taskId);
+          if (row === undefined) return [];
+          const event = JSON.parse(String(row.event_json));
+          return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested"
+            ? [publicRuntimeDispatch(event)]
+            : [];
+        });
+      }),
+    readLatestRuntimeDispatchBySession: (runtimeSessionId) =>
+      withRead((db) => {
+        if (typeof runtimeSessionId !== "string" || runtimeSessionId.length === 0)
+          throw new Error("runtime dispatch session latest read requires a non-empty session id");
+        const row = queryRow(db, RUNTIME_LATEST_DISPATCH_BY_SESSION_SQL, runtimeSessionId);
+        if (row === undefined) return null;
+        const event = JSON.parse(String(row.event_json));
+        return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested"
+          ? publicRuntimeDispatch(event)
+          : null;
       }),
     readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
       withRead((db) => {

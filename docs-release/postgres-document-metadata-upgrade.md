@@ -82,14 +82,16 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    ```
 
    Again commit each <=64-row call and repeat to a committed `processed=0`. All old event
-   rows, including non-runtime schemas, must reach version 5. Version 5 derives
+   rows, including non-runtime schemas, must reach version 5. The same call also fills the
+   derived `summary_json` fleet header and re-triggers rows that are already version 5 but
+   still have a NULL header, so a completed-v5 database needs no separate command. Version 5 derives
    `dispatch_key` from either payload spelling (`dispatchKey`, or the pre-rename
    `idempotencyKey`); reviewer dispatches stay out of that scalar column because the
    projection's normalized `runtime-dispatch-key` rows carry their qualified keys. Resume by
    repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
    merge scopes.
 
-5. Verify readiness on the same claims before enabling current readers. All three probes must
+5. Verify readiness on the same claims before enabling current readers. All probes must
    return no rows (use the actual deployment identifiers):
 
    ```sql
@@ -104,6 +106,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    SELECT 1 FROM ha_task_snapshots
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1
      AND parent_index_version=0 LIMIT 1;
+   SELECT 1 FROM ha_events
+   WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
+     AND summary_json IS NULL LIMIT 1;
    ```
 
    Document metadata must also be complete as in phase 2. Finish the current declaration
@@ -114,14 +119,29 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    phases 3/4. A canonical gap must be rebuilt through the existing projection rebuild
    entry before declaration catch-up; never promote the declaration watermark by SQL.
 
-6. Switch readers after every scope and repo is complete. During a partially filled snapshot,
-   current document lists return `projection_pending` instead of a partial list or reading
-   bodies; runtime/event reads likewise return `projection_pending` until their own expansion
-   is complete. Parent-dependent task reads also return `projection_pending` until their
-   scalar expansion completes; raw task point reads remain available. A ready projection
-   generation alone does not certify these extensions.
-   Previous readers and writers stay usable throughout. Rollback to the previous
-   binary leaves the additive column and trigger in place; keep both through the window.
+6. Switch readers after every scope and repo is complete. A committed phase-4 call returning
+   `processed=0` publishes that repo's `ha_event_summary_state` readiness. Until it is ready,
+   fleet uses the existing event reader, preserving availability while transferring full events;
+   after readiness it reads only bounded fleet headers. Event read-index versions still need
+   phase 4 as before. Projection cold rebuild and migration import atomically reconstruct the
+   scoped readiness rows along with the projection cut, without a restart or manual marker.
+   Current document lists return `projection_pending` until their own expansion is complete.
+   Parent-dependent task reads also return `projection_pending` until their scalar expansion
+   completes; raw task point reads remain available.
+   A ready projection generation alone does not certify these extensions.
+
+7. Contract the summary pending index only after all scope/repo page jobs commit completion.
+   On the existing schema-management connection, outside any transaction, call
+   `contractPgEventSummaryIndex(client)` (from the event read-index migration module), or rerun
+   `ensurePgProjectionSchema(client)`. These retain the global index while any scope has NULL
+   summaries or any repo lacks committed readiness, and use `DROP INDEX CONCURRENTLY` only
+   when all are complete. Phase-4 page transactions never perform index DDL. The management
+   connection must see all scopes: if FORCE RLS still filters it, contraction safely defers
+   and leaves the index installed. Do not change serving RLS policies to retire an index.
+   PGlite uses the same completion check with isolated DDL on its exclusively owned schema.
+
+   Previous readers and writers stay usable throughout. Rollback to the previous binary
+   leaves the additive column and shared trigger in place through the compatibility window.
 
 Read-index triggers are the **shared materialization path for current and previous writers**,
 including inserts and updates during backfill. Runtime presence updates touch that session's

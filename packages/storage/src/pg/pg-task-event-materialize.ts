@@ -230,6 +230,17 @@ export async function rebuildPgProjection(
      WHERE tenant_id = $4 AND project_id = $5 AND policy_epoch = $6 AND projection_name = 'task/v1'`,
     [stateDigest, sourceHeadRevision, PG_PROJECTION_SCHEMA_VERSION, scope.tenantId, scope.projectId, scope.policyEpoch],
   );
+  // Rebuild/import clears derived readiness with the other scoped projections. Publish it in
+  // the same transaction as the new cut, from the canonical rows (including every scoped repo).
+  await client.query(
+    `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
+     SELECT h.tenant_id,h.project_id,h.policy_epoch,h.repo_id,NOT EXISTS (
+       SELECT 1 FROM ha_events e
+       WHERE (e.tenant_id,e.project_id,e.policy_epoch,e.repo_id) =
+         (h.tenant_id,h.project_id,h.policy_epoch,h.repo_id) AND e.summary_json IS NULL
+     ) FROM ha_repo_heads h WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.policy_epoch=$3`,
+    scopeValues,
+  );
   return receipt;
 }
 

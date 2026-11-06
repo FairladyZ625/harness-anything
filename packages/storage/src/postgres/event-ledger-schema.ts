@@ -40,6 +40,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     event_id text NOT NULL,
     event_type text NOT NULL,
     event_json text NOT NULL,
+    summary_json text,
     event_digest text NOT NULL,
     occurred_at text NOT NULL,
     actor_refs text[] NOT NULL DEFAULT '{}',
@@ -51,6 +52,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     FOREIGN KEY (tenant_id, project_id, repo_id)
       REFERENCES ha_repo_heads (tenant_id, project_id, repo_id)
   )`,
+  "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
   `CREATE INDEX IF NOT EXISTS ha_events_type_revision_idx
     ON ha_events (tenant_id, project_id, repo_id, event_type, revision DESC)`,
   `CREATE INDEX IF NOT EXISTS ha_events_occurred_at_idx

@@ -118,8 +118,13 @@ export const REPOSITORY_READ_TABLES_SQL = `
       previous_holder_json TEXT,
       lease_expires_at TEXT NOT NULL,
       reason TEXT NOT NULL,
+      task_active INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     );
+    CREATE INDEX IF NOT EXISTS lease_interval_current ON lease_interval(task_id, lease_expires_at)
+      WHERE released_revision IS NULL;
+    CREATE INDEX IF NOT EXISTS lease_interval_active ON lease_interval(task_active, lease_expires_at, task_id)
+      WHERE released_revision IS NULL;
     CREATE TABLE IF NOT EXISTS event_index (
       op_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL UNIQUE,
@@ -179,6 +184,21 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.payload.taskId'), json_extract(event_json, '$.payload.executionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    -- "The current dispatch for this task" is one index seek, not a walk over every dispatch the
+    -- task ever had: aggregate reads (fleet overview) only need each task's newest effective
+    -- start, startedAt falling back to occurredAt, matching the dispatch row timestamp fallback.
+    CREATE INDEX IF NOT EXISTS event_index_runtime_session_started ON event_index(
+      json_extract(event_json, '$.payload.runtimeSessionId'),
+      COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,
+      json_extract(event_json, '$.payload.dispatchId') DESC
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_task_started ON event_index(
+      json_extract(event_json, '$.payload.taskId'),
+      COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,
+      json_extract(event_json, '$.payload.dispatchId') DESC
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_review_decision ON event_index(
       json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
@@ -200,9 +220,24 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1');
     `;
 
+/**
+ * Existing projections predate the lease visibility flag; add it before the DDL creates the
+ * index that references it. Fresh databases get the column from CREATE TABLE and skip this.
+ */
+export function ensureLeaseTaskActiveColumn(db: DatabaseSync): void {
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lease_interval'").all().length === 0) return;
+  const columns = db.prepare("PRAGMA table_info(lease_interval)").all() as { name: string }[];
+  if (!columns.some(({ name }) => name === "task_active"))
+    db.exec("ALTER TABLE lease_interval ADD COLUMN task_active INTEGER NOT NULL DEFAULT 1");
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_snapshot'").all().length === 0) return;
+  db.exec(`UPDATE lease_interval SET task_active = 0 WHERE task_active = 1
+    AND NOT EXISTS (SELECT 1 FROM task_snapshot WHERE task_snapshot.task_id = lease_interval.task_id AND status = 'active')`);
+}
+
 export function createProjectionTables(db: DatabaseSync): void {
   db.exec(TASK_INDEX_TABLES_SQL);
   ensureEventSummaryReadIndexColumns(db);
+  ensureLeaseTaskActiveColumn(db);
   db.exec(REPOSITORY_READ_TABLES_SQL);
   ensureRuntimeMemberIndex(db);
   backfillEventSummaryReadIndex(db);

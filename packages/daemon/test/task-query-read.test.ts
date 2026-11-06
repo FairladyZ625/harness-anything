@@ -255,6 +255,30 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
   );
 });
 
+test("attentionOnly agenda reads raw lifecycle status and skips the presentation-only pages", () => {
+  const listCalls: TaskProjectionListQuery[] = [],
+    decisionCalls: string[][] = [],
+    projection = projectionStub({
+      taskRows: [protocolTaskRow("task_event", [], { status: "active" })],
+      listCalls,
+      decisionCalls,
+    });
+
+  const result = queryRead(process.cwd(), projection).agenda({ attentionOnly: true });
+
+  // Home consumes only the four waiting buckets: blocked/planned pages and the full work-root
+  // scan are not read, and the three remaining pages ask for lifecycle status (index-bounded).
+  assert.deepEqual(listCalls, [
+    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
+    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
+    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: false },
+  ]);
+  assert.deepEqual(decisionCalls, []);
+  assert.deepEqual(result.attentionItems, []);
+  assert.deepEqual(result.pinnedEntities, []);
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
 test("agenda labels each task row with its nearest work root and --work keeps one work's subtree", () => {
   const child = (taskId: string, parentTaskId: string | null, taskClass: "standard" | "work" = "standard") => {
       const row = protocolTaskRow(taskId, [], { status: "active", taskClass });

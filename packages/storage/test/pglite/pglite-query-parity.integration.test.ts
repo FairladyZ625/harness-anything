@@ -1,11 +1,16 @@
 // harness-test-tier: integration
+import assert from "node:assert/strict";
 import { appendBootstrapQueryFixture } from "../postgres/query-bootstrap.fixture.ts";
 import test from "node:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
-import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import {
+  canonicalEventWritePlan,
+  makeTaskEventStore,
+  type CanonicalWriteBundle,
+} from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { initRepo } from "../store/task-event-store.fixtures.ts";
@@ -23,6 +28,7 @@ import { assertTaskIndexQueryParity } from "../postgres/pg-task-index-parity.fix
 import { assertRelationQueryParity } from "../postgres/pg-relation-query-parity.fixture.ts";
 import { assertValueQueryParity } from "../postgres/pg-value-query-parity.fixture.ts";
 import { appendRecoveryQueryFixtures, assertRecoveryQueryContract } from "../runtime-recovery-query.assertions.ts";
+import { runtimeProviderEvents } from "../runtime-provider-bytes.assertions.ts";
 
 pgliteIntegrationSuite("complete synchronous query parity", () => {
   test("PGlite and SQLite run the same query contracts as PostgreSQL", async () => {
@@ -59,6 +65,20 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         await appendTaskEventQueryFixtures(append, () => revision);
         await appendGraphQueryFixtures(append, () => revision);
         await appendRecoveryQueryFixtures(append, () => revision);
+        // Legal provider ids may contain NUL. The fleet summary projection must read them on both
+        // backends; a jsonb cast or a whole-event narrow projection would reject the event.
+        let providerRevision = (embedded.readHead()?.revision ?? 0) + 1;
+        for (const event of runtimeProviderEvents()) {
+          const next = providerRevision++,
+            adjusted = { ...event, workspaceRevision: next, eventId: `provider-${next}`, opId: `provider-op-${next}` },
+            candidate = {
+              event: adjusted,
+              plan: canonicalEventWritePlan(adjusted, "agent-runtime/v1", `provider-op-${next}`),
+              blobs: [],
+            };
+          embedded.append(candidate);
+          sqlite.append(candidate);
+        }
         projection.catchUp();
         const reader = makeTaskProjectionReader({ repoId, storage });
         try {
@@ -70,8 +90,19 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
             assertValueQueryParity(queries, projection);
             assertCompleteQueryParity(queries, projection);
             assertRecoveryQueryContract(queries);
+            const fleetSummary = queries.readEventSummaries(0, 100, "fleet");
+            assert.ok(
+              fleetSummary.events.some((event) => event.eventId.startsWith("provider-")),
+              "PGlite fleet summary reads the accepted NUL provider event",
+            );
           });
           assertRecoveryQueryContract(projection);
+          assert.ok(
+            projection
+              .readEventSummaries(0, 100, "fleet")
+              .events.some((event) => event.eventId.startsWith("provider-")),
+            "SQLite fleet summary reads the accepted NUL provider event",
+          );
         } finally {
           reader.close();
         }

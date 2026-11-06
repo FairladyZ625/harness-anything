@@ -54,6 +54,11 @@ const dispatchIndexes = [
   ["agent_session", "agent_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["squad_session", "squad_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC"],
   ["page", "dispatch_started_at,dispatch_id"],
+  // "Newest dispatch for this task" without walking every dispatch the task ever had:
+  // fleet overview reads one current dispatch per lease row. Effective time is
+  // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.
+  ["task_effective_time", "payload_task_id,(COALESCE(dispatch_started_at, occurred_at)) DESC,dispatch_id DESC"],
+  ["session_effective_time", "runtime_session_id,(COALESCE(dispatch_started_at, occurred_at)) DESC,dispatch_id DESC"],
 ] as const;
 
 /** RLS-safe scalar indexes over immutable event bytes; only a disposable parsing copy is JSONB.
@@ -67,6 +72,23 @@ export function eventReadIndexDdl(): readonly string[] {
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS read_index_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
+    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
+    String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
+      LANGUAGE sql IMMUTABLE STRICT AS $function$
+        SELECT jsonb_build_object(
+          'eventId', v->>'eventId', 'schema', v->>'schema', 'type', v->>'type',
+          'occurredAt', v->>'occurredAt', 'workspaceRevision', v->'workspaceRevision',
+          'taskId', COALESCE(v->>'taskId', v#>>'{payload,taskId}'), 'actor', jsonb_build_object('executor', jsonb_build_object('id', v#>>'{actor,executor,id}')),
+          'payload', jsonb_build_object(
+            'taskId', COALESCE(v->>'taskId', v#>>'{payload,taskId}'),
+            'title', left(v#>>'{payload,title}', 280),
+            'statement', left(v#>>'{payload,statement}', 280),
+            'text', left(v#>>'{payload,text}', 280)))
+      $function$`,
+    String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary(serialized text) RETURNS text
+      LANGUAGE sql IMMUTABLE STRICT AS $function$
+        SELECT ha_fleet_event_summary_from_jsonb(ha_read_index_json(serialized))
+      $function$`,
     `CREATE OR REPLACE FUNCTION ha_event_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       DECLARE v jsonb;
@@ -83,11 +105,16 @@ export function eventReadIndexDdl(): readonly string[] {
           SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=NEW.tenant_id AND p.project_id=NEW.project_id
           AND p.policy_epoch=NEW.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
           AND p.entity_id=NEW.runtime_session_id COLLATE "default" AND p.runtime_outcome IS NULL);
+        IF NEW.summary_json IS NULL THEN
+          NEW.summary_json := ha_fleet_event_summary_from_jsonb(v);
+        END IF;
         NEW.read_index_version := 5;
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json ON ha_events
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
+    `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
@@ -159,11 +186,17 @@ export function eventReadIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,repo_id,revision FROM ha_events
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
-            AND read_index_version<5 ORDER BY revision LIMIT 64 FOR UPDATE
+            AND (read_index_version<5 OR summary_json IS NULL)
+          ORDER BY revision LIMIT 64 FOR UPDATE
         ), filled AS (
-          UPDATE ha_events e SET event_json=e.event_json FROM batch b
+          UPDATE ha_events e SET event_json=e.event_json, summary_json=ha_fleet_event_summary(e.event_json) FROM batch b
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
         ) SELECT count(*)::integer INTO processed FROM filled;
+        IF processed = 0 THEN
+          INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
+          VALUES (tenant,project,epoch,repo,true)
+          ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true;
+        END IF;
         RETURN processed;
       END $function$`,
   ];
@@ -181,4 +214,33 @@ export async function assertPgEventReadIndexReady(
   );
   if (pending.rows.length)
     throw Object.assign(new Error("Event read-index backfill is pending"), { code: "projection_pending" });
+}
+
+/** Schema-owner contract step, outside serving PostgreSQL transactions. A scoped page only
+ * certifies its own repo; the physical index remains until all scopes have committed readiness.
+ * The shared event trigger fills every subsequent old/current writer insert atomically.
+ */
+export async function contractPgEventSummaryIndex(
+  client: PoolClient,
+  options: { readonly indexBuild?: "concurrent" | "isolated" } = {},
+): Promise<boolean> {
+  // A tenant-filtered empty result cannot certify global completion. A schema owner still
+  // subject to FORCE RLS safely leaves the index for the deployment's all-scope manager.
+  const visibility = await client.query<{ scoped: boolean }>(`SELECT
+    row_security_active('ha_events') OR row_security_active('ha_repo_heads') OR
+    row_security_active('ha_event_summary_state') AS scoped`);
+  if (visibility.rows[0]!.scoped) return false;
+  const pending = await client.query(`
+    SELECT 1 FROM ha_events WHERE summary_json IS NULL
+    UNION ALL
+    SELECT 1 FROM ha_repo_heads h WHERE NOT EXISTS (
+      SELECT 1 FROM ha_event_summary_state s
+      WHERE (s.tenant_id,s.project_id,s.policy_epoch,s.repo_id) =
+        (h.tenant_id,h.project_id,h.policy_epoch,h.repo_id) AND s.ready
+    ) LIMIT 1`);
+  if (pending.rows.length) return false;
+  await client.query(
+    `DROP INDEX ${options.indexBuild === "isolated" ? "" : "CONCURRENTLY "}IF EXISTS ha_events_summary_pending`,
+  );
+  return true;
 }

@@ -91,6 +91,7 @@ function fixture(
   } as unknown as Dispatch;
   const events = options.successor ? [event, options.successor] : [event];
   const projection = {
+    readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
     read: () => ({
       watermark: 1,
       sourceRevision: 1,
@@ -114,6 +115,7 @@ function fixture(
       events.filter(
         (candidate) => candidate.payload.taskId !== undefined && taskIds.includes(candidate.payload.taskId),
       ),
+    readLatestRuntimeDispatchesByTaskIds: () => [event],
     readRuntimeDispatchById: (id: string) => {
       const event = events.find((e) => e.payload.dispatchId === id);
       return event ? { event } : null;
@@ -164,6 +166,46 @@ test("task dispatch read queries the requested task ids instead of the dispatch 
   assert.equal(result.dispatches.length, 1);
   assert.equal(byTaskCalls, 1);
   assert.deepEqual(requested, ["task-1"]);
+});
+
+test("latestOnly returns one current dispatch per task without reading history or task snapshots", () => {
+  const { projection, event } = fixture(session("live", null));
+  const calls = { latest: 0, history: 0, batch: 0, task: 0 };
+  const measured = new Proxy(projection, {
+    get: (target, property, receiver) => {
+      if (property === "readLatestRuntimeDispatchesByTaskIds")
+        return (taskIds: readonly string[]) => {
+          calls.latest += 1;
+          assert.deepEqual(taskIds, [taskId]);
+          return target.readLatestRuntimeDispatchesByTaskIds(taskIds);
+        };
+      if (property === "readRuntimeDispatchesByTaskIds")
+        return (...args: Parameters<TaskProjection["readRuntimeDispatchesByTaskIds"]>) => {
+          calls.history += 1;
+          return target.readRuntimeDispatchesByTaskIds(...args);
+        };
+      if (property === "readTaskRuntimeBatch")
+        return (...args: Parameters<TaskProjection["readTaskRuntimeBatch"]>) => {
+          calls.batch += 1;
+          return target.readTaskRuntimeBatch(...args);
+        };
+      if (property === "read")
+        return (...args: Parameters<TaskProjection["read"]>) => {
+          calls.task += 1;
+          return target.read(...args);
+        };
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const result = readTaskDispatches({ projection: measured, taskIds: [taskId], latestOnly: true });
+  assert.equal(result.dispatches.length, 1);
+  assert.deepEqual(calls, { latest: 1, history: 0, batch: 0, task: 0 });
+  const row = result.dispatches[0]!;
+  assert.equal(row.dispatchId, event.payload.dispatchId);
+  assert.equal(row.taskId, taskId);
+  assert.equal(row.status, "running");
+  assert.equal("page" in result && result.page.nextCursor, null);
 });
 
 test("accepted liveness and terminal evidence determine public dispatch status without a local stream", () => {
@@ -310,6 +352,40 @@ test("public dispatch, session group and attempt chain queries tolerate a filesy
     t.mock.restoreAll();
     syncBuiltinESMExports();
   }
+});
+
+test("shallow session group rows keep the decision reviewer and agent fields without task snapshots", () => {
+  const f = fixture(session("live", null)),
+    event = {
+      ...f.event,
+      payload: {
+        ...f.event.payload,
+        agentId: "agent-reviewer",
+        agentName: "Reviewer One",
+        reviewTarget: { kind: "decision" as const, decisionId: "dec_0123456789abcdef", digest: "sha256:abc" },
+      },
+    },
+    projection = {
+      ...f.projection,
+      read: () => {
+        throw new Error("shallow group row must not read the task snapshot");
+      },
+    },
+    [row] = readSessionGroupDispatches({
+      projection,
+      sessions: [session("live", null)],
+      events: [event],
+      shallow: true,
+    });
+  assert.equal(row?.dispatchId, dispatchId);
+  assert.equal(row?.agentId, "agent-reviewer");
+  assert.equal(row?.agentName, "Reviewer One");
+  assert.deepEqual(row?.reviewTarget, {
+    kind: "decision",
+    decisionId: "dec_0123456789abcdef",
+    digest: "sha256:abc",
+  });
+  assert.equal(row?.status, "running");
 });
 
 test("resume is derived from canonical provider identity and withdrawn by an accepted successor", () => {

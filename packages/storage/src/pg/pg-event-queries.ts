@@ -215,7 +215,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (afterRevision, limit) =>
+  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (afterRevision, limit, fields) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
@@ -227,17 +227,74 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           limit > 2048
         )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
-        const cut = await readCutInTransaction(client, claims, readers, repoId),
-          rows = await readEventRowsInTransaction(
-            client,
-            claims,
-            readers,
-            repoId,
-            "revision > $6 AND revision <= $7",
-            [afterRevision, cut.watermark],
-            "ASC",
-            limit,
+        const cut = await readCutInTransaction(client, claims, readers, repoId);
+        if (fields === "fleet") {
+          // The fleet overview renders only a bounded header. `summary_json` is the fleet summary
+          // computed in JS at write time (and backfilled for old rows): parsing a whole event with
+          // jsonb would reject legal NUL bytes in provider strings, and shipping whole bodies would
+          // charge one large historical event to a fixed page.
+          const ready = await client.query(
+            `SELECT 1 FROM ha_event_summary_state
+             WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND ready
+             LIMIT 1`,
+            [claims.tenantId, claims.projectId, claims.policyEpoch, repoId],
           );
+          if (!ready.rowCount) {
+            // During the current/previous upgrade window, preserve the existing event reader
+            // until this repo's bounded summary projection has been certified.
+            const rows = await readEventRowsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              "revision > $6 AND revision <= $7",
+              [afterRevision, cut.watermark],
+              "ASC",
+              limit,
+            );
+            return {
+              ...cut,
+              events: rows.map(({ event_json }) => canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1)),
+            };
+          }
+          const result = await client.query<{ event_json: string }>(
+            `SELECT summary_json AS event_json
+             FROM ha_events
+             WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+               AND event_type <> 'ci_run_observed'
+               AND summary_json IS NOT NULL
+               AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
+               AND revision <= $7 AND revision > $6
+             ORDER BY revision ASC LIMIT $8`,
+            [
+              claims.tenantId,
+              claims.projectId,
+              repoId,
+              claims.policyEpoch,
+              readers,
+              afterRevision,
+              cut.watermark,
+              limit,
+            ],
+          );
+          return {
+            ...cut,
+            events: result.rows.map(
+              ({ event_json }) =>
+                canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1) as CanonicalEventSummary,
+            ),
+          };
+        }
+        const rows = await readEventRowsInTransaction(
+          client,
+          claims,
+          readers,
+          repoId,
+          "revision > $6 AND revision <= $7",
+          [afterRevision, cut.watermark],
+          "ASC",
+          limit,
+        );
         return {
           ...cut,
           events: rows.map(

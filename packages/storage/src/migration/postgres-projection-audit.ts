@@ -2,7 +2,7 @@ import { pgProjectionStoredRows } from "../pg/pg-projection-stored-rows.ts";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
-import { ensurePgProjectionSchema, PG_PROJECTION_TABLES } from "../pg/pg-projection-schema.ts";
+import { ensurePgProjectionSchema, PG_PROJECTION_AUDIT_TABLES } from "../pg/pg-projection-schema.ts";
 import { rebuildPgProjection } from "../pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
@@ -12,7 +12,7 @@ import type { MigrationTuple } from "./types.ts";
 async function rows(client: PoolClient, tuple: Pick<MigrationTuple, "scope">) {
   const result: Record<string, unknown> = {},
     scope = tuple.scope;
-  for (const table of PG_PROJECTION_TABLES) {
+  for (const table of PG_PROJECTION_AUDIT_TABLES) {
     const stored = pgProjectionStoredRows(table),
       values = (
         await client.query<{ value: Record<string, unknown> }>(

@@ -16,7 +16,7 @@ import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { pgProjectionStoredRows } from "./pg-projection-stored-rows.ts";
-import { PG_PROJECTION_TABLES } from "./pg-projection-schema.ts";
+import { PG_PROJECTION_AUDIT_TABLES } from "./pg-projection-schema.ts";
 import { readPgTaskSessions } from "./pg-runtime-session-queries.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
@@ -95,7 +95,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
            AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND task_id=ANY($5::text[]) ORDER BY task_id`,
             [...parameters, taskIds],
           ),
-          sessions = await readPgTaskSessions(client, scope, taskIds);
+          sessions = query.includeSessions === false ? new Map() : await readPgTaskSessions(client, scope, taskIds);
         return {
           ...(await readCutInTransaction(client, scope, readers, repoId)),
           taskIds,
@@ -119,7 +119,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
         const cut = await readCutInTransaction(client, scope, readers, repoId);
         if (cut.status !== "ready") return null;
         let digest = sha256Text("pg-task-projection-state/v1");
-        for (const table of PG_PROJECTION_TABLES.filter((name) => name !== "ha_projection_meta")) {
+        for (const table of PG_PROJECTION_AUDIT_TABLES.filter((name) => name !== "ha_projection_meta")) {
           digest = sha256Text(`${digest}\n${table}`);
           const stored = pgProjectionStoredRows(table);
           const result = await client.query<{ row_value: Record<string, unknown> }>(

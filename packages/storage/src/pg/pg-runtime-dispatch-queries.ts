@@ -26,6 +26,8 @@ export type PgRuntimeDispatchQueries = AsyncQueries<
   | "readRuntimeDispatchesBySession"
   | "readRuntimeDispatchEventsBySession"
   | "readRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchBySession"
   | "readRuntimeDispatchByDispatchIdPrefix"
   | "countRuntimeDispatchesByAgent"
   | "readRuntimeDispatchesByTaskExecution"
@@ -150,6 +152,56 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
         return (await readDispatchRows(client, "payload_task_id = ANY($6::text[])", [taskIds])).map(
           publicRuntimeDispatch,
         );
+      }),
+    readLatestRuntimeDispatchesByTaskIds: (taskIds) =>
+      transaction(async (client) => {
+        if (
+          !Array.isArray(taskIds) ||
+          taskIds.length === 0 ||
+          taskIds.length > 500 ||
+          taskIds.some((taskId) => typeof taskId !== "string" || taskId.length === 0) ||
+          new Set(taskIds).size !== taskIds.length
+        )
+          throw new Error("runtime dispatch task latest read requires 1..500 unique task ids");
+        await assertPgEventReadIndexReady(client, scope, repoId);
+        // One LATERAL index seek per requested id: the task's total dispatch history is never
+        // materialized just to pick its newest row.
+        const result = await client.query<{ event_json: string }>(
+          `SELECT latest.event_json
+             FROM unnest($6::text[]) WITH ORDINALITY AS requested(task_id, position)
+             CROSS JOIN LATERAL (
+               SELECT ha_events.event_json
+                 FROM ha_events
+                WHERE ha_events.tenant_id=$1 AND ha_events.project_id=$2 AND ha_events.repo_id=$3
+                  AND ha_events.policy_epoch=$4
+                  AND (cardinality($5::text[])=0 OR ha_events.readers && $5::text[])
+                  AND ha_events.revision <= (SELECT watermark FROM ha_projection_meta
+                    WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+                  AND ha_events.event_schema='agent-runtime-event/v1'
+                  AND ha_events.event_type='runtime_dispatch_requested'
+                  AND ha_events.payload_task_id=requested.task_id
+                ORDER BY COALESCE(ha_events.dispatch_started_at, ha_events.occurred_at) DESC, ha_events.dispatch_id DESC
+                LIMIT 1
+             ) AS latest
+            ORDER BY requested.position`,
+          [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, taskIds],
+        );
+        return result.rows.map(({ event_json }) =>
+          publicRuntimeDispatch(eventIndexEvent(JSON.parse(event_json) as Dispatch)),
+        );
+      }),
+    readLatestRuntimeDispatchBySession: (runtimeSessionId) =>
+      transaction(async (client) => {
+        if (typeof runtimeSessionId !== "string" || runtimeSessionId.length === 0)
+          throw new Error("runtime dispatch session latest read requires a non-empty session id");
+        const rows = await readDispatchRows(
+          client,
+          "runtime_session_id=$6",
+          [runtimeSessionId],
+          "COALESCE(ha_events.dispatch_started_at, ha_events.occurred_at) DESC, ha_events.dispatch_id DESC",
+          1,
+        );
+        return rows[0] ? publicRuntimeDispatch(rows[0]) : null;
       }),
     readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
       transaction(async (client) => {

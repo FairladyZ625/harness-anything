@@ -158,6 +158,10 @@ const UPSERT_TASK_SNAPSHOT_SQL = [
   "workspace_revision=excluded.workspace_revision, snapshot_json=excluded.snapshot_json,",
   "status=excluded.status, updated_at=excluded.updated_at",
 ].join(" ");
+function syncLeaseTaskActive(db: DatabaseSync, taskId: string, status: string | null | undefined): void {
+  if (status === "active") return;
+  runSql(db, "UPDATE lease_interval SET task_active = 0 WHERE task_id = ? AND task_active = 1", taskId);
+}
 const INSERT_TASK_SNAPSHOT_SQL = [
   "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
   "VALUES (?, ?, ?, ?, ?)",
@@ -734,6 +738,7 @@ export function applyEvent(
       event.payload.task.status,
       event.occurredAt,
     );
+    syncLeaseTaskActive(db, event.taskId, event.payload.task.status);
     refreshTaskRelationProjection(db, event.taskId, event.payload.task, event.workspaceRevision, event.occurredAt);
     upsertPresetSnapshot(
       db,
@@ -847,6 +852,7 @@ export function applyTaskEvent(
     snapshot.task?.status ?? null,
     event.occurredAt,
   );
+  syncLeaseTaskActive(db, event.taskId, snapshot.task?.status);
   if (snapshot.task?.pinned)
     runSql(
       db,
@@ -1186,6 +1192,7 @@ function applyTitleOnlyTaskAmendmentBatch(db: DatabaseSync, events: readonly Pre
     snapshot.task?.status ?? null,
     last.occurredAt,
   );
+  syncLeaseTaskActive(db, taskId, snapshot.task?.status);
   if (snapshot.task?.pinned)
     runSql(
       db,

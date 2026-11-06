@@ -9,6 +9,8 @@ export const PG_TASK_QUERY_METHODS = [
   "readRuntimeDispatchesBySession",
   "readRuntimeDispatchEventsBySession",
   "readRuntimeDispatchesByTaskIds",
+  "readLatestRuntimeDispatchesByTaskIds",
+  "readLatestRuntimeDispatchBySession",
   "readRuntimeDispatchByDispatchIdPrefix",
   "countRuntimeDispatchesByAgent",
   "readRuntimeDispatchesByTaskExecution",

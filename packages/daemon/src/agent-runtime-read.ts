@@ -45,6 +45,7 @@ export function makeAgentRuntimeReadModel(input: {
   readonly readDispatches?: (input: {
     readonly sessions: readonly RuntimeSession[];
     readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+    readonly shallow?: boolean;
   }) => readonly TaskDispatchRow[];
   readonly readAttemptChain?: (runtimeSessionId: string) => AgentRuntimeAttemptChainDto | undefined;
   readonly projection: TaskProjection;
@@ -282,15 +283,31 @@ export function makeAgentRuntimeReadModel(input: {
       const query = sessionGroupsQuery(payload),
         cut = input.projection.readCut();
       const sessions = input.projection
-          .readRuntimeSessions()
+          // The home aggregate asks for the current in-flight set: PG serves it from a
+          // write-maintained current-set table so settled history (and its dead index entries)
+          // never enters the read.
+          .readRuntimeSessions(query.unsettledOnly ? { inFlightOnly: true } : undefined)
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
-        // Read the window sessions' own dispatches; the previous full-class scan made this
-        // projection facet's cost follow total dispatch history (F-28FB7113).
-        windowedDispatchEvents = sessions.flatMap((session) =>
-          input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
-        ),
+        // In-flight aggregation reads one newest dispatch per live session, never the session's
+        // dispatch history. The full page (not unsettledOnly) still reads the history it renders.
+        windowedDispatchEvents = query.unsettledOnly
+          ? sessions.flatMap((session) => {
+              const latest = input.projection.readLatestRuntimeDispatchBySession(session.runtimeSessionId);
+              return latest === null ? [] : [latest];
+            })
+          : sessions.flatMap((session) =>
+              input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
+            ),
         dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
-        dispatches = input.readDispatches?.({ sessions, events: windowedDispatchEvents }) ?? [],
+        // The in-flight aggregation needs the same grouping fields (reviewTarget, agent/squad)
+        // as the full page; a shallow row keeps those bounded and drops the task-snapshot,
+        // document and delivered/blocked derivations that made this read follow history.
+        dispatches =
+          input.readDispatches?.({
+            sessions,
+            events: windowedDispatchEvents,
+            ...(query.unsettledOnly ? { shallow: true } : {}),
+          }) ?? [],
         taskIds = [
           ...new Set([
             ...sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)),
@@ -482,6 +499,8 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   readonly squadId: string | null;
   readonly status: readonly AgentRuntimeSessionGroupStatus[];
   readonly sessionIds: readonly string[];
+  /** Read only sessions whose canonical outcome is still unset; aggregate "in flight" readers. */
+  readonly unsettledOnly: boolean;
   readonly limit: number;
 } {
   const keys = Object.keys(payload),
@@ -492,10 +511,14 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     squadId = payload.squadId,
     status = payload.status,
     sessionIds = payload.sessionIds,
+    unsettledOnly = payload.unsettledOnly,
     limit = payload.limit;
   if (
     keys.some(
-      (key) => !["groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "limit"].includes(key),
+      (key) =>
+        !["groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "unsettledOnly", "limit"].includes(
+          key,
+        ),
     ) ||
     (groupBy !== undefined && !["task", "squad", "agent", "day"].includes(String(groupBy))) ||
     (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
@@ -505,12 +528,14 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     (status !== undefined && !isSessionGroupStatusSelection(status)) ||
     (sessionIds !== undefined &&
       (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== "string" || !id))) ||
+    (unsettledOnly !== undefined && typeof unsettledOnly !== "boolean") ||
     (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000))
   )
     throw coded(
       "invalid_request",
       "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad ids, " +
-        `status among ${agentRuntimeSessionGroupStatusWords.join(", ")}, and limit 1..1000.`,
+        "unsettledOnly, status among " +
+        `${agentRuntimeSessionGroupStatusWords.join(", ")}, and limit 1..1000.`,
     );
   return {
     groupBy: groupBy === "squad" || groupBy === "agent" || groupBy === "day" ? groupBy : "task",
@@ -520,6 +545,7 @@ function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
     squadId: typeof squadId === "string" ? squadId : null,
     status: status === undefined ? [] : (status as readonly AgentRuntimeSessionGroupStatus[]),
     sessionIds: sessionIds === undefined ? [] : [...new Set(sessionIds as readonly string[])],
+    unsettledOnly: unsettledOnly === true,
     limit: typeof limit === "number" ? limit : 200,
   };
 }

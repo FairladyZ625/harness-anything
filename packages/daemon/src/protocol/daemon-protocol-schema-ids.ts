@@ -369,6 +369,7 @@ export const daemonUseCaseProjectionPayloadShape = shape({
   query: "string?",
   status: "array?",
   sessionIds: "array?",
+  unsettledOnly: "boolean?",
   limit: "number?",
 });
 
@@ -379,6 +380,8 @@ export const daemonTaskQueryPayloadShape = shape({
   updatedBefore: "string?",
   limit: "number?",
   cursor: "string?",
+  statusSource: optionalEnum(["raw"]),
+  leaseOnly: "boolean?",
 });
 
 /** The token consumption reads' window range vocabulary. The words live here (wire truth,

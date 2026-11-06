@@ -272,6 +272,7 @@ export function readRelationProjectionRowsTargetingEntity(
 export function readRelationProjectionRowsForTargets(
   db: DatabaseSync,
   targetRefs: readonly string[],
+  filter: { readonly relationType?: string; readonly sourcePrefix?: string } = {},
 ): readonly VersionedRelationProjectionRow[] {
   if (targetRefs.length === 0) return [];
   return relationProjectionRowsAtCut(
@@ -280,9 +281,20 @@ export function readRelationProjectionRowsForTargets(
       db,
       [
         "SELECT row_json FROM relation_edge",
-        "WHERE target_ref IN (SELECT value FROM json_each(?)) ORDER BY target_ref, relation_id",
+        // A declared relation type rides relation_edge_type_target's leading column; without it
+        // a task snapshot would walk every runtime-session executes edge that targets the task.
+        ...(filter.relationType === undefined ? [] : ["INDEXED BY relation_edge_type_target"]),
+        "WHERE target_ref IN (SELECT value FROM json_each(?))",
+        ...(filter.relationType === undefined ? [] : ["AND relation_type = ?"]),
+        // Task snapshots carry decision lineage only (lineageOrphan reads decision/ -> task
+        // derives edges). Generated per-session executes edges must not make one task snapshot
+        // linear in the sessions it ever ran.
+        ...(filter.sourcePrefix === undefined ? [] : ["AND source_ref LIKE ? || '%'"]),
+        "ORDER BY target_ref, relation_id",
       ].join(" "),
       JSON.stringify(targetRefs),
+      ...(filter.relationType === undefined ? [] : [filter.relationType]),
+      ...(filter.sourcePrefix === undefined ? [] : [filter.sourcePrefix]),
     ),
   );
 }

@@ -32,22 +32,33 @@ export function pgRelationPortQueries(options: PgTaskProjectionSourceOptions): P
     }));
   return {
     readTaskRelations: () => relationRead({ taskOwned: true }),
-    readTaskRelationsByTargets: (refs, relationType) =>
+    readTaskRelationsByTargets: (refs, relationType, narrow = false) =>
       read(async (client) => {
         checkedRefs(refs, "relation target batch");
-        const rows = await readRelationsInTransaction(client, scope, readers, { targets: refs, relationType });
+        // Aggregate readers take one indexed seek per endpoint: a batched ANY list lets the
+        // planner scan every relation that targets an unrelated ref. Default callers keep the
+        // batch shape.
+        const rows = [];
+        if (narrow)
+          for (const ref of refs)
+            rows.push(...(await readRelationsInTransaction(client, scope, readers, { target: ref, relationType })));
+        else rows.push(...(await readRelationsInTransaction(client, scope, readers, { targets: refs, relationType })));
         return {
           ...(await readCutInTransaction(client, scope, readers, options.repoId)),
-          rows: refs.flatMap((ref) => rows.filter(({ targetRef }) => targetRef === ref)),
+          rows,
         };
       }),
-    readTaskRelationsBySources: (refs, relationType) =>
+    readTaskRelationsBySources: (refs, relationType, narrow = false) =>
       read(async (client) => {
         checkedRefs(refs, "relation source batch");
-        const rows = await readRelationsInTransaction(client, scope, readers, { sources: refs, relationType });
+        const rows = [];
+        if (narrow)
+          for (const ref of refs)
+            rows.push(...(await readRelationsInTransaction(client, scope, readers, { source: ref, relationType })));
+        else rows.push(...(await readRelationsInTransaction(client, scope, readers, { sources: refs, relationType })));
         return {
           ...(await readCutInTransaction(client, scope, readers, options.repoId)),
-          rows: refs.flatMap((ref) => rows.filter(({ sourceRef }) => sourceRef === ref)),
+          rows,
         };
       }),
     readEntityVersionWitness: (ref) =>

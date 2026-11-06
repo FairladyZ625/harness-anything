@@ -5,17 +5,23 @@ import { decisionReadSurfaces } from "@harness-anything/kernel";
 export function agendaQueryFromPayload(
   context: RepoCellApiContext,
   payload: Readonly<Record<string, unknown>>,
-): { readonly limit?: number; readonly cursor?: string; readonly work?: string } {
+): {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly work?: string;
+  readonly attentionOnly?: boolean;
+} {
   if (
-    Object.keys(payload).some((field) => !["limit", "cursor", "work"].includes(field)) ||
+    Object.keys(payload).some((field) => !["limit", "cursor", "work", "attentionOnly"].includes(field)) ||
     (payload.limit !== undefined &&
       (!Number.isSafeInteger(payload.limit) || Number(payload.limit) < 1 || Number(payload.limit) > 500)) ||
     (payload.cursor !== undefined && (typeof payload.cursor !== "string" || !payload.cursor)) ||
-    (payload.work !== undefined && (typeof payload.work !== "string" || !payload.work))
+    (payload.work !== undefined && (typeof payload.work !== "string" || !payload.work)) ||
+    (payload.attentionOnly !== undefined && typeof payload.attentionOnly !== "boolean")
   )
     throw context.cellCodedError(
       "invalid_command",
-      "Agenda accepts --limit 1..500, a non-empty cursor, and a work root task id only.",
+      "Agenda accepts --limit 1..500, a non-empty cursor, a work root task id, and attentionOnly.",
     );
   if (typeof payload.work === "string" && !context.projection.readTaskExists(payload.work))
     throw context.cellCodedError(
@@ -26,6 +32,7 @@ export function agendaQueryFromPayload(
     ...(payload.limit === undefined ? {} : { limit: Number(payload.limit) }),
     ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
     ...(typeof payload.work === "string" ? { work: payload.work } : {}),
+    ...(payload.attentionOnly === true ? { attentionOnly: true } : {}),
   };
 }
 
@@ -63,7 +70,10 @@ export function taskDispatchesPayloadFromCell(
     return { ...advisory, taskId: context.requiredCellText(payload.taskId, "taskId") };
   const taskIds = payload.taskIds.map((taskId) => context.requiredCellText(taskId, "taskIds[]")),
     limit = payload.limit === undefined ? undefined : Number(payload.limit),
-    cursor = payload.cursor === undefined ? undefined : context.requiredCellText(payload.cursor, "cursor");
+    cursor = payload.cursor === undefined ? undefined : context.requiredCellText(payload.cursor, "cursor"),
+    latestOnly = payload.latestOnly === true;
+  if (payload.latestOnly !== undefined && typeof payload.latestOnly !== "boolean")
+    throw context.cellCodedError("invalid_command", "Task dispatch latestOnly must be a boolean.");
   if (
     taskIds.length === 0 ||
     taskIds.length > 500 ||
@@ -79,5 +89,6 @@ export function taskDispatchesPayloadFromCell(
     taskIds,
     ...(limit === undefined ? {} : { limit }),
     ...(cursor === undefined ? {} : { cursor }),
+    ...(latestOnly ? { latestOnly: true } : {}),
   };
 }

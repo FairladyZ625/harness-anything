@@ -84,3 +84,36 @@ function optionalText<Key extends "taskId" | "factId" | "decisionId">(
 function compact(value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }
+
+/**
+ * Fleet's bounded event header: time/type/title/executor only. It deliberately excludes
+ * documentClaims and other large event-specific payloads so a fixed event page cannot be charged
+ * for one historical event's full body.
+ */
+export function canonicalEventFleetSummary(event: PersistedCanonicalEventV1): CanonicalEventSummary {
+  const source = event as unknown as Readonly<Record<string, unknown>>,
+    payload = recordOf(source.payload),
+    actor = recordOf(source.actor),
+    executor = recordOf(actor?.executor),
+    taskId = textOf(source.taskId) ?? textOf(payload?.taskId),
+    executorId = textOf(executor?.id);
+  return {
+    eventId: String(source.eventId ?? ""),
+    schema: String(source.schema ?? ""),
+    type: String(source.type ?? ""),
+    occurredAt: String(source.occurredAt ?? ""),
+    workspaceRevision: Number(source.workspaceRevision),
+    ...(taskId ? { taskId } : {}),
+    ...(executorId ? { actor: { executor: { id: executorId } } } : {}),
+    payload: {
+      ...(taskId ? { taskId } : {}),
+      ...(textOf(payload?.title) ? { title: clipped(payload?.title) } : {}),
+      ...(textOf(payload?.statement) ? { statement: clipped(payload?.statement) } : {}),
+      ...(textOf(payload?.text) ? { text: clipped(payload?.text) } : {}),
+    },
+  };
+}
+function clipped(value: unknown): string {
+  const text = textOf(value) ?? "";
+  return text.length <= SUMMARY_TEXT_LIMIT ? text : `${text.slice(0, SUMMARY_TEXT_LIMIT - 1)}…`;
+}

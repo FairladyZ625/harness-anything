@@ -115,6 +115,8 @@ export interface PgRelationQuery {
   readonly source?: string;
   readonly excludeFactOwned?: boolean;
   readonly targetRoot?: string;
+  /** Restrict sources to one entity-kind prefix, e.g. `decision/` for task snapshot lineage. */
+  readonly sourceRoot?: string;
   readonly taskOwned?: boolean;
   readonly target?: string;
   readonly targets?: readonly string[];
@@ -146,6 +148,10 @@ export async function readVersionedRelationsInTransaction(
       "(cardinality($4::text[]) = 0 OR readers && $4::text[])",
     ];
   if (query.excludeFactOwned) where.push(`(source_ref COLLATE "C" < 'fact/' OR source_ref COLLATE "C" >= 'fact0')`);
+  if (query.sourceRoot !== undefined) {
+    values.push(query.sourceRoot);
+    where.push(`starts_with(source_ref, $${values.length})`);
+  }
   if (query.targetRoot !== undefined) {
     values.push(query.targetRoot, `${query.targetRoot}/`, `${query.targetRoot}0`);
     where.push(

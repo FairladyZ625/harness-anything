@@ -156,9 +156,24 @@ async function readSingleRepoOverviewWithTimeout(
   // 三个读面都是 cell 内的内存投影读;任一失败由外层 catch 如实映射为该仓不可达,
   // 不在此吞错(吞成 null 会把故障仓静默显示为全 0,违反「断连不等于零」)。
   const fetchPromise = Promise.all([
-    cell.read("repo.agenda.read", {}),
-    cell.read("repo.projection.read", { name: "runtime-session-groups", facet: "groups", groupBy: "task" }),
-    cell.read("repo.tasks.list", { status: "done", updatedAfter: since24hIso, limit: 100 }),
+    // 首页只要四个「等你」桶,不需要整块 agenda 看板;attentionOnly 同时按生命周期状态读,
+    // 避免展示态状态的子树推导把整段任务历史拉进首页。
+    cell.read("repo.agenda.read", { attentionOnly: true }),
+    // 首页只数「现在在飞」:unsettledOnly 让投影用 (outcome, id) 索引直接取未结算会话,
+    // 不再把全部 runtime 会话读进内存后过滤;settled 会话对 runningCount/topMatters 恒为 0。
+    cell.read("repo.projection.read", {
+      name: "runtime-session-groups",
+      facet: "groups",
+      groupBy: "task",
+      unsettledOnly: true,
+    }),
+    // 「刚交付」是生命周期事实,不渲染 work-root 展示态;raw 状态走 status+updated_at 索引。
+    cell.read("repo.tasks.list", {
+      status: "done",
+      updatedAfter: since24hIso,
+      limit: 100,
+      statusSource: "raw",
+    }),
   ]);
 
   let timer: NodeJS.Timeout | null = null;

@@ -221,8 +221,8 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     const runtimeReads = makeAgentRuntimeReadModel({
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(runtimeSessionId, projection!),
         readDispatch: (taskId, dispatchId) => readTaskDispatchSession(projection!, taskId, dispatchId),
-        readDispatches: ({ sessions, events }) =>
-          readSessionGroupDispatches({ sessions, events, projection: projection! }),
+        readDispatches: ({ sessions, events, shallow }) =>
+          readSessionGroupDispatches({ sessions, events, projection: projection!, ...(shallow ? { shallow } : {}) }),
         projection,
         store,
         rootDir: context.rootDir,

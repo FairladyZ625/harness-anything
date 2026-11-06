@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
-import { eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
+import { contractPgEventSummaryIndex, eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
 import { readIndexDdl } from "./pg-read-index-migration.ts";
 import { taskParentIndexDdl } from "./pg-task-parent-index.ts";
 import { decisionReadStatusDdl } from "./pg-decision-read-status.ts";
@@ -27,8 +27,17 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_projection_meta",
   "ha_projection_values",
   "ha_runtime_session_tasks",
+  "ha_runtime_unsettled",
+  "ha_event_summary_state",
   "ha_entity_declaration_heads",
 ] as const);
+
+/** Read/digest tables compared with the other backend. The current-set projection is derived
+ * from ha_projection_values and is maintained by triggers, so it is not part of the replay audit
+ * even though it shares the projection's RLS and grants. */
+export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
+  PG_PROJECTION_TABLES.filter((table) => table !== "ha_runtime_unsettled" && table !== "ha_event_summary_state"),
+);
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
 export const PG_PROJECTION_SCHEMA_VERSION = 5;
@@ -55,6 +64,7 @@ export async function ensurePgProjectionSchema(
 ): Promise<void> {
   for (const statement of projectionDdl()) {
     const index = /^CREATE INDEX IF NOT EXISTS ([a-z0-9_]+)/u.exec(statement);
+    if (index?.[1] === "ha_events_summary_pending" && (await contractPgEventSummaryIndex(client, options))) continue;
     if (index && options.indexBuild !== "isolated") {
       // An interrupted concurrent build leaves an invalid index. IF NOT EXISTS alone
       // would silently keep it forever. Only disposable, invalid indexes are removed.
@@ -109,6 +119,67 @@ export function projectionDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_projection_values_lookup ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id)`,
     ...documentMetadataDdl(),
     ...readIndexDdl(),
+    // Current-set projection for the home "in flight" read. A partial index over a mutable
+    // outcome column accumulates dead entries between autovacuum runs (the G38 fixture measures
+    // immediately after seeding), so an aggregate read must not depend on it. This table holds
+    // only unsettled sessions and is maintained by the same write transaction; its size is the
+    // current in-flight count, not session history.
+    `CREATE TABLE IF NOT EXISTS ha_event_summary_state (
+      tenant_id text NOT NULL,
+      project_id text NOT NULL,
+      policy_epoch bigint NOT NULL,
+      repo_id text NOT NULL,
+      ready boolean NOT NULL DEFAULT false,
+      PRIMARY KEY(tenant_id,project_id,policy_epoch,repo_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS ha_runtime_unsettled (
+      tenant_id text NOT NULL,
+      project_id text NOT NULL,
+      policy_epoch bigint NOT NULL,
+      readers text[] NOT NULL DEFAULT '{}',
+      entity_id text NOT NULL,
+      value text NOT NULL,
+      PRIMARY KEY(tenant_id,project_id,policy_epoch,entity_id)
+    )`,
+    `CREATE OR REPLACE FUNCTION ha_runtime_unsettled_sync() RETURNS trigger
+      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+      BEGIN
+        IF TG_OP='DELETE' THEN
+          DELETE FROM ha_runtime_unsettled WHERE tenant_id=OLD.tenant_id AND project_id=OLD.project_id
+            AND policy_epoch=OLD.policy_epoch AND entity_id=OLD.entity_id;
+          RETURN OLD;
+        END IF;
+        IF NEW.model='runtime-session' AND NEW.owner_id='' THEN
+          IF NEW.runtime_outcome IS NULL THEN
+            INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value)
+            VALUES (NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.readers,NEW.entity_id,NEW.value)
+            ON CONFLICT (tenant_id,project_id,policy_epoch,entity_id)
+            DO UPDATE SET readers=EXCLUDED.readers, value=EXCLUDED.value;
+          ELSE
+            DELETE FROM ha_runtime_unsettled WHERE tenant_id=NEW.tenant_id AND project_id=NEW.project_id
+              AND policy_epoch=NEW.policy_epoch AND entity_id=NEW.entity_id;
+          END IF;
+        END IF;
+        RETURN NEW;
+      END $function$`,
+    `CREATE OR REPLACE TRIGGER ha_runtime_unsettled_sync AFTER INSERT OR UPDATE OF value, runtime_outcome
+      ON ha_projection_values FOR EACH ROW
+      WHEN (NEW.model = 'runtime-session' AND NEW.owner_id = '')
+      EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
+    `CREATE OR REPLACE TRIGGER ha_runtime_unsettled_delete AFTER DELETE ON ha_projection_values
+      FOR EACH ROW
+      WHEN (OLD.model = 'runtime-session' AND OLD.owner_id = '')
+      EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
+    `DO $migration$
+      BEGIN
+        IF to_regclass('ha_projection_meta') IS NOT NULL THEN
+          INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value)
+          SELECT tenant_id,project_id,policy_epoch,readers,entity_id,value FROM ha_projection_values
+          WHERE model='runtime-session' AND owner_id='' AND runtime_outcome IS NULL
+          ON CONFLICT (tenant_id,project_id,policy_epoch,entity_id)
+          DO UPDATE SET readers=EXCLUDED.readers, value=EXCLUDED.value;
+        END IF;
+      END $migration$`,
     ...eventReadIndexDdl(),
     // Retire only the disposable nonunique expression index after its scalar replacement exists.
     // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
@@ -215,6 +286,10 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",
     "ALTER TABLE ha_facts ADD COLUMN IF NOT EXISTS memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_package_path ON ha_task_snapshots (tenant_id,project_id,policy_epoch,package_path)",
+    // A lifecycle-status page (home "done in the last 24h", fleet "active leases") is an index
+    // range, not a scan of every task the repository ever had.
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_lease_active ON ha_task_snapshots (tenant_id, project_id, policy_epoch, task_id) WHERE (snapshot #>> '{task,status}') = 'active' AND raw_lease IS NOT NULL AND raw_lease->>'phase' <> 'released'",
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated ON ha_task_snapshots (tenant_id,project_id,policy_epoch,(snapshot #>> '{task,status}'),updated_at DESC,task_id)",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...taskParentIndexDdl(),
     ...PG_PROJECTION_TABLES.map(
