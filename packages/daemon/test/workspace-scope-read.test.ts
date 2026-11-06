@@ -29,9 +29,14 @@ const task = (
 const projection = (rows: readonly ReturnType<typeof task>[], events: readonly Record<string, unknown>[] = []) =>
   ({
     readTaskIndex: () => ({ status: "ready", rows, watermark: 12, sourceRevision: 12, warnings: [] }),
-    readEventSummaries: (afterRevision: number, limit: number) => ({
+    readEventSummaries: (afterRevision: number, limit: number, scope: { taskIds: string[] }) => ({
       status: "ready",
-      events: events.filter((event) => Number(event.workspaceRevision) > afterRevision).slice(0, limit),
+      events: events
+        .filter(
+          (event) => Number(event.workspaceRevision) > afterRevision && scope.taskIds.includes(String(event.taskId)),
+        )
+        .slice(-limit),
+      hasMore: false,
       watermark: events.at(-1)?.workspaceRevision ?? 0,
       sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
     }),

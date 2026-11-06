@@ -109,7 +109,13 @@ test("the signal read uses an indexed time range and keeps an acceptance before 
     reads: unknown[] = [];
   const result = readReckoningSignals(
     {
-      readRuntimeSessions: () => [],
+      readRuntimeSessions: (query) => {
+        assert.deepEqual(query, {
+          observedAfter: new Date(now - DAY).toISOString(),
+          observedBefore: new Date(now).toISOString(),
+        });
+        return [];
+      },
       readReckoningEvents: (query) => {
         reads.push(query);
         return ledger.filter(

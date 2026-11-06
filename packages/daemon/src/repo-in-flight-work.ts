@@ -18,7 +18,7 @@ export function readRepoInFlightWork(input: {
         },
       ];
     }),
-    leases = input.projection.list().rows.flatMap((row) => {
+    leases = input.projection.list({ leaseOnly: true, decisionRelationsOnly: true }).rows.flatMap((row) => {
       const lease = row.snapshot.lease;
       if (!lease || lease.phase === "released") return [];
       const executor = lease.actor.executor,

@@ -21,7 +21,7 @@ export async function appendRecoveryQueryFixtures(
         eventId: `${id}-${type}`,
         opId: `${id}-${type}`,
         workspaceRevision: revision(),
-        occurredAt: "2025-11-05T00:00:00.000Z",
+        occurredAt: suffix === "c" ? "2025-11-05T00:00:00.000999Z" : "2025-11-05T00:00:00Z",
         actor: { principal: { personId: "query-fixture" }, executor: null },
         source: { kind: "node", nodeId },
       } as AgentRuntimeEventV1;
@@ -99,6 +99,26 @@ export function assertRecoveryQueryContract(queries: TaskProjectionQueries): voi
     "recovery-query-c",
   ]);
   assert.deepEqual(ids({ executionOwnerNodeId: "node-query-b", nonExitedOnly: true }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-a", observedAfter: "2025-11-05T00:00:00.001Z" }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", observedBefore: "2025-11-04T23:59:59.999Z" }), []);
+  assert.deepEqual(
+    ids({
+      executionOwnerNodeId: "node-query-a",
+      observedAfter: "2025-11-05T00:00:00.000Z",
+      observedBefore: "2025-11-05T00:00:00Z",
+    }),
+    ["recovery-query-a", "recovery-query-c"],
+  );
+  // Live sessions stay in the activity window even after an outcome was observed; exited ones
+  // enter only through their observation time. Equal instants with different precision compare equal.
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-a", activitySince: "2026-01-01T00:00:00Z" }), [
+    "recovery-query-a",
+    "recovery-query-c",
+  ]);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-b", activitySince: "2026-01-01T00:00:00Z" }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-b", activitySince: "2025-11-05T00:00:00.000Z" }), [
+    "recovery-query-b",
+  ]);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-a", unsettledOnly: true }), ["recovery-query-a"]);
   assert.deepEqual(ids({ providerSessionId: "provider-query-shared" }), ["recovery-query-a", "recovery-query-c"]);
   assert.deepEqual(ids({ providerSessionId: "provider-query-shared", unsettledOnly: true }), ["recovery-query-a"]);

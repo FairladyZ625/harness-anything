@@ -56,7 +56,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     },
     reads = [root.ref, ...root.anchors].slice(0, GRAPH_SEED_BUDGET).map(neighborhood),
     edges = new Map(reads.flatMap((entry) => entry.edges.map((edge) => [edge.relationId, edge] as const))),
-    taskIndex = cell.projection.readTaskIndex({}),
+    taskIndex = cell.projection.readTaskIndex({ taskIds: [] }),
     taskByRef = new Map(taskIndex.rows.map((row) => [`task/${row.taskId}`, row])),
     structuralChildren: Record<string, { ref: string; type: string }[]> = {},
     structuralParents: Record<string, { ref: string; type: string }> = {},
@@ -116,6 +116,18 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       },
     ),
   );
+  // Only the scopes that can enter this causal graph need task labels and structure.
+  // The old repository-wide index read included every unrelated archived task.
+  const scopeIds = new Set(
+    [root.ref, ...[...edges.values()].flatMap((edge) => [edge.sourceRef, edge.targetRef])].flatMap(
+      (ref) => /^task\/([^/]+)$/u.exec(ref)?.[1] ?? [],
+    ),
+  );
+  for (const taskId of scopeIds) {
+    const scope = cell.projection.readTaskIndex({ scopeRootTaskId: taskId });
+    cutReads.push(scope);
+    for (const row of scope.rows) taskByRef.set(`task/${row.taskId}`, row);
+  }
   requireSameProjectionCut("graph", [initialCut, ...cutReads]);
   const read = {
     status: reads[0]!.status,
@@ -126,7 +138,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     truncated: reads.some((entry) => entry.truncated === true) || unexpandedRefs.size > 0,
     warnings: [...new Set(reads.flatMap((entry) => entry.warnings))],
   };
-  for (const row of taskIndex.rows)
+  for (const row of taskByRef.values())
     if (row.parentTaskId !== null) {
       const parentRef = `task/${row.parentTaskId}`;
       structuralParents[`task/${row.taskId}`] = { ref: parentRef, type: "child" };

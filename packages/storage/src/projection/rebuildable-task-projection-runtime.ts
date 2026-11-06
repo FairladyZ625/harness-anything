@@ -1,5 +1,6 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
+import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
 import {
   emptyTaskLifecycleSnapshot,
   type LeaseChangeReason,
@@ -13,6 +14,7 @@ import {
   type LeaseV1,
 } from "@harness-anything/kernel/internal/domain/execution.ts";
 import {
+  runtimeSessionInActivityWindow,
   type RuntimeInstallation,
   type RuntimeSession,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
@@ -283,6 +285,26 @@ export function effectiveLeaseValue(current: LeaseV1 | null, now: string): Lease
   return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
 }
 
+export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
+  const rows = queryPreparedRows(
+    prepareQuery(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-025 */ db.prepare(sql),
+    ),
+    taskId,
+  );
+  return rows.map((row) => ({
+    taskId: String(row.task_id),
+    executionId: String(row.execution_id),
+    acquiredRevision: Number(row.acquired_revision),
+    releasedRevision: row.released_revision === null ? null : Number(row.released_revision),
+    holder: JSON.parse(String(row.holder_json)) as LeaseHolder,
+    previousHolder:
+      row.previous_holder_json === null ? null : (JSON.parse(String(row.previous_holder_json)) as LeaseHolder),
+    leaseExpiresAt: String(row.lease_expires_at),
+    reason: String(row.reason) as LeaseChangeReason,
+  }));
+}
+
 function leaseIntervalFromRow(row: ProjectionSqlRow): LeaseInterval {
   return {
     taskId: String(row.task_id),
@@ -297,18 +319,7 @@ function leaseIntervalFromRow(row: ProjectionSqlRow): LeaseInterval {
   };
 }
 
-export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
-  const rows = queryPreparedRows(
-    prepareQuery(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", (sql) =>
-      /* @gate-identity check-bypass-write-boundary/bypass-write-025 */ db.prepare(sql),
-    ),
-    taskId,
-  );
-  return rows.map(leaseIntervalFromRow);
-}
-
-/** Newest acquisition for one task: `lease_interval_task_acquisition` seeks it directly, so the
- * cost is one row regardless of how many times the task was re-entered. */
+/** Newest acquisition for one task: the acquisition index avoids sorting its re-entry history. */
 export function readLatestInterval(db: DatabaseSync, taskId: string): LeaseInterval | null {
   const row = queryRow(
     db,
@@ -415,8 +426,14 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
   if (query?.runtimeSessionId !== undefined) {
     const session = readRuntimeSession(db, query.runtimeSessionId);
     if (!session) return [];
-    if (query.unsettledOnly && session.outcome !== null) return [];
+    if ((query.unsettledOnly || query.inFlightOnly) && session.outcome !== null) return [];
     if (query.nonExitedOnly && session.liveness === "exited") return [];
+    if (query.observedAfter !== undefined && Date.parse(session.lastObservedAt) < Date.parse(query.observedAfter))
+      return [];
+    if (query.observedBefore !== undefined && Date.parse(session.lastObservedAt) > Date.parse(query.observedBefore))
+      return [];
+    if (query.activitySince !== undefined && !runtimeSessionInActivityWindow(session, query.activitySince)) return [];
+    if (query.providerSessionId !== undefined && session.providerSessionId !== query.providerSessionId) return [];
     if (
       query.executionOwnerNodeId !== undefined &&
       runtimeSessionExecutionNode(db, session.runtimeSessionId) !== query.executionOwnerNodeId
@@ -425,7 +442,8 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
     return [session];
   }
   const clauses: string[] = [],
-    values: string[] = [];
+    values: (string | number)[] = [];
+  let from = "runtime_session";
   // runtime_session_unsettled_order covers the outcome filter and the recovery ORDER BY together,
   // so the read cannot fall back to scanning the repository's settled history.
   if (query?.unsettledOnly || query?.inFlightOnly) clauses.push("json_extract(value_json, '$.outcome') IS NULL");
@@ -434,6 +452,29 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
     clauses.push("json_extract(value_json, '$.providerSessionId') = ?");
     values.push(query.providerSessionId);
   }
+  const observed = isoTimestampMillisecondsSql("json_extract(value_json, '$.lastObservedAt')");
+  for (const [boundary, operator] of [
+    [query?.observedAfter, ">="],
+    [query?.observedBefore, "<="],
+  ] as const)
+    if (boundary !== undefined) {
+      clauses.push(`${observed} ${operator} ?`);
+      values.push(Date.parse(boundary));
+    }
+  if (query?.activitySince !== undefined) {
+    // Each UNION arm seeks its own index. An OR with ORDER BY could choose the id index and
+    // walk old sessions before it finds the same small active/recent result.
+    if (query.unsettledOnly || query.inFlightOnly) {
+      clauses.push(`(json_extract(value_json, '$.liveness') = 'live' OR ${observed} >= ?)`);
+      values.push(Date.parse(query.activitySince));
+    } else {
+      from = `(SELECT runtime_session_id FROM runtime_session INDEXED BY runtime_session_live_order
+        WHERE json_extract(value_json, '$.liveness') = 'live'
+        UNION SELECT runtime_session_id FROM runtime_session INDEXED BY runtime_session_observed WHERE ${observed} >= ?
+      ) selected CROSS JOIN runtime_session ON runtime_session.runtime_session_id = selected.runtime_session_id`;
+      values.unshift(Date.parse(query.activitySince));
+    }
+  }
   // Edge recovery is scoped by the canonical dispatch source stored beside the session. The
   // node_unsettled index applies both predicates before any session row is visited.
   if (query?.executionOwnerNodeId !== undefined) {
@@ -441,9 +482,11 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
     values.push(query.executionOwnerNodeId);
   }
   const where = clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`;
-  return queryRows(db, `SELECT value_json FROM runtime_session${where} ORDER BY runtime_session_id`, ...values).map(
-    (row) => JSON.parse(String(row.value_json)) as RuntimeSession,
-  );
+  return queryRows(
+    db,
+    `SELECT value_json FROM ${from}${where} ORDER BY runtime_session.runtime_session_id`,
+    ...values,
+  ).map((row) => JSON.parse(String(row.value_json)) as RuntimeSession);
 }
 function runtimeSessionExecutionNode(db: DatabaseSync, runtimeSessionId: string): string | null {
   const row = queryRows(

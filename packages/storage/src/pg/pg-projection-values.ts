@@ -1,7 +1,8 @@
 import type { PoolClient } from "pg";
 import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
-import type { RuntimeSession } from "@harness-anything/kernel";
+import type { RuntimeSession, RuntimeSessionReadQuery } from "@harness-anything/kernel";
+import { runtimeSessionInActivityWindow } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
@@ -105,8 +106,8 @@ export function pgRuntimeSessionReadStatement(
     readonly runtimeSessionId?: string;
     readonly providerSessionId?: string;
     readonly unsettledOnly?: boolean;
-    readonly nonExitedOnly?: boolean;
     readonly inFlightOnly?: boolean;
+    readonly nonExitedOnly?: boolean;
     readonly executionOwnerNodeId?: string;
   } = {},
 ): { readonly text: string; readonly values: readonly unknown[] } {
@@ -170,17 +171,20 @@ export async function listPgRuntimeSessions(
   client: PoolClient,
   scope: PgProjectionScope,
   repoId: string,
-  query: {
-    readonly runtimeSessionId?: string;
-    readonly providerSessionId?: string;
-    readonly unsettledOnly?: boolean;
-    readonly nonExitedOnly?: boolean;
-    readonly executionOwnerNodeId?: string;
-  } = {},
+  query: RuntimeSessionReadQuery = {},
 ): Promise<readonly RuntimeSession[]> {
   if (query.unsettledOnly || query.nonExitedOnly) await assertPgReadIndexReady(client, scope, "runtime-session");
   if (query.executionOwnerNodeId !== undefined) await assertPgEventReadIndexReady(client, scope, repoId);
   const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
     result = await client.query<{ value: string }>(statement.text, [...statement.values]);
-  return result.rows.map(({ value }) => JSON.parse(value) as RuntimeSession);
+  // These intents share the canonical port with SQLite. PG's window index is a separate
+  // expansion; retain exact result semantics while that expansion is delivered.
+  return result.rows
+    .map(({ value }) => JSON.parse(value) as RuntimeSession)
+    .filter(
+      (session) =>
+        (query.activitySince === undefined || runtimeSessionInActivityWindow(session, query.activitySince)) &&
+        (query.observedAfter === undefined || Date.parse(session.lastObservedAt) >= Date.parse(query.observedAfter)) &&
+        (query.observedBefore === undefined || Date.parse(session.lastObservedAt) <= Date.parse(query.observedBefore)),
+    );
 }

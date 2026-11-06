@@ -40,7 +40,15 @@ export function readReckoningSignals(
       ...range("decision_accepted", oldest),
     ];
   events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
-  return collectReckoningSignals({ events, sessions: projection.readRuntimeSessions(), since, until });
+  return collectReckoningSignals({
+    events,
+    sessions: projection.readRuntimeSessions({
+      observedAfter: new Date(since).toISOString(),
+      observedBefore: new Date(until).toISOString(),
+    }),
+    since,
+    until,
+  });
 }
 
 export function collectReckoningSignals(input: {

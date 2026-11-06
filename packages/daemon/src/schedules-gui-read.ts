@@ -50,7 +50,7 @@ export interface SchedulesGuiReadContext {
       readonly workspaceRevision: number;
       readonly freshness?: "current" | "orphaned" | "unknown";
     }[];
-    readonly readTaskStatuses: () => {
+    readonly readTaskStatuses: (taskIds?: readonly string[]) => {
       readonly status: "ready" | "pending";
       readonly watermark: number;
       readonly sourceRevision: number;
@@ -243,7 +243,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
   const mode = repoMode,
     now = context.now(),
     viewerNodeId = viewerNodeIdOf(mode, context.rootDir),
-    cut = context.projection.readTaskStatuses(),
+    cut = context.projection.readTaskStatuses([]),
     agentOptions = scheduleAgentOptions(context),
     agentsById = new Map(agentOptions.map((agent) => [agent.agentId, agent])),
     // 健康度 rollup:一次事件扫描为全部 schedule 各折一份(daemon 侧聚合,renderer 只渲染)。

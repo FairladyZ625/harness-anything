@@ -2,7 +2,6 @@ import {
   latestRuntimeActivityAt,
   publicRuntimeSession,
   publicRuntimeInstallation,
-  runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
   runtimeSessionOutcomeFromEvidence,
   runtimeSessionSemanticState,
@@ -289,8 +288,10 @@ export function makeAgentRuntimeReadModel(input: {
           // The home aggregate asks for the current in-flight set: PG serves it from a
           // write-maintained current-set table so settled history (and its dead index entries)
           // never enters the read.
-          .readRuntimeSessions(query.unsettledOnly ? { inFlightOnly: true } : undefined)
-          .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
+          .readRuntimeSessions({
+            ...(query.unsettledOnly ? { inFlightOnly: true } : {}),
+            activitySince: query.since,
+          }),
         // In-flight aggregation reads one newest dispatch per live session, never the session's
         // dispatch history. The full page (not unsettledOnly) still reads the history it renders.
         windowedDispatchEvents = query.unsettledOnly

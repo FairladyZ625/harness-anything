@@ -89,6 +89,7 @@ type DispatchEvent = Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requ
 type DispatchQueries = Pick<
   TaskProjectionQueries,
   | "read"
+  | "readTaskIndex"
   | "readDocument"
   | "readRuntimeSession"
   | "readRuntimeSessionEventsByType"
@@ -811,11 +812,11 @@ function canonicalDispatchRow(
   annotations: readonly import("./decision-annotations.ts").DecisionAnnotationEntry[] = [],
 ): TaskDispatchRow {
   const payload = event.payload,
-    taskRead = payload.taskId ? projection.read(payload.taskId) : null,
+    taskRead = payload.taskId ? projection.readTaskIndex({ taskIds: [payload.taskId] }).rows[0] : null,
     packagePath = taskRead?.packagePath ?? null,
     // The title rides beside taskId from this one read: a caller labelling the row must never
     // re-join the task through a second listing whose readability rules can differ.
-    taskTitle = taskRead?.snapshot.task?.title,
+    taskTitle = taskRead?.title,
     documentPath = packagePath ? `${packagePath}/artifacts/dispatches/${payload.dispatchId}.json` : null,
     document = documentPath ? projection.readDocument(documentPath).document : null,
     archive = document ? parseArchive(document.body) : null,
@@ -887,7 +888,7 @@ function canonicalDispatchRow(
           }),
     activityStatus = dispatchActivityStatus({
       status,
-      taskStatus: taskRead?.snapshot.task?.status,
+      taskStatus: taskRead?.status,
       role: payload.role,
       lastObservedAt: activityProjectionObservedAt,
       lastProgressAt: dispatchStream?.lastProgressAt,
@@ -1107,7 +1108,7 @@ function awaitingRulingFields(
 ): Pick<TaskDispatchRow, "ruling"> {
   const taskId = dispatch.taskId;
   if (!taskId) return {};
-  const packagePath = projection.read(taskId).packagePath;
+  const packagePath = projection.readTaskIndex({ taskIds: [taskId] }).rows[0]?.packagePath;
   if (typeof packagePath !== "string") return {};
   if (
     readDispatchRuling(

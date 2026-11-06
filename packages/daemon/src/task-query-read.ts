@@ -265,7 +265,7 @@ export function makeTaskQueryReadModel(input: {
     // Aggregate readers that ask for the raw lifecycle status skip the presentation-status
     // derivation: that CASE walks each task's subtree, so filtering on it cannot be index-bounded
     // and would make a small page linear in the repository's task history.
-    const lifecycleQuery = { ...query, limit: query.limit ?? 500 },
+    const lifecycleQuery = { ...query, limit: query.limit ?? 500, decisionRelationsOnly: true },
       lifecycle =
         query.presentationStatus === false
           ? projection.list(lifecycleQuery)

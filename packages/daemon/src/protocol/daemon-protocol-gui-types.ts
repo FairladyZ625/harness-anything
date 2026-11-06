@@ -620,6 +620,7 @@ export interface DaemonTaskQueryPayload {
   readonly statusSource?: "raw";
   /** Only tasks holding a live lease; the fleet lease page starts from leases, not raw actives. */
   readonly leaseOnly?: boolean;
+  readonly activePackagesOnly?: boolean;
 }
 
 export interface DaemonAgendaPayload {
