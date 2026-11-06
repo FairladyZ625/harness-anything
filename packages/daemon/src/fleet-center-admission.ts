@@ -320,7 +320,10 @@ function persistEdgeConnection(
   loginAuthority?: FleetEdgeSyncRequest["loginAuthority"],
 ): void {
   const previous = readFleetEdgeConfig(request.workspaceRoot);
-  const loginUrl = previous?.loginUrl ?? loginAuthority?.url,
+  const loginUrl =
+      previous?.loginRealm === undefined && loginAuthority?.realm
+        ? loginAuthority.url
+        : (previous?.loginUrl ?? loginAuthority?.url),
     loginRealm = previous?.loginRealm ?? loginAuthority?.realm;
   writeFleetEdgeConfig(request.workspaceRoot, {
     repoId: request.repoId,

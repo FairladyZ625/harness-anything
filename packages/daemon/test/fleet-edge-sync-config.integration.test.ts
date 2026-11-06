@@ -129,6 +129,7 @@ test(
     });
     assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
     assert.equal((response.result as Record<string, unknown>).ok, true, JSON.stringify(response.result));
+    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginUrl, publishedAuthority.url);
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginRealm, publishedAuthority.realm);
   },
 );
@@ -210,10 +211,11 @@ test(
       humanSession: false,
       beforeOpen: (edgeRoot) => {
         const config = readFleetEdgeConfig(edgeRoot)!;
-        writeFleetEdgeConfig(edgeRoot, { ...config, loginUrl });
+        writeFleetEdgeConfig(edgeRoot, { ...config, loginUrl: "https://old-login.example" });
       },
     });
     assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, undefined, "the persisted config predates loginRealm");
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, "https://old-login.example");
     const ready = await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" });
     assert.equal(
       ready,
@@ -223,6 +225,23 @@ test(
     const generation = readReplicaGeneration(path.join(edge.viewRoot, "repos", "lease-repo", "views", "node-one"));
     assert.equal(generation?.metadata.readerProfile?.personId, "person-one");
     assert.ok(machineTokenExchanges > 0, "the production edge host exchanged its node secret without a human session");
+
+    const { schema: _schema, waitTimeoutMs: _waitTimeoutMs, ...connection } = edge.config,
+      sync = await edge.rpc.handle({
+        jsonrpc: "2.0",
+        id: 301,
+        method: "daemon.fleet.edge.sync",
+        params: { payload: { ...connection, workspaceRoot: edge.edgeRoot, timeoutMs: 30_000 } },
+      });
+    assert.ok(sync && !Array.isArray(sync) && "result" in sync, JSON.stringify(sync));
+    assert.equal((sync.result as Record<string, unknown>).ok, true, JSON.stringify(sync.result));
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, loginUrl);
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, "harness");
+    assert.equal(
+      await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" }),
+      true,
+      "the resident stream remains ready after the legacy authority repair",
+    );
   },
 );
 

@@ -265,7 +265,7 @@ test("an expired machine token is rejected by replica admission", { timeout: 60_
   await waitForState(() => stream.failures.length > 0, "the center rejects the expired machine token", 10_000);
   assert.equal(
     center.status().nodeSessions.find((row) => row.nodeId === "edge-one")?.lastFailure?.code,
-    "fleet_replica_credential_rejected",
+    "human_confirmation_required",
   );
   assert.equal(readReplicaGeneration(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")), null);
   await stream.stop();

@@ -127,15 +127,16 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       if (machineClientId !== null) {
         const client = nodeClients.get(machineClientId),
           ok =
-            client?.enabled !== false &&
+            client !== undefined &&
+            client.enabled !== false &&
             (clientId.startsWith("harness-node-")
               ? client.secret === form.get("client_secret")
               : token === `node-token-${machineClientId}`);
         nodeLogins.push({ clientId: machineClientId, ok });
-        return ok
+        return ok && !nodeTokensExpired
           ? json({
               active: true,
-              exp: Math.floor(Date.now() / 1000) + (nodeTokensExpired ? -1 : 300),
+              exp: Math.floor(Date.now() / 1000) + 300,
               iss: `${realmIssuer}`,
               azp: machineClientId,
               aud: ["harness-center"],
