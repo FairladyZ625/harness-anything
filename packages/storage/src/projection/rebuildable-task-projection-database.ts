@@ -8,6 +8,7 @@ import {
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { createDecisionProjectionTables } from "./decision-event-projection.ts";
+import { backfillEventSummaryReadIndex, ensureEventSummaryReadIndexColumns } from "./event-summary-read-index.ts";
 import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
@@ -476,6 +477,7 @@ function configureDatabase(db: DatabaseSync): void {
 
 function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
   ensureRuntimeSessionExecutionNodeColumn(db);
+  ensureEventSummaryReadIndexColumns(db);
   /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
   db.exec(`
     CREATE TABLE IF NOT EXISTS archived_entity (
@@ -564,6 +566,7 @@ ${REPOSITORY_READ_TABLES_SQL}
   `);
   backfillRuntimeSessionExecutionNode(db);
   ensureRuntimeMemberIndex(db, onValidationProgress);
+  backfillEventSummaryReadIndex(db, onValidationProgress);
   backfillRuntimeSessionBindings(db, onValidationProgress);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);
