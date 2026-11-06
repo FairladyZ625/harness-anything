@@ -8,6 +8,8 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "daemon_gone",
   "daemon_restarting",
   "daemon_target_conflict",
+  // The registry is local state: an unreadable file must not read as an unreachable daemon.
+  "daemon_registry_unreadable",
   "service_rejected",
   "duplicate_field",
   "invalid_field",

@@ -24,11 +24,8 @@ import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
 import { withFactStatementGuidance, withTitleFocusGuidance } from "./cli/guidance-plane.ts";
 import {
-  daemonAutostartFailureCode,
-  cliEntryFailureCode,
-  cliInputFailureCode,
+  cliDispatchFailureCode,
   daemonResponseTimeoutCode,
-  daemonTargetFailureCode,
   consumeKnownError,
   runCommandThroughDaemon,
 } from "./daemon/client.ts";
@@ -198,12 +195,8 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     return receiptExitCode(receipt);
   } catch (error) {
     if (!dispatchMeasured) cliPhaseEnd("dispatch", dispatchStartedAt);
-    const autostartCode = daemonAutostartFailureCode(error),
-      timeoutCode = daemonResponseTimeoutCode(error),
-      targetCode = daemonTargetFailureCode(error),
-      entryCode = cliEntryFailureCode(error),
-      inputCode = cliInputFailureCode(error),
-      direct = autostartCode ?? targetCode ?? entryCode ?? inputCode;
+    const timeoutCode = daemonResponseTimeoutCode(error),
+      direct = cliDispatchFailureCode(error);
     const failure = cliDispatchError({ error, directCode: direct, timeoutCode, returnedReceipt });
     emit(cliFailure(parsed.command.action.kind, failure.code, failure.hint), parsed.command.json);
     return 1;

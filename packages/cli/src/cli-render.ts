@@ -37,10 +37,14 @@ export function cliDispatchError(input: {
       const params = errorParams(input.error),
         hint =
           failure.errorCode === "daemon_target_conflict" && params
-            ? renderCliGuidance("daemon-target-conflict", params)
+            ? params.route === "relay"
+              ? renderCliGuidance("daemon-relay-route", params)
+              : renderCliGuidance("daemon-target-conflict", params)
             : failure.errorCode === "daemon_build_stale"
               ? renderCliGuidance("daemon-build-stale", {})
-              : renderCliGuidance("direct-daemon-failure", { message: failure.message });
+              : failure.errorCode === "daemon_registry_unreadable"
+                ? renderCliGuidance("daemon-registry-unreadable", { message: failure.message })
+                : renderCliGuidance("direct-daemon-failure", { message: failure.message });
       return { code: failure.errorCode, hint };
     }
     case "ReceiptRenderFailure":

@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -99,7 +99,77 @@ export function resolveLocalDaemonEndpoint(input: {
 export async function resolveLocalDaemonTarget(input: LocalDaemonTargetInput): Promise<LocalDaemonTarget> {
   const env = input.env ?? process.env;
   const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
+  // A sealed runtime is handed its route by the daemon that dispatched it. The registry names the
+  // same route, but it belongs to the host and is not readable from inside the sandbox, so a
+  // relayed command locates its repo from the injection instead of reading it. The daemon still
+  // authorizes the request against the dispatch execution scope; these fields only carry location.
+  if (env.HARNESS_DAEMON_RELAY === "1") return resolveRelayedDaemonTarget(input, env, userRoot);
   return resolveLocalDaemonTargetFromRepos(input, await readRegisteredRepos(userRoot));
+}
+
+/** Route the dispatching daemon already bound for this dispatch. Every missing or out-of-scope
+ * field is refused here as a route conflict: deriving a repository from the host registry, or
+ * falling back to the implicit user socket, would answer a question this caller did not ask. */
+function resolveRelayedDaemonTarget(
+  input: LocalDaemonTargetInput,
+  env: NodeJS.ProcessEnv,
+  userRoot: string,
+): LocalDaemonTarget {
+  const daemonId = input.daemonId ?? daemonIdFromEnv(env),
+    injectedRepoId = env.HARNESS_DAEMON_REPO_ID?.trim() || null,
+    injectedRoot = env.HARNESS_CANONICAL_ROOT?.trim() || null,
+    fail = (reason: string): Error =>
+      Object.assign(new Error(`daemon_relay_route_required: ${reason}`), {
+        code: "daemon_target_conflict",
+        params: {
+          route: "relay",
+          reason,
+          endpoint: env.HARNESS_DAEMON_ENDPOINT?.trim() || null,
+          userRoot,
+          daemonId,
+          repoId: injectedRepoId,
+          canonicalRoot: injectedRoot,
+        },
+      });
+  if (!env.HARNESS_DAEMON_ENDPOINT?.trim()) throw fail("HARNESS_DAEMON_ENDPOINT is not set");
+  if (!injectedRepoId) throw fail("HARNESS_DAEMON_REPO_ID is not set");
+  if (input.repoIdOverride && input.repoIdOverride !== injectedRepoId)
+    throw fail(
+      `repoId ${JSON.stringify(input.repoIdOverride)} does not match the dispatched repo ` +
+        JSON.stringify(injectedRepoId),
+    );
+  if (!injectedRoot) throw fail("HARNESS_CANONICAL_ROOT is not set");
+  const canonicalRoot = bindRelayedRoot(injectedRoot, fail),
+    selectedRoot = bindCanonicalRoot(input.rootDir);
+  if (selectedRoot !== canonicalRoot && !selectedRoot.startsWith(`${canonicalRoot}${path.sep}`))
+    throw fail(
+      `selected root ${JSON.stringify(selectedRoot)} is outside the dispatched canonical root ` +
+        JSON.stringify(canonicalRoot),
+    );
+  let socketPath: EndpointIdentity;
+  try {
+    socketPath = resolveLocalDaemonEndpoint({ userRoot, daemonId, env, repoId: injectedRepoId, canonicalRoot });
+  } catch (error) {
+    if (!isDaemonTargetConflict(error)) throw error;
+    throw fail("HARNESS_DAEMON_ENDPOINT is not this dispatch's per-dispatch relay socket");
+  }
+  return { repoId: workspaceId(injectedRepoId), canonicalRoot, userRoot, daemonId, socketPath };
+}
+
+function isDaemonTargetConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { readonly code?: unknown }).code === "daemon_target_conflict"
+  );
+}
+
+function bindRelayedRoot(value: string, fail: (reason: string) => Error): CanonicalRoot {
+  try {
+    return bindCanonicalRoot(value);
+  } catch {
+    throw fail(`HARNESS_CANONICAL_ROOT ${JSON.stringify(value)} is not a usable workspace root`);
+  }
 }
 
 export function resolveLocalDaemonTargetFromRepos(
@@ -156,14 +226,39 @@ export function resolveLocalDaemonTargetFromRepos(
     socketPath,
   };
 }
+export const daemonRegistryUnreadableCode = "daemon_registry_unreadable";
+function registryUnreadable(registryPath: string, error: unknown): Error {
+  // A registry that cannot be opened, parsed or decoded is a local state failure, not an
+  // unreachable daemon: callers must be able to tell the operator which one broke.
+  return Object.assign(
+    new Error(
+      `daemon registry at ${registryPath} could not be read: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    ),
+    { code: daemonRegistryUnreadableCode, cause: error },
+  );
+}
 export async function readRegisteredRepos(
   userRoot: string,
 ): Promise<ReadonlyArray<DaemonRegistryRepo & { readonly canonicalRoot: string }>> {
-  if (!existsSync(path.join(userRoot, "registry.json"))) return [];
+  const registryPath = path.join(userRoot, "registry.json");
+  // stat, not existsSync: a sandbox-denied directory reports EACCES here instead of a silent
+  // "missing", so an unreadable host root is not mistaken for an unregistered workspace.
+  let present: boolean;
+  try {
+    present = statSync(registryPath, { throwIfNoEntry: false }) !== undefined;
+  } catch (error) {
+    throw registryUnreadable(registryPath, error);
+  }
+  if (!present) return [];
   const { readDaemonRegistry } = await import("@harness-anything/kernel/daemon-registry");
-  return readDaemonRegistry({ userRoot }).repos.filter(
-    (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
-  );
+  try {
+    return readDaemonRegistry({ userRoot }).repos.filter(
+      (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
+    );
+  } catch (error) {
+    throw registryUnreadable(registryPath, error);
+  }
 }
 function localDaemonTargetHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);

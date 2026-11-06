@@ -14,6 +14,7 @@ import {
 import {
   assertRuntimeCredentialEndpoint,
   daemonIdFromEnv,
+  daemonRegistryUnreadableCode,
   daemonUserRoot,
   localUserDaemonEndpoint,
   resolveLocalDaemonEndpoint,
@@ -119,6 +120,26 @@ export function daemonTargetFailureCode(error: unknown): "daemon_target_conflict
     ? "daemon_target_conflict"
     : null;
 }
+// The registry is local state; failing to open or decode it says nothing about whether the daemon
+// is reachable, so it keeps its own receipt code instead of collapsing into daemon_unavailable.
+export function daemonRegistryUnreadableFailureCode(error: unknown): typeof daemonRegistryUnreadableCode | null {
+  return typeof error === "object" &&
+    error !== null &&
+    (error as { readonly code?: unknown }).code === daemonRegistryUnreadableCode
+    ? daemonRegistryUnreadableCode
+    : null;
+}
+/** Every local failure code the dispatcher can name before a receipt exists, in precedence order. */
+export function cliDispatchFailureCode(error: unknown): string | null {
+  return (
+    daemonAutostartFailureCode(error) ??
+    daemonRegistryUnreadableFailureCode(error) ??
+    daemonTargetFailureCode(error) ??
+    cliEntryFailureCode(error) ??
+    cliInputFailureCode(error)
+  );
+}
+
 export function cliEntryFailureCode(error: unknown): typeof cliEntryNotCanonicalCode | null {
   const code = typeof error === "object" && error !== null ? (error as { readonly code?: unknown }).code : null;
   return code === cliEntryNotCanonicalCode ? cliEntryNotCanonicalCode : null;
@@ -152,6 +173,64 @@ async function prepareEdgeJoinWorkspace(command: ThinCommand, params: JsonObject
   if (params.operation !== "edge-join") return;
   const { ensureDaemonSpawnRoot } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
   ensureDaemonSpawnRoot(command.rootDir);
+}
+
+type FleetRouteRequest = (
+  target: {
+    readonly userRoot: string;
+    readonly daemonId: string;
+    readonly socketPath: string;
+    readonly invokingCommand?: string;
+  },
+  method: string,
+  params: JsonObject,
+  timeoutMs: number,
+  responseTimeoutMs?: number,
+) => Promise<JsonObject>;
+
+// The remote-edge fleet channel carries commands the edge daemon must forward to the center. A
+// relayed runtime validates its injected route first and sends that channel through the fixed
+// relay, so the fleet payload never falls back to the implicit user socket; the daemon applies its
+// registry mode and execution scope. A non-relay caller keeps the local daemon endpoint.
+async function requestFleetRoute(input: {
+  readonly command: ThinCommand;
+  readonly env: NodeJS.ProcessEnv;
+  readonly method: string;
+  readonly payload: JsonObject;
+  readonly autostart: boolean;
+  readonly request: FleetRouteRequest;
+}): Promise<JsonObject> {
+  const relayed =
+    input.env.HARNESS_DAEMON_RELAY === "1"
+      ? await resolveLocalDaemonTarget({
+          rootDir: input.command.rootDir,
+          repoIdOverride: input.command.repoId,
+          env: input.env,
+        })
+      : null;
+  const userRoot = relayed?.userRoot ?? daemonUserRoot(input.env),
+    daemonId = relayed?.daemonId ?? daemonIdFromEnv(input.env),
+    socketPath = relayed?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId);
+  return withAutostart(
+    () =>
+      input.request(
+        { userRoot, daemonId, socketPath, invokingCommand: input.command.id },
+        input.method,
+        { payload: input.payload },
+        75,
+        readResponseDeadlineMs(input.command.action.kind),
+      ),
+    () => cliDaemonServeLaunch(userRoot, daemonId),
+    socketPath,
+    daemonAutostartOptions(
+      input.command,
+      input.autostart,
+      input.env,
+      userRoot,
+      daemonId,
+      daemonCommandCategory(input.method),
+    ),
+  );
 }
 
 export async function runCommandThroughDaemon(
@@ -247,42 +326,25 @@ export async function runCommandThroughDaemon(
     (await fleetScheduleRoute(command, env)) ??
     (await fleetRuntimeRoute(command, env)) ??
     (await fleetTaskRoute(command, env));
-  if (fleetTask) {
-    const userRoot = daemonUserRoot(env),
-      daemonId = daemonIdFromEnv(env),
-      socketPath = localUserDaemonEndpoint(userRoot, daemonId);
-    return withAutostart(
-      () =>
-        requestLocalDaemonJsonRpcForTarget(
-          { userRoot, daemonId, socketPath, invokingCommand: command.id },
-          "daemon.fleet.task.run",
-          { payload: fleetTask as JsonObject },
-          75,
-          readResponseDeadlineMs(command.action.kind),
-        ),
-      () => cliDaemonServeLaunch(userRoot, daemonId),
-      socketPath,
-      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
-    );
-  }
+  if (fleetTask)
+    return requestFleetRoute({
+      command,
+      env,
+      method: "daemon.fleet.task.run",
+      payload: fleetTask as JsonObject,
+      autostart,
+      request: requestLocalDaemonJsonRpcForTarget,
+    });
   const fleetDoc = await fleetDocRoute(command, env);
-  if (fleetDoc) {
-    const userRoot = daemonUserRoot(env),
-      daemonId = daemonIdFromEnv(env),
-      socketPath = localUserDaemonEndpoint(userRoot, daemonId);
-    return withAutostart(
-      () =>
-        requestLocalDaemonJsonRpcForTarget(
-          { userRoot, daemonId, socketPath, invokingCommand: command.id },
-          fleetDoc.method,
-          { payload: fleetDoc.payload as JsonObject },
-          75,
-        ),
-      () => cliDaemonServeLaunch(userRoot, daemonId),
-      socketPath,
-      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, daemonCommandCategory(fleetDoc.method)),
-    );
-  }
+  if (fleetDoc)
+    return requestFleetRoute({
+      command,
+      env,
+      method: fleetDoc.method,
+      payload: fleetDoc.payload as JsonObject,
+      autostart,
+      request: requestLocalDaemonJsonRpcForTarget,
+    });
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
