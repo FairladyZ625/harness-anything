@@ -2,12 +2,7 @@
 
 ## Compare total cost
 
-Delegation is useful when independent execution, focused context, or a second view returns more than the cost of briefing, waiting, reviewing, rework, and integration. Ask four questions before choosing the route:
-
-1. Can the CEO make a safe, well-grounded change with the current context? Direct execution is reasonable for a small bounded task once its task exists; preserve CEO attention when cross-line coordination or semantic judgment is the scarce resource.
-2. What is the complete dispatch cost? If brief, review, and integration will dominate, make the task coherent and give the worker the context to find the root cause. Do not reduce the packet to a thin recipe to save a few lines.
-3. Has the same method failed twice without new evidence? Stop repeating it. Change the method, identity, or contract; reuse prior evidence and explain why the next attempt can succeed.
-4. Will this require long-running exploration, measurement, or many trials? Delegate it when one owner can carry the work to evidence and report the result.
+Delegation pays when independent execution, focused context, or a second view returns more than the cost of briefing, waiting, reviewing, rework, and integration. Keep the route questions in [the main skill](../SKILL.md#create-the-task-first-then-choose-the-executor) as their single authority rather than restating them here. A genuinely new attempt states which new evidence makes it different.
 
 There is no universal rule to always delegate or always execute a small task yourself; either way the task exists first. Optimize the whole delivery path and keep authority where it belongs: the CEO owns scope, semantic acceptance, and authorized external decisions.
 
@@ -17,7 +12,7 @@ Start with the largest coherent result that one owner can understand and verify.
 
 Give the first checkpoint an observable result from the real entry point to a user or caller. A plan, isolated helper, generated file, or unit test may be useful but does not prove the feature is wired into its consumer.
 
-If one dispatch has not progressed, inspect the contract and evidence before retrying. After two failures of the same method without new information, revise it or return the task premise for decision. Reassigning the same thin packet to a new identity is not a method change.
+If one dispatch has not progressed, inspect the contract and evidence before retrying, and apply the premise recheck after repeated failure. Reassigning the same thin packet to a new identity is not a method change.
 
 ## Give context, constrain ownership
 
