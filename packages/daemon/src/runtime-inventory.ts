@@ -44,7 +44,10 @@ export const claudeWorkspaceWriteSandbox = {
     claudeWorkspaceWriteCli.commands.map((command) => `${prefix} ${command} *`),
   ),
   filesystem: { disabled: false },
-  network: { allowedDomains: [] },
+  // Claude Code docs (sandboxing: "A command fails to reach a server on localhost"):
+  // on macOS this lets sandboxed commands listen on localhost for local E2E servers;
+  // Linux/WSL2 already give each command its own loopback. Outbound stays denied.
+  network: { allowedDomains: [], allowLocalBinding: true },
 } as const;
 
 const sharedCapabilities = {
