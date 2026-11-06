@@ -80,6 +80,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "taskAssignmentTtlMs",
       "fleetClaimScope",
       "runtimeAllowedInstances",
+      "runtimeCommandInterceptions",
       "runtimeAgentSkills",
       "runtimeDispatchUsageLimit",
       "runtimeProviderMaxRetries",
