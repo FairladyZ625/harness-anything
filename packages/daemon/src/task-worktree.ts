@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
+  consumeKnownError,
   deriveTaskWorktreeBinding,
   isTerminalStatus,
   type TaskProjection,
@@ -557,15 +558,28 @@ export function prepareTaskStartWorktree(
 ): Promise<(receipt: WriteReceipt) => WriteReceipt> | null {
   if (source !== "local" || action.dryRun === true || action.kind !== "task-start" || typeof action.taskId !== "string")
     return null;
-  return checkoutOnStart(
-    input,
-    action.taskId,
-    stackedCommit,
-    typeof action.executionId === "string" && action.executionId.length > 0 ? action.executionId : null,
-  ).then(
-    (checkout) => (receipt) =>
-      receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt,
-  );
+  const executionId =
+    typeof action.executionId === "string" && action.executionId.length > 0 ? action.executionId : null;
+  return checkoutOnStart(input, action.taskId, stackedCommit).then((checkout) => (receipt) => {
+    if (receipt.outcome !== "applied") return receipt;
+    // Authorization and the lifecycle CAS already succeeded. The marker is published last, and a
+    // write failure is a warning on the applied receipt: reads stay unobservable rather than a
+    // committed start being reported as rejected.
+    let warnings = checkout.warnings;
+    if (checkout.cwd !== null && executionId !== null) {
+      try {
+        writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId);
+      } catch (error) {
+        consumeKnownError(error);
+        warnings = [
+          ...warnings,
+          `Worktree ${checkout.cwd} was checked out but its execution marker was not written: ${errorText(error)}. ` +
+            "Execution reads for this start remain unobservable.",
+        ];
+      }
+    }
+    return withNotes(receipt, checkout.notes, warnings);
+  });
 }
 
 /**
@@ -696,7 +710,6 @@ async function checkoutOnStart(
   input: TaskWorktreeLifecycleInput,
   taskId: string,
   stackedCommit?: string,
-  executionId?: string | null,
 ): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[]; readonly cwd: string | null }> {
   const binding = openTaskWorktreeBinding(input.readTask(taskId), input.readPresetSnapshot);
   if (!binding) {
@@ -729,9 +742,6 @@ async function checkoutOnStart(
       "worktree_setup_failed",
       worktreeSetupFailure(checkout.cwd, checkout.setup, `run ha task start ${taskId} again`, checkout.baseRef),
     );
-  // Bind before the start is committed. If this write fails, the start is refused with no committed
-  // lease, so an applied receipt can never disagree with a missing/failed marker.
-  if (executionId) writeTaskWorktreeExecutionBinding(checkout.cwd, taskId, executionId);
   return { notes: [taskWorktreeCheckoutNote(checkout)], warnings: [], cwd: checkout.cwd };
 }
 

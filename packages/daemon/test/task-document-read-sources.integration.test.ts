@@ -305,6 +305,15 @@ test("a rejected competing start cannot overwrite the holder's marker", async ()
       .run({ kind: "task-start", taskId, executionId: "execution-competing" }, fixture.binding)
       .catch((error: unknown) => ({ outcome: "threw", message: String(error) }) as const);
     assert.notEqual(rejected.outcome, "applied", "the second start must be rejected while A holds the lease");
+    const worktree = worktreeRoots(fixture.rootDir).find(
+      (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
+    );
+    assert.ok(worktree, "the fixture must have a materialized execution worktree");
+    assert.equal(
+      existsSync(taskWorktreeExecutionBindingPath(worktree, "execution-competing")),
+      false,
+      "a rejected start must not publish a marker for its execution id",
+    );
 
     const observed = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
@@ -320,7 +329,7 @@ test("a rejected competing start cannot overwrite the holder's marker", async ()
   }
 });
 
-test("a marker write failure refuses the start before the command is written", async () => {
+test("a marker write failure keeps the applied start and leaves observation unobservable", async () => {
   const fixture = await startTaskWithTwoCuts();
   try {
     const released = await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding);
@@ -333,18 +342,28 @@ test("a marker write failure refuses the start before the command is written", a
     rmSync(markerPath);
     mkdirSync(markerPath);
 
-    // Rejoin the same execution after release: the start is admissible, but the marker write is not.
-    const outcome = await fixture.cell
-      .run({ kind: "task-start", taskId, executionId }, fixture.binding)
-      .catch((error: unknown) => ({ outcome: "threw", message: String(error) }) as const);
-    assert.notEqual(outcome.outcome, "applied", "a marker write failure must reject the start, not hide it as applied");
+    // Rejoin the same execution after release: the lifecycle start applies, but the marker write fails.
+    const outcome = (await fixture.cell.run({ kind: "task-start", taskId, executionId }, fixture.binding)) as {
+      readonly outcome: string;
+      readonly warnings?: readonly string[];
+    };
+    assert.equal(outcome.outcome, "applied", "the committed start must not be reported as rejected");
     assert.match(
-      JSON.stringify(outcome),
-      /harness-execution-binding|EISDIR|not a directory|marker/iu,
-      "the rejection must name the marker write, not an unrelated transition rule",
+      String(outcome.warnings?.join("\n") ?? ""),
+      /execution marker was not written/iu,
+      "the receipt must carry the marker failure as a warning",
     );
     const row = (await fixture.cell.read("repo.tasks.list")).rows.find((candidate) => candidate.taskId === taskId);
-    assert.equal(row?.snapshot.lease, null, "the rejected start must not commit a new lease");
+    assert.notEqual(row?.snapshot.lease, null, "the applied start keeps its lease");
+
+    const observed = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(observed.source, "unobservable");
+    assert.equal(observed.body, "");
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
