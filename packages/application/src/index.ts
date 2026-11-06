@@ -26,6 +26,7 @@ export type {
   PreparedArtifactEntityImport,
 } from "./artifact-entity-service.ts";
 export { readTaskReadSet } from "./task-read-set-service.ts";
+export { readTaskReviewAttribution } from "./task-review-attribution.ts";
 export type { TaskReadSetProjection } from "./task-read-set-service.ts";
 export { makeTaskActionExplanationService } from "./task-action-explanation-service.ts";
 export { makePersonActionExplanationService } from "./person-action-explanation-service.ts";

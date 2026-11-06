@@ -1,4 +1,5 @@
 import { readTaskCompletion } from "./task-completion-read.ts";
+import { readTaskReviewAttribution } from "@harness-anything/application";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -225,6 +226,7 @@ export function taskShowFromProjection(
     ),
     payload = {
       ...read.snapshot,
+      reviewAttribution: readTaskReviewAttribution(projection, taskId, read.sourceRevision),
       // The current-iteration executions the owner needs ids from (review/consent/complete), so
       // getting one never requires probing a write command. Derived here once; the thin CLI renders.
       currentExecutions: read.snapshot.executions

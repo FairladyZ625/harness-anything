@@ -1,7 +1,6 @@
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
-import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { withReviewerQualifiedDispatchKey } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
@@ -143,50 +142,41 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       async (client) => {
         if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500)
           throw new Error("event list limit must be between 1 and 500");
+        await assertPgEventReadIndexReady(client, claims, repoId, 6);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
-          values: unknown[] = [cut.watermark],
-          where = ["revision <= $6"],
+          values: unknown[] = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, cut.watermark],
+          where = [
+            "event.tenant_id=$1 AND event.project_id=$2 AND event.repo_id=$3 AND event.policy_epoch=$4",
+            "(cardinality($5::text[])=0 OR event.readers && $5::text[])",
+            "event.revision <= $6 AND event.event_type <> 'ci_run_observed'",
+          ],
           add = (predicate: (parameter: number) => string, value: unknown) => {
             values.push(value);
-            where.push(predicate(values.length + 5));
+            where.push(predicate(values.length));
           };
-        if (query.revisionBound !== undefined) add((parameter) => `revision < $${parameter}`, query.revisionBound);
-        if (query.type !== undefined) add((parameter) => `event_type = $${parameter}`, query.type);
-        if (query.after !== undefined) add((parameter) => `occurred_at >= $${parameter}`, query.after);
-        if (query.before !== undefined) add((parameter) => `occurred_at <= $${parameter}`, query.before);
-        if (query.actor !== undefined) add((parameter) => `actor_refs @> ARRAY[$${parameter}]::text[]`, query.actor);
-        if (query.entity !== undefined)
-          add(
-            (parameter) =>
-              `EXISTS (SELECT 1 FROM unnest(entity_refs) ref WHERE ref = $${parameter} OR right(ref, char_length($${parameter}) + 1) = '/' || $${parameter})`,
-            query.entity,
-          );
-        const rows = await readEventRowsInTransaction(
-          client,
-          claims,
-          readers,
-          repoId,
-          where.join(" AND "),
-          values,
-          "DESC",
-          query.limit + 1,
-        );
-        const selected = rows.map(({ revision, event_json }) => {
-          const event = JSON.parse(event_json) as CanonicalEventV1;
-          return {
-            revision: Number(revision),
-            opId: event.opId,
-            eventId: event.eventId,
-            schema: event.schema,
-            type: event.type,
-            occurredAt: event.occurredAt,
-            actor: {
-              personId: event.actor.principal.personId,
-              executorId: event.actor.executor?.id ?? null,
-            },
-            entityRefs: canonicalEventEntityRefs(event),
-          } satisfies EventListRow;
-        });
+        if (query.revisionBound !== undefined)
+          add((parameter) => `event.revision < $${parameter}`, query.revisionBound);
+        if (query.type !== undefined) add((parameter) => `event.event_type = $${parameter}`, query.type);
+        if (query.after !== undefined) add((parameter) => `event.occurred_at >= $${parameter}`, query.after);
+        if (query.before !== undefined) add((parameter) => `event.occurred_at <= $${parameter}`, query.before);
+        if (query.actor !== undefined)
+          add((parameter) => `event.actor_refs @> ARRAY[$${parameter}]::text[]`, query.actor);
+        if (query.entity !== undefined) add((parameter) => `ref.entity_ref = $${parameter}`, query.entity);
+        values.push(query.limit + 1);
+        // A scalar ref/revision range drives entity pages, including bare-id suffixes. Return
+        // only the stored descriptor: submission event_json can contain an entire artifact set.
+        const from =
+            query.entity === undefined
+              ? "ha_events AS event"
+              : `ha_events AS event JOIN ha_event_entity_refs AS ref
+            ON (ref.tenant_id,ref.project_id,ref.repo_id,ref.policy_epoch,ref.revision)
+              = (event.tenant_id,event.project_id,event.repo_id,event.policy_epoch,event.revision)`,
+          rows = await client.query<{ list_row: string }>(
+            `SELECT event.list_row FROM ${from} WHERE ${where.join(" AND ")}
+            ORDER BY ${query.entity === undefined ? "event" : "ref"}.revision DESC LIMIT $${values.length}`,
+            values,
+          ),
+          selected = rows.rows.map(({ list_row }) => JSON.parse(list_row) as EventListRow);
         const result = selected.slice(0, query.limit),
           hasMore = selected.length > query.limit;
         return { rows: result, hasMore, nextCursor: hasMore && result.length ? String(result.at(-1)!.revision) : null };

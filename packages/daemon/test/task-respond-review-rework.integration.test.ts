@@ -42,6 +42,15 @@ function writeCloseout(rootDir: string, taskId: string, packagePath: unknown, ro
     const closeout = path.join(root, "harness", packageRoot, "closeout.md");
     mkdirSync(path.dirname(closeout), { recursive: true });
     writeFileSync(closeout, body);
+    if (round === "two") {
+      const evidence = path.join(path.dirname(closeout), "artifacts", "original-service-evidence.log");
+      mkdirSync(path.dirname(evidence), { recursive: true });
+      writeFileSync(
+        evidence,
+        "2026-11-06T11:00:00Z principal=person-respond-owner executor=owner-coordinator " +
+          "method=GET endpoint=/projects/42 authorization=repository.read status=200\n",
+      );
+    }
   }
 }
 
@@ -136,17 +145,26 @@ test("a returned cut registers its response and re-freezes the delivery for the 
     if (returnedEvent?.type !== "review_recorded") throw new Error("returned review event missing");
     assert.equal(returnedEvent.payload.task.iteration, 1);
 
+    // dec_5DBF5F2B I3: a new executor may answer for the current leased round; sharing the
+    // principal does not let the previous worker keep responding under its old identity.
+    const currentWorker = binding("respond-worker-r2");
     // Round 1: rework, then answer the blocking finding.
     assert.equal(
-      (await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner)).outcome,
+      (await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, currentWorker)).outcome,
       "applied",
     );
+    const staleResponse = await cell.run(
+      respondAction(taskId, secondExecutionId, [findingResponse(reviewId, "F1")]),
+      owner,
+    );
+    assert.equal(staleResponse.outcome, "op_rejected", JSON.stringify(staleResponse));
+    assert.equal(staleResponse.code, "actor_unauthorized", JSON.stringify(staleResponse));
     // A response that names a finding the review never recorded is the one rejection the worker can
     // still reach here. The receipt must carry that sentence: the invocation criterion is a place to
     // attribute a failure, never a replacement for the failure's reason.
     const unknownFinding = await cell.run(
       respondAction(taskId, secondExecutionId, [{ ...findingResponse(reviewId, "F2"), disposition: "adopt" as const }]),
-      owner,
+      currentWorker,
     );
     assert.equal(unknownFinding.outcome, "op_rejected", JSON.stringify(unknownFinding));
     assert.equal(unknownFinding.code, "invalid_transition", JSON.stringify(unknownFinding));
@@ -160,13 +178,19 @@ test("a returned cut registers its response and re-freezes the delivery for the 
       JSON.stringify(unknownFinding),
     );
 
-    const responded = await cell.run(
-      respondAction(taskId, secondExecutionId, [findingResponse(reviewId, "F1")]),
-      owner,
-    );
+    const correctedResponse = {
+        ...findingResponse(reviewId, "F1"),
+        rationale:
+          "Attribution correction: owner-coordinator performed read-only GET /projects/42; " +
+          "see artifacts/original-service-evidence.log for time, actor and authorization (asserted; verify the original).",
+      },
+      responded = await cell.run(respondAction(taskId, secondExecutionId, [correctedResponse]), currentWorker);
     assert.equal(responded.outcome, "applied", JSON.stringify(responded));
     const respondedEvent = store().readEvent(String(responded.opId));
     if (respondedEvent?.type !== "task_review_responded") throw new Error("response event missing");
+    assert.deepEqual(respondedEvent.actor, currentWorker.actor);
+    assert.deepEqual(respondedEvent.payload.responses[0]!.actor, currentWorker.actor);
+    assert.equal(respondedEvent.payload.responses[0]!.rationale, correctedResponse.rationale);
     assert.deepEqual(
       respondedEvent.payload.responses.map(({ reviewId: review, findingId, disposition }) => ({
         review,
@@ -178,10 +202,20 @@ test("a returned cut registers its response and re-freezes the delivery for the 
 
     // The resubmission freezes the response into the new cut, so the re-review can verify it.
     writeCloseout(rootDir, taskId, packagePath, "two");
-    const resubmitted = await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner);
+    const resubmitted = await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, currentWorker);
     assert.equal(resubmitted.outcome, "applied", JSON.stringify(resubmitted));
     const submittedEvent = store().readEvent(String(resubmitted.opId));
     if (submittedEvent?.type !== "execution_submitted") throw new Error("resubmission event missing");
+    assert.equal(
+      submittedEvent.payload.execution.submission?.reviewResponses?.[0]!.rationale,
+      correctedResponse.rationale,
+    );
+    assert.ok(
+      submittedEvent.payload.execution.submission?.artifacts?.some(({ path: artifact }) =>
+        artifact.endsWith("/artifacts/original-service-evidence.log"),
+      ),
+      "the re-review cut freezes the original service evidence referenced by the attribution correction",
+    );
     assert.deepEqual(
       submittedEvent.payload.execution.submission?.reviewResponses?.map(({ reviewId: review, findingId }) => ({
         review,
@@ -189,6 +223,18 @@ test("a returned cut registers its response and re-freezes the delivery for the 
       })),
       [{ review: reviewId, findingId: "F1" }],
     );
+    const shown = await cell.run({ kind: "task-show", taskId }, currentWorker);
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+    const attribution = JSON.parse(shown.evidence).reviewAttribution;
+    assert.equal(attribution.schema, "task-review-attribution/v1");
+    const responseAction = attribution.actions.find(
+      (row: { action: string }) => row.action === "task_review_responded",
+    );
+    assert.deepEqual(responseAction.actor, currentWorker.actor);
+    assert.equal(responseAction.executionId, secondExecutionId);
+    const reviewAction = attribution.actions.find((row: { action: string }) => row.action === "review_recorded");
+    assert.deepEqual(reviewAction.actor, reviewer.actor);
+    assert.equal(reviewAction.executionId, null, "the reviewed cut does not make the reviewer its worker");
 
     writeFileSync(
       path.join(rootDir, "review-approved.json"),

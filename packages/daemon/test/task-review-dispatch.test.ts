@@ -47,6 +47,14 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.doesNotMatch(prompt, /REVIEW-ARTIFACT|REVIEW-SMALL-ARTIFACT|bodyTruncatedFromChars/u);
   assert.doesNotMatch(prompt, /raw-evidence\.txt|"artifacts":/u);
   assert.match(prompt, /ha task show task_review_bounds --json/u);
+  assert.match(prompt, /reviewAttribution index/u);
+  assert.match(prompt, /ha event list --entity task\/task_review_bounds --cursor/u);
+  assert.match(prompt, /ha task dispatches task_review_bounds --json/u);
+  assert.match(prompt, /Owner read-only API activity must not be attributed to the worker/u);
+  assert.match(prompt, /worker's action is not excused by sharing the owner's principal/u);
+  assert.match(prompt, /unknown actors remain asserted\/unverified/u);
+  assert.match(prompt, /model\/agent name never establishes executor identity or permission/u);
+  assert.match(prompt, /constraints\/authorization at that time/u);
   assert.doesNotMatch(prompt, /For every artifact anchor in that submission/u);
   assert.doesNotMatch(prompt, /registered anchors at their frozen revisions/u);
   assert.match(prompt, /first review.*every blocking finding visible/u);
@@ -66,6 +74,9 @@ test("re-review prompt does not require resolution bookkeeping", () => {
     gates: [],
   });
   assert.doesNotMatch(prompt, /exactly one resolution|Previous resolutions|prior-round finding/u);
+  assert.match(prompt, /previous registered reviews and reports/u);
+  assert.match(prompt, /frozen reviewResponses and their referenced attribution evidence/u);
+  assert.match(prompt, /current authorized implementation identity/u);
 });
 
 test("a reviewer in its own checkout writes and registers through the canonical artifact root", () => {
