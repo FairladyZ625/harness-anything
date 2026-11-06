@@ -128,7 +128,7 @@ export function renderAgendaSummary(
     ),
     section(
       "形状信号",
-      "同一任务出现第二次 escalation：先回答今天还会不会做、最简替代、沉没成本，结论 continue/narrow/stop 落 premise-review Fact",
+      "同一任务出现第二次 escalation：先回答今天还会不会做、最简替代、沉没成本，结论 continue/narrow/stop 落一条 --source review:premise 的 Fact",
       (groups.shapeSignals ?? []).map((row) => `- ${row.taskId} ${row.title}\n  前提复核: ${row.next}`),
     ),
     section(

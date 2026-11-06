@@ -222,7 +222,6 @@ test("owner rework past the rework budget requires a premise review recorded aft
           `sunk-cost: three rounds spent; not a reason. conclusion: ${conclusion}`,
         evidenceSource: "review:premise",
         confidence: "medium",
-        domainTypes: ["premise-review"],
         memoryClass: "episodic",
         memoryTags: [],
       });
@@ -239,7 +238,7 @@ test("owner rework past the rework budget requires a premise review recorded aft
   const before = f.events().revision;
   const refused = await rework(fourth);
   assert.equal(refused.code, "premise_review_required", JSON.stringify(refused));
-  assert.match(String(refused.rejectionExplanation ?? refused.message ?? JSON.stringify(refused)), /premise-review/u);
+  assert.match(String(refused.rejectionExplanation ?? refused.message ?? JSON.stringify(refused)), /review:premise/u);
   assert.equal(f.events().revision, before, "a refused return publishes no event");
 
   await premise("stop");

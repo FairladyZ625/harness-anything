@@ -8,6 +8,7 @@ import { transitionDocumentReadinessContract } from "../src/transition-document-
 const planHeadings = [
   "Brief",
   "Goal",
+  "Cheaper Alternatives",
   "Context",
   "Required Reading",
   "Execution Surface",

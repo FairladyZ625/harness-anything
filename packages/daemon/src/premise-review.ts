@@ -1,7 +1,7 @@
 import type { FactProjectionRow, TaskProjectionQueries } from "@harness-anything/kernel";
 
 /**
- * A premise review is a task-bound Fact with this domain type. Its statement answers three questions
+ * A premise review is a task-bound Fact with this evidence source. Its statement answers three questions
  * and names one conclusion, so the record lives in the ledger beside the task it judged:
  *
  *   restart: would we start this task today, from zero? alternative: the simplest alternative.
@@ -9,7 +9,7 @@ import type { FactProjectionRow, TaskProjectionQueries } from "@harness-anything
  *
  * `ha task rework` past the repository rework budget and the agenda shape signal both read it.
  */
-export const PREMISE_REVIEW_TYPE = "premise-review";
+export const PREMISE_REVIEW_SOURCE = "review:premise";
 
 const KEYS = ["restart", "alternative", "sunk-cost", "conclusion"] as const;
 export type PremiseReviewConclusion = "continue" | "narrow" | "stop";
@@ -20,7 +20,7 @@ export type PremiseReviewParse =
 
 export function premiseReviewCommand(taskId: string): string {
   return (
-    `ha fact record --task ${taskId} --type ${PREMISE_REVIEW_TYPE} --source review:premise --statement ` +
+    `ha fact record --task ${taskId} --source ${PREMISE_REVIEW_SOURCE} --statement ` +
     `"restart: <would we start this today, from zero?> alternative: <simplest alternative, including not doing it> ` +
     `sunk-cost: <is the cost already spent driving this?> conclusion: continue|narrow|stop"`
   );
@@ -51,7 +51,14 @@ export function latestPremiseReview(
   after: string,
 ): { readonly fact: FactProjectionRow; readonly review: PremiseReviewParse } | null {
   const fact = projection
-    .searchFacts({ taskId, domainType: PREMISE_REVIEW_TYPE, observedAfter: after, limit: 20 })
-    .facts.find((row) => row.occurredAt > after && row.state === "standing" && !row.archived && !row.invalidated);
+    .searchFacts({ taskId, observedAfter: after })
+    .facts.find(
+      (row) =>
+        row.evidenceSource === PREMISE_REVIEW_SOURCE &&
+        row.occurredAt > after &&
+        row.state === "standing" &&
+        !row.archived &&
+        !row.invalidated,
+    );
   return fact ? { fact, review: parsePremiseReview(fact.statement) } : null;
 }

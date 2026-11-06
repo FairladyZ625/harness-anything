@@ -1829,6 +1829,7 @@ test("agenda marks a second escalation on one task as a shape signal until a new
       taskId,
       factId: "F-PREMISE1",
       statement,
+      evidenceSource: "review:premise",
       observedAt: occurredAt,
       occurredAt,
       state: "standing",
@@ -1851,9 +1852,9 @@ test("agenda marks a second escalation on one task as a shape signal until a new
           readRuntimeDispatchesByTaskExecution: () => [],
           readRuntimeDispatchByResumeSource: () => null,
           readRuntimeDispatchesByAttemptGroup: () => [],
-          searchFacts: (filters: { taskId?: string; domainType?: string }) => ({
+          searchFacts: (filters: { taskId?: string }) => ({
             ...readyCut,
-            facts: filters.taskId === taskId && filters.domainType === "premise-review" ? facts : [],
+            facts: filters.taskId === taskId ? facts : [],
           }),
         } as unknown as TaskProjection;
       return makeTaskQueryReadModel({
@@ -1885,7 +1886,7 @@ test("agenda marks a second escalation on one task as a shape signal until a new
   assert.equal(signalOf(repeated)?.kind, "needs-handling", JSON.stringify(repeated.attentionItems));
   assert.match(repeated.summary, /形状信号 \(1\)/u);
   assert.match(repeated.summary, /2 次 escalation/u);
-  assert.match(repeated.summary, /ha fact record --task task_shape_signal --type premise-review/u);
+  assert.match(repeated.summary, /ha fact record --task task_shape_signal --source review:premise/u);
   assert.deepEqual(validateDaemonAgenda(repeated), []);
 
   // A premise review that predates the latest escalation did not see it.

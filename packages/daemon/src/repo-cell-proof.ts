@@ -43,7 +43,7 @@ import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
-import { latestPremiseReview, PREMISE_REVIEW_TYPE, premiseReviewCommand } from "./premise-review.ts";
+import { latestPremiseReview, PREMISE_REVIEW_SOURCE, premiseReviewCommand } from "./premise-review.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
@@ -555,7 +555,7 @@ function assertPremiseReviewedPastBudget(
       entity: `task ${command.taskId}`,
       field: "premiseReview",
       actual: found ? found.fact.ref : "none after the last return",
-      expectation: `A standing ${PREMISE_REVIEW_TYPE} Fact for this task, recorded after the last return, concluding continue or narrow`,
+      expectation: `A standing Fact for this task with source ${PREMISE_REVIEW_SOURCE}, recorded after the last return, concluding continue or narrow`,
     },
   );
 }

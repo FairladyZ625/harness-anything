@@ -458,6 +458,7 @@ export default {
     const sections = [
       "Brief",
       "Goal",
+      "Cheaper Alternatives",
       "Context",
       "Required Reading",
       "Entry Conditions",
