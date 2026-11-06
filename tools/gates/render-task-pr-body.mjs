@@ -56,6 +56,20 @@ function pathCode(value) {
   return `${delimiter}${encoded}${delimiter}`;
 }
 
+/** The governing decision recorded on the task, if any; otherwise the caller cites the task itself. */
+function decisionAuthority(projection) {
+  const relations = Array.isArray(projection.decisionRelations) ? projection.decisionRelations : [],
+    decision = relations.find(
+      (relation) =>
+        record(relation) &&
+        relation.state === "active" &&
+        typeof relation.sourceRef === "string" &&
+        relation.sourceRef.startsWith("decision/") &&
+        relation.relationType === "derives",
+    );
+  return decision ? decision.sourceRef.slice("decision/".length) : null;
+}
+
 function taskProjection(receipt, taskId) {
   if (!record(receipt) || receipt.ok !== true || typeof receipt.evidence !== "string")
     throw new Error(`ha task show ${taskId} did not return a successful task projection`);
@@ -78,6 +92,7 @@ function taskProjection(receipt, taskId) {
     submission: current.submission,
     packagePath: projection.packagePath,
     profileId: record(task.metadata) && typeof task.metadata.profileId === "string" ? task.metadata.profileId : null,
+    decisionAuthority: decisionAuthority(projection),
   };
 }
 
@@ -170,21 +185,41 @@ function dependencyDescription(content) {
     .join(" ");
 }
 
-// The governance gate classifies protected paths from the gate manifest; the renderer reuses that
-// classification and cites the task itself as the authority, so a touched protected surface is
-// declared on the only rendering path instead of failing pr-body-lint after the PR opens.
-function declareProtectedSurfaces(body, taskId, changedFiles, manifest) {
-  if (!manifest) return body;
-  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
-  if (files.length === 0) return body;
-  return body
-    .replace(/^- Protected surface touched: no$/mu, "- Protected surface touched: yes")
-    .replace(/^- Protected surface scope:\s*$/mu, `- Protected surface scope: ${files.map(pathCode).join(", ")}`)
-    .replace(/^- Authority: not applicable$/mu, `- Authority: ${taskId}`);
+// The system owns this entire section. Manual exceptions live in a separate section that this
+// renderer never writes (owner 2026-11-06); no provenance or edit detection is needed.
+const GOVERNANCE_SECTION =
+  /^##[ \t]+(?:Governance Declaration|Governance 声明|治理声明)[ \t]*\r?$[\s\S]*?(?=^##[ \t]+|(?![\s\S]))/gimu;
+
+function governanceDeclaration(taskId, decision, files) {
+  const lines = [
+    "## Governance Declaration",
+    "",
+    "- Protected surface touched: yes",
+    `- Protected surface scope: ${files.map(pathCode).join(", ")}`,
+    `- Authority: ${decision ?? taskId}`,
+  ];
+  if (decision) lines.push(`- Task: ${taskId}`);
+  else lines.push("- Authorization: 授权：仅 task，待评审确认");
+  lines.push(
+    "- Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.",
+  );
+  return lines.join("\n");
+}
+
+function declareProtectedSurfaces(body, taskId, changedFiles, manifest, decision) {
+  const stripped = body.replace(GOVERNANCE_SECTION, ""),
+    files = manifest
+      ? classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file)
+      : [];
+  if (files.length === 0) return stripped;
+  const section = `${governanceDeclaration(taskId, decision, files)}\n\n`,
+    verification = /^##[ \t]+(?:Verification|验证)[ \t]*$/mu.exec(stripped);
+  if (!verification) return `${stripped.replace(/\s+$/u, "")}\n\n${section}`;
+  return `${stripped.slice(0, verification.index)}${section}${stripped.slice(verification.index)}`;
 }
 
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
-  const { submission, profileId } = taskProjection(receipt, taskId),
+  const { submission, profileId, decisionAuthority } = taskProjection(receipt, taskId),
     submissionFacts = readSubmissionFacts(submission),
     delivery = renderSubmissionFacts(submission, submissionFacts),
     stripped = withoutFacts(body),
@@ -208,7 +243,7 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     // heading is absent, publish the author's original document in its original order.
     rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
-  rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest);
+  rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest, decisionAuthority);
   const { start, end } = markerPair(rendered, "PR template");
   return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
 }
@@ -275,7 +310,14 @@ export function main(argv = process.argv.slice(2)) {
           ? template
           : readFileSync(path.resolve(rootDir, options.bodyFile), "utf8"),
       manifest = JSON.parse(readFileSync(path.resolve(rootDir, "tools/gate-manifest.json"), "utf8")),
-      body = renderTaskPrBody({ taskId: options.taskId, receipt, template, body: input, closeout, manifest });
+      body = renderTaskPrBody({
+        taskId: options.taskId,
+        receipt,
+        template,
+        body: input,
+        closeout,
+        manifest,
+      });
     process.stdout.write(body);
     return 0;
   } catch (error) {
