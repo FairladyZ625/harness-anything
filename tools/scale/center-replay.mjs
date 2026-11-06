@@ -113,7 +113,9 @@ export async function replayTraffic({
   for (const [index, row] of window.entries()) lastByConnection.set(row.connection, index);
   const sessions = new Map(),
     observeCursors = new Map(),
+    observeBootstraps = new Map(),
     observePolls = { history: 0, follow: 0 },
+    slowObserveBootstrap = new Set(),
     pending = new Set(),
     accumulator = requestAccumulator();
   const started = performance.now();
@@ -131,7 +133,9 @@ export async function replayTraffic({
     const startedMs = performance.now() - started,
       key = `${row.node}:${row.connection}`;
     let ok = false,
-      code = null;
+      code = null,
+      releaseBootstrap = null,
+      bootstrap = null;
     try {
       if (!sessions.has(key)) {
         const opening = openSession(fixture.endpoint, timeoutMs);
@@ -156,12 +160,30 @@ export async function replayTraffic({
       const managedObserve =
         row.method === "observe.tail" && !(bindings[`${row.method}:${row.command}`] ?? bindings[row.method]);
       if (managedObserve) {
-        const cursor = observeCursors.get(row.node);
+        let cursor = observeCursors.get(row.node);
+        if (!cursor && observeBootstraps.has(row.node)) {
+          // A client cannot follow a cursor it has not received: order this poll behind the
+          // in-flight bootstrap reply instead of racing the two requests, which otherwise records
+          // the second poll as another history read depending on scheduling.
+          await observeBootstraps.get(row.node);
+          cursor = observeCursors.get(row.node);
+        }
         if (cursor) params.payload = { kind: "events", direction: "follow", cursor };
+        else {
+          bootstrap = new Promise((resolve) => {
+            releaseBootstrap = resolve;
+          });
+          observeBootstraps.set(row.node, bootstrap);
+        }
         observePolls[params.payload.direction]++;
       }
       const result =
         row.method === "protocol.hello" ? session.helloResult : await client.request(row.method, params, timeoutMs);
+      if (managedObserve && result.liveCursor && !slowObserveBootstrap.has(row.node)) {
+        // Negative control: the first history reply lands after the second observe is issued.
+        slowObserveBootstrap.add(row.node);
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      }
       if (managedObserve && result.liveCursor) observeCursors.set(row.node, result.liveCursor);
       ok = result.ok !== false && !["op_rejected", "indeterminate"].includes(result.outcome);
       code = ok ? null : (result.code ?? result.error?.code ?? result.outcome ?? "request_failed");
@@ -180,6 +202,10 @@ export async function replayTraffic({
       });
       const session = sessions.get(key);
       if (session) session.active--;
+      if (releaseBootstrap) {
+        if (observeBootstraps.get(row.node) === bootstrap) observeBootstraps.delete(row.node);
+        releaseBootstrap();
+      }
       await releaseFinished(key, session);
     }
   };
