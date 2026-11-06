@@ -188,14 +188,15 @@ test("a checkout moved to another delivery branch is judged against the branch i
 test("a switched delivery branch that is behind its published copy is still refused", async (t) => {
   const fixture = nodesFixture(t),
     checkout = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
-    deliveryBranch = `${taskId}-slice-a-v2`,
-    delivered = commit(checkout.cwd, "slice-a.txt");
+    deliveryBranch = `${taskId}-slice-a-v2`;
+  commit(checkout.cwd, "slice-a.txt");
   git(checkout.cwd, "switch", "-q", "-c", deliveryBranch);
   git(checkout.cwd, "push", "-q", "-u", "origin", deliveryBranch);
-  // Another delivery publishes a commit on the same branch, then this checkout commits something else.
-  commit(checkout.cwd, "published-elsewhere.txt");
-  git(checkout.cwd, "push", "-q", "origin", `HEAD:refs/heads/${deliveryBranch}`);
-  git(checkout.cwd, "reset", "-q", "--hard", delivered);
+  // Another node advances the same branch; this checkout's reflog never records its commit.
+  git(fixture.nodeB, "fetch", "-q", "origin");
+  git(fixture.nodeB, "switch", "-q", "-c", deliveryBranch, `origin/${deliveryBranch}`);
+  commit(fixture.nodeB, "published-elsewhere.txt");
+  git(fixture.nodeB, "push", "-q", "origin", deliveryBranch);
   commit(checkout.cwd, "local-only.txt");
   const head = git(checkout.cwd, "rev-parse", "HEAD"),
     status = git(checkout.cwd, "status", "--porcelain");
@@ -211,7 +212,12 @@ test("a switched delivery branch that is behind its published copy is still refu
         "the refusal names the branch it compares",
       );
       assert.equal(error.message.includes(`behind origin/${taskId} `), false);
-      assert.equal(error.message.includes(`git -C ${checkout.cwd} rebase origin/${deliveryBranch}`), true);
+      assert.match(error.message, /reflog never saw/u);
+      assert.equal(
+        error.message.includes(`git -C ${checkout.cwd} log --oneline --left-right origin/${deliveryBranch}...HEAD`),
+        true,
+        "the refusal names a runnable inspection command",
+      );
     },
   );
   assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), head);
@@ -299,6 +305,7 @@ test("a checkout behind the published branch that holds work of its own is refus
       onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!;
     commit(onA.cwd, "node-a.txt");
     assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+    const publishedTip = git(fixture.remote, "rev-parse", `refs/heads/${taskId}`);
     if (scenario === "a commit of its own") commit(onB.cwd, "node-b.txt");
     else writeFileSync(path.join(onB.cwd, "src", "index.txt"), "edited on node b\n");
     const head = git(onB.cwd, "rev-parse", "HEAD"),
@@ -310,17 +317,23 @@ test("a checkout behind the published branch that holds work of its own is refus
           assert.equal((error as { code?: unknown }).code, "task_worktree_diverged", scenario);
           assert.equal(error.message.includes(onB.cwd), true, scenario);
           assert.equal(error.message.includes(`origin/${taskId}`), true, scenario);
+          assert.match(error.message, /reflog never saw/u, scenario);
           return error.message;
         },
       );
     assert.equal(
       message.includes(
         scenario === "a commit of its own"
-          ? `git -C ${onB.cwd} rebase origin/${taskId}`
+          ? `git -C ${onB.cwd} log --oneline --left-right origin/${taskId}...HEAD`
           : `git -C ${onB.cwd} status --short`,
       ),
       true,
       `${scenario}: the refusal names one command that can be run as written`,
+    );
+    assert.equal(
+      git(onB.cwd, "reflog", "--format=%H", taskId).split("\n").includes(publishedTip),
+      false,
+      `${scenario}: the published tip was never in this checkout's reflog`,
     );
     assert.equal(git(onB.cwd, "rev-parse", "HEAD"), head, scenario);
     assert.equal(git(onB.cwd, "status", "--porcelain"), status, scenario);
@@ -395,17 +408,23 @@ test("a live dispatch keeps the rebase it is in, and the retry after it exits cl
 test("a rewritten checkout continues after the default branch moves past the commit it was rebased onto", async (t) => {
   const fixture = nodesFixture(t),
     onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
-    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
-  commit(onA.cwd, "task-change.txt");
-  commit(onB.cwd, "task-change.txt");
+    published = commit(onA.cwd, "task-change.txt");
   assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+  // Node B starts from the published tip, so the tip enters its branch reflog.
+  const onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), published);
 
-  // Node B rewrites its copy of the task commit onto the default branch...
+  // Node B rewrites the published commit onto the default branch...
   commit(fixture.nodeA, "main-change.txt");
   git(fixture.nodeA, "push", "-q", "origin", "main");
   git(fixture.nodeB, "fetch", "-q", "origin");
   git(onB.cwd, "rebase", "-q", "origin/main");
   const rebased = git(onB.cwd, "rev-parse", "HEAD");
+  assert.equal(
+    git(onB.cwd, "reflog", "--format=%H", taskId).split("\n").includes(published),
+    true,
+    "the published tip is in the reflog of the checkout that rewrote it",
+  );
   // ...and the default branch moves on again before the retry, so the checkout no longer contains its tip.
   commit(fixture.nodeA, "main-change-2.txt");
   git(fixture.nodeA, "push", "-q", "origin", "main");
@@ -423,19 +442,24 @@ test("a rewritten checkout continues after the default branch moves past the com
   );
 });
 
-test("a clean rebase-equivalent task checkout continues when the published branch has the old commits", async (t) => {
+test("a clean rebase of the published branch continues when the default branch moves", async (t) => {
   const fixture = nodesFixture(t),
     onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
-    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
-  commit(onA.cwd, "task-change.txt");
-  commit(onB.cwd, "task-change.txt");
+    published = commit(onA.cwd, "task-change.txt");
   assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+  const onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), published);
 
   const defaultTip = commit(fixture.nodeA, "main-change.txt");
   git(fixture.nodeA, "push", "-q", "origin", "main");
   git(fixture.nodeB, "fetch", "-q", "origin");
   git(onB.cwd, "rebase", "-q", "origin/main");
   const rebased = git(onB.cwd, "rev-parse", "HEAD");
+  assert.match(
+    git(onB.cwd, "cherry", "HEAD", `origin/${taskId}`),
+    /^-\s/u,
+    "a conflict-free rebase keeps the published patch, so patch-id alone would also allow it",
+  );
 
   const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
   assert.equal(resumed.cwd, onB.cwd);
@@ -444,19 +468,55 @@ test("a clean rebase-equivalent task checkout continues when the published branc
   assert.equal(git(onB.cwd, "status", "--porcelain"), "");
 });
 
+test("a conflict-resolved rebase of the published branch continues", async (t) => {
+  const fixture = nodesFixture(t),
+    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
+    published = commit(onA.cwd, "task-change.txt");
+  assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+  const onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), published);
+
+  // The default branch edits the same file, so replaying the published commit stops on a conflict.
+  writeFileSync(path.join(fixture.nodeA, "task-change.txt"), "main\n");
+  git(fixture.nodeA, "add", "task-change.txt");
+  git(fixture.nodeA, "commit", "-qm", "main moves");
+  git(fixture.nodeA, "push", "-q", "origin", "main");
+  git(fixture.nodeB, "fetch", "-q", "origin");
+  conflicting(onB.cwd, "rebase", "origin/main");
+  writeFileSync(path.join(onB.cwd, "task-change.txt"), "resolved\n");
+  git(onB.cwd, "add", "task-change.txt");
+  git(onB.cwd, "-c", "core.editor=true", "rebase", "--continue");
+  const rebased = git(onB.cwd, "rev-parse", "HEAD");
+  assert.match(
+    git(onB.cwd, "cherry", "HEAD", `origin/${taskId}`),
+    /^\+/u,
+    "the conflict resolution changed the patch, so patch-id alone refuses this checkout",
+  );
+  assert.equal(
+    git(onB.cwd, "reflog", "--format=%H", taskId).split("\n").includes(published),
+    true,
+    "the published tip is in the reflog of the checkout that saw and rewrote it",
+  );
+
+  const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(resumed.cwd, onB.cwd);
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), rebased, "the conflict-resolved rewrite is the newer progress");
+  assert.equal(git(onB.cwd, "status", "--porcelain"), "");
+});
+
 test("a rebased checkout with a local commit and an uncommitted change continues and keeps both", async (t) => {
   const fixture = nodesFixture(t),
     onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
-    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
-  commit(onA.cwd, "task-change.txt");
-  commit(onB.cwd, "task-change.txt");
+    published = commit(onA.cwd, "task-change.txt");
   assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+  const onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
 
-  // Node B rebases its copy of the published commit onto a newer default branch, adds a commit and leaves a change.
+  // Node B rebases the published commit onto a newer default branch, adds a commit and leaves a change.
   commit(fixture.nodeA, "main-change.txt");
   git(fixture.nodeA, "push", "-q", "origin", "main");
   git(fixture.nodeB, "fetch", "-q", "origin");
   git(onB.cwd, "rebase", "-q", "origin/main");
+  assert.equal(git(onB.cwd, "reflog", "--format=%H", taskId).split("\n").includes(published), true);
   const localTip = commit(onB.cwd, "local-more.txt");
   writeFileSync(path.join(onB.cwd, "src", "index.txt"), "edited on node b\n");
   const status = git(onB.cwd, "status", "--porcelain");
