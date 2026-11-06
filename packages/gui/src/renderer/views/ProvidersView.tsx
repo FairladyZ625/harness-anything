@@ -136,21 +136,29 @@ export function ProvidersWorkspace({
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
   // 乐观并发令牌 = settings read 的 singleton 行修订(与写路径同源);lastChanged 只作归因展示。
-  const settingsExpectedVersion = settings.data?.revision ?? 0;
+  const projectSettings = settings.isError ? undefined : settings.data;
+  const projectSettingsBusy = projectSettings === undefined || settingsMutation.isPending;
   const updateProjectAllowedInstances = (instanceId: string, allowed: boolean) => {
-    const current = settings.data?.settings.runtime?.allowedInstances ?? [];
+    if (projectSettings === undefined) return;
+    const current = projectSettings.settings.runtime?.allowedInstances ?? [];
     return settingsMutation.mutate({
       runtimeAllowedInstances: allowed
         ? [...new Set([...current, instanceId])]
         : current.filter((id) => id !== instanceId),
-      expectedVersion: settingsExpectedVersion,
+      expectedVersion: projectSettings.revision,
     });
   };
   const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);
   const carrierSessions =
     workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
   const headerActions = (
-    <Button size="sm" variant="ghost" onClick={() => setInspector(!inspector)} tip={t("agentRuntime.toggleInspector")}>
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={() => setInspector(!inspector)}
+      tip={t("agentRuntime.toggleInspector")}
+      ariaLabel={t("agentRuntime.toggleInspector")}
+    >
       ▐
     </Button>
   );
@@ -274,6 +282,11 @@ export function ProvidersWorkspace({
                 }
                 authProbeState={workspace.authProbeStates.get(instance.instanceId)}
               />
+              {settings.error || settingsMutation.error ? (
+                <div role="alert" data-testid="provider-settings-error" className="px-3 py-2 ui-meta text-danger">
+                  {String(settings.error ?? settingsMutation.error)}
+                </div>
+              ) : null}
               <RuntimeCard
                 instance={instance}
                 installations={installations}
@@ -300,6 +313,7 @@ export function ProvidersWorkspace({
                     : undefined
                 }
                 onMoveProjectOrder={(direction) => {
+                  if (projectSettings === undefined) return;
                   const indexes = allowedInstances.flatMap((instanceId, index) =>
                       instances.find((row) => row.instanceId === instanceId)?.kindId === instance.kindId ? [index] : [],
                     ),
@@ -312,9 +326,10 @@ export function ProvidersWorkspace({
                   [next[left], next[right]] = [next[right]!, next[left]!];
                   void settingsMutation.mutate({
                     runtimeAllowedInstances: next,
-                    expectedVersion: settingsExpectedVersion,
+                    expectedVersion: projectSettings.revision,
                   });
                 }}
+                projectSettingsBusy={projectSettingsBusy}
                 onSetProjectAllowed={(allowed) => updateProjectAllowedInstances(instance.instanceId, allowed)}
                 onUpdate={workspace.updateInstance}
                 onDelete={() => {
