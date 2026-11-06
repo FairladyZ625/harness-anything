@@ -14,7 +14,10 @@ export function readTaskRuntimeContext(
   taskId: string,
   excludeDispatchId: string | null = null,
 ): import("./protocol/daemon-protocol-runtime-context.ts").DaemonTaskRuntimeContextResult {
-  const read = projection.read(taskId),
+  // A raw read: the caller uses the snapshot as-is, so the backend may skip the presentation
+  // rollup it would otherwise compute and discard. Runtime context runs on every dispatch, and
+  // that rollup walks the task's subtree on PostgreSQL (G38 read side).
+  const read = projection.read(taskId, false, false),
     task = read.snapshot.task,
     snapshot: typeof read.snapshot =
       task == null

@@ -8,6 +8,7 @@ import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
+import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import type { PoolClient } from "pg";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
@@ -60,6 +61,8 @@ export interface PgProjectionScope {
 
 export interface PgProjectionEventInput {
   readonly event: PersistedCanonicalEventV1;
+  /** Batch sink: artifact index writes/retirements are flushed once per canonical transaction. */
+  readonly artifacts?: Map<string, import("./pg-artifact-timeline.ts").PgArtifactTimelineEntry | null>;
   /** A2 can provide the canonical revision when the event envelope is read from a ledger row. */
   readonly sourceRevision?: number;
   /** Durable ledger head observed by A2 for this commit cut. */
@@ -179,13 +182,20 @@ export async function materializePgProjectionEvents(
     return body === undefined ? null : Uint8Array.from(body);
   };
   await admitProjectionGeneration(client, scope);
+  const artifacts = new Map<string, import("./pg-artifact-timeline.ts").PgArtifactTimelineEntry | null>();
   for (const event of input.events)
     await materializeProjectionEvent(client, scope, {
       event,
       sourceRevision: event.workspaceRevision,
       sourceHeadRevision: input.revision,
       readContentBlob,
+      artifacts,
     });
+  await flushPgArtifactDocuments(
+    client,
+    scope,
+    [...artifacts.values()].filter((entry) => entry !== null),
+  );
 }
 
 /** Rebuild the projection from an ordered canonical event stream. Existing projection rows are discarded. */
@@ -207,6 +217,7 @@ export async function rebuildPgProjection(
     snapshot: null,
     tables: [],
   };
+  const artifacts = new Map<string, import("./pg-artifact-timeline.ts").PgArtifactTimelineEntry | null>();
   for (const event of [...input.events].sort((left, right) => left.workspaceRevision - right.workspaceRevision))
     receipt = await materializeProjectionEvent(
       client,
@@ -215,8 +226,14 @@ export async function rebuildPgProjection(
         event,
         sourceHeadRevision: input.sourceHeadRevision ?? input.sourceRevision,
         readContentBlob: input.readContentBlob,
+        artifacts,
       },
     );
+  await flushPgArtifactDocuments(
+    client,
+    scope,
+    [...artifacts.values()].filter((entry) => entry !== null),
+  );
   const sourceHeadRevision = input.sourceHeadRevision ?? input.sourceRevision ?? receipt.revision,
     snapshots = await client.query<{ readonly snapshot: TaskLifecycleSnapshot }>(
       `SELECT snapshot FROM ha_task_snapshots
@@ -922,8 +939,8 @@ async function updateProjectionMeta(
     throw new Error(`projection watermark ${watermark} exceeds ledger head ${sourceRevision}`);
   await client.query(
     `INSERT INTO ha_projection_meta
-       (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark)
-     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END)
+       (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark, artifact_index_version)
+     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END, 1)
      ON CONFLICT (tenant_id, project_id, policy_epoch, projection_name) DO UPDATE SET
        policy_epoch = excluded.policy_epoch, schema_version = excluded.schema_version,
        readers = '{}',

@@ -99,7 +99,11 @@ export interface PgTaskProjectionSource
     PgGraphQueries {
   readonly path: string;
   readonly readCut: () => Promise<PgProjectionCut>;
-  readonly read: (taskId: string, presentationStatus?: boolean) => Promise<TaskProjectionRead>;
+  readonly read: (
+    taskId: string,
+    presentationStatus?: boolean,
+    presentationRollup?: boolean,
+  ) => Promise<TaskProjectionRead>;
   readonly list: (query?: TaskProjectionListQuery) => Promise<TaskProjectionListRead>;
   readonly readSnapshot: (taskId: string) => Promise<TaskLifecycleSnapshot | null>;
   readonly readDecision: (decisionId: string, withBody?: boolean) => Promise<DecisionProjectionRead>;
@@ -181,18 +185,26 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const read = (taskId: string, presentationStatus = false): Promise<TaskProjectionRead> =>
+  const read = (taskId: string, presentationStatus = false, presentationRollup = true): Promise<TaskProjectionRead> =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
         if (presentationStatus) await assertPgTaskParentIndexReady(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
+          // Keep main's bounded raw path: presentationStatus=false only projects the task's own
+          // snapshot status, never the recursive subtree rollup. The rollup is computed only when
+          // the caller reads presentation status; an explicit raw caller may skip even the scalar.
+          presentation = presentationStatus
+            ? presentationStatusSql(5)
+            : presentationRollup
+              ? "snapshot #>> '{task,status}'"
+              : "NULL::text",
           result = await client.query<{
             snapshot: TaskLifecycleSnapshot;
             package_path: string | null;
             presentation_status: string;
           }>(
-            `SELECT snapshot, package_path, ${presentationStatus ? presentationStatusSql(5) : "snapshot #>> '{task,status}'"} AS presentation_status FROM ha_task_snapshots
+            `SELECT snapshot, package_path, ${presentation} AS presentation_status FROM ha_task_snapshots
              WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND task_id = $4
                AND (cardinality($5::text[]) = 0 OR readers && $5::text[])`,
             [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
@@ -313,21 +325,22 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         const paged = query.limit !== undefined || query.cursor !== undefined,
           limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
         if (limit !== null) values.push(limit + 1);
-        const result = await client.query<{
-          task_id: string;
-          package_path: string | null;
-          generation: "v0" | "v1";
-          workspace_revision: string;
-          snapshot: TaskLifecycleSnapshot;
-          presentation_status: string;
-          created_at: string | null;
-          completed_at: string | null;
-          updated_at: string;
-        }>(
-          `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'"} AS presentation_status FROM ha_task_snapshots
+        const presentation = query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'",
+          result = await client.query<{
+            task_id: string;
+            package_path: string | null;
+            generation: "v0" | "v1";
+            workspace_revision: string;
+            snapshot: TaskLifecycleSnapshot;
+            presentation_status: string;
+            created_at: string | null;
+            completed_at: string | null;
+            updated_at: string;
+          }>(
+            `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${presentation} AS presentation_status FROM ha_task_snapshots
            WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
-          values,
-        );
+            values,
+          );
         const truncated = limit !== null && result.rows.length > limit,
           hydrated = await hydrateSnapshots(
             client,

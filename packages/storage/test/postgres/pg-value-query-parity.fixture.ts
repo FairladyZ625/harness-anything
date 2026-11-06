@@ -21,6 +21,7 @@ type ValueQueries = Pick<
   | "readDocumentMetadata"
   | "readDocument"
   | "readDocuments"
+  | "readArtifactTimelinePage"
   | "readReplicaBasis"
   | "taskIdForDocumentPath"
   | "readArtifactEntityState"
@@ -51,6 +52,21 @@ function valueContract(queries: ValueQueries) {
     pinned.map(({ entityRef }) => entityRef),
     ["fact/F-11111111", "task/task-parity", "task/task-bootstrap-projection"],
   );
+  const artifactPage = queries.readArtifactTimelinePage({ kind: "md", limit: 2 }),
+    artifactRow = artifactPage.rows[0],
+    artifactNext =
+      artifactRow === undefined
+        ? null
+        : queries.readArtifactTimelinePage({
+            kind: "md",
+            limit: 2,
+            after: {
+              occurredAt: artifactRow.occurredAt,
+              relative: artifactRow.relative,
+              packageDir: artifactRow.packageDir,
+            },
+          });
+  assert.throws(() => queries.readArtifactTimelinePage({ kind: "md", limit: 0 }), /limit/u);
   const entities = ["agent", "squad", "execution", "review", "runtime-session", "settings", "missing"].map((kind) => ({
     kind,
     rows: queries.listEntities(kind),
@@ -83,6 +99,10 @@ function valueContract(queries: ValueQueries) {
       queries.readArtifactEntityState("agent", id),
     ),
     documents,
+    artifactPage,
+    artifactNext,
+    artifactHtml: queries.readArtifactTimelinePage({ kind: "html", limit: 1 }),
+    artifactRaw: queries.readArtifactTimelinePage({ kind: "raw", limit: 1 }),
     prefix: queries.readDocuments("tasks/task-parity-fixture/"),
     decisionsMetadata: queries.readDecisions(["dec_PG_PARITY"], false),
     decisionMetadata: queries.readDecision("dec_PG_PARITY", false),

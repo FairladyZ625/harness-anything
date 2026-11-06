@@ -35,6 +35,10 @@ const TIME_SOURCE_LABEL: Record<ArtifactGuiRowDto["timeSource"], MessageKey> = {
   mtime: "artifacts.timeSource.mtime",
 };
 
+/** 计数超过服务端上限时只显示封顶值 + `+`,不假装知道精确总数。 */
+const cappedCount = (result: ArtifactsListResult, kind: ArtifactGuiKind): string =>
+  result.counts[kind] >= 999 ? "999+" : String(result.counts[kind]);
+
 /** 读失败行(页面与工作台产物面板共用):等宽微字 + 红底细行。 */
 export const ARTIFACTS_READ_ERROR_ROW_CLASS = [
   "shrink-0 border-b border-border bg-status-blocked/10",
@@ -70,9 +74,9 @@ export function ArtifactsView({
           query.data ? (
             <span data-testid="artifacts-counts" className="whitespace-nowrap">
               {t("artifacts.counts", {
-                html: String(query.data.counts.html),
-                md: String(query.data.counts.md),
-                raw: String(query.data.counts.raw),
+                html: cappedCount(query.data, "html"),
+                md: cappedCount(query.data, "md"),
+                raw: cappedCount(query.data, "raw"),
               })}
             </span>
           ) : undefined
@@ -182,7 +186,7 @@ export function ArtifactsWorkspace({
                 chips={(["html", "md", "raw"] as const).map((key) => ({
                   key,
                   label: t(KIND_LABEL[key]),
-                  count: data?.counts[key] ?? rows.length,
+                  count: data ? cappedCount(data, key) : rows.length,
                 }))}
               />
               <button

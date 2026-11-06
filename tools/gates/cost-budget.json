@@ -1613,33 +1613,6 @@
     },
     "knownScaling": [
       {
-        "probe": "repo.artifacts.list",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 13227 at 200 -> 126632 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.artifacts.list",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 208 at 200 -> 2008 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.artifacts.list",
-        "backend": "sqlite",
-        "dimension": "task-outputs",
-        "metric": "directoryEntries",
-        "reason": "Task context or output directory enumerates historical entries; observed directoryEntries 3405 at 3400 -> 34005 at 34000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "agenda",
         "backend": "pglite",
         "dimension": "task-history",
@@ -1790,24 +1763,6 @@
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 761 at 200 -> 4361 at 2000 (cold/warm maximum).",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.artifacts.list",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 215362 at 200 -> 2104603 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.artifacts.list",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 207 at 200 -> 2007 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
@@ -3694,15 +3649,6 @@
         "metric": "sqliteVmSteps",
         "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 3391 at 200 -> 30391 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
         "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.artifacts.list",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 1122 at 200 -> 10122 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {

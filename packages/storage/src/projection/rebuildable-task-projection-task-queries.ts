@@ -4,6 +4,7 @@ import { listPinnedEntityRows } from "./rebuildable-task-projection-entities.ts"
 import type { DatabaseSync } from "node:sqlite";
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { repositoryEventQueries, readDocumentRows } from "./repository-event-queries.ts";
+import { readArtifactTimelineRows } from "./artifact-timeline-projection.ts";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import {
   auditRelationCycles,
@@ -132,6 +133,7 @@ export function taskQueryApi(
   | "readEventSummaries"
   | "readEventWitness"
   | "readDocuments"
+  | "readArtifactTimelinePage"
   | "readDocumentMetadata"
   | "readDocument"
   | "readReplicaBasis"
@@ -144,6 +146,16 @@ export function taskQueryApi(
     readForTaskContractMigration: (taskId) =>
       readForTaskContractMigration(projectionPath, readHead, taskId, limit, now),
     readTaskIdsForTaskContractMigration: () => readTaskIdsForTaskContractMigration(projectionPath, readHead),
+    readArtifactTimelinePage: (query) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return {
+          status: cut.status,
+          ...readArtifactTimelineRows(db, query),
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
+        };
+      }),
     ...repositoryEventQueries((read) =>
       withDatabase(projectionPath, readHead, (db) => read(db, readProjectionCut(db, readHead))),
     ),

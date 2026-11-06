@@ -5,6 +5,7 @@ import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
 import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
+import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { createPGliteStorage, type PGliteStorage, type PGliteStorageOptions } from "./transaction.ts";
@@ -133,6 +134,10 @@ async function initializeSchema(
     owner = batch.next_owner;
     entity = batch.next_entity;
   }
+  // Documents projected before the artifact timeline index existed need one backfill before any
+  // reader is admitted. The helper no-ops on a fresh projection, whose first materialization
+  // already declares the index complete.
+  await withPostgresTransaction(pool, (client) => backfillPgArtifactDocuments(client, scope, repoId), scope);
 }
 
 async function ensurePolicy(client: PoolClient, statement: string, tables: readonly string[]): Promise<void> {

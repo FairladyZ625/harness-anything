@@ -410,6 +410,7 @@ export function makeTaskProjectionReader(
       readEventSummaries: taskQueries.readEventSummaries,
       readEventWitness: taskQueries.readEventWitness,
       readDocuments: taskQueries.readDocuments,
+      readArtifactTimelinePage: taskQueries.readArtifactTimelinePage,
       readSettingsEvent: taskQueries.readSettingsEvent,
       readDocument: taskQueries.readDocument,
       readDocumentMetadata: taskQueries.readDocumentMetadata,

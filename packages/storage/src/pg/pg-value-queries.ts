@@ -3,6 +3,7 @@ import { documentPathAncestors } from "../projection/document-path-ancestors.ts"
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { readPgTaskSessions, readPgSessionPage } from "./pg-runtime-session-queries.ts";
 import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
+import { readPgArtifactTimeline } from "./pg-artifact-timeline.ts";
 import type { PoolClient } from "pg";
 import type {
   EntityProjectionRow,
@@ -34,6 +35,7 @@ export type PgValueQueries = AsyncQueries<
   | "readDocumentMetadata"
   | "readDocument"
   | "readDocuments"
+  | "readArtifactTimelinePage"
   | "readReplicaBasis"
   | "taskIdForDocumentPath"
   | "readArtifactEntityState"
@@ -175,6 +177,11 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
             ? {}
             : { page: { nextPath: rows.length > page.limit ? selected.at(-1)!.path : null } }),
         };
+      }),
+    readArtifactTimelinePage: (query) =>
+      read(async (client) => {
+        const cut = await readCutInTransaction(client, scope, readers, repoId);
+        return { ...cut, ...(await readPgArtifactTimeline(client, scope, query)) };
       }),
     readReplicaBasis: (after) =>
       read(async (client) => {

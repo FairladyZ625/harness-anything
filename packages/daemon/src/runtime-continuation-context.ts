@@ -56,7 +56,8 @@ export function latestRuntimeContinuationSeed(
   executionIds: readonly string[],
   excludeDispatchId: string | null = null,
 ): RuntimeContinuationSeed | null {
-  const read = projection.read(taskId),
+  // Raw read: the seed only needs the package path; it never consumes presentation status.
+  const read = projection.read(taskId, false, false),
     packagePath = read.packagePath;
   if (packagePath === null) return null;
   const rows = [...new Set(executionIds)]

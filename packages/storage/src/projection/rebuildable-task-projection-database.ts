@@ -9,6 +9,7 @@ import {
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { createDecisionProjectionTables } from "./decision-event-projection.ts";
 import { backfillEventSummaryReadIndex, ensureEventSummaryReadIndexColumns } from "./event-summary-read-index.ts";
+import { ARTIFACT_TIMELINE_TABLES_SQL, ensureArtifactTimelineBackfill } from "./artifact-timeline-projection.ts";
 import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
@@ -564,11 +565,13 @@ ${REPOSITORY_READ_TABLES_SQL}
       key TEXT PRIMARY KEY,
       completed_at TEXT NOT NULL
     );
+${ARTIFACT_TIMELINE_TABLES_SQL}
   `);
   backfillRuntimeSessionExecutionNode(db);
   ensureRuntimeMemberIndex(db, onValidationProgress);
   backfillEventSummaryReadIndex(db, onValidationProgress);
   backfillRuntimeSessionBindings(db, onValidationProgress);
+  ensureArtifactTimelineBackfill(db);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);

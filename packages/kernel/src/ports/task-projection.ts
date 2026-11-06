@@ -15,6 +15,8 @@ import type { LeaseV1 } from "../domain/execution.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import type {
+  ArtifactTimelineQuery,
+  ArtifactTimelineRead,
   DecisionAgendaProjectionPageRead,
   DecisionCoverageProjectionRead,
   DecisionGraphProjectionRead,
@@ -148,7 +150,12 @@ export interface TaskProjection {
   readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
-  readonly read: (taskId: string, presentationStatus?: boolean) => TaskProjectionRead;
+  /**
+   * Raw task read. `presentationStatus` selects the presentation snapshot. `presentationRollup`
+   * (default true) says whether the backend may compute that rollup when the caller discards it;
+   * a hot raw reader passes false to skip the subtree scan.
+   */
+  readonly read: (taskId: string, presentationStatus?: boolean, presentationRollup?: boolean) => TaskProjectionRead;
   /** Migration-only access to the aggregate before TaskV2 validation. Normal reads must use `read`. */
   readonly readForTaskContractMigration: (taskId: string) => TaskProjectionRead;
   readonly readTaskIdsForTaskContractMigration: () => readonly string[];
@@ -298,6 +305,10 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  /** Task-package artifact timeline, ordered by ledger time desc then package-relative path.
+   * Backed by the projection's artifact index so one page costs the page, never the repository's
+   * output history. Counts are maintained totals, not a scan of the matching set. */
+  readonly readArtifactTimelinePage: (query: ArtifactTimelineQuery) => ArtifactTimelineRead;
   readonly readCanonicalEvents: (
     afterRevision: number,
     limit: number,
