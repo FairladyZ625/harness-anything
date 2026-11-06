@@ -38,10 +38,10 @@ export function createRuntimeInstanceActionCatalog(input: {
   return Object.freeze({
     ref: "daemon/runtime-instance/v1",
     actions: Object.freeze([
-      action("create", "createRuntimeInstance"),
-      action("update", "updateRuntimeInstance"),
-      action("delete", "deleteRuntimeInstance"),
-      action("probe", "showRuntimeInstance", true),
+      action("create", "runtime-instance-create"),
+      action("update", "runtime-instance-update"),
+      action("delete", "runtime-instance-delete"),
+      action("probe", "runtime-instance-show", true),
     ]),
   });
 }
