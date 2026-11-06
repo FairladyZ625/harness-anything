@@ -243,6 +243,23 @@ test("owner rework past the rework budget requires a premise review recorded aft
   assert.match(JSON.stringify(refused), /ha fact record --task task-rpc-premise --source review:premise/u);
   assert.equal(f.events().revision, before, "a refused return publishes no event");
 
+  // The command the refusal prints is a template; recorded unedited it answers none of the questions.
+  const printed = /--statement \\?"(.*?)\\?"/u.exec(
+    String((refused.nextActions as readonly string[] | undefined)?.[0] ?? JSON.stringify(refused)),
+  )?.[1];
+  assert.ok(printed?.includes("conclusion: continue|narrow|stop"), JSON.stringify(refused));
+  await f.applied({
+    kind: "fact-record",
+    taskId,
+    statement: printed,
+    evidenceSource: "review:premise",
+    confidence: "medium",
+    memoryClass: "episodic",
+    memoryTags: [],
+  });
+  const templated = await rework(pastBudget);
+  assert.equal(templated.code, "premise_review_required", JSON.stringify(templated));
+
   await premise("stop");
   const stopped = await rework(pastBudget);
   assert.equal(stopped.code, "premise_review_stop", JSON.stringify(stopped));

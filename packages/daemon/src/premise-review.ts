@@ -26,7 +26,7 @@ export function premiseReviewCommand(taskId: string): string {
   );
 }
 
-/** Read the four labelled answers; each needs text, and the conclusion must be one of three words. */
+/** Read the four labelled answers; each needs real text, and the conclusion is exactly one of three words. */
 export function parsePremiseReview(statement: string): PremiseReviewParse {
   const marks = [...statement.matchAll(/(restart|alternative|sunk-cost|conclusion)\s*[:：]/giu)],
     answers = new Map<string, string>();
@@ -35,10 +35,14 @@ export function parsePremiseReview(statement: string): PremiseReviewParse {
       end = marks[index + 1]?.index ?? statement.length;
     answers.set(mark[1]!.toLowerCase(), statement.slice(start, end).trim());
   });
-  const missing = KEYS.filter((key) => !answers.get(key)),
-    conclusion = /^(continue|narrow|stop)\b/iu.exec(answers.get("conclusion") ?? "")?.[1]?.toLowerCase();
-  if (missing.length === 0 && conclusion) return { ok: true, conclusion: conclusion as PremiseReviewConclusion };
-  return { ok: false, missing: missing.length ? missing : ["conclusion: continue|narrow|stop"] };
+  // The printed command carries `<...>` prompts and `continue|narrow|stop`; copied unedited it
+  // answers nothing, so a prompt left in place counts as no answer and the conclusion is one word.
+  const conclusion = /^(continue|narrow|stop)[.。]?$/iu.exec(answers.get("conclusion") ?? "")?.[1]?.toLowerCase(),
+    missing = KEYS.filter((key) =>
+      key === "conclusion" ? !conclusion : !answers.get(key) || /<[^>]*>/u.test(answers.get(key)!),
+    );
+  if (missing.length === 0) return { ok: true, conclusion: conclusion as PremiseReviewConclusion };
+  return { ok: false, missing };
 }
 
 /**
