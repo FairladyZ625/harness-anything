@@ -156,6 +156,13 @@ test(
     for (const child of running.workerAttempts) {
       const row = fixture.task(child.taskId!);
       assert.equal(row.snapshot.lease?.executionId, child.executionId);
+      const context = await fixture.cell.read("repo.tasks.runtimeContext.read", { taskId: child.taskId! });
+      assert.equal(context.snapshot.workspace?.kind, "worktree");
+      assert.equal(
+        child.worktree?.cwd,
+        path.resolve(fixture.root, context.snapshot.workspace!.path),
+        "the worker must commit in the same bound worktree that task submit reads",
+      );
       assert.match(
         readFileSync(path.join(fixture.root, "harness", row.packagePath!, "task_plan.md"), "utf8"),
         /worker mission/u,
@@ -190,7 +197,7 @@ test(
       heads.push(
         git(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, "rev-parse", "HEAD"),
       );
-      await fixture.submit(child, heads[index]);
+      await fixture.submit(child, heads[index], index === 1);
       await fixture.finish(child.dispatchId!, "child delivery");
       if (index === 0) {
         await fixture.waitStatus((state) => state.workerCallbackCount === 1);
@@ -1014,7 +1021,7 @@ async function openFixture(
         }),
       );
     },
-    submit: async (child: WorkerAttemptView, head: string) => {
+submit: async (child: WorkerAttemptView, head: string, inferCommit = false) => {
       await cell.settlePendingMaterialization("child closeout fixture");
       const row = task(child.taskId!),
         holder = {
@@ -1029,7 +1036,12 @@ async function openFixture(
         `# Closeout\n\n## Summary\n\nDelivered ${head}.\n\n## Verification\n\nCommitted child file contents inspected.\n\n## Residual Risk\n\nIntegration review remains.\n\n## Same Mechanism Elsewhere\n\nSibling delivery uses the same protocol.\n`,
       );
       const receipt = await cell.run(
-        { kind: "task-submit", taskId: child.taskId!, executionId: child.executionId!, commitSha: head },
+        {
+          kind: "task-submit",
+          taskId: child.taskId!,
+          executionId: child.executionId!,
+          ...(inferCommit ? {} : { commitSha: head }),
+        },
         holder,
       );
       assert.equal(receipt.outcome, "applied", `real child submit: ${JSON.stringify(receipt)}`);

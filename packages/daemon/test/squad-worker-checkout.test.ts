@@ -5,10 +5,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deriveTaskWorktreeBinding } from "@harness-anything/kernel";
 import { prepareWorkerWorktree } from "../src/squad-worker-checkout.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
-test("the same squad worker receives a distinct checkout for each attempt", async () => {
+test("each squad assignment uses its own child task binding and preserves the Commander baseline", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-checkout-"));
   try {
     execFileSync("git", ["init", "--initial-branch=main"], { cwd: rootDir });
@@ -25,16 +26,19 @@ test("the same squad worker receives a distinct checkout for each attempt", asyn
     execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: rootDir });
     execFileSync("git", ["branch", "-m", "task_0123456789abcdef0123456789"], { cwd: rootDir });
     const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
-      state = { squadRunId: "squad_0123456789abcdef01234567", cwd: rootDir },
-      first = await prepareWorkerWorktree(state, baseSha, "worker-3", "worker-1", noSetup(rootDir)),
-      second = await prepareWorkerWorktree(state, baseSha, "worker-3", "worker-2", noSetup(rootDir));
+      first = await prepareWorkerWorktree(baseSha, childBinding("task_child_1"), noSetup(rootDir, "task_child_1")),
+      second = await prepareWorkerWorktree(baseSha, childBinding("task_child_2"), noSetup(rootDir, "task_child_2"));
 
     assert.notEqual(first?.cwd, second?.cwd);
     assert.notEqual(first?.branch, second?.branch);
-    assert.match(first?.branch ?? "", /^task_0123456789abcdef0123456789--squad-/u);
+    assert.equal(first?.branch, "task_child_1");
+    assert.equal(first?.cwd, path.join(rootDir, ".worktrees/task_child_1"));
     assert.equal(first?.baseSha, baseSha);
     assert.equal(second?.baseSha, baseSha);
-    assert.deepEqual(await prepareWorkerWorktree(state, baseSha, "worker-3", "worker-1", noSetup(rootDir)), first);
+    assert.deepEqual(
+      await prepareWorkerWorktree(baseSha, childBinding("task_child_1"), noSetup(rootDir, "task_child_1")),
+      first,
+    );
 
     writeFileSync(path.join(first!.cwd, "worker.txt"), "worker\n");
     execFileSync("git", ["add", "worker.txt"], { cwd: first!.cwd });
@@ -64,7 +68,7 @@ test("the same squad worker receives a distinct checkout for each attempt", asyn
   }
 });
 
-test("workers branch off the Commander's checked-out branch whatever it is named, and a detached HEAD is refused", async (t) => {
+test("worker checkout follows its child binding even when the Commander changes branch or detaches", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "squad-checkout-branch-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   execFileSync("git", ["init", "-q", rootDir]);
@@ -75,21 +79,17 @@ test("workers branch off the Commander's checked-out branch whatever it is named
   execFileSync("git", ["commit", "-qm", "seed"], { cwd: rootDir });
   execFileSync("git", ["branch", "-m", "delivery/mission"], { cwd: rootDir });
   const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
-    state = { squadRunId: "squad_89abcdef0123456789abcdef", cwd: rootDir },
-    named = await prepareWorkerWorktree(state, baseSha, "worker-1", "attempt-1", noSetup(rootDir));
-  assert.match(named?.branch ?? "", /^delivery\/mission--squad-/u);
+    named = await prepareWorkerWorktree(baseSha, childBinding("task_named"), noSetup(rootDir, "task_named"));
+  assert.equal(named?.branch, "task_named");
 
   execFileSync("git", ["checkout", "-q", "--detach"], { cwd: rootDir });
-  await assert.rejects(
-    prepareWorkerWorktree(
-      { ...state, squadRunId: "squad_fedcba9876543210fedcba98" },
-      baseSha,
-      "worker-2",
-      "attempt-1",
-      noSetup(rootDir),
-    ),
-    /checked-out branch/u,
+  const detached = await prepareWorkerWorktree(
+    baseSha,
+    childBinding("task_detached"),
+    noSetup(rootDir, "task_detached"),
   );
+  assert.equal(detached?.branch, "task_detached");
+  assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: detached!.cwd, encoding: "utf8" }).trim(), baseSha);
 });
 
 test("a worker checkout runs the repository's setup steps with the child task id", async (t) => {
@@ -104,21 +104,19 @@ test("a worker checkout runs the repository's setup steps with the child task id
     },
   );
   const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
-    worker = await prepareWorkerWorktree(
-      { squadRunId: "squad_0123456789abcdef01234567", cwd: rootDir },
-      baseSha,
-      "w",
-      "a",
-      {
-        rootDir,
-        taskId: "task_child",
-        setup: ['run: echo "$HARNESS_TASK_ID" > setup.out'],
-        setupStepTimeoutMs: noWorktreeSetup().setupStepTimeoutMs,
-      },
-    );
+    worker = await prepareWorkerWorktree(baseSha, childBinding("task_child"), {
+      rootDir,
+      taskId: "task_child",
+      setup: ['run: echo "$HARNESS_TASK_ID" > setup.out'],
+      setupStepTimeoutMs: noWorktreeSetup().setupStepTimeoutMs,
+    });
   assert.equal(readFileSync(path.join(worker!.cwd, "setup.out"), "utf8"), "task_child\n");
 });
 
-function noSetup(rootDir: string) {
-  return { rootDir, taskId: "task_child", ...noWorktreeSetup() };
+function childBinding(taskId: string) {
+  return deriveTaskWorktreeBinding({ taskId, taskClass: "standard", outputShape: "repository-diff" });
+}
+
+function noSetup(rootDir: string, taskId = "task_child") {
+  return { rootDir, taskId, ...noWorktreeSetup() };
 }

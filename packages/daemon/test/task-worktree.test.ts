@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
+import { deriveTaskWorktreeBinding, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
@@ -924,10 +924,8 @@ test("a finished Squad run's worker checkout is reclaimed against the Commander 
       git(fixture.root, "switch", "-q", "-c", taskId);
       const baseSha = git(fixture.root, "rev-parse", "HEAD"),
         worker = (await prepareWorkerWorktree(
-          { squadRunId: "squad_0123456789abcdef01234567", cwd: fixture.root },
           baseSha,
-          "writer",
-          "a1",
+          deriveTaskWorktreeBinding({ taskId: "task_child", taskClass: "standard", outputShape: "repository-diff" }),
           { rootDir: fixture.root, taskId: "task_child", ...noWorktreeSetup() },
         ))!;
       commit(worker.cwd, "worker.txt");
