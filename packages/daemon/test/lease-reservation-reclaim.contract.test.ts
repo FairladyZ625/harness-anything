@@ -235,7 +235,9 @@ test("the task owner reclaims a held lease from an exited holder across executio
     terminalCell = {
       ...cell,
       rootDir,
-      projection: { readRuntimeSessionsForTask: () => [runtimeSession] },
+      projection: {
+        readRuntimeSession: (id: string) => (id === runtimeSession.runtimeSessionId ? runtimeSession : null),
+      },
     },
     terminalSnapshot = { ...snapshot(), task: ownedTask, executions: [execution], lease: heldLease },
     taskOwnerBinding = authorized({ principal: taskOwner.principal, executor: null });
@@ -331,7 +333,7 @@ test("the same principal recovers an exited holder after settlement removes its 
     cellFor = (session: ReturnType<typeof sessionFor>) => ({
       ...cell,
       rootDir,
-      projection: { readRuntimeSessionsForTask: () => [session] },
+      projection: { readRuntimeSession: (id: string) => (id === session.runtimeSessionId ? session : null) },
     }),
     snapshotFor = () => ({ ...snapshot(), executions: [execution], lease: heldLease }),
     replacement = authorized({
@@ -437,7 +439,9 @@ test("the same principal reclaims a live-projected RuntimeSession only after its
     reclaimCell = {
       ...cell,
       rootDir,
-      projection: { readRuntimeSessionsForTask: () => [runtimeSession] },
+      projection: {
+        readRuntimeSession: (id: string) => (id === runtimeSession.runtimeSessionId ? runtimeSession : null),
+      },
     },
     heldSnapshot = { ...snapshot(), executions: [execution], lease: heldLease },
     replacement = authorized(owner("replacement-worker")),

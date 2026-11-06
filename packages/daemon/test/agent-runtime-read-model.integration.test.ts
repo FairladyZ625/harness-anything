@@ -243,7 +243,21 @@ test("unscoped overview hides exited history and short session ids resolve or li
     }
     revision += 1;
     append(paddedEvent("runtime_session_exited", { runtimeSessionId: "runtime-exited-old" }, revision));
-    const reads = makeAgentRuntimeReadModel({ store, projection });
+    let fullSessionReads = 0;
+    const pageQueries: { readonly limit: number; readonly afterRuntimeSessionId?: string }[] = [],
+      measured = new Proxy(projection, {
+        get: (target, property, receiver) => {
+          if (property === "readRuntimeSessions") fullSessionReads += 1;
+          if (property === "readRuntimeSessionPage")
+            return (query: { readonly limit: number; readonly afterRuntimeSessionId?: string }) => {
+              pageQueries.push(query);
+              return target.readRuntimeSessionPage(query);
+            };
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      reads = makeAgentRuntimeReadModel({ store, projection: measured });
     // The unscoped overview is the `ha runtime status` default: exited history stays out;
     // live, stale, and unknown sessions all stay in.
     assert.deepEqual(
@@ -253,6 +267,7 @@ test("unscoped overview hides exited history and short session ids resolve or li
         .sort(),
       ["runtime-live-second", "runtime-live-third", "runtime-session"],
     );
+    fullSessionReads = 0;
     // A unique short-id prefix reads that session (git-style).
     assert.equal(reads.session({ runtimeSessionId: "runtime-live-s" }).session.runtimeSessionId, "runtime-live-second");
     // An ambiguous prefix lists the candidates instead of guessing.
@@ -264,6 +279,16 @@ test("unscoped overview hides exited history and short session ids resolve or li
     assert.throws(
       () => reads.session({ runtimeSessionId: "runtime-missing" }),
       (error: Error & { readonly code?: string }) => error.code === "runtime_session_not_found",
+    );
+    assert.equal(fullSessionReads, 0, "short-id resolution must not read every runtime session");
+    assert.deepEqual(
+      pageQueries,
+      [
+        { limit: 8, afterRuntimeSessionId: "runtime-live-s" },
+        { limit: 8, afterRuntimeSessionId: "runtime-live" },
+        { limit: 8, afterRuntimeSessionId: "runtime-missing" },
+      ],
+      "prefix matches are adjacent in primary-key order, so one bounded page decides unique vs ambiguous",
     );
   }));
 

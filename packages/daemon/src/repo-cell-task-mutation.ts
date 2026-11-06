@@ -1,5 +1,4 @@
 import {
-  compareRuntimeActivity,
   isSameExecution,
   isSamePerson,
   isTerminalStatus,
@@ -11,7 +10,6 @@ import {
   taskAmendment,
   type AuthorizationDecision,
   type LeaseV1,
-  type RuntimeSession,
   type TaskBoundRuntimeBinding,
   type TaskEventV1,
   type TaskV2,
@@ -592,13 +590,16 @@ function terminalExecutionRuntimeBinding(
   lease: LeaseV1,
   runtimeSessionId: string | null,
 ): TaskBoundRuntimeBinding | null {
-  if (typeof cell.projection?.readRuntimeSessionsForTask !== "function") return null;
+  if (typeof cell.projection?.readRuntimeSession !== "function") return null;
+  const actorRuntimeSessionId = runtimeSessionIdFromActor(lease.actor);
+  if (actorRuntimeSessionId === null) return null;
+  if (runtimeSessionId !== null && actorRuntimeSessionId !== runtimeSessionId) return null;
   const inferredTerminalSessionIds =
     runtimeSessionId === null
       ? new Set(
           readDispatchLiveIndex(cell.rootDir, [lease.taskId])
             .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
-            .filter((stream) => stream?.header.runtimeSessionId === runtimeSessionIdFromActor(lease.actor))
+            .filter((stream) => stream?.header.runtimeSessionId === actorRuntimeSessionId)
             .filter(
               (stream) =>
                 stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
@@ -606,22 +607,15 @@ function terminalExecutionRuntimeBinding(
             .map((stream) => stream!.header.runtimeSessionId),
         )
       : null;
-  const taskSessions = cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[];
-  const sessions = [...taskSessions].sort((left, right) =>
-    compareRuntimeActivity(right.lastObservedAt, left.lastObservedAt),
-  );
-  for (const session of sessions) {
-    if (session.runtimeSessionId !== runtimeSessionIdFromActor(lease.actor)) continue;
-    if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
-    if (
-      (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") &&
-      !inferredTerminalSessionIds?.has(session.runtimeSessionId)
-    )
-      continue;
-    const binding = resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
-    if (binding) return binding;
-  }
-  return null;
+  // The lease actor carries the session id, so this is a primary-key read, not the task's history.
+  const session = cell.projection.readRuntimeSession(actorRuntimeSessionId);
+  if (session === null) return null;
+  if (
+    (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") &&
+    !inferredTerminalSessionIds?.has(session.runtimeSessionId)
+  )
+    return null;
+  return resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
 }
 
 function dispatchReachedTerminalAttempt(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {

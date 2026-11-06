@@ -1,4 +1,4 @@
-import type { AuthorizationProvider, AccessAdminRequest } from "@harness-anything/kernel";
+import type { AuthorizationProvider, AccessAdminRequest, TaskProjection } from "@harness-anything/kernel";
 import { coded, text } from "../access-admin-utils.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -12,6 +12,19 @@ export interface NodeRetirementSnapshot {
   readonly slots: readonly { readonly nodeId: string; readonly repoId: string }[];
   readonly leases: readonly { readonly repoId: string; readonly taskId: string; readonly executionId: string }[];
   readonly executions: readonly { readonly repoId: string; readonly runtimeSessionId: string }[];
+}
+
+/** The runtime executions a retiring node still owns. The owner+outcome index bounds this to the
+ *  node's unsettled sessions, and the explicit liveness check keeps a session whose exit is
+ *  already recorded but whose outcome event has not landed out of the in-flight set. */
+export function retiredNodeExecutions(
+  projection: Pick<TaskProjection, "readRuntimeSessions">,
+  nodeId: string,
+): string[] {
+  return projection
+    .readRuntimeSessions({ executionOwnerNodeId: nodeId, unsettledOnly: true })
+    .filter((session) => session.liveness !== "exited")
+    .map((session) => session.runtimeSessionId);
 }
 
 /** The identity writer owns this port; the listener owns live admission and replication state. */
@@ -67,16 +80,8 @@ export function createNodeRetirement(input: {
               )
                 leases.push({ repoId: repo.repoId, taskId: row.taskId, executionId: lease.executionId });
             }
-            for (const session of projection.readRuntimeSessions()) {
-              if (session.liveness === "exited") continue;
-              const owned = projection
-                .readRuntimeDispatchEventsBySession(session.runtimeSessionId)
-                .some(
-                  (event) =>
-                    typeof event.source === "object" && event.source.kind === "node" && event.source.nodeId === nodeId,
-                );
-              if (owned) executions.push({ repoId: repo.repoId, runtimeSessionId: session.runtimeSessionId });
-            }
+            for (const runtimeSessionId of retiredNodeExecutions(projection, nodeId))
+              executions.push({ repoId: repo.repoId, runtimeSessionId });
           });
         } finally {
           reader.close();
