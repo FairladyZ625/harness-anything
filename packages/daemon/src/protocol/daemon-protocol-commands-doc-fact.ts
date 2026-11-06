@@ -68,7 +68,10 @@ export const docFactProtocolCommands = Object.freeze([
     actionKind: "doc-submit",
     phase: "DocSync-B",
     path: ["doc", "sync", "--submit"],
-    summary: "Submit eligible scanner candidates through the resident daemon.",
+    summary:
+      "Submit eligible scanner candidates through the resident daemon. refresh-region-policy guards " +
+      "machine-managed frontmatter; authored prose sections stay free to edit, reorder, add, or remove, " +
+      "and task start still requires the scaffold headings.",
     method: "repo.task.run",
     inputs: [
       cliInput("--task", "single", false, {

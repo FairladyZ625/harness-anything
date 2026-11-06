@@ -51,3 +51,11 @@ test("help, explain, and the router describe one Task Action catalog", () => {
     assert.ok(!helpRows.has(usage), `${row.action.id}: hidden command "${usage}" must not be listed by domain help`);
   }
 });
+
+test("doc sync help states the authored-prose region rule before a submission", () => {
+  const help = renderThinHelp([], "doc");
+  assert.match(help, /authored prose sections/iu);
+  assert.match(help, /reorder/iu);
+  assert.match(help, /frontmatter/iu);
+  assert.match(help, /task start/iu);
+});
