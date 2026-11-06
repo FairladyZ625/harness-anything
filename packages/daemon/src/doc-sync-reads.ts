@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, type TaskProjection } from "@harness-anything/kernel";
+import { consumeKnownError, leaseIsEffective, type TaskProjection } from "@harness-anything/kernel";
 import {
   canonicalEventCut,
   classifyRawArtifactPath,
@@ -31,6 +31,8 @@ import {
 } from "./doc-sync-files.ts";
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
+import { taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import {
   readSubmissionArtifact,
   readSubmissionArtifactRange,
@@ -408,12 +410,53 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
 // old 2 MiB text-oriented ceiling. The source remains the authorized content object or task package.
 export const TASK_DOCUMENT_INLINE_BYTES_MAX = 16 * 1024 * 1024;
 
+/** The cut a document read answered from. `canonical` is the accepted projection, `authored-copy` is
+ * the live file under the authored root, `execution` is one execution's own workspace, `derived` is a
+ * rendered explainer, and `unobservable` means the requested cut could not be seen. */
+export type ProjectedDocumentSource = "canonical" | "authored-copy" | "execution" | "derived" | "unobservable";
+/** Whether the returned cut is known to match the accepted canonical cut. `unobservable` is not
+ * `false`: a missing authored copy or an unreadable workspace is an absence of evidence, never a
+ * claim that the workspace is clean. */
+export type ProjectedDocumentSyncState = "synced" | "unsynced" | "unobservable" | "derived";
+
+export interface CanonicalDocumentVersion {
+  readonly workspaceRevision: number;
+  readonly blobSha256: string;
+  readonly size: number;
+}
+
+export interface ExecutionObservationBinding {
+  readonly executionId: string;
+  readonly leaseVersion: number;
+  readonly leaseExpiresAt: string;
+  readonly observedAt: string;
+}
+
+interface DocumentCut {
+  readonly contentKind: "text" | "binary";
+  readonly body: string;
+  readonly bytes: Buffer | null;
+  readonly blobSha256: string;
+  readonly size: number;
+  readonly mediaType: string | null;
+}
+
+interface ObservedDocumentRow {
+  readonly body: string | null;
+  readonly bytes: Buffer;
+  readonly blobSha256: string;
+  readonly size: number;
+  readonly mediaType: string | null;
+}
+
 /** What this read needs from the repo cell: the layout, the projection, and the content-object store
  * the canonical bytes come from. Structural on purpose, the same way readArtifactsGui takes its own. */
 export interface ProjectedDocumentReadContext {
   readonly rootDir: string;
   readonly projection: TaskProjection;
   readonly store: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
+  /** Observation clock; tests inject one, production reads the wall clock once per observation. */
+  readonly now?: () => string;
 }
 
 export function readProjectedDocument(
@@ -423,6 +466,8 @@ export function readProjectedDocument(
   const { rootDir, projection } = context,
     taskId = requiredDocSyncText(payload.taskId, "taskId"),
     requested = requiredDocSyncText(payload.path, "path"),
+    view = documentReadView(payload.view),
+    executionId = payload.executionId === undefined ? null : requiredDocSyncText(payload.executionId, "executionId"),
     // Absence settles through the same judgment as task show / dispatches / read-set: a lagging
     // cut is not an answer about this task, and a current cut without it is a not-found naming it.
     task = requireCurrentTaskProjection(projection, taskId, "task document read"),
@@ -435,50 +480,235 @@ export function readProjectedDocument(
     // path itself claims. A reader must never have to infer "not text" from an empty body.
     binary =
       document === null ? classifyRawArtifactPath(logical) !== null : document.policyId === RAW_ARTIFACT_POLICY_ID,
-    packageRoot = taskPackageWorktreeRoot(rootDir, packagePath),
-    worktree = readWorktreeDocument(packageRoot, requested, binary),
-    canonicalBytes =
-      binary && document !== null && Number(document.size) <= TASK_DOCUMENT_INLINE_BYTES_MAX
+    authored = readWorktreeDocument(taskPackageWorktreeRoot(rootDir, packagePath), requested, binary),
+    canonicalVersion: CanonicalDocumentVersion | null =
+      document === null
+        ? null
+        : {
+            workspaceRevision: document.workspaceRevision,
+            blobSha256: document.blobSha256,
+            size: Number(document.size),
+          },
+    repositoryPath = repositoryPathOf(rootDir, logical),
+    base = {
+      ok: true as const,
+      status: read.status,
+      taskId,
+      path: requested,
+      repositoryPath,
+      canonicalVersion,
+      watermark: read.watermark,
+      sourceRevision: read.sourceRevision,
+    };
+  const unobservable = (reason: string) => ({
+    ...base,
+    source: "unobservable" as const,
+    syncState: "unobservable" as const,
+    body: "",
+    blobSha256: null,
+    contentKind: binary ? ("binary" as const) : ("text" as const),
+    mediaType: documentMediaType(document, authored, requested, binary),
+    size: null,
+    bytes: null,
+    worktreeBody: null,
+    uncommitted: false,
+    execution: null,
+    unobservableReason: reason,
+  });
+  const observed = (
+    cut: DocumentCut,
+    source: Exclude<ProjectedDocumentSource, "derived" | "unobservable">,
+    syncState: Exclude<ProjectedDocumentSyncState, "derived">,
+    execution: ExecutionObservationBinding | null = null,
+  ) => ({
+    ...base,
+    source,
+    syncState,
+    body: cut.body,
+    blobSha256: cut.blobSha256,
+    contentKind: cut.contentKind,
+    mediaType: cut.mediaType,
+    size: cut.size,
+    bytes: cut.bytes === null ? null : Buffer.from(cut.bytes).toString("base64"),
+    // The live authored copy stays visible beside the canonical answer; it is never folded into the
+    // canonical digest. A missing copy is null, and `syncState` says the comparison could not happen.
+    worktreeBody: authored?.body ?? null,
+    // The legacy boolean describes the cut this response returned. For a canonical answer that cut is
+    // the accepted projection, so the field still reports whether the authored copy diverged.
+    uncommitted:
+      source === "canonical"
+        ? authored !== null && (canonicalVersion === null || authored.blobSha256 !== canonicalVersion.blobSha256)
+        : canonicalVersion === null || cut.blobSha256 !== canonicalVersion.blobSha256,
+    execution,
+    unobservableReason: null,
+  });
+
+  if (workExplainer) {
+    if (view !== "canonical") return unobservable("derived_document_has_no_requested_source");
+    const rendered = renderWorkExplainer(projection, taskId),
+      derived = {
+        contentKind: "text" as const,
+        body: rendered,
+        bytes: null,
+        blobSha256: sha256Text(rendered),
+        size: Buffer.byteLength(rendered),
+        mediaType: "text/html",
+      };
+    return {
+      ...base,
+      source: "derived" as const,
+      syncState: "derived" as const,
+      body: derived.body,
+      blobSha256: derived.blobSha256,
+      contentKind: derived.contentKind,
+      mediaType: derived.mediaType,
+      size: derived.size,
+      bytes: null,
+      worktreeBody: derived.body,
+      uncommitted: false,
+      execution: null,
+      unobservableReason: null,
+    };
+  }
+
+  if (view === "execution") {
+    if (executionId === null) return unobservable("execution_not_specified");
+    const observation = observeExecution(context, task, packagePath, requested, binary, executionId);
+    if ("reason" in observation) return unobservable(observation.reason);
+    return observed(observation.cut, "execution", syncStateOf(observation.cut, canonicalVersion), observation.binding);
+  }
+
+  if (view === "authored-copy") {
+    if (authored === null) return unobservable("authored_copy_not_observed");
+    const cut = cutOfWorktree(authored, requested, binary);
+    return observed(cut, "authored-copy", syncStateOf(cut, canonicalVersion));
+  }
+
+  // Canonical view: the accepted cut is the answer. Only when there is no accepted cut, or when a raw
+  // artifact's live bytes differ from the accepted object, does the returned content come from the
+  // authored copy — and then `source` says so instead of silently mixing digest and bytes.
+  if (document === null) {
+    if (authored === null) return unobservable("document_not_observed");
+    const cut = cutOfWorktree(authored, requested, binary);
+    return observed(cut, "authored-copy", "unsynced");
+  }
+  if (binary && authored !== null && authored.blobSha256 !== document.blobSha256) {
+    const cut = cutOfWorktree(authored, requested, binary);
+    return observed(cut, "authored-copy", "unsynced");
+  }
+  const canonicalBytes =
+      binary && Number(document.size) <= TASK_DOCUMENT_INLINE_BYTES_MAX
         ? context.store.readContentBlob(document.blobSha256)
         : null,
-    inline =
-      canonicalBytes !== null && canonicalBytes.byteLength <= TASK_DOCUMENT_INLINE_BYTES_MAX ? canonicalBytes : null,
-    worktreeBytes = binary ? (worktree?.bytes ?? null) : null,
-    selectedBytes =
-      worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null) ? worktreeBytes : inline;
-  const renderedWorkExplainer = workExplainer ? renderWorkExplainer(projection, taskId) : null;
+    cut = cutOfCanonical(document, binary, canonicalBytes, requested),
+    syncState: "synced" | "unsynced" | "unobservable" =
+      authored === null ? "unobservable" : authored.blobSha256 === document.blobSha256 ? "synced" : "unsynced";
+  const result = observed(cut, "canonical", syncState === "unobservable" ? "unobservable" : syncState);
+  return authored === null ? { ...result, unobservableReason: "authored_copy_not_observed" } : result;
+}
+
+function documentReadView(value: unknown): "canonical" | "authored-copy" | "execution" {
+  if (value === undefined || value === null) return "canonical";
+  if (value === "canonical" || value === "authored-copy" || value === "execution") return value;
+  throw docSyncError("invalid_command", 'document read view must be "canonical", "authored-copy" or "execution"');
+}
+
+function cutOfCanonical(
+  document: {
+    readonly body: string;
+    readonly blobSha256: string;
+    readonly size: number | bigint;
+    readonly mediaType: string;
+  },
+  binary: boolean,
+  canonicalBytes: Uint8Array | null,
+  requested: string,
+): DocumentCut {
   return {
-    ok: true as const,
-    status: read.status,
-    taskId,
-    path: requested,
-    body: renderedWorkExplainer ?? document?.body ?? "",
-    blobSha256: document?.blobSha256 ?? null,
-    /** `binary` = raw artifact bytes: `body` is empty because there is no text, not because the file is. */
-    contentKind: binary ? ("binary" as const) : ("text" as const),
-    mediaType: workExplainer
-      ? "text/html"
-      : binary
-        ? mediaTypeForBinaryPath(requested, document?.mediaType ?? worktree?.mediaType ?? null)
-        : (document?.mediaType ?? worktree?.mediaType ?? null),
-    size: workExplainer
-      ? Buffer.byteLength(renderedWorkExplainer!)
-      : document === null
-        ? (worktree?.size ?? null)
-        : Number(document.size),
-    /** Canonical content-object bytes, base64. Null for text, for an unreadable object, and above the
-     * inline ceiling — in which case `repositoryPath` is the route to the same bytes. */
-    bytes: selectedBytes === null ? null : Buffer.from(selectedBytes).toString("base64"),
-    /** Where this document materializes under the configured authored root; never assembled by a renderer. */
-    repositoryPath: repositoryPathOf(rootDir, logical),
-    // Live worktree view (task_e5defe69): the GUI file surface must show what is on disk
-    // now, not only the committed projection — an edited-but-unsynced plan is real work
-    // and must be visible and explicitly marked as not yet committed.
-    worktreeBody: renderedWorkExplainer ?? worktree?.body ?? null,
-    uncommitted: workExplainer ? false : worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null),
-    watermark: read.watermark,
-    sourceRevision: read.sourceRevision,
+    contentKind: binary ? "binary" : "text",
+    body: binary ? "" : document.body,
+    bytes: binary ? (canonicalBytes === null ? null : Buffer.from(canonicalBytes)) : null,
+    blobSha256: document.blobSha256,
+    size: Number(document.size),
+    mediaType: binary ? mediaTypeForBinaryPath(requested, document.mediaType) : document.mediaType,
   };
+}
+
+function cutOfWorktree(row: ObservedDocumentRow, requested: string, binary: boolean): DocumentCut {
+  return {
+    contentKind: binary ? "binary" : "text",
+    body: binary ? "" : (row.body ?? ""),
+    bytes: binary ? row.bytes : null,
+    blobSha256: row.blobSha256,
+    size: row.size,
+    mediaType: binary ? mediaTypeForBinaryPath(requested, row.mediaType) : row.mediaType,
+  };
+}
+
+function syncStateOf(cut: DocumentCut, canonicalVersion: CanonicalDocumentVersion | null): "synced" | "unsynced" {
+  return canonicalVersion !== null && cut.blobSha256 === canonicalVersion.blobSha256 ? "synced" : "unsynced";
+}
+
+function documentMediaType(
+  document: { readonly mediaType: string } | null,
+  authored: ObservedDocumentRow | null,
+  requested: string,
+  binary: boolean,
+): string | null {
+  const mediaType = document?.mediaType ?? authored?.mediaType ?? null;
+  return binary ? mediaTypeForBinaryPath(requested, mediaType) : mediaType;
+}
+
+/** A read-time observation of one execution's workspace. It is bounded by the execution's effective
+ * lease: a released, expired or foreign lease has no workspace authority to show, so the answer is
+ * `unobservable` rather than the current canonical or authored copy wearing an execution label. */
+function observeExecution(
+  context: ProjectedDocumentReadContext,
+  task: ReturnType<TaskProjection["read"]> & { readonly packagePath: string },
+  packagePath: string,
+  requested: string,
+  binary: boolean,
+  executionId: string,
+): { readonly cut: DocumentCut; readonly binding: ExecutionObservationBinding } | { readonly reason: string } {
+  if (!task.snapshot.executions.some((execution) => execution.executionId === executionId))
+    return { reason: "execution_not_found" };
+  const lease = task.snapshot.lease;
+  if (lease === null || !leaseIsEffective(lease) || lease.executionId !== executionId)
+    return { reason: "execution_not_leased" };
+  const workspace = executionWorkspaceRoot(context, task, packagePath);
+  if (workspace.root === null) return { reason: workspace.reason };
+  const row = readWorktreeDocument(workspace.root, requested, binary);
+  if (row === null) return { reason: "document_not_observed" };
+  return {
+    cut: cutOfWorktree(row, requested, binary),
+    binding: {
+      executionId,
+      leaseVersion: lease.version,
+      leaseExpiresAt: lease.expiresAt,
+      observedAt: context.now?.() ?? new Date().toISOString(),
+    },
+  };
+}
+
+/** A task with a worktree observes that worktree; a task-package task observes its authored package.
+ * A bound-but-absent worktree is unobservable, never silently replaced by the center's copy. */
+function executionWorkspaceRoot(
+  context: ProjectedDocumentReadContext,
+  task: ReturnType<TaskProjection["read"]> & { readonly packagePath: string },
+  packagePath: string,
+): { readonly root: string | null; readonly reason: string } {
+  const binding = taskWorktreeBinding(task.snapshot.task, presetSnapshotReader(context.projection));
+  if (binding === null) {
+    const root = taskPackageWorktreeRoot(context.rootDir, packagePath);
+    return root === null ? { root: null, reason: "execution_workspace_unavailable" } : { root, reason: "" };
+  }
+  const taskRoot = taskWorktreeRoot(context, task.snapshot);
+  if (taskRoot === null) return { root: null, reason: "execution_workspace_not_materialized" };
+  const layout = resolveHarnessLayout(context.rootDir),
+    relative = path.relative(layout.rootDir, layout.authoredRoot);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    return { root: null, reason: "execution_workspace_outside_checkout" };
+  return { root: path.resolve(taskRoot, relative, ...packagePath.split("/")), reason: "" };
 }
 
 /** Repository-relative path of an authored document, resolved from the configured authored root. */

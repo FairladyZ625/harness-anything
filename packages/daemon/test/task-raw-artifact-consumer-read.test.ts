@@ -27,6 +27,8 @@ const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0
 interface DocumentRead {
   readonly status: string;
   readonly body: string;
+  readonly source: string;
+  readonly syncState: string;
   readonly blobSha256: string | null;
   readonly contentKind: string;
   readonly mediaType: string | null;
@@ -35,6 +37,7 @@ interface DocumentRead {
   readonly repositoryPath: string;
   readonly worktreeBody: string | null;
   readonly uncommitted: boolean;
+  readonly canonicalVersion: { readonly blobSha256: string } | null;
 }
 
 interface DocumentRow {
@@ -234,9 +237,12 @@ test("a binary file in a task's artifacts tree is listed and routed, not hidden 
     serializeDaemonDocumentRead(read);
     assert.deepEqual(
       [read.contentKind, read.body, read.worktreeBody, read.bytes === null, read.blobSha256, read.uncommitted],
-      ["binary", "", null, false, null, true],
-      "an unpublished binary is declared binary with its authorized worktree bytes, not shown as empty text",
+      ["binary", "", null, false, sha256Bytes(png), true],
+      "an unpublished binary is declared binary with its authorized worktree bytes and that copy's digest",
     );
+    assert.equal(read.source, "authored-copy");
+    assert.equal(read.syncState, "unsynced");
+    assert.equal(read.canonicalVersion, null, "there is no accepted cut to compare against");
     assert.deepEqual(Buffer.from(String(read.bytes), "base64"), png, "unpublished worktree bytes remain unmodified");
     assert.deepEqual([read.mediaType, read.size], ["image/png", png.byteLength]);
     assert.equal(read.repositoryPath, `harness/${packagePath}/artifacts/capture.png`);
@@ -246,7 +252,7 @@ test("a binary file in a task's artifacts tree is listed and routed, not hidden 
   }
 });
 
-test("an edited canonical binary serves the live worktree bytes and digest", async () => {
+test("an edited canonical binary serves the live worktree bytes with that copy's own digest", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-raw-consumer-live-"));
   initRepo(rootDir);
   const repoId = workspaceId("raw-consumer-live"),
@@ -274,8 +280,12 @@ test("an edited canonical binary serves the live worktree bytes and digest", asy
       path: "artifacts/live.png",
     })) as DocumentRead;
     assert.equal(read.uncommitted, true);
+    assert.equal(read.source, "authored-copy", "the returned bytes are the live copy, so the source says so");
+    assert.equal(read.syncState, "unsynced");
     assert.deepEqual(Buffer.from(String(read.bytes), "base64"), edited);
-    assert.equal(read.blobSha256, sha256Bytes(png));
+    assert.equal(read.blobSha256, sha256Bytes(edited), "the digest belongs to the bytes returned");
+    assert.equal(read.size, edited.byteLength);
+    assert.equal(read.canonicalVersion?.blobSha256, sha256Bytes(png), "the accepted cut is still reported separately");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

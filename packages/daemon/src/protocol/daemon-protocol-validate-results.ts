@@ -202,6 +202,25 @@ export function validateDaemonDocumentRead(value: unknown): readonly string[] {
     ["status", value.status, value.status === "ready" || value.status === "pending", "must be ready or pending"],
     ["taskId", value.taskId, nonEmpty(value.taskId), "must be a non-empty string"],
     ["path", value.path, nonEmpty(value.path), "must be a non-empty string"],
+    [
+      "source",
+      value.source,
+      value.source === "canonical" ||
+        value.source === "authored-copy" ||
+        value.source === "execution" ||
+        value.source === "derived" ||
+        value.source === "unobservable",
+      "must name the cut the content came from",
+    ],
+    [
+      "syncState",
+      value.syncState,
+      value.syncState === "synced" ||
+        value.syncState === "unsynced" ||
+        value.syncState === "unobservable" ||
+        value.syncState === "derived",
+      "must be synced, unsynced, unobservable or derived",
+    ],
     ["body", value.body, typeof value.body === "string", "must be a string"],
     [
       "blobSha256",
@@ -252,6 +271,45 @@ export function validateDaemonDocumentRead(value: unknown): readonly string[] {
       "must be null or a string",
     ],
     ["uncommitted", value.uncommitted, typeof value.uncommitted === "boolean", "must be a boolean"],
+    [
+      "canonicalVersion",
+      value.canonicalVersion,
+      value.canonicalVersion === null ||
+        (exactRecord(value.canonicalVersion, ["workspaceRevision", "blobSha256", "size"]) &&
+          integer(value.canonicalVersion.workspaceRevision) &&
+          Number(value.canonicalVersion.workspaceRevision) >= 0 &&
+          typeof value.canonicalVersion.blobSha256 === "string" &&
+          /^[0-9a-f]{64}$/u.test(value.canonicalVersion.blobSha256) &&
+          integer(value.canonicalVersion.size) &&
+          Number(value.canonicalVersion.size) >= 0),
+      "must be null or a canonical document version",
+    ],
+    [
+      "execution",
+      value.execution,
+      value.execution === null ||
+        (exactRecord(value.execution, ["executionId", "leaseVersion", "leaseExpiresAt", "observedAt"]) &&
+          nonEmpty(value.execution.executionId) &&
+          integer(value.execution.leaseVersion) &&
+          Number(value.execution.leaseVersion) >= 0 &&
+          nonEmpty(value.execution.leaseExpiresAt) &&
+          nonEmpty(value.execution.observedAt)),
+      "must be null or an execution observation binding",
+    ],
+    [
+      "unobservableReason",
+      value.unobservableReason,
+      value.unobservableReason === null || nonEmpty(value.unobservableReason),
+      "must be null or a non-empty reason",
+    ],
+    // An unobservable answer carries no content or digest, so a client cannot mistake absence of
+    // evidence for an accepted or clean cut.
+    [
+      "blobSha256",
+      value.blobSha256,
+      value.source !== "unobservable" || (value.blobSha256 === null && value.size === null),
+      "must be null with no size when unobservable",
+    ],
     ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
     ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
   ] as const)
