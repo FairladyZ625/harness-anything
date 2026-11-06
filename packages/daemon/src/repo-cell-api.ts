@@ -166,6 +166,7 @@ export interface RepoCellApiContext {
   readonly rootDir: CanonicalRoot;
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
+  readonly withReadSession?: import("./doc-sync-reads.ts").ProjectedDocumentReadContext["withReadSession"];
   readonly now: () => string;
   readonly onlineBinding: (binding: RepoCellBinding) => Promise<RepoCellBinding>;
   readonly executeAction: RepoCellOperationalContext["executeAction"];

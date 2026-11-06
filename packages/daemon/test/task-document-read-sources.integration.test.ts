@@ -12,14 +12,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import threads, { type WorkerOptions } from "node:worker_threads";
-import { sha256Text } from "@harness-anything/kernel";
+import { sha256Text, type TaskProjection } from "@harness-anything/kernel";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
-import {
-  makeDaemonProjectionReader,
-  makeTaskEventReader,
-  makeTaskEventStore,
-  makeTaskProjection,
-} from "@harness-anything/storage";
+import { makeDaemonProjectionReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { readProjectedDocument } from "../src/doc-sync-reads.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
@@ -161,6 +156,26 @@ test("canonical V1 and worker V2 reads each label the source that owns their byt
     assert.ok(Number(execution.execution?.leaseVersion) > 0);
     assert.match(String(execution.execution?.leaseExpiresAt), /^\d{4}-\d{2}-\d{2}T/u);
     assert.match(String(execution.execution?.observedAt), /^\d{4}-\d{2}-\d{2}T/u);
+
+    const reader = makeDaemonProjectionReader({ repoId: workspaceId("task-doc-sources"), rootDir: fixture.rootDir });
+    try {
+      const pinnedOnly = reader.withSession((projection) =>
+        readProjectedDocument(
+          {
+            rootDir: fixture.rootDir,
+            projection: projection as TaskProjection,
+            store: { readContentBlob: () => null },
+          },
+          { taskId, path: "task_plan.md", view: "execution", executionId },
+        ),
+      );
+      assert.equal(pinnedOnly.source, "unobservable", "a context without a fresh-session port cannot prove ownership");
+      assert.equal(pinnedOnly.unobservableReason, "execution_workspace_unavailable");
+      assert.equal(pinnedOnly.body, "");
+      assert.equal(pinnedOnly.execution, null);
+    } finally {
+      reader.close();
+    }
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
@@ -509,52 +524,103 @@ test("a same-execution re-entry publishes a marker for the new lease generation"
   }
 });
 
-test("release and same-execution re-entry between snapshot and bytes cannot mix lease A with workspace B", async () => {
-  const fixture = await startTaskWithTwoCuts(),
-    repoId = workspaceId("task-doc-sources"),
-    reader = makeDaemonProjectionReader({ repoId, rootDir: fixture.rootDir }),
-    store = makeTaskEventReader({ repoId, rootDir: fixture.rootDir });
+test("public execution read rejects re-entry after reading A marker and before reading B bytes", async (t) => {
+  const barrier = new Int32Array(new SharedArrayBuffer(4));
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const fixture = await startTaskWithTwoCuts({
+    beforeOpen() {
+      // Pause only real reader workers, after readFileSync has copied marker A. The SQLite A
+      // session stays open while the independent writer releases A and accepts re-entry B.
+      const preload = `
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { workerData } from "node:worker_threads";
+const barrier = new Int32Array(workerData.documentReadBarrier);
+const nativeRead = fs.readFileSync;
+fs.readFileSync = function(...args) {
+  const bytes = nativeRead(...args);
+  if (String(args[0]).endsWith(${JSON.stringify(`${Buffer.from(executionId).toString("base64url")}.json`)}) &&
+      Atomics.compareExchange(barrier, 0, 1, 2) === 1) {
+    Atomics.notify(barrier, 0);
+    while (Atomics.load(barrier, 0) === 2) Atomics.wait(barrier, 0, 2);
+  }
+  return bytes;
+};
+syncBuiltinESMExports();
+`;
+      const NativeWorker = threads.Worker;
+      t.mock.method(
+        threads,
+        "Worker",
+        class extends NativeWorker {
+          constructor(filename: string | URL, options: WorkerOptions = {}) {
+            const reader = String(filename).includes("repo-writer-worker.") && options.workerData?.role === "reader";
+            super(
+              filename,
+              reader
+                ? {
+                    ...options,
+                    workerData: { ...options.workerData, documentReadBarrier: barrier.buffer },
+                    execArgv: [
+                      ...(options.execArgv ?? []),
+                      "--import",
+                      `data:text/javascript,${encodeURIComponent(preload)}`,
+                    ],
+                  }
+                : options,
+            );
+          }
+        },
+      );
+      syncBuiltinESMExports();
+    },
+  });
+  let pending: ReturnType<typeof fixture.cell.read> | undefined;
   try {
-    // Pause the observation at the projection.read boundary after it has obtained A. The rest
-    // resumes only after the real writer has accepted release/re-entry and published B's marker.
-    const before = reader.withSession((projection) => projection.read(taskId)),
-      leaseA = before.snapshot.lease,
-      markerA = readTaskWorktreeExecutionBinding(executionWorktree(fixture), executionId).binding;
-    assert.ok(leaseA);
+    const worktree = executionWorktree(fixture),
+      markerA = readTaskWorktreeExecutionBinding(worktree, executionId).binding,
+      leaseA = (await fixture.cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)?.snapshot.lease;
     assert.ok(markerA);
+    assert.ok(leaseA);
+    Atomics.store(barrier, 0, 1);
+    pending = fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    });
+    await Promise.race([
+      (async () => {
+        while (Atomics.load(barrier, 0) === 1) await Atomics.waitAsync(barrier, 0, 1).value;
+        assert.equal(Atomics.load(barrier, 0), 2, "public reader must pause with A marker copied");
+      })(),
+      pending.then(() => assert.fail("public read finished without reaching marker A pause")),
+    ]);
     assert.equal((await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding)).outcome, "applied");
     const restarted = await fixture.cell.run({ kind: "task-start", taskId, executionId }, fixture.binding);
     assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
-    const markerB = readTaskWorktreeExecutionBinding(executionWorktree(fixture), executionId).binding,
-      leaseB = reader.withSession((projection) => projection.currentLease(taskId)),
+    const markerB = readTaskWorktreeExecutionBinding(worktree, executionId).binding,
+      leaseB = (await fixture.cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)?.snapshot.lease,
       bodyB = `${fixture.v2Body}\nNew acquisition B.\n`;
     assert.ok(markerB);
     assert.ok(leaseB);
-    assert.ok(markerB.acquiredRevision > markerA.acquiredRevision);
     assert.notEqual(leaseB.version, leaseA.version);
-    writeFileSync(path.join(executionWorktree(fixture), "harness", fixture.packagePath, "task_plan.md"), bodyB);
-
-    let snapshotReads = 0;
-    const observed = reader.withSession((projection) =>
-      readProjectedDocument(
-        {
-          rootDir: fixture.rootDir,
-          store,
-          projection: {
-            ...projection,
-            // Return the paused A once; subsequent reads see the actual B projection cut.
-            read: (...args) => (++snapshotReads === 1 ? before : projection.read(...args)),
-          } as Parameters<typeof readProjectedDocument>[0]["projection"],
-        },
-        { taskId, path: "task_plan.md", view: "execution", executionId },
-      ),
-    );
+    assert.ok(markerB.acquiredRevision > markerA.acquiredRevision, "re-entry must advance the acquisition");
+    writeFileSync(path.join(worktree, "harness", fixture.packagePath, "task_plan.md"), bodyB);
+    Atomics.store(barrier, 0, 3);
+    Atomics.notify(barrier, 0);
+    const observed = (await pending) as DocumentRead;
     assert.equal(observed.source, "unobservable", "B bytes must never carry A's released lease");
+    assert.equal(observed.unobservableReason, "execution_workspace_stale_marker");
     assert.equal(observed.body, "");
     assert.equal(observed.execution, null);
     assert.equal(observed.blobSha256, null);
+    assert.equal(observed.bytes, null);
+    assert.equal(observed.size, null);
 
-    // A fresh observation must remain usable and bind B's actual bytes and lease together.
     const fresh = await fixture.cell.read("repo.tasks.document.read", {
       taskId,
       path: "task_plan.md",
@@ -563,11 +629,14 @@ test("release and same-execution re-entry between snapshot and bytes cannot mix 
     });
     assert.equal(fresh.source, "execution");
     assert.equal(fresh.body, bodyB);
+    assert.equal(fresh.blobSha256, sha256Text(bodyB));
+    assert.equal(fresh.execution?.executionId, executionId);
     assert.equal(fresh.execution?.leaseVersion, leaseB.version);
     assert.equal(fresh.execution?.leaseExpiresAt, leaseB.expiresAt);
   } finally {
-    reader.close();
-    await store.drain();
+    Atomics.store(barrier, 0, 3);
+    Atomics.notify(barrier, 0);
+    await pending;
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
   }

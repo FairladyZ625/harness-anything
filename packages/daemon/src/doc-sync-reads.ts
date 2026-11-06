@@ -1,6 +1,12 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, leaseIsEffective, type TaskProjection } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  leaseIsEffective,
+  type TaskProjection,
+  type TaskProjectionQueries,
+  type TaskProjectionReader,
+} from "@harness-anything/kernel";
 import {
   canonicalEventCut,
   classifyRawArtifactPath,
@@ -460,6 +466,8 @@ export interface ProjectedDocumentReadContext {
   readonly rootDir: string;
   readonly projection: TaskProjection;
   readonly store: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
+  /** Owns both sessions; callers must invoke this read outside any pinned projection session. */
+  readonly withReadSession?: TaskProjectionReader["withSession"];
   /** Observation clock; tests inject one, production reads the wall clock once per observation. */
   readonly now?: () => string;
 }
@@ -468,6 +476,16 @@ export function readProjectedDocument(
   context: ProjectedDocumentReadContext,
   payload: Readonly<Record<string, unknown>>,
 ) {
+  // Query-only readers supply the existing session port so the post-IO check starts after the
+  // initial snapshot has ended. Other contexts can still answer canonical/authored reads.
+  const read: TaskProjectionReader["withSession"] = context.withReadSession ?? ((use) => use(context.projection)),
+    result = read((projection) =>
+      readProjectedDocumentAtCut({ ...context, projection: projection as TaskProjection }, payload),
+    );
+  return typeof result === "function" ? read(result) : result;
+}
+
+function readProjectedDocumentAtCut(context: ProjectedDocumentReadContext, payload: Readonly<Record<string, unknown>>) {
   const { rootDir, projection } = context,
     taskId = requiredDocSyncText(payload.taskId, "taskId"),
     requested = requiredDocSyncText(payload.path, "path"),
@@ -578,9 +596,28 @@ export function readProjectedDocument(
 
   if (view === "execution") {
     if (executionId === null) return unobservable("execution_not_specified");
+    if (context.withReadSession === undefined) return unobservable("execution_workspace_unavailable");
     const observation = observeExecution(context, task, packagePath, requested, binary, executionId);
     if ("reason" in observation) return unobservable(observation.reason);
-    return observed(observation.cut, "execution", syncStateOf(observation.cut, canonicalVersion), observation.binding);
+    // A monotonic acquisition cannot return to A after re-entry B. This continuation runs in
+    // a new session, since snapshot A contains no proof about the live files read above.
+    return (projection: TaskProjectionQueries) => {
+      const lease = projection.currentLease(taskId);
+      if (
+        lease === null ||
+        !leaseIsEffective(lease) ||
+        lease.executionId !== executionId ||
+        lease.source !== "local" ||
+        observation.acquiredRevision !== taskLeaseAcquiredRevision(projection, taskId, executionId)
+      )
+        return unobservable("execution_workspace_stale_marker");
+      return observed(observation.cut, "execution", syncStateOf(observation.cut, canonicalVersion), {
+        executionId,
+        leaseVersion: lease.version,
+        leaseExpiresAt: lease.expiresAt,
+        observedAt: context.now?.() ?? new Date().toISOString(),
+      });
+    };
   }
 
   if (view === "authored-copy") {
@@ -703,7 +740,7 @@ function observeExecution(
   requested: string,
   binary: boolean,
   executionId: string,
-): { readonly cut: DocumentCut; readonly binding: ExecutionObservationBinding } | { readonly reason: string } {
+): { readonly cut: DocumentCut; readonly acquiredRevision: number } | { readonly reason: string } {
   const execution = task.snapshot.executions.find((candidate) => candidate.executionId === executionId);
   if (execution === undefined) return { reason: "execution_not_found" };
   const lease = task.snapshot.lease;
@@ -728,27 +765,9 @@ function observeExecution(
     return { reason: "execution_workspace_unbound" };
   const row = readWorktreeDocument(workspace.root, requested, binary);
   if (row === null) return { reason: "document_not_observed" };
-  // Validate after the filesystem read: a release/re-entry may have published a new workspace
-  // since the task snapshot. Lease and interval use the same projection context/cut; neither a
-  // new marker nor new bytes may be paired with the old snapshot's lease.
-  const currentLease = context.projection.currentLease(lease.taskId);
-  if (
-    currentLease === null ||
-    !leaseIsEffective(currentLease) ||
-    currentLease.executionId !== executionId ||
-    currentLease.source !== "local" ||
-    currentLease.version !== lease.version ||
-    marker.binding.acquiredRevision !== taskLeaseAcquiredRevision(context.projection, lease.taskId, executionId)
-  )
-    return { reason: "execution_workspace_stale_marker" };
   return {
     cut: cutOfWorktree(row, requested, binary),
-    binding: {
-      executionId,
-      leaseVersion: lease.version,
-      leaseExpiresAt: lease.expiresAt,
-      observedAt: context.now?.() ?? new Date().toISOString(),
-    },
+    acquiredRevision: marker.binding.acquiredRevision,
   };
 }
 
