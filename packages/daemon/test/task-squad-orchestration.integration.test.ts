@@ -109,6 +109,32 @@ async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void
   await closed;
 }
 
+test("canonical squad dispatch rows expose the run owner for leaders and children", { timeout: 30_000 }, async (t) => {
+  const fixture = await openFixture(t, "canonical-run-owner");
+  await fixture.plan(["a.txt"], ["b.txt"]);
+  const running = await fixture.waitStatus(
+    (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((worker) => worker.runtimeSessionId),
+  );
+  const taskIds = [fixture.taskId, ...running.workerAttempts.map((worker) => worker.taskId!)],
+    dispatches = (await Promise.all(taskIds.map((taskId) => fixture.cell.read("repo.task.dispatches", { taskId }))))
+      .flatMap((result) => result.dispatches)
+      .sort((left, right) => left.dispatchId.localeCompare(right.dispatchId)),
+    expectedDispatchIds = [
+      ...running.leaderTurns.map((turn) => turn.dispatchId),
+      ...running.workerAttempts.map((worker) => worker.dispatchId!),
+    ].sort();
+  assert.deepEqual(
+    dispatches.map((dispatch) => dispatch.dispatchId),
+    expectedDispatchIds,
+    "the public query must include the leader and both workers before checking their owner",
+  );
+  assert.deepEqual(
+    dispatches.map((dispatch) => ({ dispatchId: dispatch.dispatchId, squadRunId: dispatch.squadRunId ?? null })),
+    expectedDispatchIds.map((dispatchId) => ({ dispatchId, squadRunId: running.squadRunId })),
+    "canonical run ownership must reach the generic incident consumer through the public dispatch query",
+  );
+});
+
 test(
   "squad children submit independently, resume one leader and integrate a verified local-remote delivery",
   { timeout: 30_000 },
