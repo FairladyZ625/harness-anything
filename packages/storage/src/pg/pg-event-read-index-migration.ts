@@ -2,6 +2,10 @@ import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 const eventReadFields = {
+  list_row: `json_build_object('revision',NEW.revision,'opId',NEW.op_id,'eventId',NEW.event_id,
+    'schema',v->>'schema','type',NEW.event_type,'occurredAt',NEW.occurred_at,
+    'actor',json_build_object('personId',v#>>'{actor,principal,personId}','executorId',v#>>'{actor,executor,id}'),
+    'entityRefs',NEW.entity_refs)::text`,
   event_schema: "v->>'schema'",
   event_entity_id: "v#>>'{entity,id}'",
   executor_id: "v#>>'{actor,executor,id}'",
@@ -108,15 +112,36 @@ export function eventReadIndexDdl(): readonly string[] {
         IF NEW.summary_json IS NULL THEN
           NEW.summary_json := ha_fleet_event_summary_from_jsonb(v);
         END IF;
-        NEW.read_index_version := 5;
+        NEW.read_index_version := 6;
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json ON ha_events
+    `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json,entity_refs ON ha_events
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
     `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
+    `CREATE OR REPLACE FUNCTION ha_event_entity_ref_fields() RETURNS trigger
+      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+      BEGIN
+        IF TG_OP='UPDATE' THEN
+          DELETE FROM ha_event_entity_refs WHERE tenant_id=OLD.tenant_id AND project_id=OLD.project_id
+            AND repo_id=OLD.repo_id AND revision=OLD.revision;
+        END IF;
+        INSERT INTO ha_event_entity_refs(tenant_id,project_id,policy_epoch,repo_id,readers,entity_ref,revision)
+        WITH RECURSIVE suffixes(ref) AS (
+          SELECT unnest(NEW.entity_refs)
+          UNION
+          SELECT substr(ref,strpos(ref,'/')+1) FROM suffixes
+          WHERE strpos(ref,'/')>0 AND substr(ref,strpos(ref,'/')+1)<>''
+        ) SELECT NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.repo_id,NEW.readers,ref,NEW.revision FROM suffixes
+          WHERE NEW.event_type<>'ci_run_observed';
+        RETURN NULL;
+      END $function$`,
+    `CREATE OR REPLACE TRIGGER ha_event_entity_ref_fields AFTER INSERT OR UPDATE OF event_json,entity_refs,readers ON ha_events
+      FOR EACH ROW EXECUTE FUNCTION ha_event_entity_ref_fields()`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
+    `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v6 ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<6`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,event_schema,revision)`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_entity_revision ON ha_events
@@ -186,7 +211,7 @@ export function eventReadIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,repo_id,revision FROM ha_events
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
-            AND (read_index_version<5 OR summary_json IS NULL)
+            AND (read_index_version<6 OR summary_json IS NULL)
           ORDER BY revision LIMIT 64 FOR UPDATE
         ), filled AS (
           UPDATE ha_events e SET event_json=e.event_json, summary_json=ha_fleet_event_summary(e.event_json) FROM batch b
@@ -209,7 +234,7 @@ export async function assertPgEventReadIndexReady(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND read_index_version<5 LIMIT 1`,
+      AND read_index_version<6 LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length)

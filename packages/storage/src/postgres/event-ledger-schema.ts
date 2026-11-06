@@ -4,6 +4,7 @@ import { postgresScopeRlsStatements } from "./scope-schema.ts";
 export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
   "ha_repo_heads",
   "ha_events",
+  "ha_event_entity_refs",
   "ha_command_outcomes",
   "ha_content_blobs",
   "ha_document_heads",
@@ -59,6 +60,17 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     ON ha_events (tenant_id, project_id, repo_id, occurred_at, revision DESC)`,
   `CREATE INDEX IF NOT EXISTS ha_events_actor_refs_gin_idx ON ha_events USING gin (actor_refs)`,
   `CREATE INDEX IF NOT EXISTS ha_events_entity_refs_gin_idx ON ha_events USING gin (entity_refs)`,
+  // Derived ledger index: survives task-projection rebuilds and is maintained by the event
+  // read-index trigger, including writes from the previous binary during the upgrade window.
+  `CREATE TABLE IF NOT EXISTS ha_event_entity_refs (
+    tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL,
+    ${scopeColumns()}, entity_ref text COLLATE "C" NOT NULL, revision bigint NOT NULL,
+    PRIMARY KEY (tenant_id,project_id,policy_epoch,repo_id,entity_ref,revision),
+    FOREIGN KEY (tenant_id,project_id,repo_id,revision)
+      REFERENCES ha_events(tenant_id,project_id,repo_id,revision) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS ha_event_entity_refs_revision ON ha_event_entity_refs
+    (tenant_id,project_id,repo_id,revision)`,
   `CREATE TABLE IF NOT EXISTS ha_command_outcomes (
     tenant_id text NOT NULL,
     project_id text NOT NULL,

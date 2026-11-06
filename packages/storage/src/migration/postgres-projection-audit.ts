@@ -53,6 +53,13 @@ export async function auditPgProjectionRows(
           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision<=$5`,
         [tuple.scope.tenantId, tuple.scope.projectId, tuple.scope.policyEpoch, tuple.cut.repoId, tuple.cut.revision],
       );
+      // Event triggers must resolve the replay's own derived ref index as well.
+      await client.query(`CREATE TABLE "${schema}".ha_event_entity_refs (LIKE ha_event_entity_refs INCLUDING ALL)`);
+      await client.query(
+        `INSERT INTO "${schema}".ha_event_entity_refs SELECT * FROM ha_event_entity_refs
+          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision<=$5`,
+        [tuple.scope.tenantId, tuple.scope.projectId, tuple.scope.policyEpoch, tuple.cut.repoId, tuple.cut.revision],
+      );
       await client.query(`SET LOCAL search_path TO "${schema}", public`);
       await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       await rebuildPgProjection(client, tuple.scope, {
