@@ -211,6 +211,28 @@ test("checkboxes, markdown links, code spans, and concrete ids are not residue",
   assert.equal(result.placeholderResidue.residues.length, 0);
 });
 
+test("inline code in prose is a non-whitespace placeholder, not an unresolved choice list", () => {
+  // Regression shape from PR #4374 line 5: blanking the code spans turned
+  // "no `user.name`/`user.email`" into "no            /            " and matched choice-list.
+  const body = filledBody("\nThe repository runs with no `user.name`/`user.email` at all.\n");
+  const result = checkPrBody(body);
+
+  assert.equal(result.placeholderResidue.residues.length, 0, result.issues.join("\n"));
+  assert.equal(result.ok, true, result.issues.join("\n"));
+});
+
+test("unresolved choice lists outside inline code are still rejected", () => {
+  const result = checkTemplatePlaceholderResidue(
+    filledBody("\n- Break-glass: no / yes\n- Dependency change: 不需要 / 需要\n"),
+  );
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    result.residues.map(({ id }) => id),
+    ["choice-list", "choice-list-cjk"],
+  );
+});
+
 test("accepted canonical-event sample changes require an Event-Migration declaration", () => {
   const result = checkPrBody(filledBody(), {
     eventMigration: { files: ["packages/kernel/fixtures/canonical-events/relation-event-v1/accepted.json"] },

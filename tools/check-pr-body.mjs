@@ -48,12 +48,14 @@ const PLACEHOLDER_RESIDUE_PATTERNS = Object.freeze([
 ]);
 
 // Same invisible spans the section checks strip, but blanked with padding so the
-// surviving text keeps its original line numbers for the issue message.
+// surviving text keeps its original line numbers for the issue message. Inline code keeps a
+// non-whitespace placeholder so prose such as "no `user.name`/`user.email`" does not collapse
+// into a choice list ("no / ") and get rejected as an unfilled template option.
 function maskInvisibleTemplateText(body) {
   return body
     .replace(/<!--[\s\S]*?-->/gu, (span) => span.replace(/[^\n]/gu, " "))
     .replace(/^\s*(`{3,}|~{3,}).*\n[\s\S]*?^\s*\1\s*$/gmu, (span) => span.replace(/[^\n]/gu, " "))
-    .replace(/`[^`\n]*`/gu, (span) => span.replace(/[^\n]/gu, " "));
+    .replace(/`[^`\n]*`/gu, (span) => span.replace(/[^\n]/gu, "x"));
 }
 
 export function findTemplatePlaceholderResidues(body) {
