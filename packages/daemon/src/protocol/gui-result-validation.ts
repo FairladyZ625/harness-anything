@@ -84,8 +84,7 @@ import {
 } from "./daemon-protocol.contract.ts";
 type ResultValidator = (value: unknown) => readonly string[];
 const settingsReadFields = ["schema", "ok", "settings", "values", "revision", "lastChanged", "decisionPoints"] as const;
-// Read-side forward compatibility: a newer daemon may add an action value this GUI does not know,
-// so only the fields this client declares keep their shape check. Writes never come through here.
+// Action values this client declares; a newer daemon may add one this GUI does not know.
 const settingsActionFields = new Set(SETTINGS_DECLARATION_RUNTIME.actionInputFields.map(({ field }) => field));
 const flatSettingsValue = (item: unknown): boolean =>
   typeof item === "string" ||
@@ -93,34 +92,37 @@ const flatSettingsValue = (item: unknown): boolean =>
   typeof item === "boolean" ||
   (Array.isArray(item) && item.every((entry) => typeof entry === "string"));
 // `roles` is the one action field that is itself a record (role name to declared agent id).
-const settingsActionValue = ([field, item]: readonly [string, unknown]): boolean => {
-  if (!settingsActionFields.has(field)) return true;
-  return field === "roles"
+const settingsActionValue = ([field, item]: readonly [string, unknown]): boolean =>
+  field === "roles"
     ? isJsonObject(item) && Object.values(item).every((agent) => typeof agent === "string")
     : field === "runtimeCommandInterceptions"
       ? Array.isArray(item) && item.every(isJsonObject)
       : flatSettingsValue(item);
-};
+const clientSettingsActionValue = (entry: readonly [string, unknown]): boolean =>
+  !settingsActionFields.has(entry[0]) || settingsActionValue(entry);
 const settingsLastChange = (item: unknown): boolean =>
   item === "initial" ||
   (isJsonObject(item) &&
     typeof item.occurredAt === "string" &&
     typeof item.actor === "string" &&
     Number.isSafeInteger(item.revision));
-export const validateDaemonSettingsRead: ResultValidator = (value) => {
-  if (!isJsonObject(value))
-    return [validationError("settings", "result", value, "must be a valid daemon settings read")];
-  const settingsErrors = validateSettingsV1(withoutUndeclaredSettingsFields(value.settings)),
-    valid =
-      settingsReadFields.every((field) => Object.hasOwn(value, field)) &&
-      Array.isArray(value.decisionPoints) &&
-      value.schema === "daemon.settings-read/v1" &&
-      value.ok === true &&
-      settingsErrors.length === 0 &&
-      isJsonObject(value.values) &&
-      Object.entries(value.values).every(settingsActionValue) &&
-      Number.isSafeInteger(value.revision) &&
-      settingsLastChange(value.lastChanged);
+function settingsReadErrors(
+  value: Record<string, unknown>,
+  settingsErrors: readonly string[],
+  actionValue: (entry: readonly [string, unknown]) => boolean,
+  exactKeys: boolean,
+): readonly string[] {
+  const valid =
+    (!exactKeys || Object.keys(value).length === 7) &&
+    settingsReadFields.every((field) => Object.hasOwn(value, field)) &&
+    Array.isArray(value.decisionPoints) &&
+    value.schema === "daemon.settings-read/v1" &&
+    value.ok === true &&
+    settingsErrors.length === 0 &&
+    isJsonObject(value.values) &&
+    Object.entries(value.values).every(actionValue) &&
+    Number.isSafeInteger(value.revision) &&
+    settingsLastChange(value.lastChanged);
   return valid
     ? []
     : [
@@ -143,7 +145,26 @@ export const validateDaemonSettingsRead: ResultValidator = (value) => {
           "must be a valid daemon settings read",
         ),
       ];
-};
+}
+const settingsReadShapeError = (value: unknown): readonly string[] => [
+  validationError("settings", "result", value, "must be a valid daemon settings read"),
+];
+/** Daemon exit: the process that owns the contract still judges its own served shape. */
+export const validateDaemonSettingsRead: ResultValidator = (value) =>
+  isJsonObject(value)
+    ? settingsReadErrors(value, validateSettingsV1(value.settings), settingsActionValue, true)
+    : settingsReadShapeError(value);
+/** Client inbound: a GUI built before a daemon release projects undeclared settings fields away
+ * and ignores action values it does not declare. The daemon exit above stays closed. */
+const validateDaemonSettingsReadForClient: ResultValidator = (value) =>
+  isJsonObject(value)
+    ? settingsReadErrors(
+        value,
+        validateSettingsV1(withoutUndeclaredSettingsFields(value.settings)),
+        clientSettingsActionValue,
+        false,
+      )
+    : settingsReadShapeError(value);
 const validateTaskRuntimeContextRead: ResultValidator = (value) =>
   isJsonObject(value) &&
   Object.keys(value).length === 11 &&
@@ -391,13 +412,12 @@ export function parseDaemonGuiReadResult<M extends DaemonGuiRpcReadMethod>(
   method: M,
   value: unknown,
 ): DaemonGuiReadResultMap[M] {
-  // Hand the client only the declared action-value surface above; an unknown key from a newer
-  // daemon is ignored rather than forwarded to a renderer guard that cannot know it.
-  const normalized = settingsReadWithoutUndeclaredActionValues(value),
-    errors = [...validateRepositoryReadFrame(normalized), ...resultValidators[method](repositoryReadData(normalized))];
+  const errors = [...validateRepositoryReadFrame(value), ...resultValidators[method](repositoryReadData(value))];
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return normalized as DaemonGuiReadResultMap[M];
+  return value as DaemonGuiReadResultMap[M];
 }
+/** Client inbound only: hand the renderer the action-value surface this GUI declares. An unknown
+ * key from a newer daemon is ignored rather than forwarded to a guard that cannot know it. */
 function settingsReadWithoutUndeclaredActionValues(value: unknown): unknown {
   if (!isJsonObject(value)) return value;
   const data = repositoryReadData(value);
@@ -414,14 +434,20 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
   const normalized =
       method === "repo.tasks.document.read"
         ? previousDocumentReadResult(value)
-        : settingsReadWithoutUndeclaredActionValues(value),
+        : method === "repo.settings.read"
+          ? settingsReadWithoutUndeclaredActionValues(value)
+          : value,
     data = repositoryReadData(normalized);
   const errors =
     isJsonObject(normalized) && normalized.ok === false
       ? validateDaemonProtocolError(normalized)
       : [
           ...validateRepositoryReadFrame(normalized),
-          ...(method === "repo.tasks.list" ? validateDaemonTaskSnapshotList(data) : resultValidators[method](data)),
+          ...(method === "repo.tasks.list"
+            ? validateDaemonTaskSnapshotList(data)
+            : method === "repo.settings.read"
+              ? validateDaemonSettingsReadForClient(data)
+              : resultValidators[method](data)),
         ];
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return normalized as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
