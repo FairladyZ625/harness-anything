@@ -721,6 +721,7 @@ function observeExecution(
     marker.binding.executionId !== executionId
   )
     return { reason: "execution_workspace_unbound" };
+  if (marker.binding.leaseVersion !== lease.version) return { reason: "execution_workspace_stale_marker" };
   const row = readWorktreeDocument(workspace.root, requested, binary);
   if (row === null) return { reason: "document_not_observed" };
   return {

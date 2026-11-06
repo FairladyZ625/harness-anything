@@ -464,6 +464,8 @@ export interface TaskWorktreeLifecycleInput {
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly readPresetSnapshot: PresetSnapshotRead;
   readonly readWorktree: () => WorktreeSetupSettings;
+  /** The lease as applied after the start write; the marker binds to its generation. */
+  readonly readCurrentLease?: (taskId: string) => { readonly executionId: string; readonly version: number } | null;
 }
 
 type TaskWorktreeAction = {
@@ -482,6 +484,7 @@ export interface TaskWorktreeExecutionBindingV1 {
   readonly schema: "task-worktree-execution-binding/v1";
   readonly taskId: string;
   readonly executionId: string;
+  readonly leaseVersion: number;
   readonly boundAt: string;
 }
 
@@ -500,13 +503,20 @@ export function writeTaskWorktreeExecutionBinding(
   cwd: string,
   taskId: string,
   executionId: string,
+  leaseVersion: number,
   boundAt = new Date().toISOString(),
 ): void {
   const file = taskWorktreeExecutionBindingPath(cwd, executionId);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(
     file,
-    `${JSON.stringify({ schema: "task-worktree-execution-binding/v1", taskId, executionId, boundAt })}\n`,
+    `${JSON.stringify({
+      schema: "task-worktree-execution-binding/v1",
+      taskId,
+      executionId,
+      leaseVersion,
+      boundAt,
+    })}\n`,
   );
 }
 
@@ -536,6 +546,8 @@ export function readTaskWorktreeExecutionBinding(
     (value as { readonly taskId: string }).taskId.length > 0 &&
     typeof (value as { readonly executionId?: unknown }).executionId === "string" &&
     (value as { readonly executionId: string }).executionId.length > 0 &&
+    Number.isInteger((value as { readonly leaseVersion?: unknown }).leaseVersion) &&
+    Number((value as { readonly leaseVersion: number }).leaseVersion) >= 0 &&
     typeof (value as { readonly boundAt?: unknown }).boundAt === "string" &&
     (value as { readonly executionId: string }).executionId === executionId
       ? (value as TaskWorktreeExecutionBindingV1)
@@ -567,15 +579,24 @@ export function prepareTaskStartWorktree(
     // committed start being reported as rejected.
     let warnings = checkout.warnings;
     if (checkout.cwd !== null && executionId !== null) {
-      try {
-        writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId);
-      } catch (error) {
-        consumeKnownError(error);
+      const lease = input.readCurrentLease?.(action.taskId as string);
+      if (lease === null || lease === undefined || lease.executionId !== executionId) {
         warnings = [
           ...warnings,
-          `Worktree ${checkout.cwd} was checked out but its execution marker was not written: ${errorText(error)}. ` +
+          `Worktree ${checkout.cwd} was checked out but its lease generation was not readable. ` +
             "Execution reads for this start remain unobservable.",
         ];
+      } else {
+        try {
+          writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId, lease.version);
+        } catch (error) {
+          consumeKnownError(error);
+          warnings = [
+            ...warnings,
+            `Worktree ${checkout.cwd} was checked out but its execution marker was not written: ${errorText(error)}. ` +
+              "Execution reads for this start remain unobservable.",
+          ];
+        }
       }
     }
     return withNotes(receipt, checkout.notes, warnings);

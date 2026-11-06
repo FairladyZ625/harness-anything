@@ -259,7 +259,8 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
       JSON.stringify({
         schema: "task-worktree-execution-binding/v1",
         taskId,
-        executionId: "execution-stale",
+        executionId,
+        leaseVersion: 0,
         boundAt: new Date().toISOString(),
       }),
     );
@@ -270,7 +271,7 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
       executionId,
     })) as DocumentRead;
     assert.equal(stale.source, "unobservable");
-    assert.equal(stale.unobservableReason, "execution_workspace_marker_invalid");
+    assert.equal(stale.unobservableReason, "execution_workspace_stale_marker");
     assert.equal(stale.body, "");
 
     writeFileSync(markerPath, '{"schema":"task-worktree-execution-binding/v1","taskId":');
@@ -323,6 +324,41 @@ test("a rejected competing start cannot overwrite the holder's marker", async ()
     })) as DocumentRead;
     assert.equal(observed.source, "execution", "the rejected competing start must not unbind execution A");
     assert.equal(observed.body, fixture.v2Body);
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a same-execution re-entry cannot reuse the previous lease generation's marker", async () => {
+  const fixture = await startTaskWithTwoCuts();
+  try {
+    const before = (await fixture.cell.read("repo.tasks.list")).rows.find((candidate) => candidate.taskId === taskId);
+    const firstLease = before?.snapshot.lease;
+    assert.ok(firstLease, "the fixture must hold a lease");
+    const released = await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding);
+    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    const restarted = await fixture.cell.run({ kind: "task-start", taskId, executionId }, fixture.binding);
+    assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
+    const after = (await fixture.cell.read("repo.tasks.list")).rows.find((candidate) => candidate.taskId === taskId);
+    assert.notEqual(after?.snapshot.lease?.version, firstLease.version, "the new lease must have a new generation");
+
+    const worktree = worktreeRoots(fixture.rootDir).find(
+      (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
+    );
+    assert.ok(worktree, "the fixture must have a materialized execution worktree");
+    const markerPath = taskWorktreeExecutionBindingPath(worktree, executionId),
+      marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(markerPath, JSON.stringify({ ...marker, leaseVersion: firstLease.version }));
+
+    const observed = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(observed.source, "unobservable");
+    assert.equal(observed.unobservableReason, "execution_workspace_stale_marker");
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
