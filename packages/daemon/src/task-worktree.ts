@@ -175,16 +175,20 @@ export async function checkoutTaskWorktree(
           "review_checkout_commit_unavailable",
           `Task ${taskId}'s reviewer dispatch has no frozen delivery commit to check out.`,
         );
-      const fresh = !existsSync(cwd);
+      // A review is a read of an immutable cut, not another use of the worker's mutable
+      // delivery checkout. Keep the two worktrees independent so a worker can rebase or
+      // amend after submit without invalidating the review that was already dispatched.
+      const reviewCwd = pinnedReviewWorktreePath(rootDir, taskId, pinnedCommit),
+        fresh = !existsSync(reviewCwd);
       await ensurePinnedCommit(rootDir, binding.branch, pinnedCommit);
-      if (fresh) await addPinnedReviewWorktree(rootDir, cwd, binding.branch, pinnedCommit);
-      const verify = () => verifyReviewCheckout(cwd, pinnedCommit);
+      if (fresh) await addPinnedReviewWorktree(rootDir, reviewCwd, pinnedCommit);
+      const verify = () => verifyReviewCheckout(reviewCwd, pinnedCommit);
       await verify();
-      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs, fresh });
+      const prepared = await runWorktreeSetup({ rootDir, cwd: reviewCwd, taskId, steps, stepTimeoutMs, fresh });
       await verify();
       return {
-        cwd,
-        branch: fresh ? binding.branch : ((await heldBranch(cwd)) ?? binding.branch),
+        cwd: reviewCwd,
+        branch: binding.branch,
         baseRef: fresh ? pinnedCommit : null,
         setup: prepared,
       };
@@ -305,80 +309,14 @@ async function ensurePinnedCommit(rootDir: string, branch: string, commit: strin
   );
 }
 
-/**
- * Creates a fresh reviewer checkout at the frozen commit. `addManagedWorktree` reuses a surviving
- * branch and ignores its baseRef, which would check out the stale cut this review must not read;
- * here a diverged branch is preserved under its own name before the task branch is created at the
- * frozen commit. A branch that is an ancestor of the frozen commit is simply advanced.
- */
-async function addPinnedReviewWorktree(rootDir: string, cwd: string, branch: string, commit: string): Promise<void> {
-  // Renaming or force-updating a branch that another worktree has checked out rewrites that
-  // worktree's symbolic HEAD and breaks its delivery path. Preserve the other checkout instead.
-  const otherOwner = (await branchWorktrees(rootDir, branch)).find(
-    (owner) => path.resolve(owner) !== path.resolve(cwd),
-  );
-  if (otherOwner !== undefined)
-    throw cellCodedError(
-      "review_checkout_branch_in_use",
-      `A reviewer checkout cannot use branch ${branch}: it is checked out at ${otherOwner}. ` +
-        "Leave that worktree untouched; dispatch the review on a node without that branch, or remove the old checkout first.",
-    );
-  const branchTip = await refTip(rootDir, `refs/heads/${branch}`);
-  if (branchTip === null) {
-    await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
-    return;
-  }
-  if (branchTip === commit) {
-    await reviewGit(rootDir, "worktree", "add", cwd, branch);
-    return;
-  }
-  const ancestor = await runProcessExitAsync(
-    "git",
-    ["-C", rootDir, "merge-base", "--is-ancestor", branchTip, commit],
-    undefined,
-    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    undefined,
-    undefined,
-    { timeoutMs: 30_000 },
-  );
-  if (ancestor.exitCode === 0) {
-    await reviewGit(rootDir, "branch", "-f", branch, commit);
-    await reviewGit(rootDir, "worktree", "add", cwd, branch);
-    return;
-  }
-  const preserved = `${branch}-superseded-${branchTip.slice(0, 12)}`;
-  try {
-    await reviewGit(rootDir, "branch", "-m", branch, preserved);
-  } catch (error) {
-    throw cellCodedError(
-      "review_checkout_branch_in_use",
-      `A reviewer checkout cannot move branch ${branch} aside to the frozen commit: ${errorText(error)}`,
-    );
-  }
-  await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
+/** The reviewer's immutable checkout is separate from the task's mutable delivery worktree. */
+function pinnedReviewWorktreePath(rootDir: string, taskId: string, commit: string): string {
+  return path.join(rootDir, ".worktrees", ".review", taskId, commit);
 }
 
-/** Every worktree currently checking out this branch; a linked worktree's symbolic HEAD names it too. */
-async function branchWorktrees(rootDir: string, branch: string): Promise<readonly string[]> {
-  return (await reviewGit(rootDir, "worktree", "list", "--porcelain")).split("\n\n").flatMap((entry) => {
-    const lines = entry.split("\n"),
-      worktree = lines.find((line) => line.startsWith("worktree ")),
-      ref = lines.find((line) => line.startsWith("branch "));
-    return worktree !== undefined && ref === `branch refs/heads/${branch}` ? [worktree.slice("worktree ".length)] : [];
-  });
-}
-
-async function refTip(rootDir: string, ref: string): Promise<string | null> {
-  const result = await runProcessExitAsync(
-    "git",
-    ["-C", rootDir, "rev-parse", "--verify", "--quiet", ref],
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    { timeoutMs: 30_000 },
-  );
-  return result.exitCode === 0 ? result.stdout.trim() : null;
+async function addPinnedReviewWorktree(rootDir: string, cwd: string, commit: string): Promise<void> {
+  mkdirSync(path.dirname(cwd), { recursive: true });
+  await reviewGit(rootDir, "worktree", "add", "--detach", cwd, commit);
 }
 
 function reviewGit(rootDir: string, ...args: string[]): Promise<string> {
@@ -546,6 +484,20 @@ export function writeTaskWorktreeExecutionBinding(
     renameSync(temporary, file);
   } finally {
     rmSync(temporary, { force: true });
+  }
+}
+
+/** Removes a detached reviewer snapshot after settlement; returns a diagnostic for the caller to record. */
+export async function reclaimReviewWorktree(rootDir: string, cwd: string): Promise<Error | null> {
+  const reviewRoot = path.join(rootDir, ".worktrees", ".review"),
+    relative = path.relative(reviewRoot, cwd);
+  if (relative === "" || relative.startsWith(".." + path.sep) || path.isAbsolute(relative) || !existsSync(cwd))
+    return null;
+  try {
+    await reviewGit(rootDir, "worktree", "remove", "--force", cwd);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
   }
 }
 

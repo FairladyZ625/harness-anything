@@ -95,12 +95,14 @@ async function requestChanges(f: Awaited<ReturnType<typeof fixture>>, runtimeSes
 }
 
 test(
-  "a review dispatch runs in the task worktree, so a relative workspace link cannot reach the canonical root",
+  "a review dispatch runs in an immutable snapshot, so a relative workspace link cannot reach the canonical root",
   { timeout: 20_000 },
   async () => {
     const f = await fixture(false, true, false, false, true, {
       autoSubmit: false,
       closeoutProfile: "standard",
+      create: { presetId: "standard-task" },
+      guiDelivery: true,
     });
     try {
       await f.install();
@@ -108,8 +110,13 @@ test(
       assert.equal(f.launches.length, 1, "the submission dispatched one reviewer");
       const launched = f.launches[0]!,
         cwd = path.resolve(launched.cwd),
-        bindingPath = path.resolve(f.root, ".worktrees", taskId);
-      assert.equal(cwd, bindingPath, "the reviewer runs in its own task worktree");
+        workerPath = path.resolve(f.root, ".worktrees", taskId);
+      assert.notEqual(
+        cwd,
+        workerPath,
+        `the reviewer does not reuse the mutable task worktree: cwd=${cwd} worker=${workerPath}`,
+      );
+      assert.match(cwd, new RegExp(`${path.sep}\\.worktrees${path.sep}\\.review${path.sep}`, "u"));
       assert.notEqual(cwd, path.resolve(f.root), "the reviewer does not run in the canonical root");
       assert.equal(execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(), cwd);
       // The incident shape: `ln -s /tmp/review-…/packages/cli packages/cli` with packages/cli

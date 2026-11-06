@@ -121,7 +121,12 @@ import {
   dispatchTaskPackageRoot,
 } from "./runtime-resume-admission.ts";
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
-import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
+import {
+  reclaimReviewWorktree,
+  taskWorktreeCheckoutNote,
+  verifyHandoffWorktree,
+  type TaskWorktreeCheckout,
+} from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { providerErrorLimit } from "./runtime-spawn-limits.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const;
@@ -960,6 +965,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       await cloudRelay?.close();
       cleanupCallbackRelay();
       reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
+      if (role === "reviewer") {
+        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
+        if (reviewCleanupFailure)
+          console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+      }
       if (!taskLeaseHandoff || !taskBinding) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
