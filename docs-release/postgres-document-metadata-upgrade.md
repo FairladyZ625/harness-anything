@@ -253,3 +253,43 @@ writer window; no canonical bytes or previous columns are removed.
 PGlite performs both bounded backfills before opening its scope. Only disposable isolated
 replay schemas and PGlite pass `{ indexBuild: "isolated" }` to schema initialization;
 external production schemas use the default concurrent build.
+
+## Relation freshness expansion
+
+Relation freshness is a global property of the relation (dec_E34C4284B48AFAF152D7BF1980).
+This additive generation-5 expansion stores it on `ha_relations` as `freshness` and
+`current_target_version`. `ensurePgProjectionSchema` adds both nullable columns, the
+`ha_relation_freshness_dirty` table, the `(freshness, relation_id)` page index and endpoint
+triggers on tasks, decisions, facts, agents, squads, relations and entity projection values.
+Run `grantPgProjectionRuntimeAccess` afterwards so previous and current writers can record
+changed endpoints through those triggers.
+
+Current writers recompute the relations anchored on every endpoint their own transaction changed,
+in that same materialization transaction. Endpoints are located through the source/target
+indexes as the exact ref or a `<ref>/...` anchor, so a sibling id that only shares a prefix is
+never visited. The value stored is the kernel judgment over unfiltered endpoint witnesses;
+readers filter relation visibility only.
+
+Rows written before the expansion, or rewritten by a previous writer, have no stored value or
+an outdated one. A previous writer's endpoint changes still fire the triggers, but their marks
+stay in `ha_relation_freshness_dirty` because current writers drain only the marks of their own
+transaction. There is no second read path: a read that meets a relation without a stored value
+fails closed, so settle a scope before it serves reads.
+
+Backfill each tenant/project/policy-epoch scope with the exported page function before current
+readers serve it. Run one management transaction per page until `done` is true. Run the loop
+again after the last previous-version writer has stopped, because that writer may have left a
+backlog:
+
+```ts
+import { backfillPgRelationFreshnessPage, withPostgresTransaction } from "@harness-anything/storage";
+
+for (;;) {
+  const page = await withPostgresTransaction(pool, (client) => backfillPgRelationFreshnessPage(client, scope), scope);
+  if (page.done) break;
+}
+```
+
+Each page fills at most 256 unfilled relations and drains at most 256 backlog marks, then
+commits. An interrupted loop resumes from whatever is still pending. PGlite runs the same loop
+before exposing an opened scope.

@@ -5,6 +5,11 @@ import {
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { refreshPgDecisionSearch } from "./pg-decision-search.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
+import {
+  PG_OWN_DIRTY_RELATION_REFS_CTE,
+  refreshPgDirtyRelationFreshness,
+  refreshPgRelationFreshnessForRefs,
+} from "./pg-relation-freshness.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
@@ -489,6 +494,7 @@ async function storeRelation(
       event.occurredAt,
     ],
   );
+  await refreshPgDirtyRelationFreshness(client, scope);
   const projected = (
     await readVersionedRelationsInTransaction(client, scope, [...(scope.readers ?? [])], { relationId })
   )[0]!;
@@ -873,16 +879,16 @@ async function relationTargetVersion(
 ): Promise<number | null> {
   const slash = target.indexOf("/"),
     kind = slash > 0 ? target.slice(0, slash) : "",
-    id = slash > 0 ? target.slice(slash + 1) : "",
-    readers = [...(scope.readers ?? [])];
+    id = slash > 0 ? target.slice(slash + 1) : "";
+  // The observed version is part of the relation's global freshness (dec_E34C4284B48AFAF152D7BF1980):
+  // the writer's reader set never filters the target witness.
   if (kind === "execution") {
     const result = await client.query<{ source_version: string }>(
       `SELECT value->>'sourceObservedVersion' AS source_version FROM ha_relations
        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND source_ref=$4 AND relation_type='executes'
          AND value ? 'sourceObservedVersion'
-         AND (cardinality($5::text[])=0 OR readers && $5::text[])
        ORDER BY (value->>'sourceObservedVersion')::bigint DESC LIMIT 1`,
-      [scope.tenantId, scope.projectId, scope.policyEpoch, target, readers],
+      [scope.tenantId, scope.projectId, scope.policyEpoch, target],
     );
     return result.rows[0] ? Number(result.rows[0].source_version) : null;
   }
@@ -914,8 +920,8 @@ async function relationTargetVersion(
                 : null);
   if (!table || !idColumn) return null;
   const result = await client.query<{ workspace_revision: string }>(
-    `SELECT workspace_revision::text FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, knownId ?? id, readers],
+    `SELECT workspace_revision::text FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, knownId ?? id],
   );
   return result.rows[0] ? Number(result.rows[0].workspace_revision) : null;
 }
@@ -937,8 +943,10 @@ async function updateProjectionMeta(
     throw new TypeError("projection revisions must be non-negative safe integers");
   if (watermark > sourceRevision)
     throw new Error(`projection watermark ${watermark} exceeds ledger head ${sourceRevision}`);
-  await client.query(
-    `INSERT INTO ha_projection_meta
+  // The cut's meta row and the drain of this transaction's relation-freshness marks share one statement;
+  // the marked relations are recomputed before the transaction commits the cut (dec_E34C4284B48AFAF152D7BF1980).
+  const drained = await client.query<{ readonly ref: string }>(
+    `${PG_OWN_DIRTY_RELATION_REFS_CTE}, meta AS (INSERT INTO ha_projection_meta
        (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark, artifact_index_version)
      VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END, 1)
      ON CONFLICT (tenant_id, project_id, policy_epoch, projection_name) DO UPDATE SET
@@ -950,8 +958,14 @@ async function updateProjectionMeta(
          AND ha_projection_meta.entity_declaration_watermark >= excluded.watermark - 1
          THEN GREATEST(ha_projection_meta.entity_declaration_watermark, excluded.watermark)
          ELSE ha_projection_meta.entity_declaration_watermark END,
-       updated_at = excluded.updated_at`,
+       updated_at = excluded.updated_at)
+     SELECT ref FROM own_dirty_refs`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION, watermark, sourceRevision],
+  );
+  await refreshPgRelationFreshnessForRefs(
+    client,
+    scope,
+    drained.rows.map(({ ref }) => ref),
   );
 }
 

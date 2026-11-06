@@ -1,8 +1,13 @@
 import type { EntityProjectionRow, VersionedRelationProjectionRow } from "@harness-anything/kernel";
 import { getPgProjectionValue } from "./pg-projection-values.ts";
-import { relationProjectionRowFromWitnesses } from "../projection/relation-entity-projection.ts";
+import { relationProjectionRowFromColumns } from "../projection/relation-entity-projection.ts";
+import { isRelationFreshness } from "../projection/relation-freshness-columns.ts";
 import type { RelationEntity } from "@harness-anything/kernel/internal/domain/relation-event.ts";
-import type { EntityVersionWitness } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
+import type {
+  EntityVersion,
+  EntityVersionWitness,
+  RelationFreshness,
+} from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { parseEntityRef } from "@harness-anything/kernel/internal/domain/entity-ref.ts";
 import type { TaskRelationProjectionRow } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
@@ -131,6 +136,7 @@ export interface PgRelationQuery {
   readonly updatedBefore?: string;
   readonly afterRelationId?: string;
   readonly relationType?: string;
+  readonly freshness?: RelationFreshness;
   readonly limit?: number;
 }
 
@@ -204,38 +210,50 @@ export async function readVersionedRelationsInTransaction(
       values.push(value);
       where.push(`${expression} ${comparison} $${values.length}`);
     }
+  // dec_E34C4284B48AFAF152D7BF1980: freshness is stored at the write cut, so a visible relation
+  // returns that one global value and a freshness filter is an indexed column predicate.
+  if (query.freshness !== undefined) {
+    values.push(query.freshness);
+    where.push(`freshness = $${values.length}`);
+  }
   if (query.limit !== undefined) values.push(checkedPageLimit(query.limit, 4096));
-  const result = await client.query<{
-    relation_id: string;
-    source_ref: string;
-    target_ref: string;
-    relation_type: string;
-    relation_state: string;
-    workspace_revision: string;
-    value: Record<string, unknown>;
-  }>(
-    `SELECT relation_id, source_ref, target_ref, relation_type, relation_state, workspace_revision::text, value
+  const result = await client.query<SelectedRelationRow & { freshness: string | null }>(
+    `SELECT ${selectedRelationColumns}, freshness, current_target_version
            FROM ha_relations WHERE ${where.join(" AND ")} ORDER BY relation_id${query.limit === undefined ? "" : ` LIMIT $${values.length}`}`,
     values,
   );
-  const refs = [...new Set(result.rows.flatMap((row) => [row.source_ref, row.target_ref]))],
-    witnesses = await readEntityVersionWitnesses(client, claims, readers, refs);
   return result.rows.map((row) => {
-    const {
-      sourcePath: _sourcePath,
-      recordIndex: _recordIndex,
-      sourceObservedVersion: _sourceObservedVersion,
-      ...value
-    } = row.value;
-    const entity = value as unknown as RelationEntity;
-    const projected = relationProjectionRowFromWitnesses(
-      entity,
-      String(row.value.sourcePath),
-      witnesses.get(row.target_ref)!,
-      witnesses.get(row.source_ref)!,
-    );
-    return projected;
+    // A row without stored freshness was written before the settle that precedes serving; fail closed.
+    if (!isRelationFreshness(row.freshness)) throw new Error(`relation ${row.relation_id} has no stored freshness`);
+    return relationProjectionRowFromColumns(relationEntity(row), String(row.value.sourcePath), {
+      freshness: row.freshness,
+      currentTargetVersion: row.current_target_version,
+    });
   });
+}
+
+interface SelectedRelationRow {
+  relation_id: string;
+  source_ref: string;
+  target_ref: string;
+  relation_type: string;
+  relation_state: string;
+  workspace_revision: string;
+  value: Record<string, unknown>;
+  current_target_version: EntityVersion | null;
+}
+
+const selectedRelationColumns =
+  "relation_id, source_ref, target_ref, relation_type, relation_state, workspace_revision::text, value";
+
+function relationEntity(row: SelectedRelationRow): RelationEntity {
+  const {
+    sourcePath: _sourcePath,
+    recordIndex: _recordIndex,
+    sourceObservedVersion: _sourceObservedVersion,
+    ...value
+  } = row.value;
+  return value as unknown as RelationEntity;
 }
 
 export async function readRelationsInTransaction(

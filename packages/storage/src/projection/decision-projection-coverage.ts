@@ -3,7 +3,7 @@ import { coverageOf } from "@harness-anything/kernel/internal/domain/decision-co
 import type { DecisionFulfillmentMode } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import type { DecisionCoverageRow } from "@harness-anything/kernel";
 import { projectionTables, queryRows } from "./rebuildable-task-projection-sql.ts";
-import { relationProjectionRowsAtCut } from "./relation-entity-projection.ts";
+import { storedRelationProjectionRows, type StoredRelationEdge } from "./relation-entity-projection.ts";
 
 // The active edges coverageOf can consult for the requested decisions: those leaving each decision
 // root (refuted-by, derives), and those leaving every decision anchor that a load-bearing claim
@@ -15,7 +15,7 @@ const COVERAGE_EDGES_SQL = [
   "WHERE decision_id IN (SELECT decision_id FROM requested) AND load_bearing = 1",
   "UNION SELECT edge.target_ref FROM reach JOIN relation_edge AS edge",
   "ON edge.source_ref = reach.ref AND +edge.state = 'active' WHERE substr(edge.target_ref, 1, 9) = 'decision/')",
-  "SELECT row_json FROM relation_edge WHERE +state = 'active' AND source_ref IN",
+  "SELECT row_json, freshness, current_target_version FROM relation_edge WHERE +state = 'active' AND source_ref IN",
   "(SELECT ref FROM reach UNION SELECT 'decision/' || decision_id FROM requested) ORDER BY relation_id",
 ].join(" ");
 
@@ -48,10 +48,7 @@ export function decisionCoverage(
         "WHERE decision_id IN (SELECT value FROM json_each(?)) ORDER BY decision_id,claim_id",
       requested,
     ),
-    edges = relationProjectionRowsAtCut(
-      db,
-      queryRows<{ readonly row_json: string }>(db, COVERAGE_EDGES_SQL, requested),
-    ),
+    edges = storedRelationProjectionRows(queryRows<StoredRelationEdge>(db, COVERAGE_EDGES_SQL, requested)),
     targets = (kind: "fact/" | "task/") => [
       ...new Set(edges.flatMap(({ targetRef }) => (targetRef.startsWith(kind) ? [targetRef] : []))),
     ],
@@ -62,11 +59,10 @@ export function decisionCoverage(
       factRefs,
     ),
     // A superseded Fact no longer covers; its supersedes-fact edge starts at the newer Fact.
-    livenessEdges = relationProjectionRowsAtCut(
-      db,
-      queryRows<{ readonly row_json: string }>(
+    livenessEdges = storedRelationProjectionRows(
+      queryRows<StoredRelationEdge>(
         db,
-        "SELECT row_json FROM relation_edge WHERE target_ref IN (SELECT value FROM json_each(?)) " +
+        "SELECT row_json, freshness, current_target_version FROM relation_edge WHERE target_ref IN (SELECT value FROM json_each(?)) " +
           "AND +relation_type = 'supersedes-fact' AND +state = 'active' ORDER BY relation_id",
         factRefs,
       ),

@@ -32,3 +32,4 @@ export {
 export type { PgEntityDeclarationStore, PgEntityDeclarationWrite, PgEntityStoreOptions } from "./pg-entity-store.ts";
 
 export { backfillPgDecisionSearchPage } from "./pg-decision-search.ts";
+export { backfillPgRelationFreshnessPage } from "./pg-relation-freshness.ts";

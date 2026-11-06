@@ -13,6 +13,11 @@ import type { PackageDisposition } from "@harness-anything/kernel/internal/domai
 import type { DecisionState } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { createDecisionProjectionTables, decisionIdSortKey } from "../../src/projection/decision-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
+import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
+import {
+  createRelationFreshnessMaintenance,
+  refreshDirtyRelationFreshness,
+} from "../../src/projection/relation-freshness-maintenance.ts";
 import { createTaskRelationProjectionTable, readTaskRelationPage } from "../../src/projection/task-query-projection.ts";
 import { readWorkspaceSummaryRows } from "../../src/projection/workspace-summary-projection.ts";
 
@@ -31,8 +36,15 @@ function ledger() {
       "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, " +
       "snapshot_json TEXT NOT NULL, status TEXT, package_disposition TEXT NOT NULL GENERATED ALWAYS AS (" +
       "COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active')) STORED, " +
-      "updated_at TEXT NOT NULL DEFAULT '')",
+      "updated_at TEXT NOT NULL DEFAULT ''); " +
+      "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
+      "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
+      "PRIMARY KEY(entity_kind, task_id, entity_id))",
   );
+  createFactProjectionTables(db);
+  // Each write settles the stored relation freshness the way the projection's event application does.
+  createRelationFreshnessMaintenance(db);
+  const settle = () => void refreshDirtyRelationFreshness(db);
   db.prepare = ((sql: string) => {
     const statement = prepare(sql),
       all = statement.all.bind(statement),
@@ -63,18 +75,55 @@ function ledger() {
         JSON.stringify({ task: { taskId, ...(packageDisposition ? { packageDisposition } : {}) } }),
         status,
       );
+      settle();
     },
     dependsOn(relationId: string, sourceRef: string, targetRef: string, state = "active") {
       revision += 1;
       db.prepare(
         "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'authored', ?, '', ?, '', 0, ?, '')",
       ).run(relationId, sourceRef.replace(/^task\//u, ""), sourceRef, targetRef, state, sourceRef, revision);
+      db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, NULL, ?, ?, '', ?, NULL, NULL)").run(
+        relationId,
+        sourceRef,
+        targetRef,
+        "depends-on",
+        state,
+        sourceRef,
+        revision,
+        JSON.stringify({
+          direction: "directed",
+          strength: "strong",
+          origin: "authored",
+          rationale: "",
+          sourcePath: "",
+          recordIndex: 0,
+        }),
+      );
+      settle();
     },
     awaits(relationId: string, sourceRef: string, personRef: string, rationale: string) {
       revision += 1;
       db.prepare(
         "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'awaits', 'directed', 'strong', 'authored', 'active', ?, ?, '', 0, ?, '')",
       ).run(relationId, sourceRef.replace(/^task\//u, ""), sourceRef, personRef, rationale, sourceRef, revision);
+      db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, NULL, ?, ?, '', ?, NULL, NULL)").run(
+        relationId,
+        sourceRef,
+        personRef,
+        "awaits",
+        "active",
+        sourceRef,
+        revision,
+        JSON.stringify({
+          direction: "directed",
+          strength: "strong",
+          origin: "authored",
+          rationale: rationale,
+          sourcePath: "",
+          recordIndex: 0,
+        }),
+      );
+      settle();
     },
     decision(decisionId: string, state: DecisionState) {
       revision += 1;
@@ -84,6 +133,7 @@ function ledger() {
           "VALUES (?, ?, ?, 'title', 'question', 'high', 'medium', 'census', 'default', 'ordinary', '{}', '{}', NULL, " +
           "'2026-09-28T00:00:00.000Z', NULL, ?)",
       ).run(decisionId, decisionIdSortKey(decisionId), state, revision);
+      settle();
     },
   };
 }

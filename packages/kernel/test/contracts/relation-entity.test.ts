@@ -31,6 +31,12 @@ import {
   RELATION_PROJECTION_VERSION,
 } from "../../../storage/src/projection/relation-entity-projection.ts";
 import { markEntityProjectionMissing } from "../../../storage/src/projection/rebuildable-task-projection-entities.ts";
+import { createDecisionProjectionTables } from "../../../storage/src/projection/decision-event-projection.ts";
+import { createFactProjectionTables } from "../../../storage/src/projection/fact-event-projection.ts";
+import {
+  createRelationFreshnessMaintenance,
+  refreshDirtyRelationFreshness,
+} from "../../../storage/src/projection/relation-freshness-maintenance.ts";
 import { blockingOf } from "../../src/domain/task-blocking.ts";
 
 const actor = {
@@ -38,6 +44,26 @@ const actor = {
   executor: { kind: "agent", id: "agent-relation-contract" },
 } as const;
 const source = "local" as const;
+
+/**
+ * The endpoint tables a relation freshness witness reads, with the maintenance triggers the projection
+ * installs. Tests that change an endpoint row directly drain the dirty set afterwards, as the event
+ * application does before its cut becomes visible (dec_E34C4284B48AFAF152D7BF1980).
+ */
+function relationFreshnessProjectionDatabase(): DatabaseSync {
+  const db = new DatabaseSync(":memory:");
+  db.exec(
+    "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL); " +
+      "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
+      "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
+      "PRIMARY KEY(entity_kind, task_id, entity_id))",
+  );
+  createRelationGraphProjectionTables(db);
+  createFactProjectionTables(db);
+  createDecisionProjectionTables(db);
+  createRelationFreshnessMaintenance(db);
+  return db;
+}
 
 function record(
   sourceRef = "relation/rel_1111111111111111",
@@ -458,13 +484,7 @@ test("relation_reconfirmed advances only the pinned target witness", () => {
 });
 
 test("an entity_target_missing projection makes every inbound Relation orphaned at the same cut", () => {
-  const db = new DatabaseSync(":memory:");
-  createRelationGraphProjectionTables(db);
-  db.exec(
-    "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
-      "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
-      "PRIMARY KEY(entity_kind, task_id, entity_id))",
-  );
+  const db = relationFreshnessProjectionDatabase();
   db.prepare("INSERT INTO entity_projection VALUES ('runtime-session', 'target', '', 4, 'current', 4, '{}')").run();
   const created = ["source-a", "source-b"].map((sourceId, index) => {
     const identity = {
@@ -495,6 +515,7 @@ test("an entity_target_missing projection makes every inbound Relation orphaned 
     true,
   );
   markEntityProjectionMissing(db, "runtime-session", "target", 7);
+  refreshDirtyRelationFreshness(db);
   const orphaned = readRelationProjectionRows(db);
   assert.equal(orphaned.length, 2);
   assert.equal(
@@ -511,13 +532,7 @@ test("an entity_target_missing projection makes every inbound Relation orphaned 
 test("a depends-on edge follows target presence: version drift stays current, loss turns orphaned", () => {
   // dec_EB379558A2B33134197859FECF/CH1: the blocking consumer must keep reading a
   // depends-on edge while the target task exists, and stop only when it is gone.
-  const db = new DatabaseSync(":memory:");
-  createRelationGraphProjectionTables(db);
-  db.exec(
-    "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
-      "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
-      "PRIMARY KEY(entity_kind, task_id, entity_id))",
-  );
+  const db = relationFreshnessProjectionDatabase();
   db.prepare("INSERT INTO entity_projection VALUES ('task', 'task_dep_target', '', 4, 'current', 4, '{}')").run();
   const identity = {
       source: "task/task_dep_source",
@@ -540,6 +555,7 @@ test("a depends-on edge follows target presence: version drift stays current, lo
   db.prepare(
     "UPDATE entity_projection SET workspace_revision = 9, current_version = 9 WHERE entity_id = 'task_dep_target'",
   ).run();
+  refreshDirtyRelationFreshness(db);
   const drifted = readRelationProjectionRows(db).find((row) => row.relationId === relation.relation_id)!;
   assert.equal(drifted.freshness, "current");
   const blocked = blockingOf(
@@ -557,6 +573,7 @@ test("a depends-on edge follows target presence: version drift stays current, lo
 
   // Losing the target is what orphans the edge; a strong orphaned edge is refused, not consumed.
   markEntityProjectionMissing(db, "task", "task_dep_target", 12);
+  refreshDirtyRelationFreshness(db);
   const orphaned = readRelationProjectionRows(db).find((row) => row.relationId === relation.relation_id)!;
   assert.equal(orphaned.freshness, "orphaned");
   const released = blockingOf(
