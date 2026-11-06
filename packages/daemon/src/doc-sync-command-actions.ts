@@ -4,6 +4,7 @@ import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kern
 import { ledgerGitPath, localGitWorktreeSettlement, findCanonicalLedgerGitLayout } from "@harness-anything/storage";
 import {
   classifyRawArtifactPath,
+  resolveWorkspaceDocumentPath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
@@ -23,7 +24,7 @@ import {
   type WriteSource,
 } from "@harness-anything/kernel";
 import { nodeIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
-import { intentFromScan, normalizeSelectedDocPath, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
+import { intentFromScan, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import { claimBytes, directPaths } from "./doc-sync-details.ts";
 import {
@@ -48,6 +49,7 @@ import {
   noOp,
   scanDetail,
   scanRejectionSummary,
+  workspacePathOf,
   scannerSettlement,
   scopeRequiredRejection,
 } from "./doc-sync-settlement.ts";
@@ -118,10 +120,25 @@ function requireOwnTaskDocSelection(input: Input): void {
   }
   const paths = selectedDocPaths(action);
   if (paths === null) return;
-  requireExecutionDocumentSelection(principal, paths, (value) => {
-    const logicalPath = normalizeSelectedDocPath(input.rootDir, value);
-    return { path: logicalPath, taskId: input.projection.taskIdForDocumentPath(logicalPath) };
-  });
+  // A task's declared surfaces are workspace-relative grants written next to the plan; path
+  // selections arrive here already translated to the authored key.
+  requireExecutionDocumentSelection(
+    {
+      ...principal,
+      surfaces: (principal.surfaces ?? []).map((surface) => authoredSurface(input.rootDir, surface)),
+    },
+    paths,
+    (value) => {
+      const logicalPath = documentPath(value);
+      return { path: logicalPath, taskId: input.projection.taskIdForDocumentPath(logicalPath) };
+    },
+  );
+}
+
+/** The workspace spelling of a declared surface grant, translated to the authored key. */
+export function authoredSurface(rootDir: string, surface: string): string {
+  const prefix = path.relative(rootDir, resolveHarnessLayout(rootDir).authoredRoot).split(path.sep).join("/");
+  return prefix && surface.startsWith(`${prefix}/`) ? surface.slice(prefix.length + 1) : surface;
 }
 
 /**
@@ -158,16 +175,33 @@ function singleSelectedTask(input: Input): string | null {
   if (!Array.isArray(action.paths) || action.paths.length === 0) return null;
   const owners = new Set(
     action.paths.map((value) =>
-      typeof value === "string"
-        ? input.projection.taskIdForDocumentPath(normalizeSelectedDocPath(input.rootDir, value))
-        : null,
+      typeof value === "string" ? input.projection.taskIdForDocumentPath(documentPath(value)) : null,
     ),
   );
   const [only] = owners;
   return owners.size === 1 && only !== null ? only : null;
 }
 
-export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
+/**
+ * Every document path a caller types is relative to a repository root that contains the ledger;
+ * translate it once here, before any doc action reads it. Keeping this at the action entry means a
+ * new doc command inherits the boundary instead of having to remember it.
+ */
+function withWorkspaceDocumentPaths(input: Input): Input {
+  const action = input.action,
+    toAuthored = (value: string): string => {
+      const resolved = resolveWorkspaceDocumentPath(input.rootDir, value);
+      if (!resolved.ok) throw docSyncError("invalid_field", resolved.reason);
+      return resolved.documentPath;
+    };
+  if (Array.isArray(action.paths) && action.paths.every((value) => typeof value === "string"))
+    return { ...input, action: { ...action, paths: (action.paths as readonly string[]).map(toAuthored) } };
+  if (typeof action.path === "string") return { ...input, action: { ...action, path: toAuthored(action.path) } };
+  return input;
+}
+
+export function runDocAction(rawInput: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
+  const input = withWorkspaceDocumentPaths(rawInput);
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
@@ -222,7 +256,10 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
           "skipped:",
           ...scan.rows
             .filter((row) => row.state === "conflict")
-            .map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`),
+            .map(
+              (row) =>
+                `${workspacePathOf(input)(row.path)}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`,
+            ),
         ].join("\n"),
       };
     }
@@ -234,14 +271,14 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
         "base_blob_changed",
         scanDetail(input, scan, "base_blob_changed"),
       ),
-      { summary: scanRejectionSummary("base_blob_changed", scan) },
+      { summary: scanRejectionSummary("base_blob_changed", scan, workspacePathOf(input)) },
     );
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
     const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")
       ? Object.assign(rejectDocSyncAction(scanCommandId(input, scan), code ?? "preview_blocked", blocked), {
-          summary: scanRejectionSummary(code ?? "preview_blocked", scan),
+          summary: scanRejectionSummary(code ?? "preview_blocked", scan, workspacePathOf(input)),
         })
       : acceptWorktreeBases(scanInput, scan, noOp(input, scan));
   }
@@ -393,11 +430,7 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
   const reason = requiredDocSyncText(input.action.reason, "reason").trim();
   let targets: ReturnType<typeof documentPath>[];
   try {
-    // Same spelling rule as doc status/sync selections: a repo-relative harness/… path and the
-    // ledger-prefixed form both name the same canonical document.
-    targets = (rawPaths as readonly string[]).map((item) =>
-      documentPath(normalizeSelectedDocPath(input.rootDir, requiredDocSyncText(item, "path"))),
-    );
+    targets = (rawPaths as readonly string[]).map((item) => documentPath(requiredDocSyncText(item, "path")));
   } catch {
     throw docSyncError("invalid_command", "doc retire requires valid doc-sync paths");
   }

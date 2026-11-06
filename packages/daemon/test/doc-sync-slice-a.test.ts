@@ -318,7 +318,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       );
     assert.deepEqual(
       submitted.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [["events/segments/manifest.json", "canonical-event"]],
+      [["harness/events/segments/manifest.json", "canonical-event"]],
       "the batch commits every eligible candidate and reports the blocked manifest with its route",
     );
 
@@ -330,7 +330,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
     assert.equal(residual.code, "preview_blocked");
     assert.deepEqual(
       residual.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [["events/segments/manifest.json", "canonical-event"]],
+      [["harness/events/segments/manifest.json", "canonical-event"]],
       "with nothing eligible left the blocked manifest still refuses the batch",
     );
 
@@ -426,7 +426,7 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
     }
     assert.deepEqual(
       submitted.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [["context/oversized.md", "doc-sync"]],
+      [["harness/context/oversized.md", "doc-sync"]],
       "the oversized prose candidate stays on the doc-sync route; the reason names the inline cap",
     );
     assert.equal(git(rootDir, "ls-files", "harness/context/binary.pdf"), "", "binary content stays unpublished");
@@ -472,7 +472,7 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
     };
     assert.deepEqual(
       detail.unresolvedTouches.map(({ path, requiredRoute }) => [path, requiredRoute]),
-      [[laterBlocked, "typed-machine-writer"]],
+      [[`harness/${laterBlocked}`, "typed-machine-writer"]],
     );
     assert.match(String(rejected.summary), /daemon-managed/u);
     assert.match(String(rejected.summary), /requiredRoute=typed-machine-writer/u);
@@ -617,7 +617,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
     const mutation = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
     assert.equal(rows(mutation.evidence)[0]?.state, "deletion");
     assert.deepEqual(mutation.detail?.deletions, [
-      { path: logical, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"), source: "intent" },
+      { path: `harness/${logical}`, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"), source: "intent" },
     ]);
     const retired = await cell.run({ kind: "doc-retire", paths: [logical], reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
@@ -633,7 +633,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
     };
     assert.deepEqual(receipt, {
       schema: "doc-retirement-receipt/v1",
-      retirements: [{ path: logical, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n") }],
+      retirements: [{ path: `harness/${logical}`, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n") }],
       reason,
     });
     const event = makeTaskEventReader({ repoId: "retire", rootDir }).readEvent(retired.opId);
@@ -698,8 +698,8 @@ test("doc retire retires several documents in one event and rejects a batch nami
     assert.deepEqual(receipt, {
       schema: "doc-retirement-receipt/v1",
       retirements: [
-        { path: first, baseBlobSha256: sha256Text("# First\n") },
-        { path: second, baseBlobSha256: sha256Text("# Second\n") },
+        { path: `harness/${first}`, baseBlobSha256: sha256Text("# First\n") },
+        { path: `harness/${second}`, baseBlobSha256: sha256Text("# Second\n") },
       ],
       reason,
     });

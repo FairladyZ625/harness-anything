@@ -82,7 +82,13 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     cliInput("--cwd", "single", false, { code: "invalid_field" }),
     cliInput("--to", "single", false, { code: "invalid_field" }),
     cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt-file"] }),
-    cliInput("--prompt-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt"] }),
+    cliInput(
+      "--prompt-file",
+      "single",
+      false,
+      { code: "invalid_field" },
+      { pathKind: "workspace-file", format: workspacePathFormat, conflictsWith: ["--mission", "--prompt"] },
+    ),
     cliInput("--mission", "single", false, { code: "invalid_field" }, { conflictsWith: ["--prompt", "--prompt-file"] }),
     cliInput("--model", "single", false, { code: "invalid_field" }),
     cliInput(
@@ -269,7 +275,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     method: "repo.agentRuntime.steer",
     inputs: [
       cliInput("--prompt", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt-file"] }),
-      cliInput("--prompt-file", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt"] }),
+      cliInput(
+        "--prompt-file",
+        "single",
+        false,
+        { code: "missing_field" },
+        { pathKind: "workspace-file", format: workspacePathFormat, conflictsWith: ["--prompt"] },
+      ),
       // Compare-and-steer (#4372): each stated expectation must still hold when the daemon appends.
       cliInput(
         "--expect-task",
@@ -488,6 +500,7 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
     {
       jsonFields: requiredFields,
       jsonAllowedFields: allowedFields,
+      pathKind: "workspace-file",
       format: workspacePathFormat,
       conflictsWith: ["--json-input"],
     },
@@ -545,9 +558,15 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--mission", "single", false, {
         code: "missing_field",
       }),
-      cliInput("--mission-file", "single", false, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--mission-file",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "workspace-file", format: workspacePathFormat },
+      ),
       cliInput(
         "--effort",
         "single",
@@ -652,9 +671,15 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--mission", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--mission-file", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--mission-file",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "workspace-file", format: workspacePathFormat },
+      ),
       cliInput(
         "--effort",
         "single",

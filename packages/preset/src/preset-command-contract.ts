@@ -309,7 +309,9 @@ const taskCreateCliInputs = Object.freeze(
         ...(field.enum ? { enum: field.enum } : {}),
         ...(field.regex ? { regex: field.regex } : {}),
         ...cli,
-        ...(cli.name === "--from-file" || cli.name === "--plan-file" ? { format: workspacePathFormat } : {}),
+        ...(cli.name === "--from-file" || cli.name === "--plan-file"
+          ? { pathKind: "workspace-file" as const, format: workspacePathFormat }
+          : {}),
         ...(cli.name === "--profile" ? { format: taskCreateProfileFormat } : {}),
         ...(cli.name === "--title" ? { format: titleFocusFormat } : {}),
       }),

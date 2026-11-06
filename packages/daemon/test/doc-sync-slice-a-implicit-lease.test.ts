@@ -93,7 +93,7 @@ test("a selection submit applies prose after its heading is rewritten", async ()
       (
         unconfirmed.detail as { unresolvedTouches?: readonly { path: string; requiredRoute: string }[] }
       ).unresolvedTouches?.map(({ path, requiredRoute }) => [path, requiredRoute]),
-      [["events/segments/manifest.json", "canonical-event"]],
+      [["harness/events/segments/manifest.json", "canonical-event"]],
     );
   } finally {
     await cell.close();
@@ -127,11 +127,11 @@ test("a selection submit applies eligible prose and reports an unrelated deletio
     assert.equal(settled.worktree.state, "verified");
     assert.match(
       String(submitted.summary),
-      /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*blocked \(not submitted[\s\S]*context\/deleted\.md\tdeletion\ttask=-\trequiredRoute=deletion_forbidden\tcanonical document is missing from the worktree/u,
+      /doc-submit: applied[\s\S]*harness\/context\/eligible\.md[\s\S]*blocked \(not submitted[\s\S]*harness\/context\/deleted\.md\tdeletion\ttask=-\trequiredRoute=deletion_forbidden\tcanonical document is missing from the worktree/u,
     );
     // An applied submit that skipped the deletion names the same retire exit as a refused one.
     assert.ok(
-      String(submitted.summary).includes("ha doc retire --path context/deleted.md --reason"),
+      String(submitted.summary).includes("ha doc retire --path harness/context/deleted.md --reason"),
       JSON.stringify(submitted.summary),
     );
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
@@ -335,7 +335,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
     const prefixedStatus = await cell.run(
       {
         kind: "doc-status",
-        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        paths: [`${packagePath}/artifacts/reports/leased.md`],
       },
       person,
     );
@@ -343,7 +343,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
     const scoped = await cell.run(
       {
         kind: "doc-submit",
-        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        paths: [`${packagePath}/artifacts/reports/leased.md`],
       },
       person,
     );
@@ -378,12 +378,12 @@ test("path and confirmed full submits ride the repository prose channel when ano
     assert.equal(fullSubmit.outcome, "applied", JSON.stringify(fullSubmit));
     assert.match(
       String(fullSubmit.summary),
-      new RegExp(`applied:\\n${packagePath}/artifacts/reports/second\\.md`, "u"),
+      new RegExp(`applied:\\nharness/${packagePath}/artifacts/reports/second\\.md`, "u"),
     );
     assert.match(
       String(fullSubmit.summary),
       new RegExp(
-        `blocked \\(not submitted[\\s\\S]*${packagePath}/progress\\.md\\tblocked\\ttask=${taskId}\\trequiredRoute=task-progress-append`,
+        `blocked \\(not submitted[\\s\\S]*harness/${packagePath}/progress\\.md\\tblocked\\ttask=${taskId}\\trequiredRoute=task-progress-append`,
         "u",
       ),
     );
@@ -531,7 +531,7 @@ test("a submit whose only candidate is a deleted canonical document names the re
     };
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "deletion_forbidden");
-    const retireCommand = `ha doc retire --path ${logical} --reason`;
+    const retireCommand = `ha doc retire --path harness/${logical} --reason`;
     assert.ok((rejected.summary ?? "").includes(retireCommand), JSON.stringify(rejected.summary));
     // rejectionExplanation is the field the CLI hint chain promotes; it must carry the same exit.
     assert.ok(
@@ -557,10 +557,9 @@ test("a submit whose only candidate is a deleted canonical document names the re
   }
 });
 
-// doc status/sync accept repo-relative selections (harness/…); retire must accept the same
-// spelling. The nested layout is the dogfood shape: the ledger prefix is empty there, so the
-// strip rides the product-visible authored-root prefix.
-test("doc retire accepts the product-root path spelling in the nested ledger layout", async () => {
+// doc status/sync accept the workspace spelling; retire shares the same translation. The nested
+// layout is the dogfood shape where the ledger-repository key and the workspace spelling differ.
+test("doc retire accepts the workspace spelling in the nested ledger layout", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-spelling-"));
   initNestedLedgerRepo(rootDir);
   const repoId = workspaceId("retire-spelling"),
@@ -589,7 +588,7 @@ test("doc retire accepts the product-root path spelling in the nested ledger lay
     };
     assert.deepEqual(
       receipt.retirements.map((row) => row.path),
-      [logical],
+      [`harness/${logical}`],
     );
     const shown = await cell.run({ kind: "doc-show", path: logical }, binding);
     assert.equal(shown.code, "document_not_found");

@@ -326,6 +326,54 @@ export function validateTaskIdSyntax(taskId: TaskId): void {
   }
 }
 
+/** A caller-typed document path after the one boundary translation: the ledger's authored key. */
+export type WorkspaceDocumentPath =
+  | { readonly ok: true; readonly documentPath: string }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * The one spelling rule for every document path a caller types: it is relative to a repository
+ * root that contains the ledger. In the nested layout those are two roots for one file — the
+ * workspace repository (`--root`, so `harness/tasks/x.md`) and the ledger repository itself
+ * (`tasks/x.md`, which is also how a task worktree mirrors its package) — and both translate to
+ * the same authored key. The command name never picks the coordinate: every doc --path command
+ * goes through this one translation, and absolute paths inside either root are accepted.
+ */
+export function resolveWorkspaceDocumentPath(rootDir: string, value: string): WorkspaceDocumentPath {
+  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot,
+    absolute = path.resolve(rootDir, value),
+    relative = path.relative(authoredRoot, absolute);
+  if (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative))
+    return { ok: true, documentPath: relative.split(path.sep).join("/") };
+  // The ledger repository is nested, so its own root is a second repository root for the same
+  // file. A caller standing in `harness/` (or a worktree mirroring `tasks/…`) types that spelling.
+  if (path.isAbsolute(value))
+    return {
+      ok: false,
+      reason: `${value} is outside the authored ledger root ${authoredRoot}`,
+    };
+  try {
+    const authored = normalizeRelativeDocumentPath(value);
+    return authored === "" || authored.startsWith("..")
+      ? {
+          ok: false,
+          reason: `${value} is outside the authored ledger root ${authoredRoot}`,
+        }
+      : { ok: true, documentPath: authored };
+  } catch {
+    return { ok: false, reason: `${value} is not a valid document path` };
+  }
+}
+
+/** The inverse boundary translation: a receipt prints the path a caller would paste back in. */
+export function documentWorkspacePath(rootDir: string, document: string): string {
+  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
+  return path
+    .relative(rootDir, path.join(authoredRoot, ...document.split("/")))
+    .split(path.sep)
+    .join("/");
+}
+
 export function taskPackagePath(input: HarnessLayoutInput, taskId: TaskId): string {
   return resolveHarnessLayout(input).taskPackagePath(taskId);
 }

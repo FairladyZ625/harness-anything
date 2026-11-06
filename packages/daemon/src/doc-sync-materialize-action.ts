@@ -1,6 +1,7 @@
 import { stableStringify } from "@harness-anything/kernel";
 import { touch } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
+import { workspacePathOf } from "./doc-sync-settlement.ts";
 import type { Action, DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
 
 /**
@@ -10,7 +11,8 @@ import type { Action, DocSettlementReceipt, Input } from "./doc-sync-command-act
  * where the overwritten local bytes were kept, the conflict copy beside it.
  */
 export function runDocMaterialize(input: Input): DocSettlementReceipt {
-  const paths = materializePaths(input.action);
+  const paths = materializePaths(input.action),
+    workspacePath = workspacePathOf(input);
   const result =
     paths === undefined
       ? input.store.materialize({ preview: true })
@@ -25,8 +27,8 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
       "restoring the canonical cut to the worktree requires explicit confirmation for:",
       ...result.settlements.map((row) =>
         row.copy === null
-          ? `${row.path}\t${row.action}`
-          : `${row.path}\t${row.action}\tlocal bytes kept at ${row.copy}`,
+          ? `${workspacePath(row.path)}\t${row.action}`
+          : `${workspacePath(row.path)}\t${row.action}\tlocal bytes kept at ${row.copy}`,
       ),
       ...(result.conflicts.length > 0
         ? ["left untouched because a concurrent local edit owns them:", ...result.conflicts]
@@ -43,7 +45,7 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
           baseLedgerSha: input.store.currentCut(),
           currentLedgerSha: input.store.currentCut(),
           paths: result.settlements.map((row) => ({
-            path: row.path,
+            path: workspacePath(row.path),
             baseBlobSha256: null,
             currentBlobSha256: null,
             candidateBlobSha256: null,
@@ -51,7 +53,7 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
           holder: null,
           differences: [],
           unresolvedTouches: result.settlements.map((row) =>
-            touch(row.path, "doc-materialize", `would ${row.action} this path`),
+            touch(workspacePath(row.path), "doc-materialize", `would ${row.action} this path`),
           ),
           deletions: [],
         },
@@ -79,8 +81,8 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
             `doc-materialize: ${paths === null ? "restored the whole cut" : "restored the named paths"}`,
             ...result.settlements.map((row) =>
               row.copy === null
-                ? `${row.path}\t${row.action}`
-                : `${row.path}\t${row.action}\tlocal bytes kept at ${row.copy}`,
+                ? `${workspacePath(row.path)}\t${row.action}`
+                : `${workspacePath(row.path)}\t${row.action}\tlocal bytes kept at ${row.copy}`,
             ),
             ...(result.conflicts.length > 0 ? ["left untouched:", ...result.conflicts] : []),
           ].join("\n"),

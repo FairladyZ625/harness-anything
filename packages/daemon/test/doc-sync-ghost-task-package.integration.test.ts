@@ -78,7 +78,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     );
     assert.deepEqual(
       submitted.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [[ghost, "doc-sync"]],
+      [[`harness/${ghost}`, "doc-sync"]],
     );
     assert.equal(existsSync(path.join(rootDir, "harness", ghost)), true);
     // A submit whose only candidates are ghosts refuses with the recovery route.
@@ -100,8 +100,8 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     assert.deepEqual(
       rejected.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
       [
-        [ghost, "doc-sync"],
-        [`${impostor}/artifacts/second.md`, "doc-sync"],
+        [`harness/${ghost}`, "doc-sync"],
+        [`harness/${impostor}/artifacts/second.md`, "doc-sync"],
       ],
     );
   } finally {
