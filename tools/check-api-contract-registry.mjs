@@ -219,7 +219,7 @@ function checkPrincipalBindings(graph, violations) {
     "assignment dispatch",
     "binding",
     ts.isIfStatement,
-    'if(auth.transportKind==="fleet-tls")returnnodeOwnerBinding(auth);',
+    'if(auth.transportKind==="fleet-tls")returnnodeUserBinding(auth);',
   );
   requireSyntax(
     "local principal authentication and expiry",
@@ -247,41 +247,37 @@ function checkPrincipalBindings(graph, violations) {
     property,
     "accessToken:auth.oidcPrincipal.accessToken",
   );
+  // dec_E610E1D99A39003886D1B5EE7C CH1: device admission and request identity are separate.
   requireSyntax(
-    "registered node owner",
-    "nodeOwnerBinding",
+    "registered node and active user session",
+    "nodeUserBinding",
     rejectingGuard,
-    "!owner||!owner.nodeId||!auth.oidcPrincipal",
+    "!node?.nodeId||!principal||principal.expiresAt<=Date.now()",
     condition,
   );
+  requireSyntax("authenticated node source", "nodeUserBinding", ts.isVariableDeclaration, "node=auth.nodePrincipal");
   requireSyntax(
-    "authenticated node owner source",
-    "nodeOwnerBinding",
+    "verified request user source",
+    "nodeUserBinding",
     ts.isVariableDeclaration,
-    "owner=auth.nodePrincipal",
+    "principal=auth.oidcPrincipal",
   );
   requireSyntax(
-    "authenticated assignment source",
-    "nodeOwnerBinding",
-    ts.isVariableDeclaration,
-    "owner=auth.nodePrincipal",
-  );
-  requireSyntax(
-    "node server-derived person",
-    "nodeOwnerBinding",
+    "node request person",
+    "nodeUserBinding",
     property,
-    "actor:{principal:{personId:owner.personId},executor:null}",
+    "actor:{principal:{personId:principal.personId},executor:null}",
   );
-  requireSyntax("node assignment provenance", "nodeOwnerBinding", property, 'source:{kind:"node",nodeId:owner.nodeId}');
-  // dec_F01770FD0DCF72683B7C4C7A47 replaces owner-by-id authority with a device user's session.
-  requireSyntax("node Keycloak authority", "nodeOwnerBinding", property, "accessToken:auth.oidcPrincipal.accessToken");
+  requireSyntax("node provenance", "nodeUserBinding", property, 'source:{kind:"node",nodeId:node.nodeId}');
   requireSyntax(
-    "device session owner",
-    "nodeOwnerBinding",
-    rejectingGuard,
-    "auth.oidcPrincipal.personId!==owner.personId",
-    condition,
+    "node Keycloak session",
+    "nodeUserBinding",
+    (node) => call(node) && node.arguments.length === 2 && node.arguments[1].getText() === "auth",
+    "withSessionEnvironment",
+    (node) => node.expression,
   );
+  requireSyntax("verified client forwarding", "withSessionEnvironment", property, "azp:auth.oidcPrincipal.azp");
+  requireSyntax("verified scope forwarding", "withSessionEnvironment", property, "scopes:auth.oidcPrincipal.scopes");
   requireSyntax("center node registry connection", null, call, "keycloakNodeRegistry(context.keycloakCenter)");
   requireSyntax(
     "center node credential validation",

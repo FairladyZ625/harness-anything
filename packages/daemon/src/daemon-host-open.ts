@@ -1312,7 +1312,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           payload: config,
           nodes: {
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
-            invitationClientForNode: (nodeId) => accessAdmin.invitationClientForNode(nodeId),
             loginAuthority: (nodeId) => oidc.discovery(nodeId),
             ...(oidc.revokeDeviceSessions
               ? { revokeDeviceSessions: (nodeId: string) => oidc.revokeDeviceSessions!(nodeId) }

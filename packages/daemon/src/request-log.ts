@@ -236,10 +236,8 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     connectionId: entry.connectionId,
     transport: entry.auth.transportKind,
     ownerUid: entry.auth.unixSocketOwnerBoundary?.ownerUid ?? null,
-    // The daemon resolves the principal inside the write binding, which the protocol layer cannot
-    // observe. Fleet ingress carries the node's registered owner on the auth context, so record it
-    // where it is genuinely known and leave it null rather than guessing.
-    principalId: entry.auth.nodePrincipal?.personId ?? null,
+    // Record only the independently verified request principal; the device owner is admission data.
+    principalId: entry.auth.oidcPrincipal?.personId ?? null,
     executor: entry.executor,
     actor: agentActorForLog(entry.executor, entry.auth.sessionEnvironment),
     method: entry.method,

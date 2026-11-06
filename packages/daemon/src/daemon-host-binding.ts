@@ -121,6 +121,8 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
               provider: auth.oidcPrincipal.provider,
               personId: auth.oidcPrincipal.personId,
               accessToken: auth.oidcPrincipal.accessToken,
+              ...(auth.oidcPrincipal.azp === undefined ? {} : { azp: auth.oidcPrincipal.azp }),
+              ...(auth.oidcPrincipal.scopes === undefined ? {} : { scopes: auth.oidcPrincipal.scopes }),
               ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
               url: auth.oidcPrincipal.authority.url,
               realm: auth.oidcPrincipal.authority.realm,
@@ -131,38 +133,22 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
   };
 }
 
-/**
- * A Fleet action requires the independently verified user session of the registered device owner.
- * The login client authenticates transport; it cannot supply the owner's action authority.
- */
-async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<RepoCellBinding> {
-  const owner = auth.nodePrincipal;
-  if (!owner || !owner.nodeId || !auth.oidcPrincipal)
-    throw hostCodedError(
-      "authentication_required",
-      "Fleet ingress requires the registered device owner's user session.",
-    );
-  if (auth.oidcPrincipal.personId !== owner.personId)
-    throw hostCodedError("human_confirmation_required", "The interactive session belongs to a different node owner.");
-  return {
-    actor: { principal: { personId: owner.personId }, executor: null },
-    source: { kind: "node", nodeId: owner.nodeId },
-    keycloakAuthorization: {
-      session: {
-        provider: auth.oidcPrincipal.provider,
-        personId: owner.personId,
-        accessToken: auth.oidcPrincipal.accessToken,
-        ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
-        url: auth.oidcPrincipal.authority.url,
-        realm: auth.oidcPrincipal.authority.realm,
-        clientId: auth.oidcPrincipal.authority.clientId,
-      },
+/** Device admission identifies the source; each verified user token supplies action authority. */
+function nodeUserBinding(auth: DaemonAuthenticationContext): RepoCellBinding {
+  const node = auth.nodePrincipal,
+    principal = auth.oidcPrincipal;
+  if (!node?.nodeId || !principal || principal.expiresAt <= Date.now())
+    throw hostCodedError("authentication_required", "Fleet ingress requires an active personal user session.");
+  return withSessionEnvironment(
+    {
+      actor: { principal: { personId: principal.personId }, executor: null },
+      source: { kind: "node", nodeId: node.nodeId },
+      ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
+      ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
+      ...(auth.writerEpochFence ? { writerEpochFence: auth.writerEpochFence } : {}),
     },
-    ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
-    ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
-    ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
-    ...(auth.writerEpochFence ? { writerEpochFence: auth.writerEpochFence } : {}),
-  };
+    auth,
+  );
 }
 
 export async function binding(
@@ -171,7 +157,7 @@ export async function binding(
   executor: RepoCellBinding["actor"]["executor"] = null,
   replicaRead = false,
 ): Promise<RepoCellBinding> {
-  if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);
+  if (auth.transportKind === "fleet-tls") return nodeUserBinding(auth);
   if (replicaRead) return localDefaultBinding(auth, executor, true);
   return localDefaultBinding(auth, executor);
 }

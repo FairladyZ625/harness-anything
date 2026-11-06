@@ -124,7 +124,6 @@ test(
       })),
       ...{ edgeJoinStatus: (input: { joinId: string; accessToken: string }) => memberAdmin.edgeJoinStatus(input) },
       createMemberEdgeJoin: (repos, person, token) => memberAdmin.createMemberEdgeJoin(repos, person, token),
-      invitationClientForNode: (nodeId) => memberAdmin.invitationClientForNode(nodeId),
       edgeJoin: async (input) => {
         const admitted = await memberAdmin.admitEdgeJoin(input);
         const invite = invites.get(input.joinId)!;
@@ -349,12 +348,40 @@ test(
       formerOwnerEdge = joinedEdges.get(formerOwnerNodeId)!;
     f.owners.reassign(formerOwnerNodeId, "person-two");
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
-    const formerOwnerWrite = await formerOwnerEdge.command({
+    // This edge joined a different center/node than the fixture's pre-join defaults. Use the
+    // accepted workspace config, so the positive control reaches its actual resident replica.
+    const {
+      loginUrl: _loginUrl,
+      loginServername: _loginServername,
+      loginBrowserUrl: _loginBrowserUrl,
+      loginCertificate: _loginCertificate,
+      ...joinedConfig
+    } = readFleetEdgeConfig(formerOwnerEdge.edgeRoot)!;
+    let postJoinId = 100;
+    const joinedCommand = async (action: Record<string, unknown>) => {
+      const reply = await formerOwnerEdge.rpc.handle({
+        jsonrpc: "2.0",
+        id: postJoinId++,
+        method: "daemon.fleet.task.run",
+        params: { payload: { ...joinedConfig, workspaceRoot: formerOwnerEdge.edgeRoot, action } },
+      });
+      assert.ok(reply && !Array.isArray(reply) && "result" in reply, JSON.stringify(reply));
+      return reply.result as Record<string, unknown>;
+    };
+    const formerOwnerWrite = await joinedCommand({
       kind: "task-create",
       taskId: "former-owner-write",
       title: "Former owner write",
     });
-    assert.equal(formerOwnerWrite.code, "human_confirmation_required", JSON.stringify(formerOwnerWrite));
+    // dec_E610E1D99A39003886D1B5EE7C CH1: device ownership does not replace the current token person.
+    assert.equal(formerOwnerWrite.outcome, "applied", JSON.stringify(formerOwnerWrite));
+    f.owners.keycloak.endInteractiveSession("device-token-node-one");
+    const revokedWrite = await joinedCommand({
+      kind: "task-create",
+      taskId: "revoked-user-write",
+      title: "Revoked user write",
+    });
+    assert.equal(revokedWrite.code, "human_confirmation_required", JSON.stringify(revokedWrite));
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
   },
 );

@@ -113,22 +113,20 @@ test("W3 API registry follows a renamed transport-authority module", () =>
 
 for (const [label, before, after] of [
   ["OIDC verification", "await oidc.bind(auth, rootDir)", "auth"],
-  ["assignment binding call", "return nodeOwnerBinding(auth)", "return localDefaultBinding(auth, executor)"],
+  ["assignment binding call", "return nodeUserBinding(auth)", "return localDefaultBinding(auth, executor)"],
   ["local expiry guard", "auth.oidcPrincipal.expiresAt <= Date.now()", "false"],
   ["local person binding", "personId: auth.oidcPrincipal.personId", 'personId: "client-person"'],
   ["Keycloak session connection", "withSessionEnvironment({", "unboundSession({"],
   ["Keycloak session credential", "accessToken: auth.oidcPrincipal.accessToken", 'accessToken: "client-token"'],
-  ["registered owner guard", "!owner.nodeId", "false"],
-  ["authenticated owner source", "owner = auth.nodePrincipal", "owner = clientOwner"],
-  ["authenticated assignment source", "owner = auth.nodePrincipal", "owner = clientOwner"],
-  ["registered person binding", "personId: owner.personId", 'personId: "client-person"'],
-  ["assignment provenance", "nodeId: owner.nodeId", 'nodeId: "client-node"'],
-  [
-    "node Keycloak connection",
-    "session: { accessToken: auth.oidcPrincipal.accessToken }",
-    "session: { accessToken: clientToken }",
-  ],
-  ["device session owner", "auth.oidcPrincipal.personId !== owner.personId", "false"],
+  // dec_E610E1D99A39003886D1B5EE7C CH1: preserve equivalent negative guards on user identity.
+  ["registered node guard", "!node?.nodeId", "false"],
+  ["authenticated node source", "node = auth.nodePrincipal", "node = clientNode"],
+  ["verified request user source", "principal = auth.oidcPrincipal", "principal = clientPrincipal"],
+  ["request person binding", "personId: principal.personId", "personId: node.personId"],
+  ["node provenance", "nodeId: node.nodeId", 'nodeId: "client-node"'],
+  ["node Keycloak connection", "withSessionEnvironment({ actor:", "unboundSession({ actor:"],
+  ["verified client forwarding", "azp: auth.oidcPrincipal.azp", "azp: clientAzp"],
+  ["verified scope forwarding", "scopes: auth.oidcPrincipal.scopes", "scopes: clientScopes"],
   ["center registry connection", "keycloakNodeRegistry(context.keycloakCenter)", "otherRegistry()"],
   ["node credential validation", "adapter.authenticateNode(nodeId, credential)", "adapter.acceptNode(nodeId)"],
   ["registered owner lookup", "adapter.readNode(token, nodeId)", "adapter.readClientOwner(nodeId)"],
@@ -278,18 +276,16 @@ export function localDefaultBinding(auth, executor) {
   return withSessionEnvironment({ actor: { principal: { personId: auth.oidcPrincipal.personId }, executor }, source: "local" }, auth);
 }
 function withSessionEnvironment(binding, auth) {
-  return { ...binding, keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } };
+  return { ...binding, keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken, azp: auth.oidcPrincipal.azp, scopes: auth.oidcPrincipal.scopes } } };
 }
-function nodeOwnerBinding(auth) {
-  const owner = auth.nodePrincipal;
-  if (!owner || !owner.nodeId || !auth.oidcPrincipal) throw new Error("authentication_required");
-  if (auth.oidcPrincipal.personId !== owner.personId) throw new Error("human_confirmation_required");
-  return { actor: { principal: { personId: owner.personId }, executor: null },
-    source: { kind: "node", nodeId: owner.nodeId },
-    keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } };
+function nodeUserBinding(auth) {
+  const node = auth.nodePrincipal, principal = auth.oidcPrincipal;
+  if (!node?.nodeId || !principal || principal.expiresAt <= Date.now()) throw new Error("authentication_required");
+  return withSessionEnvironment({ actor: { principal: { personId: principal.personId }, executor: null },
+    source: { kind: "node", nodeId: node.nodeId } }, auth);
 }
 export function binding(rootDir, auth, executor) {
-  if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);
+  if (auth.transportKind === "fleet-tls") return nodeUserBinding(auth);
   return localDefaultBinding(auth, executor);
 }
 `;

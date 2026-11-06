@@ -52,7 +52,7 @@ function historySnapshot(): { readonly snapshot: TaskLifecycleSnapshot; readonly
   return { snapshot, review };
 }
 
-function recordedConsent(reviewShape?: (review: ReviewV1) => Record<string, unknown>) {
+function recordedConsent(reviewShape?: (review: ReviewV1) => Record<string, unknown>, azp?: string) {
   const { snapshot, review } = historySnapshot(),
     recorded = snapshot.reviews[0] as ReviewV1,
     command = {
@@ -76,6 +76,7 @@ function recordedConsent(reviewShape?: (review: ReviewV1) => Record<string, unkn
       actorBinding: implementer,
       capability: "execution-consent@v1",
       capabilityRef: "cap-consent",
+      ...(azp ? { azp } : {}),
     } as ReviewConsentProof);
   return {
     ...result,
@@ -187,4 +188,23 @@ test("a newly written review still needs the current Review/v1 shape", () => {
       `consent must still require ${missing}`,
     );
   }
+});
+
+// dec_E610E1D99A39003886D1B5EE7C CH1: additive audit data keeps the previous consent shape readable.
+test("consent event azp survives admission while the historical public consent shape stays valid", () => {
+  const { event } = recordedConsent(),
+    withClient = recordedConsent(undefined, "web-bff").event;
+  assert.deepEqual(validateCurrentTaskEvent(event), []);
+  assert.deepEqual(validateCurrentTaskEvent(withClient), []);
+  assert.deepEqual(validateTaskEvent(withClient), []);
+  const replayed = reduceTaskEvent(historySnapshot().snapshot, withClient);
+  assert.equal((withClient.payload as { azp?: string }).azp, "web-bff");
+  assert.equal(Object.hasOwn(replayed.consents.at(-1)!, "azp"), false);
+  for (const azp of ["", 42, null])
+    assert.ok(
+      validateCurrentTaskEvent({
+        ...withClient,
+        payload: { ...withClient.payload, azp },
+      }).length > 0,
+    );
 });

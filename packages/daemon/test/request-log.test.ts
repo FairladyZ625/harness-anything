@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { createAuthorizationProvider } from "../src/authorization-provider.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -560,3 +561,34 @@ function entry(overrides: Partial<DaemonRequestLogEntry>): DaemonRequestLogEntry
     ...overrides,
   };
 }
+
+test("request logs attribute the verified token person rather than the registered BFF owner", async (t) => {
+  const rootDir = tempRoot(t),
+    log = openDaemonRequestLog({ resolveRootDir: () => rootDir });
+  log.record(
+    entry({
+      auth: {
+        transportKind: "fleet-tls",
+        nodePrincipal: { nodeId: "shared-bff", personId: "person-owner" },
+        oidcPrincipal: {
+          personId: "person-request",
+          subject: "subject-request",
+          expiresAt: Date.now() + 60_000,
+          accessToken: "never-logged",
+          azp: "bff-client",
+          scopes: [],
+          authority: { url: "https://keycloak.test", realm: "tenant", clientId: "harness-center" },
+          provider: createAuthorizationProvider({
+            url: "https://keycloak.test",
+            realm: "tenant",
+            resourceServerClientId: "harness-center",
+          }),
+        },
+      },
+    }),
+  );
+  await log.settle();
+  const record = readRecords(rootDir)[0];
+  assert.equal(record.principalId, "person-request");
+  assert.equal(JSON.stringify(record).includes("never-logged"), false);
+});

@@ -126,8 +126,10 @@ test("a different verified device login transfers ownership and revokes only the
   keycloak.account("alice");
   keycloak.account("bob");
   keycloak.node("A", "alice");
+  keycloak.node("B", "alice");
   keycloak.interactiveSession("alice", "A", keycloakUrl, "old-A");
   keycloak.interactiveSession("bob", "A", keycloakUrl, "new-A");
+  keycloak.interactiveSession("alice", "B", keycloakUrl, "other-device");
   const oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),
     adapter = new KeycloakPolicyAdapter(
       { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
@@ -148,6 +150,13 @@ test("a different verified device login transfers ownership and revokes only the
   await assert.rejects(oidc.bind({ ...auth, humanAccessToken: "old-A" }), { code: "human_confirmation_required" });
   await oidc.bind(auth);
   assert.equal((await adapter.readNode("center-token", "A"))!.revision, 2, "the same login does not rewrite ownership");
+  const otherDevice = await oidc.bind({
+    ...auth,
+    nodePrincipal: { nodeId: "B", personId: "alice" },
+    humanAccessToken: "other-device",
+  });
+  assert.equal(otherDevice.oidcPrincipal?.personId, "alice", "another device's session stays active");
+  assert.equal((await adapter.readNode("center-token", "B"))!.revision, 1);
 });
 
 test("revocation failure blocks the device before settlement, and an explicit new request can finish it", async (t) => {

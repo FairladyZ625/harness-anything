@@ -48,10 +48,16 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     resources = new Map<string, { _id: string; name: string; type?: string; scopes: { name: string }[] }>(),
     userPolicies = new Map<string, Named & { users: string[] }>(),
     permissions = new Map<string, Permission>(),
-    users = new Map<string, { id: string; username: string; attributes: Record<string, string[]> }>(),
+    users = new Map<
+      string,
+      { id: string; username: string; attributes: Record<string, string[]>; serviceAccountClientId?: string }
+    >(),
     tokens = new Map<string, string>(),
     tokenIssuers = new Map<string, string>(),
-    interactiveSessions = new Map<string, { personId: string; nodeId: string; issuer: string; clientId?: string }>(),
+    interactiveSessions = new Map<
+      string,
+      { personId: string; nodeId: string; issuer: string; clientId?: string; scope?: string }
+    >(),
     nodeClients = new Map<string, NodeClient>(),
     nodeLogins: { clientId: string; ok: boolean }[] = [],
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
@@ -130,6 +136,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
               aud: ["harness-center"],
               sub: tokens.get(token),
               harness_person_id: session.personId,
+              scope: session.scope ?? "openid",
             }
           : { active: false },
       );
@@ -478,6 +485,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       issuer: string,
       token = `token-${personId}`,
       clientId?: string,
+      scope?: string,
     ): void {
       const subject =
         tokens.get(`token-${personId}`) ??
@@ -489,7 +497,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       realmIssuer = tokenIssuer;
       tokenIssuers.set(`token-${personId}`, tokenIssuer);
       tokenIssuers.set(token, tokenIssuer);
-      interactiveSessions.set(token, { personId, nodeId, issuer, ...(clientId ? { clientId } : {}) });
+      interactiveSessions.set(token, { personId, nodeId, issuer, ...(clientId ? { clientId } : {}), scope });
     },
     endInteractiveSession(token: string): void {
       interactiveSessions.delete(token);
@@ -501,8 +509,13 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       this.permit(personId, "@fleet", ["access-manage"]);
     },
     /** Registers an account the way an administrator would and returns its bearer token. */
-    account(personId: string): string {
-      const user = { id: id("user"), username: personId, attributes: { harness_person_id: [personId] } };
+    account(personId: string, serviceAccountClientId?: string): string {
+      const user = {
+        id: id("user"),
+        username: personId,
+        attributes: { harness_person_id: [personId] },
+        serviceAccountClientId,
+      };
       users.set(user.id, user);
       tokens.set(`token-${personId}`, user.id);
       return `token-${personId}`;

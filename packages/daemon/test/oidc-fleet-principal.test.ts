@@ -9,7 +9,7 @@ import { createIdentitySession } from "../src/authorization-provider.ts";
 
 const claims = {
   active: true,
-  exp: 100,
+  exp: Math.floor(Date.now() / 1000) + 3600,
   iss: "https://center.test/realms/harness",
   azp: "harness-node-a",
   aud: ["harness-center"],
@@ -31,7 +31,7 @@ const verify = (updates: Record<string, unknown> = {}, userUpdates: Record<strin
     expectedAzps: [{ clientId: "harness-node-a" }],
     clientSecret: "center-secret",
     adminAccessToken: "admin-token",
-    now: 10_000,
+    now: Date.now(),
     fetch: (async (input) => {
       if (offline) throw new TypeError("Keycloak unavailable");
       return Response.json(
@@ -45,7 +45,7 @@ test("center online introspection binds the verified person signed in on this de
   assert.equal(bound.oidcPrincipal?.personId, "person-a");
   assert.equal(bound.oidcPrincipal?.accessToken, "request-token");
   const changed = await verify({ harness_person_id: "person-b" }, { attributes: { harness_person_id: ["person-b"] } });
-  assert.equal(changed.nodePrincipal?.personId, "person-b");
+  assert.equal(changed.nodePrincipal?.personId, "person-a", "request identity does not transfer device ownership");
   assert.equal(changed.oidcPrincipal?.personId, "person-b");
   for (const updates of [
     { active: false },
@@ -53,6 +53,8 @@ test("center online introspection binds the verified person signed in on this de
     { iss: "https://elsewhere.test/realms/harness" },
     { aud: ["other-server"] },
     { azp: "harness-node-b" },
+    { azp: "" },
+    { azp: null },
     { harness_person_id: "person-b" },
   ])
     await assert.rejects(verify(updates), { code: "human_confirmation_required" });
@@ -87,7 +89,7 @@ test("the center's local session never supplies a missing edge human credential"
 });
 
 // dec_F01770FD0DCF72683B7C4C7A47: a device client alone never supplies a user session.
-test("Fleet binding requires the device owner's user session even when center authority exists", async () => {
+test("Fleet binding requires a request user session even when center authority exists", async () => {
   const { binding } = await import("../src/daemon-host-binding.ts");
   let centerCalls = 0;
   const auth = {
@@ -106,11 +108,10 @@ test("Fleet binding requires the device owner's user session even when center au
   assert.deepEqual(bound.source, { kind: "node", nodeId: "a" });
   assert.equal(bound.keycloakAuthorization?.session?.accessToken, "request-token");
   assert.equal(bound.keycloakAuthorization?.center, undefined);
-  await assert.rejects(
-    binding("/unused", {
-      ...verified,
-      oidcPrincipal: { ...verified.oidcPrincipal!, personId: "person-b" },
-    }),
-    { code: "human_confirmation_required" },
-  );
+  const other = await binding("/unused", {
+    ...verified,
+    oidcPrincipal: { ...verified.oidcPrincipal!, personId: "person-b" },
+  });
+  assert.equal(other.actor.principal.personId, "person-b");
+  assert.deepEqual(other.source, { kind: "node", nodeId: "a" });
 });

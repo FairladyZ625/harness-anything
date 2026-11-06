@@ -154,10 +154,6 @@ export class AccessAdminService {
     );
   }
 
-  invitationClientForNode(nodeId: string): { readonly clientId: string; readonly personId: string } | undefined {
-    return this.#edgeJoinAdmin.invitationClientForNode(nodeId);
-  }
-
   resumeEdgeJoinTunnels(fleetServicePort: number): Promise<void> {
     return this.#edgeJoinAdmin.resumeSshTunnels(fleetServicePort);
   }
