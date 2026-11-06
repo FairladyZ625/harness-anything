@@ -103,11 +103,11 @@ async function interruptedGitOperation(cwd: string): Promise<"rebase" | "merge" 
 
 /**
  * Brings a checkout that is behind the published task branch up to it, so a node that takes the task over
- * continues what the previous node pushed. A published commit the checkout lacks is refused: taking the local
- * branch would drop it. A branch rewritten here — every published-only commit present by patch, with newer local
- * work on top, whatever default branch it was based on — is the same task's newer progress and is kept as it is.
- * Uncommitted changes do not opt a checkout out of that judgment — `git cherry` reads commits — and are left
- * exactly as they are: nothing here discards work.
+ * continues what the previous node pushed. With no work of its own the checkout fast-forwards. A branch the
+ * checkout rewrote after seeing the published tip — the tip is reachable from one of its reflog entries, the
+ * judgment `git push --force-if-includes` makes — is the task's newer progress and is kept as it is. A
+ * published commit that no entry here records was pushed elsewhere after this checkout last moved and is
+ * refused: continuing would drop it. Uncommitted changes are left exactly as they are.
  */
 export async function continuePublishedBranch(cwd: string, published: string): Promise<void> {
   if ((await git(cwd, "rev-list", "--count", `HEAD..${published}`)) === "0") return;
@@ -117,24 +117,41 @@ export async function continuePublishedBranch(cwd: string, published: string): P
     await git(cwd, "merge", "--quiet", "--ff-only", published);
     return;
   }
-  const publishedOnly = (await git(cwd, "cherry", "HEAD", published)).split("\n").filter(Boolean),
-    missing = publishedOnly.filter((line) => line.startsWith("+"));
-  if (aheadCount !== 0 && missing.length === 0) return;
-  const localDifferent =
-      aheadCount === 0 ? [] : (await git(cwd, "log", "--format=%h", `${published}..HEAD`)).split("\n").filter(Boolean),
-    different = [...missing.map((line) => line.slice(2)), ...localDifferent];
+  if (await publishedTipSeenInReflog(cwd, published)) return;
   throw Object.assign(
     new Error(
       `Worktree ${cwd} is behind ${published} and holds ` +
         (aheadCount !== 0 ? `${aheadCount} commit(s) that branch lacks` : "uncommitted changes") +
-        (different.length ? `; different commits: ${different.join(", ")}` : "") +
-        `; it was left untouched. ` +
+        `; ${published} has commit(s) this checkout's reflog never saw, so they were published elsewhere; ` +
+        `it was left untouched. ` +
         (dirty
           ? `Inspect it with: git -C ${cwd} status --short`
-          : `Replay its commits onto the published branch: git -C ${cwd} rebase ${published}`),
+          : `Inspect both sides with: git -C ${cwd} log --oneline --left-right ${published}...HEAD`),
     ),
     { code: "task_worktree_diverged" },
   );
+}
+
+/**
+ * Whether the published tip is reachable from an entry of this checkout's reflog: the checkout saw that version
+ * and rewrote it. git-push(1) defines the same judgment for `--force-if-includes`; a commit another node pushed
+ * after the checkout last moved is in no entry.
+ */
+async function publishedTipSeenInReflog(cwd: string, published: string): Promise<boolean> {
+  // `--force-if-includes` judges the reflog of the branch being pushed. A detached checkout — an operation still
+  // in progress here — has no branch that rewrote a published tip, so it stays refused.
+  const ref = await gitOrNull(cwd, "symbolic-ref", "--quiet", "--short", "HEAD");
+  if (!ref) return false;
+  const entries = (await git(cwd, "rev-list", "--walk-reflogs", ref)).split("\n").filter(Boolean);
+  if (entries.length === 0) return false;
+  // Rev-list prints the published tip and its ancestors only when no reflog entry reaches it.
+  const unseen = await gitFromStdin(
+    cwd,
+    [published, ...entries.map((entry) => `^${entry}`)].join("\n"),
+    "rev-list",
+    "--stdin",
+  );
+  return unseen.length === 0;
 }
 
 /**
@@ -309,6 +326,11 @@ const gitReadiness = makeGitReadinessSource();
 
 function git(cwd: string, ...args: string[]): Promise<string> {
   return runProcessTextAsync("git", ["-C", cwd, ...args]).then((output) => output.trim());
+}
+
+/** `git` with revisions on stdin, for a list that does not fit one argv. */
+function gitFromStdin(cwd: string, input: string, ...args: string[]): Promise<string> {
+  return runProcessTextAsync("git", ["-C", cwd, ...args], undefined, undefined, input).then((output) => output.trim());
 }
 
 function gitOrNull(cwd: string, ...args: string[]): string | null {
