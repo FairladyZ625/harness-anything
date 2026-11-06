@@ -620,8 +620,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 : (permissionMode ?? agent?.permissionMode),
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
             callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance),
+            // Only the endpoint changes for a relayed launch: the worker still needs the real
+            // user root and daemon id to describe the route it is bound to, and the relay itself
+            // is located by the injected socket path, not by either identity field.
             missionDaemonRoute =
-              callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
+              callbackRelay && daemonRoute ? { ...daemonRoute, endpoint: callbackRelay.path } : daemonRoute,
             selfContainedMission =
               taskMission && daemonRoute
                 ? assembleTaskMission({
