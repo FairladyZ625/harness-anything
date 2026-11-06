@@ -143,6 +143,9 @@ export function renderDispatchRow(value: unknown): string {
     `leader:${String(row.delegatedByAgentId ?? "-")}`,
     `squad:${String(row.squadId ?? "-")}`,
     ...(row.squadRunId === undefined ? [] : [`squad-run:${String(row.squadRunId)}`]),
+    ...(Array.isArray(row.squadChildTaskIds) && row.squadChildTaskIds.length > 0
+      ? [`squad-children:${row.squadChildTaskIds.map(String).join(",")}`]
+      : []),
     `code:${String(row.code ?? "-")}`,
     `reason:${String(row.reason ?? "-")}`,
     `reset:${renderOptional(row.resetAt)}`,

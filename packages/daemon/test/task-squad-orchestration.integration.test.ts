@@ -133,6 +133,21 @@ test("canonical squad dispatch rows expose the run owner for leaders and childre
     expectedDispatchIds.map((dispatchId) => ({ dispatchId, squadRunId: running.squadRunId })),
     "canonical run ownership must reach the generic incident consumer through the public dispatch query",
   );
+  const ownerRow = dispatches.find((dispatch) =>
+      running.leaderTurns.some((turn) => turn.dispatchId === dispatch.dispatchId),
+    ),
+    workerRows = dispatches.filter(
+      (dispatch) => !running.leaderTurns.some((turn) => turn.dispatchId === dispatch.dispatchId),
+    );
+  assert.deepEqual(
+    ownerRow?.squadChildTaskIds,
+    running.workerAttempts.map((worker) => worker.taskId!).sort(),
+    "the run owner row must name the child tasks it dispatched",
+  );
+  assert.ok(
+    workerRows.every((dispatch) => dispatch.squadChildTaskIds === undefined),
+    "only the run owner row carries the child list; a worker row must not fan out",
+  );
 });
 
 test(
@@ -1048,7 +1063,7 @@ async function openFixture(
         }),
       );
     },
-submit: async (child: WorkerAttemptView, head: string, inferCommit = false) => {
+    submit: async (child: WorkerAttemptView, head: string, inferCommit = false) => {
       await cell.settlePendingMaterialization("child closeout fixture");
       const row = task(child.taskId!),
         holder = {

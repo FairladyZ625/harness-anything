@@ -76,11 +76,14 @@ test("task dispatch receipts show the canonical squad run handle without inferri
       squadId: "fixture-squad",
     },
     squadRunId = "squad_0123456789abcdef01234567",
-    owned = renderCliReceipt({ ok: true, dispatches: [{ ...row, squadRunId }] }),
+    squadChildTaskIds = ["task_two", "task_one"],
+    owned = renderCliReceipt({ ok: true, dispatches: [{ ...row, squadRunId, squadChildTaskIds }] }),
     direct = renderCliReceipt({ ok: true, dispatches: [row] });
   assert.equal(owned.stream, "stdout");
   assert.match(owned.text, /\tsquad:fixture-squad\tsquad-run:squad_0123456789abcdef01234567\t/u);
+  assert.match(owned.text, /\tsquad-children:task_two,task_one\t/u);
   assert.doesNotMatch(direct.text, /\tsquad-run:/u);
+  assert.doesNotMatch(direct.text, /\tsquad-children:/u);
 });
 
 test("task dispatch rows render typed decision advisories with options and distribution", () => {

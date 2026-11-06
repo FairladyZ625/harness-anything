@@ -132,6 +132,9 @@ export interface TaskDispatchRow {
   readonly squadId?: string;
   /** Canonical run ownership; a squad roster alone does not own a direct dispatch's lifecycle. */
   readonly squadRunId?: string;
+  /** Child tasks the run dispatched; present only on the row that owns the run, so a caller can
+   *  follow one dispatch to the child deliveries without scanning the run's whole history. */
+  readonly squadChildTaskIds?: readonly string[];
   readonly parentRuntimeSessionId?: string;
   readonly providerSessionId: string | null;
   readonly eventStreamRef: string | null;
