@@ -64,6 +64,17 @@ pgliteIntegrationSuite("artifact migration uses the online writer queue", () => 
         try {
           assert.equal(await version(backend), 0);
           assert.equal(await progress(backend), undefined, "open must not even start a cleanup page");
+          await backend.pool.query("SELECT ha_backfill_artifact_documents($1,$2,$3,$4)", [
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            repoId,
+          ]);
+          await backend.pool.query("UPDATE ha_projection_meta SET artifact_index_version=1");
+          assert.equal(await version(backend), 0, "previous caller cannot certify a merely requested job");
+          await assert.rejects(backend.projection.readArtifactTimelinePage({ kind: "html", limit: 1 }), {
+            code: "projection_pending",
+          });
           assert.deepEqual(await backend.backfillReadIndexes(), { processed: 64, done: false });
           const cursor = await progress(backend);
           await backend.close();
@@ -154,6 +165,16 @@ pgliteIntegrationSuite("artifact migration uses the online writer queue", () => 
         }
         let turns = 0;
         for (;;) {
+          const beforeRequest = await progress(backend);
+          await backend.pool.query("SELECT ha_backfill_artifact_documents($1,$2,$3,$4)", [
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            repoId,
+          ]);
+          await backend.pool.query("UPDATE ha_projection_meta SET artifact_index_version=1");
+          assert.equal(await version(backend), 0);
+          assert.deepEqual(await progress(backend), beforeRequest, "previous callers preserve the live phase/cursor");
           await assert.rejects(backend.projection.readArtifactTimelinePage({ kind: "html", limit: 1 }), {
             code: "projection_pending",
           });

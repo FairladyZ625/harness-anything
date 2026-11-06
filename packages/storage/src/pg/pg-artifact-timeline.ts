@@ -1,3 +1,4 @@
+import { assertPgPhysicalIndexesReady } from "./pg-read-index-status.ts";
 import type { PoolClient } from "pg";
 import {
   RAW_ARTIFACT_POLICY_ID,
@@ -55,7 +56,26 @@ export const artifactTimelineDdl = (): readonly string[] => [
     phase smallint NOT NULL DEFAULT 0, cursor jsonb, upper_bound text,
     PRIMARY KEY (tenant_id,project_id,policy_epoch)
   )`,
-  "DROP FUNCTION IF EXISTS ha_backfill_artifact_documents(text,text,bigint,text)",
+  // Previous binaries call this function and then unconditionally publish version=1.
+  // Retain the callable name through 2026-12-05; it requests the same writer-queue job.
+  `CREATE OR REPLACE FUNCTION ha_backfill_artifact_documents(tenant text, project text, epoch bigint, repo text)
+    RETURNS integer LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+    BEGIN
+      INSERT INTO ha_artifact_backfill(tenant_id,project_id,policy_epoch)
+        VALUES(tenant,project,epoch) ON CONFLICT DO NOTHING;
+      RETURN 0;
+    END $function$`,
+  `CREATE OR REPLACE FUNCTION ha_artifact_backfill_ready() RETURNS trigger
+    LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+    BEGIN
+      IF OLD.artifact_index_version=0 AND NEW.artifact_index_version<>0 AND NOT EXISTS (
+        SELECT 1 FROM ha_artifact_backfill WHERE tenant_id=NEW.tenant_id
+          AND project_id=NEW.project_id AND policy_epoch=NEW.policy_epoch AND phase=3
+      ) THEN NEW.artifact_index_version:=0; END IF;
+      RETURN NEW;
+    END $function$`,
+  `CREATE OR REPLACE TRIGGER ha_artifact_backfill_ready BEFORE UPDATE OF artifact_index_version
+    ON ha_projection_meta FOR EACH ROW EXECUTE FUNCTION ha_artifact_backfill_ready()`,
 ];
 
 const artifactKindOf = (document: {
@@ -269,6 +289,7 @@ export async function readPgArtifactTimeline(
 ): Promise<Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts">> {
   if (query.kind !== "html" && query.kind !== "md" && query.kind !== "raw")
     throw new Error("artifact timeline kind is invalid");
+  await assertPgPhysicalIndexesReady(client, ["ha_artifact_documents", "ha_artifact_counts"]);
   const limit = checkedPageLimit(query.limit, 500),
     meta = await client.query<{ artifact_index_version: number }>(
       `SELECT artifact_index_version FROM ha_projection_meta
@@ -276,10 +297,22 @@ export async function readPgArtifactTimeline(
       scopeValues(scope),
     );
   // A cache that predates the index must not answer "ready" with a partial timeline.
-  if ((meta.rows[0]?.artifact_index_version ?? 1) === 0)
-    throw Object.assign(new Error("Artifact timeline index backfill is pending; retry after migration."), {
-      code: "projection_pending",
-    });
+  if ((meta.rows[0]?.artifact_index_version ?? 1) === 0) {
+    const progress = (
+      await client.query<{ phase: number; cursor: unknown }>(
+        "SELECT phase,cursor FROM ha_artifact_backfill WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+        scopeValues(scope),
+      )
+    ).rows[0];
+    throw Object.assign(
+      new Error(
+        `Artifact timeline index backfill is pending; progress phase=${progress?.phase ?? 0}, cursor=${JSON.stringify(progress?.cursor ?? null)}; retry after migration.`,
+      ),
+      {
+        code: "projection_pending",
+      },
+    );
+  }
   const scopedReaders = canonicalReaders(scope.readers),
     pageReaders = scopedReaders.length === 0 ? [""] : scopedReaders,
     rowsByPath = new Map<string, PageRow>();

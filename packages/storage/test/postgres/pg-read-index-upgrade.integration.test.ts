@@ -114,14 +114,16 @@ test("external PG release sequence upgrades populated read indexes before reader
       await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       await grantPgProjectionRuntimeAccess(client);
     });
-    assert.deepEqual(await read(), before, "previous readers keep all queries correct during expansion");
+    await assert.rejects(read(), { code: "projection_pending" });
+    assert.deepEqual(await projection.readCut(), before.cut);
+    assert.equal((await projection.readRuntimeSessionPage({ limit: 1 })).rows.length, 1);
 
     const countPending = () =>
         manage(async (client) =>
           Number(
             (
               await client.query<{ count: string }>(
-                "SELECT count(*) FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ((model='runtime-session' AND read_index_version<2) OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))",
+                "SELECT count(*) FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ((model='runtime-session' AND read_index_version<3) OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))",
                 keys,
               )
             ).rows[0]!.count,
@@ -159,7 +161,7 @@ test("external PG release sequence upgrades populated read indexes before reader
               "SELECT read_index_version FROM ha_projection_values WHERE model='runtime-session' AND entity_id='upgrade-session-129'",
             )
           ).rows[0]!.read_index_version,
-          2,
+          3,
         );
       },
       scope,

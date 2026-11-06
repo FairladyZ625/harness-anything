@@ -48,6 +48,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             [afterRevision],
             "LIMIT $7",
             [pageLimit],
+            false,
           );
         return { ...cut, events };
       },
@@ -142,7 +143,13 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       async (client) => {
         if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500)
           throw new Error("event list limit must be between 1 and 500");
-        await assertPgEventReadIndexReady(client, claims, repoId, 6);
+        const indexed =
+          query.type !== undefined ||
+          query.entity !== undefined ||
+          query.actor !== undefined ||
+          query.after !== undefined ||
+          query.before !== undefined;
+        if (indexed) await assertPgEventReadIndexReady(client, claims, repoId, 6);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, cut.watermark],
           where = [
@@ -171,12 +178,31 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               : `ha_events AS event JOIN ha_event_entity_refs AS ref
             ON (ref.tenant_id,ref.project_id,ref.repo_id,ref.policy_epoch,ref.revision)
               = (event.tenant_id,event.project_id,event.repo_id,event.policy_epoch,event.revision)`,
-          rows = await client.query<{ list_row: string }>(
-            `SELECT event.list_row FROM ${from} WHERE ${where.join(" AND ")}
+          rows = await client.query<{
+            list_row: string | null;
+            event_json: string;
+            revision: string;
+            entity_refs: string[];
+          }>(
+            `SELECT event.list_row${indexed ? "" : ",CASE WHEN event.list_row IS NULL THEN event.event_json END AS event_json,event.revision,event.entity_refs"} FROM ${from} WHERE ${where.join(" AND ")}
             ORDER BY ${query.entity === undefined ? "event" : "ref"}.revision DESC LIMIT $${values.length}`,
             values,
           ),
-          selected = rows.rows.map(({ list_row }) => JSON.parse(list_row) as EventListRow);
+          selected = rows.rows.map((row) => {
+            if (row.list_row !== null) return JSON.parse(row.list_row) as EventListRow;
+            // Only the primary-key page crosses this fallback; never filter historical JSON.
+            const event = JSON.parse(row.event_json) as CanonicalEventV1;
+            return {
+              revision: Number(row.revision),
+              opId: event.opId,
+              eventId: event.eventId,
+              schema: event.schema,
+              type: event.type,
+              occurredAt: event.occurredAt,
+              actor: { personId: event.actor.principal.personId, executorId: event.actor.executor?.id ?? null },
+              entityRefs: row.entity_refs,
+            };
+          });
         const result = selected.slice(0, query.limit),
           hasMore = selected.length > query.limit;
         return { rows: result, hasMore, nextCursor: hasMore && result.length ? String(result.at(-1)!.revision) : null };
@@ -189,10 +215,19 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       options.pool,
       async (client) => {
         const cut = await readCutInTransaction(client, claims, readers, repoId),
-          rows = await readEventRowsInTransaction(client, claims, readers, repoId, "revision = $6 AND revision <= $7", [
-            revision,
-            cut.watermark,
-          ]);
+          rows = await readEventRowsInTransaction(
+            client,
+            claims,
+            readers,
+            repoId,
+            "revision = $6 AND revision <= $7",
+            [revision, cut.watermark],
+            "ASC",
+            1,
+            "",
+            [],
+            false,
+          );
         if (!rows[0]) return null;
         const event = JSON.parse(rows[0].event_json) as CanonicalEventV1;
         return {
@@ -354,6 +389,7 @@ async function readEventsInTransaction(
   predicateValues: readonly unknown[] = [],
   suffix = "",
   suffixValues: readonly unknown[] = [],
+  indexed = true,
 ): Promise<CanonicalEventV1[]> {
   return (
     await readEventRowsInTransaction(
@@ -367,6 +403,7 @@ async function readEventsInTransaction(
       undefined,
       suffix,
       suffixValues,
+      indexed,
     )
   ).map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as CanonicalEventV1));
 }
@@ -388,8 +425,9 @@ export async function readEventRowsInTransaction(
   limit?: number,
   suffix = "",
   suffixValues: readonly unknown[] = [],
+  indexed = true,
 ): Promise<PgEventRow[]> {
-  const events = await pgEventReadSource(client, claims, repoId);
+  const events = indexed ? await pgEventReadSource(client, claims, repoId) : "ha_events";
   const parameters = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, ...predicateValues];
   if (limit !== undefined) parameters.push(limit);
   parameters.push(...suffixValues);

@@ -1,3 +1,4 @@
+import { readIndexBuildDdl } from "./pg-read-index-status.ts";
 import type { PoolClient } from "pg";
 import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
 import {
@@ -73,7 +74,7 @@ export async function ensurePgProjectionSchema(
   client: PoolClient,
   options: { readonly indexBuild?: "concurrent" | "isolated" | "deferred" } = {},
 ): Promise<void> {
-  for (const statement of projectionDdl()) {
+  for (const statement of [...readIndexBuildDdl(), ...projectionDdl()]) {
     const index = /^CREATE INDEX IF NOT EXISTS ([a-z0-9_]+)/u.exec(statement);
     if (index && options.indexBuild === "deferred") continue;
     if (
@@ -178,17 +179,6 @@ export function projectionDdl(): readonly string[] {
       FOR EACH ROW
       WHEN (OLD.model = 'runtime-session' AND OLD.owner_id = '')
       EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
-    `DO $migration$
-      BEGIN
-        IF to_regclass('ha_projection_meta') IS NOT NULL THEN
-          INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value)
-          SELECT tenant_id,project_id,policy_epoch,readers,entity_id,value FROM ha_projection_values
-          WHERE model='runtime-session' AND owner_id='' AND runtime_outcome IS NULL
-          ON CONFLICT (tenant_id,project_id,policy_epoch,entity_id)
-          DO UPDATE SET readers=EXCLUDED.readers, value=EXCLUDED.value;
-        END IF;
-      END $migration$`,
-    ...artifactTimelineDdl(),
     ...eventReadIndexDdl(),
     // Retire only the disposable nonunique expression index after its scalar replacement exists.
     // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
@@ -280,6 +270,8 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, projection_name)
     )`,
+    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS artifact_index_version smallint NOT NULL DEFAULT 0",
+    ...artifactTimelineDdl(),
     ...entityDeclarationDdl,
     ...decisionSearchDdl(),
     ...decisionReadStatusDdl(),
@@ -292,7 +284,6 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS package_path text",
     // Old binary wrote projections before the artifact timeline index existed; the version asks
     // the writer queue to backfill in bounded pages. Fresh inserts declare themselves complete.
-    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS artifact_index_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",

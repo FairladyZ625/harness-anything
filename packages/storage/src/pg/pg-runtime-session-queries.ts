@@ -35,7 +35,7 @@ export async function readPgSessionPage(
 ): Promise<RuntimeSessionPageRead> {
   if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
     throw new Error("runtime session page limit must be between 1 and 64");
-  const bindings = await pgSessionTaskReadSource(client, scope);
+  const bindings = query.taskId ? await pgSessionTaskReadSource(client, scope) : "ha_runtime_session_tasks";
   const parameters = [
     scope.tenantId,
     scope.projectId,

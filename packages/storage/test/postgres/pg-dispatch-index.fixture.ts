@@ -60,12 +60,7 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
       repoId,
       ownsPool: false,
     });
-  assert.equal((await source.readRuntimeDispatchById("target-100002"))?.event.payload.dispatchId, "target-100002");
-  for (const scan of explainNodes(plans).filter((row) => row["Relation Name"] === "ha_events"))
-    assert.ok(
-      (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]) <= 6,
-      `one pending dispatch must not reparse already indexed history: ${JSON.stringify(scan)}`,
-    );
+  await assert.rejects(source.readRuntimeDispatchById("target-100002"), { code: "projection_pending" });
   await withPostgresTransaction(
     seedPool,
     async (client) => {

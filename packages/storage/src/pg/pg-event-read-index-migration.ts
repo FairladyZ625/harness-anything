@@ -1,3 +1,4 @@
+import { assertPgPhysicalIndexesReady } from "./pg-read-index-status.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
@@ -256,41 +257,23 @@ export async function assertPgEventReadIndexReady(
   repoId: string,
   minimumVersion: 5 | 6 = 5,
 ): Promise<void> {
+  await assertPgPhysicalIndexesReady(client, ["ha_events", "ha_event_entity_refs"]);
   const pending = await client.query(
-    `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
+    `SELECT revision FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
       AND read_index_version<${minimumVersion} LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length)
-    throw Object.assign(new Error("Event read-index backfill is pending"), { code: "projection_pending" });
+    throw Object.assign(
+      new Error(`Event read-index backfill is pending; progress next revision=${pending.rows[0]!.revision}`),
+      { code: "projection_pending" },
+    );
 }
 
-/** The partial version index is a durable remainder; completed rows are never revisited. */
+/** All indexed event collections use the same explicit migration contract. */
 export async function pgEventReadSource(client: PoolClient, scope: PgProjectionScope, repoId: string): Promise<string> {
-  const pending = await client.query(
-    `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND read_index_version<5 LIMIT 1`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
-  );
-  if (!pending.rows.length) return "ha_events";
-  const canonicalColumns = `tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,
-    event_digest,occurred_at,actor_refs,entity_refs,readers,recorded_at`;
-  // Delete the previous reader once all deployed repositories are complete; no later than 2026-12-05.
-  // A pending row does not invalidate indexed history. Parse only the durable remainder.
-  return `(SELECT ${canonicalColumns},${Object.keys(eventReadFields).join(",")},
-    runtime_session_present,runtime_session_unsettled FROM ha_events WHERE read_index_version>=5
-    UNION ALL SELECT ${canonicalColumns},
-    ${Object.entries(eventReadFields)
-      .map(([column, expression]) => `${expression.replaceAll("NEW.", "e.")} AS ${column}`)
-      .join(",")},
-    EXISTS(SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=e.tenant_id AND p.project_id=e.project_id
-      AND p.policy_epoch=e.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
-      AND p.entity_id=v#>>'{payload,runtimeSessionId}') AS runtime_session_present,
-    EXISTS(SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=e.tenant_id AND p.project_id=e.project_id
-      AND p.policy_epoch=e.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
-      AND p.entity_id=v#>>'{payload,runtimeSessionId}' AND ha_read_index_json(p.value)->>'outcome' IS NULL) AS runtime_session_unsettled
-    FROM ha_events e CROSS JOIN LATERAL (SELECT ha_read_index_json(e.event_json) AS v) parsed
-    WHERE read_index_version<5)`;
+  await assertPgEventReadIndexReady(client, scope, repoId);
+  return "ha_events";
 }
 
 /** Schema-owner contract step, outside serving PostgreSQL transactions. A scoped page only

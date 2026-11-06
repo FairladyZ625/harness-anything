@@ -168,10 +168,14 @@ export async function listPgRuntimeSessions(
   query: {
     readonly runtimeSessionId?: string;
     readonly unsettledOnly?: boolean;
+    readonly inFlightOnly?: boolean;
     readonly executionOwnerNodeId?: string;
   } = {},
 ): Promise<readonly RuntimeSession[]> {
-  const source = await pgProjectionReadSource(client, scope, "runtime-session"),
+  const source =
+      query.unsettledOnly || query.inFlightOnly || query.executionOwnerNodeId !== undefined
+        ? await pgProjectionReadSource(client, scope, "runtime-session")
+        : "ha_projection_values",
     events = query.executionOwnerNodeId === undefined ? "ha_events" : await pgEventReadSource(client, scope, repoId);
   const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
     result = await client.query<{ value: string }>(

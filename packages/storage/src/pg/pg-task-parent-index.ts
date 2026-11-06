@@ -1,3 +1,4 @@
+import { assertPgPhysicalIndexesReady, pendingPgPhysicalIndex } from "./pg-read-index-status.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
@@ -25,16 +26,25 @@ export function taskParentIndexDdl(): readonly string[] {
 }
 
 /** The write trigger covers new rows; only pre-expansion rows need management backfill. */
-export async function pgTaskParentIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
+async function nextPendingParent(client: PoolClient, scope: PgProjectionScope): Promise<string | undefined> {
   const pending = await client.query(
-    `SELECT 1 FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+    `SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
       AND parent_index_version=0 LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  return pending.rows.length === 0;
+  return pending.rows[0]?.task_id;
+}
+
+export async function pgTaskParentIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
+  return (
+    !(await pendingPgPhysicalIndex(client, ["ha_task_snapshots"])) &&
+    (await nextPendingParent(client, scope)) === undefined
+  );
 }
 
 export async function assertPgTaskParentIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<void> {
-  if (!(await pgTaskParentIndexReady(client, scope)))
-    throw Object.assign(new Error("索引迁移中"), { code: "projection_pending" });
+  await assertPgPhysicalIndexesReady(client, ["ha_task_snapshots"]);
+  const next = await nextPendingParent(client, scope);
+  if (next !== undefined)
+    throw Object.assign(new Error(`索引迁移中; progress next task=${next}`), { code: "projection_pending" });
 }

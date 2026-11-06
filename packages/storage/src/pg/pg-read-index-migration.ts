@@ -1,9 +1,7 @@
+import { assertPgPhysicalIndexesReady } from "./pg-read-index-status.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
-
-const pendingReadIndex = `((model='runtime-session' AND read_index_version<2)
-  OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))`;
 
 /** Additive v5 expansion. Current and previous writers share these materialization triggers.
  * Keep them after the previous-binary window (2026-11-18): current writes still require them.
@@ -50,7 +48,7 @@ export function readIndexDdl(): readonly string[] {
         ELSIF NEW.model='relation-write' THEN
           NEW.fact_edge := starts_with(v->>'ownerRef','fact/') OR starts_with(v->>'targetRef','fact/');
         END IF;
-        NEW.read_index_version := CASE WHEN NEW.model='runtime-session' THEN 2 ELSE 1 END;
+        NEW.read_index_version := CASE WHEN NEW.model='runtime-session' THEN 3 ELSE 1 END;
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_projection_read_index_fields BEFORE INSERT OR UPDATE OF value,readers
@@ -84,6 +82,10 @@ export function readIndexDdl(): readonly string[] {
       (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
       WHERE (model='runtime-session' AND read_index_version<2)
          OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_read_index_pending_v3 ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
+      WHERE (model='runtime-session' AND read_index_version<3)
+         OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)`,
     `CREATE INDEX IF NOT EXISTS ha_projection_runtime_unsettled_order ON ha_projection_values
       (tenant_id,project_id,policy_epoch,entity_id,owner_id) WHERE model='runtime-session' AND runtime_outcome IS NULL`,
     `CREATE INDEX IF NOT EXISTS ha_projection_pin_order ON ha_projection_values
@@ -102,7 +104,7 @@ export function readIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,policy_epoch,model,owner_id,entity_id FROM ha_projection_values
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch
-            AND ((model='runtime-session' AND read_index_version<2)
+            AND ((model='runtime-session' AND read_index_version<3)
               OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))
           ORDER BY model,owner_id,entity_id LIMIT 64 FOR UPDATE
         ), filled AS (
@@ -125,40 +127,49 @@ export function readIndexDdl(): readonly string[] {
   ];
 }
 
-/** Keep the previous reader until every deployed scope is complete, no later than 2026-12-05. */
+/** Missing derived fields never become a second, history-scanning read path. */
 export async function pgProjectionReadSource(
   client: PoolClient,
   scope: PgProjectionScope,
   model: string,
 ): Promise<string> {
-  const pending = await client.query(
-    `SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-      AND model=$4 AND ((model='runtime-session' AND read_index_version<2)
-        OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)) LIMIT 1`,
+  const runtime = model === "runtime-session";
+  const indexes = runtime
+    ? [
+        "ha_projection_read_index_pending_v3",
+        "ha_projection_runtime_unsettled_order",
+        "ha_runtime_session_tasks_session",
+      ]
+    : [
+        "ha_projection_read_index_pending",
+        ...(model === "pin"
+          ? ["ha_projection_pin_order"]
+          : model === "lease-interval"
+            ? ["ha_projection_interval_order", "ha_projection_interval_open"]
+            : ["ha_projection_fact_edges"]),
+      ];
+  await assertPgPhysicalIndexesReady(
+    client,
+    ["ha_projection_values", "ha_runtime_session_tasks", "ha_runtime_unsettled"],
+    indexes,
+  );
+  const pending = await client.query<{ entity_id: string }>(
+    `SELECT entity_id FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+      AND model=$4 AND read_index_version${runtime ? "<3" : "=0"}
+      ORDER BY owner_id,entity_id LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, model],
   );
-  if (!pending.rows.length) return "ha_projection_values";
-  const canonicalColumns =
-    "tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value";
-  return `(SELECT ${canonicalColumns},runtime_liveness,runtime_outcome,order_at,order_revision,execution_id,interval_open,fact_edge
-    FROM ha_projection_values WHERE NOT ${pendingReadIndex}
-    UNION ALL SELECT ${canonicalColumns},
-    v->>'liveness' AS runtime_liveness,v->>'outcome' AS runtime_outcome,v->>'pinnedAt' AS order_at,
-    (v->>'acquiredRevision')::bigint AS order_revision,v->>'executionId' AS execution_id,
-    v->>'releasedRevision' IS NULL AS interval_open,
-    (starts_with(v->>'ownerRef','fact/') OR starts_with(v->>'targetRef','fact/')) AS fact_edge
-    FROM ha_projection_values CROSS JOIN LATERAL (SELECT ha_read_index_json(value) AS v) parsed
-    WHERE ${pendingReadIndex})`;
+  if (pending.rows.length)
+    throw Object.assign(
+      new Error(
+        `索引迁移中; progress model=${model}, next=${pending.rows[0]!.entity_id}; retry after background backfill.`,
+      ),
+      { code: "projection_pending" },
+    );
+  return "ha_projection_values";
 }
 
 export async function pgSessionTaskReadSource(client: PoolClient, scope: PgProjectionScope): Promise<string> {
-  if ((await pgProjectionReadSource(client, scope, "runtime-session")) === "ha_projection_values")
-    return "ha_runtime_session_tasks";
-  return `(SELECT b.tenant_id,b.project_id,b.policy_epoch,b.readers,b.task_id,b.session_id
-    FROM ha_runtime_session_tasks b JOIN ha_projection_values p
-      ON (p.tenant_id,p.project_id,p.policy_epoch,p.entity_id)=(b.tenant_id,b.project_id,b.policy_epoch,b.session_id)
-    WHERE p.model='runtime-session' AND p.owner_id='' AND p.read_index_version>=2
-    UNION ALL SELECT DISTINCT tenant_id,project_id,policy_epoch,readers,binding->>'taskId' AS task_id,entity_id AS session_id
-    FROM ha_projection_values CROSS JOIN LATERAL jsonb_array_elements(ha_read_index_json(value)->'taskBindings') binding
-    WHERE model='runtime-session' AND owner_id='' AND read_index_version<2)`;
+  await pgProjectionReadSource(client, scope, "runtime-session");
+  return "ha_runtime_session_tasks";
 }

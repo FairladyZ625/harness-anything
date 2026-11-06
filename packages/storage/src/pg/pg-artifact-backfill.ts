@@ -92,6 +92,7 @@ export async function backfillPgArtifactDocumentsPage(
       )
     ).rows;
   if (!documents.length) {
+    await save(3, state.cursor);
     await client.query(
       `UPDATE ha_projection_meta SET artifact_index_version=1
        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,

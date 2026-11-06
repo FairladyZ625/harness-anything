@@ -3,7 +3,7 @@
 This release retains projection generation **5**. Previous binaries continue to read the
 original `value` and write their original columns. Current binaries write the additional
 `document_metadata` column in the same row and transaction. Scalar-index backfills do not
-rewrite canonical events or switch the projection generation. The same generation also adds runtime read indexes **v2** and event
+rewrite canonical events or switch the projection generation. The same generation also adds runtime read indexes **v3** and event
 read indexes **v6** (v5 dispatch keys plus stored event-list descriptors and entity-reference rows), and a task-parent scalar
 index. JSON parent expressions cannot serve indexed predicates under runtime RLS; the
 shared snapshot trigger maintains `parent_task_id` for both writer versions. External PostgreSQL does not backfill these automatically: ordinary
@@ -110,7 +110,7 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    ```sql
    SELECT 1 FROM ha_projection_values
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1
-     AND ((model='runtime-session' AND read_index_version<2)
+     AND ((model='runtime-session' AND read_index_version<3)
        OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))
    LIMIT 1;
    SELECT 1 FROM ha_events
@@ -259,21 +259,32 @@ Current writers initialize empty scopes before writing. The additive summary tab
 triggers must be installed before deploying readers and retained across the current/previous
 writer window; no canonical bytes or previous columns are removed.
 
-PGlite opens the scope after additive schema setup and performs both backfills in bounded
-background pages. Its single connection cannot interleave reads with a whole-table index
-build. Missing indexes on populated tables are therefore built on empty copies, filled in
-64-row transactions with persisted cursors and foreground-write mirroring, then published
-atomically. Existing inbound foreign keys are rebound in that publication transaction with
-`NOT VALID`: the mirrored primary-key set preserves existing references, and PostgreSQL
-still enforces subsequent writes and delete cascades. The catalog remains unvalidated;
-publication does not rescan historical reference rows or forge a validation marker.
-External production PostgreSQL keeps the original tables and uses concurrent index builds.
+PGlite opens after additive schema setup. Missing indexes on empty tables are built at
+initialization; populated tables register their missing indexes in `ha_read_index_build`.
+The writer queue creates one physical index per turn, then resumes the same persisted
+64-row data backfills. Tables retain their original OIDs, constraints, grants and triggers;
+there is no copy, rename, retired table or foreign-key rebinding. A physical index build is
+one PostgreSQL statement, so PGlite's single connection remains occupied for that statement.
+It is not a 64-row operation. External PostgreSQL uses concurrent builds on its existing tables.
 
-Event-list descriptor/entity-reference queries return `projection_pending` until all scoped
-events reach v6, including when v5 and fleet summaries were already complete. They do not
-scan historical entity references to supplement a missing page. Other existing event readers
-continue to use their previous correct path. The daemon's same background queue advances
-the v6 remainder; reopening does not restart completed pages.
+Collections that depend on an unfinished index return explicit `projection_pending` with
+progress. They never supplement results by scanning unindexed historical JSON. Runtime
+in-flight/unsettled, task bindings, owner filters, indexed event collections, Decision lists,
+parent-dependent lists and artifact timelines use this contract. Primary-key point reads,
+unfiltered keyset pages and scopes whose required indexes are complete remain available.
+Unfiltered event-list pages derive missing descriptors only for their returned primary-key
+page. Completion restores the original filtered, ordered and counted query behavior.
+
+Runtime v3 certifies both the outcome fields and the current unsettled-session set. Startup
+never copies historical sessions into that set. Versioned 64-row updates and ordinary writes
+maintain it through the same triggers. Reopening retains the remainder instead of repeating
+completed work. The previous runtime version markers and indexes remain available during
+the compatibility window.
+
+The previous artifact backfill function name remains callable through 2026-12-05. It requests
+the same persisted background job; it does not synchronously consume documents. A trigger
+prevents the previous caller's subsequent unconditional `artifact_index_version=1` update
+from publishing readiness. Only the background job's committed final empty page can do so.
 
 ### Decision queries during an online upgrade
 

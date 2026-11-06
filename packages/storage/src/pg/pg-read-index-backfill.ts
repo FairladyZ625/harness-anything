@@ -21,7 +21,7 @@ export function backfillPgReadIndexPage(pool: Pool, scope: PgProjectionScope, re
       const indexes = [
         sqlPage(
           `SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-        AND ((model='runtime-session' AND read_index_version<2)
+        AND ((model='runtime-session' AND read_index_version<3)
           OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)) LIMIT 1`,
           "SELECT ha_backfill_projection_read_indexes($1,$2,$3) AS processed",
         ),

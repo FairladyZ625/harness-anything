@@ -1,3 +1,4 @@
+import { assertPgPhysicalIndexesReady } from "./pg-read-index-status.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import {
@@ -105,6 +106,7 @@ export async function assertPgDecisionReadReady(
   scope: PgProjectionScope,
   kind: "scalar" | "search",
 ): Promise<void> {
+  await assertPgPhysicalIndexesReady(client, ["ha_decisions", "ha_search_terms", "ha_decision_positions"]);
   const status = await readPgDecisionReadStatus(client, scope, kind);
   if (status.ready) return;
   throw Object.assign(
