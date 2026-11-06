@@ -10,6 +10,7 @@ import {
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { randomUUID } from "node:crypto";
