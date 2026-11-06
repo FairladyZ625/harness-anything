@@ -56,6 +56,8 @@ export interface GuiAgendaQueryPayload {
 }
 export interface GuiRelationQueryPayload {
   readonly status?: string;
+  /** One indexed page incident to this entity (and its sub-refs); mutually exclusive with facets. */
+  readonly entity?: string;
   readonly updatedAfter?: string;
   readonly updatedBefore?: string;
   readonly limit?: number;

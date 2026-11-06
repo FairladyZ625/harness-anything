@@ -652,6 +652,24 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   function relationGraphFromPayload(
     payload: Readonly<Record<string, unknown>>,
   ): DaemonGuiReadResultMap["repo.triadic.relationGraph"] {
+    if (payload.entity !== undefined && payload.hops === undefined) {
+      const entity = payload.entity;
+      if (
+        typeof entity !== "string" ||
+        !entity ||
+        Object.keys(payload).some((field) => !["entity", "status", "limit", "cursor"].includes(field))
+      )
+        throw context.cellCodedError("invalid_command", "Relation entity page selectors are invalid.");
+      const common = queryPayloadFacets(payload, "repo.triadic.relationGraph");
+      return queryRead().relationGraphPage({
+        entity,
+        ...(common.status ? { state: common.status } : {}),
+        // An entity page is always bounded: omitting the window keeps the same 500-row page
+        // width the unparameterized read uses, never an unbounded slice of the entity's edges.
+        limit: common.limit ?? 500,
+        ...(common.cursor ? { cursor: common.cursor } : {}),
+      });
+    }
     if (payload.entity !== undefined || payload.hops !== undefined) {
       const hops = payload.hops;
       if (

@@ -172,6 +172,16 @@ export interface RelationEdgeFacetQuery {
   readonly state?: RelationState;
   readonly direction?: RelationDirection;
 }
+/**
+ * One indexed page incident to one entity (and its sub-refs, e.g. a decision's claims).
+ * No `hops`: the neighborhood depth budget is a different selector and belongs to slice B.
+ */
+export interface RelationEntityPageQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly entity: string;
+  readonly status?: RelationState;
+}
 export interface RelationFactFacetQuery {
   readonly limit?: number;
   readonly cursor?: string;
@@ -181,6 +191,7 @@ export interface RelationFactFacetQuery {
 export type RelationRuntimeEdgeFacetQuery = { readonly facet: "runtimeEdges" };
 export type RelationQueryFacets =
   | RelationPageQuery
+  | RelationEntityPageQuery
   | RelationEdgeFacetQuery
   | RelationFactFacetQuery
   | RelationRuntimeEdgeFacetQuery;

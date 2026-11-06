@@ -6,6 +6,7 @@ import { FactInspector } from "../components/FactInspector";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { IdText } from "../components/IdText.tsx";
+import { useEntityRelationGraphQuery } from "../triadic-data.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -90,6 +91,51 @@ export function FactDetailView({
         onNavigateEntity={onNavigateEntity}
       />
     </div>
+  );
+}
+
+/**
+ * 路由容器:`factDetail` 页的取数只在这里发生——按焦点 fact 读它自己的关系页
+ * (含子 ref),并把同一份读面里的 facts/factAnchors/coverageRows 交给展示组件。
+ * App 不再为这个视图挂全量关系图;展示组件保持纯 props,便于单测。
+ */
+export function FactDetailRoute({
+  repoId,
+  factRef,
+  tasks,
+  decisions,
+  onNavigateEntity,
+  onNavigateDecision,
+  onNavigateTask,
+  onFocusGraph,
+}: Pick<
+  Parameters<typeof FactDetailView>[0],
+  | "repoId"
+  | "factRef"
+  | "tasks"
+  | "decisions"
+  | "onNavigateEntity"
+  | "onNavigateDecision"
+  | "onNavigateTask"
+  | "onFocusGraph"
+>) {
+  const entity = useEntityRelationGraphQuery(repoId, factRef);
+  return (
+    <FactDetailView
+      repoId={repoId}
+      factRef={factRef}
+      facts={entity.facts}
+      tasks={tasks}
+      decisions={decisions}
+      relations={entity.relations}
+      factAnchors={entity.factAnchors}
+      coverageRows={entity.coverageRows}
+      loading={entity.isPending}
+      onNavigateEntity={onNavigateEntity}
+      onNavigateDecision={onNavigateDecision}
+      onNavigateTask={onNavigateTask}
+      onFocusGraph={onFocusGraph}
+    />
   );
 }
 

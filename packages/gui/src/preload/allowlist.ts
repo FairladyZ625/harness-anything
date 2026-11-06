@@ -126,12 +126,12 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     }
     if (emptyRepoMethods.has(method) && Object.keys(payload).some((key) => key !== "repoId"))
       throw new Error(`Preload ${method} fields are not allowed.`);
-    if (method === "getRelationGraph" && payload.facet !== undefined) {
-      // A facet selector is admitted by the daemon's own query validator, which owns the facet
-      // vocabularies (edges: facet, relationType, state, direction, limit, cursor; facts: facet,
-      // limit, cursor; other facets: facet only) and rejects unknown fields. Restating that list
-      // here is what broke the paged edges read: the renderer paged with limit/cursor and the
-      // hand-copied list still forbade them, so the request never reached the daemon.
+    if (method === "getRelationGraph") {
+      // Every relation-graph selector (legacy page, facet, entity page, neighborhood) is admitted
+      // by the daemon's own query validator, which owns the vocabularies and rejects unknown
+      // fields. Restating any of that list here is what broke the paged edges read: the renderer
+      // paged with limit/cursor and the hand-copied list still forbade them, so the request never
+      // reached the daemon.
       const { repoId: _repoId, ...selector } = payload;
       const errors = validateDaemonQueryPayload("repo.triadic.relationGraph", selector);
       if (errors.length > 0) throw new Error(`Preload ${method} query facets are invalid: ${errors[0]}`);

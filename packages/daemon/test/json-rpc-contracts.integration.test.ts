@@ -237,8 +237,19 @@ test("wide GUI read contracts accept only their explicit narrow and page facets"
   assert.equal(task({ status: "blocked", updatedAfter: "2026-08-01T00:00:00.000Z", updatedBefore: "2026-08-31T00:00:00.000Z", limit: 25, cursor: "WyJ0YXNrLTEiXQ" }).ok, true);
   assert.equal(graph({ status: "retired", limit: 25 }).ok, true);
   assert.equal(graph({ entity: "task/task-1", hops: { direction: "both", relationTypes: ["relates"], maxDepth: 2, maxNodes: 2000 }, status: "active" }).ok, true);
+  // Slice A: an entity page read is `entity` + optional status/limit/cursor, with no hops. The
+  // neighborhood shape and the page shape are mutually exclusive; each has its own field closure.
+  assert.equal(graph({ entity: "decision/dec_1", limit: 25 }).ok, true);
+  assert.equal(graph({ entity: "decision/dec_1", status: "active", cursor: "next" }).ok, true);
+  assert.equal(graph({ entity: "" }).ok, false);
+  assert.equal(graph({ entity: 7 }).ok, false);
+  assert.equal(graph({ entity: "task/task-1", facet: "edges" }).ok, false);
+  assert.equal(graph({ entity: "task/task-1", relationType: "relates" }).ok, false);
+  assert.equal(graph({ entity: "task/task-1", updatedAfter: "2026-08-01T00:00:00.000Z" }).ok, false);
+  assert.equal(graph({ entity: "task/task-1", limit: 0 }).ok, false);
   assert.equal(graph({ entity: "task/task-1", hops: { direction: "both", relationTypes: [], maxDepth: 2, maxNodes: 2000 } }).ok, false);
-  assert.equal(graph({ entity: "task/task-1", hops: { direction: "both", relationTypes: ["relates"], maxDepth: 0, maxNodes: 2000 } }).ok, false);
+  assert.equal(graph({ hops: { direction: "both", relationTypes: ["relates"], maxDepth: 2, maxNodes: 2000 } }).ok, false);
+  assert.equal(graph({ unexpected: true }).ok, false);
   assert.equal(task({ status: "retired" }).ok, false);
   assert.equal(graph({ status: "blocked" }).ok, false);
   assert.equal(task({ limit: 0 }).ok, false);

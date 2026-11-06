@@ -13,8 +13,8 @@ import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
-import { FactDetailView } from "./views/EntityDetailView.tsx";
-import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailView.tsx";
+import { FactDetailRoute } from "./views/EntityDetailView.tsx";
+import { DecisionDetailRoute } from "./components/decisionDetail/DecisionDetailView.tsx";
 import { decisionDetailLocation } from "./navigation/decisionReviewRoutes.ts";
 import { FreshnessView } from "./views/FreshnessView.tsx";
 import { CadenceView } from "./views/CadenceView.tsx";
@@ -51,6 +51,7 @@ import {
 import { harnessClient } from "./api-client.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
+  FULL_RELATION_GRAPH_VIEWS,
   FULL_TRIADIC_PROJECTION_VIEWS,
   useActiveEdgesQuery,
   useDecisionSummaryQuery,
@@ -304,7 +305,8 @@ function AppShell() {
   // 曾占 GUI 收到字节的 99.13%)。看板徽章不再读任何三元切面:行内
   // placement.spawningDecisionIds 已是同一批 derives 边的结果。
   const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
-  const fullGraphProjectionMounted = fullProjectionMounted;
+  // 完整关系图只归渲染它的视图(领地/总池/工作页/失真预警);详情面按焦点实体读。
+  const fullGraphProjectionMounted = FULL_RELATION_GRAPH_VIEWS.has(view);
   // 完整投影视图已经包含 decisions,不再并发读窄面;其余消费者(研发态势、任务详情、
   // 命令面板)只读摘要，不建立第二份全量投影。
   const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
@@ -848,13 +850,12 @@ function AppShell() {
                   onSearchActiveChange={onSearchActiveChange}
                 />
               ) : view === "decisionDetail" ? (
-                <DecisionDetailView
+                <DecisionDetailRoute
                   repoId={projectId}
                   decisionId={decisionDetailLocation(focusedEntityRef)?.decisionId ?? null}
                   reviewLocation={decisionDetailLocation(focusedEntityRef)}
                   decisions={decisions}
                   tasks={projectTasks}
-                  relations={relations}
                   loading={triadicQuery.isPending}
                   onBack={back}
                   projectName={project.name}
@@ -876,16 +877,11 @@ function AppShell() {
                   }}
                 />
               ) : view === "factDetail" ? (
-                <FactDetailView
+                <FactDetailRoute
                   repoId={projectId}
                   factRef={focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null}
-                  facts={facts}
                   tasks={tasks}
                   decisions={decisions}
-                  relations={relations}
-                  factAnchors={factAnchors}
-                  coverageRows={coverageRows}
-                  loading={triadicQuery.isPending}
                   onNavigateEntity={navigateToEntity}
                   onNavigateDecision={navigateToDecision}
                   onNavigateTask={openTaskDetail}

@@ -286,6 +286,17 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
         (edge) => edge.sourceRef === "task/task_real_Alpha" || edge.targetRef === "task/task_real_Alpha",
       ),
     );
+    // Slice A: the same route also serves one entity's indexed page — no hops, bounded by that
+    // entity's incident edges instead of the repository total.
+    const entityPage = await cell.read("repo.triadic.relationGraph", { entity: "task/task_real_Alpha" });
+    assert.ok(entityPage.edges.length > 0);
+    assert.ok(
+      entityPage.edges.every(
+        (edge) => edge.sourceRef === "task/task_real_Alpha" || edge.targetRef === "task/task_real_Alpha",
+      ),
+      "entity page must not widen to unrelated edges",
+    );
+    assert.equal(entityPage.page?.limit, 500);
     let graphWalk = await cell.read("repo.triadic.relationGraph", { limit: 1 }),
       walked: typeof graphWalk.edges = [];
     while (true) {
