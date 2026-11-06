@@ -276,6 +276,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               [afterRevision, cut.watermark],
               "ASC",
               limit,
+              "",
+              [],
+              false,
             );
             return {
               ...cut,
@@ -319,6 +322,9 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           [afterRevision, cut.watermark],
           "ASC",
           limit,
+          "",
+          [],
+          false,
         );
         return {
           ...cut,
@@ -336,10 +342,19 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       options.pool,
       async (client) => {
         const cut = await readCutInTransaction(client, claims, readers, repoId),
-          rows = await readEventRowsInTransaction(client, claims, readers, repoId, "op_id = $6 AND revision <= $7", [
-            opId,
-            cut.watermark,
-          ]);
+          rows = await readEventRowsInTransaction(
+            client,
+            claims,
+            readers,
+            repoId,
+            "op_id = $6 AND revision <= $7",
+            [opId, cut.watermark],
+            "ASC",
+            1,
+            "",
+            [],
+            false,
+          );
         return rows[0]
           ? {
               event: eventIndexEvent(JSON.parse(rows[0].event_json) as CanonicalEventV1),
@@ -355,10 +370,19 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       options.pool,
       async (client) => {
         const cut = await readCutInTransaction(client, claims, readers, repoId),
-          rows = await readEventRowsInTransaction(client, claims, readers, repoId, "op_id = $6 AND revision <= $7", [
-            opId,
-            cut.watermark,
-          ]);
+          rows = await readEventRowsInTransaction(
+            client,
+            claims,
+            readers,
+            repoId,
+            "op_id = $6 AND revision <= $7",
+            [opId, cut.watermark],
+            "ASC",
+            1,
+            "",
+            [],
+            false,
+          );
         if (!rows[0]) return null;
         const event = JSON.parse(rows[0].event_json) as CanonicalEventV1;
         return isTaskEvent(event) ? { event, watermark: cut.watermark } : null;

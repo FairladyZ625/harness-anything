@@ -44,6 +44,19 @@ pgliteIntegrationSuite("PGlite online read-index expansion without table replace
           assert.equal((await backend.projection.readCanonicalEvents(0, 1)).events.length, 1);
           assert.equal((await backend.projection.readEventWitness(size))?.workspaceRevision, size);
           assert.equal((await backend.projection.readEventList({ limit: 1 })).rows[0]?.revision, size);
+          const primaryReads = async () => ({
+            operation: await backend.projection.readOperation(`event-${size}`),
+            taskOperation: await backend.projection.readTaskOperation(`event-${size}`),
+            summaries: await backend.projection.readEventSummaries(size - 2, 1),
+            fleet: await backend.projection.readEventSummaries(size - 2, 1, "fleet"),
+          });
+          const pendingReads = await primaryReads();
+          assert.equal(pendingReads.operation?.event.opId, `event-${size}`);
+          assert.equal(pendingReads.taskOperation, null);
+          for (const page of [pendingReads.summaries, pendingReads.fleet]) {
+            assert.equal(page.events.length, 1);
+            assert.equal(page.events[0]?.workspaceRevision, size - 1);
+          }
           const jobs = async () =>
             (await backend.pool.query("SELECT index_name,complete FROM ha_read_index_build ORDER BY index_name")).rows;
           assert.equal((await jobs()).filter((row) => !row.complete).length, 2);
@@ -82,6 +95,7 @@ pgliteIntegrationSuite("PGlite online read-index expansion without table replace
             if (page.done) break;
             assert.ok(++turns < 5000);
           }
+          assert.deepEqual(await primaryReads(), pendingReads, "primary reads keep their results after backfill");
           assert.deepEqual(await identity(), before, "neither canonical nor projection tables are swapped");
           assert.equal(
             (await backend.pool.query("SELECT event_json FROM ha_events WHERE revision=$1", [size])).rows[0]!
@@ -146,6 +160,7 @@ async function seed(backend: Awaited<ReturnType<typeof createPGliteStorageBacken
     [...keys, JSON.stringify(value), decisions],
   );
   await backend.pool.query("UPDATE ha_events SET read_index_version=0,event_schema=NULL,list_row=NULL");
+  await backend.pool.query("UPDATE ha_event_summary_state SET ready=false");
   await backend.pool.query("UPDATE ha_decisions SET decision_sort_key=NULL,decision_state=NULL,search_ready=false");
   await backend.pool.query("DROP INDEX ha_events_schema_revision");
   await backend.pool.query("DROP INDEX ha_decisions_page");

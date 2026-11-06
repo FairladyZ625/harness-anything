@@ -192,11 +192,35 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         if (after !== null && (!Number.isSafeInteger(after) || after < 0))
           throw new Error("replica basis revision must be a non-negative integer or null");
         const cut = await readCutInTransaction(client, scope, readers, repoId),
-          head = await readEventRowsInTransaction(client, scope, readers, repoId, "revision=$6", [cut.watermark]),
+          head = await readEventRowsInTransaction(
+            client,
+            scope,
+            readers,
+            repoId,
+            "revision=$6",
+            [cut.watermark],
+            "ASC",
+            1,
+            "",
+            [],
+            false,
+          ),
           rows =
             after === null
               ? []
-              : await readEventRowsInTransaction(client, scope, readers, repoId, "revision > $6", [after], "ASC", 64);
+              : await readEventRowsInTransaction(
+                  client,
+                  scope,
+                  readers,
+                  repoId,
+                  "revision > $6",
+                  [after],
+                  "ASC",
+                  64,
+                  "",
+                  [],
+                  false,
+                );
         return {
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
