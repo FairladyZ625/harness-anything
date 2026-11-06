@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 // harness-test-tier: fast
 //
-// 切片 A:详情面按焦点实体读关系。这里挂真实 App,断言桥上真正发出的 selector:
-//   1. factDetail / decisionDetail 只发 entity 页读,不再排空全量 relations;
-//   2. 阴性对照:关系图(领地)视图仍发完整图读。
-// 这些断言在改造前是红的(factDetail/decisionDetail 只发 `{repoId, limit:500}` 全量读)。
+// 切片 A:详情面按焦点实体读关系。这里挂真实 App / 真实组件,断言桥上真正发出的 selector:
+//   1. factDetail 的详情栏发 fact entity 页读;邻域画布在切片 B 之前仍保留完整图输入(F-1);
+//   2. decisionDetail 只发 entity 页读,不再排空全量 relations;
+//   3. TaskRelationsTab / TaskEvidenceTab 按实体读,不发 `{repoId, limit:500}`;
+//   4. 阴性对照:关系图(领地)视图仍发完整图读。
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -13,6 +14,8 @@ import { App } from "../src/renderer/App.tsx";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { TaskRelationsTab } from "../src/renderer/components/taskDetail/TaskRelationsTab.tsx";
+import { TaskEvidenceTab } from "../src/renderer/components/taskDetail/TaskDetailSections.tsx";
+import { FactDetailRoute } from "../src/renderer/views/EntityDetailView.tsx";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 
@@ -279,10 +282,11 @@ afterEach(() => {
 });
 
 describe("详情面按焦点实体读关系", () => {
-  it("factDetail 只发 fact 的 entity 页读,不触发全量 relations", async () => {
+  it("factDetail 的详情栏发 fact entity 页读,邻域画布保留完整图输入(切片 B 前)", async () => {
     const { calls } = await mountApp("factDetail", "fact/F-ABC12345");
     expect(entityCalls(calls())).toContainEqual({ repoId: REPO_ID, entity: "fact/F-ABC12345", limit: 500 });
-    expect(fullGraphCalls(calls())).toEqual([]);
+    // 画布要保住 ±2 跳可见行为,所以完整图输入仍在(评审 F-1 的最小修法);详情栏不用它。
+    expect(fullGraphCalls(calls())).toContainEqual({ repoId: REPO_ID, limit: 500 });
   });
 
   it("decisionDetail 只发 decision 的 entity 页读,不触发全量 relations", async () => {
@@ -384,3 +388,188 @@ function viStubRelationGraph(
     },
   });
 }
+
+function uiTask(taskId: string, title: string): TaskRow {
+  return {
+    taskId,
+    title,
+    projectId: REPO_ID,
+    coordinationStatus: "active",
+    rawStatus: "active",
+    freshness: "fresh",
+    packageDisposition: "active",
+    closeoutReadiness: "not_required",
+    engine: "local",
+    source: "local-document",
+    lastKnownAt: AT,
+    gates: [],
+    docs: [],
+    ...projectedTaskFields("active"),
+  };
+}
+
+function edgeRow(
+  relationId: string,
+  sourceRef: string,
+  targetRef: string,
+  relationType = "relates",
+): Record<string, unknown> {
+  return {
+    relationId,
+    workspaceRevision: 1,
+    sourceRef,
+    targetRef,
+    relationType,
+    direction: "directed",
+    strength: "strong",
+    origin: "declared",
+    state: "active",
+    targetObservedVersion: 1,
+    currentTargetVersion: 1,
+    freshness: "current",
+    rationale: "fixture",
+    ownerRef: sourceRef,
+    sourcePath: "event:fixture",
+    recordIndex: 0,
+    current: true,
+  };
+}
+
+function factGraphRow(ref: string): Record<string, unknown> {
+  return {
+    schema: "task-fact-row/v1",
+    ref,
+    factId: ref.replace(/^fact\//u, ""),
+    statement: `statement ${ref}`,
+    source: "fixture",
+    observedAt: AT,
+    confidence: "high",
+    memoryClass: "semantic",
+    memoryTags: [],
+    provenance: [],
+    liveness: "standing",
+    invalidated: false,
+    archived: false,
+  };
+}
+
+async function mountElement(element: ReturnType<typeof createElement>) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  mounted.push({ root, container });
+  await act(async () => {
+    root.render(createElement(QueryClientProvider, { client }, element));
+  });
+  for (let index = 0; index < 10; index += 1)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  return { container };
+}
+
+describe("factDetail 邻域保留 ±2 跳(F-1 回归)", () => {
+  it("focus → A → B 的第二跳节点在画布上可见", async () => {
+    const focus = "fact/F-ABC12345";
+    const secondHop = "task/task-neighbor-b";
+    const calls: Record<string, unknown>[] = [];
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: {
+        getRelationGraph: async (payload: Record<string, unknown>) => {
+          calls.push(payload);
+          if (payload.entity === focus)
+            return {
+              ...EMPTY_GRAPH,
+              edges: [edgeRow("rel-focus-a", focus, "task/task-neighbor-a")],
+              facts: [factGraphRow(focus)],
+              page: PAGE,
+            };
+          if (payload.entity !== undefined) return { ...EMPTY_GRAPH, page: PAGE };
+          if (payload.facet !== undefined) return { ...EMPTY_GRAPH, facet: payload.facet, page: PAGE };
+          // 完整图:焦点 → A、A → B。画布只有拿到这份输入才能铺出第二跳。
+          return {
+            ...EMPTY_GRAPH,
+            edges: [
+              edgeRow("rel-focus-a", focus, "task/task-neighbor-a"),
+              edgeRow("rel-a-b", "task/task-neighbor-a", secondHop),
+            ],
+            facts: [factGraphRow(focus)],
+            page: PAGE,
+          };
+        },
+        getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
+      },
+    });
+    const { container } = await mountElement(
+      createElement(FactDetailRoute, {
+        repoId: REPO_ID,
+        factRef: focus,
+        tasks: [uiTask("task-neighbor-a", "Neighbor A"), uiTask("task-neighbor-b", "Neighbor B")],
+        decisions: [],
+      }),
+    );
+    expect(calls.some((payload) => payload.entity === focus)).toBe(true);
+    expect(calls.some((payload) => payload.entity === undefined && payload.facet === undefined)).toBe(true);
+    const chipText = [...container.querySelectorAll("[data-testid='ego-chip']")]
+      .map((chip) => chip.textContent ?? "")
+      .join("\n");
+    expect(chipText).toContain("Neighbor B");
+  });
+});
+
+describe("TaskEvidenceTab 按实体读,不排空全量关系图(F-2)", () => {
+  it("先读 task 实体,再逐个读 owned fact 实体;不发 {repoId, limit:500}", async () => {
+    const taskRef = "task/task-bound";
+    const firstFact = "fact/F-ONE11111";
+    const secondFact = "fact/F-TWO22222";
+    const calls: Record<string, unknown>[] = [];
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: {
+        getRelationGraph: async (payload: Record<string, unknown>) => {
+          calls.push(payload);
+          if (payload.entity === taskRef)
+            return {
+              ...EMPTY_GRAPH,
+              edges: [
+                edgeRow("rel-p1", taskRef, firstFact, "produces"),
+                edgeRow("rel-p2", taskRef, secondFact, "produces"),
+              ],
+              facts: [factGraphRow(firstFact), factGraphRow(secondFact)],
+              page: PAGE,
+            };
+          if (payload.entity === firstFact)
+            return {
+              ...EMPTY_GRAPH,
+              edges: [edgeRow("rel-e1", "decision/dec-1/C1", firstFact, "evidenced-by")],
+              facts: [factGraphRow(firstFact)],
+              coverageRows: [
+                {
+                  decisionRef: "decision/dec-1",
+                  claimRef: "decision/dec-1/C1",
+                  status: "covered",
+                  covered: true,
+                  fulfillment: "delivered",
+                  relationPath: ["rel-e1"],
+                },
+              ],
+              page: PAGE,
+            };
+          if (payload.entity !== undefined) return { ...EMPTY_GRAPH, page: PAGE };
+          if (payload.facet !== undefined) return { ...EMPTY_GRAPH, facet: payload.facet, page: PAGE };
+          throw new Error(`TaskEvidenceTab must not issue the complete graph read: ${JSON.stringify(payload)}`);
+        },
+        getDecisions: async () => ({ ok: true, decisions: [], warnings: [] }),
+        getAgentRuntimeOverview: async () => ({ ok: true, sessions: [] }),
+      },
+    });
+    const { container } = await mountElement(
+      createElement(TaskEvidenceTab, { task: uiTask("task-bound", "Bound task") }),
+    );
+    expect(calls.map((payload) => payload.entity)).toEqual(expect.arrayContaining([taskRef, firstFact, secondFact]));
+    expect(calls.filter((payload) => payload.entity === undefined && payload.facet === undefined)).toEqual([]);
+    expect(container.textContent).toContain(`statement ${firstFact}`);
+  });
+});

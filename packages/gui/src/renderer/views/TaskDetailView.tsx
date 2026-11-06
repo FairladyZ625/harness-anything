@@ -21,7 +21,7 @@ import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/Task
 import { TaskExecutionPanel } from "../components/taskDetail/TaskExecutionPanel.tsx";
 import { TaskReworkPanel } from "../components/taskDetail/TaskReworkPanel.tsx";
 import { PageRegions, RegionDragHandle } from "../components/primitives/page-regions.tsx";
-import type { RelationEdge, TaskRow } from "../model/types.ts";
+import type { TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import {
@@ -56,7 +56,6 @@ export function TaskDetailView({
   task,
   onBack,
   tasks,
-  relations,
   decisions = [],
   onSelect,
   projectName,
@@ -85,7 +84,6 @@ export function TaskDetailView({
   task: TaskRow;
   onBack: () => void;
   tasks?: readonly TaskRow[];
-  relations?: RelationEdge[];
   /** 身份/标题/状态即可(常驻摘要投影就够);证据页签自己读全量决策行。 */
   decisions?: readonly TaskDecisionRef[];
   onSelect?: (id: string) => void;
@@ -526,12 +524,7 @@ export function TaskDetailView({
                         />
                       </>
                     ) : activeTab === "evidence" ? (
-                      <TaskEvidenceTab
-                        task={task}
-                        tasks={tasks}
-                        relations={relations}
-                        onNavigateEntity={onNavigateEntity}
-                      />
+                      <TaskEvidenceTab task={task} tasks={tasks} onNavigateEntity={onNavigateEntity} />
                     ) : activeTab === "relations" ? (
                       <TaskRelationsTab
                         task={task}

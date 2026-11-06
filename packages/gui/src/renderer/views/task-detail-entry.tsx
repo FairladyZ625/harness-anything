@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import { TaskDetailView } from "./TaskDetailView.tsx";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
-import type { RelationEdge, TaskRow } from "../model/types.ts";
+import type { TaskRow } from "../model/types.ts";
 import type { TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 
 /**
@@ -19,7 +19,6 @@ export interface TaskDetailEntryWires {
   readonly connectionId: string | null;
   readonly projectName: string;
   readonly tasks: readonly TaskRow[];
-  readonly relations: RelationEdge[];
   readonly decisions: readonly TaskDecisionRef[];
   readonly onSelect: (taskId: string) => void;
   readonly onOpenWork: (taskId: string) => void;
@@ -54,7 +53,6 @@ export function taskDetailEntry(
       connectionId={wires.connectionId}
       task={task}
       tasks={wires.tasks}
-      relations={wires.relations}
       decisions={wires.decisions}
       onBack={framing.onBack}
       onSelect={wires.onSelect}

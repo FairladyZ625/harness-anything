@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import type {
   DecisionFullRow,
   DecisionProjectionRow,
@@ -235,37 +235,44 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
  * 排空策略在 cursorStep 唯一实现(daemon 协议导出,gui 壳 drainCursorPages 与 agenda
  * 同族):沿服务端游标读到末页;重复游标异常抛错,不发布部分边集。
  */
-async function drainRelationGraph(
-  read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
-  label: string,
-): Promise<RelationGraphSuccess> {
-  const pages = await drainCursorPages((facets) => read({ limit: 500, ...facets }), label);
-  const first = pages[0];
+function mergeRelationGraphs(graphs: readonly RelationGraphSuccess[]): RelationGraphSuccess {
+  const first = graphs[0];
   const unique = <T>(rows: readonly T[], key: (row: T) => string): T[] => [
     ...new Map(rows.map((row) => [key(row), row])).values(),
   ];
   return {
     ...first,
     edges: unique(
-      pages.flatMap((page) => page.edges),
+      graphs.flatMap((graph) => graph.edges),
       (row) => row.relationId,
     ),
     facts: unique(
-      pages.flatMap((page) => page.facts),
+      graphs.flatMap((graph) => graph.facts),
       (row) => row.ref,
     ),
     coverageRows: unique(
-      pages.flatMap((page) => page.coverageRows),
+      graphs.flatMap((graph) => graph.coverageRows),
       (row) => row.claimRef,
     ),
     factAnchors: unique(
-      pages.flatMap((page) => page.factAnchors),
+      graphs.flatMap((graph) => graph.factAnchors),
       (row) => JSON.stringify(row),
     ),
     warnings: unique(
-      pages.flatMap((page) => page.warnings),
+      graphs.flatMap((graph) => graph.warnings),
       (row) => JSON.stringify(row),
     ),
+  };
+}
+
+async function drainRelationGraph(
+  read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
+  label: string,
+): Promise<RelationGraphSuccess> {
+  const pages = await drainCursorPages((facets) => read({ limit: 500, ...facets }), label);
+  const first = pages[0];
+  return {
+    ...mergeRelationGraphs(pages),
     ...(first.page ? { page: { ...first.page, nextCursor: null } } : {}),
   };
 }
@@ -328,6 +335,34 @@ export function useEntityRelationGraphQuery(repoId: string | null, entity: strin
     isPending: active && query.isPending,
     isError: query.isError,
     error: query.error,
+  };
+}
+
+/**
+ * 一组焦点实体的关系页读,合并成同一份 renderer 形状。任务证据页签用它把
+ * 「本任务 produces 的 fact」逐个按实体读(而不是排空全仓 relations),每个实体的
+ * 读仍然只覆盖它自己的入边/出边;同名 key 与单实体读共享缓存。
+ */
+export function useEntityRelationGraphsQuery(repoId: string | null, entities: readonly string[], enabled = true) {
+  const active = repoId !== null && enabled && entities.length > 0;
+  const queries = useQueries({
+    queries: entities.map((entity) => ({
+      queryKey: triadicQueryKeys.entity(repoId ?? "unselected", entity),
+      queryFn: () =>
+        readEntityRelationGraph(entity, (payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
+      enabled: active,
+      staleTime: COMPLETE_GRAPH_STALE_MS,
+    })),
+  });
+  const data = useMemo(() => mergeRelationGraphs(queries.map((query) => query.data ?? emptyRelationGraph)), [queries]);
+  const rendered = useMemo(() => buildRelationGraphRendererData(data), [data]);
+  return {
+    ...rendered,
+    /** Raw merged read for consumers that render the daemon fact rows (TaskEvidenceTab). */
+    graph: data,
+    isPending: active && queries.some((query) => query.isPending),
+    isError: queries.some((query) => query.isError),
+    error: queries.find((query) => query.error)?.error ?? null,
   };
 }
 

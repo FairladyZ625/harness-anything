@@ -336,9 +336,9 @@ function AppShell() {
   // 缓存,不另立读方法。
   const graphRuntimeMounted = view === "graph";
   const runtimePlane = useRuntimePlaneQuery(activeRepoId, { enabled: graphRuntimeMounted });
-  // 任务预览抽屉、任务详情与会话页渲染的是关系边本身;完整图已在缓存里(刚从图/
-  // 决策视图过来)就直接用它,不把同一批边读两遍。
-  const edgeSurfaceMounted = previewTask !== null || selected !== null || view === "sessions";
+  // 任务预览抽屉与会话页渲染的是关系边本身;任务详情的关系/证据页签各自按焦点实体读,
+  // 不再需要 App 预取边切面。完整图已在缓存里(刚从图/决策视图过来)就直接用它。
+  const edgeSurfaceMounted = previewTask !== null || view === "sessions";
   const activeEdges = useActiveEdgesQuery(activeRepoId, edgeSurfaceMounted && !triadicQuery.graphAvailable);
 
   const decisionReadError = fullProjectionMounted ? triadicQuery.decisionError : null;
@@ -491,7 +491,6 @@ function AppShell() {
       connectionId: activeRepo?.connectionId ?? null,
       projectName: project.name,
       tasks,
-      relations: edgeRelations,
       decisions: chromeDecisions,
       onSelect: openTaskDetail,
       onOpenWork: openWork,
