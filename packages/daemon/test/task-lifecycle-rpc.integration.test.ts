@@ -226,27 +226,29 @@ test("owner rework past the rework budget requires a premise review recorded aft
         memoryTags: [],
       });
 
-  // The default repository budget is three returns; the owner's first three go through unasked.
-  for (let round = 0; round < 3; round += 1) {
+  // Below the repository rework budget the owner returns cuts unasked.
+  const shown = await f.run({ kind: "task-show", taskId }),
+    budget = (JSON.parse(String(shown.evidence)) as { returnBudget: number }).returnBudget;
+  for (let round = 0; round < budget; round += 1) {
     const executionId = await submitRound(round);
     // A premise review written before the latest return does not cover the round after it.
-    if (round === 2) await premise("continue");
+    if (round === budget - 1) await premise("continue");
     const returned = await rework(executionId);
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
   }
-  const fourth = await submitRound(3);
+  const pastBudget = await submitRound(budget);
   const before = f.events().revision;
-  const refused = await rework(fourth);
+  const refused = await rework(pastBudget);
   assert.equal(refused.code, "premise_review_required", JSON.stringify(refused));
-  assert.match(String(refused.rejectionExplanation ?? refused.message ?? JSON.stringify(refused)), /review:premise/u);
+  assert.match(JSON.stringify(refused), /ha fact record --task task-rpc-premise --source review:premise/u);
   assert.equal(f.events().revision, before, "a refused return publishes no event");
 
   await premise("stop");
-  const stopped = await rework(fourth);
+  const stopped = await rework(pastBudget);
   assert.equal(stopped.code, "premise_review_stop", JSON.stringify(stopped));
 
   await premise("narrow");
-  const returned = await rework(fourth),
+  const returned = await rework(pastBudget),
     event = f.events().events.find(({ opId }) => opId === returned.opId);
   assert.equal(returned.outcome, "applied", JSON.stringify(returned));
   assert.equal(event?.type, "submission_returned", JSON.stringify(event));
