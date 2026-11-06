@@ -37,6 +37,7 @@ export async function fleetNodeClaimFixture(
   > = {},
   seedRepository?: (rootDir: string) => Promise<void>,
   revokeDeviceSessions?: Parameters<typeof listenFleetTls>[0]["revokeDeviceSessions"],
+  replicaOptions: { readonly replicaAdmission?: boolean } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -108,6 +109,12 @@ export async function fleetNodeClaimFixture(
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
       nodeOwner: owners.nodeOwner,
       verifyHuman: verifyHuman ?? owners.verifyHuman,
+      ...(replicaOptions.replicaAdmission
+        ? {
+            verifyReplica: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
+              createIdentitySession(userRoot, { fetch: owners.keycloak.fetch }).bindReplica!(auth),
+          }
+        : {}),
       ...(loginAuthority ? { loginAuthority } : {}),
       ...(revokeDeviceSessions ? { revokeDeviceSessions } : {}),
       ...extra,

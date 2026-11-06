@@ -37,6 +37,7 @@ export async function fleetEdgeHostFixture(
     readonly runtimeDiscover?: Parameters<typeof openDaemonHost>[0]["runtimeDiscover"];
     readonly viewRoot?: string;
     readonly personId?: string;
+    readonly humanSession?: boolean;
     readonly nodeId?: string;
     readonly registerBeforeOpen?: boolean;
     readonly credential?: string;
@@ -132,7 +133,7 @@ export async function fleetEdgeHostFixture(
         authority: sessionAuthority,
       }),
     );
-  signIn(options.personId ?? "person-one");
+  if (options.humanSession !== false) signIn(options.personId ?? "person-one");
   const config = {
     schema: "fleet-edge-config/v1",
     repoId: options.repoId ?? "lease-repo",
