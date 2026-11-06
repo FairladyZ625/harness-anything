@@ -100,7 +100,8 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
             "fact record",
           ].map((command) => `ha ${command} *`),
           filesystem: { disabled: false },
-          network: { allowedDomains: [] },
+          // Loopback listening is open on macOS only; outbound stays denied by the empty allowlist.
+          network: { allowedDomains: [], allowLocalBinding: true },
         });
         assert.equal(settings.attribution.commit, "");
         assert.equal(launch.args[launch.args.indexOf("--setting-sources") + 1], "");
