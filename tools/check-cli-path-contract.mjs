@@ -22,11 +22,17 @@ import { validateSelectedDocPaths } from "../packages/daemon/src/doc-sync-candid
 import { daemonProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { parseThinCommand } from "../packages/cli/src/cli/thin-command.ts";
 
-const PATH_KINDS = new Set(["ledger-document", "workspace-file", "cli-local"]);
+const PATH_KINDS = new Set(["ledger-document", "workspace-file", "cli-local", "host-path", "non-path"]);
 const WRITE_CLASSES = new Set(["repo-write", "arbiter", "admin"]);
 // The registry is the only list: a path flag is a path flag because of what it is named, not
 // because a command was added to a maintenance list here.
-const isPathInputName = (name) => name === "--path" || /-file$/u.test(name);
+const isPathInputName = (name) =>
+  name === "--path" ||
+  name === "--source" ||
+  name === "--destination" ||
+  name === "--cwd" ||
+  name === "--root" ||
+  /-(?:file|dir|directory|root)$/u.test(name);
 
 export function checkCliPathContract({ commands = daemonProtocolCommands, workspaceRoot } = {}) {
   const violations = [];
@@ -41,7 +47,7 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
       if (!PATH_KINDS.has(input.pathKind)) {
         violations.push(
           `${command.id} ${input.name}: path input must declare pathKind (ledger-document|workspace-file|cli-local); ` +
-            `rename the flag or declare the coordinate it is read in`,
+            `declare whether it names repository content or a host location, or rename the flag`,
         );
         continue;
       }

@@ -32,7 +32,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }),
     cliInput("--enable-handoff", "boolean", false, { code: "invalid_field" }),
     cliInput("--instance", "single", false, { code: "invalid_field" }),
-    cliInput("--cwd", "single", false, { code: "invalid_field" }),
+    cliInput("--cwd", "single", false, { code: "invalid_field" }, { pathKind: "host-path" }),
     cliInput("--to", "single", false, { code: "invalid_field" }),
     cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt-file"] }),
     cliInput(
@@ -130,9 +130,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         { requires: ["--task"], conflictsWith: ["--prompt"] },
       ),
-      cliInput("--cwd", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--cwd",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "host-path" },
+      ),
       cliInput("--task", "single", false, { code: "invalid_field" }),
       cliInput("--resume", "single", false, {
         code: "invalid_field",
@@ -342,9 +348,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--external-url", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--state-root", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--state-root",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "host-path" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -381,9 +393,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--credential", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--view-root", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--view-root",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "host-path" },
+      ),
       cliInput(
         "--quota-bytes",
         "single",
