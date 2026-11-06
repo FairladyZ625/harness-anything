@@ -534,6 +534,7 @@ export function reduceTaskEvent(
         ? { executions: replaceExecution(snapshot.executions, event.payload.execution) }
         : {}),
       ...(event.payload.siblingResolution ? { siblingResolution: event.payload.siblingResolution } : {}),
+      ...(event.payload.externalResolution ? { externalResolution: event.payload.externalResolution } : {}),
       lease: null,
     };
   assertReplay(snapshot, event, next);
@@ -920,7 +921,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     ]);
   if (
     event.type === "task_completed" &&
-    event.payload.siblingResolution &&
+    (event.payload.siblingResolution || event.payload.externalResolution) &&
     (!snapshot.task ||
       ["done", "cancelled"].includes(snapshot.task.status) ||
       snapshot.lease ||
@@ -928,7 +929,10 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       event.payload.task.status !== "done")
   )
     throw new TaskLifecycleContractError("invalid_transition", [
-      lifecycleContractIssue("invalid_transition", "replayed sibling completion requires an open task without a lease"),
+      lifecycleContractIssue(
+        "invalid_transition",
+        "replayed resolution completion requires an open task without a lease",
+      ),
     ]);
   if (
     event.type === "task_completed" &&

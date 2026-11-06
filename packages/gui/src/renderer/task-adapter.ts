@@ -53,6 +53,7 @@ function adaptProjectionRow(
     packageDisposition: row.placement.packageDisposition,
     closeoutReadiness: row.closeoutAssessment.readiness,
     ...(row.snapshot.siblingResolution ? { siblingResolution: row.snapshot.siblingResolution } : {}),
+    ...(row.snapshot.externalResolution ? { externalResolution: row.snapshot.externalResolution } : {}),
     engine: row.placement.engine,
     origin: row.placement.origin,
     source:

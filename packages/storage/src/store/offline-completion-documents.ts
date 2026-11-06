@@ -25,6 +25,9 @@ export function completionDocumentConverter(readContent: (sha256: string) => Uin
       ...(event.type === "task_completed" && event.payload.siblingResolution
         ? { siblingResolution: event.payload.siblingResolution }
         : {}),
+      ...(event.type === "task_completed" && event.payload.externalResolution
+        ? { externalResolution: event.payload.externalResolution }
+        : {}),
       ...("task" in payload ? { task: payload.task } : {}),
       ...("execution" in payload && payload.execution
         ? { executions: upsert(previous.executions, payload.execution, "executionId") }

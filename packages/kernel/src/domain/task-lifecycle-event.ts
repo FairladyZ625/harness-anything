@@ -267,6 +267,11 @@ export type TaskCompletedEvent = TaskEventEnvelope<
       readonly rationale: string;
       readonly factRef: string;
     };
+    readonly externalResolution?: {
+      readonly commitSha: string;
+      readonly rationale: string;
+      readonly factRef: string;
+    };
     readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
     readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
   }
@@ -452,6 +457,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
         Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "closeoutGates"),
         Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "siblingResolution"),
         Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "reviewId"),
+        Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "externalResolution"),
       ),
       ...((value.type === "review_consent_recorded" || value.type === "review_consent_overridden") &&
       Object.hasOwn(payload, "azp")
@@ -490,6 +496,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     if (
       value.type !== "task_completed" ||
       payload.execution !== undefined ||
+      payload.externalResolution !== undefined ||
       !isRecord(resolution) ||
       !hasOnlyFields(resolution, ["sourceTaskId", "rationale", "factRef"]) ||
       !isNonEmptyString(resolution.sourceTaskId) ||
@@ -499,6 +506,24 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     )
       issues.push(
         invalidEventPayloadIssue("sibling resolution must name another task, a rationale, and a canonical Fact"),
+      );
+  }
+  if (payload.externalResolution !== undefined) {
+    const resolution = payload.externalResolution;
+    if (
+      value.type !== "task_completed" ||
+      payload.execution !== undefined ||
+      payload.siblingResolution !== undefined ||
+      !isRecord(resolution) ||
+      !hasOnlyFields(resolution, ["commitSha", "rationale", "factRef"]) ||
+      !isNativeCommitSha(resolution.commitSha) ||
+      !isNonEmptyString(resolution.rationale) ||
+      !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String(resolution.factRef))
+    )
+      issues.push(
+        invalidEventPayloadIssue(
+          "external resolution must name a commit, a rationale, and a canonical Fact without an execution",
+        ),
       );
   }
   if (payload.historicalAcceptance !== undefined) {
@@ -528,7 +553,9 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "completion_gate_verified",
       "gate_run_changed",
       "task_completion_generation_retired",
-      ...(value.type === "task_completed" && isRecord(payload) && payload.siblingResolution !== undefined
+      ...(value.type === "task_completed" &&
+      isRecord(payload) &&
+      (payload.siblingResolution !== undefined || payload.externalResolution !== undefined)
         ? []
         : ["task_completed"]),
       "lease_released",
@@ -716,8 +743,13 @@ function lifecyclePayloadFields(
   closeoutGates = false,
   siblingResolution = false,
   reviewId = false,
+  externalResolution = false,
 ): readonly string[] {
-  const common = ["task", ...(type === "task_completed" && siblingResolution ? [] : ["execution"]), "documentClaims"];
+  const common = [
+    "task",
+    ...(type === "task_completed" && (siblingResolution || externalResolution) ? [] : ["execution"]),
+    "documentClaims",
+  ];
   if (type === "task_created") return ["task", "documentClaims"];
   if (type === "execution_started" || type === "lease_renewed")
     return [...common, "lease", "previousHolder", "leaseExpiresAt", "reason"];
@@ -741,6 +773,7 @@ function lifecyclePayloadFields(
     return [
       ...common,
       ...(siblingResolution ? ["siblingResolution"] : []),
+      ...(externalResolution ? ["externalResolution"] : []),
       ...(closeoutGates ? ["closeoutGates"] : []),
       ...(factRetirementAttestations ? ["factRetirementAttestations"] : []),
     ];

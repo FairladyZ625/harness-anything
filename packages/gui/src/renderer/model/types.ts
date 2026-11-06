@@ -108,6 +108,7 @@ interface TaskRowFields {
   packageDisposition: PackageDisposition;
   closeoutReadiness: CloseoutReadiness;
   siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
+  externalResolution?: { readonly commitSha: string; readonly rationale: string; readonly factRef: string };
   engine: EngineId;
   origin?: "native" | "archival" | "external";
   source: "local-document" | "external-engine" | "snapshot-cache";

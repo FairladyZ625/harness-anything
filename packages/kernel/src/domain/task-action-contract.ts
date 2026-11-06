@@ -663,7 +663,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", retry: "closeout-stage-resume" },
     ),
-    explain: "Complete; use --resolved-by with rationale + Fact for sibling fixes, replacing cancel + relate.",
+    explain:
+      "Complete; --resolved-by with rationale + Fact resolves a sibling or merged commit, replacing cancel + relate.",
   }),
   mutation(
     "release",

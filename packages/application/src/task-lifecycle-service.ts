@@ -620,15 +620,23 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
     return {
       ...common,
       executionId: event.payload.execution?.executionId ?? "",
-      ...(event.payload.siblingResolution
+      ...(event.payload.externalResolution
         ? {
             resolution: {
-              resolvedByTaskId: event.payload.siblingResolution.sourceTaskId,
-              rationale: event.payload.siblingResolution.rationale,
-              factRef: event.payload.siblingResolution.factRef,
+              resolvedByCommit: event.payload.externalResolution.commitSha,
+              rationale: event.payload.externalResolution.rationale,
+              factRef: event.payload.externalResolution.factRef,
             },
           }
-        : {}),
+        : event.payload.siblingResolution
+          ? {
+              resolution: {
+                resolvedByTaskId: event.payload.siblingResolution.sourceTaskId,
+                rationale: event.payload.siblingResolution.rationale,
+                factRef: event.payload.siblingResolution.factRef,
+              },
+            }
+          : {}),
       factRetirementAttestations: event.payload.factRetirementAttestations ?? [],
     };
   if (event.type === "lease_renewed")

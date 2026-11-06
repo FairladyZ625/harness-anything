@@ -1,5 +1,5 @@
 import { clearExecutionArrangement } from "./task-execution-arrangement.ts";
-import { submissionDigest } from "./execution.ts";
+import { isNativeCommitSha, submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
@@ -533,33 +533,53 @@ export const complete: Transition = {
       gatesValid = isValidCloseoutGateRecord(proof.closeoutGates),
       assessment = closeoutReadiness(snapshot, undefined, gatesValid ? proof.closeoutGates : undefined, proof.delivery);
     if (command.resolution) {
-      if (
-        !isNonEmptyString(command.resolution.resolvedByTaskId) ||
-        !isNonEmptyString(command.resolution.rationale) ||
-        !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(command.resolution.factRef)
-      )
+      const resolution = command.resolution;
+      if ("resolvedByTaskId" in resolution && "resolvedByCommit" in resolution)
         issues.push(
-          lifecycleContractIssue("invalid_schema", "Sibling resolution requires source task, rationale, and Fact"),
+          lifecycleContractIssue("invalid_schema", "Resolution names exactly one source: a task or a commit"),
         );
-      if (
-        !proof.siblingResolution?.sourceDone ||
-        proof.siblingResolution.sourceTaskId !== command.resolution.resolvedByTaskId ||
-        proof.siblingResolution.factRef !== command.resolution.factRef
-      )
-        issues.push(
-          lifecycleContractIssue("invalid_transition", "Sibling task must be durably done before resolution"),
-        );
-      if (
-        !task ||
-        ["done", "cancelled"].includes(task.status) ||
-        command.resolution.resolvedByTaskId === command.taskId
-      )
-        issues.push(
-          lifecycleContractIssue(
-            "invalid_transition",
-            "Sibling resolution requires an open task and a different source task",
-          ),
-        );
+      if ("resolvedByCommit" in resolution) {
+        if (
+          !isNativeCommitSha(resolution.resolvedByCommit) ||
+          !isNonEmptyString(resolution.rationale) ||
+          !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(resolution.factRef)
+        )
+          issues.push(
+            lifecycleContractIssue("invalid_schema", "External resolution requires a commit sha, rationale, and Fact"),
+          );
+        if (
+          proof.externalResolution?.factOnMain !== true ||
+          proof.externalResolution.commitSha !== resolution.resolvedByCommit ||
+          proof.externalResolution.factRef !== resolution.factRef
+        )
+          issues.push(lifecycleContractIssue("invalid_transition", "External commit must be proven on main"));
+        if (!task || ["done", "cancelled"].includes(task.status))
+          issues.push(lifecycleContractIssue("invalid_transition", "External resolution requires an open task"));
+      } else {
+        if (
+          !isNonEmptyString(resolution.resolvedByTaskId) ||
+          !isNonEmptyString(resolution.rationale) ||
+          !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(resolution.factRef)
+        )
+          issues.push(
+            lifecycleContractIssue("invalid_schema", "Sibling resolution requires source task, rationale, and Fact"),
+          );
+        if (
+          !proof.siblingResolution?.sourceDone ||
+          proof.siblingResolution.sourceTaskId !== resolution.resolvedByTaskId ||
+          proof.siblingResolution.factRef !== resolution.factRef
+        )
+          issues.push(
+            lifecycleContractIssue("invalid_transition", "Sibling task must be durably done before resolution"),
+          );
+        if (!task || ["done", "cancelled"].includes(task.status) || resolution.resolvedByTaskId === command.taskId)
+          issues.push(
+            lifecycleContractIssue(
+              "invalid_transition",
+              "Sibling resolution requires an open task and a different source task",
+            ),
+          );
+      }
       if (
         snapshot.lease ||
         proof.noActiveLease !== true ||
@@ -633,30 +653,43 @@ export const complete: Transition = {
         status: "done",
         pinned: false,
       };
-    const siblingResolution = command.resolution
-      ? {
-          sourceTaskId: command.resolution.resolvedByTaskId,
-          rationale: command.resolution.rationale,
-          factRef: command.resolution.factRef,
-        }
-      : undefined;
-    const payload: Omit<TaskCompletedEvent["payload"], "documentClaims"> = siblingResolution
-      ? { task, siblingResolution }
-      : {
-          task,
-          execution: nextExecution,
-          closeoutGates: proof.closeoutGates,
-          ...(command.factRetirementAttestations?.length
-            ? { factRetirementAttestations: command.factRetirementAttestations }
-            : {}),
-        };
+    const siblingResolution =
+        command.resolution && "resolvedByTaskId" in command.resolution
+          ? {
+              sourceTaskId: command.resolution.resolvedByTaskId,
+              rationale: command.resolution.rationale,
+              factRef: command.resolution.factRef,
+            }
+          : undefined,
+      externalResolution =
+        command.resolution && "resolvedByCommit" in command.resolution
+          ? {
+              commitSha: command.resolution.resolvedByCommit,
+              rationale: command.resolution.rationale,
+              factRef: command.resolution.factRef,
+            }
+          : undefined;
+    const payload: Omit<TaskCompletedEvent["payload"], "documentClaims"> = externalResolution
+      ? { task, externalResolution }
+      : siblingResolution
+        ? { task, siblingResolution }
+        : {
+            task,
+            execution: nextExecution,
+            closeoutGates: proof.closeoutGates,
+            ...(command.factRetirementAttestations?.length
+              ? { factRetirementAttestations: command.factRetirementAttestations }
+              : {}),
+          };
     return {
       snapshot: {
         ...snapshot,
         revision: command.workspaceRevision,
         task,
-        ...(siblingResolution
-          ? { siblingResolution }
+        ...(externalResolution ? { externalResolution } : {}),
+        ...(siblingResolution ? { siblingResolution } : {}),
+        ...(externalResolution || siblingResolution
+          ? {}
           : { executions: replaceExecution(snapshot.executions, nextExecution) }),
       },
       event: envelope<TaskCompletedEvent>(command, "task_completed", payload),

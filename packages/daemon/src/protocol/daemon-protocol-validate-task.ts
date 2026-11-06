@@ -58,7 +58,13 @@ export const availabilityFields = ["consents", "gateWitnesses"] as const,
   ] as const,
   // Snapshot fields only some snapshots carry: reviewDispositions arrives with overridden consents,
   // forwardedCuts with a journal that recorded the owner's forward adjudications.
-  snapshotOptionalFields = ["reviewDispositions", "reviewResponses", "forwardedCuts", "siblingResolution"] as const;
+  snapshotOptionalFields = [
+    "reviewDispositions",
+    "reviewResponses",
+    "forwardedCuts",
+    "siblingResolution",
+    "externalResolution",
+  ] as const;
 
 const artifactEntityImportProtocolInput = Object.freeze({
   schema: "entity-action-input/v1",
@@ -591,6 +597,14 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
       !nonEmpty(value.siblingResolution.factRef))
   )
     paths.push("snapshot.siblingResolution");
+  if (
+    value.externalResolution !== undefined &&
+    (!exactRecord(value.externalResolution, ["commitSha", "rationale", "factRef"]) ||
+      !sha(value.externalResolution.commitSha) ||
+      !nonEmpty(value.externalResolution.rationale) ||
+      !nonEmpty(value.externalResolution.factRef))
+  )
+    paths.push("snapshot.externalResolution");
   if (value.task !== null && !task(value.task)) paths.push("snapshot.task");
   for (const [field, validate] of [
     ["executions", execution],
