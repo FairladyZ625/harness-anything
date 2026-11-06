@@ -201,7 +201,7 @@ export function publicConfig(
     const value = source === "baseUrlConfigured" ? provider.baseUrl !== undefined : provider[source];
     if (value !== undefined) configuration[target] = value;
   }
-  return { ...common, kindId: config.kindId, configuration };
+  return { ...common, kindId: config.kindId, configuration, capabilities: declaration.capabilities };
 }
 
 export function definitionSnapshot(

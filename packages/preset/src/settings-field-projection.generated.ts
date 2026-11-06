@@ -238,6 +238,12 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "runtimeCommandInterceptions",
+      description: "Named regular expressions that deny matching shell commands, optionally scoped to an agent id.",
+      type: "json-object-array",
+      required: false,
+    },
+    {
       field: "runtimeAgentSkills",
       description: "Skill directories this repository adds to every Agent dispatch it serves.",
       type: "string-array",
@@ -667,6 +673,16 @@ export const settingsFieldProtocolProjection = {
       kind: "repeated",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
       format: "runtime instance ids, or none to block all machine instances",
+    },
+    {
+      field: "runtimeCommandInterceptions",
+      description: "Named regular expressions that deny matching shell commands, optionally scoped to an agent id.",
+      group: "worker-permissions",
+      effect:
+        "Every dispatch injects matching rules into native provider hooks; unsupported runtimes refuse to launch.",
+      name: "--runtime-command-interceptions",
+      kind: "single",
+      projection: "json-object-array",
     },
     {
       field: "runtimeAgentSkills",

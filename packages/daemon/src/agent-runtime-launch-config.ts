@@ -1,3 +1,5 @@
+import { commandInterceptionNeedsFiles } from "./runtime-command-interception-files.ts";
+import { commandInterceptionHook, type CommandInterceptions } from "./runtime-command-interceptions.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -68,6 +70,8 @@ export function launchArgs(
   fast = false,
   callbackRelayPath?: string,
   platform: NodeJS.Platform = process.platform,
+  commandInterceptions: CommandInterceptions = [],
+  commandInterceptionArgs: readonly string[] = [],
 ): string[] {
   if (
     config.kindId === "claude" &&
@@ -88,11 +92,26 @@ export function launchArgs(
       ? ((providerSessionId ? launch.resumePermissionArgs : undefined)?.[permissionMode] ??
         launch.permissionArgs[permissionMode])
       : [];
-  return launch.argumentTemplate.flatMap((token) => {
+  if (commandInterceptions.length && declaration.capabilities.commandInterception !== "supported")
+    throw runtimeInstanceError(
+      "runtime_command_interception_unsupported",
+      `${declaration.displayName} does not support HA command interception. Rules: ${commandInterceptions.map(({ id }) => id).join(", ")}. Select a supported runtime.`,
+    );
+  if (commandInterceptions.length && commandInterceptionNeedsFiles(config.kindId) && !commandInterceptionArgs.length)
+    throw runtimeInstanceError(
+      "runtime_command_interception_unprepared",
+      "Native command interception requires the runtime instance launch preparer.",
+    );
+  const hook = commandInterceptions.length ? commandInterceptionHook(commandInterceptions) : null,
+    hookSettings = hook
+      ? { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: hook }] }] }
+      : undefined;
+  const args = launch.argumentTemplate.flatMap((token) => {
     if (token === "$claude-settings")
       return [
         JSON.stringify({
           attribution: { commit: "", pr: "", sessionUrl: false },
+          ...(hookSettings ? { hooks: hookSettings, disableAllHooks: false } : {}),
           ...(permissionMode === "workspace-write" ? { sandbox: claudeWorkspaceWriteSandbox } : {}),
         }),
       ];
@@ -131,10 +150,29 @@ export function launchArgs(
     if (token === "$session") return providerSessionId ? [providerSessionId] : [];
     if (token === "$effort-flag") return effort ? ["--effort", effort === "minimal" ? "low" : effort] : [];
     if (token === "$effort-config") return effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : [];
-    if (token === "$api-auth") return config.auth.mode === "api-key" ? (launch.apiKeyArgs ?? []) : [];
+    // Claude --bare disables settings hooks, including --settings. Keep it only on
+    // launches with no project interception rather than silently dropping the policy.
+    if (token === "$api-auth") return config.auth.mode === "api-key" && !hook ? (launch.apiKeyArgs ?? []) : [];
     if (token === "$fast") return fast ? (launch.fastArgs ?? []) : [];
     return [token];
   });
+  if (config.kindId === "codex" && hook)
+    args.push(
+      "--config",
+      "features.hooks=true",
+      "--config",
+      `hooks.PreToolUse=[{matcher="Bash",hooks=[{type="command",command=${tomlString(hook)}}]}]`,
+      "--dangerously-bypass-hook-trust",
+    );
+  if (config.kindId === "codebuddy" && hookSettings)
+    args.push("--settings", JSON.stringify({ hooks: hookSettings, disableAllHooks: false }));
+  if (config.kindId === "kimi" && hook)
+    args.unshift(
+      "--config",
+      JSON.stringify({ hooks: [{ event: "PreToolUse", matcher: "Bash|Shell", command: hook }] }),
+    );
+  args.unshift(...commandInterceptionArgs);
+  return args;
 }
 
 export async function providerSubscriptionReadiness(

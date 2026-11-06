@@ -478,6 +478,8 @@ test("runtime instance command receipts expose readiness metadata without creden
       defaultModel: "gpt-5.6-sol",
       enabled: true,
       permissionMode: "bypass",
+      // dec_5DBF5F2B38719E4B52003D178D: capability queries expose the same native-hook declaration.
+      capabilities: runtimeKinds.find(({ kindId }) => kindId === "codex")!.capabilities,
       configuration: {
         reasoningEffort: null,
         fast: false,

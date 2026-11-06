@@ -686,3 +686,45 @@ test("settings saves keep their token across doc writes and harness.yaml edits b
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("project command interception settings persist through the principal-owned writer and reject invalid updates", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-command-interception-settings-"));
+  initRepo(root);
+  const cell = await openRepoCell({
+      repoId: workspaceId("interception-settings"),
+      rootDir: canonicalRoot(root),
+      ownerId: "interception-settings",
+    }),
+    owner = withPolicyGroup({ actor, source: "local" as const }, "admin"),
+    rules = [
+      { id: "no-publish", pattern: "npm publish" },
+      { id: "no-release", pattern: "scripts/release", agent: "sol" },
+    ];
+  try {
+    const changed = await cell.run({ kind: "settings-update", runtimeCommandInterceptions: rules }, owner);
+    assert.equal(changed.outcome, "applied", JSON.stringify(changed));
+    const read = await cell.run({ kind: "settings-read" }, owner);
+    assert.deepEqual(
+      (read.settings as { runtime: { commandInterceptions: unknown } }).runtime.commandInterceptions,
+      rules,
+    );
+    const invalid = await cell.run(
+      { kind: "settings-update", runtimeCommandInterceptions: [{ id: "broken", pattern: "[" }] },
+      owner,
+    );
+    assert.equal(invalid.outcome, "op_rejected", JSON.stringify(invalid));
+    const agent = await cell.run(
+      { kind: "settings-update", runtimeCommandInterceptions: [] },
+      withPolicyGroup({ actor: agentActor, source: "local" as const }, "admin"),
+    );
+    assert.equal(agent.outcome, "op_rejected", JSON.stringify(agent));
+    assert.deepEqual(
+      ((await cell.run({ kind: "settings-read" }, owner)).settings as { runtime: { commandInterceptions: unknown } })
+        .runtime.commandInterceptions,
+      rules,
+    );
+  } finally {
+    await cell.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

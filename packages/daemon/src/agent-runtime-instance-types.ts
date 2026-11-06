@@ -1,4 +1,4 @@
-import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import type { SettingsV1, AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeKindId } from "./runtime-inventory.ts";
@@ -118,6 +118,8 @@ export interface RuntimeLaunchRequest {
   readonly prompt: string;
   /** One daemon-computed Unix callback endpoint authorized for this dispatch only. */
   readonly callbackRelayPath?: string;
+  /** Effective project rules, resolved once for the selected agent by the common spawner. */
+  readonly commandInterceptions?: SettingsV1["runtime"]["commandInterceptions"];
   readonly model?: string;
   readonly effort?: string;
   readonly fast?: boolean;

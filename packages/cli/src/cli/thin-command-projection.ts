@@ -41,8 +41,8 @@ export function projectFlags(
     const input = inputs?.get(commandId)?.inputs.find((candidate) => candidate.name === name),
       field = input?.field ?? projectedField(commandId, name);
     projected[field] =
-      input?.projection === "json-object"
-        ? jsonObjectFlag(value)
+      input?.projection === "json-object" || input?.projection === "json-object-array"
+        ? jsonContainerFlag(value, input.projection === "json-object-array")
         : input?.projection === "boolean"
           ? value === "true"
           : input?.projection === "number" || field === "limit" || field === "ttlMs"
@@ -76,10 +76,10 @@ export function projectFlags(
  * the JSON stays a number all the way to the schema that judges it; a malformed value is left as the caller's
  * own string so the action input validator names the field it rejected instead of the CLI guessing at intent.
  */
-function jsonObjectFlag(value: string): unknown {
+function jsonContainerFlag(value: string, array: boolean): unknown {
   try {
     const parsed: unknown = JSON.parse(value);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : value;
+    return parsed !== null && typeof parsed === "object" && Array.isArray(parsed) === array ? parsed : value;
   } catch {
     return value;
   }

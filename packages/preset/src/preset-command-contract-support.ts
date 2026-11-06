@@ -115,7 +115,7 @@ export interface GeneratedSettingsCliInputField {
   readonly regex?: string;
   readonly enum?: readonly string[];
   readonly format?: string;
-  readonly projection?: "number" | "boolean" | "json-object";
+  readonly projection?: "number" | "boolean" | "json-object" | "json-object-array";
 }
 
 export interface GeneratedSettingsFieldProtocolProjection {

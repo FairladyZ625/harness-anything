@@ -1,3 +1,4 @@
+import type { RuntimeCapabilitySupport } from "./runtime-inventory-types.ts";
 import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,
@@ -39,6 +40,8 @@ interface AgentRuntimeInstanceCommonDto {
   readonly hostingCredentialState?: "configured";
   readonly isolationState: "enforced" | "operator-environment";
   readonly configuration: Readonly<Record<string, unknown>>;
+  /** Current HA integration capabilities, from the built-in provider declaration. */
+  readonly capabilities?: Readonly<Record<string, RuntimeCapabilitySupport>>;
 }
 export interface AgentRuntimeInstanceDto extends AgentRuntimeInstanceCommonDto {
   readonly kindId: string;
