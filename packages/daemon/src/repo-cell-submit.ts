@@ -1,6 +1,7 @@
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import {
+  completionContractGap,
   completionGuidance,
   currentExecutionCuts,
   heldLeaseForExecutionActor,
@@ -396,13 +397,39 @@ function freezeCompletionContract(
   cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
   snapshot: Snapshot,
 ): SubmissionV1["completionContract"] {
-  const frozenPreset = cell.projection.readPresetSnapshot(snapshot.task!.presetSnapshotDigest!)
+  const task = snapshot.task;
+  if (!task) throw cell.cellCodedError("invalid_submission", "Submission has no task contract to freeze.");
+  const gap = completionContractGap(task);
+  if (gap)
+    throw Object.assign(cell.cellCodedError("invalid_submission", `${gap.reason} Run ${gap.action}.`), {
+      nextAction: gap.action,
+    });
+  if (!task.presetSnapshotDigest)
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Task ${task.taskId} has no preset snapshot digest, so its completion contract cannot be frozen.`,
+    );
+  const frozenPreset = cell.projection.readPresetSnapshot(task.presetSnapshotDigest)
     .snapshot as import("@harness-anything/preset").PresetSnapshotV1;
+  if (!frozenPreset) {
+    // `readPresetSnapshot` answers null when the frozen bytes are unavailable. The old path passed
+    // that null into resolveCompletionContract and read `.completion` from it.
+    const presetId = task.metadata?.presetId ?? "standard-task",
+      action = `ha task contract migrate --task ${task.taskId} --to-preset ${presetId} --apply`;
+    throw Object.assign(
+      cell.cellCodedError(
+        "invalid_submission",
+        `Task ${task.taskId} has no usable completion contract: preset snapshot ${task.presetSnapshotDigest} ` +
+          `bytes are unavailable. Run ${action}.`,
+      ),
+      { nextAction: action },
+    );
+  }
   const resolved = resolveCompletionContract(
-    snapshot.task?.completionGateIds ?? [],
+    task.completionGateIds ?? [],
     cell.settings.readRepository(),
     frozenPreset,
-    snapshot.task?.closeoutOverrides,
+    task.closeoutOverrides,
   );
   if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
   // The cut freezes the resolved reviewer declaration so a later settings change never redirects a
@@ -411,7 +438,7 @@ function freezeCompletionContract(
   return {
     ...resolved.contract,
     reviewer: {
-      agentId: snapshot.task?.reviewer ?? cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer",
+      agentId: task.reviewer ?? cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer",
     },
   };
 }
@@ -701,6 +728,25 @@ export async function submitTask(
           : cuts.length === 1
             ? cuts[0]
             : undefined;
+  // The completion-contract judgment already names these tasks. Submit answers with the same named
+  // refusal and the explicit migration instead of walking into a null snapshot below.
+  const contractGap = completionContractGap(current.snapshot.task);
+  if (contractGap)
+    return {
+      ...cell.rejected(
+        cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
+        contractGap.code,
+      ),
+      rejectionExplanation: `${contractGap.reason} Run ${contractGap.action}.`,
+      next: [
+        completionGuidance(
+          current.snapshot,
+          typeof action.executionId === "string" ? action.executionId : "",
+          contractGap.action,
+          contractGap.reason,
+        ),
+      ],
+    } as WriteReceiptDraft;
   const ownerAmendment =
     action.amend === true &&
     action.asOwner === true &&

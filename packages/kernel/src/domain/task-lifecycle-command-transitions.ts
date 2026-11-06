@@ -28,6 +28,7 @@ import type {
 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { validateTaskReviewResponseV1 } from "./review.ts";
+import { completionContractGap } from "./completion-readiness.ts";
 import { isTaskRiskTierAssessmentNonDecreasing } from "./task-risk-tier-assessment.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
@@ -482,13 +483,16 @@ export const submit: Transition = {
       )
         issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease"));
     }
-    if (task?.presetSnapshotGap)
+    if (task?.presetSnapshotGap) {
+      const gap = completionContractGap(task);
       issues.push(
         lifecycleContractIssue(
           "invalid_submission",
-          `Historical snapshot bytes are unavailable: ${task.presetSnapshotDigest}. Upgrade the task snapshot before a new submission.`,
+          `Historical snapshot bytes are unavailable: ${task.presetSnapshotDigest}. ` +
+            `Run ${gap?.action ?? "ha task contract migrate --task <task-id> --to-preset <preset> --apply"} before a new submission.`,
         ),
       );
+    }
     issues.push(...validateSubmissionV1(command.submission));
     if (
       command.submission.riskTierAssessment !== undefined &&

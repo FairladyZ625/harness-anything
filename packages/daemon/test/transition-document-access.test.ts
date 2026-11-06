@@ -2,8 +2,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { assessTransitionDocument, transitionDocumentContract } from "@harness-anything/kernel";
-import { transitionDocumentReadinessContract } from "../src/transition-document-access.ts";
+import { assessTransitionDocument, transitionDocumentContract, type TaskProjection } from "@harness-anything/kernel";
+import {
+  assertTaskTransitionDocumentReady,
+  transitionDocumentReadinessContract,
+} from "../src/transition-document-access.ts";
 
 const planHeadings = [
   "Brief",
@@ -141,3 +144,85 @@ test("a contract citing the retired milestone plan template reads the work plan 
 function realizedPlan(): string {
   return `# Plan\n\n${planHeadings.map((heading) => `## ${heading}\n\nImplemented ${heading}.`).join("\n\n")}\n`;
 }
+
+/** One task package whose plan contract and body are otherwise ready. */
+function admissionProjection(task: Readonly<Record<string, unknown>>, planBody = realizedPlan()): TaskProjection {
+  const template = readFileSync(
+      new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
+      "utf8",
+    ),
+    contractBody = JSON.stringify({
+      documents: [
+        {
+          slot: "task.plan",
+          path: "task_plan.md",
+          readiness: transitionDocumentContract(template).scaffoldBySection,
+        },
+      ],
+    });
+  return {
+    read: () => ({
+      status: "ready",
+      watermark: 1,
+      sourceRevision: 1,
+      snapshot: { task },
+      packagePath: "tasks/task-1",
+    }),
+    readDocument: (target: string) => ({
+      status: "ready",
+      watermark: 1,
+      sourceRevision: 1,
+      document: {
+        body: target.endsWith("task-contract.json") ? contractBody : planBody,
+        workspaceRevision: 1,
+        blobSha256: `sha256:${"c".repeat(64)}`,
+      },
+    }),
+  } as unknown as TaskProjection;
+}
+
+test("start and dispatch admission name an unavailable preset snapshot and its migration command", () => {
+  for (const transition of ["task.start", "runtime.run"])
+    assert.throws(
+      () =>
+        assertTaskTransitionDocumentReady({
+          rootDir: "/tmp",
+          projection: admissionProjection({
+            taskId: "task-1",
+            taskClass: "standard",
+            status: "planned",
+            currentNode: "implementation",
+            presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
+            presetSnapshotGap: { reason: "snapshot-bytes-unavailable", sourceGeneration: 2, sourceRevision: 1 },
+            metadata: { presetId: "standard-task" },
+          }),
+          taskId: "task-1",
+          slot: "task.plan",
+          transition,
+        }),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "document_invalid" &&
+        /ha task contract migrate --task task-1 --to-preset standard-task --apply/u.test(error.message),
+      transition,
+    );
+});
+
+test("start admission still reads the plan of a task with a usable contract", () => {
+  const document = assertTaskTransitionDocumentReady({
+    rootDir: "/tmp",
+    projection: admissionProjection({
+      taskId: "task-1",
+      taskClass: "standard",
+      status: "planned",
+      currentNode: "implementation",
+      presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
+      metadata: { presetId: "standard-task" },
+    }),
+    taskId: "task-1",
+    slot: "task.plan",
+    transition: "task.start",
+  });
+  assert.equal(document.body, realizedPlan());
+});
