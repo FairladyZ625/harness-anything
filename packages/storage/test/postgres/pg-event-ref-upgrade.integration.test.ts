@@ -73,6 +73,18 @@ test("previous event schema upgrades table, RLS and grants before exposing the r
               if (sql.startsWith("CREATE OR REPLACE TRIGGER ha_event_entity_ref_fields ")) {
                 // There is no grant call or write pause between installing this trigger and old writers.
                 await previousInsert(2);
+                await withPostgresTransaction(
+                  fixture.pool,
+                  async (client) => {
+                    assert.equal(
+                      (await client.query("SELECT read_index_version FROM ha_events WHERE revision=2")).rows[0]
+                        .read_index_version,
+                      5,
+                      "the v6 marker is installed only after ref maintenance; window writes remain pending",
+                    );
+                  },
+                  scope,
+                );
                 observedTrigger = true;
               }
               return result;
@@ -135,7 +147,7 @@ test("previous event schema upgrades table, RLS and grants before exposing the r
     await withPostgresTransaction(
       fixture.adminPool,
       async (client) => {
-        for (const expected of [1, 0])
+        for (const expected of [2, 0])
           assert.equal(
             (await client.query("SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed", keys)).rows[0]
               .processed,
