@@ -713,7 +713,7 @@ function observeExecution(
   if (workspace.root === null || workspace.worktreeRoot === null) return { reason: workspace.reason };
   // The marker is written only by the local start that prepared this worktree. A reused old
   // checkout, a failed checkout, or a marker from another execution has no matching proof.
-  const marker = readTaskWorktreeExecutionBinding(workspace.worktreeRoot);
+  const marker = readTaskWorktreeExecutionBinding(workspace.worktreeRoot, executionId);
   if (marker.invalid) return { reason: "execution_workspace_marker_invalid" };
   if (
     marker.binding === null ||

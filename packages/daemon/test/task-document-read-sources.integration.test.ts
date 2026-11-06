@@ -13,11 +13,7 @@ import test from "node:test";
 import { sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
-import {
-  readTaskWorktreeExecutionBinding,
-  taskWorktreeExecutionBindingPath,
-  writeTaskWorktreeExecutionBinding,
-} from "../src/task-worktree.ts";
+import { readTaskWorktreeExecutionBinding, taskWorktreeExecutionBindingPath } from "../src/task-worktree.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -255,9 +251,18 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
       (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
     );
     assert.ok(worktree, "the fixture must have a materialized execution worktree");
-    assert.equal(readTaskWorktreeExecutionBinding(worktree).binding?.executionId, executionId);
+    assert.equal(readTaskWorktreeExecutionBinding(worktree, executionId).binding?.executionId, executionId);
 
-    writeTaskWorktreeExecutionBinding(worktree, taskId, "execution-stale");
+    const markerPath = taskWorktreeExecutionBindingPath(worktree, executionId);
+    writeFileSync(
+      markerPath,
+      JSON.stringify({
+        schema: "task-worktree-execution-binding/v1",
+        taskId,
+        executionId: "execution-stale",
+        boundAt: new Date().toISOString(),
+      }),
+    );
     const stale = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
       path: "task_plan.md",
@@ -265,13 +270,10 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
       executionId,
     })) as DocumentRead;
     assert.equal(stale.source, "unobservable");
-    assert.equal(stale.unobservableReason, "execution_workspace_unbound");
+    assert.equal(stale.unobservableReason, "execution_workspace_marker_invalid");
     assert.equal(stale.body, "");
 
-    writeFileSync(
-      taskWorktreeExecutionBindingPath(worktree),
-      '{"schema":"task-worktree-execution-binding/v1","taskId":',
-    );
+    writeFileSync(markerPath, '{"schema":"task-worktree-execution-binding/v1","taskId":');
     const corrupt = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
       path: "task_plan.md",
@@ -281,7 +283,7 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
     assert.equal(corrupt.source, "unobservable");
     assert.equal(corrupt.unobservableReason, "execution_workspace_marker_invalid");
 
-    rmSync(taskWorktreeExecutionBindingPath(worktree));
+    rmSync(markerPath);
     const missing = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
       path: "task_plan.md",
@@ -290,6 +292,28 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
     })) as DocumentRead;
     assert.equal(missing.source, "unobservable");
     assert.equal(missing.unobservableReason, "execution_workspace_unbound");
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a rejected competing start cannot overwrite the holder's marker", async () => {
+  const fixture = await startTaskWithTwoCuts();
+  try {
+    const rejected = await fixture.cell
+      .run({ kind: "task-start", taskId, executionId: "execution-competing" }, fixture.binding)
+      .catch((error: unknown) => ({ outcome: "threw", message: String(error) }) as const);
+    assert.notEqual(rejected.outcome, "applied", "the second start must be rejected while A holds the lease");
+
+    const observed = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(observed.source, "execution", "the rejected competing start must not unbind execution A");
+    assert.equal(observed.body, fixture.v2Body);
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
@@ -305,7 +329,7 @@ test("a marker write failure refuses the start before the command is written", a
       (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
     );
     assert.ok(worktree, "the fixture must have a materialized execution worktree");
-    const markerPath = taskWorktreeExecutionBindingPath(worktree);
+    const markerPath = taskWorktreeExecutionBindingPath(worktree, executionId);
     rmSync(markerPath);
     mkdirSync(markerPath);
 

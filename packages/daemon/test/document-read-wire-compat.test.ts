@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { sha256Bytes } from "@harness-anything/kernel";
 import test from "node:test";
-import { validateDaemonDocumentRead } from "../src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolError, validateDaemonDocumentRead } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResponse } from "../src/protocol/gui-result-validation.ts";
 
 const v2Response = {
@@ -67,4 +67,20 @@ test("a v2 binary response hashes the bytes it actually returned", () => {
   assert.equal(parsed.blobSha256, sha256Bytes(bytes), "the digest must describe the returned bytes");
   assert.equal(parsed.size, bytes.byteLength);
   assert.deepEqual(Buffer.from(String(parsed.bytes), "base64"), bytes);
+});
+
+test("a previous daemon's document-read rejection parses unchanged", () => {
+  const rejection = daemonProtocolError(
+      "repo.tasks.document.read",
+      "task_not_found",
+      "Task task-v2-document does not exist in the canonical event stream.",
+    ),
+    parsed = parseDaemonGuiReadResponse("repo.tasks.document.read", rejection) as {
+      readonly ok: false;
+      readonly code: string;
+      readonly rejectionExplanation: string;
+    };
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.code, "task_not_found");
+  assert.match(parsed.rejectionExplanation, /does not exist/u);
 });

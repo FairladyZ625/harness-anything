@@ -406,7 +406,7 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
 /** A v2 daemon answer has no source/syncState. Keep its readable content, but mark provenance
  * unknown and make a raw artifact's digest/size describe the bytes that were actually returned. */
 function previousDocumentReadResult(value: unknown): unknown {
-  if (!isJsonObject(value)) return value;
+  if (!isJsonObject(value) || value.ok === false) return value;
   const data = repositoryReadData(value);
   if (!isJsonObject(data) || Object.hasOwn(data, "source")) return value;
   const normalized: Record<string, unknown> = {

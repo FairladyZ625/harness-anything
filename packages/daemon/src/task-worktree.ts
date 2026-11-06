@@ -473,7 +473,7 @@ type TaskWorktreeAction = {
   readonly dryRun?: unknown;
 };
 
-const executionBindingFileName = "harness-execution-binding.json";
+const executionBindingsDirectory = "harness-execution-bindings";
 
 /** Node-local proof that the worktree was prepared for one execution. It lives in the worktree's
  * own git directory, so it never enters the ledger and cannot be forged by a document write. */
@@ -484,12 +484,15 @@ export interface TaskWorktreeExecutionBindingV1 {
   readonly boundAt: string;
 }
 
-export function taskWorktreeExecutionBindingPath(cwd: string): string {
+/** One file per execution: a rejected or competing start can only write its own id, never the
+ * marker of the execution that currently holds the lease. */
+export function taskWorktreeExecutionBindingPath(cwd: string, executionId: string): string {
   const gitPath = path.join(cwd, ".git"),
     gitDirectory = lstatSync(gitPath).isFile()
       ? path.resolve(cwd, /^gitdir: (.+)$/mu.exec(readFileSync(gitPath, "utf8"))![1]!.trim())
-      : gitPath;
-  return path.join(gitDirectory, executionBindingFileName);
+      : gitPath,
+    fileName = `${Buffer.from(executionId, "utf8").toString("base64url")}.json`;
+  return path.join(gitDirectory, executionBindingsDirectory, fileName);
 }
 
 export function writeTaskWorktreeExecutionBinding(
@@ -498,7 +501,7 @@ export function writeTaskWorktreeExecutionBinding(
   executionId: string,
   boundAt = new Date().toISOString(),
 ): void {
-  const file = taskWorktreeExecutionBindingPath(cwd);
+  const file = taskWorktreeExecutionBindingPath(cwd, executionId);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(
     file,
@@ -508,11 +511,14 @@ export function writeTaskWorktreeExecutionBinding(
 
 /** A partial or corrupt file is `invalid`, not "no marker": the read must answer unobservable with
  * a named reason instead of throwing on a node-local write that was interrupted. */
-export function readTaskWorktreeExecutionBinding(cwd: string): {
+export function readTaskWorktreeExecutionBinding(
+  cwd: string,
+  executionId: string,
+): {
   readonly binding: TaskWorktreeExecutionBindingV1 | null;
   readonly invalid: boolean;
 } {
-  const file = taskWorktreeExecutionBindingPath(cwd);
+  const file = taskWorktreeExecutionBindingPath(cwd, executionId);
   if (!existsSync(file)) return { binding: null, invalid: false };
   let value: unknown;
   try {
@@ -529,7 +535,8 @@ export function readTaskWorktreeExecutionBinding(cwd: string): {
     (value as { readonly taskId: string }).taskId.length > 0 &&
     typeof (value as { readonly executionId?: unknown }).executionId === "string" &&
     (value as { readonly executionId: string }).executionId.length > 0 &&
-    typeof (value as { readonly boundAt?: unknown }).boundAt === "string"
+    typeof (value as { readonly boundAt?: unknown }).boundAt === "string" &&
+    (value as { readonly executionId: string }).executionId === executionId
       ? (value as TaskWorktreeExecutionBindingV1)
       : null;
   return { binding, invalid: binding === null };
