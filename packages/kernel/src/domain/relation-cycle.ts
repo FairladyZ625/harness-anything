@@ -91,35 +91,46 @@ export function findRelationCycleWitnesses(
       active = new Map<string, number>(),
       nodePath: string[] = [],
       edgePath: RelationCycleEdge[] = [];
-    const visit = (sourceRef: string): RelationCycleWitness | null => {
-      const activeIndex = active.get(sourceRef);
-      if (activeIndex !== undefined) {
-        const cycleEdges = edgePath.slice(activeIndex);
-        return witness(
-          relationType,
-          [...nodePath.slice(activeIndex), sourceRef],
-          cycleEdges.map(({ relationId }) => relationId),
-        );
-      }
-      if (visited.has(sourceRef)) return null;
-      visited.add(sourceRef);
-      active.set(sourceRef, nodePath.length);
-      nodePath.push(sourceRef);
-      for (const edge of typedEdges) {
-        if (edge.sourceRef !== sourceRef) continue;
-        edgePath.push(edge);
-        const cycle = visit(edge.targetRef);
-        if (cycle) return cycle;
-        edgePath.pop();
-      }
-      nodePath.pop();
-      active.delete(sourceRef);
-      return null;
-    };
+    const bySource = new Map<string, RelationCycleEdge[]>();
+    for (const edge of typedEdges) {
+      const outgoing = bySource.get(edge.sourceRef) ?? [];
+      outgoing.push(edge);
+      bySource.set(edge.sourceRef, outgoing);
+    }
 
     for (const edge of typedEdges) {
-      const cycle = visit(edge.sourceRef);
-      if (cycle) return [cycle];
+      if (visited.has(edge.sourceRef)) continue;
+      const frames: { sourceRef: string; next: number }[] = [];
+      const enter = (sourceRef: string) => {
+        visited.add(sourceRef);
+        active.set(sourceRef, nodePath.length);
+        nodePath.push(sourceRef);
+        frames.push({ sourceRef, next: 0 });
+      };
+      enter(edge.sourceRef);
+      while (frames.length) {
+        const frame = frames.at(-1)!;
+        const outgoing = bySource.get(frame.sourceRef)?.[frame.next++];
+        if (!outgoing) {
+          frames.pop();
+          nodePath.pop();
+          active.delete(frame.sourceRef);
+          if (frames.length) edgePath.pop();
+          continue;
+        }
+        const activeIndex = active.get(outgoing.targetRef);
+        if (activeIndex !== undefined)
+          return [
+            witness(
+              relationType,
+              [...nodePath.slice(activeIndex), outgoing.targetRef],
+              [...edgePath.slice(activeIndex).map(({ relationId }) => relationId), outgoing.relationId],
+            ),
+          ];
+        if (visited.has(outgoing.targetRef)) continue;
+        edgePath.push(outgoing);
+        enter(outgoing.targetRef);
+      }
     }
     return [];
   });

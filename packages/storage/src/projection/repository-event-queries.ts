@@ -1,5 +1,6 @@
 import { assertRuntimeDispatchKeyIndexReady, assertRuntimeMemberIndexReady } from "./runtime-member-index.ts";
 import { prefixUpperBound } from "./document-read-range.ts";
+import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
 import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readEventList } from "./event-list-query.ts";
@@ -117,7 +118,7 @@ const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId") => 
   FROM latest CROSS JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
 };
 const RUNTIME_DISPATCH_PAGE_SQL = [
-  "SELECT event_json FROM event_index",
+  "SELECT event_json FROM event_index INDEXED BY event_index_runtime_dispatch_started",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
   "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
   "AND json_extract(event_json, '$.payload.startedAt') >= ?",
@@ -216,7 +217,7 @@ export function repositoryEventQueries(
           ? (JSON.parse(String(row.witness_json)) as ReturnType<TaskProjectionQueries["readEventWitness"]>)
           : null;
       }),
-    readEventSummaries: (afterRevision, limit) =>
+    readEventSummaries: (afterRevision, limit, fields) =>
       withRead((db, cut) => {
         if (
           !Number.isSafeInteger(afterRevision) ||
@@ -226,6 +227,22 @@ export function repositoryEventQueries(
           limit > 2048
         )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
+        if (typeof fields === "object") {
+          const selected = [...new Set(fields.taskIds)].flatMap((taskId) =>
+            queryRows(
+              db,
+              "SELECT summary_json FROM event_summary WHERE json_extract(summary_json, '$.taskId') = ? " +
+                "AND workspace_revision > ? ORDER BY workspace_revision DESC LIMIT ?",
+              taskId,
+              afterRevision,
+              limit + 1,
+            ).map(
+              (row) => JSON.parse(String(row.summary_json)) as import("@harness-anything/kernel").CanonicalEventSummary,
+            ),
+          );
+          selected.sort((left, right) => right.workspaceRevision - left.workspaceRevision);
+          return { ...cut, events: selected.slice(0, limit).reverse(), hasMore: selected.length > limit };
+        }
         return {
           ...cut,
           events: queryRows(
@@ -472,11 +489,12 @@ export function repositoryEventQueries(
         queryRows(
           db,
           "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.type') = ? " +
-            "AND json_extract(event_json, '$.occurredAt') >= ? AND json_extract(event_json, '$.occurredAt') <= ? " +
+            `AND ${isoTimestampMillisecondsSql("json_extract(event_json, '$.occurredAt')")} >= ? ` +
+            `AND ${isoTimestampMillisecondsSql("json_extract(event_json, '$.occurredAt')")} <= ? ` +
             "ORDER BY workspace_revision",
           type,
-          after,
-          before,
+          Date.parse(after),
+          Date.parse(before),
         ).map((row) => JSON.parse(String(row.event_json)) as CanonicalEventV1),
       ),
     readScheduleOutputEvents: (runtimeSessionIds) =>

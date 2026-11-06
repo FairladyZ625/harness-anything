@@ -13,6 +13,7 @@ import { ARTIFACT_TIMELINE_TABLES_SQL, ensureArtifactTimelineBackfill } from "./
 import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { createRelationFreshnessMaintenance } from "./relation-freshness-maintenance.ts";
+import { ensureRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
@@ -578,6 +579,7 @@ ${ARTIFACT_TIMELINE_TABLES_SQL}
   createFactProjectionTables(db);
   createDecisionProjectionTables(db);
   createRelationFreshnessMaintenance(db);
+  ensureRelationCycleAudit(db);
 }
 
 /** Existing projections predate the owner column; add it before the DDL creates its index. */

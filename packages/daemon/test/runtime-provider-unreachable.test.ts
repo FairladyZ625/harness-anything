@@ -103,6 +103,14 @@ function projection(startedAt: string, providerUnreachable: RuntimeProviderUnrea
     installationRow = installation(startedAt);
   return {
     readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+    readTaskIndex(this: TaskProjection, query: { readonly taskIds?: readonly string[] } = {}) {
+      return {
+        rows: (query.taskIds ?? []).flatMap((id) => {
+          const read = this.read(id);
+          return read.snapshot.task ? [{ ...read.snapshot.task, packagePath: read.packagePath }] : [];
+        }),
+      };
+    },
     read: () => ({
       watermark: 1,
       sourceRevision: 1,

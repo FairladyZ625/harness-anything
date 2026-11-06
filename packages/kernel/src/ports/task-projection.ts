@@ -62,6 +62,11 @@ export interface RuntimeSessionReadQuery {
   readonly providerSessionId?: string;
   /** Sessions whose canonical liveness has not exited. */
   readonly nonExitedOnly?: boolean;
+  /** Inclusive observation range; compares instants rather than timestamp spellings. */
+  readonly observedAfter?: string;
+  readonly observedBefore?: string;
+  /** The activity window includes live sessions regardless of their last observation. */
+  readonly activitySince?: string;
   /** Only sessions whose canonical outcome is still unset. Recovery must not scan settled history. */
   readonly unsettledOnly?: boolean;
   /**
@@ -297,10 +302,12 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
     /** Header-only projection for aggregate tails; omitted reads return the canonical summary. */
-    fields?: "fleet",
+    fields?: "fleet" | { readonly taskIds: readonly string[] },
   ) => {
     readonly status: "ready" | "pending";
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];
+    /** Present for the newest task-scoped window. */
+    readonly hasMore?: boolean;
     readonly watermark: number;
     readonly sourceRevision: number;
   };

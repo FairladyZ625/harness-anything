@@ -7,6 +7,7 @@ import { canonicalEventEntityRefs as eventEntityRefs } from "@harness-anything/k
 import { REPOSITORY_READ_TABLES_SQL } from "../../src/projection/projection-tables.ts";
 import { projectEventSummary } from "../../src/projection/event-summary-projection.ts";
 import { readEventList as selectLedgerEvents } from "../../src/projection/event-list-query.ts";
+import { repositoryEventQueries } from "../../src/projection/repository-event-queries.ts";
 const databases: DatabaseSync[] = [];
 afterEach(() => {
   for (const db of databases.splice(0)) db.close();
@@ -32,6 +33,32 @@ function store(events: readonly CanonicalEventV1[]) {
   for (const event of events) projectEventSummary(db, event);
   return db;
 }
+
+test("scoped summaries merge the newest task windows, exclude unrelated events and report overflow exactly", () => {
+  const ledger = store(
+      ["a", "a", "b", "a", "b", "unrelated"].map((taskId, index) =>
+        event({ workspaceRevision: index + 1, payload: { taskId } }),
+      ),
+    ),
+    queries = repositoryEventQueries((read) =>
+      read(ledger, { status: "ready", watermark: 6, sourceRevision: 6, warnings: [] }),
+    ),
+    first = queries.readEventSummaries(1, 2, { taskIds: ["b", "a", "a"] });
+  assert.deepEqual(
+    first.events.map(({ workspaceRevision }) => workspaceRevision),
+    [4, 5],
+  );
+  assert.equal(first.hasMore, true);
+  const complete = queries.readEventSummaries(1, 4, { taskIds: ["a", "b"] });
+  assert.deepEqual(
+    complete.events.map(({ workspaceRevision }) => workspaceRevision),
+    [2, 3, 4, 5],
+  );
+  assert.equal(complete.hasMore, false);
+  assert.deepEqual(queries.readEventSummaries(0, 2, { taskIds: [] }).events, []);
+  assert.equal(queries.readEventSummaries(0, 2, { taskIds: ["missing"] }).hasMore, false);
+});
+
 test("event list filters by type and actor while ordering revision-descending", () => {
   const events = [
       event({ workspaceRevision: 1 }),

@@ -6,6 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { TaskProgressEventV1 } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import { findRelationCycleWitnesses } from "@harness-anything/kernel/internal/domain/relation-cycle.ts";
+import { readRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
 import { validateTaskV2, type TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
 import type { TaskIndexProjectionRow } from "@harness-anything/kernel";
 import type {
@@ -889,14 +890,7 @@ export function readTaskRelationPage(
  * and doctor, never from a write or hot read path.
  */
 export function auditRelationCycles(db: DatabaseSync): RelationCycleAudit {
-  const rows = readTaskRelationPage(db, {}).rows;
-  return {
-    scannedEdges: rows.length,
-    issues: findRelationCycleWitnesses(rows).map((witness) => ({
-      code: "relation_cycle_detected",
-      ...witness,
-    })),
-  };
+  return readRelationCycleAudit(db);
 }
 
 /** Task relation rows with the freshness stored on relation_edge at their last write cut. */

@@ -174,6 +174,8 @@ export interface TaskProjectionListQuery {
   readonly cursor?: string;
   readonly pinnedFirst?: boolean;
   readonly parentTaskId?: string | null;
+  /** Root, all descendants and its ancestor chain at the same projection cut. */
+  readonly scopeRootTaskId?: string;
   readonly workKind?: string;
   readonly riskTier?: string;
   readonly urgency?: string;
@@ -184,6 +186,8 @@ export interface TaskProjectionListQuery {
   readonly activePackagesOnly?: boolean;
   /** Only tasks carrying a live lease; the aggregate lease page must not scan lease-less actives. */
   readonly leaseOnly?: boolean;
+  /** Aggregate consumers need decision lineage, not every historical incoming runtime edge. */
+  readonly decisionRelationsOnly?: boolean;
   readonly taskIds?: readonly string[];
   readonly presentationStatus?: boolean;
 }

@@ -1,10 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isoTimestampMillisecondsSql } from "./iso-timestamp-sql.ts";
 import {
   EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL,
   backfillEventSummaryReadIndex,
   ensureEventSummaryReadIndexColumns,
 } from "./event-summary-read-index.ts";
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
+import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS task_snapshot (
@@ -24,6 +26,8 @@ export const TASK_INDEX_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
+    CREATE INDEX IF NOT EXISTS task_snapshot_active_status ON task_snapshot(status, task_id)
+      WHERE package_disposition = 'active';
     CREATE INDEX IF NOT EXISTS task_snapshot_parent
       ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
     CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
@@ -58,6 +62,8 @@ export const REPOSITORY_READ_TABLES_SQL = `
       ON event_summary_entity_ref(workspace_revision);
     CREATE INDEX IF NOT EXISTS event_summary_type_revision
       ON event_summary(event_type, workspace_revision DESC);
+    CREATE INDEX IF NOT EXISTS event_summary_task_revision
+      ON event_summary(json_extract(summary_json, '$.taskId'), workspace_revision DESC);
     CREATE INDEX IF NOT EXISTS event_summary_occurred_revision
       ON event_summary(occurred_at, workspace_revision DESC);
     CREATE INDEX IF NOT EXISTS event_summary_actor_person_revision
@@ -91,6 +97,10 @@ export const REPOSITORY_READ_TABLES_SQL = `
     -- Default runtime overview reads only live sessions; the partial index excludes exited history.
     CREATE INDEX IF NOT EXISTS runtime_session_non_exited_order
       ON runtime_session(runtime_session_id) WHERE json_extract(value_json, '$.liveness') <> 'exited';
+    CREATE INDEX IF NOT EXISTS runtime_session_live_order
+      ON runtime_session(runtime_session_id) WHERE json_extract(value_json, '$.liveness') = 'live';
+    CREATE INDEX IF NOT EXISTS runtime_session_observed
+      ON runtime_session(${isoTimestampMillisecondsSql("json_extract(value_json, '$.lastObservedAt')")}, runtime_session_id);
     -- Edge recovery filters by node before outcome, so node-settled history is never visited.
     CREATE INDEX IF NOT EXISTS runtime_session_node_unsettled
       ON runtime_session(execution_node_id, json_extract(value_json, '$.outcome'), runtime_session_id);
@@ -220,6 +230,9 @@ export const REPOSITORY_READ_TABLES_SQL = `
     DROP INDEX IF EXISTS event_index_runtime_dispatch_node;
     CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision)
       WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
+    CREATE INDEX IF NOT EXISTS event_index_type_instant ON event_index(
+      json_extract(event_json, '$.type'), ${isoTimestampMillisecondsSql("json_extract(event_json, '$.occurredAt')")}, workspace_revision
+    );
     CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (
       json_extract(event_json, '$.entity.id'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
@@ -245,6 +258,7 @@ export function ensureLeaseTaskActiveColumn(db: DatabaseSync): void {
 
 export function createProjectionTables(db: DatabaseSync): void {
   db.exec(TASK_INDEX_TABLES_SQL);
+  ensureWorkspaceTaskCensus(db);
   ensureEventSummaryReadIndexColumns(db);
   ensureLeaseTaskActiveColumn(db);
   db.exec(REPOSITORY_READ_TABLES_SQL);

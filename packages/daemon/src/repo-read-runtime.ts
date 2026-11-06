@@ -1,11 +1,5 @@
-import {
-  isDomainStatus,
-  timestamp,
-  type TaskProjection,
-  type TaskProjectionListQuery,
-  type TaskProjectionQueries,
-  type WriteReceiptDraft,
-} from "@harness-anything/kernel";
+import { taskListQueryFromPayload } from "./repo-query-payload.ts";
+import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
 import { readObservedRuntimeSession, readSettlementRuntimeSession } from "./agent-runtime-read.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -378,7 +372,7 @@ export function makeRepoReadRuntime(
             projection: projection as TaskProjection,
             readPinnedEntities: projection.listPinnedEntities,
             judgments: repoCellTaskQueryJudgmentsFor(projection),
-          }).guiTasks(taskListQuery(payload)),
+          }).guiTasks(taskListQueryFromPayload(payload, cellCodedError)),
         ) as never;
       if (method === "repo.tasks.document.read") {
         // This handler owns its sessions: live bytes need a fresh lease cut after IO, which a
@@ -477,34 +471,5 @@ export function makeRepoReadRuntime(
       await ledgerReader?.drain();
       ledgerReader = null;
     },
-  };
-}
-function taskListQuery(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
-  const status = typeof payload.status === "string" ? payload.status : undefined,
-    changedAfterRevision =
-      payload.changedAfterRevision === undefined ? undefined : Number(payload.changedAfterRevision),
-    updatedAfter = typeof payload.updatedAfter === "string" ? payload.updatedAfter : undefined,
-    updatedBefore = typeof payload.updatedBefore === "string" ? payload.updatedBefore : undefined,
-    limit = payload.limit === undefined ? undefined : Number(payload.limit),
-    cursor = typeof payload.cursor === "string" ? payload.cursor : undefined;
-  if (!(status === undefined || isDomainStatus(status)))
-    throw cellCodedError("invalid_command", "Query status is invalid for this read.");
-  if (changedAfterRevision !== undefined && (!Number.isSafeInteger(changedAfterRevision) || changedAfterRevision < 0))
-    throw cellCodedError("invalid_command", "Task changedAfterRevision must be a non-negative integer.");
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
-    throw cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
-  if (
-    [updatedAfter, updatedBefore].some((value) => value !== undefined && !timestamp(value)) ||
-    (updatedAfter && updatedBefore && updatedAfter > updatedBefore)
-  )
-    throw cellCodedError("invalid_command", "Query time window must use ordered ISO-8601 timestamps.");
-  if (cursor !== undefined && !cursor) throw cellCodedError("invalid_command", "Query cursor is invalid.");
-  return {
-    ...(status ? { status: status as TaskProjectionListQuery["status"] } : {}),
-    ...(changedAfterRevision === undefined ? {} : { changedAfterRevision }),
-    ...(updatedAfter ? { updatedAfter } : {}),
-    ...(updatedBefore ? { updatedBefore } : {}),
-    ...(limit === undefined ? {} : { limit }),
-    ...(cursor ? { cursor } : {}),
   };
 }

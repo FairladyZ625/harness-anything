@@ -584,16 +584,15 @@ function entityLabelOf(
   };
 }
 
-/** Task titles and parent links for the task and work rows: one task-index read per usage
- * read, taken on the first lookup, under the same ready-cut guard as the squad label. */
+/** Cache only named task/ancestor lookups under the same ready-cut guard as the squad label. */
 function taskOf(
   cut: { readonly status: string },
   projection: Pick<TaskProjection, "readTaskIndex">,
 ): (taskId: string) => WorkRuleTask | undefined {
-  let tasks: ReadonlyMap<string, WorkRuleTask> | null = null;
+  const tasks = new Map<string, WorkRuleTask | undefined>();
   return (taskId) => {
     if (cut.status !== "ready") return undefined;
-    tasks ??= new Map(projection.readTaskIndex({}).rows.map((row) => [row.taskId, row]));
+    if (!tasks.has(taskId)) tasks.set(taskId, projection.readTaskIndex({ taskIds: [taskId] }).rows[0]);
     return tasks.get(taskId);
   };
 }
