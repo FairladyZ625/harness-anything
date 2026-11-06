@@ -125,6 +125,7 @@ async function runResidentDaemon(
         runtimeGithubToken: resolveOperatorGithubToken,
         buildSupersessionEnabled,
         retainPidUntilExit: true,
+        shutdownDeadlineExceeded: () => process.exit(superseded && supervised ? daemonSupersededExitCode : 1),
         shutdownRequested: () => stopping !== null,
         requestShutdown: requestStop,
         onSupersededFailure: buildSupersessionEnabled

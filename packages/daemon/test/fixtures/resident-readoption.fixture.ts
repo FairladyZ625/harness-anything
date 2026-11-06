@@ -76,10 +76,11 @@ if (process.argv.includes("--service")) {
         writeFileSync(`${config.sessionFile}.tmp`, JSON.stringify(receipt));
         renameSync(`${config.sessionFile}.tmp`, config.sessionFile);
       }
-      if (config.failDrain && readFileSync(config.marker, "utf8").trim() === "build-a") {
+      if ((config.failDrain || config.failDeadline) && readFileSync(config.marker, "utf8").trim() === "build-a") {
         const close = cell.close.bind(cell);
         return Object.assign(Object.create(cell), {
           close: async () => {
+            if (config.failDeadline) await new Promise<void>(() => {});
             if (!config.failBeforeCellClose) await close();
             throw new Error("injected resident drain failure");
           },

@@ -107,13 +107,15 @@ export async function startDaemon(input: {
       attachingRepositories: repos.filter((repo) => repo.state === "warming").length,
     };
   };
-  const notifySupersessionFailure = async (): Promise<void> => {
-    const [recovery] = await Promise.allSettled([Promise.resolve().then(() => input.onSupersededFailure?.())]);
-    if (recovery?.status === "rejected")
-      console.error(
-        `daemon build-supersession failure recovery failed: ${recovery.reason instanceof Error ? recovery.reason.message : String(recovery.reason)}`,
-      );
-  };
+  let supersessionFailure: Promise<void> | null = null;
+  const notifySupersessionFailure = (): Promise<void> =>
+    (supersessionFailure ??= (async () => {
+      const [recovery] = await Promise.allSettled([Promise.resolve().then(() => input.onSupersededFailure?.())]);
+      if (recovery?.status === "rejected")
+        console.error(
+          `daemon build-supersession failure recovery failed: ${recovery.reason instanceof Error ? recovery.reason.message : String(recovery.reason)}`,
+        );
+    })());
   // Shutdown used to close the socket first and release the pid file and the singleton lock after the
   // Git follower drain, so for the whole length of that drain the endpoint said "gone" while the pid file and
   // the lock said "here". Three observers each guessed differently in that gap. Admission is now this
@@ -128,8 +130,11 @@ export async function startDaemon(input: {
     clearTimeout(fleetDrainDeadline);
     clearInterval(buildDrainRecheck);
     stopPromise = (async () => {
+      let drainFailed = false,
+        deadlineExpired = false;
       const shutdownDeadlineMs = input.shutdownDeadlineMs ?? 30_000;
-      const deadline = setTimeout(() => {
+      const deadline = setTimeout(async () => {
+        deadlineExpired = true;
         lifecycle.record({
           event: "process_exit",
           outcome: "shutdown_deadline_exceeded",
@@ -137,6 +142,12 @@ export async function startDaemon(input: {
           durationMs: shutdownDeadlineMs,
           error: JSON.stringify({ ...buildDrainStatus(), activeResources: process.getActiveResourcesInfo() }),
         });
+        if (outcome === "build_superseded") {
+          // Keep the writer claim until actual exit, even if the drain completes while the
+          // existing pipe-gated successor is being prepared. A late rejection shares that recovery.
+          drainFailed = true;
+          await notifySupersessionFailure();
+        }
         (input.shutdownDeadlineExceeded ?? (() => process.exit(1)))();
       }, shutdownDeadlineMs);
       deadline.unref();
@@ -147,7 +158,6 @@ export async function startDaemon(input: {
       // never claim it. Each teardown step is also individually guarded, because one of them failing
       // must not strand the ones after it: a half-released daemon is the state this whole comment
       // exists to prevent.
-      let drainFailed = false;
       try {
         // RepoCell.close drains each Git follower before the daemon advertises its terminal boundary.
         await observation.withDaemonObservation(diagnostics!.observer, () =>
@@ -163,7 +173,7 @@ export async function startDaemon(input: {
           );
         throw error;
       } finally {
-        lifecycle.record({ event: "process_exit", outcome });
+        if (!deadlineExpired) lifecycle.record({ event: "process_exit", outcome });
         await settleTeardownStep(() => transport!.stop());
         await settleTeardownStep(() => connLog.settle());
         await settleTeardownStep(() => requestLog?.settle() ?? Promise.resolve());
@@ -180,7 +190,7 @@ export async function startDaemon(input: {
       }
       // Only the supersession outcome restarts itself: an operator stop means stop, and the
       // stopped marker the CLI wrote for it blocks autostart until the operator says otherwise.
-      if (outcome === "build_superseded") {
+      if (outcome === "build_superseded" && !drainFailed) {
         try {
           await input.onSupersededExit?.();
         } catch (error) {

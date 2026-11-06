@@ -12,7 +12,7 @@ import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { daemonServiceUnit } from "../src/client/daemon-service.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
-import { acquireDaemonSingleton, readDaemonPid } from "../src/daemon-singleton.ts";
+import { acquireDaemonSingleton, readDaemonPid, readDaemonSingletonLockPid } from "../src/daemon-singleton.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -32,15 +32,18 @@ async function until(predicate: () => boolean | Promise<boolean>, message: strin
   }
 }
 
-for (const { failDrain, supervised, fakeService, failSuccessor } of [
+for (const { failDrain, supervised, fakeService, failSuccessor, failDeadline = false } of [
   { failDrain: true, supervised: true, fakeService: false, failSuccessor: false },
   { failDrain: false, supervised: true, fakeService: false, failSuccessor: false },
   { failDrain: true, supervised: false, fakeService: false, failSuccessor: false },
   { failDrain: true, supervised: false, fakeService: true, failSuccessor: false },
   { failDrain: false, supervised: false, fakeService: false, failSuccessor: true },
+  { failDrain: false, supervised: false, fakeService: false, failSuccessor: false, failDeadline: true },
+  { failDrain: false, supervised: false, fakeService: true, failSuccessor: false, failDeadline: true },
+  { failDrain: false, supervised: true, fakeService: false, failSuccessor: false, failDeadline: true },
 ]) {
   test(
-    `${fakeService ? "installed-service" : supervised ? "supervised" : "on-demand"} resident ${failSuccessor ? "failed successor callback" : failDrain ? "failed drain" : "handoff"} preserves and re-adopts a runtime calling the CLI`,
+    `${fakeService ? "installed-service" : supervised ? "supervised" : "on-demand"} resident ${failDeadline ? "shutdown deadline" : failSuccessor ? "failed successor callback" : failDrain ? "failed drain" : "handoff"} preserves and re-adopts a runtime calling the CLI`,
     { skip: process.platform === "win32" ? "requires POSIX detached process groups" : false, timeout: 90_000 },
     async () => {
       const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-readopt-")),
@@ -108,7 +111,15 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
         ? hooked.replace("await input.onSupersededExit?.();", "throw new Error('injected successor callback failure');")
         : hooked;
       if (failSuccessor) assert.notEqual(injectedRuntime, hooked, "fixture must inject the successor failure");
-      writeFileSync(runtime, injectedRuntime);
+      const deadlineRuntime = failDeadline
+        ? injectedRuntime.replace(
+            "input.shutdownDeadlineMs ?? 30_000",
+            'buildObserver.status().loadedBuildId === "build-a" ? 100 : 30_000',
+          )
+        : injectedRuntime;
+      if (failDeadline)
+        assert.notEqual(deadlineRuntime, injectedRuntime, "fixture must shorten the real shutdown deadline");
+      writeFileSync(runtime, deadlineRuntime);
       if (!supervised && !failSuccessor) {
         const binSource = readFileSync(entry, "utf8"),
           heldBin = binSource.replace(
@@ -128,6 +139,7 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           sessionFile,
           marker,
           failDrain,
+          failDeadline,
           failureEntered,
           failureRelease,
           failBeforeCellClose: !supervised,
@@ -208,8 +220,13 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           const contender = await acquireDaemonSingleton({ userRoot, daemonId: repoId, endpoint });
           assert.deepEqual(
             contender,
-            { claim: "incumbent", pid: old.pid, witness: "singleton-lock" },
+            { claim: "incumbent", pid: old.pid, witness: failDeadline ? "unix-socket" : "singleton-lock" },
             "a competing daemon must not acquire the writer slot while the failed resident is alive",
+          );
+          assert.equal(
+            readDaemonSingletonLockPid(userRoot, repoId),
+            old.pid,
+            "the resident must retain its writer claim",
           );
           writeFileSync(failureRelease, "release");
         }
@@ -221,6 +238,13 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
         assert.deepEqual(outcome, [supervised ? 75 : 1, null], stderr);
         if (failDrain) assert.match(stderr, /injected resident drain failure/u);
         if (failSuccessor) assert.match(stderr, /injected successor callback failure/u);
+        if (failDeadline) {
+          const deadline = readDaemonLifecycleRecords(userRoot, repoId).find(
+            (e) => e.event === "process_exit" && e.outcome === "shutdown_deadline_exceeded",
+          );
+          assert.equal(deadline?.reason, "build_superseded");
+          assert.equal(deadline?.durationMs, 100);
+        }
         assert.doesNotThrow(() => process.kill(workerPid, 0));
         if (supervised) successor = start();
         let successorError = "";
