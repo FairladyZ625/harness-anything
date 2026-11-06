@@ -159,6 +159,15 @@ test("Agent declaration rejects the retired provider fallback authority", () => 
   assert.match(validateAgentDeclarationV1({ ...agent, fallback: {} }).join("\n"), /fallback.*unknown/u);
 });
 
+test("Agent declaration hostAccess admits only isolated or operator", () => {
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, hostAccess: "isolated" }), []);
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, hostAccess: "operator" }), []);
+  assert.match(
+    validateAgentDeclarationV1({ ...agent, hostAccess: "host" }).join("\n"),
+    /must be isolated or operator/u,
+  );
+});
+
 test("RuntimeSession explains its identity, task handoff, status vocabulary, and executes edge", () => {
   const explanation = explainEntityKind("runtime-session");
   assert.equal(explanation.id.field, "runtimeSessionId");

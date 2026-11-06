@@ -16,6 +16,10 @@ export interface AgentSkillDeclarationV1 {
 }
 export type AgentRole = "worker" | "commander" | "reviewer";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
+/** Which host tools and services the dispatch prompt lets this Agent use; distinct from a runtime
+ *  instance's `isolation`, which governs only the provider state directory. */
+const agentHostAccessValues = ["isolated", "operator"] as const;
+export type AgentHostAccess = (typeof agentHostAccessValues)[number];
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
 export interface AgentRuntimeTargetV1 {
@@ -33,6 +37,7 @@ export interface AgentDeclarationV1 {
    *  never fails a dispatch when a more preferred instance is unavailable on this node. */
   readonly preferredInstances?: readonly string[];
   readonly permissionMode?: AgentPermissionMode;
+  readonly hostAccess?: AgentHostAccess;
   readonly role?: AgentRole;
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];
@@ -114,6 +119,15 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
       enum: ["bypass", "workspace-write", "read-only"],
       description: "Default unattended permission mode.",
       "x-error": "must be bypass, workspace-write, or read-only.",
+    },
+    hostAccess: {
+      type: "string",
+      enum: agentHostAccessValues,
+      description:
+        "Host tools and services the dispatch prompt permits; omitted means isolated. operator may use " +
+        "existing host tools and services the task needs (for example executing inside an existing VM); " +
+        "isolated may not. Neither may create or start VMs or Docker containers.",
+      "x-error": "must be isolated or operator.",
     },
     role: {
       type: "string",

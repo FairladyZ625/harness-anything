@@ -67,13 +67,50 @@ for (const role of ["worker", "commander", "reviewer"] as const)
       "the inlined plan made the read instruction redundant",
     );
     assert.match(prompt, /evidence, risk, alternative and smallest useful verification/u);
-    assert.match(prompt, /must not operate host virtualization, networking, or system services/u);
+    assert.match(prompt, /Host access: isolated\. Do not use host tools or services/u);
+    assert.match(prompt, /do not read, copy, or print real secret values/u);
     assert.match(prompt, /report the exact request/u);
     assert.match(prompt, /label unchecked items unverified/u);
     assert.doesNotMatch(prompt, /Hard prohibitions|hard prohibition|ha relation relate/u);
     // Publication never rides a static role baseline.
     assert.doesNotMatch(prompt, /ha task push|ha task pr/u);
   });
+
+// hostAccess is the declaration's choice; the generated host line is the only host boundary a dispatch states.
+const hostAgent = (hostAccess?: "isolated" | "operator") => ({
+  id: "host-agent",
+  name: "Host Agent",
+  instructions: "Do the work.",
+  runtimes: [],
+  role: "worker" as const,
+  ...(hostAccess ? { hostAccess } : {}),
+});
+test("an operator declaration may use existing host tools but never create VMs or containers", () => {
+  const prompt = assembleAgentPrompt(hostAgent("operator"), "Do the mission.");
+  assert.match(prompt, /Host access: operator\. You may use host tools and services that already exist/u);
+  assert.match(prompt, /`prlctl exec` into an existing VM/u);
+  assert.match(prompt, /Do not create or start VMs or Docker containers/u);
+  assert.doesNotMatch(prompt, /Host access: isolated|must not operate host virtualization/u);
+});
+for (const hostAccess of [undefined, "isolated"] as const)
+  test(`a ${hostAccess ?? "undeclared"} hostAccess keeps host services prohibited`, () => {
+    const prompt = assembleAgentPrompt(hostAgent(hostAccess), "Do the mission.");
+    assert.match(prompt, /Host access: isolated\. Do not use host tools or services/u);
+    assert.match(prompt, /do not create or start VMs or Docker containers/u);
+    assert.doesNotMatch(prompt, /Host access: operator/u);
+  });
+test("the secret boundary names real secret values and allows credential product code and test credentials", () => {
+  for (const hostAccess of ["isolated", "operator"] as const) {
+    const prompt = assembleAgentPrompt(hostAgent(hostAccess), "Do the mission.");
+    assert.match(prompt, /do not read, copy, or print real secret values/u);
+    assert.match(prompt, /never write a secret into logs, reports, PRs, facts, or artifacts/u);
+    assert.match(
+      prompt,
+      /Implementing credential-handling product code and using test credentials in tests are allowed/u,
+    );
+    assert.doesNotMatch(prompt, /Stop for credentials/u);
+  }
+});
 
 const writeGrants = [
   "stage only owned files",

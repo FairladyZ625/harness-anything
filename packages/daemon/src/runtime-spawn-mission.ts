@@ -79,7 +79,7 @@ export function assembleAgentPrompt(
   return [
     `# Agent Identity: ${agent.name} (${agent.id})`,
     agent.instructions.trim(),
-    agentRolePrompt(agent.role),
+    agentRolePrompt(agent.role, agent.hostAccess),
     ...(agent.prompts ?? []).map((prompt) => prompt.trim()).filter(Boolean),
     ...(preset?.trim() ? [preset.trim()] : []),
     ...(skills.length

@@ -36,7 +36,7 @@ Task Contract: harness-task v1
 
 ### 硬红线
 
-CI workflow、阈值与预算、required checks、凭据与宿主服务、删除断言、allowlist 计数变化不得修改；命中即停并列出精确请求。
+CI workflow、阈值与预算、required checks、删除断言、allowlist 计数变化不得修改；命中即停并列出精确请求。宿主访问与秘密值边界由派工按 agent 声明的 hostAccess 注入，本节不重写。
 
 ### 决策授权范围
 
