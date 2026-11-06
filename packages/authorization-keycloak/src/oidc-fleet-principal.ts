@@ -47,7 +47,12 @@ export async function verifyFleetReplica<T extends IdentityAuthenticationContext
   });
   if (!response.ok) return null;
   const claims = (await response.json()) as Record<string, unknown>;
+  if (typeof claims.harness_person_id === "string" && claims.harness_person_id.length > 0) return null;
   if (claims.active !== true || claims.azp !== expectedClientId) {
+    // A device-login token also uses the node client as `azp`, but carries the
+    // verified person's claim rather than the service-account subject. Let the
+    // existing human admission path handle it; rejecting it here would make
+    // interactive edge replication fail before `verifyFleetHuman` runs.
     if (typeof claims.azp === "string" && claims.azp.startsWith("harness-node-")) throw reject();
     return null;
   }

@@ -32,6 +32,7 @@ import {
   type FleetDeviceLoginNotice,
   type FleetDescriptor,
   type FleetFrameV1,
+  type FleetLoginAuthority,
   type FleetTaskAction,
 } from "./command-protocol.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
@@ -473,7 +474,11 @@ export async function readFleetRepositoryMetadataClient(
     readonly executionId?: string | null;
     readonly taskId?: string;
   },
-): Promise<Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }>> {
+): Promise<
+  Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }> & {
+    readonly loginAuthority?: FleetLoginAuthority | null;
+  }
+> {
   const session = await openPeer(options);
   try {
     const result = await session.request({
@@ -487,7 +492,7 @@ export async function readFleetRepositoryMetadataClient(
       ...(options.taskId ? { taskId: options.taskId } : {}),
     });
     if (result.schema !== "fleet.repo.metadata.result/v1") throw new Error("repository metadata result expected");
-    return result;
+    return { ...result, loginAuthority: session.loginAuthority };
   } finally {
     session.close();
   }

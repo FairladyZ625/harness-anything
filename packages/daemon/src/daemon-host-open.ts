@@ -141,7 +141,7 @@ import { createIdentitySession } from "./authorization-provider.ts";
 import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
-import { requestFleetReplicaToken } from "./fleet/replica-token.ts";
+import { requestFleetReplicaToken, resolveFleetReplicaAuthority } from "./fleet/replica-token.ts";
 import { systemCaCertificates } from "./tls-ca-certificate.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 export interface DaemonHostOpenInput {
@@ -1248,6 +1248,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       replicaSyncControllers.set(repo.repoId, { controller, config: connection });
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
+      const loginAuthority = resolveFleetReplicaAuthority(config, (nodeId) => oidc.discovery(nodeId));
       const task = runFleetReplicaSync({
         readAccessToken: async () => {
           let userToken: string | undefined;
@@ -1265,10 +1266,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             consumeKnownError(error);
           }
           if (userToken) return userToken;
-          if (config.loginUrl && config.loginRealm)
+          if (loginAuthority)
             return requestFleetReplicaToken({
-              url: config.loginUrl,
-              realm: config.loginRealm,
+              url: loginAuthority.url,
+              realm: loginAuthority.realm,
               nodeId: config.nodeId,
               credential: config.credential,
               ca: config.loginCertificate ?? systemCaCertificates(),

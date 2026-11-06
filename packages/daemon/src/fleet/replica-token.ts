@@ -1,4 +1,26 @@
 import { fetchWithTlsCa } from "../tls-ca-certificate.ts";
+import type { FleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import type { OidcLoginAuthority } from "@harness-anything/kernel";
+
+/** Resolves the machine-token authority while repairing configs written before loginRealm existed. */
+export function resolveFleetReplicaAuthority(
+  config: Pick<FleetEdgeConfig, "loginUrl" | "loginRealm" | "nodeId">,
+  discovery: (nodeId: string) => OidcLoginAuthority | null,
+): OidcLoginAuthority | null {
+  if (!config.loginUrl) return null;
+  const discovered = config.loginRealm ? null : discovery(config.nodeId),
+    url = config.loginUrl,
+    realm = config.loginRealm ?? discovered?.realm;
+  return url && realm
+    ? {
+        url,
+        realm,
+        clientId: discovered?.clientId ?? `harness-node-${config.nodeId}`,
+        ...(discovered?.certificate ? { certificate: discovered.certificate } : {}),
+        ...(discovered?.servername ? { servername: discovered.servername } : {}),
+      }
+    : null;
+}
 
 export async function requestFleetReplicaToken(
   input: {

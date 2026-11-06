@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { resolveFleetReplicaAuthority } from "../src/fleet/replica-token.ts";
 
 const valid = {
   schema: "fleet-edge-config/v1",
@@ -48,4 +49,16 @@ test("a fleet-edge config marks the workspace and carries the machine credential
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a legacy edge config can derive its missing login realm from OIDC discovery", () => {
+  const authority = resolveFleetReplicaAuthority(
+    { nodeId: "edge-legacy", loginUrl: "https://login.example", loginRealm: undefined },
+    () => ({ url: "https://login.example", realm: "tenant-realm", clientId: "harness-node-edge-legacy" }),
+  );
+  assert.deepEqual(authority, {
+    url: "https://login.example",
+    realm: "tenant-realm",
+    clientId: "harness-node-edge-legacy",
+  });
 });

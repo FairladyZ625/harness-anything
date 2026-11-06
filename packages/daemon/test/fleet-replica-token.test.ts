@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { requestFleetReplicaToken } from "../src/fleet/replica-token.ts";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 test("a node secret obtains a short-lived client-credentials token through the pinned CA", async () => {
   let request: { readonly input: string | URL | Request; readonly init?: RequestInit } | undefined;
@@ -47,6 +48,31 @@ test("a rejected node secret is surfaced without echoing credentials or response
     (error: unknown) => {
       assert.equal((error as { code?: string }).code, "fleet_replica_token_unavailable");
       assert.doesNotMatch(String(error), /never-log-this|secret leaked/u);
+      return true;
+    },
+  );
+});
+
+test("a revoked node cannot exchange its machine credential for a token", async () => {
+  const keycloak = fakeKeycloak("https://keycloak.fixture/realms/harness");
+  keycloak.node("edge-revoked", "person-a");
+  const client = keycloak.nodeClients.get("harness-node-edge-revoked");
+  assert.ok(client);
+  client.enabled = false;
+  await assert.rejects(
+    requestFleetReplicaToken(
+      {
+        url: "https://keycloak.fixture",
+        realm: "harness",
+        nodeId: "edge-revoked",
+        credential: "secret-edge-revoked",
+        ca: "fixture-ca",
+      },
+      keycloak.fetch,
+    ),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "fleet_replica_token_unavailable");
+      assert.doesNotMatch(String(error), /secret-edge-revoked/u);
       return true;
     },
   );

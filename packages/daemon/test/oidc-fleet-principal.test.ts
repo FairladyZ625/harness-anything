@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { verifyFleetHuman, verifyFleetReplica } from "@harness-anything/authorization-keycloak/oidc-fleet-principal";
 import { createIdentitySession } from "../src/authorization-provider.ts";
+import { serveKeycloak } from "./keycloak.fixtures.ts";
 
 const claims = {
   active: true,
@@ -156,6 +157,34 @@ test("a node service-account token establishes only its registered owner's repli
     fetch: fetch,
   });
   assert.equal(noSession, null, "the replica verifier never creates a principal without a token");
+});
+
+test("a human device-login token falls through to the existing human replica admission", async () => {
+  const human = await replicaVerifier({
+    claims: {
+      sub: "user-a",
+      harness_person_id: "person-a",
+    },
+  });
+  assert.equal(human, null, "machine verification must not reject a valid human device token");
+});
+
+test("OidcSessionService binds a machine token through the fake Keycloak authority", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replica-bind-")),
+    served = await serveKeycloak();
+  t.after(async () => {
+    await served.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  served.bind(root);
+  served.keycloak.account("person-a");
+  served.keycloak.node("a", "person-a");
+  const result = await createIdentitySession(root, { fetch: served.keycloak.fetch }).bindReplica!({
+    transportKind: "fleet-tls",
+    nodePrincipal: { nodeId: "a", personId: "person-a" },
+    humanAccessToken: "node-token-harness-node-a",
+  });
+  assert.equal(result?.fleetReplicaPrincipal?.personId, "person-a");
 });
 
 test("the center's local session never supplies a missing edge human credential", async (t) => {

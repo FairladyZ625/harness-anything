@@ -135,10 +135,13 @@ test("a service-account edge token completes replication without a human session
   const stream = startStream(t, fixture, viewRoot, fixture.centerPort(), 64 * 1024 * 1024, "edge-one", () =>
     fixture.machineAccessToken("edge-one"),
   );
+  const machineReady = await waitForFleetReplicaReady({ viewRoot, repoId: replicationRepoId, nodeId: "edge-one" });
   assert.equal(
-    await waitForFleetReplicaReady({ viewRoot, repoId: replicationRepoId, nodeId: "edge-one" }),
+    machineReady,
     true,
-    "the machine token admits the initial base backup and durable ACK",
+    `the machine token admits the initial base backup and durable ACK: ${JSON.stringify(
+      readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")),
+    )}`,
   );
   const generation = readReplicaGeneration(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"));
   assert.equal(generation?.metadata.readerProfile?.personId, "person-owner");
@@ -204,6 +207,24 @@ test("a service-account edge token completes replication without a human session
     },
     "machine identity cannot give task review consent",
   );
+  await requireHuman(
+    {
+      schema: "fleet.task.command/v1",
+      messageId: "machine-task-write",
+      writerEpoch: assignment.writerEpoch,
+      opId: "machine-task-write-op",
+      repoId: replicationRepoId,
+      taskId: null,
+      action: {
+        kind: "task-create",
+        taskId: "machine-task-write",
+        title: "machine write must be rejected",
+      },
+      docChanges: null,
+      mirrorBaseCut: null,
+    },
+    "machine identity cannot issue an ordinary task write",
+  );
   assert.equal(fixture.eventCount(), eventsBefore, "machine task consent writes no canonical event");
   await requireHuman(
     {
@@ -215,6 +236,39 @@ test("a service-account edge token completes replication without a human session
     "machine identity cannot create human-authorized edge links",
   );
   peer.close();
+});
+
+test("an interactive device token still completes human-authorized replication", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-human-auth-"));
+  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  const stream = startStream(t, fixture, viewRoot, fixture.centerPort(), 64 * 1024 * 1024, "edge-one", () =>
+    fixture.owners.readAccessToken("edge-one")(),
+  );
+  assert.equal(await waitForFleetReplicaReady({ viewRoot, repoId: replicationRepoId, nodeId: "edge-one" }), true);
+  const generation = readReplicaGeneration(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"));
+  assert.equal(generation?.metadata.readerProfile?.personId, "person-owner");
+  assert.equal(stream.failures.length, 0);
+  await stream.stop();
+});
+
+test("an expired machine token is rejected by replica admission", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t),
+    center = await fixture.openCenter(),
+    viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-expired-machine-")),
+    token = await fixture.machineAccessToken("edge-one");
+  fixture.expireMachineTokens();
+  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  const stream = startStream(t, fixture, viewRoot, center.port, 64 * 1024 * 1024, "edge-one", () => token);
+  await waitForState(() => stream.failures.length > 0, "the center rejects the expired machine token", 10_000);
+  assert.equal(
+    center.status().nodeSessions.find((row) => row.nodeId === "edge-one")?.lastFailure?.code,
+    "fleet_replica_credential_rejected",
+  );
+  assert.equal(readReplicaGeneration(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")), null);
+  await stream.stop();
 });
 
 test("a rejected replica identity is retained as the node's last failure without exposing its token", async (t) => {

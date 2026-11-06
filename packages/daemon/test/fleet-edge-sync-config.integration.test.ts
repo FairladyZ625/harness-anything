@@ -15,7 +15,13 @@ test(
   "a successful edge sync persists its connection and starts the resident stream",
   { timeout: 180_000 },
   async (t) => {
-    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+    let publishedAuthority: { readonly url: string; readonly realm: string; readonly clientId: string } | null = null;
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true);
+    publishedAuthority = {
+      url: "https://login.example",
+      realm: "tenant-realm",
+      clientId: "harness-node-node-one",
+    };
     assert.equal(
       (await f.command("center-node", { kind: "task-create", taskId: "synced-0", title: "Synced 0" })).outcome,
       "applied",
@@ -41,7 +47,11 @@ test(
     const first = await edgeSync(connection);
     assert.equal(first.ok, true, JSON.stringify(first));
     assert.equal(first.outcome, "applied");
-    assert.deepEqual(readFleetEdgeConfig(e.edgeRoot), connection);
+    const persistedFirst = readFleetEdgeConfig(e.edgeRoot)!;
+    const { loginUrl: _loginUrl, loginRealm: _loginRealm, ...persistedFirstConnection } = persistedFirst;
+    assert.deepEqual(persistedFirstConnection, connection);
+    assert.equal(persistedFirst.loginUrl, publishedAuthority.url);
+    assert.equal(persistedFirst.loginRealm, publishedAuthority.realm);
     assert.equal(statSync(configFile).mode & 0o777, 0o600, "the file carries the machine credential");
 
     writeFleetEdgeConfig(e.edgeRoot, {
@@ -88,6 +98,33 @@ test(
         .sort(),
       ["synced-0", "synced-1"],
     );
+  },
+);
+
+test(
+  "an existing edge config missing loginRealm is repaired from center OIDC discovery",
+  { timeout: 180_000 },
+  async (t) => {
+    let publishedAuthority: { readonly url: string; readonly realm: string; readonly clientId: string } | null = null;
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true),
+      e = await fleetEdgeHostFixture(t, f),
+      current = readFleetEdgeConfig(e.edgeRoot)!;
+    publishedAuthority = {
+      url: "https://login.example",
+      realm: "tenant-realm",
+      clientId: "harness-node-node-one",
+    };
+    writeFleetEdgeConfig(e.edgeRoot, { ...current, loginUrl: f.owners.url });
+    const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
+    const response = await e.rpc.handle({
+      jsonrpc: "2.0",
+      id: 201,
+      method: "daemon.fleet.edge.sync",
+      params: { payload: { ...connection, workspaceRoot: e.edgeRoot, timeoutMs: 30_000 } },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+    assert.equal((response.result as Record<string, unknown>).ok, true, JSON.stringify(response.result));
+    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginRealm, publishedAuthority.realm);
   },
 );
 
