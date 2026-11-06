@@ -103,6 +103,7 @@ test("attach migration registry covers each retired historical field and is idem
       "vertical.completion.closeoutCodeDoc",
       "submission.delivery-facts",
       "review.finding.category",
+      "task.packageDisposition",
     ],
   );
   assert.deepEqual(
@@ -332,7 +333,7 @@ test("a retired codeDoc step still runs on a ledger that already applied its par
 test("legacy submission facts stay readable without an attach migration event", () => {
   assert.deepEqual(
     publicHistoricalReadConclusions.map(({ name }) => name),
-    ["submission.delivery-facts", "review.finding.category"],
+    ["submission.delivery-facts", "review.finding.category", "task.packageDisposition"],
   );
   const conclusion = attachMigrationRegistry.find(
     (entry) => entry.kind === "read-conclusion" && entry.name === "submission.delivery-facts",
@@ -352,6 +353,13 @@ test("legacy submission facts stay readable without an attach migration event", 
   );
   assert.equal(findingConclusion?.attachRequired, false);
   assert.deepEqual(findingConclusion?.fields, ["Review.findings[].category", "DecisionReview.findings[].category"]);
+  // An absent disposition is also a read conclusion: the projection column answers active without
+  // a replay, so the reader concludes the same instead of forcing an attach rewrite.
+  const dispositionConclusion = attachMigrationRegistry.find(
+    (entry) => entry.kind === "read-conclusion" && entry.name === "task.packageDisposition",
+  );
+  assert.equal(dispositionConclusion?.attachRequired, false);
+  assert.deepEqual(dispositionConclusion?.fields, ["Task.packageDisposition"]);
   const legacySubmission = {
       commitSha: "a".repeat(40),
       completionClaim: "Delivered before submission facts were added.",

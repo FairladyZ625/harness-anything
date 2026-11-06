@@ -354,6 +354,15 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
     : null;
 }
 
+/**
+ * A Task/v2 whose history never stated a disposition reads as `active`, the same answer the
+ * projection's generated `package_disposition` column gives. The read concludes; stored bytes are
+ * never rewritten and the field is never backfilled.
+ */
+export function withDefaultPackageDisposition(task: TaskV2): TaskV2 {
+  return task.packageDisposition === undefined ? { ...task, packageDisposition: "active" } : task;
+}
+
 export function currentTaskForWrite(task: TaskV2): TaskV2 {
   const { relations: _legacyRelations, ...withoutHostedRelations } = task as TaskV2 & { readonly relations?: unknown };
   if (task.metadata === undefined || !Object.hasOwn(task.metadata, "longRunning")) return withoutHostedRelations;

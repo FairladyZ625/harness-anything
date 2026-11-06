@@ -16,7 +16,7 @@ import {
   type RuntimeInstallation,
   type RuntimeSession,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { validateTaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
+import { validateTaskV2, withDefaultPackageDisposition } from "@harness-anything/kernel/internal/domain/task.ts";
 import { withoutRetiredTaskSnapshotFields } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import {
   canonicalJson,
@@ -183,6 +183,11 @@ function readSnapshotsInternal(
     } catch {
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     }
+    // Historical import snapshots may predate the field even though the generated
+    // `package_disposition` column answers `active`. The public read concludes; event reduction
+    // keeps the stored shape so historical event comparisons stay byte-consistent.
+    if (validateTask && snapshot.task !== null)
+      snapshot = { ...snapshot, task: withDefaultPackageDisposition(snapshot.task) };
     if (validateTask && snapshot.task !== null && validateTaskV2(snapshot.task, true).length)
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     snapshots.set(row.task_id, snapshot);

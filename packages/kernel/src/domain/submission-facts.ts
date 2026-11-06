@@ -27,6 +27,16 @@ export const historicalReadConclusions = Object.freeze([
       "identity. Findings remain report content; the current review verdict and owner consent decide " +
       "completion, while historical disposition records remain readable without migration.",
   },
+  {
+    kind: "read-conclusion",
+    name: "task.packageDisposition",
+    fields: ["Task.packageDisposition"],
+    attachRequired: false,
+    conclusion:
+      "A task whose history never stated packageDisposition reads as active, the same answer the " +
+      "projection's generated package_disposition column gives. Stored snapshots stay byte-identical " +
+      "and are never backfilled or replayed; a stated or illegal value is never overridden.",
+  },
 ] as const);
 
 /** Historical Submission/v1 rows have path prose but no frozen G33 facts to replay. */

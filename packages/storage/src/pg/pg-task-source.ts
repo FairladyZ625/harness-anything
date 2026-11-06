@@ -32,6 +32,7 @@ import type {
 import type { FactSearchFilters } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
+import { withDefaultPackageDisposition } from "@harness-anything/kernel/internal/domain/task.ts";
 import type { FactProjectionRow } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
 import type { EventListPage, EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
@@ -675,6 +676,9 @@ async function hydrateSnapshots(
       lease = effective?.phase === "released" ? null : effective;
     return {
       ...snapshot,
+      // Historical import snapshots may predate the field while every SQL read already answers
+      // `active`. Conclude on read; never rewrite the stored jsonb.
+      task: snapshot.task === null ? null : withDefaultPackageDisposition(snapshot.task),
       executions: [...snapshot.executions].sort(
         (a, b) =>
           a.iteration - b.iteration ||
