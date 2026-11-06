@@ -142,6 +142,7 @@ export function renderDispatchRow(value: unknown): string {
     `worker:${String(row.agentId ?? "-")}`,
     `leader:${String(row.delegatedByAgentId ?? "-")}`,
     `squad:${String(row.squadId ?? "-")}`,
+    ...(row.squadRunId === undefined ? [] : [`squad-run:${String(row.squadRunId)}`]),
     `code:${String(row.code ?? "-")}`,
     `reason:${String(row.reason ?? "-")}`,
     `reset:${renderOptional(row.resetAt)}`,
