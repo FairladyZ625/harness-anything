@@ -115,12 +115,22 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
     assert.deepEqual(manifest.cut, store.currentCut());
     assert.equal(git(rootDir, "show", "HEAD:harness/tasks/task-bootstrap-bootstrap/task_plan.md"), documentBody.trim());
     assert.equal(projection.apply(event, plan).metrics.reducedItems, 1);
-    assert.deepEqual(projection.read("task-bootstrap").snapshot.task, event.payload.task);
+    // The public read concludes `active` for a task whose history never stated a disposition;
+    // the raw event/stored shape keeps the field absent. Assert both sides explicitly.
+    const assertBootstrapRead = () => {
+      const task = projection!.read("task-bootstrap").snapshot.task!;
+      assert.equal(task.packageDisposition, "active");
+      const storedShape = { ...task };
+      delete storedShape.packageDisposition;
+      assert.deepEqual(storedShape, event.payload.task);
+      assert.deepEqual(projection!.readForTaskContractMigration("task-bootstrap").snapshot.task, event.payload.task);
+    };
+    assertBootstrapRead();
     assert.equal(projection.read("task-bootstrap").packagePath, "tasks/task-bootstrap-bootstrap");
     assert.deepEqual(projection.readPresetSnapshot(digest).snapshot, JSON.parse(snapshotBody));
     assert.equal(projection.readDocument("tasks/task-bootstrap-bootstrap/task_plan.md").document?.body, documentBody);
     projection.rebuild();
-    assert.deepEqual(projection.read("task-bootstrap").snapshot.task, event.payload.task);
+    assertBootstrapRead();
     assert.equal(projection.list().rows[0]?.packagePath, "tasks/task-bootstrap-bootstrap");
     assert.equal(projection.list().rows[0]?.createdAt, event.occurredAt);
     assert.deepEqual(projection.readPresetSnapshot(digest).snapshot, JSON.parse(snapshotBody));
