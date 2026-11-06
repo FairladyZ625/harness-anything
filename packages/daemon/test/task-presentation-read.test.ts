@@ -59,6 +59,8 @@ export function presentationFixture() {
       };
     },
     readProgress: () => ({ ...cut, rows: [] }),
+    readEventList: () => ({ rows: [], hasMore: false, nextCursor: null }),
+    readLeaseIntervals: () => [],
     readTaskChildCounts: () => ({ "a-root": 1 }),
     getEntity: () => null,
     readDocument: () => ({ document: null }),
