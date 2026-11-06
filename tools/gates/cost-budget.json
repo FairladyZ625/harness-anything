@@ -1811,15 +1811,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "repo.tasks.wip",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1628 at 200 -> 12428 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "repo.works.briefs.read",
         "backend": "pglite",
         "dimension": "task-history",
