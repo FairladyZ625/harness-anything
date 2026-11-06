@@ -38,7 +38,7 @@ export async function initializePGliteReadSchema(client: PoolClient): Promise<vo
     table_name text PRIMARY KEY, staging text NOT NULL, retired text NOT NULL,
     columns text[] NOT NULL, keys text[] NOT NULL, indexes jsonb NOT NULL,
     cursor jsonb, upper_bound jsonb NOT NULL, complete boolean NOT NULL DEFAULT false)`);
-  const statements = [...POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, ...projectionDdl()],
+  const statements = new Set([...POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, ...projectionDdl()]),
     candidates = new Map<string, { name: string; sql: string }[]>();
   for (const sql of statements) {
     const match = indexPattern.exec(sql);
