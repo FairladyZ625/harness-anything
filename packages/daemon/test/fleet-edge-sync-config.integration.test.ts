@@ -117,7 +117,7 @@ test(
       clientId: "harness-node-node-one",
     };
     writeFleetEdgeConfig(e.edgeRoot, { ...current, loginUrl: f.owners.url });
-    const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
+    const { waitTimeoutMs: _wait, loginUrl: _loginUrl, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
     const response = await e.rpc.handle({
       jsonrpc: "2.0",
       id: 201,

@@ -1,4 +1,4 @@
-import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
+import { createFleetMemberDeviceLink, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, IdentityManagementPort, IdentitySessionPort } from "@harness-anything/kernel";
@@ -1248,7 +1248,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       replicaSyncControllers.set(repo.repoId, { controller, config: connection });
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
-      const loginAuthority = resolveFleetReplicaAuthority(config, (nodeId) => oidc.discovery(nodeId));
+      let replicaLoginAuthority: ReturnType<typeof resolveFleetReplicaAuthority> | undefined;
       const task = runFleetReplicaSync({
         readAccessToken: async () => {
           let userToken: string | undefined;
@@ -1266,6 +1266,21 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             consumeKnownError(error);
           }
           if (userToken) return userToken;
+          if (replicaLoginAuthority === undefined) {
+            const centerAuthority =
+              config.loginUrl && !config.loginRealm
+                ? await readFleetLoginAuthorityClient({
+                    hostname: config.host,
+                    port: config.port,
+                    ca: readFileSync(caPath),
+                    ...(config.servername ? { servername: config.servername } : {}),
+                    nodeId: config.nodeId,
+                    credential: config.credential,
+                  })
+                : null;
+            replicaLoginAuthority = resolveFleetReplicaAuthority(config, centerAuthority);
+          }
+          const loginAuthority = replicaLoginAuthority;
           if (loginAuthority)
             return requestFleetReplicaToken({
               url: loginAuthority.url,

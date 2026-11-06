@@ -51,10 +51,16 @@ test("a fleet-edge config marks the workspace and carries the machine credential
   }
 });
 
-test("a legacy edge config can derive its missing login realm from OIDC discovery", () => {
+test("a legacy edge config accepts the center's authenticated OIDC authority", () => {
   const authority = resolveFleetReplicaAuthority(
-    { nodeId: "edge-legacy", loginUrl: "https://login.example", loginRealm: undefined },
-    () => ({ url: "https://login.example", realm: "tenant-realm", clientId: "harness-node-edge-legacy" }),
+    {
+      nodeId: "edge-legacy",
+      loginUrl: "https://old-login.example",
+      loginRealm: undefined,
+      loginCertificate: undefined,
+      loginServername: undefined,
+    },
+    { url: "https://login.example", realm: "tenant-realm", clientId: "harness-node-edge-legacy" },
   );
   assert.deepEqual(authority, {
     url: "https://login.example",
