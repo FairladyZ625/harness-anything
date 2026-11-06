@@ -14,7 +14,6 @@ import {
   backfillPgRelationFreshnessPage,
   refreshPgDirtyRelationFreshness,
 } from "../../src/pg/pg-relation-freshness.ts";
-import { pgRelationFreshnessReady } from "../../src/pg/pg-relation-freshness-readiness.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "../../src/pg/pg-projection-schema.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 
@@ -271,7 +270,6 @@ test("a write recomputes only its own endpoints' relations; a previous writer's 
     );
   });
   assert.equal(await backlog(), 301);
-  assert.equal(await transact((client) => pgRelationFreshnessReady(client, scope)), false);
 
   // The current writer's next write drains only what its transaction marked.
   const ownOnly = await transact(async (client) => {
@@ -284,7 +282,7 @@ test("a write recomputes only its own endpoints' relations; a previous writer's 
   assert.equal(ownOnly, hotEdges.length);
   assert.equal(await backlog(), 301);
 
-  // Expansion pages take at most 256 backlog refs each and commit; the scope then becomes ready.
+  // Expansion pages take at most 256 backlog refs each and commit; the last page reports nothing left.
   const pages = [];
   for (;;) {
     const page = await transact((client) => backfillPgRelationFreshnessPage(client, scope));
@@ -300,7 +298,6 @@ test("a write recomputes only its own endpoints' relations; a previous writer's 
   assert.equal(await backlog(), 0);
   stored = await freshnessOf();
   for (const edge of siblingEdges) assert.equal(stored.get(edge.id), "suspect");
-  assert.equal(await transact((client) => pgRelationFreshnessReady(client, scope)), true);
   process.stdout.write(
     `FRESHNESS_MAINTENANCE ${JSON.stringify({ advanced, ownOnly, backlogPages: pages.map(({ processed }) => processed) })}\n`,
   );

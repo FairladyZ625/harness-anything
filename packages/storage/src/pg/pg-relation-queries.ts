@@ -1,10 +1,7 @@
 import type { EntityProjectionRow, VersionedRelationProjectionRow } from "@harness-anything/kernel";
 import { getPgProjectionValue } from "./pg-projection-values.ts";
-import {
-  relationProjectionRowFromColumns,
-  relationProjectionRowFromWitnesses,
-} from "../projection/relation-entity-projection.ts";
-import { pgRelationFreshnessReady } from "./pg-relation-freshness-readiness.ts";
+import { relationProjectionRowFromColumns } from "../projection/relation-entity-projection.ts";
+import { isRelationFreshness } from "../projection/relation-freshness-columns.ts";
 import type { RelationEntity } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import type {
   EntityVersion,
@@ -215,24 +212,24 @@ export async function readVersionedRelationsInTransaction(
     }
   // dec_E34C4284B48AFAF152D7BF1980: freshness is stored at the write cut, so a visible relation
   // returns that one global value and a freshness filter is an indexed column predicate.
-  if (!(await pgRelationFreshnessReady(client, claims)))
-    return readPreviousWitnessRelations(client, claims, readers, query, values, where);
   if (query.freshness !== undefined) {
     values.push(query.freshness);
     where.push(`freshness = $${values.length}`);
   }
   if (query.limit !== undefined) values.push(checkedPageLimit(query.limit, 4096));
-  const result = await client.query<SelectedRelationRow & { freshness: RelationFreshness }>(
+  const result = await client.query<SelectedRelationRow & { freshness: string | null }>(
     `SELECT ${selectedRelationColumns}, freshness, current_target_version
            FROM ha_relations WHERE ${where.join(" AND ")} ORDER BY relation_id${query.limit === undefined ? "" : ` LIMIT $${values.length}`}`,
     values,
   );
-  return result.rows.map((row) =>
-    relationProjectionRowFromColumns(relationEntity(row), String(row.value.sourcePath), {
+  return result.rows.map((row) => {
+    // A row without stored freshness was written before the settle that precedes serving; fail closed.
+    if (!isRelationFreshness(row.freshness)) throw new Error(`relation ${row.relation_id} has no stored freshness`);
+    return relationProjectionRowFromColumns(relationEntity(row), String(row.value.sourcePath), {
       freshness: row.freshness,
       currentTargetVersion: row.current_target_version,
-    }),
-  );
+    });
+  });
 }
 
 interface SelectedRelationRow {
@@ -257,41 +254,6 @@ function relationEntity(row: SelectedRelationRow): RelationEntity {
     ...value
   } = row.value;
   return value as unknown as RelationEntity;
-}
-
-/**
- * Previous read path, kept only while a scope still has relations without stored freshness
- * (expansion backfill or a previous writer's commit). Remove on 2026-11-26 together with
- * `pgRelationFreshnessReady` once pre-freshness binaries have drained.
- */
-async function readPreviousWitnessRelations(
-  client: import("pg").PoolClient,
-  claims: PgProjectionScope,
-  readers: readonly string[],
-  query: PgRelationQuery,
-  values: unknown[],
-  where: readonly string[],
-): Promise<readonly VersionedRelationProjectionRow[]> {
-  const sqlLimit = query.limit !== undefined && query.freshness === undefined;
-  if (sqlLimit) values.push(checkedPageLimit(query.limit!, 4096));
-  const result = await client.query<SelectedRelationRow>(
-    `SELECT ${selectedRelationColumns}, NULL::jsonb AS current_target_version
-           FROM ha_relations WHERE ${where.join(" AND ")} ORDER BY relation_id${sqlLimit ? ` LIMIT $${values.length}` : ""}`,
-    values,
-  );
-  const refs = [...new Set(result.rows.flatMap((row) => [row.source_ref, row.target_ref]))],
-    witnesses = await readEntityVersionWitnesses(client, claims, readers, refs),
-    rows = result.rows
-      .map((row) =>
-        relationProjectionRowFromWitnesses(
-          relationEntity(row),
-          String(row.value.sourcePath),
-          witnesses.get(row.target_ref)!,
-          witnesses.get(row.source_ref)!,
-        ),
-      )
-      .filter((row) => query.freshness === undefined || row.freshness === query.freshness);
-  return query.limit === undefined ? rows : rows.slice(0, query.limit);
 }
 
 export async function readRelationsInTransaction(

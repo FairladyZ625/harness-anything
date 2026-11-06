@@ -8,7 +8,6 @@ import type { EntityVersion } from "@harness-anything/kernel/internal/domain/ent
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import { relationFreshnessColumns } from "../projection/relation-freshness-columns.ts";
 import { readEntityVersionWitnesses } from "./pg-relation-queries.ts";
-import { PG_RELATION_FRESHNESS_DIRTY_TABLE, pgRelationFreshnessReady } from "./pg-relation-freshness-readiness.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 /**
@@ -19,13 +18,12 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
  * kernel judgment over unfiltered witnesses. Marks a previous writer committed form a backlog.
  *
  * Expansion step: the columns are nullable; `backfillPgRelationFreshnessPage` fills unfilled rows
- * and drains the backlog in bounded, separately committed pages. Until a scope has no unfilled row
- * and no backlog, readers keep the previous witness path
- * (`pgRelationFreshnessReady`). Remove that previous read path, the readiness probe and the
- * pending index on 2026-11-26, after pre-freshness binaries have drained.
+ * and drains the backlog in bounded, separately committed pages before a scope serves reads. A read
+ * that meets a row without stored freshness fails closed.
  */
 
-const sourceAnchoredTypes = relationTypes.filter((type) => relationFreshnessAnchorForType(type) === "source");
+const PG_RELATION_FRESHNESS_DIRTY_TABLE = "ha_relation_freshness_dirty",
+  sourceAnchoredTypes = relationTypes.filter((type) => relationFreshnessAnchorForType(type) === "source");
 
 const endpointTables = [
   { table: "ha_task_snapshots", ref: "'task/' || {row}.task_id", columns: ["workspace_revision"] },
@@ -93,7 +91,6 @@ export function relationFreshnessDdl(): readonly string[] {
         (OLD.value IS DISTINCT FROM NEW.value OR OLD.workspace_revision IS DISTINCT FROM NEW.workspace_revision))
       EXECUTE FUNCTION ha_relation_freshness_entity_changed()`,
     "CREATE INDEX IF NOT EXISTS ha_relations_freshness_page ON ha_relations (tenant_id,project_id,policy_epoch,freshness,relation_id)",
-    "CREATE INDEX IF NOT EXISTS ha_relations_freshness_pending ON ha_relations (tenant_id,project_id,policy_epoch,relation_id) WHERE freshness IS NULL",
   ];
 }
 
@@ -177,8 +174,7 @@ async function recomputeAnchoredRelations(
  */
 export async function refreshPgDirtyRelationFreshness(client: PoolClient, scope: PgProjectionScope): Promise<number> {
   const dirty = await client.query<{ ref: string }>(
-    `DELETE FROM ${PG_RELATION_FRESHNESS_DIRTY_TABLE}
-     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND xact = pg_current_xact_id() RETURNING ref`,
+    `${PG_OWN_DIRTY_RELATION_REFS_CTE} SELECT ref FROM own_dirty_refs`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
   return recomputeAnchoredRelations(
@@ -188,14 +184,32 @@ export async function refreshPgDirtyRelationFreshness(client: PoolClient, scope:
   );
 }
 
+/**
+ * The drain of this transaction's marks as a `WITH` item over `$1..$3` (tenant, project, epoch), for
+ * a statement every materialized event already runs: an event that changed no endpoint then costs no
+ * extra round trip. Pass the returned refs to `refreshPgRelationFreshnessForRefs`.
+ */
+export const PG_OWN_DIRTY_RELATION_REFS_CTE = `WITH own_dirty_refs AS (
+  DELETE FROM ${PG_RELATION_FRESHNESS_DIRTY_TABLE}
+  WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND xact = pg_current_xact_id() RETURNING ref
+)`;
+
+export function refreshPgRelationFreshnessForRefs(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  refs: readonly string[],
+): Promise<number> {
+  return recomputeAnchoredRelations(client, scope, refs);
+}
+
 const expansionPageSize = 256;
 
 /**
  * Expansion backfill: one bounded page of at most 256 unfilled rows (written before the column
  * existed or by a previous writer) and at most 256 refs previous writers marked. Each page commits
- * on its own, so an interrupted backfill resumes from what is still pending. `done` means the scope
- * is ready for the stored-value read path. Run one call per management transaction with the
- * scope's claims.
+ * on its own, so an interrupted backfill resumes from what is still pending. `done` means the page
+ * found nothing left to settle and the scope may serve reads. Run one call per management
+ * transaction with the scope's claims.
  */
 export async function backfillPgRelationFreshnessPage(
   client: PoolClient,
@@ -223,7 +237,7 @@ export async function backfillPgRelationFreshnessPage(
   );
   return {
     processed: pending.rows.length + backlog.rows.length,
-    done: pending.rows.length === 0 && backlog.rows.length === 0 && (await pgRelationFreshnessReady(client, scope)),
+    done: pending.rows.length === 0 && backlog.rows.length === 0,
   };
 }
 

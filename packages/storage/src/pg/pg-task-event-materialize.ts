@@ -5,7 +5,11 @@ import {
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { refreshPgDecisionSearch } from "./pg-decision-search.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
-import { refreshPgDirtyRelationFreshness } from "./pg-relation-freshness.ts";
+import {
+  PG_OWN_DIRTY_RELATION_REFS_CTE,
+  refreshPgDirtyRelationFreshness,
+  refreshPgRelationFreshnessForRefs,
+} from "./pg-relation-freshness.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
@@ -148,8 +152,6 @@ async function materializeProjectionEvent(
   }
   await storeEmbeddedRelations(client, scope, event, tables);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
-  // Relation freshness changed by this event is stored before its cut becomes visible.
-  await refreshPgDirtyRelationFreshness(client, scope);
   const searchOwners = new Set<string>();
   if (isDecisionEvent(event)) searchOwners.add(event.decisionId);
   else if (isMigrationImportEvent(event) && event.payload.entity.kind === "decision")
@@ -941,8 +943,10 @@ async function updateProjectionMeta(
     throw new TypeError("projection revisions must be non-negative safe integers");
   if (watermark > sourceRevision)
     throw new Error(`projection watermark ${watermark} exceeds ledger head ${sourceRevision}`);
-  await client.query(
-    `INSERT INTO ha_projection_meta
+  // The cut's meta row and the drain of this transaction's relation-freshness marks share one statement;
+  // the marked relations are recomputed before the transaction commits the cut (dec_E34C4284B48AFAF152D7BF1980).
+  const drained = await client.query<{ readonly ref: string }>(
+    `${PG_OWN_DIRTY_RELATION_REFS_CTE}, meta AS (INSERT INTO ha_projection_meta
        (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark, artifact_index_version)
      VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END, 1)
      ON CONFLICT (tenant_id, project_id, policy_epoch, projection_name) DO UPDATE SET
@@ -954,8 +958,14 @@ async function updateProjectionMeta(
          AND ha_projection_meta.entity_declaration_watermark >= excluded.watermark - 1
          THEN GREATEST(ha_projection_meta.entity_declaration_watermark, excluded.watermark)
          ELSE ha_projection_meta.entity_declaration_watermark END,
-       updated_at = excluded.updated_at`,
+       updated_at = excluded.updated_at)
+     SELECT ref FROM own_dirty_refs`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION, watermark, sourceRevision],
+  );
+  await refreshPgRelationFreshnessForRefs(
+    client,
+    scope,
+    drained.rows.map(({ ref }) => ref),
   );
 }
 

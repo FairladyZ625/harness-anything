@@ -344,7 +344,7 @@ export function relationProjectionRow(
 }
 
 /** Write-cut interpretation: the stored columns computed from global witnesses. */
-export function relationProjectionRowFromWitnesses(
+function relationProjectionRowFromWitnesses(
   entity: RelationEntity,
   sourcePath: string,
   projectedTarget: EntityVersionWitness,

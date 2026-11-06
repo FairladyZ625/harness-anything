@@ -273,12 +273,13 @@ readers filter relation visibility only.
 Rows written before the expansion, or rewritten by a previous writer, have no stored value or
 an outdated one. A previous writer's endpoint changes still fire the triggers, but their marks
 stay in `ha_relation_freshness_dirty` because current writers drain only the marks of their own
-transaction. Until a scope has no unfilled row and no backlog mark, its readers keep the previous
-read path.
+transaction. There is no second read path: a read that meets a relation without a stored value
+fails closed, so settle a scope before it serves reads.
 
-Backfill each tenant/project/policy-epoch scope with the exported page function. Run one
-management transaction per page until `done` is true. Run the loop again after the last
-previous-version writer has stopped, because that writer may have left a backlog:
+Backfill each tenant/project/policy-epoch scope with the exported page function before current
+readers serve it. Run one management transaction per page until `done` is true. Run the loop
+again after the last previous-version writer has stopped, because that writer may have left a
+backlog:
 
 ```ts
 import { backfillPgRelationFreshnessPage, withPostgresTransaction } from "@harness-anything/storage";
@@ -291,5 +292,4 @@ for (;;) {
 
 Each page fills at most 256 unfilled relations and drains at most 256 backlog marks, then
 commits. An interrupted loop resumes from whatever is still pending. PGlite runs the same loop
-before exposing an opened scope. The previous read path, its readiness
-probe and the pending index are removed on 2026-11-26; the columns, triggers and current writes stay.
+before exposing an opened scope.
