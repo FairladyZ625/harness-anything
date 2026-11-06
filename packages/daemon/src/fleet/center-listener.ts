@@ -9,7 +9,7 @@ import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-v
 import { commandClassForAction } from "../protocol/daemon-protocol.contract.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
-import { fetchWorkerDelivery, workerGitIdentityForPerson } from "../runtime-worker-push.ts";
+import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "../squad-control-result.ts";
@@ -929,7 +929,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                 repoRoot(a.repoId),
                 command.taskId,
                 typeof command.commitSha === "string" ? command.commitSha : undefined,
-                workerGitIdentityForPerson(snapshot.lease.actor.principal.personId),
               ).catch((error: unknown) => {
                 throw new FleetFault("delivery_fetch_failed", runtimeErrorMessage(error));
               });

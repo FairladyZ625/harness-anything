@@ -54,8 +54,13 @@ export function workerPushFailureCode(
     : "delivery_publish_failed";
 }
 
-export function workerGitIdentityForPerson(personId: string): WorkerGitIdentity {
-  return { name: personId, email: `${personId}@users.noreply.github.com` };
+/**
+ * The identity a worker falls back to when the canonical repository declares no git identity.
+ * The reserved `.invalid` TLD names no hosting provider: the repository's own configuration is
+ * the authority, and this value only lets a checkout write a commit when that authority is absent.
+ */
+export function fallbackWorkerGitIdentity(personId: string): WorkerGitIdentity {
+  return { name: personId, email: `${personId}@harness.invalid` };
 }
 
 /** A repository-diff delivery is a task branch with at least one commit above the baseline. A
@@ -80,10 +85,11 @@ export async function workerBranchHasDelivery(input: {
   }
 }
 
-// The conventional worker identity has exactly one source: the git config the canonical
-// repository itself resolves (`git config user.name/user.email` at the canonical root, local
-// values over global ones). Worker worktrees share that config, so this states explicitly the
-// identity a worker would otherwise inherit implicitly, and no repo setting duplicates it.
+// The worker identity has one authoritative source: the git config the canonical repository
+// itself resolves (`git config user.name/user.email` at the canonical root, local values over
+// global ones). Worker worktrees share that config, so a worker commit inherits it unless a
+// stale worktree override says otherwise. The person fallback applies only when the repository
+// declares nothing, and it names no hosting provider.
 export async function readWorkerGitIdentity(input: {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
@@ -96,18 +102,101 @@ export async function readWorkerGitIdentity(input: {
   return name && email ? { name, email } : null;
 }
 
-export async function configureWorkerGitIdentity(cwd: string, personId: string): Promise<void> {
+/** The identity a worker checkout must use: the repository's declaration, else the person fallback. */
+export async function resolveWorkerGitIdentity(input: {
+  readonly cwd: string;
+  readonly personId?: string;
+  readonly env?: NodeJS.ProcessEnv;
+}): Promise<WorkerGitIdentity | null> {
+  return (
+    (await readRepositoryGitIdentity({
+      cwd: input.cwd,
+      ...(input.env === undefined ? {} : { env: input.env }),
+    })) ?? (input.personId === undefined ? null : fallbackWorkerGitIdentity(input.personId))
+  );
+}
+
+/**
+ * The repository's declaration, excluding the per-worktree layer: a linked worktree does not
+ * inherit the canonical root's `config.worktree`, so resolving through it would make the push
+ * expectation differ from what the worker checkout actually commits. Local wins over global over
+ * system, exactly as git resolves each key without the worktree file.
+ */
+async function readRepositoryGitIdentity(input: {
+  readonly cwd: string;
+  readonly env?: NodeJS.ProcessEnv;
+}): Promise<WorkerGitIdentity | null> {
+  const env = gitEnvironment(input.env),
+    read = async (scope: "--local" | "--global" | "--system", key: string) =>
+      (await readGitText(input.cwd, ["config", scope, "--get", "--default", "", key], env)).trim();
+  let name = "",
+    email = "";
+  for (const scope of ["--local", "--global", "--system"] as const) {
+    if (!name) name = await read(scope, "user.name");
+    if (!email) email = await read(scope, "user.email");
+    if (name && email) break;
+  }
+  return name && email ? { name, email } : null;
+}
+
+export async function configureWorkerGitIdentity(
+  cwd: string,
+  canonicalRoot: string,
+  personId: string,
+  environment?: NodeJS.ProcessEnv,
+): Promise<void> {
   let checkout = path.resolve(cwd);
   while (!existsSync(path.join(checkout, ".git"))) {
     const parent = path.dirname(checkout);
     if (parent === checkout) return;
     checkout = parent;
   }
-  const identity = workerGitIdentityForPerson(personId),
-    env = gitEnvironment();
+  const env = gitEnvironment(environment);
+  // The worker checkout is daemon-owned, so any worktree override there is stale. The canonical
+  // root is the user's checkout: only the synthetic values this daemon writes are removed, and a
+  // user-declared per-worktree identity survives. The checkout then inherits the authoritative
+  // config, which also makes `git config --show-origin` name the file it actually comes from.
+  await clearWorktreeIdentity(checkout, env, false);
+  if (!samePath(checkout, canonicalRoot)) await clearWorktreeIdentity(canonicalRoot, env, true);
+  const declared = await readRepositoryGitIdentity({ cwd: canonicalRoot, env });
+  if (declared) return;
+  const identity = fallbackWorkerGitIdentity(personId);
   await readGitText(checkout, ["config", "--local", "extensions.worktreeConfig", "true"], env);
   await readGitText(checkout, ["config", "--worktree", "user.name", identity.name], env);
   await readGitText(checkout, ["config", "--worktree", "user.email", identity.email], env);
+}
+
+async function clearWorktreeIdentity(
+  checkout: string,
+  env: NodeJS.ProcessEnv,
+  onlyDaemonIdentity: boolean,
+): Promise<void> {
+  // Without the extension worktree config does not participate, so there is no override to remove
+  // and enabling it would only create a new layer; the fallback path enables it when it writes.
+  const enabled = (
+    await readGitText(checkout, ["config", "--get", "--default", "", "extensions.worktreeConfig"], env)
+  ).trim();
+  if (enabled !== "true") return;
+  const read = async (key: string) =>
+    (await readGitText(checkout, ["config", "--worktree", "--get", "--default", "", key], env)).trim();
+  const name = await read("user.name"),
+    email = await read("user.email");
+  if (!name && !email) return;
+  if (onlyDaemonIdentity && !isDaemonWorkerIdentity(name, email)) return;
+  for (const [key, value] of [
+    ["user.name", name],
+    ["user.email", email],
+  ] as const)
+    if (value) await readGitText(checkout, ["config", "--worktree", "--unset-all", key], env);
+}
+
+/** The two synthetic shapes this daemon has written into `config.worktree`. */
+function isDaemonWorkerIdentity(name: string, email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return false;
+  const local = email.slice(0, at),
+    domain = email.slice(at + 1);
+  return name === local && (domain === "users.noreply.github.com" || domain === "harness.invalid");
 }
 
 /**
@@ -123,6 +212,8 @@ export async function pushWorkerBranch(input: {
   readonly expectedRemoteCommit?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly identity?: WorkerGitIdentity;
+  /** Dispatching person; supplies the fallback only when the canonical repository declares none. */
+  readonly personId?: string;
   readonly timeoutMs?: number;
   /** Settlement sets false so a frozen cut can only advance a remote ref, never rewrite it. */
   readonly forceWithLease?: boolean;
@@ -149,11 +240,18 @@ export async function pushWorkerBranch(input: {
   }
   const pushedCommit = input.submittedCommitSha ?? head;
 
-  // Publication runs only when the conventional identity is readable and every commit this push
+  // Publication runs only when a worker identity is readable and every commit this push
   // publishes carries it: the commits above the published remote cut when that branch exists, the
-  // whole range above the default branch when it does not. Rewriting authorship is a human
-  // decision, so a mismatch refuses the push instead of repairing it.
-  const identity = input.identity ?? (await readWorkerGitIdentity({ cwd: input.canonicalRoot, env }));
+  // whole range above the default branch when it does not. The repository's own config is the
+  // authority; the dispatching person only fills in when that config declares nothing. Rewriting
+  // authorship is a human decision, so a mismatch refuses the push instead of repairing it.
+  const identity =
+    input.identity ??
+    (await resolveWorkerGitIdentity({
+      cwd: input.canonicalRoot,
+      ...(input.personId === undefined ? {} : { personId: input.personId }),
+      env,
+    }));
   if (!identity)
     return {
       attempted: true,
@@ -294,6 +392,8 @@ export async function pushTaskWorkerBranch(input: {
   readonly submittedCommitSha?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly identity?: WorkerGitIdentity;
+  /** Dispatching person; supplies the fallback only when the canonical repository declares none. */
+  readonly personId?: string;
   readonly timeoutMs?: number;
   readonly forceWithLease?: boolean;
   readonly classifyRemoteAhead?: boolean;
@@ -467,13 +567,13 @@ export async function readPublishedTaskCut(cwd: string, branch: string, extraEnv
   ).trim();
 }
 
-/** The center fetches only its configured origin and the task branch, into a request-private ref. */
-export async function fetchWorkerDelivery(
-  rootDir: string,
-  taskId: string,
-  requestedCommit?: string,
-  expectedIdentity?: WorkerGitIdentity,
-): Promise<string> {
+/**
+ * The center fetches only its configured origin and the task branch, into a request-private ref.
+ * It checks the requested cut against the published tip; authorship was already verified where the
+ * commit was made and pushed (the worker's own repository config), and the center's config can
+ * legitimately differ from the edge clone's, so re-judging identity here would reject valid cuts.
+ */
+export async function fetchWorkerDelivery(rootDir: string, taskId: string, requestedCommit?: string): Promise<string> {
   const ref = `refs/harness/delivery/${randomUUID()}`,
     env = gitEnvironment();
   try {
@@ -485,17 +585,6 @@ export async function fetchWorkerDelivery(
     const commit = (await readGitText(rootDir, ["rev-parse", `${ref}^{commit}`], env)).trim();
     if (requestedCommit !== undefined && requestedCommit !== commit)
       throw new Error(`Requested delivery commit ${requestedCommit} does not match published task branch ${commit}.`);
-    const identity = expectedIdentity ?? (await readWorkerGitIdentity({ cwd: rootDir, env }));
-    if (!identity) throw new Error("The center repository resolves no conventional Git identity.");
-    const baseRef = repositoryBaseRef(rootDir);
-    const mismatch = await firstCommitOutsideConventionalIdentity(
-      rootDir,
-      baseRef ? [baseRef] : [],
-      commit,
-      identity,
-      env,
-    );
-    if (mismatch) throw new Error(mismatch);
     return commit;
   } finally {
     await readGitText(rootDir, ["update-ref", "-d", ref], env);

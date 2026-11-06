@@ -17,7 +17,7 @@ import {
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime, ReviewerReviewArtifacts } from "./runtime-spawn-types.ts";
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
-import { workerBranchHasDelivery, workerGitIdentityForPerson } from "./runtime-worker-push.ts";
+import { workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { strayWriteWarning } from "./runtime-write-boundary.ts";
 import { cacheWriteTokensOfUsage, writeRuntime } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
@@ -362,7 +362,7 @@ export async function publishExit(
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,
             taskId: active.task.taskId,
-            identity: workerGitIdentityForPerson(active.binding.actor.principal.personId),
+            personId: active.binding.actor.principal.personId,
             ...(submittedCommitSha ? { submittedCommitSha } : {}),
             forceWithLease: false,
             classifyRemoteAhead: submittedCommitSha !== undefined,

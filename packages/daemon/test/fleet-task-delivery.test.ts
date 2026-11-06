@@ -10,7 +10,6 @@ import {
   fetchWorkerDelivery,
   pushWorkerBranch,
   readPublishedTaskCut,
-  workerGitIdentityForPerson,
   workerPushFailureCode,
 } from "../src/runtime-worker-push.ts";
 
@@ -37,13 +36,13 @@ for (const denialMode of ["permission", "holder", "cas"])
     git(root, "clone", remote, first);
     for (const cwd of [first]) {
       git(cwd, "config", "user.name", "owner");
-      git(cwd, "config", "user.email", "owner@users.noreply.github.com");
+      git(cwd, "config", "user.email", "owner@example.invalid");
     }
     git(first, "commit", "--allow-empty", "-qm", "base");
     git(first, "push", "origin", "main");
     git(root, "clone", "--no-local", remote, second);
     git(second, "config", "user.name", "owner");
-    git(second, "config", "user.email", "owner@users.noreply.github.com");
+    git(second, "config", "user.email", "owner@example.invalid");
     for (const cwd of [first, second]) {
       git(cwd, "worktree", "add", "-b", taskId, path.join(cwd, "worker"), "origin/main");
       writeFileSync(path.join(cwd, "worker", "delivery.txt"), cwd);
@@ -110,22 +109,36 @@ for (const denialMode of ["permission", "holder", "cas"])
     release.resolve();
     await rejected;
     assert.equal(git(remote, "rev-parse", `refs/heads/${taskId}`), accepted.commitSha);
-    assert.equal(
-      await fetchWorkerDelivery(first, taskId, String(accepted.commitSha), workerGitIdentityForPerson("owner")),
-      accepted.commitSha,
-    );
+    assert.equal(await fetchWorkerDelivery(first, taskId, String(accepted.commitSha)), accepted.commitSha);
     await assert.rejects(
-      fetchWorkerDelivery(first, taskId, git(first, "rev-parse", "main"), workerGitIdentityForPerson("owner")),
+      fetchWorkerDelivery(first, taskId, git(first, "rev-parse", "main")),
       /does not match published/u,
     );
     assert.equal(git(first, "for-each-ref", "--format=%(refname)", "refs/harness/delivery"), "");
-    git(second, "config", "user.email", "other@example.invalid");
-    git(path.join(second, "worker"), "commit", "--allow-empty", "-qm", "wrong identity");
-    git(path.join(second, "worker"), "push", "origin", `HEAD:refs/heads/${taskId}`);
+    // Authorship is enforced where the worker pushes, against the worker's own repository config.
+    // A commit made under an explicit stale identity is refused before the branch is published.
+    git(
+      path.join(second, "worker"),
+      "-c",
+      "user.name=Stale Worker",
+      "-c",
+      "user.email=stale-worker@example.invalid",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "feat: stale identity",
+    );
     await assert.rejects(
-      fetchWorkerDelivery(first, taskId, undefined, workerGitIdentityForPerson("owner")),
+      prepareEdgeTaskDelivery({
+        workspaceRoot: second,
+        authorize: async () => "owner",
+        verifyHolder: async () => undefined,
+        action: { kind: "task-submit", taskId },
+        readTask: async () => snapshot("new"),
+      }),
       /not the conventional identity/u,
     );
+    assert.equal(git(remote, "rev-parse", `refs/heads/${taskId}`), accepted.commitSha);
     git(first, "remote", "remove", "origin");
     // With no origin, no cut is known: the lease expectation is empty without touching a network,
     // and a publication that cannot reach its remote maps to the one delivery failure code.
@@ -166,7 +179,7 @@ for (const scenario of [
     git(root, "init", "--bare", "-b", "main", remote);
     git(root, "clone", remote, edge);
     git(edge, "config", "user.name", "owner");
-    git(edge, "config", "user.email", "owner@users.noreply.github.com");
+    git(edge, "config", "user.email", "owner@example.invalid");
     git(edge, "commit", "--allow-empty", "-qm", "base");
     git(edge, "push", "origin", "main");
     git(edge, "worktree", "add", "-b", taskId, path.join(edge, "worker"), "origin/main");
