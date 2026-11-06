@@ -22,6 +22,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
+import { isKeycloakTransportFailure, keycloakUnavailableFailure } from "./keycloak-transport-failure.ts";
 import { taskActionCommandUsage } from "./protocol/daemon-protocol-commands.ts";
 import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
@@ -305,10 +306,19 @@ export async function preparePersonActionExplanationBinding(
     const contract = getEntityKindContract(entity.kind);
     if (!contract?.actionCatalog) throw new Error(`The ${entity.kind} Entity Action catalog is unavailable.`);
     if (entity.kind === "person") {
-      const center = credential.center ? await credential.center() : undefined;
-      const exists =
-        credential.session?.personId === entity.id ||
-        (center !== undefined && (await center.provider.findUserId(center.accessToken, entity.id)) !== undefined);
+      let exists: boolean;
+      try {
+        const center = credential.center ? await credential.center() : undefined;
+        exists =
+          credential.session?.personId === entity.id ||
+          (center !== undefined && (await center.provider.findUserId(center.accessToken, entity.id)) !== undefined);
+      } catch (cause) {
+        // This is a read-only authority call before the action loop. A transport or 5xx answer
+        // means the identity authority is unavailable; malformed responses and other defects
+        // keep their own error instead of being relabeled as an outage.
+        if (!isKeycloakTransportFailure(cause)) throw cause;
+        throw keycloakUnavailableFailure(cause, "resolving the Person identity");
+      }
       if (exists) personExistsIds.add(entity.id);
       if (!exists) continue;
     }

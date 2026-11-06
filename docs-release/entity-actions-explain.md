@@ -112,6 +112,8 @@ the client supplied valid parameters, or that a later write will still be allowe
 A provider that is reachable but answers HTTP 5xx (for example 503 while starting or
 overloaded) is also unavailable, not a denial: it carries no policy decision. An
 authorization `401`/`403` is a real denial; a malformed `2xx` body is a defect.
+Person explains use the same rule for the Person existence lookup: a directory
+5xx or transport failure is `keycloak_unavailable`, not `entity_not_found`.
 
 Stable codes a Web caller can see in `authorizationDecision.reasonCodes`:
 

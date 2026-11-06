@@ -233,6 +233,83 @@ test("HTTP 5xx from the session or center authority is unavailable, not a denial
   }
 });
 
+test("person explain reports person-directory 503 and connection failure as unavailable", async () => {
+  const fixture = await openExplainFixture(),
+    { rootDir, realm, binding, cell } = fixture;
+  try {
+    const centerProvider = (fetchPort: typeof fetch) =>
+        new KeycloakPolicyAdapter(
+          { url: realm.url, realm: "harness", resourceServerClientId: "harness-center" },
+          fetchPort,
+        ),
+      centerBinding = (fetchPort: typeof fetch): RepoCellBinding => ({
+        ...binding,
+        keycloakAuthorization: {
+          ...binding.keycloakAuthorization!,
+          center: async () => ({
+            provider: centerProvider(fetchPort),
+            url: realm.url,
+            realm: "harness",
+            clientId: "harness-center",
+            accessToken: "center-token",
+          }),
+        },
+      }),
+      personRef = "person/person-explain-target",
+      readPerson = (fetchPort: typeof fetch) =>
+        cell.read(method, explainPayload([personRef]), centerBinding(fetchPort));
+
+    // The Person existence lookup runs before the action evaluation loop; its 503 and connection
+    // failure must use the same availability classification as the loop itself.
+    await assert.rejects(
+      readPerson(async () => new Response(null, { status: 503 })),
+      (error: Error & { readonly code?: string }) => {
+        assert.equal(error.code, "keycloak_unavailable");
+        return true;
+      },
+    );
+    await assert.rejects(
+      readPerson(async () => {
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+        });
+      }),
+      (error: Error & { readonly code?: string }) => {
+        assert.equal(error.code, "keycloak_unavailable");
+        return true;
+      },
+    );
+    // A malformed directory response is still a defect, not an outage.
+    await assert.rejects(
+      readPerson(async () => new Response("not-json", { status: 200 })),
+      (error: Error & { readonly code?: string }) => {
+        assert.notEqual(error.code, "keycloak_unavailable");
+        return true;
+      },
+    );
+    // Acquiring the center credential is also an authority boundary.
+    await assert.rejects(
+      cell.read(method, explainPayload([personRef]), {
+        ...binding,
+        keycloakAuthorization: {
+          ...binding.keycloakAuthorization!,
+          center: async () => {
+            throw Object.assign(new Error("center token unavailable"), { code: "daemon_error" });
+          },
+        },
+      }),
+      (error: Error & { readonly code?: string }) => {
+        assert.equal(error.code, "keycloak_unavailable");
+        return true;
+      },
+    );
+  } finally {
+    await cell.close();
+    await realm.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("catalog discovers every action without authorizing, and identity preconditions fail closed", async () => {
   const fixture = await openExplainFixture(),
     { rootDir, repoId, realm, binding, cell } = fixture;
