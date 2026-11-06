@@ -166,11 +166,6 @@ export function launchArgs(
     );
   if (config.kindId === "codebuddy" && hookSettings)
     args.push("--settings", JSON.stringify({ hooks: hookSettings, disableAllHooks: false }));
-  if (config.kindId === "kimi" && hook)
-    args.unshift(
-      "--config",
-      JSON.stringify({ hooks: [{ event: "PreToolUse", matcher: "Bash|Shell", command: hook }] }),
-    );
   args.unshift(...commandInterceptionArgs);
   return args;
 }

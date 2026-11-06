@@ -161,7 +161,13 @@ test("fresh and agent-override rework dispatches resolve project interception ru
       },
       "contributor",
     );
-    await f.submit(executionId, workerBinding);
+    assert.equal((await f.submit(executionId, workerBinding)).outcome, "applied");
+    // End the submitted provider turn before returning its cut; a fake PID must
+    // not stand in for the real worker host's independently observed stop proof.
+    assert.equal(
+      await f.settleDecisionReview(source.payload.runtimeSessionId, "Implementation submitted."),
+      "succeeded",
+    );
     const returned = await f.run({
       kind: "task-rework",
       taskId,

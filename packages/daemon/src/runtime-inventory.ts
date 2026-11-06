@@ -128,9 +128,7 @@ function acpKind<K extends RuntimeKindId>(
     gui: { modelFamily, effort: "none", effortValues: [] },
     capabilities: {
       ...sharedCapabilities,
-      commandInterception: ["codebuddy", "kimi", "copilot", "auggie", "droid"].includes(kindId)
-        ? "supported"
-        : "unsupported",
+      commandInterception: ["codebuddy", "copilot", "auggie", "droid"].includes(kindId) ? "supported" : "unsupported",
       sessionIdEveryFrame: "supported",
       toolAllowlist: "unsupported",
       toolDenylist: "unsupported",

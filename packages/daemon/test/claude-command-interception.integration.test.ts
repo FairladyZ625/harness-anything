@@ -36,6 +36,7 @@ test(
           return;
         }
         const body = JSON.parse(raw) as {
+          stream?: boolean;
           messages?: { content: { type: string; content: string; is_error?: boolean }[] | string }[];
         };
         for (const message of body.messages ?? [])
@@ -62,8 +63,14 @@ test(
             stop_sequence: null,
             usage: { input_tokens: 1, output_tokens: 1 },
           };
+        if (!body.stream) {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ ...message, content, stop_reason: outputs.length ? "end_turn" : "tool_use" }));
+          return;
+        }
         response.writeHead(200, { "content-type": "text/event-stream" });
-        const send = (event: unknown) => response.write(`data: ${JSON.stringify(event)}\n\n`);
+        const send = (event: { type: string; [key: string]: unknown }) =>
+          response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
         send({ type: "message_start", message });
         content.forEach((block, index) => {
           send({
@@ -178,8 +185,16 @@ test(
       stderr += chunk;
     });
     const code = await new Promise<number | null>((resolve) => worker.onExit(resolve));
-    t.diagnostic(JSON.stringify({ version, code, stdout, stderr, outputs }));
-    assert.equal(code, 0, stderr + stdout);
+    t.diagnostic(JSON.stringify({ version, code, outputs }));
+    assert.equal(
+      code,
+      0,
+      stderr +
+        stdout
+          .split("\n")
+          .filter((line) => !line.includes('"subtype":"init"'))
+          .join("\n"),
+    );
     assert.equal(existsSync(path.join(cwd, "denied.txt")), false, "matching command must never execute");
     assert.equal(readFileSync(path.join(cwd, "allowed.txt"), "utf8"), "allowed");
     assert.ok(

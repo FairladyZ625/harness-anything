@@ -48,7 +48,7 @@ hook arguments.
 
 Claude Code uses native `PreToolUse` through the existing `--settings` slot. A configured hook removes `--bare`,
 which would disable hooks, for API-key calls. Codex uses inline native `PreToolUse` configuration and trusts
-this generated hook for that invocation. CodeBuddy uses `--settings`; Kimi uses the session `--config` overlay.
+this generated hook for that invocation. CodeBuddy uses `--settings`. Kimi is unsupported: its `--config` replaces the whole native configuration, so a hook-only value would discard model and authentication settings.
 Cursor, Copilot and Auggie receive an invocation-local plugin directory; Droid receives a settings file.
 Generated files live under the instance's runtime-id-owned scratch directory and are reclaimed by existing
 settlement/recovery. They do not modify user or project vendor configuration. Instance show/list replies expose

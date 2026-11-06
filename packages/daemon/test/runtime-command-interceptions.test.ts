@@ -89,8 +89,27 @@ test("every runtime capability explicitly states command interception support an
   }
 });
 
-test("Kimi and CodeBuddy use their native session configuration overlays", () => {
+test("CodeBuddy uses its settings overlay while Kimi refuses whole-config replacement", () => {
   for (const kindId of ["kimi", "codebuddy"] as const) {
+    if (kindId === "kimi") {
+      assert.throws(
+        () =>
+          launchArgs(
+            { kindId, auth: { mode: "subscription" } } as Parameters<typeof launchArgs>[0],
+            "model",
+            "mission",
+            undefined,
+            null,
+            "bypass",
+            false,
+            undefined,
+            "linux",
+            rules,
+          ),
+        { code: "runtime_command_interception_unsupported" },
+      );
+      continue;
+    }
     const args = launchArgs(
         { kindId, auth: { mode: "subscription" } } as Parameters<typeof launchArgs>[0],
         "model",
@@ -103,12 +122,9 @@ test("Kimi and CodeBuddy use their native session configuration overlays", () =>
         "linux",
         rules,
       ),
-      flag = kindId === "kimi" ? "--config" : "--settings",
+      flag = "--settings",
       settings = JSON.parse(args[args.indexOf(flag) + 1]!);
-    assert.equal(
-      kindId === "kimi" ? settings.hooks[0].command : settings.hooks.PreToolUse[0].hooks[0].command,
-      commandInterceptionHook(rules),
-    );
+    assert.equal(settings.hooks.PreToolUse[0].hooks[0].command, commandInterceptionHook(rules));
   }
 });
 
