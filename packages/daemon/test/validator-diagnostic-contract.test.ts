@@ -521,3 +521,17 @@ test("the settings read built by its only constructor passes its own result vali
   assert.notDeepEqual(validateDaemonSettingsRead({ ...read, values: { ...read.values, taskScaffold: {} } }), []);
   assert.notDeepEqual(validateDaemonSettingsRead({ ...read, revision: "initial" as unknown as number }), []);
 });
+
+test("settings read accepts nonempty interception arrays without admitting object arrays for string-list settings", () => {
+  const rules = [
+    { id: "release", pattern: "npm run release", agent: "worker" },
+    { id: "push", pattern: "git push" },
+  ];
+  const read = daemonSettingsRead({ ...INITIAL_SETTINGS_V1, runtime: { commandInterceptions: rules } }, 4, "initial");
+  assert.deepEqual(validateDaemonSettingsRead(read), []);
+  assert.notDeepEqual(
+    validateDaemonSettingsRead({ ...read, values: { ...read.values, runtimeCommandInterceptions: ["invalid"] } }),
+    [],
+  );
+  assert.notDeepEqual(validateDaemonSettingsRead({ ...read, values: { ...read.values, worktreeSetup: rules } }), []);
+});

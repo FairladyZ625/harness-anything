@@ -260,6 +260,44 @@ function sectionTitles(container: HTMLElement): string[] {
 }
 
 describe("设置页按用途分组并逐项解释", () => {
+  it("命令拦截可读取、编辑、新增、删除并提交,恢复默认显式清空规则", async () => {
+    const rule = { id: "release", pattern: "npm run release", agent: "worker" },
+      container = await mountView({ runtimeCommandInterceptions: [rule] });
+    expect(input(container, "command-interception-0-id").value).toBe("release");
+    expect(input(container, "command-interception-0-pattern").value).toBe(rule.pattern);
+    expect(input(container, "command-interception-0-agent").value).toBe("worker");
+    const change = async (testId: string, value: string) =>
+      act(async () => {
+        const field = input(container, testId);
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, value);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    await change("command-interception-0-pattern", "^git push ");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[data-testid="command-interception-add"]')!.click(),
+    );
+    await change("command-interception-1-id", "deploy");
+    await change("command-interception-1-pattern", "npm run deploy");
+    await act(async () => saveButton(container).click());
+    expect(lastUpdatePayload().runtimeCommandInterceptions).toEqual([
+      { ...rule, pattern: "^git push " },
+      { id: "deploy", pattern: "npm run deploy" },
+    ]);
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[data-testid="command-interception-0-remove"]')!.click(),
+    );
+    await act(async () => saveButton(container).click());
+    expect(lastUpdatePayload().runtimeCommandInterceptions).toEqual([{ id: "deploy", pattern: "npm run deploy" }]);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="settings-runtimeCommandInterceptions-restore"]')!
+        .click(),
+    );
+    await act(async () => saveButton(container).click());
+    expect(lastUpdatePayload().runtimeCommandInterceptions).toEqual([]);
+    expect(container.querySelector('[data-testid="settings-runtimeCommandInterceptions-modified"]')).toBeNull();
+  });
+
   it("分组按声明序渲染,每组有一句说明,每个字段带「改了会怎样」行", async () => {
     const container = await mountView();
     expect(sectionTitles(container)).toEqual([

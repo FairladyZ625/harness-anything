@@ -89,7 +89,9 @@ const flatSettingsValue = (item: unknown): boolean =>
 const settingsActionValue = ([field, item]: readonly [string, unknown]): boolean =>
   field === "roles"
     ? isJsonObject(item) && Object.values(item).every((agent) => typeof agent === "string")
-    : flatSettingsValue(item);
+    : field === "runtimeCommandInterceptions"
+      ? Array.isArray(item) && item.every(isJsonObject)
+      : flatSettingsValue(item);
 const settingsLastChange = (item: unknown): boolean =>
   item === "initial" ||
   (isJsonObject(item) &&

@@ -67,3 +67,20 @@ it("accepts unset closeout settings and rejects malformed declared profiles", ()
   for (const closeout of [null, [], "strict", { profile: "unknown" }])
     expect(isSettingsSuccess({ ...response, settings: { ...response.settings, closeout } })).toBe(false);
 });
+
+it("accepts nonempty command interception rules from the real settings read constructor", () => {
+  const rules = [
+    { id: "release", pattern: "npm run release", agent: "worker" },
+    { id: "push", pattern: "git push" },
+  ];
+  const response = daemonSettingsRead(
+    { ...INITIAL_SETTINGS_V1, runtime: { commandInterceptions: rules } },
+    1,
+    "initial",
+  );
+  expect(isSettingsSuccess(response)).toBe(true);
+  expect(
+    isSettingsSuccess({ ...response, values: { ...response.values, runtimeCommandInterceptions: ["invalid"] } }),
+  ).toBe(false);
+  expect(isSettingsSuccess({ ...response, values: { ...response.values, worktreeSetup: rules } })).toBe(false);
+});

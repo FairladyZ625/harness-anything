@@ -17,6 +17,7 @@ import {
   type SettingsFieldRow,
   type RolePreferences,
   type SettingsFieldValue,
+  type CommandInterceptionRule,
 } from "../../settings-form.ts";
 import {
   gateMappingDrafts,
@@ -26,6 +27,7 @@ import {
 } from "../../gate-mapping-form.ts";
 import { DecisionPointsEditor } from "./DecisionPointsEditor.tsx";
 import { GateMappingsEditor } from "./GateMappingsEditor.tsx";
+import { CommandInterceptionsEditor } from "./CommandInterceptionsEditor.tsx";
 
 /** closeout 门覆写的「默认」不是声明默认值,而是当前 profile 的基线(strict 全开)。 */
 const CLOSEOUT_OVERRIDE_FIELDS: ReadonlySet<string> = new Set([
@@ -526,6 +528,14 @@ function renderFieldControl(
   const { draft, updateDraft } = props,
     testId = FIELD_TEST_IDS[row.field];
   switch (row.widget) {
+    case "command-interceptions":
+      return (
+        <CommandInterceptionsEditor
+          rules={(draft[row.field] ?? []) as readonly CommandInterceptionRule[]}
+          disabled={props.readOnly}
+          onChange={(rules) => updateDraft(row.field, rules)}
+        />
+      );
     case "role-selectors": {
       const roles = (draft.roles ?? {}) as RolePreferences;
       return (

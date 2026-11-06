@@ -13,6 +13,11 @@
  */
 
 import type { GateMappingDraft } from "./gate-mapping-form.ts";
+import type { SettingsRead } from "../api/renderer-dto.ts";
+
+export type CommandInterceptionRule = NonNullable<
+  NonNullable<SettingsRead["settings"]["runtime"]>["commandInterceptions"]
+>[number];
 
 /** 契约字段描述,形状对齐 daemon catalog snapshot 的 settingsFields 行。 */
 export interface SettingsFieldDescriptor {
@@ -41,6 +46,7 @@ export type SettingsFieldValue =
   | boolean
   | readonly string[]
   | readonly GateMappingDraft[]
+  | readonly CommandInterceptionRule[]
   | RolePreferences;
 
 /** 表单草稿:扁平 action 值,键 = 契约字段名,来源 daemon settings read 的 values。 */
@@ -48,6 +54,7 @@ export type SettingsDraft = Readonly<Record<string, SettingsFieldValue | undefin
 
 export type SettingsFieldWidget =
   | "role-selectors"
+  | "command-interceptions"
   | "enum-select"
   | "catalog-select"
   | "string-list"
@@ -117,6 +124,8 @@ export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): re
     if (EXCLUDED_FIELDS.has(descriptor.field)) return [];
     if (descriptor.field === "roles" && descriptor.type === "json-object")
       return [settingsFieldRow(descriptor, "role-selectors", null)];
+    if (descriptor.field === "runtimeCommandInterceptions" && descriptor.type === "json-object-array")
+      return [settingsFieldRow(descriptor, "command-interceptions", null)];
     if (CATALOG_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string")
       return [settingsFieldRow(descriptor, "catalog-select", null)];
     if (descriptor.enum && descriptor.type === "string")
