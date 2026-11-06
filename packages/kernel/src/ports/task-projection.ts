@@ -60,6 +60,8 @@ export interface RuntimeSessionReadQuery {
   readonly runtimeSessionId?: string;
   /** Sessions bound to this provider session, settled or not. A resume names one native session. */
   readonly providerSessionId?: string;
+  /** Sessions whose canonical liveness has not exited. */
+  readonly nonExitedOnly?: boolean;
   /** Only sessions whose canonical outcome is still unset. Recovery must not scan settled history. */
   readonly unsettledOnly?: boolean;
   /**

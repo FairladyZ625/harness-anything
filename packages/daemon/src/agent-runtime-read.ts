@@ -240,7 +240,7 @@ export function makeAgentRuntimeReadModel(input: {
           : // The unscoped, unpaged overview is the `ha runtime status` default: list what is
             // still running, not every session ever. Scoped reads keep full task history;
             // explicit paging stays the deliberate history lane.
-            input.projection.readRuntimeSessions().filter(({ liveness }) => liveness !== "exited"));
+            input.projection.readRuntimeSessions({ nonExitedOnly: true }));
       const installationIds = new Set(sessions.map(({ installationId }) => installationId));
       const installations = input.projection.readRuntimeInstallations();
       const installationsById = new Map(

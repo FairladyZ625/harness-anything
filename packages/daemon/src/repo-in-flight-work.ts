@@ -7,8 +7,7 @@ export function readRepoInFlightWork(input: {
   readonly repoId: string;
   readonly queueDepth: number;
 }): readonly RepoInFlightWork[] {
-  const runtime = input.projection.readRuntimeSessions().flatMap((session) => {
-      if (session.liveness === "exited") return [];
+  const runtime = input.projection.readRuntimeSessions({ nonExitedOnly: true }).flatMap((session) => {
       const binding = session.taskBindings.at(-1);
       return [
         {

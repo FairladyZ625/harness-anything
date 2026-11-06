@@ -88,6 +88,9 @@ export const REPOSITORY_READ_TABLES_SQL = `
     -- A resume names its native provider session; find it without walking settled history.
     CREATE INDEX IF NOT EXISTS runtime_session_provider_session
       ON runtime_session(json_extract(value_json, '$.providerSessionId'), runtime_session_id);
+    -- Default runtime overview reads only live sessions; the partial index excludes exited history.
+    CREATE INDEX IF NOT EXISTS runtime_session_non_exited_order
+      ON runtime_session(runtime_session_id) WHERE json_extract(value_json, '$.liveness') <> 'exited';
     -- Edge recovery filters by node before outcome, so node-settled history is never visited.
     CREATE INDEX IF NOT EXISTS runtime_session_node_unsettled
       ON runtime_session(execution_node_id, json_extract(value_json, '$.outcome'), runtime_session_id);
