@@ -101,7 +101,6 @@ test(
     t.after(async () => {
       model.closeAllConnections();
       await new Promise<void>((resolve, reject) => model.close((error) => (error ? reject(error) : resolve())));
-      rmSync(root, { recursive: true, force: true });
     });
     const address = model.address();
     assert.ok(address && typeof address !== "string");
@@ -174,6 +173,7 @@ test(
     t.after(async () => {
       await worker.terminateTree?.();
       worker.release?.();
+      rmSync(root, { recursive: true, force: true });
     });
     assert.ok(stream.ref);
     let stdout = "",
