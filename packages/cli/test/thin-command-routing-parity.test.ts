@@ -1172,7 +1172,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
           "already in this write; a hand-edited task_plan.md still needs ha doc sync --submit --task <task-id> " +
           "from the task's executor or a human principal first",
         "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
-          "harness/tasks/task-one/task_plan.md; keep every section heading the preset template ships",
+          "harness/tasks/task-one/task_plan.md; keep the preset's required section headings for task start, but reorder or add sections freely — only machine-managed frontmatter is frozen",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-one/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",

@@ -513,6 +513,46 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
   }
 });
 
+test("a task plan section reorder submits as authored prose with no region-policy diagnostic", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-plan-reorder-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("task-plan-reorder"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "task-plan-reorder" }),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    const created = await cell.run(
+      { kind: "task-create", taskId: "task-plan-reorder", title: "Plan reorder" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    const packagePath = String(created.packagePath),
+      logical = `${packagePath}/task_plan.md`,
+      sections = readFileSync(path.join(rootDir, "harness", logical), "utf8").split(/(?=^## )/mu),
+      verification = sections.findIndex((section) => section.startsWith("## Verification\n"));
+    assert.notEqual(verification, -1, "the scaffold must carry a Verification section");
+    // The reported friction shape: one authored section moved across its siblings.
+    sections.splice(1, 0, ...sections.splice(verification, 1));
+    sections.push("## Added Section\n\nAuthored insertion.\n");
+    write(rootDir, logical, sections.join(""));
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.doesNotMatch(JSON.stringify(submitted), /reordered|refresh-region-policy|base region is missing/u);
+    await waitForFixturePublication(cell, String(submitted.opId), binding);
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema !== "doc-event/v1") return;
+    const proofs = event.payload.changes[0]!.regionProofs.map((proof) => proof.regionId);
+    assert.equal(proofs.includes("heading/verification"), true);
+    assert.equal(proofs.includes("heading/added section"), true);
+    const clean = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
+    assert.equal(rows(clean.evidence)[0]?.state, "clean");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("an identifier-free lifecycle publishes dirty artifacts and completes on the derived execution and Review cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-complete-"));
   initRepo(rootDir);

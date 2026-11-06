@@ -133,7 +133,8 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
     "task-create:edit-plan",
     (args) =>
       `plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit ` +
-      `${textArg(args, "packagePath")}/task_plan.md; keep every section heading the preset template ships`,
+      `${textArg(args, "packagePath")}/task_plan.md; keep the preset's required section headings for ` +
+      "task start, but reorder or add sections freely — only machine-managed frontmatter is frozen",
   ],
   [
     "task-create:task-artifacts",

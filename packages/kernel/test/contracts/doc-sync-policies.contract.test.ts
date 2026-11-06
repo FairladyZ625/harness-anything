@@ -348,6 +348,83 @@ test("prose regions may be removed, renamed, or reordered while file deletion an
   assert.equal(reorderedResult.accepted, true, JSON.stringify(reorderedResult));
 });
 
+// dec_8AF65DA6436BAEF9DE764B485B CH1: the additive guard keeps order/existence only for machine
+// regions; moving an authored section is not a region event at all. This pins the reported friction
+// shape (a section moved across its siblings) so a future prose-order gate cannot return silently.
+test("a task plan section reorder plus a new section stays authored prose with no region-order touch", () => {
+  const base = [
+      "---",
+      "title: Moved section",
+      "---",
+      "# Moved section",
+      "",
+      "## Brief",
+      "B",
+      "## Goal",
+      "G",
+      "## Context",
+      "C",
+      "## Constraints",
+      "K",
+      "## Exit Criteria",
+      "E",
+      "## Verification",
+      "V",
+      "",
+    ].join("\n"),
+    path = "tasks/task-owner/task_plan.md",
+    reordered = [
+      "---",
+      "title: Moved section",
+      "---",
+      "# Moved section",
+      "",
+      "## Brief",
+      "B",
+      "## Goal",
+      "G",
+      "## Exit Criteria",
+      "E",
+      "## Context",
+      "C",
+      "## Constraints",
+      "K",
+      "## Verification",
+      "V",
+      "## Added Section",
+      "N",
+      "",
+    ].join("\n"),
+    result = decide(
+      { path, baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(reordered) },
+      { ...state(base), path: documentPath(path) },
+      Buffer.from(reordered),
+    );
+  assert.equal(result.accepted, true, JSON.stringify(result));
+  if (!result.accepted) return;
+  const proofs = result.event.payload.changes[0]!.regionProofs.map((proof) => proof.regionId);
+  assert.equal(proofs.includes("heading/exit criteria"), true);
+  assert.equal(proofs.includes("heading/added section"), true);
+});
+
+test("a removed machine region yields one region-policy touch, not a paired diagnostic", () => {
+  const base = "---\ntitle: Frozen\n---\n# Notes\nA\n",
+    path = "context/frozen.md",
+    candidate = "# Notes\nA\n",
+    result = decide(
+      { path, baseBlobSha256: sha256Text(base), policyId: DOC_POLICY_ID, candidate: claim(candidate) },
+      { ...state(base), path: documentPath(path) },
+      Buffer.from(candidate),
+    );
+  assert.equal(result.accepted, false);
+  if (result.accepted) return;
+  assert.equal(result.code, "unresolved_touch");
+  assert.deepEqual(
+    result.detail.unresolvedTouches.map((region) => [region.regionId, region.reason, region.requiredRoute]),
+    [["machine/frontmatter", 'base region is missing: "machine/frontmatter"', "refresh-region-policy"]],
+  );
+});
+
 test("fenced and indented code examples are content, not heading anchors", () => {
   const base = "# Notes\nBody\n",
     prose = {
