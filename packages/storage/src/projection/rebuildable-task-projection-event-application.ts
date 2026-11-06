@@ -122,6 +122,7 @@ import {
   watermark,
 } from "./rebuildable-task-projection-sql.ts";
 import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } from "./relation-entity-projection.ts";
+import { refreshDirtyRelationFreshness } from "./relation-freshness-maintenance.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
@@ -167,8 +168,19 @@ const INSERT_TASK_SNAPSHOT_SQL = [
   "VALUES (?, ?, ?, ?, ?)",
 ].join(" ");
 
-// Canonical-event dispatcher for non-task domains and task-event handoff.
+// Canonical-event dispatcher for non-task domains and task-event handoff. Relation freshness
+// changed by this event is recomputed before the event's cut becomes visible.
 export function applyEvent(
+  db: DatabaseSync,
+  event: PersistedCanonicalEventV1,
+  eventJson: string,
+  readBlob: EventStreamPort["readContentBlob"],
+): void {
+  applyEventProjection(db, event, eventJson, readBlob);
+  refreshDirtyRelationFreshness(db);
+}
+
+function applyEventProjection(
   db: DatabaseSync,
   event: PersistedCanonicalEventV1,
   eventJson: string,
@@ -1212,6 +1224,7 @@ function applyTitleOnlyTaskAmendmentBatch(db: DatabaseSync, events: readonly Pre
     last.occurredAt,
     packagePath === undefined ? null : String(packagePath),
   );
+  refreshDirtyRelationFreshness(db);
 }
 
 function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {

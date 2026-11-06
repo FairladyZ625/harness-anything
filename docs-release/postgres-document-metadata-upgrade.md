@@ -253,3 +253,35 @@ writer window; no canonical bytes or previous columns are removed.
 PGlite performs both bounded backfills before opening its scope. Only disposable isolated
 replay schemas and PGlite pass `{ indexBuild: "isolated" }` to schema initialization;
 external production schemas use the default concurrent build.
+
+## Relation freshness expansion
+
+Relation freshness is a global property of the relation (dec_E34C4284B48AFAF152D7BF1980).
+This additive generation-5 expansion stores it on `ha_relations` as `freshness` and
+`current_target_version`. `ensurePgProjectionSchema` adds both nullable columns, the
+`ha_relation_freshness_dirty` table, the `(freshness, relation_id)` page index and endpoint
+triggers on tasks, decisions, facts, agents, squads, relations and entity projection values.
+Run `grantPgProjectionRuntimeAccess` afterwards so previous and current writers can record
+changed endpoints through those triggers.
+
+Current writers recompute the relations anchored on every changed endpoint in the same
+materialization transaction, located through the source/target indexes, and store the
+kernel judgment over unfiltered endpoint witnesses. Readers filter relation visibility only.
+Rows written before the expansion, or by a previous writer, have no stored value; until a
+scope has none left and no undrained changed endpoint, readers keep the previous read path.
+
+Backfill each tenant/project/policy-epoch scope with the exported page function, one
+management transaction per page, until `done` is true:
+
+```ts
+import { backfillPgRelationFreshnessPage, withPostgresTransaction } from "@harness-anything/storage";
+
+for (;;) {
+  const page = await withPostgresTransaction(pool, (client) => backfillPgRelationFreshnessPage(client, scope), scope);
+  if (page.done) break;
+}
+```
+
+Each page fills at most 256 pending relations and drains endpoints marked by previous writers.
+PGlite runs the same loop before exposing an opened scope. The previous read path, its readiness
+probe and the pending index are removed on 2026-11-26; the columns, triggers and current writes stay.

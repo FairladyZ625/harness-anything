@@ -3,6 +3,7 @@ import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/t
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/index.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
+import { backfillPgRelationFreshnessPage } from "../pg/pg-relation-freshness.ts";
 import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
@@ -78,6 +79,10 @@ async function initializeSchema(
   }
   for (;;) {
     const page = await withPostgresTransaction(pool, (client) => backfillPgDecisionSearchPage(client, scope), scope);
+    if (page.done) break;
+  }
+  for (;;) {
+    const page = await withPostgresTransaction(pool, (client) => backfillPgRelationFreshnessPage(client, scope), scope);
     if (page.done) break;
   }
   // Commit each bounded expansion page before admitting readers of this embedded scope.

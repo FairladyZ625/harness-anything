@@ -416,7 +416,8 @@
         },
         "task-amend": {
           "measurements": [
-            "task-amend:patches"
+            "task-amend:patches",
+            "task-amend:anchored-relations"
           ]
         },
         "decision-override-review": {
@@ -1846,19 +1847,6 @@
         }
       },
       {
-        "probe": "claimable-tasks",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 525 at 200 -> 4125 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 226 -> 341, firstCall 226 -> 341 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
         "probe": "cli-decision-validate",
         "backend": "pglite",
         "dimension": "runtime-sessions",
@@ -2012,19 +2000,6 @@
         "dimension": "runtime-sessions",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 298528 at 200 -> 2828852 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 25194 -> 88228, firstCall 25194 -> 88228 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "cli-work-show",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 450 at 200 -> 4050 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 150, firstCall 73 -> 150 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
@@ -2293,19 +2268,6 @@
         }
       },
       {
-        "probe": "task-list",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 477 at 200 -> 4077 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 165 -> 235, firstCall 165 -> 235 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
         "probe": "workspace-summary",
         "backend": "pglite",
         "dimension": "runtime-sessions",
@@ -2487,19 +2449,6 @@
         "probe": "claimable-tasks",
         "backend": "pglite",
         "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 525 at 200 -> 4125 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 226 -> 341, firstCall 226 -> 341 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "claimable-tasks",
-        "backend": "pglite",
-        "dimension": "dispatches",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 317999 at 200 -> 2848683 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 44605 -> 107699, firstCall 44605 -> 107699 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
@@ -2650,19 +2599,6 @@
         "dimension": "dispatches",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296216 at 200 -> 2826856 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 22866 -> 85916, firstCall 22866 -> 85916 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "cli-work-show",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 450 at 200 -> 4050 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 73 -> 150, firstCall 73 -> 150 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
@@ -2923,19 +2859,6 @@
         "dimension": "dispatches",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 160653 at 200 -> 1485455 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 17131 -> 50253, firstCall 17131 -> 50253 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "task-list",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 477 at 200 -> 4077 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 165 -> 235, firstCall 165 -> 235 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
@@ -3946,24 +3869,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "cli-decision-validate",
-        "backend": "sqlite",
-        "dimension": "relations",
-        "metric": "sqliteVmSteps",
-        "reason": "decision validation relation reads; CEO ruling includes relationship reads at other callpoints; observed sqliteVmSteps 1271 at 200 -> 6671 at 2000 (warm), 1287 -> 6687 (firstCall). Native execution work, fixed result k; no margin change.",
-        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "cli-decision-verify",
-        "backend": "sqlite",
-        "dimension": "relations",
-        "metric": "sqliteVmSteps",
-        "reason": "decision verification relation reads; CEO ruling includes relationship reads at other callpoints; observed sqliteVmSteps 1271 at 200 -> 6671 at 2000 (warm), 1271 -> 6671 (firstCall). Native execution work, fixed result k; no margin change.",
-        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "cli-schedule-reckon",
         "backend": "sqlite",
         "dimension": "relations",
@@ -4019,69 +3924,6 @@
         "metric": "sqlRowsRead",
         "reason": "After PG read-downpush merge #4307, the real unsettled startup reader still scans 180 rows at 200 historical sessions -> 940 at 2000, warm and firstCall, while result k remains 1. This is the PG unsettled read responsibility explicitly assigned to task_b8a3cd12; engine work, not only returned rows, must become bounded. No margin change.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "relation-freshness-page",
-        "backend": "sqlite",
-        "dimension": "relations",
-        "metric": "sqliteVmSteps",
-        "reason": "Explicit relation-list freshness=suspect pagination derives permission-scoped witnesses before filtering; fixed k=1 at 200/2000. Observed sqliteVmSteps warm 38386 -> 378586, firstCall 38404 -> 378604. CEO 2026-11-05 assigns freshness removal to the reader-context task; no margin or scale change.",
-        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "relation-freshness-page",
-        "backend": "sqlite",
-        "dimension": "relations",
-        "metric": "sqlRowsRead",
-        "reason": "Explicit relation-list freshness=suspect pagination derives permission-scoped witnesses before filtering; fixed k=1 at 200/2000. Observed sqlRowsRead warm 416 -> 4016, firstCall 416 -> 4016. CEO 2026-11-05 assigns freshness removal to the reader-context task; no margin or scale change.",
-        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "relation-freshness-page",
-        "backend": "sqlite",
-        "dimension": "relations",
-        "metric": "sqlResultBytes",
-        "reason": "Explicit relation-list freshness=suspect pagination derives permission-scoped witnesses before filtering; fixed k=1 at 200/2000. Observed sqlResultBytes warm 112506 -> 1113604, firstCall 112506 -> 1113604. CEO 2026-11-05 assigns freshness removal to the reader-context task; no margin or scale change.",
-        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "relation-freshness-page",
-        "backend": "pglite",
-        "dimension": "relations",
-        "metric": "sqlRowsRead",
-        "reason": "Explicit relation-list freshness=suspect pagination derives permission-scoped witnesses before filtering; fixed k=1 at 200/2000. Observed sqlRowsRead warm 1839 -> 18039, firstCall 1839 -> 18039. CEO 2026-11-05 assigns freshness removal to the reader-context task; no margin or scale change.",
-        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "relation-freshness-page",
-        "backend": "pglite",
-        "dimension": "relations",
-        "metric": "sqlResultBytes",
-        "reason": "Explicit relation-list freshness=suspect pagination derives permission-scoped witnesses before filtering; fixed k=1 at 200/2000. Observed sqlResultBytes warm 194627 -> 1946313, firstCall 194627 -> 1946313. CEO 2026-11-05 assigns freshness removal to the reader-context task; no margin or scale change.",
-        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "relation-freshness-page",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqliteVmSteps",
-        "reason": "The explicit relation-list freshness filter derives endpoint witnesses even at a fixed result k=0; unrelated runtime-sessions history grows SQLite VM work. Observed warm 1553 -> 10553, firstCall 1571 -> 10571 at 200/2000. CEO 2026-11-05 assigns freshness read-path removal to the reader-context task; no margin or scale change.",
-        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "relation-freshness-page",
-        "backend": "sqlite",
-        "dimension": "dispatches",
-        "metric": "sqliteVmSteps",
-        "reason": "The explicit relation-list freshness filter derives endpoint witnesses even at a fixed result k=0; unrelated dispatches history grows SQLite VM work. Observed warm 1553 -> 10553, firstCall 1571 -> 10571 at 200/2000. CEO 2026-11-05 assigns freshness read-path removal to the reader-context task; no margin or scale change.",
-        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
         "expiresAt": "2026-11-26T00:00:00Z"
       }
     ]

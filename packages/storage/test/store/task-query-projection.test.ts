@@ -642,13 +642,13 @@ test("relation page rows carry their own updated_at with no event_index rows bes
     try {
       createRelationGraphProjectionTables(replica);
       createTaskRelationProjectionTable(replica);
-      // Relation freshness reads entity version witnesses from the core tables; copy task_snapshot
-      // so the replica computes the same witnesses without any event log.
+      // Relation freshness is a stored column computed by the center, so the replica copies it
+      // with each edge and never recomputes it; task_snapshot rides along as the replica's core table.
       replica.exec(TASK_INDEX_TABLES_SQL);
       replica.exec(`ATTACH '${projection.path.replace(/'/gu, "''")}' AS centerdb`);
       replica.exec(
-        "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, target_observed_version, owner_ref, workspace_revision, updated_at, row_json) " +
-          "SELECT relation_id, source_ref, target_ref, relation_type, state, target_observed_version, owner_ref, workspace_revision, updated_at, row_json FROM centerdb.relation_edge",
+        "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, target_observed_version, owner_ref, workspace_revision, updated_at, row_json, freshness, current_target_version) " +
+          "SELECT relation_id, source_ref, target_ref, relation_type, state, target_observed_version, owner_ref, workspace_revision, updated_at, row_json, freshness, current_target_version FROM centerdb.relation_edge",
       );
       replica.exec(
         "INSERT INTO task_relation SELECT relation_id, task_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index, workspace_revision, updated_at FROM centerdb.task_relation",
@@ -682,7 +682,7 @@ test("relation neighborhood fails closed at the depth boundary", () => {
   try {
     createRelationGraphProjectionTables(db);
     const insert = db.prepare(
-      "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, row_json, workspace_revision, updated_at) VALUES (?, ?, ?, 'depends-on', 'active', ?, ?, 1, '2026-10-06T00:00:00.000Z')",
+      "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, row_json, workspace_revision, updated_at, freshness) VALUES (?, ?, ?, 'depends-on', 'active', ?, ?, 1, '2026-10-06T00:00:00.000Z', 'current')",
     );
     for (const [id, source, target] of [
       ["rel-a", "task/a", "task/b"],
@@ -783,7 +783,7 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
       insertFts.run(factId, row.statement, row.evidenceSource);
     }
     // fact/1 supersedes fact/0: the liveness computation must still see it through the narrowed fetch.
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)").run(
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 'current', NULL)").run(
       "rel_sup_0",
       "fact/F-00000001",
       "fact/F-00000000",
@@ -884,7 +884,7 @@ test("fact search liveness reads only supersedes edges, however many facts and e
       );
       insertFts.run(factId, row.statement, row.evidenceSource);
     }
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current', NULL)").run(
       "rel-scale",
       "fact/F-00000001",
       "fact/F-00000000",
@@ -903,7 +903,7 @@ test("fact search liveness reads only supersedes edges, however many facts and e
       }),
     );
     // Unrelated active edges: a liveness read that scans the edge table pays for every one of them.
-    const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current', NULL)");
     for (let index = 0; index < 3000; index += 1)
       insertEdge.run(
         `rel-unrelated-${index}`,
@@ -963,7 +963,7 @@ test("a relation read with a fixed endpoint searches only that endpoint's edges,
     try {
       createRelationGraphProjectionTables(db);
       createTaskRelationProjectionTable(db);
-      const edge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+      const edge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current', NULL)"),
         mirror = db.prepare("INSERT INTO task_relation VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       let revision = 0;
       const add = (source: string, target: string, type: string) => {
@@ -1015,7 +1015,7 @@ test("a relation read with a fixed endpoint searches only that endpoint's edges,
       return queries.map((query) => {
         statements.length = 0;
         const rows = readTaskRelationPage(db, query).rows.map((row) => `${row.sourceRef}>${row.targetRef}`),
-          sql = statements.find((statement) => statement.includes("UNION ALL"))!,
+          sql = statements.find((statement) => statement.includes("FROM relation_edge"))!,
           values = [query.entity, query.entity, query.source, query.target, query.relationType, query.state].filter(
             (value) => value !== undefined,
           ),
@@ -1033,7 +1033,8 @@ test("a relation read with a fixed endpoint searches only that endpoint's edges,
   for (const [index, query] of queries.entries()) {
     const [small, large] = [shapes[0]![index]!, shapes[1]![index]!];
     assert.deepEqual(large.rows, small.rows, JSON.stringify(query));
-    assert.ok(small.plan.length >= 2, `${JSON.stringify(query)} plan: ${small.plan.join("; ")}`);
+    // relation_edge is the one source the page reads, so every plan must search it by endpoint.
+    assert.ok(small.plan.length >= 1, `${JSON.stringify(query)} plan: ${small.plan.join("; ")}`);
     for (const detail of [...small.plan, ...large.plan])
       assert.match(
         detail,

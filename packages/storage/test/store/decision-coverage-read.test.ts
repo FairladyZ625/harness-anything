@@ -12,6 +12,10 @@ import {
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
 import { readRelationProjectionRows } from "../../src/projection/relation-entity-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
+import {
+  createRelationFreshnessMaintenance,
+  refreshDirtyRelationFreshness,
+} from "../../src/projection/relation-freshness-maintenance.ts";
 
 // A projection holding only the tables decision coverage reads, written row by row so each test
 // states exactly which decisions, claims, facts, tasks and edges exist. Every statement is recorded
@@ -28,8 +32,14 @@ function ledger() {
     "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY CHECK(singleton=1), watermark INTEGER NOT NULL); " +
       "INSERT INTO projection_meta VALUES (1, 1); " +
       "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, " +
-      "snapshot_json TEXT NOT NULL, status TEXT)",
+      "snapshot_json TEXT NOT NULL, status TEXT); " +
+      "CREATE TABLE projection_maintenance (key TEXT PRIMARY KEY, completed_at TEXT NOT NULL); " +
+      "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
+      "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
+      "PRIMARY KEY(entity_kind, task_id, entity_id))",
   );
+  // Each write settles the stored relation freshness the way the projection's event application does.
+  createRelationFreshnessMaintenance(db);
   db.prepare = ((sql: string) => {
     const statement = prepare(sql);
     for (const method of ["all", "get"] as const) {
@@ -49,6 +59,7 @@ function ledger() {
     db.prepare("UPDATE projection_meta SET watermark=?").run(revision);
     return revision;
   };
+  const settle = () => void refreshDirtyRelationFreshness(db);
   return {
     db,
     revision: () => revision,
@@ -82,6 +93,7 @@ function ledger() {
           claim.fulfillment,
           version,
         );
+      settle();
     },
     fact(factId: string) {
       const ref = `fact/${factId}`,
@@ -91,10 +103,12 @@ function ledger() {
           "op_id, workspace_revision, row_json) VALUES ('task-coverage', ?, ?, 'observation', 'coverage fixture', " +
           "'2026-09-11T00:00:00.000Z', 'high', 'semantic', ?, ?, '{}')",
       ).run(factId, ref, `op-${factId}`, version);
+      settle();
     },
     /** A later Fact version the edges recorded earlier have not observed. */
     restate(factId: string) {
       db.prepare("UPDATE fact SET workspace_revision=? WHERE fact_id=?").run(next(`fact/${factId}`), factId);
+      settle();
     },
     task(taskId: string, status: string) {
       const version = next(`task/${taskId}`);
@@ -104,12 +118,13 @@ function ledger() {
         JSON.stringify({ task: { taskId, status } }),
         status,
       );
+      settle();
     },
     edge(relationId: string, source: string, target: string, type: string, state = "active") {
       const entity = (ref: string) => (ref.startsWith("decision/") ? ref.split("/").slice(0, 2).join("/") : ref),
         version = next(`relation/${relationId}`),
         observed = versions.get(entity(target)) ?? null;
-      db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)").run(
         relationId,
         source,
         target,
@@ -138,6 +153,7 @@ function ledger() {
           sourcePath: `event:op-${relationId}`,
         }),
       );
+      settle();
     },
   };
 }

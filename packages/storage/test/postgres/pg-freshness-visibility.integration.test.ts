@@ -10,10 +10,11 @@ import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixt
 import { actor, relation } from "../store/relation-graph-projection.fixtures.ts";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
+import { backfillPgRelationFreshnessPage } from "../../src/pg/pg-relation-freshness.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "../../src/pg/pg-projection-schema.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 
-test("one relation has different freshness at distinct supported reader cuts", async () => {
+test("one visible relation has the same global freshness at every supported reader cut", async () => {
   const fixture = await pgRuntimeFixture(),
     scope = { tenantId: "freshness-visibility", projectId: "freshness-visibility", policyEpoch: 1 },
     repoId = "visibility",
@@ -37,6 +38,23 @@ test("one relation has different freshness at distinct supported reader cuts", a
       source: "local",
       occurredAt: "2026-11-05T00:00:00.000Z",
       payload: { relation: { ...record, targetObservedVersion: version } },
+    }),
+    { strength: _privateStrength, ...privateRecord } = relation({
+      source: "task/task_source",
+      target: "task/task_target",
+      type: "relates",
+    }),
+    privateEdge = reduceRelationEntity(null, {
+      schema: "relation-event/v1",
+      eventId: "visibility-private",
+      opId: "visibility-private",
+      workspaceRevision: version + 1,
+      relationId: privateRecord.relation_id,
+      type: "relation_created",
+      actor,
+      source: "local",
+      occurredAt: "2026-11-05T00:00:00.000Z",
+      payload: { relation: { ...privateRecord, targetObservedVersion: version } },
     });
   try {
     await withPostgresTransaction(
@@ -47,22 +65,27 @@ test("one relation has different freshness at distinct supported reader cuts", a
         VALUES($1,$2,$3,ARRAY['alice'],'task_target',$4,$5::jsonb)`,
           [scope.tenantId, scope.projectId, scope.policyEpoch, version, JSON.stringify(snapshot)],
         );
-        await client.query(
-          `INSERT INTO ha_relations(tenant_id,project_id,policy_epoch,readers,relation_id,source_ref,target_ref,relation_type,relation_state,workspace_revision,value)
-        VALUES($1,$2,$3,ARRAY['alice','bob'],$4,$5,$6,$7,$8,$9,$10::jsonb)`,
-          [
-            scope.tenantId,
-            scope.projectId,
-            scope.policyEpoch,
-            edge.id,
-            edge.source,
-            edge.target,
-            edge.type,
-            edge.state,
-            version + 1,
-            JSON.stringify({ ...edge, sourcePath: "event:visibility", recordIndex: 0 }),
-          ],
-        );
+        for (const [readers, relation] of [
+          [["alice", "bob"], edge],
+          [["alice"], privateEdge],
+        ] as const)
+          await client.query(
+            `INSERT INTO ha_relations(tenant_id,project_id,policy_epoch,readers,relation_id,source_ref,target_ref,relation_type,relation_state,workspace_revision,value)
+          VALUES($1,$2,$3,$4::text[],$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+            [
+              scope.tenantId,
+              scope.projectId,
+              scope.policyEpoch,
+              readers,
+              relation.id,
+              relation.source,
+              relation.target,
+              relation.type,
+              relation.state,
+              version + 1,
+              JSON.stringify({ ...relation, sourcePath: "event:visibility", recordIndex: 0 }),
+            ],
+          );
         await client.query(
           `INSERT INTO ha_repo_heads(tenant_id,project_id,policy_epoch,repo_id,readers,revision,head_op_id,head_event_digest,head_digest)
         VALUES($1,$2,$3,$4,ARRAY['alice','bob'],$5,'fixture','fixture','fixture')`,
@@ -76,7 +99,22 @@ test("one relation has different freshness at distinct supported reader cuts", a
       },
       scope,
     );
+    // Rows written without stored freshness (expansion backfill window) are filled in bounded,
+    // committed pages; the scope then serves the stored global value.
+    let pages = 0;
+    for (;;) {
+      const page = await withPostgresTransaction(
+        fixture.adminPool,
+        (client) => backfillPgRelationFreshnessPage(client, scope),
+        scope,
+      );
+      pages += 1;
+      if (page.done) break;
+      assert.ok(pages < 8, "relation freshness backfill must converge");
+    }
     const observed = [];
+    // dec_E34C4284B48AFAF152D7BF1980: the target task is visible to alice only, yet the shared edge's
+    // freshness is the relation's own value for every reader; readers only decide visibility.
     for (const readers of [[], ["alice"], ["bob"], ["alice", "bob"]]) {
       const source = createPgTaskProjectionSource({
           pool: fixture.pool,
@@ -84,21 +122,31 @@ test("one relation has different freshness at distinct supported reader cuts", a
           repoId,
           ownsPool: false,
         }),
-        all = await source.readRelationQuery({ limit: 1 }),
-        current = await source.readRelationQuery({ freshness: "current", limit: 1 }),
-        suspect = await source.readRelationQuery({ freshness: "suspect", limit: 1 }),
-        expected = readers.length === 1 && readers[0] === "bob" ? "suspect" : "current";
-      assert.equal(all.rows[0]?.freshness, expected);
-      assert.equal(current.rows.length, expected === "current" ? 1 : 0);
-      assert.equal(suspect.rows.length, expected === "suspect" ? 1 : 0);
+        all = await source.readRelationQuery({ limit: 10 }),
+        current = await source.readRelationQuery({ freshness: "current", limit: 10 }),
+        suspect = await source.readRelationQuery({ freshness: "suspect", limit: 10 }),
+        shared = all.rows.find((row) => row.relationId === edge.id),
+        visible = readers.length === 1 && readers[0] === "bob" ? [edge.id] : [edge.id, privateEdge.id].sort();
+      assert.deepEqual(
+        all.rows.map((row) => row.relationId),
+        visible,
+      );
+      assert.equal(shared?.freshness, "current");
+      assert.equal(shared?.currentTargetVersion, version);
+      assert.deepEqual(
+        current.rows.map((row) => row.relationId),
+        visible,
+      );
+      assert.equal(suspect.rows.length, 0);
       observed.push({
         readers,
-        freshness: all.rows[0]?.freshness,
+        freshness: shared?.freshness,
+        visible: all.rows.length,
         current: current.rows.length,
         suspect: suspect.rows.length,
       });
     }
-    process.stdout.write(`FRESHNESS_VISIBILITY ${JSON.stringify({ relationId: edge.id, observed })}\n`);
+    process.stdout.write(`FRESHNESS_VISIBILITY ${JSON.stringify({ relationId: edge.id, pages, observed })}\n`);
   } finally {
     await fixture.pool.end();
     await fixture.close();

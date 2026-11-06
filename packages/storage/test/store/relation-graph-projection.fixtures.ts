@@ -23,6 +23,7 @@ import type { EntityRelationRecord } from "@harness-anything/kernel/internal/dom
 import { createDecisionProjectionTables } from "../../src/projection/decision-event-projection.ts";
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
+import { createRelationFreshnessMaintenance } from "../../src/projection/relation-freshness-maintenance.ts";
 import { realizedDecisionBody } from "../../../../tools/fixtures/task-plan.mjs";
 
 export const actor = {
@@ -301,11 +302,12 @@ export function projectionFixture(rootDir: string) {
 export function decisionProjectionDatabase(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec(
-    "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY, watermark INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 1); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL)",
+    "CREATE TABLE projection_meta (singleton INTEGER PRIMARY KEY, watermark INTEGER NOT NULL); INSERT INTO projection_meta VALUES (1, 1); CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL); CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL); CREATE TABLE projection_maintenance (key TEXT PRIMARY KEY, completed_at TEXT NOT NULL); CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, PRIMARY KEY(entity_kind, task_id, entity_id))",
   );
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
   createDecisionProjectionTables(db);
+  createRelationFreshnessMaintenance(db);
   return db;
 }
 export function compileCurrent(fixture: ReturnType<typeof projectionFixture>, event: DecisionEventDraftV1) {

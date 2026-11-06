@@ -199,7 +199,9 @@ test("fact liveness lookup stays stable as unrelated active edges grow", (contex
           workspaceRevision: 1,
         }),
       );
-      const insert = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?)");
+      const insert = db.prepare(
+        "INSERT INTO relation_edge VALUES (?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, 'current', NULL)",
+      );
       db.exec("BEGIN");
       for (let index = 0; index < edgeCount; index += 1)
         insert.run(

@@ -12,6 +12,7 @@ import { decisionSearchDdl } from "./pg-decision-search-schema.ts";
 import { decisionIndexDdl } from "./pg-decision-index-migration.ts";
 import { artifactTimelineDdl } from "./pg-artifact-timeline.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
+import { relationFreshnessDdl } from "./pg-relation-freshness.ts";
 import {
   POSTGRES_SCOPE_COLUMNS_SQL,
   POSTGRES_SCOPE_SCHEMA_CONTRACT,
@@ -37,13 +38,17 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_entity_declaration_heads",
   "ha_artifact_documents",
   "ha_artifact_counts",
+  "ha_relation_freshness_dirty",
 ] as const);
 
 /** Read/digest tables compared with the other backend. The current-set projection is derived
  * from ha_projection_values and is maintained by triggers, so it is not part of the replay audit
  * even though it shares the projection's RLS and grants. */
 export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
-  PG_PROJECTION_TABLES.filter((table) => table !== "ha_runtime_unsettled" && table !== "ha_event_summary_state"),
+  PG_PROJECTION_TABLES.filter(
+    (table) =>
+      table !== "ha_runtime_unsettled" && table !== "ha_event_summary_state" && table !== "ha_relation_freshness_dirty",
+  ),
 );
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
@@ -269,6 +274,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, projection_name)
     )`,
+    ...relationFreshnessDdl(),
     ...entityDeclarationDdl,
     ...decisionSearchDdl(),
     ...decisionReadStatusDdl(),

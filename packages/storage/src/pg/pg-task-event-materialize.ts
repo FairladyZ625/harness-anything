@@ -5,6 +5,7 @@ import {
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { refreshPgDecisionSearch } from "./pg-decision-search.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
+import { refreshPgDirtyRelationFreshness } from "./pg-relation-freshness.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
@@ -147,6 +148,8 @@ async function materializeProjectionEvent(
   }
   await storeEmbeddedRelations(client, scope, event, tables);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
+  // Relation freshness changed by this event is stored before its cut becomes visible.
+  await refreshPgDirtyRelationFreshness(client, scope);
   const searchOwners = new Set<string>();
   if (isDecisionEvent(event)) searchOwners.add(event.decisionId);
   else if (isMigrationImportEvent(event) && event.payload.entity.kind === "decision")
@@ -489,6 +492,7 @@ async function storeRelation(
       event.occurredAt,
     ],
   );
+  await refreshPgDirtyRelationFreshness(client, scope);
   const projected = (
     await readVersionedRelationsInTransaction(client, scope, [...(scope.readers ?? [])], { relationId })
   )[0]!;
@@ -873,16 +877,16 @@ async function relationTargetVersion(
 ): Promise<number | null> {
   const slash = target.indexOf("/"),
     kind = slash > 0 ? target.slice(0, slash) : "",
-    id = slash > 0 ? target.slice(slash + 1) : "",
-    readers = [...(scope.readers ?? [])];
+    id = slash > 0 ? target.slice(slash + 1) : "";
+  // The observed version is part of the relation's global freshness (dec_E34C4284B48AFAF152D7BF1980):
+  // the writer's reader set never filters the target witness.
   if (kind === "execution") {
     const result = await client.query<{ source_version: string }>(
       `SELECT value->>'sourceObservedVersion' AS source_version FROM ha_relations
        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND source_ref=$4 AND relation_type='executes'
          AND value ? 'sourceObservedVersion'
-         AND (cardinality($5::text[])=0 OR readers && $5::text[])
        ORDER BY (value->>'sourceObservedVersion')::bigint DESC LIMIT 1`,
-      [scope.tenantId, scope.projectId, scope.policyEpoch, target, readers],
+      [scope.tenantId, scope.projectId, scope.policyEpoch, target],
     );
     return result.rows[0] ? Number(result.rows[0].source_version) : null;
   }
@@ -914,8 +918,8 @@ async function relationTargetVersion(
                 : null);
   if (!table || !idColumn) return null;
   const result = await client.query<{ workspace_revision: string }>(
-    `SELECT workspace_revision::text FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, knownId ?? id, readers],
+    `SELECT workspace_revision::text FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, knownId ?? id],
   );
   return result.rows[0] ? Number(result.rows[0].workspace_revision) : null;
 }

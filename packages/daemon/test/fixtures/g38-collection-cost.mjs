@@ -253,6 +253,73 @@ export async function measureRelations(rootDir, size) {
   return { size, counts };
 }
 
+/**
+ * dec_E34C4284B48AFAF152D7BF1980 CH2: an endpoint version change recomputes the stored freshness
+ * of the relations anchored on that endpoint, located through the endpoint index, in the same
+ * projection transaction. The cost is linear in that endpoint's relations; an equally large
+ * collection anchored on another endpoint must not be visited.
+ */
+export async function measureAnchoredRelationFreshness(rootDir, size) {
+  const [{ DatabaseSync }, { refreshDirtyRelationFreshness }, fixtures, { withTempStore }] = await Promise.all([
+    import("node:sqlite"),
+    load(rootDir, "packages/storage/src/projection/relation-freshness-maintenance.ts"),
+    load(rootDir, "packages/storage/test/store/relation-graph-projection.fixtures.ts"),
+    load(rootDir, "packages/storage/test/store/helpers.ts"),
+  ]);
+  return withTempStore((storeRoot) => {
+    const fixture = fixtures.projectionFixture(storeRoot);
+    let revision = 0;
+    const apply = (event) => {
+      fixture.appendEvent(event);
+      fixture.projection.apply(event);
+    };
+    for (const taskId of ["task_hot", "task_cold"]) apply(fixtures.taskCreated(++revision, taskId));
+    for (const target of ["task/task_hot", "task/task_cold"])
+      for (let index = 0; index < size; index += 1) {
+        const { strength: _strength, ...record } = fixtures.relation({
+          source: `task/task_source_${index}`,
+          target,
+          type: "relates",
+        });
+        apply({
+          schema: "relation-event/v1",
+          eventId: `event-${++revision}`,
+          workspaceRevision: revision,
+          opId: `op-${revision}`,
+          relationId: record.relation_id,
+          type: "relation_created",
+          actor: fixtures.actor,
+          source: "local",
+          occurredAt: "2026-11-06T00:00:00.000Z",
+          payload: { relation: { ...record, targetObservedVersion: null } },
+        });
+      }
+    const projectionPath = fixture.projection.path;
+    fixture.projection.close();
+    const db = new DatabaseSync(projectionPath);
+    try {
+      const changes = () => Number(db.prepare("SELECT total_changes() AS n").get().n);
+      assert.equal(refreshDirtyRelationFreshness(db), 0);
+      db.prepare("UPDATE task_snapshot SET workspace_revision = ? WHERE task_id = 'task_hot'").run(++revision);
+      const before = changes(),
+        relationsRecomputed = refreshDirtyRelationFreshness(db),
+        rowsWritten = changes() - before,
+        suspect = Number(
+          db
+            .prepare(
+              "SELECT count(*) AS n FROM relation_edge WHERE target_ref = 'task/task_hot' AND freshness = 'suspect'",
+            )
+            .get().n,
+        );
+      assert.equal(relationsRecomputed, size, "only the changed endpoint's relations are recomputed");
+      assert.equal(suspect, size);
+      return { size, counts: { relationsRecomputed, rowsWritten } };
+    } finally {
+      db.close();
+    }
+  });
+}
+
 export async function measureEntityPins(rootDir, size, actionKind) {
   const { runEntityPinAction } = await load(rootDir, "packages/daemon/src/entity-pin-action.ts"),
     entityRef = "task/task_cost",
@@ -706,6 +773,11 @@ export const COLLECTION_PROBES = Object.freeze({
     action: "task-amend",
     dimension: "patches",
     run: measureTaskAmendPatches,
+  },
+  "task-amend:anchored-relations": {
+    action: "task-amend",
+    dimension: "anchored-relations",
+    run: measureAnchoredRelationFreshness,
   },
   "task-dispatch-review:task-ids": {
     action: "task-dispatch-review",

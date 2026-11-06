@@ -37,6 +37,14 @@ const stateDigestTables = [
   ["decision_review_event", "event_id"],
 ] as const;
 
+/** Disposable lookup and derived columns added after a table's state fingerprint was defined. */
+const stateDigestColumns: Partial<Record<(typeof stateDigestTables)[number][0], string>> = {
+  event_index: "op_id,workspace_revision,task_id,event_json",
+  // Freshness is derived from the other projected rows at the same cut (dec_E34C4284B48AFAF152D7BF1980).
+  relation_edge:
+    "relation_id,source_ref,target_ref,relation_type,state,target_observed_version,owner_ref,workspace_revision,updated_at,row_json",
+};
+
 export function watermark(db: DatabaseSync): number {
   const row = prepareQuery(db, "SELECT watermark FROM projection_meta WHERE singleton = 1", (sql) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-031 */ db.prepare(sql),
@@ -88,7 +96,7 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
       // Disposable event lookup fields are not part of the pre-expansion state fingerprint.
       for (const row of prepareQuery(
         db,
-        `SELECT ${table === "event_index" ? "op_id,workspace_revision,task_id,event_json" : "*"} FROM ${table} ORDER BY ${order}`,
+        `SELECT ${stateDigestColumns[table] ?? "*"} FROM ${table} ORDER BY ${order}`,
       ).iterate())
         digest = sha256Text(`${digest}\n${canonicalJson(row as ProjectionSqlRow)}`);
     }

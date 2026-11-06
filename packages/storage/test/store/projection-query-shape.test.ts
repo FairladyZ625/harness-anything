@@ -128,7 +128,9 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
   const insertFact = db.prepare(
     "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
-  const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'evidenced-by', 'active', ?, ?, ?, ?, ?)");
+  const insertEdge = db.prepare(
+    "INSERT INTO relation_edge VALUES (?, ?, ?, 'evidenced-by', 'active', ?, ?, ?, ?, ?, 'current', NULL)",
+  );
   db.exec("BEGIN");
   for (let index = 0; index < facts; index += 1) {
     const taskId = `task-${index}`,
@@ -269,7 +271,9 @@ test("fact liveness target reads use the target-leading relation index", () => {
     { db } = counted;
   try {
     seed(db, 1, 1);
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'supersedes-fact', 'active', NULL, ?, ?, ?, ?)").run(
+    db.prepare(
+      "INSERT INTO relation_edge VALUES (?, ?, ?, 'supersedes-fact', 'active', NULL, ?, ?, ?, ?, 'current', NULL)",
+    ).run(
       "rel_supersedes",
       "fact/F-00000001",
       "fact/F-00000000",
@@ -614,15 +618,36 @@ test("task context collection reads stay indexed, bounded, and constant in state
     createDecisionProjectionTables(db);
     createTaskRelationProjectionTable(db);
     const insertTask = db.prepare(
-      "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'declared', 'active', 'fixture', ?, 'fixture', 0, 1, '2026-08-21T00:00:00.000Z')",
-    );
+        "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'declared', 'active', 'fixture', ?, 'fixture', 0, 1, '2026-08-21T00:00:00.000Z')",
+      ),
+      insertTaskEdge = db.prepare(
+        "INSERT INTO relation_edge VALUES (?, ?, ?, 'depends-on', 'active', NULL, ?, 1, '2026-08-21T00:00:00.000Z', ?, 'current', NULL)",
+      );
+    // Task-owned lookup rows are derived from relation_edge, so each one has its edge beside it.
     for (const [relationId, source, target] of [
       ["rel_ab", "task/a", "task/b"],
       ["rel_ba", "task/b", "task/a"],
       ["rel_bc", "task/b", "task/c"],
-    ] as const)
+    ] as const) {
       insertTask.run(relationId, source.slice(5), source, target, source);
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, 1, ?, ?)").run(
+      insertTaskEdge.run(
+        relationId,
+        source,
+        target,
+        source,
+        JSON.stringify({
+          direction: "directed",
+          strength: "strong",
+          origin: "declared",
+          rationale: "fixture",
+          sourcePath: "fixture",
+          recordIndex: 0,
+        }),
+      );
+    }
+    db.prepare(
+      "INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, 1, ?, ?, 'current', NULL)",
+    ).run(
       "rel_decision_a",
       "decision/dec_A/CH1",
       "task/a",
@@ -655,14 +680,15 @@ test("task context collection reads stay indexed, bounded, and constant in state
       derives.map(({ relationId }) => relationId),
       ["rel_decision_a"],
     );
-    // The first read on this connection also resolves its table set; the second reuses it.
-    assert.equal(afterClosure - before, 3);
-    assert.equal(afterTargets - afterClosure, 2);
+    // Freshness is a stored column, so each collection read is its one statement: no table-set
+    // resolution and no per-read entity version witness lookup.
+    assert.equal(afterClosure - before, 1);
+    assert.equal(afterTargets - afterClosure, 1);
     assert.deepEqual(
       dependsOn.map(({ relationId }) => relationId),
       ["rel_ba", "rel_bc"],
     );
-    assert.equal(afterSources - afterTargets, 2);
+    assert.equal(afterSources - afterTargets, 1);
     assert.throws(() => readTaskDependencyClosureRows(db, ["task/a"], 1), /depth limit/u);
     const closureRead = counted.reads().find(({ sql }) => sql.includes("WITH RECURSIVE dependency_walk"))!,
       [targetRead, sourceRead] = counted.reads().filter(({ sql }) => sql.includes("requested_refs"));
@@ -671,13 +697,10 @@ test("task context collection reads stay indexed, bounded, and constant in state
       sourcePlan = queryPlan(db, sourceRead!);
     context.diagnostic(`dependency closure plan: ${closurePlan}`);
     context.diagnostic(`relation targets plan: ${targetPlan}`);
-    assert.match(closurePlan, /SEARCH task_relation USING INDEX task_relation_source/u);
     assert.match(closurePlan, /SEARCH relation_edge USING INDEX relation_edge_source/u);
     // The endpoint batch carries its declared type: type-leading indexes keep an unrelated
     // same-target relation (e.g. runtime-session executes edges) out of the scan.
-    assert.match(targetPlan, /SEARCH task_relation USING INDEX task_relation_type_target/u);
     assert.match(targetPlan, /SEARCH relation_edge USING INDEX relation_edge_type_target/u);
-    assert.match(sourcePlan, /SEARCH task_relation USING INDEX task_relation_type_source/u);
     assert.match(sourcePlan, /SEARCH relation_edge USING INDEX relation_edge_type_source/u);
     assert.doesNotMatch(
       `${closurePlan}\n${targetPlan}\n${sourcePlan}`,
@@ -688,7 +711,7 @@ test("task context collection reads stay indexed, bounded, and constant in state
   }
 });
 
-test("relation pages fetch limit plus one rows from each keyed source before merging", (context) => {
+test("relation pages fetch limit plus one rows from the keyed edge table", (context) => {
   const counted = countingDatabase(),
     { db } = counted;
   try {
@@ -698,11 +721,32 @@ test("relation pages fetch limit plus one rows from each keyed source before mer
     const insertTask = db.prepare(
         "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'declared', 'active', 'fixture', ?, 'fixture', 0, ?, '2026-08-21T00:00:00.000Z')",
       ),
-      insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, ?, ?, ?)"),
+      insertEdge = db.prepare(
+        "INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, ?, ?, ?, 'current', NULL)",
+      ),
+      insertTaskEdge = db.prepare(
+        "INSERT INTO relation_edge VALUES (?, ?, ?, 'depends-on', 'active', NULL, ?, ?, ?, ?, 'current', NULL)",
+      ),
       insertEvent = db.prepare("INSERT INTO event_index VALUES (?, ?)");
     for (let index = 0; index < 100; index += 1) {
       const relationId = `rel_${String(index * 2).padStart(3, "0")}`;
       insertTask.run(relationId, `task_${index}`, `task/${index}`, `fact/F-${index}`, `task/${index}`, index + 1);
+      insertTaskEdge.run(
+        relationId,
+        `task/${index}`,
+        `fact/F-${index}`,
+        `task/${index}`,
+        index + 1,
+        "2026-08-21T00:00:00.000Z",
+        JSON.stringify({
+          direction: "directed",
+          strength: "strong",
+          origin: "declared",
+          rationale: "fixture",
+          sourcePath: "fixture",
+          recordIndex: 0,
+        }),
+      );
       insertEvent.run(index + 1, JSON.stringify({ occurredAt: "2026-08-21T00:00:00.000Z" }));
       const edgeId = `rel_${String(index * 2 + 1).padStart(3, "0")}`;
       insertEdge.run(
@@ -723,16 +767,15 @@ test("relation pages fetch limit plus one rows from each keyed source before mer
       );
     }
     const page = readTaskRelationPage(db, { limit: 5 }),
-      read = counted.reads().find(({ sql }) => sql.includes("SELECT * FROM ( SELECT * FROM"))!;
+      read = counted.reads().find(({ sql }) => sql.includes("ORDER BY relation_id LIMIT ?"))!;
     assert.deepEqual(
       page.rows.map(({ relationId }) => relationId),
       ["rel_000", "rel_001", "rel_002", "rel_003", "rel_004"],
     );
     assert.equal(page.page?.nextCursor !== null, true);
-    assert.deepEqual(read.args, ["", 6, "", 6, 6]);
+    assert.deepEqual(read.args, ["", 6]);
     const plan = queryPlan(db, read);
     context.diagnostic(`relation page plan: ${plan}`);
-    assert.match(plan, /SEARCH task_relation USING INDEX sqlite_autoindex_task_relation_1/u);
     assert.match(plan, /SEARCH relation_edge USING INDEX sqlite_autoindex_relation_edge_1/u);
     assert.doesNotMatch(plan, /SCAN (?:task_relation|relation_edge)(?:\s|$)/u);
   } finally {

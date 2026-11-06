@@ -34,6 +34,24 @@ function ledger() {
         sourceRef,
         revision,
       );
+      // The task-owned lookup row is derived from its relation edge, which carries stored freshness.
+      db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, NULL, ?, ?, '', ?, 'current', NULL)").run(
+        relationId,
+        sourceRef,
+        targetRef,
+        relationType,
+        state,
+        sourceRef,
+        revision,
+        JSON.stringify({
+          direction: direction,
+          strength: "strong",
+          origin: "authored",
+          rationale: "",
+          sourcePath: "",
+          recordIndex: 0,
+        }),
+      );
     },
   };
 }

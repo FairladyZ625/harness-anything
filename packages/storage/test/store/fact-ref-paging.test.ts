@@ -62,12 +62,12 @@ test("large ref sets filter before limit, preserve order, and never decode unrel
   }
 });
 
-test("direction filtering precedes pagination in both relation sources", () => {
+test("direction filtering precedes pagination over task-owned and decision-owned edges", () => {
   const db = new DatabaseSync(":memory:");
   try {
     createRelationGraphProjectionTables(db);
     createTaskRelationProjectionTable(db);
-    const edge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+    const edge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current', NULL)"),
       taskEdge = db.prepare("INSERT INTO task_relation VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (let i = 0; i < 6; i++) {
       const relationId = `rel-${i}`;
@@ -89,7 +89,6 @@ test("direction filtering precedes pagination in both relation sources", () => {
           i,
           "",
         );
-        continue;
       }
       edge.run(
         relationId,
