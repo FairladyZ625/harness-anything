@@ -259,9 +259,21 @@ Current writers initialize empty scopes before writing. The additive summary tab
 triggers must be installed before deploying readers and retained across the current/previous
 writer window; no canonical bytes or previous columns are removed.
 
-PGlite opens the scope after additive schema setup and performs both backfills in bounded background pages. Only disposable isolated
-replay schemas and PGlite pass `{ indexBuild: "isolated" }` to schema initialization;
-external production schemas use the default concurrent build.
+PGlite opens the scope after additive schema setup and performs both backfills in bounded
+background pages. Its single connection cannot interleave reads with a whole-table index
+build. Missing indexes on populated tables are therefore built on empty copies, filled in
+64-row transactions with persisted cursors and foreground-write mirroring, then published
+atomically. Existing inbound foreign keys are rebound in that publication transaction with
+`NOT VALID`: the mirrored primary-key set preserves existing references, and PostgreSQL
+still enforces subsequent writes and delete cascades. The catalog remains unvalidated;
+publication does not rescan historical reference rows or forge a validation marker.
+External production PostgreSQL keeps the original tables and uses concurrent index builds.
+
+Event-list descriptor/entity-reference queries return `projection_pending` until all scoped
+events reach v6, including when v5 and fleet summaries were already complete. They do not
+scan historical entity references to supplement a missing page. Other existing event readers
+continue to use their previous correct path. The daemon's same background queue advances
+the v6 remainder; reopening does not restart completed pages.
 
 ### Decision queries during an online upgrade
 
