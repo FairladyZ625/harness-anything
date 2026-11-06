@@ -122,9 +122,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
       }),
-      cliInput("--root", "single", false, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--root",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "host-path" },
+      ),
       cliInput(
         "--mode",
         "single",

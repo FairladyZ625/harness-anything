@@ -360,7 +360,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "evidenceSource" },
+        { field: "evidenceSource", pathKind: "non-path" },
       ),
     ],
   }),
@@ -411,7 +411,13 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { field: "statement", maxLength: 32 * 1024, conflictsWith: ["--statement"] },
       ),
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "evidenceSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "evidenceSource", pathKind: "non-path" },
+      ),
       cliInput(
         "--observed-at",
         "single",

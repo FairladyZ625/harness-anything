@@ -42,7 +42,7 @@ export interface CliInputFacet {
    * must declare one so the CLI path-contract gate can evaluate every registered command; the
    * value names the reader that owns the boundary, not a per-command choice.
    */
-  readonly pathKind?: "ledger-document" | "workspace-file" | "cli-local";
+  readonly pathKind?: "ledger-document" | "workspace-file" | "cli-local" | "host-path" | "non-path";
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly lengthUnit?: "characters" | "bytes";
