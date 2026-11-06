@@ -16,6 +16,7 @@ import {
   taskWipOccupyingStatuses,
   validateEntityActionExplanationSet,
   validateEntityKindCatalog,
+  sha256Bytes,
   validateSettingsV1,
   validateVerticalDeclarationRead,
 } from "@harness-anything/kernel";
@@ -389,16 +390,46 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
 ): DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult {
   // Client inbound: rows are re-judged here because they crossed a process boundary; the
   // same-process exit (resultValidators) only re-checks the served shape.
-  const data = repositoryReadData(value);
+  const normalized = method === "repo.tasks.document.read" ? previousDocumentReadResult(value) : value,
+    data = repositoryReadData(normalized);
   const errors =
-    isJsonObject(value) && value.ok === false
-      ? validateDaemonProtocolError(value)
+    isJsonObject(normalized) && normalized.ok === false
+      ? validateDaemonProtocolError(normalized)
       : [
-          ...validateRepositoryReadFrame(value),
+          ...validateRepositoryReadFrame(normalized),
           ...(method === "repo.tasks.list" ? validateDaemonTaskSnapshotList(data) : resultValidators[method](data)),
         ];
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
-  return value as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
+  return normalized as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
+}
+
+/** A v2 daemon answer has no source/syncState. Keep its readable content, but mark provenance
+ * unknown and make a raw artifact's digest/size describe the bytes that were actually returned. */
+function previousDocumentReadResult(value: unknown): unknown {
+  if (!isJsonObject(value) || value.ok === false) return value;
+  const data = repositoryReadData(value);
+  if (!isJsonObject(data) || Object.hasOwn(data, "source")) return value;
+  const normalized: Record<string, unknown> = {
+    ...value,
+    source: "unobservable",
+    syncState: "unobservable",
+    canonicalVersion: null,
+    execution: null,
+    unobservableReason: "previous_daemon_response",
+  };
+  if (data.contentKind === "binary") {
+    if (typeof data.bytes === "string") {
+      const bytes = Buffer.from(data.bytes, "base64");
+      normalized.blobSha256 = sha256Bytes(bytes);
+      normalized.size = bytes.byteLength;
+    } else {
+      // No returned bytes to hash: the v2 digest may describe the accepted cut while the live
+      // bytes were unavailable, so it cannot be attached to this answer.
+      normalized.blobSha256 = null;
+      normalized.size = null;
+    }
+  }
+  return normalized;
 }
 export function parseDaemonGuiActionResult(method: DaemonGuiActionMethod, value: unknown): DaemonGuiActionResult {
   const errors =

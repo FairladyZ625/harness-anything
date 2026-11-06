@@ -52,6 +52,21 @@ export function dispatchRead<M extends RepoCellReadMethod>(
   return handlers[method](payload, binding);
 }
 
+/** The execution id a start will commit. Shared by the command builder and the pre-write worktree
+ * binding so the marker the start writes names the same execution the lifecycle event will. */
+export function startExecutionId(
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  workspaceId: string,
+  expectedRevision: number,
+  snapshot: Snapshot,
+): string {
+  return typeof action.executionId === "string" && action.executionId
+    ? action.executionId
+    : (snapshot.executions.find((value) => value.iteration === snapshot.task?.iteration && value.state === "active")
+        ?.executionId ?? `exe_${operationId(action, binding, workspaceId, expectedRevision).slice(-26)}`);
+}
+
 export function buildCommand(
   action: RepoTaskAction,
   taskId: string,
@@ -71,11 +86,7 @@ export function buildCommand(
     },
     lifecycleAction = getExecutableEntityAction(action.kind)?.execution?.lifecycle;
   if (lifecycleAction?.coordination === "reserve") {
-    const executionId =
-      typeof action.executionId === "string" && action.executionId
-        ? action.executionId
-        : (snapshot.executions.find((value) => value.iteration === snapshot.task?.iteration && value.state === "active")
-            ?.executionId ?? `exe_${operationId(action, binding, workspaceId, expectedRevision).slice(-26)}`);
+    const executionId = startExecutionId(action, binding, workspaceId, expectedRevision, snapshot);
     return normalizeTaskLifecycleCommand(bound, {
       type: lifecycleAction.commandType,
       taskId,

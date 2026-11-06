@@ -1,5 +1,5 @@
 import { TASK_CLAIMABLE_SCHEMA, TASK_ASSIGNMENT_DIRECTORY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
-import { shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
+import { optionalEnum, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
 import { observeTailReadMethod } from "./daemon-protocol-observe-tail-read.ts";
 import {
   DAEMON_AGENDA_SCHEMA,
@@ -494,7 +494,12 @@ export const daemonGuiReadMethods = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ taskId: "string", path: "string" }),
+      payload: shape({
+        taskId: "string",
+        path: "string",
+        view: optionalEnum(["canonical", "authored-copy", "execution"]),
+        executionId: "string?",
+      }),
     }),
     guiBridgeMethod: "getTaskDocument",
     httpMethod: "GET",

@@ -400,6 +400,14 @@ type DaemonGuiReadDataMap = {
     readonly status: "ready" | "pending";
     readonly taskId: string;
     readonly path: string;
+    /** The cut `body`/`blobSha256`/`size`/`mediaType`/`bytes` were read from. A read never mixes a
+     * canonical digest with authored bytes: when the returned content is the live copy, `source`
+     * says `authored-copy` (or `execution` for an execution workspace) and the digest is that copy's.
+     * `unobservable` carries no content or digest at all. */
+    readonly source: "canonical" | "authored-copy" | "execution" | "derived" | "unobservable";
+    /** Whether the returned cut matches the accepted canonical cut. `unobservable` is absence of
+     * evidence — a missing authored copy or unreadable execution workspace is not `false`. */
+    readonly syncState: "synced" | "unsynced" | "unobservable" | "derived";
     readonly body: string;
     readonly blobSha256: string | null;
     /** `binary` = a raw task artifact: `body` is empty because the document is not text,
@@ -407,8 +415,8 @@ type DaemonGuiReadDataMap = {
     readonly contentKind: "text" | "binary";
     readonly mediaType: string | null;
     readonly size: number | null;
-    /** Canonical content-object bytes of a raw artifact, base64. Null for text, for an
-     * unreadable object, and above the inline ceiling — then `repositoryPath` is the route. */
+    /** Bytes of the returned cut of a raw artifact, base64. Null for text, for an unreadable object,
+     * and above the inline ceiling — then `repositoryPath` is the route to canonical bytes. */
     readonly bytes: string | null;
     /** Where this document materializes under the configured authored root. */
     readonly repositoryPath: string;
@@ -416,7 +424,25 @@ type DaemonGuiReadDataMap = {
      * from the committed projection. Null body = no such file on disk, or the file is
      * binary and has no text to show. */
     readonly worktreeBody: string | null;
+    /** @deprecated A boolean cannot distinguish "same bytes" from "no file to compare". Read
+     * `syncState`; this field remains for the previous protocol window only. */
     readonly uncommitted: boolean;
+    /** The accepted canonical document this read was compared against; null when none exists. */
+    readonly canonicalVersion: {
+      readonly workspaceRevision: number;
+      readonly blobSha256: string;
+      readonly size: number;
+    } | null;
+    /** Present only when `source` is `execution`: the execution and effective lease the observation
+     * was taken under. */
+    readonly execution: {
+      readonly executionId: string;
+      readonly leaseVersion: number;
+      readonly leaseExpiresAt: string;
+      readonly observedAt: string;
+    } | null;
+    /** Why `source`/`syncState` is `unobservable`; null otherwise. */
+    readonly unobservableReason: string | null;
     readonly watermark: number;
     readonly sourceRevision: number;
   };
@@ -508,6 +534,10 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.tasks.document.read": {
     readonly taskId: string;
     readonly path: string;
+    /** Which cut to read: accepted canonical (default), the live authored copy, or one execution's
+     * workspace. An execution view requires `executionId`. */
+    readonly view?: "canonical" | "authored-copy" | "execution";
+    readonly executionId?: string;
   };
   readonly "repo.tasks.completion.read": { readonly taskId: string };
   readonly "repo.tasks.runtimeContext.read": {

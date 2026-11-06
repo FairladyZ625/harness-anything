@@ -3,6 +3,7 @@ import { currentSubmittedExecutions, type WriteReceiptDraft } from "@harness-any
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
+import { startExecutionId } from "./repo-cell-command.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
@@ -38,15 +39,27 @@ export function readBeforeWriteQueue(
           typeof action.stackOn === "string" ? action.stackOn : undefined,
         )
       : undefined;
+  // The marker must name the execution the start will commit. An implicit id is deterministic from
+  // this action/binding/cut, so bind it here and carry the same explicit id into the write.
+  const startAction =
+    action.kind === "task-start" && typeof action.taskId === "string"
+      ? (() => {
+          const snapshot = context.projection.read(action.taskId as string).snapshot;
+          return {
+            ...action,
+            executionId: startExecutionId(action, binding, context.input.repoId, snapshot.revision, snapshot),
+          };
+        })()
+      : action;
   const started = prepareTaskStartWorktree(
     taskWorktreeInput(context),
-    action,
+    startAction,
     binding.source,
     baseline?.kind === "commit" ? baseline.commitSha : undefined,
   );
   if (started)
     return started.then(
-      (annotate) => async (action, binding) => annotate(await context.executeAction(action, binding)),
+      (annotate) => async (action, binding) => annotate(await context.executeAction(startAction, binding)),
     );
   if (action.kind === "entity-import" && action.mode === "snapshot")
     return prepareArtifactEntityImportSource({

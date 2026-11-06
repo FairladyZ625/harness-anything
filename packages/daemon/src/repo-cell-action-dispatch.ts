@@ -40,7 +40,12 @@ import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
 import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
-import { applyTaskWorktreeLifecycle, presetSnapshotReader, type TaskWorktreeLifecycleInput } from "./task-worktree.ts";
+import {
+  applyTaskWorktreeLifecycle,
+  presetSnapshotReader,
+  taskLeaseAcquiredRevision,
+  type TaskWorktreeLifecycleInput,
+} from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
 import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
 import { readWork } from "./work-read.ts";
@@ -66,6 +71,7 @@ export function taskWorktreeInput(
     readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
     readPresetSnapshot: presetSnapshotReader(cell.projection),
     readWorktree: () => cell.settings.read().worktree,
+    readLeaseAcquiredRevision: (taskId, executionId) => taskLeaseAcquiredRevision(cell.projection, taskId, executionId),
   };
 }
 

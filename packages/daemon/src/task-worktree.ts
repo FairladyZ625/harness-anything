@@ -1,6 +1,16 @@
-import { existsSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import {
+  consumeKnownError,
   deriveTaskWorktreeBinding,
   isTerminalStatus,
   type TaskProjection,
@@ -463,14 +473,115 @@ export interface TaskWorktreeLifecycleInput {
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly readPresetSnapshot: PresetSnapshotRead;
   readonly readWorktree: () => WorktreeSetupSettings;
+  /** Stable acquisition revision after the start write; renewal leaves it unchanged. */
+  readonly readLeaseAcquiredRevision?: (taskId: string, executionId: string) => number | null;
 }
 
 type TaskWorktreeAction = {
   readonly kind: string;
   readonly taskId?: unknown;
   readonly taskIds?: unknown;
+  readonly executionId?: unknown;
   readonly dryRun?: unknown;
 };
+
+const executionBindingsDirectory = "harness-execution-bindings";
+
+/** Node-local proof that the worktree was prepared for one execution. It lives in the worktree's
+ * own git directory, so it never enters the ledger and cannot be forged by a document write. */
+export interface TaskWorktreeExecutionBindingV2 {
+  readonly schema: "task-worktree-execution-binding/v2";
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly acquiredRevision: number;
+  readonly boundAt: string;
+}
+
+/** The latest canonical acquisition fences re-entry even when it reuses the execution id.
+ * Lease CAS versions change on renewal; the interval's acquisition revision does not. */
+export function taskLeaseAcquiredRevision(
+  projection: Pick<TaskProjection, "readLeaseIntervals">,
+  taskId: string,
+  executionId: string,
+): number | null {
+  const interval = projection.readLeaseIntervals(taskId).at(-1);
+  return interval?.executionId === executionId && interval.releasedRevision === null ? interval.acquiredRevision : null;
+}
+
+/** One file per execution: a rejected or competing start can only write its own id, never the
+ * marker of the execution that currently holds the lease. */
+export function taskWorktreeExecutionBindingPath(cwd: string, executionId: string): string {
+  const gitPath = path.join(cwd, ".git"),
+    gitDirectory = lstatSync(gitPath).isFile()
+      ? path.resolve(cwd, /^gitdir: (.+)$/mu.exec(readFileSync(gitPath, "utf8"))![1]!.trim())
+      : gitPath,
+    fileName = `${Buffer.from(executionId, "utf8").toString("base64url")}.json`;
+  return path.join(gitDirectory, executionBindingsDirectory, fileName);
+}
+
+export function writeTaskWorktreeExecutionBinding(
+  cwd: string,
+  taskId: string,
+  executionId: string,
+  acquiredRevision: number,
+  boundAt = new Date().toISOString(),
+): void {
+  const file = taskWorktreeExecutionBindingPath(cwd, executionId),
+    temporary = `${file}.tmp`;
+  mkdirSync(path.dirname(file), { recursive: true });
+  // A failed write may leave complete bytes behind. Only the successful rename publishes proof;
+  // the previous marker remains fenced out by its acquisition revision if preparation/publication fails.
+  try {
+    writeFileSync(
+      temporary,
+      `${JSON.stringify({
+        schema: "task-worktree-execution-binding/v2",
+        taskId,
+        executionId,
+        acquiredRevision,
+        boundAt,
+      })}\n`,
+    );
+    renameSync(temporary, file);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
+/** A partial or corrupt file is `invalid`, not "no marker": the read must answer unobservable with
+ * a named reason instead of throwing on a node-local write that was interrupted. */
+export function readTaskWorktreeExecutionBinding(
+  cwd: string,
+  executionId: string,
+): {
+  readonly binding: TaskWorktreeExecutionBindingV2 | null;
+  readonly invalid: boolean;
+} {
+  const file = taskWorktreeExecutionBindingPath(cwd, executionId);
+  if (!existsSync(file)) return { binding: null, invalid: false };
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return { binding: null, invalid: true };
+  }
+  const binding =
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { readonly schema?: unknown }).schema === "task-worktree-execution-binding/v2" &&
+    typeof (value as { readonly taskId?: unknown }).taskId === "string" &&
+    (value as { readonly taskId: string }).taskId.length > 0 &&
+    typeof (value as { readonly executionId?: unknown }).executionId === "string" &&
+    (value as { readonly executionId: string }).executionId.length > 0 &&
+    Number.isInteger((value as { readonly acquiredRevision?: unknown }).acquiredRevision) &&
+    Number((value as { readonly acquiredRevision: number }).acquiredRevision) >= 0 &&
+    typeof (value as { readonly boundAt?: unknown }).boundAt === "string" &&
+    (value as { readonly executionId: string }).executionId === executionId
+      ? (value as TaskWorktreeExecutionBindingV2)
+      : null;
+  return { binding, invalid: binding === null };
+}
 
 /**
  * A start checks its worktree out and prepares it before the start is queued for writing, so a setup step that
@@ -487,10 +598,37 @@ export function prepareTaskStartWorktree(
 ): Promise<(receipt: WriteReceipt) => WriteReceipt> | null {
   if (source !== "local" || action.dryRun === true || action.kind !== "task-start" || typeof action.taskId !== "string")
     return null;
-  return checkoutOnStart(input, action.taskId, stackedCommit).then(
-    (checkout) => (receipt) =>
-      receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt,
-  );
+  const executionId =
+    typeof action.executionId === "string" && action.executionId.length > 0 ? action.executionId : null;
+  return checkoutOnStart(input, action.taskId, stackedCommit).then((checkout) => (receipt) => {
+    if (receipt.outcome !== "applied") return receipt;
+    // Authorization and the lifecycle CAS already succeeded. The marker is published last, and a
+    // write failure is a warning on the applied receipt: reads stay unobservable rather than a
+    // committed start being reported as rejected.
+    let warnings = checkout.warnings;
+    if (checkout.cwd !== null && executionId !== null) {
+      const acquiredRevision = input.readLeaseAcquiredRevision?.(action.taskId as string, executionId);
+      if (acquiredRevision === null || acquiredRevision === undefined) {
+        warnings = [
+          ...warnings,
+          `Worktree ${checkout.cwd} was checked out but its lease generation was not readable. ` +
+            "Execution reads for this start remain unobservable.",
+        ];
+      } else {
+        try {
+          writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId, acquiredRevision);
+        } catch (error) {
+          consumeKnownError(error);
+          warnings = [
+            ...warnings,
+            `Worktree ${checkout.cwd} was checked out but its execution marker was not written: ${errorText(error)}. ` +
+              "Execution reads for this start remain unobservable.",
+          ];
+        }
+      }
+    }
+    return withNotes(receipt, checkout.notes, warnings);
+  });
 }
 
 /**
@@ -621,12 +759,12 @@ async function checkoutOnStart(
   input: TaskWorktreeLifecycleInput,
   taskId: string,
   stackedCommit?: string,
-): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[] }> {
+): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[]; readonly cwd: string | null }> {
   const binding = openTaskWorktreeBinding(input.readTask(taskId), input.readPresetSnapshot);
   if (!binding) {
     if (stackedCommit !== undefined)
       throw cellCodedError("invalid_proof", "A stacked task requires a managed worktree.");
-    return { notes: [], warnings: [] };
+    return { notes: [], warnings: [], cwd: null };
   }
   let checkout: TaskWorktreeCheckout | null;
   try {
@@ -640,19 +778,20 @@ async function checkoutOnStart(
     );
   } catch (error) {
     if (stackedCommit !== undefined) throw error;
-    return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`] };
+    return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`], cwd: null };
   }
   if (!checkout)
     return {
       notes: [`No worktree on this node: no default branch resolves here, so work stays in ${input.rootDir}.`],
       warnings: [],
+      cwd: null,
     };
   if (!checkout.setup.ok)
     throw cellCodedError(
       "worktree_setup_failed",
       worktreeSetupFailure(checkout.cwd, checkout.setup, `run ha task start ${taskId} again`, checkout.baseRef),
     );
-  return { notes: [taskWorktreeCheckoutNote(checkout)], warnings: [] };
+  return { notes: [taskWorktreeCheckoutNote(checkout)], warnings: [], cwd: checkout.cwd };
 }
 
 function withNotes(receipt: WriteReceipt, notes: readonly string[], warnings: readonly string[]): WriteReceipt {

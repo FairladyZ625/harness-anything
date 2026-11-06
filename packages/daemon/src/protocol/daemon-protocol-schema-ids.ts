@@ -164,13 +164,19 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
   // v2 adds the content truth a reader needs before it renders `body`: whether this document is text
   // at all, its media type and byte length, the canonical bytes of a raw artifact, and the repository
   // path they materialize at. v1 could only answer a PDF with an empty string.
+  // v3 names the cut those bytes came from (`source`) and replaces the ambiguous `uncommitted`
+  // boolean with `syncState` + `canonicalVersion`, so a missing authored copy or an unreadable
+  // execution workspace is unobservable instead of "clean". `uncommitted` stays one window for
+  // previous consumers.
   DAEMON_DOCUMENT_READ_SCHEMA = Object.freeze({
-    id: "daemon.document-read/v2",
+    id: "daemon.document-read/v3",
     required: Object.freeze([
       "ok",
       "status",
       "taskId",
       "path",
+      "source",
+      "syncState",
       "body",
       "blobSha256",
       "contentKind",
@@ -180,6 +186,9 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
       "repositoryPath",
       "worktreeBody",
       "uncommitted",
+      "canonicalVersion",
+      "execution",
+      "unobservableReason",
       "watermark",
       "sourceRevision",
     ]),

@@ -261,6 +261,7 @@ export function makeRepoReadRuntime(
         projection: writableProjection,
         now,
         settings,
+        ...(edgeView ? {} : { withReadSession: query }),
         squadCoordinator,
         runtimeReads,
         dispatchRead,
@@ -375,6 +376,15 @@ export function makeRepoReadRuntime(
             judgments: repoCellTaskQueryJudgmentsFor(projection),
           }).guiTasks(taskListQuery(payload)),
         ) as never;
+      if (method === "repo.tasks.document.read") {
+        // This handler owns its sessions: live bytes need a fresh lease cut after IO, which a
+        // nested session would pin to the old snapshot (and PostgreSQL forbids nesting).
+        const api = query((projection) => {
+          checkRevision(projection);
+          return readRuntime(projection).api;
+        });
+        return api[repoCellSynchronousRead](method, payload, binding) as never;
+      }
       return query((projection) => {
         checkRevision(projection);
         return readAtCut(projection, method, payload, binding);

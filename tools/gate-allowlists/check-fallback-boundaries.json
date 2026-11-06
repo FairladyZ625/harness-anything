@@ -63,6 +63,12 @@
       "reason": "Serialize an unsuccessful physical shutdown as a fatal owner response. The synchronous close caller observes the original error rather than a replacement close receipt."
     }
   },
+    "packages/daemon/src/task-worktree.ts#prepareTaskStartWorktree": {
+      "task": "task_c007d3d9a03561a2b7d22009c7",
+      "decision": "dec_E610E1D99A39003886D1B5EE7C",
+      "errors": "node-local worktree execution marker write failure",
+      "reason": "The lifecycle start has already passed authorization and its CAS when the node-local marker is published. A marker write failure is surfaced as a warning on the applied receipt and execution reads stay unobservable; throwing here would report a committed start as rejected (review F-6/F-9). Task-authorized entry, 2026-11-06."
+    },
   "entries": {
     "consumeKnownError": [
       "packages/storage/src/pg/pg-task-query-worker.ts#handle",
@@ -90,6 +96,7 @@
       "packages/cli/src/daemon/control.ts#startDaemonService",
       "packages/cli/src/index.ts#finishTimingWithoutChangingOutcome",
       "packages/daemon/src/agent-declaration-migration.ts#readRuntimeInstanceViews",
+      "packages/daemon/src/task-worktree.ts#prepareTaskStartWorktree",
       "packages/daemon/src/agent-declaration-resolution.ts#storedAgentDeclarationOutcome",
       "packages/daemon/src/agent-entities.ts#readAgentEntityGuiProjection",
       "packages/daemon/src/agent-entities.ts#readSquadDeclaration",

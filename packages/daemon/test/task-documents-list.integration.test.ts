@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { sha256Bytes } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
 import {
@@ -250,11 +251,19 @@ test("task documents expose the live worktree copy and mark it uncommitted", asy
       taskId: "task-doc",
       path: "artifacts/notes.md",
     })) as {
+      readonly source: string;
+      readonly syncState: string;
       readonly blobSha256: string | null;
       readonly uncommitted: boolean;
       readonly worktreeBody: string | null;
+      readonly canonicalVersion: unknown;
     };
-    assert.equal(freshRead.blobSha256, null);
+    // A file created but never synced has no accepted cut; the read names the live authored copy and
+    // its own digest instead of answering null metadata for content it just returned.
+    assert.equal(freshRead.source, "authored-copy");
+    assert.equal(freshRead.syncState, "unsynced");
+    assert.equal(freshRead.blobSha256, sha256Bytes(Buffer.from("# Notes\n")));
+    assert.equal(freshRead.canonicalVersion, null);
     assert.equal(freshRead.uncommitted, true);
     assert.match(freshRead.worktreeBody ?? "", /Notes/u);
   } finally {
