@@ -755,7 +755,10 @@ test("artifact task dispatch confines writes to its package despite bypass decla
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(prepared?.cwd, workerRoot);
     assert.equal(prepared?.permissionMode, "bypass");
-    assert.equal(prepared?.callbackRelayPath, undefined);
+    // A repository-diff bypass dispatch keeps bypass, and bypass keeps the same per-dispatch
+    // relay channel as every other enforced Codex mode.
+    if (process.platform === "win32") assert.equal(prepared?.callbackRelayPath, undefined);
+    else assert.match(prepared?.callbackRelayPath ?? "", /^\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
     runtimeKind = "claude";
     await createTask(cell, root, {
       taskId: "task_package_claude",
