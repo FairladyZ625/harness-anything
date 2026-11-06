@@ -498,13 +498,14 @@ export interface TaskWorktreeExecutionBindingV2 {
 }
 
 /** The latest canonical acquisition fences re-entry even when it reuses the execution id.
- * Lease CAS versions change on renewal; the interval's acquisition revision does not. */
+ * Lease CAS versions change on renewal; the interval's acquisition revision does not. The bounded
+ * read returns that one row, so the check never walks the task's accumulated lease history. */
 export function taskLeaseAcquiredRevision(
-  projection: Pick<TaskProjection, "readLeaseIntervals">,
+  projection: Pick<TaskProjection, "readLatestLeaseInterval">,
   taskId: string,
   executionId: string,
 ): number | null {
-  const interval = projection.readLeaseIntervals(taskId).at(-1);
+  const interval = projection.readLatestLeaseInterval(taskId);
   return interval?.executionId === executionId && interval.releasedRevision === null ? interval.acquiredRevision : null;
 }
 

@@ -22,8 +22,10 @@ import {
   canonicalJson,
   prepareQuery,
   queryPreparedRows,
+  queryRow,
   queryRows,
   runSql,
+  type ProjectionSqlRow,
 } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "@harness-anything/kernel";
 import type {
@@ -281,14 +283,8 @@ export function effectiveLeaseValue(current: LeaseV1 | null, now: string): Lease
   return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
 }
 
-export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
-  const rows = queryPreparedRows(
-    prepareQuery(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", (sql) =>
-      /* @gate-identity check-bypass-write-boundary/bypass-write-025 */ db.prepare(sql),
-    ),
-    taskId,
-  );
-  return rows.map((row) => ({
+function leaseIntervalFromRow(row: ProjectionSqlRow): LeaseInterval {
+  return {
     taskId: String(row.task_id),
     executionId: String(row.execution_id),
     acquiredRevision: Number(row.acquired_revision),
@@ -298,7 +294,28 @@ export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseI
       row.previous_holder_json === null ? null : (JSON.parse(String(row.previous_holder_json)) as LeaseHolder),
     leaseExpiresAt: String(row.lease_expires_at),
     reason: String(row.reason) as LeaseChangeReason,
-  }));
+  };
+}
+
+export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
+  const rows = queryPreparedRows(
+    prepareQuery(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-025 */ db.prepare(sql),
+    ),
+    taskId,
+  );
+  return rows.map(leaseIntervalFromRow);
+}
+
+/** Newest acquisition for one task: `lease_interval_task_acquisition` seeks it directly, so the
+ * cost is one row regardless of how many times the task was re-entered. */
+export function readLatestInterval(db: DatabaseSync, taskId: string): LeaseInterval | null {
+  const row = queryRow(
+    db,
+    "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision DESC LIMIT 1",
+    taskId,
+  );
+  return row === undefined ? null : leaseIntervalFromRow(row);
 }
 
 export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 {

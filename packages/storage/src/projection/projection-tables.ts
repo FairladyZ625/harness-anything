@@ -125,6 +125,9 @@ export const REPOSITORY_READ_TABLES_SQL = `
       WHERE released_revision IS NULL;
     CREATE INDEX IF NOT EXISTS lease_interval_active ON lease_interval(task_active, lease_expires_at, task_id)
       WHERE released_revision IS NULL;
+    -- Latest-acquisition reads seek one row per task; without this the acquisition order has to
+    -- sort every re-entry the task accumulated.
+    CREATE INDEX IF NOT EXISTS lease_interval_task_acquisition ON lease_interval(task_id, acquired_revision);
     CREATE TABLE IF NOT EXISTS event_index (
       op_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL UNIQUE,

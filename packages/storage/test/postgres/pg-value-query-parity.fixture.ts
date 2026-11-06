@@ -16,6 +16,7 @@ type ValueQueries = Pick<
   | "readSquadRun"
   | "readSquadRuns"
   | "readLeaseIntervals"
+  | "readLatestLeaseInterval"
   | "readDecisions"
   | "readDecision"
   | "readDocumentMetadata"
@@ -95,6 +96,8 @@ function valueContract(queries: ValueQueries) {
     missingRun: queries.readSquadRun("missing"),
     runs: queries.readSquadRuns(),
     intervals: queries.readTaskIdsForTaskContractMigration().map((id) => queries.readLeaseIntervals(id)),
+    latestIntervals: queries.readTaskIdsForTaskContractMigration().map((id) => queries.readLatestLeaseInterval(id)),
+    missingLatestInterval: queries.readLatestLeaseInterval("missing"),
     artifacts: ["replay-agent", "deleted-agent", "retired-agent", "missing"].map((id) =>
       queries.readArtifactEntityState("agent", id),
     ),

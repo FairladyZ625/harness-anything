@@ -131,6 +131,19 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
   process.stdout.write(`VALUE_INDEX ${backend} intervals ${JSON.stringify(plans)}\n`);
   assert.ok(!explainNodes(plans).some((row) => row["Node Type"] === "Sort"), "interval order must come from its index");
   await measurePgRead(backend, "readLeaseIntervals", () => timed.readLeaseIntervals("task-target"));
+  plans.length = 0;
+  const latest = await source.readLatestLeaseInterval("task-target");
+  assert.equal(latest?.executionId, "live");
+  assert.equal(latest?.acquiredRevision, 100001);
+  assert.equal(await source.readLatestLeaseInterval("missing"), null);
+  process.stdout.write(`VALUE_INDEX ${backend} latest-interval ${JSON.stringify(plans)}\n`);
+  assert.ok(
+    !explainNodes(plans).some((row) => row["Node Type"] === "Sort"),
+    "latest interval order must come from its index",
+  );
+  for (const row of scans(plans))
+    assert.ok(Number(row["Actual Rows"]) <= 1, `latest interval read visited the task history: ${JSON.stringify(row)}`);
+  await measurePgRead(backend, "readLatestLeaseInterval", () => timed.readLatestLeaseInterval("task-target"));
   await assertOnlineReadIndexUpgrade(pool, seedPool);
 }
 function scans(value: unknown) {
