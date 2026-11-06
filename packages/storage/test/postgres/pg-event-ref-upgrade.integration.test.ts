@@ -182,7 +182,7 @@ test("previous event schema upgrades table, RLS and grants before exposing the r
       [3, 2, 1],
     );
     assert.deepEqual(
-      (await source.readEventList({ entity: "task-1", limit: 10 })).rows.map((row) => row.revision),
+      (await source.readEventList({ entity: eventAt(1).taskId, limit: 10 })).rows.map((row) => row.revision),
       [1],
     );
     for (const foreign of [
