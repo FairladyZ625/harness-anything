@@ -228,9 +228,12 @@ Harness Anything gives agent work three durable primitives:
 - **Task** — what is being changed, its plan, progress, review, and closeout.
 - **Fact** — what was actually observed, with source and confidence.
 
-They live as plain Markdown inside a private nested git ledger. Git provides the
-history; a rebuildable projection makes the records queryable; gates control
-which state transitions are allowed.
+The runtime authority is a canonical event ledger: accepted commands commit as
+events to the local SQLite ledger, the content objects they reference are stored
+beside it, and a rebuildable projection makes those events queryable. The
+authored Markdown under `harness/` is the document surface derived from accepted
+events and published to Git; Git records that published history but is not the
+acceptance boundary. Gates control which state transitions are allowed.
 
 The result is a repository that remembers more than its code:
 
