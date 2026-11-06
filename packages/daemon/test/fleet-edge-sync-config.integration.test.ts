@@ -4,7 +4,9 @@
 // rewrites the file and restarts the stream on the new settings.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createServer as createHttpsServer } from "node:https";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
@@ -135,7 +137,12 @@ test(
   "an unattended edge with a legacy config obtains a machine token through its resident replica stream",
   { timeout: 180_000 },
   async (t) => {
-    let publishedAuthority: { readonly url: string; readonly realm: string; readonly clientId: string } | null = null;
+    let publishedAuthority: {
+      readonly url: string;
+      readonly realm: string;
+      readonly clientId: string;
+      readonly certificate: string;
+    } | null = null;
     const f = await fleetNodeClaimFixture(
       t,
       undefined,
@@ -148,10 +155,45 @@ test(
       undefined,
       { replicaAdmission: true },
     );
+    let loginUrl = "";
+    const loginServer = createHttpsServer(
+      { key: readFileSync(path.join(f.root, "tls.key")), cert: readFileSync(path.join(f.root, "tls.crt")) },
+      (request, response) => {
+        void (async () => {
+          let raw = "";
+          for await (const chunk of request) raw += String(chunk);
+          const answer = await f.owners.keycloak.fetch(`${loginUrl}${request.url}`, {
+            method: request.method,
+            headers: request.headers as Record<string, string>,
+            ...(raw === "" ? {} : { body: new URLSearchParams(raw) }),
+          });
+          response.statusCode = answer.status;
+          response.setHeader("content-type", "application/json");
+          response.end(Buffer.from(await answer.arrayBuffer()));
+        })().catch(() => {
+          response.statusCode = 500;
+          response.end("{}");
+        });
+      },
+    );
+    loginServer.listen(0, "127.0.0.1");
+    await once(loginServer, "listening");
+    const loginAddress = loginServer.address();
+    assert.ok(loginAddress && typeof loginAddress !== "string");
+    loginUrl = `https://localhost:${loginAddress.port}`;
+    const certificate = readFileSync(path.join(f.root, "tls.crt"), "utf8");
+    t.after(
+      () =>
+        new Promise<void>((resolve) => {
+          loginServer.closeAllConnections();
+          loginServer.close(() => resolve());
+        }),
+    );
     publishedAuthority = {
-      url: f.owners.url,
+      url: loginUrl,
       realm: "harness",
       clientId: "harness-node-node-one",
+      certificate,
     };
     let machineTokenExchanges = 0;
     const keycloakFetch = f.owners.keycloak.fetch;
@@ -168,7 +210,7 @@ test(
       humanSession: false,
       beforeOpen: (edgeRoot) => {
         const config = readFleetEdgeConfig(edgeRoot)!;
-        writeFleetEdgeConfig(edgeRoot, { ...config, loginUrl: f.owners.url });
+        writeFleetEdgeConfig(edgeRoot, { ...config, loginUrl });
       },
     });
     assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, undefined, "the persisted config predates loginRealm");

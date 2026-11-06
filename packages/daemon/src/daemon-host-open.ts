@@ -1287,7 +1287,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               realm: loginAuthority.realm,
               nodeId: config.nodeId,
               credential: config.credential,
-              ca: config.loginCertificate ?? systemCaCertificates(),
+              ca: loginAuthority.certificate ?? config.loginCertificate ?? systemCaCertificates(),
               ...(config.loginServername ? { servername: config.loginServername } : {}),
             });
           return undefined;
