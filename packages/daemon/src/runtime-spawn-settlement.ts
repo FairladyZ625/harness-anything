@@ -12,11 +12,7 @@ import {
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime, ReviewerReviewArtifacts } from "./runtime-spawn-types.ts";
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
-import {
-  squadWorkerBranchHasDelivery,
-  workerBranchHasDelivery,
-  workerGitIdentityForPerson,
-} from "./runtime-worker-push.ts";
+import { workerBranchHasDelivery, workerGitIdentityForPerson } from "./runtime-worker-push.ts";
 import { strayWriteWarning } from "./runtime-write-boundary.ts";
 import { cacheWriteTokensOfUsage, writeRuntime } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
@@ -1109,14 +1105,11 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // coordinator parsing it. The same evidence class as a taskless run witnesses the turn.
   if (active.squadId !== null && active.delegatedBy === null)
     return active.providerOutcome === "succeeded" && active.finalText !== null;
-  // Branch commits witness delivery only where no submission is readable: a squad worker delivers
-  // commits to its commander rather than a submission (the commander-cut `<branch>--squad-…` checkout
-  // never equals the task id, and a squad-context dispatch on the task branch falls through to the
-  // same branch witness), and a remote edge has no canonical projection to read a submission from.
+  // A squad worker hands local commits on its child task branch to the commander. A remote edge
+  // also uses branch commits because it has no canonical projection to read a submission from.
   // At the center a direct dispatch delivers only its accepted submission — mid-work branch commits
   // are not a delivery facet (dec_614F7BBB18C8687E7EFC72173D RJ1: a normal exit without a submitted
   // delivery must not settle succeeded).
-  if (active.squadId !== null && (await squadWorkerBranchHasDelivery({ cwd: active.cwd }))) return true;
   if (
     (active.squadId !== null || !context.input.projection) &&
     (await workerBranchHasDelivery({

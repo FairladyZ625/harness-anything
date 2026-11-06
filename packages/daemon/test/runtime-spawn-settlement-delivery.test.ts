@@ -1026,13 +1026,9 @@ test("a squad leader turn without the provider's structured success settles stop
   assert.equal(outcomes[0]?.outcome, "stopped");
 });
 
-test("a squad worker's delivery is the commits on its commander-cut branch", async (context) => {
-  // Squad checkouts branch as `<commander>--squad-…`, never the child task id, so the task-branch
-  // witness cannot name them; the commits beyond the commander branch are the child's delivery.
+test("a squad worker's delivery is the commits on its bound child task branch", async (context) => {
   const fixture = workerGitFixture(context, "squad-worker-branch", { reachableRemote: true }),
-    commanderBranch = git(fixture.canonical, "branch", "--show-current").trim();
-  git(fixture.worker, "branch", "-m", `${commanderBranch}--squad-0123456789ab-terra-1`);
-  const runtime = workerSettlementRuntime(fixture, {
+    runtime = workerSettlementRuntime(fixture, {
       agent: { id: "terra", name: "Terra" },
       delegatedBy: { id: "fable", name: "Fable" },
       squadId: "core-squad",

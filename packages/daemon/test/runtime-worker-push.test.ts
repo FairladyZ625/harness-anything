@@ -10,13 +10,13 @@ import {
   pushWorkerBranch,
   configureWorkerGitIdentity,
   readWorkerGitIdentity,
-  squadWorkerBranchHasDelivery,
+  workerBranchHasDelivery,
 } from "../src/runtime-worker-push.ts";
 import { readBeforeWriteQueue } from "../src/write-queue-external-reads.ts";
 import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
-test("squad delivery is witnessed only on a squad-cut branch, never on an ordinary branch with a similar name", async (context) => {
+test("worker delivery is witnessed only on its bound task branch with commits above the baseline", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-squad-witness-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   git(root, "init", "-q", "-b", "main", "repo");
@@ -26,20 +26,17 @@ test("squad delivery is witnessed only on a squad-cut branch, never on an ordina
   writeFileSync(path.join(repo, "README.md"), "fixture\n");
   git(repo, "add", "README.md");
   git(repo, "commit", "--quiet", "-m", "fixture");
-  // A sibling whose name is the current branch minus its last character: dropping the last
-  // character of an ordinary branch name must not turn it into a commander branch.
-  git(repo, "branch", "mai");
-  writeFileSync(path.join(repo, "work.txt"), "ordinary\n");
-  git(repo, "add", "work.txt");
-  git(repo, "commit", "--quiet", "-m", "ordinary work");
-  assert.equal(await squadWorkerBranchHasDelivery({ cwd: repo }), false);
-
-  git(repo, "checkout", "--quiet", "-b", "main--squad-worker-1");
-  assert.equal(await squadWorkerBranchHasDelivery({ cwd: repo }), false, "no commits beyond the commander branch yet");
-  writeFileSync(path.join(repo, "squad.txt"), "delivered\n");
-  git(repo, "add", "squad.txt");
-  git(repo, "commit", "--quiet", "-m", "squad work");
-  assert.equal(await squadWorkerBranchHasDelivery({ cwd: repo }), true);
+  git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
+  const input = { cwd: path.join(root, "worker"), canonicalRoot: repo, taskId: "task_child" };
+  git(repo, "worktree", "add", "--quiet", "-b", input.taskId, input.cwd);
+  assert.equal(await workerBranchHasDelivery(input), false, "no commits beyond the baseline yet");
+  git(input.cwd, "branch", "-m", "main--squad-worker-1");
+  writeFileSync(path.join(input.cwd, "work.txt"), "ordinary\n");
+  git(input.cwd, "add", "work.txt");
+  git(input.cwd, "commit", "--quiet", "-m", "ordinary work");
+  assert.equal(await workerBranchHasDelivery(input), false, "an unrelated branch is not the child's delivery");
+  git(input.cwd, "branch", "-m", input.taskId);
+  assert.equal(await workerBranchHasDelivery(input), true);
 });
 
 test("worker push publishes only the dispatched task's own branch with force-with-lease", async (context) => {
