@@ -32,6 +32,31 @@ test("native PostgreSQL keeps artifact upgrade pending while the runtime writer 
       code: "projection_pending",
     });
     assert.equal((await backend.projection.readDocumentMetadata(artifactPath(130))).document?.workspaceRevision, 130);
+    const previousCall = () =>
+      withPostgresTransaction(
+        fixture.pool,
+        async (client) => {
+          await client.query("SELECT ha_backfill_artifact_documents($1,$2,$3,$4)", [
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            repoId,
+          ]);
+          // The previous center unconditionally publishes ready after the function returns.
+          const ready = await client.query(
+            `UPDATE ha_projection_meta SET artifact_index_version=1
+        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 RETURNING artifact_index_version`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          );
+          assert.equal(
+            ready.rows[0]!.artifact_index_version,
+            0,
+            "previous runtime cannot publish incomplete artifacts",
+          );
+        },
+        scope,
+      );
+    await previousCall();
     // Unlike the embedded cold open, this fixture has not certified the repo's empty summary remainder.
     assert.deepEqual(await backfillPgReadIndexPage(fixture.pool, scope, repoId), { processed: 0, done: false });
     assert.deepEqual((await manage((client) => client.query("SELECT ready FROM ha_event_summary_state"))).rows, [
@@ -40,6 +65,12 @@ test("native PostgreSQL keeps artifact upgrade pending while the runtime writer 
     const first = await backfillPgReadIndexPage(fixture.pool, scope, repoId);
     assert.deepEqual(first, { processed: 64, done: false });
     const cursor = (await manage((client) => client.query("SELECT cursor FROM ha_artifact_backfill"))).rows[0]!.cursor;
+    await previousCall();
+    assert.deepEqual(
+      (await manage((client) => client.query("SELECT cursor FROM ha_artifact_backfill"))).rows[0]!.cursor,
+      cursor,
+      "previous runtime requests never reset durable progress",
+    );
     await manage((client) => replaceArtifact(client, 130, ["during-cleanup"], "md"));
     let units = 64,
       turns = 2;

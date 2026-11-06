@@ -6,7 +6,6 @@ const dispatch =
   "json_extract(event_json,'$.schema')='agent-runtime-event/v1' AND json_extract(event_json,'$.type')='runtime_dispatch_requested'";
 const present = `CASE WHEN ${dispatch} AND EXISTS(SELECT 1 FROM runtime_session s WHERE s.runtime_session_id=json_extract(event_json,'$.payload.runtimeSessionId')) THEN 1 ELSE 0 END`;
 const legacyKey = `CASE WHEN ${dispatch} THEN COALESCE(json_extract(event_json,'$.payload.dispatchKey'),json_extract(event_json,'$.payload.idempotencyKey'),'') ELSE '' END`;
-const shadow = "runtime_event_index_compat";
 const columns = [
   "dispatch_key",
   "runtime_session_id",
@@ -29,7 +28,7 @@ const materialize = `INSERT INTO runtime_dispatch_index(workspace_revision,${col
 /** Indexes start empty: both key extraction and B-tree insertion belong to bounded writer pages. */
 export function ensureRuntimeMemberIndex(db: DatabaseSync): void {
   transaction(db, () => {
-    const legacyCreated = expandLegacyRuntimeIndex(db);
+    const legacy = expandLegacyRuntimeIndex(db);
     const existed =
       queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_dispatch_index'").length > 0;
     runSql(
@@ -61,7 +60,8 @@ export function ensureRuntimeMemberIndex(db: DatabaseSync): void {
     );
     // A cache completed by the previous column-based implementation must fill the new empty index.
     // The table's existence makes this reset one-time and durable across repeated opens.
-    if (!existed || legacyCreated) runSql(db, "UPDATE runtime_read_index_progress SET revision=0,complete=0");
+    if (!existed || legacy.repairRows) runSql(db, "UPDATE runtime_read_index_progress SET revision=0,complete=0");
+    else if (legacy.missingIndexes) runSql(db, "UPDATE runtime_read_index_progress SET complete=0");
     runSql(
       db,
       `INSERT OR IGNORE INTO runtime_read_index_progress
@@ -83,7 +83,6 @@ export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: num
       "SELECT workspace_revision FROM event_index WHERE workspace_revision>? ORDER BY workspace_revision LIMIT 64",
       progress.revision,
     );
-    const copyingLegacy = legacyCopyPending(db);
     for (const row of rows) {
       runSql(db, materialize, row.workspace_revision);
       runSql(
@@ -92,10 +91,15 @@ export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: num
         WHERE workspace_revision=? AND (runtime_session_present IS NOT (${present}) OR dispatch_key IS NOT (${legacyKey}))`,
         row.workspace_revision,
       );
-      if (copyingLegacy) runSql(db, legacyCopySql, row.workspace_revision);
     }
     if (rows.length === 0) {
-      if (copyingLegacy) publishLegacyRuntimeIndex(db);
+      const missing = missingLegacyIndex(db);
+      if (missing) {
+        // SQLite cannot page a B-tree build. One original-table index per background
+        // writer turn; never rebuild or rename the table to create an index.
+        runSql(db, `CREATE INDEX IF NOT EXISTS ${missing[0]} ON event_index${missing[1]}`);
+        return { processed: 0, done: false };
+      }
       runSql(db, "UPDATE runtime_read_index_progress SET complete=1 WHERE singleton=1");
     } else
       runSql(
@@ -128,7 +132,7 @@ function createRuntimeReadEventTriggers(db: DatabaseSync): void {
 }
 
 // Current + previous physical reader window. Remove legacy columns/trees/triggers and this
-// copying path after every deployed repository is complete, no later than 2026-12-05.
+// compatibility maintenance after every deployed repository is complete, no later than 2026-12-05.
 const legacyIndexes: readonly [string, string][] = [
   ["event_index_runtime_member_pending", "(workspace_revision) WHERE runtime_session_present IS NULL"],
   ["event_index_runtime_dispatch_key_pending", "(workspace_revision) WHERE dispatch_key IS NULL"],
@@ -152,17 +156,7 @@ const legacyTriggerNames = [
   "runtime_dispatch_session_present",
   "runtime_dispatch_session_absent",
 ];
-const mirrorTriggerNames = ["runtime_compat_event_0", "runtime_compat_event_1", "runtime_compat_event_delete"];
-const legacyCopySql = `INSERT INTO ${shadow}(op_id,workspace_revision,task_id,event_json,runtime_session_present,dispatch_key)
-  SELECT op_id,workspace_revision,task_id,event_json,${present},${legacyKey} FROM event_index WHERE workspace_revision=?
-  ON CONFLICT(workspace_revision) DO UPDATE SET op_id=excluded.op_id,task_id=excluded.task_id,event_json=excluded.event_json,
-    runtime_session_present=excluded.runtime_session_present,dispatch_key=excluded.dispatch_key`;
-
-function legacyCopyPending(db: DatabaseSync): boolean {
-  return queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", shadow).length > 0;
-}
-
-function installLegacyRuntimeTriggers(db: DatabaseSync, copying: boolean): void {
+function installLegacyRuntimeTriggers(db: DatabaseSync): void {
   for (const name of legacyTriggerNames) runSql(db, `DROP TRIGGER IF EXISTS ${name}`);
   for (const [n, operation] of ["INSERT", "UPDATE OF event_json"].entries()) {
     runSql(
@@ -183,104 +177,59 @@ function installLegacyRuntimeTriggers(db: DatabaseSync, copying: boolean): void 
     runSql(
       db,
       `CREATE TRIGGER runtime_dispatch_session_${action} AFTER ${operation} ON runtime_session BEGIN
-    ${["event_index", ...(copying ? [shadow] : [])]
-      .map(
-        (table) => `UPDATE ${table} SET runtime_session_present=${value}
-      WHERE ${dispatch} AND json_extract(event_json,'$.payload.runtimeSessionId')=${ref}.runtime_session_id AND runtime_session_present IS NOT ${value};`,
-      )
-      .join("\n")} END`,
+    UPDATE event_index SET runtime_session_present=${value}
+      WHERE ${dispatch} AND json_extract(event_json,'$.payload.runtimeSessionId')=${ref}.runtime_session_id
+        AND runtime_session_present IS NOT ${value}; END`,
     );
 }
 
-/** Build every missing historical B-tree empty and fill it with the same bounded source pages. */
-function expandLegacyRuntimeIndex(db: DatabaseSync): boolean {
+/** Expand fields and triggers; only empty tables may build physical indexes at attach. */
+function expandLegacyRuntimeIndex(db: DatabaseSync): { repairRows: boolean; missingIndexes: boolean } {
   const names = new Set(queryRows<{ name: string }>(db, "PRAGMA table_info(event_index)").map((row) => row.name));
   if (!names.has("runtime_session_present"))
     runSql(db, "ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
   if (!names.has("dispatch_key")) runSql(db, "ALTER TABLE event_index ADD COLUMN dispatch_key TEXT");
-  const indexes = new Map(
-      queryRows<{ name: string; tbl_name: string }>(
-        db,
-        "SELECT name,tbl_name FROM sqlite_master WHERE type='index'",
-      ).map((row) => [row.name, row.tbl_name]),
-    ),
-    pending = legacyCopyPending(db),
-    missing = legacyIndexes.some(([name]) => !indexes.has(name)),
-    writers = new Set(
-      queryRows<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type='trigger'").map((row) => row.name),
-    ),
-    copying =
-      pending ||
-      ((missing || legacyTriggerNames.some((name) => !writers.has(name))) &&
-        queryRows(db, "SELECT 1 FROM event_index LIMIT 1").length > 0),
-    created = copying && !pending,
-    target = copying ? shadow : "event_index";
-  if (created) {
-    // Preserve the existing table's constraints/columns and actual index expressions. Never
-    // create those indexes on populated history, and never invent a second edge schema.
-    const schema = queryRows<{ sql: string }>(
-      db,
-      "SELECT sql FROM sqlite_master WHERE type='table' AND name='event_index'",
-    )[0]!.sql;
-    runSql(db, schema.replace(/CREATE TABLE (?:IF NOT EXISTS )?["`]?event_index["`]?/iu, `CREATE TABLE ${shadow}`));
-    for (const index of queryRows<{ name: string; sql: string }>(
-      db,
-      "SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name='event_index' AND sql IS NOT NULL",
-    )) {
-      if (legacyIndexes.some(([name]) => name === index.name)) continue;
-      runSql(
-        db,
-        `CREATE ${/^CREATE UNIQUE/iu.test(index.sql) ? "UNIQUE " : ""}INDEX IF NOT EXISTS runtime_compat_${index.name} ON ${shadow}${index.sql.slice(index.sql.indexOf("("))}`,
-      );
-    }
-  }
-  for (const [name, expression] of legacyIndexes) {
-    const indexName = copying && indexes.has(name) && indexes.get(name) !== shadow ? `runtime_compat_${name}` : name;
-    runSql(db, `CREATE INDEX IF NOT EXISTS ${indexName} ON ${target}${expression}`);
-  }
-  if (copying) {
-    for (const [n, operation] of ["INSERT", "UPDATE OF op_id,workspace_revision,task_id,event_json"].entries())
-      runSql(
-        db,
-        `CREATE TRIGGER IF NOT EXISTS runtime_compat_event_${n} AFTER ${operation} ON event_index BEGIN
-        ${n ? `DELETE FROM ${shadow} WHERE workspace_revision=OLD.workspace_revision;` : ""}
-        ${legacyCopySql.replace("workspace_revision=?", "workspace_revision=NEW.workspace_revision")}; END`,
-      );
-    runSql(
-      db,
-      `CREATE TRIGGER IF NOT EXISTS runtime_compat_event_delete AFTER DELETE ON event_index BEGIN
-      DELETE FROM ${shadow} WHERE workspace_revision=OLD.workspace_revision; END`,
-    );
-  }
-  installLegacyRuntimeTriggers(db, copying);
-  return created;
+  const writers = new Set(
+    queryRows<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type='trigger'").map((row) => row.name),
+  );
+  const populated = queryRows(db, "SELECT 1 FROM event_index LIMIT 1").length > 0;
+  if (!populated)
+    for (const [name, expression] of legacyIndexes)
+      runSql(db, `CREATE INDEX IF NOT EXISTS ${name} ON event_index${expression}`);
+  installLegacyRuntimeTriggers(db);
+  return {
+    repairRows:
+      populated &&
+      (!names.has("runtime_session_present") ||
+        !names.has("dispatch_key") ||
+        legacyTriggerNames.some((name) => !writers.has(name))),
+    missingIndexes: populated && missingLegacyIndex(db) !== undefined,
+  };
 }
 
-function publishLegacyRuntimeIndex(db: DatabaseSync): void {
-  // Rename changes schema metadata, not historical rows. Keep the old trees until contraction;
-  // freeing them here would make the final page linear in repository history again.
-  for (const name of [
-    ...legacyTriggerNames,
-    ...mirrorTriggerNames,
-    "runtime_read_index_event_0",
-    "runtime_read_index_event_1",
-    "runtime_read_index_event_delete",
-  ])
-    runSql(db, `DROP TRIGGER IF EXISTS ${name}`);
-  runSql(db, "ALTER TABLE event_index RENAME TO runtime_event_index_retired");
-  runSql(db, `ALTER TABLE ${shadow} RENAME TO event_index`);
-  installLegacyRuntimeTriggers(db, false);
-  createRuntimeReadEventTriggers(db);
+function missingLegacyIndex(db: DatabaseSync): (typeof legacyIndexes)[number] | undefined {
+  const names = new Set(
+    queryRows<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='event_index'").map(
+      (row) => row.name,
+    ),
+  );
+  return legacyIndexes.find(([name]) => !names.has(name));
+}
+
+export function assertRuntimeReadIndexReady(db: DatabaseSync): void {
+  if (runtimeReadIndexReady(db)) return;
+  const progress = queryRows(db, "SELECT 1 FROM sqlite_master WHERE name='runtime_read_index_progress'").length
+    ? queryRows(db, "SELECT revision FROM runtime_read_index_progress WHERE singleton=1")[0]
+    : undefined;
+  throw Object.assign(new Error(`索引迁移中; progress revision=${progress?.revision ?? 0}`), {
+    code: "projection_pending",
+  });
 }
 
 /** Base backups complete the same migration on their private copy before an old edge reads it. */
 export function legacyRuntimeIndexReady(db: DatabaseSync): boolean {
   return (
-    !legacyCopyPending(db) &&
-    queryRows(
-      db,
-      "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('event_index_runtime_member_pending','event_index_runtime_dispatch_key_pending')",
-    ).length === 2 &&
+    missingLegacyIndex(db) === undefined &&
     queryRows(db, "SELECT 1 FROM event_index WHERE runtime_session_present IS NULL LIMIT 1").length === 0 &&
     queryRows(db, "SELECT 1 FROM event_index WHERE dispatch_key IS NULL LIMIT 1").length === 0
   );

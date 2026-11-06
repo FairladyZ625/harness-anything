@@ -89,14 +89,16 @@ export function ArtifactsView({
           })}
         </p>
       )}
-      <ArtifactsWorkspace
-        repoId={repoId}
-        data={query.data ?? null}
-        pending={query.isPending}
-        kind={kind}
-        onKindChange={setKind}
-        onNavigateTask={onNavigateTask}
-      />
+      {(!query.isError || query.data !== undefined) && (
+        <ArtifactsWorkspace
+          repoId={repoId}
+          data={query.data ?? null}
+          pending={query.isPending}
+          kind={kind}
+          onKindChange={setKind}
+          onNavigateTask={onNavigateTask}
+        />
+      )}
     </section>
   );
 }

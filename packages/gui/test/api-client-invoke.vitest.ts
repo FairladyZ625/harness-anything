@@ -156,6 +156,21 @@ describe("renderer invoke assembles wire params per protocol declaration", () =>
     expect(renderToStaticMarkup(createElement(WorkspaceSummaryPending, { error: new Error(hint) }))).toContain(hint);
   });
 
+  it("keeps artifact migration progress on the browser RPC transport", async () => {
+    const hint = "索引迁移中; progress phase=1 cursor=64";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error: { code: "projection_pending", hint } }), { status: 200 }),
+      ),
+    );
+    window.sessionStorage.setItem("harness.browser.access-token", "secret");
+    await expect(
+      invoke("repo.artifacts.list", { repoId: "canonical", kind: "html" }, "listArtifacts"),
+    ).rejects.toMatchObject({ code: "projection_pending", message: hint });
+  });
+
   it("shows parent collection migration as one line rather than an empty work scope", async () => {
     vi.stubGlobal(
       "fetch",

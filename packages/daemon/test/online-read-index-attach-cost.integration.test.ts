@@ -144,14 +144,13 @@ for (const missingLegacy of [false, true])
     assert.equal(counts[0]!.attach.statements, counts[1]!.attach.statements);
   });
 
-test("the legacy table cut-over has constant native work after 1000/10000 copied rows", (t) => {
-  installSqliteWorkProbe();
+test("missing legacy indexes build one original-table tree per background turn", (t) => {
   const counts = [];
-  for (const events of [1000, 10000]) {
+  for (const events of [10000, 100000]) {
     const db = new DatabaseSync(":memory:");
     try {
-      db.exec("PRAGMA foreign_keys=ON");
       db.exec(REPOSITORY_READ_TABLES_SQL);
+      const rootpage = db.prepare("SELECT rootpage FROM sqlite_master WHERE name='event_index'").get()!.rootpage;
       const insert = db.prepare("INSERT INTO event_index(op_id,workspace_revision,event_json) VALUES(?,?,'{}')");
       db.exec("BEGIN");
       for (let n = 1; n <= events; n++) insert.run(`op-${n}`, n);
@@ -159,18 +158,28 @@ test("the legacy table cut-over has constant native work after 1000/10000 copied
       ensureRuntimeMemberIndex(db);
       let processed = 0;
       while (processed < events) processed += backfillRuntimeReadIndexPage(db).processed;
-      resetSqliteWork();
-      const page = backfillRuntimeReadIndexPage(db),
-        native = snapshotSqliteWork();
-      assert.deepEqual(page, { processed: 0, done: true });
-      assert.equal(db.prepare("SELECT count(*) AS n FROM event_index").get()!.n, events);
-      assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name='runtime_event_index_retired'").get());
-      counts.push({ events, ...native });
+      const work = countSqliteWork(t);
+      try {
+        const start = performance.now();
+        assert.deepEqual(backfillRuntimeReadIndexPage(db), { processed: 0, done: false });
+        const physicalMs = performance.now() - start;
+        assert.equal(work.statements.filter((s) => s.indexInputRows > 0).length, 1);
+        assert.equal(work.totals("attach").indexInputRows, events);
+        assert.equal(
+          db.prepare("SELECT rootpage FROM sqlite_master WHERE name='event_index'").get()!.rootpage,
+          rootpage,
+        );
+        assert.equal(
+          db.prepare("SELECT 1 FROM sqlite_master WHERE name='runtime_event_index_retired'").get(),
+          undefined,
+        );
+        counts.push({ events, physicalMs });
+      } finally {
+        work.stop();
+      }
     } finally {
       db.close();
     }
   }
-  t.diagnostic(`LEGACY_CUTOVER_COUNTS ${JSON.stringify(counts)}`);
-  assert.equal(counts[0]!.sqliteVmSteps, counts[1]!.sqliteVmSteps);
-  assert.equal(counts[0]!.sqliteScanPages, counts[1]!.sqliteScanPages);
+  t.diagnostic(`LEGACY_BACKGROUND_BUILD ${JSON.stringify(counts)}`);
 });

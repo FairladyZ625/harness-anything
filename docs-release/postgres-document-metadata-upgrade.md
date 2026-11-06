@@ -310,7 +310,7 @@ committed, subsequent reads automatically use the indexed global ordering and ex
 result cursors; the pagination contract is unchanged. Do not serve a truncated pending
 scan as a complete search result. For local PGlite, the daemon writer performs background
 pages after opening; keep it running until the Decision queries succeed before switching
-users. Reopening resumes committed pending rows/index-copy cursors. Fleet edges do not
+users. Reopening resumes committed pending rows and the remaining physical index builds. Fleet edges do not
 perform backfill; the center's writer or scoped management process owns it.
 
 ### Artifact timelines during an online upgrade

@@ -72,16 +72,19 @@ test("basebackup completes the shared migration on its private copy for a previo
       });
       assert.equal(job.metadata.position.revision, head);
       assert.equal(
-        live.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-130"))?.event.payload.dispatchId,
+        live.withSession((q) => q.readRuntimeDispatchById("dispatch-130"))?.event.payload.dispatchId,
         "dispatch-130",
       );
       const archive = await job.complete,
         unpacked = path.join(rootDir, "unpacked");
       mkdirSync(unpacked);
       await tar.x({ file: archive.file, cwd: unpacked });
-      // The backup's work never advances the live center cursor or publishes its shadow table.
+      // The backup's work never advances the live center cursor or builds its missing physical indexes.
       assert.equal(before.prepare("SELECT revision FROM runtime_read_index_progress").get()!.revision, 0);
-      assert.ok(before.prepare("SELECT 1 FROM sqlite_master WHERE name='runtime_event_index_compat'").get());
+      assert.equal(
+        before.prepare("SELECT 1 FROM sqlite_master WHERE name='runtime_event_index_compat'").get(),
+        undefined,
+      );
       const replicaPath = path.join(unpacked, BASE_BACKUP_ARCHIVE_ROOT, "cache", "task.sqlite"),
         old = new DatabaseSync(replicaPath, { readOnly: true }),
         q = previousQueries((read) => read(old, { status: "ready", watermark: head, sourceRevision: head }));

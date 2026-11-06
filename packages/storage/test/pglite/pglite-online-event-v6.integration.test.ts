@@ -53,7 +53,10 @@ pgliteIntegrationSuite("online event v6 integration", () => {
         await backend.pool.query("DROP INDEX ha_event_entity_refs_revision");
         await backend.close();
         backend = await createPGliteStorageBackend({ repoId, storage });
-        assert.equal((await backend.projection.readEventList({ entity: "seed", limit: 1 })).rows[0]?.revision, 130);
+        await assert.rejects(backend.projection.readEventList({ entity: "seed", limit: 1 }), {
+          code: "projection_pending",
+          message: /progress/u,
+        });
         let turns = 0;
         for (;;) {
           const page = await backend.backfillReadIndexes();

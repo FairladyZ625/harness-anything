@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { readIndexBuildDdl } from "../../src/pg/pg-read-index-status.ts";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -50,7 +51,8 @@ async function createTimelineSchema(db: PGlite): Promise<void> {
       projection_name text, artifact_index_version smallint NOT NULL DEFAULT 0,
       PRIMARY KEY(tenant_id,project_id,policy_epoch,projection_name));
   `);
-  for (const statement of [...documentMetadataDdl(), ...artifactTimelineDdl()]) await db.exec(statement);
+  for (const statement of [...readIndexBuildDdl(), ...documentMetadataDdl(), ...artifactTimelineDdl()])
+    await db.exec(statement);
 }
 
 pgliteIntegrationSuite("PGlite artifact timeline index", () => {

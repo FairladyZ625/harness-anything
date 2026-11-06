@@ -46,10 +46,14 @@ test("100000-event cache attaches before backfill and resumes a failed page thro
       assert.equal(inspect.prepare("SELECT complete FROM runtime_read_index_progress").get()!.complete, 0);
       const readStart = performance.now();
       assert.equal(
-        reader.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-100000"))?.event.payload.dispatchId,
+        reader.withSession((q) => q.readRuntimeDispatchById("dispatch-100000"))?.event.payload.dispatchId,
         "dispatch-100000",
       );
       const readMs = performance.now() - readStart;
+      assert.throws(() => reader.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-100000")), {
+        code: "projection_pending",
+        message: /progress/u,
+      });
       await assert.doesNotReject(async () => {
         const signal = AbortSignal.timeout(5000);
         while (cell.status().state === "attached") await once(progress, "page", { signal });
@@ -66,9 +70,9 @@ test("100000-event cache attaches before backfill and resumes a failed page thro
         undefined,
       );
       assert.equal(
-        reader.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-100000"))?.event.payload.dispatchId,
+        reader.withSession((q) => q.readRuntimeDispatchById("dispatch-100000"))?.event.payload.dispatchId,
         "dispatch-100000",
-        "the previous reader remains correct while maintenance is latched",
+        "point reads remain correct while maintenance is latched",
       );
       const repair = new DatabaseSync(projectionPath);
       try {

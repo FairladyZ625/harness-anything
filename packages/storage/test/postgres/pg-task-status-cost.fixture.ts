@@ -179,7 +179,7 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
       ["derived-collection", { requireParentMetadata: true }],
     ] as const) {
       plans.length = 0;
-      await assert.rejects(source.list(query), { code: "projection_pending", message: "索引迁移中" });
+      await assert.rejects(source.list(query), { code: "projection_pending", message: /索引迁移中; progress/u });
       observe(`pending/${name}`, 0);
     }
     // A deferred display value cannot decide membership, including later pages.
@@ -187,7 +187,7 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
       plans.length = 0;
       await assert.rejects(source.list({ taskIds: ["target"], presentationStatus: true, status, limit: 1 }), {
         code: "projection_pending",
-        message: "索引迁移中",
+        message: /索引迁移中; progress/u,
       });
       observe(`pending/status-${status}`, 0);
     }

@@ -46,6 +46,15 @@ Declaration conversion writes a new file and never overwrites the input or accep
 
 Historical samples live in `packages/preset/fixtures/completion-migration/`. Guidance tests and isolated integration tests cover the old decoder failure, explicit CLI migration, active catalog/resolution, preserved source bytes, idempotence, rejected unknown formats, and repository acceptance/reopen. They run through the existing tier manifest; no additional CI gate or compatibility reader is introduced.
 
+SQLite runtime read-index expansion follows the same serving rule: dispatch-key and member
+collections return `projection_pending` with the committed revision while their indexes are
+incomplete; existing point reads remain available. The writer fills at most 64 source rows per
+transaction, then builds one missing previous-reader index per background turn on the original
+`event_index` table. A physical SQLite index build is indivisible and occupies the connection;
+it is not a 64-row operation. Reopening reuses completed indexes and the committed row cursor.
+No shadow table or rename is used. Previous-reader columns, indexes and triggers stay maintained
+through 2026-12-05; basebackup finishes the shared migration on its private copy before transfer.
+
 ## Stale local-root residue has one classifier
 
 `ha doctor health` reports `local-root-residue` when a repository renamed `layout.localRoot` and the

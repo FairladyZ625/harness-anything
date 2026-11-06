@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { artifactsClient } from "../src/renderer/artifacts-client.ts";
-import { ArtifactsWorkspace } from "../src/renderer/views/ArtifactsView.tsx";
+import { ArtifactsView, ArtifactsWorkspace } from "../src/renderer/views/ArtifactsView.tsx";
 import type { ArtifactGuiRowDto, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
@@ -598,5 +598,42 @@ describe("artifacts client pagination", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("artifact migration availability", () => {
+  it("renders progress without a successful empty collection and refreshes after readiness", async () => {
+    const hint = "索引迁移中; progress phase=1 cursor=64";
+    const read = vi.spyOn(artifactsClient, "list").mockRejectedValue(
+      Object.assign(new Error(hint), {
+        code: "projection_pending",
+      }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mounted.push({ root, container });
+    await act(async () =>
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client },
+          createElement(ArtifactsView, { repoId: "repo-a", onNavigateTask: noop }),
+        ),
+      ),
+    );
+    await settle();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(hint);
+    expect(container.textContent).not.toContain("No artifacts exist in this repository yet.");
+    expect(client.getQueryData(["artifacts", "repo-a", "html"])).toBeUndefined();
+    read.mockResolvedValue(dto({ artifacts: [], counts: { html: 0, md: 0, raw: 0 } }));
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["artifacts", "repo-a", "html"] });
+    });
+    await settle();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("No artifacts exist in this repository yet.");
+    expect(client.getQueryData(["artifacts", "repo-a", "html"])).toMatchObject({ status: "ready" });
   });
 });

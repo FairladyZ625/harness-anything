@@ -56,6 +56,9 @@ test("frozen previous reader accepts its previous writer's physical snapshot", a
     db.exec(REPOSITORY_READ_TABLES_SQL);
     ensurePrevious(db);
     insertDispatch(db, 1);
+    const current = repositoryEventQueries((read) => read(db, { status: "ready", watermark: 1, sourceRevision: 1 }));
+    assert.equal(current.readRuntimeDispatchById("dispatch-1")?.event.payload.dispatchId, "dispatch-1");
+    assert.throws(() => current.readRuntimeDispatchByDispatchKey("key-1"), { code: "projection_pending" });
     await withPreviousSnapshot(db, (q) => {
       assert.equal(q.readRuntimeDispatchByDispatchKey("key-1")?.event.payload.dispatchId, "dispatch-1");
       assert.equal(q.readRuntimeDispatchesByMember({ agentId: "agent", limit: 10 }).rows.length, 1);
@@ -132,7 +135,11 @@ test("a populated cache without the old schema becomes readable after bounded ba
       pages.push(page.processed);
       if (page.done) break;
     }
-    assert.deepEqual(pages, [64, 64, 1, 0]);
+    assert.deepEqual(
+      pages.filter((n) => n > 0),
+      [64, 64, 1],
+    );
+    assert.ok(pages.filter((n) => n === 0).length > 1, "physical builds run after row pages");
     await withPreviousSnapshot(db, (q) => {
       assert.equal(q.readRuntimeDispatchByDispatchKey("key-129")?.event.payload.dispatchId, "dispatch-129");
       assert.equal(q.readRuntimeDispatchesByMember({ agentId: "agent", limit: 10 }).rows.length, 10);
@@ -169,7 +176,7 @@ test("reopening a cache with retired legacy writers repairs stale non-null sessi
   }
 });
 
-test("legacy copying resumes, mirrors writes, and rolls back an interrupted cut-over", async (t) => {
+test("legacy indexes resume on the original table and roll back an interrupted physical build", async (t) => {
   await withTempStoreAsync(async (root) => {
     const file = path.join(root, "projection.sqlite");
     let db = new DatabaseSync(file);
@@ -200,34 +207,59 @@ test("legacy copying resumes, mirrors writes, and rolls back an interrupted cut-
       );
       assert.equal(backfillRuntimeReadIndexPage(db).processed, 64);
       assert.equal(backfillRuntimeReadIndexPage(db).processed, 2);
+      const originalRoot = db.prepare("SELECT rootpage FROM sqlite_master WHERE name='event_index'").get()!.rootpage;
+      let inject = true;
       const prepare = db.prepare,
         fault = t.mock.method(db, "prepare", function (sql: string) {
-          if (sql.startsWith("ALTER TABLE runtime_event_index_compat RENAME"))
-            throw new Error("injected cut-over failure");
-          return Reflect.apply(prepare, db, [sql]);
+          const statement = Reflect.apply(prepare, db, [sql]);
+          if (sql.startsWith("CREATE INDEX IF NOT EXISTS event_index_runtime_"))
+            return new Proxy(statement, {
+              get(target, key) {
+                if (key === "run")
+                  return () => {
+                    const result = target.run();
+                    if (inject) {
+                      inject = false;
+                      throw new Error("injected physical build failure");
+                    }
+                    return result;
+                  };
+                return Reflect.get(target, key);
+              },
+            });
+          return statement;
         });
       try {
-        assert.throws(() => backfillRuntimeReadIndexPage(db), /injected cut-over failure/u);
+        assert.throws(() => backfillRuntimeReadIndexPage(db), /injected physical build failure/u);
       } finally {
         fault.mock.restore();
       }
       assert.equal(db.prepare("SELECT complete FROM runtime_read_index_progress").get()!.complete, 0);
       assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name='event_index'").get());
-      assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name='runtime_event_index_compat'").get());
+      assert.equal(
+        db.prepare("SELECT 1 FROM sqlite_master WHERE name='event_index_runtime_member_pending'").get(),
+        undefined,
+      );
       assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE name='runtime_event_index_retired'").get(), undefined);
-      assert.deepEqual(backfillRuntimeReadIndexPage(db), { processed: 0, done: true });
+      while (!backfillRuntimeReadIndexPage(db).done) {
+        /* complete one physical tree per turn */
+      }
+      assert.equal(
+        db.prepare("SELECT rootpage FROM sqlite_master WHERE name='event_index'").get()!.rootpage,
+        originalRoot,
+      );
       const reopen = countSqliteWork(t);
       try {
         createProjectionTables(db);
         assert.equal(
           reopen.totals("attach").indexInputRows,
           0,
-          "the full constructor must reuse active equivalent indexes after cut-over",
+          "the full constructor must reuse active equivalent indexes after physical build",
         );
       } finally {
         reopen.stop();
       }
-      // This statement was prepared before both renames. SQLite must rebind it to the active table.
+      // A statement prepared before the physical builds still addresses the same original table.
       insert.run();
       const current = repositoryEventQueries((read) =>
         read(db, { status: "ready", watermark: 131, sourceRevision: 131 }),

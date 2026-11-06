@@ -1,4 +1,4 @@
-import { runtimeReadIndexReady } from "./runtime-member-index.ts";
+import { assertRuntimeReadIndexReady } from "./runtime-member-index.ts";
 import { prefixUpperBound } from "./document-read-range.ts";
 import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
@@ -90,30 +90,18 @@ const RUNTIME_DISPATCH_COUNT_BY_AGENT_SQL = [
 ].join(" ");
 // The member page answers "an executor's newest dispatches" in one index scan: newest first,
 // bounded by the caller's limit, so a detail-page first screen never pays for total history.
-const RUNTIME_DISPATCHES_BY_MEMBER_SQL = (member: "agentId" | "squadId", indexed: boolean) =>
-  indexed
-    ? `SELECT e.event_json FROM runtime_dispatch_index r CROSS JOIN event_index e ON e.workspace_revision=r.workspace_revision
-    WHERE r.${member}=? ORDER BY r.started_at DESC,r.dispatch_id DESC LIMIT ?`
-    : [
-        RUNTIME_DISPATCHES_SQL.replace(
-          "ORDER BY workspace_revision",
-          `AND json_extract(event_json, '$.payload.${member}') = ? ORDER BY COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC LIMIT ?`,
-        ),
-      ].join(" ");
+const RUNTIME_DISPATCHES_BY_MEMBER_SQL = (member: "agentId" | "squadId") =>
+  `SELECT e.event_json FROM runtime_dispatch_index r CROSS JOIN event_index e ON e.workspace_revision=r.workspace_revision
+    WHERE r.${member}=? ORDER BY r.started_at DESC,r.dispatch_id DESC LIMIT ?`;
 // Full-history ingredients for the member's task-group totals: one row per session the member
 // dispatched, carrying its distinct bindings and the latest member dispatch's decision target.
 // The single grouping normalization lives in the daemon; this query only selects raw ingredients.
-const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId", indexed: boolean) => {
-  const source = indexed ? "runtime_dispatch_index" : "event_index",
-    session = indexed ? "runtime_session_id" : "json_extract(event_json, '$.payload.runtimeSessionId')",
-    started = indexed
-      ? "started_at"
-      : "COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt'))",
-    dispatchId = indexed ? "dispatch_id" : "json_extract(event_json, '$.payload.dispatchId')",
-    predicate = indexed
-      ? `${member}=? AND runtime_session_present=1`
-      : `json_extract(event_json, '$.schema')='agent-runtime-event/v1' AND json_extract(event_json, '$.type')='runtime_dispatch_requested'
-        AND json_extract(event_json, '$.payload.${member}')=? AND EXISTS(SELECT 1 FROM runtime_session s WHERE s.runtime_session_id=${session})`,
+const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId") => {
+  const source = "runtime_dispatch_index",
+    session = "runtime_session_id",
+    started = "started_at",
+    dispatchId = "dispatch_id",
+    predicate = `${member}=? AND runtime_session_present=1`,
     candidate = (after: boolean) => `SELECT workspace_revision FROM ${source} WHERE ${predicate}
       ${after ? `AND ${session} > (SELECT ${session} FROM ${source} WHERE workspace_revision=latest.revision)` : ""}
       ORDER BY ${session}, ${started} DESC, ${dispatchId} DESC LIMIT 1`;
@@ -272,14 +260,8 @@ export function repositoryEventQueries(
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_ID_SQL, dispatchId))),
     readRuntimeDispatchByDispatchKey: (dispatchKey) =>
       withRead((db) => {
-        // Delete once every deployed repository is complete, no later than 2026-12-05.
-        const sql = runtimeReadIndexReady(db)
-          ? RUNTIME_DISPATCH_BY_KEY_SQL
-          : `${RUNTIME_DISPATCHES_SQL.replace(
-              "ORDER BY workspace_revision",
-              "AND COALESCE(json_extract(event_json, '$.payload.dispatchKey'), json_extract(event_json, '$.payload.idempotencyKey')) = ? ORDER BY workspace_revision",
-            )} LIMIT 1`;
-        return projectedDispatch(db, queryRow(db, sql, dispatchKey));
+        assertRuntimeReadIndexReady(db);
+        return projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_KEY_SQL, dispatchKey));
       }),
     readRuntimeDispatchByResumeSource: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL, dispatchId))),
@@ -415,10 +397,10 @@ export function repositoryEventQueries(
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
+        assertRuntimeReadIndexReady(db);
         const member: "agentId" | "squadId" = agentId === undefined ? "squadId" : "agentId",
           value = agentId ?? squadId!,
-          indexed = runtimeReadIndexReady(db),
-          raw = queryRows(db, RUNTIME_DISPATCHES_BY_MEMBER_SQL(member, indexed), value, limit + 1),
+          raw = queryRows(db, RUNTIME_DISPATCHES_BY_MEMBER_SQL(member), value, limit + 1),
           rows = raw
             .slice(0, limit)
             .map((row) => JSON.parse(String(row.event_json)))
@@ -427,13 +409,7 @@ export function repositoryEventQueries(
                 isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
             )
             .map(publicRuntimeDispatch),
-          sessions = queryRows(
-            db,
-            // Delete the legacy source with the dispatch-key legacy reader, no later than 2026-12-05.
-            RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member, indexed),
-            value,
-            value,
-          ).map(
+          sessions = queryRows(db, RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member), value, value).map(
             (row): RuntimeDispatchMemberSession => ({
               runtimeSessionId: String(row.runtimeSessionId),
               taskIds: String(row.taskIds ?? "")

@@ -89,7 +89,14 @@ test("100000 events: projection open must not consume historical read-index back
       const upgradeOpenMs = performance.now() - start;
       await responsiveness;
       assert.equal(cut.status, "ready");
-      const key = projection.readRuntimeDispatchByDispatchKey("key-100000");
+      assert.throws(() => projection.readRuntimeDispatchByDispatchKey("key-100000"), {
+        code: "projection_pending",
+        message: /progress/u,
+      });
+      assert.throws(() => projection.readRuntimeDispatchesByMember({ agentId: "agent-test", limit: 1 }), {
+        code: "projection_pending",
+      });
+      const key = projection.readRuntimeDispatchById("dispatch-100000");
       assert.equal(key?.event.payload.dispatchId, "dispatch-100000");
       assert.equal(applied, 0, "opening must never consume a backfill page");
       const opened = new DatabaseSync(projectionPath, { readOnly: true });
@@ -111,8 +118,11 @@ test("100000 events: projection open must not consume historical read-index back
         assert.deepEqual(resumed, { processed: 64, done: false });
         const inspect = new DatabaseSync(projectionPath, { readOnly: true });
         assert.equal(inspect.prepare("SELECT revision FROM runtime_read_index_progress").get()!.revision, 128);
-        assert.equal(warm.readRuntimeDispatchByDispatchKey("key-99999")?.event.payload.dispatchId, "dispatch-99999");
-        assert.equal(warm.readRuntimeDispatchByDispatchKey("missing"), null);
+        for (const key of ["key-99999", "missing"])
+          assert.throws(() => warm.readRuntimeDispatchByDispatchKey(key), {
+            code: "projection_pending",
+            message: /progress/u,
+          });
         let processed = 128;
         for (;;) {
           const page = warm.backfillReadIndexes!();

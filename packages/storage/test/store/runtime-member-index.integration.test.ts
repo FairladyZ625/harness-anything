@@ -69,7 +69,9 @@ test("index expansion atomically replaces an old completion marker and retires h
     ensureRuntimeMemberIndex(db);
     assert.equal(runtimeReadIndexReady(db), false, "the old complete marker cannot publish an empty new index");
     assert.deepEqual(backfillRuntimeReadIndexPage(db), { processed: 1, done: false });
-    assert.equal(backfillRuntimeReadIndexPage(db).done, true);
+    while (!backfillRuntimeReadIndexPage(db).done) {
+      /* finish physical builds */
+    }
     ensureRuntimeMemberIndex(db);
     assert.equal(runtimeReadIndexReady(db), true, "reopening must retain completed progress");
     db.prepare(
@@ -109,7 +111,7 @@ test("SQLite dispatch key expansion backfills both historical and current spelli
     for (;;) {
       const page = backfillRuntimeReadIndexPage(db);
       if (page.done) break;
-      progress.push({ applied: (progress.at(-1)?.applied ?? 0) + page.processed, total: 3 });
+      if (page.processed) progress.push({ applied: (progress.at(-1)?.applied ?? 0) + page.processed, total: 3 });
     }
     assert.deepEqual(
       db
@@ -245,12 +247,10 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
       }
       db.exec("DELETE FROM runtime_dispatch_index");
       db.exec("UPDATE runtime_read_index_progress SET revision=0,complete=0");
-      assert.deepEqual(
-        projection
-          .readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 })
-          .sessions.map((row) => row.runtimeSessionId),
-        ["session-a", "session-b"],
-      );
+      assert.throws(() => projection.readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 }), {
+        code: "projection_pending",
+        message: /progress/u,
+      });
       const progress: number[] = [];
       for (;;) {
         const page = backfillRuntimeReadIndexPage(db);

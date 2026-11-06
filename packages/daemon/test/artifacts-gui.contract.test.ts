@@ -316,3 +316,19 @@ test("artifacts pagination validates the shared query limit and cursor contract"
       [],
     );
 });
+
+test("artifact GUI read preserves migration progress and switches only after readiness", () => {
+  let ready = false;
+  const pending = Object.assign(new Error("索引迁移中; progress phase=1 cursor=64"), { code: "projection_pending" });
+  const projection = projectionStub(() => {
+    if (!ready) throw pending;
+    return { rows: [row()] };
+  });
+  const context = { projection, input: { repoId: "artifacts-gui" } };
+  assert.throws(
+    () => readArtifactsGui(context),
+    (error) => error === pending,
+  );
+  ready = true;
+  assert.equal(readArtifactsGui(context).artifacts[0]?.path, "artifacts/reports/weathering.html");
+});
