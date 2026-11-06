@@ -73,6 +73,7 @@ import { assignmentMatchesViewer, type AssignmentRelationLike } from "@harness-a
 import { assignmentFromRelation } from "./entity-assignment-runtime.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
+import { latestPremiseReview, premiseReviewCommand } from "./premise-review.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { projectionCut, requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
@@ -802,6 +803,43 @@ export function makeTaskQueryReadModel(input: {
               },
             ];
           }),
+      // 形状信号:同一任务第二次 escalation 起,默认视为同一族问题(实测问句文本相似度分不出族:
+      // task_9e275cf8 八次同族两两 0.02–0.20,别的任务不同族可达 0.42),由 CEO 的前提复核判定;
+      // 晚于最近一次 escalation 的 continue/narrow 复核使其出列。
+      shapeSignals = attentionOnly
+        ? []
+        : [active, blocked, submitted, inReview]
+            .flatMap((page) => page?.rows ?? [])
+            .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
+            .flatMap((row) => {
+              const packagePath = row.packagePath;
+              if (typeof packagePath !== "string") return [];
+              const escalatedAt = projection
+                .readDocuments(`${packagePath}/artifacts/rulings/`)
+                .documents.flatMap(({ path }) => {
+                  if (!path.endsWith(".md") || path.endsWith(".resolution.md")) return [];
+                  const ruling = readDispatchRuling(
+                    (relative) =>
+                      relative === path ? (projection.readDocument(relative).document?.body ?? null) : null,
+                    packagePath,
+                    path.slice(path.lastIndexOf("/") + 1, -".md".length),
+                  );
+                  return ruling === null ? [] : [ruling.createdAt ?? ""];
+                })
+                .sort();
+              if (escalatedAt.length < 2) return [];
+              const since = escalatedAt.at(-1)!,
+                reviewed = latestPremiseReview(projection, row.taskId, since);
+              if (reviewed?.review.ok === true && reviewed.review.conclusion !== "stop") return [];
+              return [
+                {
+                  taskId: row.taskId,
+                  title: `${row.snapshot.task?.title ?? row.taskId} — 形状信号:${String(escalatedAt.length)} 次 escalation,先做前提复核再续返工`,
+                  since: since || row.updatedAt,
+                  next: premiseReviewCommand(row.taskId),
+                },
+              ];
+            }),
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
         if (decisionReviewRequirement === null) return { decision, signal: "ready" as const };
         const full = projection.readDecision(decision.decisionId).decision;
@@ -945,6 +983,7 @@ export function makeTaskQueryReadModel(input: {
             auditFindings: reckoning.items,
             unsubmittedDeliveries,
             undispatchedReviews,
+            shapeSignals,
             sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
           }),
       regionWeights = attentionRegionWeights(attentionItems, {
@@ -1004,6 +1043,7 @@ export function makeTaskQueryReadModel(input: {
         awaitingRuling,
         unanchoredWorks,
         undispatchedReviews,
+        shapeSignals,
         waitingOnOthers,
         dispatchable,
       }),

@@ -53,6 +53,7 @@ export function buildAttentionItems(input: {
   readonly auditFindings: readonly AuditAttentionRow[];
   readonly unsubmittedDeliveries: readonly UnsubmittedDeliveryAttentionRow[];
   readonly undispatchedReviews?: readonly UnsubmittedDeliveryAttentionRow[];
+  readonly shapeSignals?: readonly UnsubmittedDeliveryAttentionRow[];
   readonly sourceRows: readonly AttentionSourceRow[];
 }): DaemonAgendaResult["attentionItems"] {
   const sources = new Map<string, AttentionSourceRow>(input.sourceRows.map((row) => [`task/${row.taskId}`, row])),
@@ -171,6 +172,9 @@ export function buildAttentionItems(input: {
       ),
       ...input.auditFindings.map((row) => add(row.ref, row.title, "audit-finding", "mine", row.since, undefined)),
       ...(input.undispatchedReviews ?? []).map((row) =>
+        add(`task/${row.taskId}`, row.title, "needs-handling", "mine", row.since, taskSource(row.taskId)),
+      ),
+      ...(input.shapeSignals ?? []).map((row) =>
         add(`task/${row.taskId}`, row.title, "needs-handling", "mine", row.since, taskSource(row.taskId)),
       ),
     ],

@@ -204,6 +204,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
     const retainedSections = [
         "Brief",
         "Goal",
+        "Cheaper Alternatives",
         "Context",
         "Required Reading",
         "Execution Surface",

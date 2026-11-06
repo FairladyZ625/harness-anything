@@ -5,6 +5,7 @@ import path from "node:path";
 const fixtureSections = Object.freeze([
   ["Brief", "Exercise the fixture's task lifecycle through canonical repository commands."],
   ["Goal", "Produce the applied lifecycle receipts and projections asserted by the fixture."],
+  ["Cheaper Alternatives", "Not doing it leaves the lifecycle unasserted; a manual check would not repeat."],
   ["Context", "The fixture runs against an isolated repository with its own daemon state."],
   ["Required Reading", "Read the fixture assertions that define the expected lifecycle behavior."],
   ["Execution Surface", "Keep every write inside the fixture repository and its task package."],
@@ -31,6 +32,7 @@ export function sizedTaskPlan(targetLength, title = "Sized edge plan") {
   const headings = [
       "Brief",
       "Goal",
+      "Cheaper Alternatives",
       "Context",
       "Required Reading",
       "Execution Surface",

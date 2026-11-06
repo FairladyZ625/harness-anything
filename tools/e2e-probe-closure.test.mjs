@@ -146,6 +146,7 @@ test("probe-created task has a dispatchable Brief with scenario, failure, run, a
   assert.match(brief, /artifacts\/e2e-probe\/gui-e2e-test-run-edge-invite-failure\.png/u);
   for (const heading of [
     "Goal",
+    "Cheaper Alternatives",
     "Context",
     "Required Reading",
     "Entry Conditions",

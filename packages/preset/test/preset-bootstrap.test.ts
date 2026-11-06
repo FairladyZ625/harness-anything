@@ -551,6 +551,7 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
     const sections = [
       "Brief",
       "Goal",
+      "Cheaper Alternatives",
       "Context",
       "Required Reading",
       "Execution Surface",

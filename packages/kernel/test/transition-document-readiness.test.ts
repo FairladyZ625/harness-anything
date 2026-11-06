@@ -15,6 +15,7 @@ import {
 const planHeadings = [
   "Brief",
   "Goal",
+  "Cheaper Alternatives",
   "Context",
   "Required Reading",
   "Execution Surface",
@@ -27,6 +28,7 @@ const planHeadings = [
 const legacyPlanHeadings = [
   "Brief",
   "Goal",
+  "Cheaper Alternatives",
   "Context",
   "Required Reading",
   "Entry Conditions",

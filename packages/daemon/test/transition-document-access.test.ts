@@ -8,6 +8,7 @@ import { transitionDocumentReadinessContract } from "../src/transition-document-
 const planHeadings = [
   "Brief",
   "Goal",
+  "Cheaper Alternatives",
   "Context",
   "Required Reading",
   "Execution Surface",
@@ -36,7 +37,7 @@ test("transition-document readiness reports scaffold and empty sections as struc
           reason: "scaffold",
           retainedScaffold: "One-line statement of the task objective and scope.",
         },
-        expectedEntries: 9,
+        expectedEntries: planHeadings.length,
       },
       {
         name: "partially realized plan",
