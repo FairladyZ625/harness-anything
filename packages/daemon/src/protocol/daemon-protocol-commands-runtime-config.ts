@@ -355,7 +355,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { conflictsWith: ["--api-key-stdin", "--credential-ref"] },
+        { pathKind: "cli-local", conflictsWith: ["--api-key-stdin", "--credential-ref"] },
       ),
       cliInput(
         "--id",
@@ -514,7 +514,13 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     method: "daemon.runtimeInstance.update",
     inputs: [
       cliInput("--api-key-stdin", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--api-key-file"] }),
-      cliInput("--api-key-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--api-key-stdin"] }),
+      cliInput(
+        "--api-key-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", conflictsWith: ["--api-key-stdin"] },
+      ),
       cliInput("--name", "single", false, {
         code: "invalid_field",
       }),

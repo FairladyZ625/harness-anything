@@ -37,6 +37,12 @@ export interface CliInputFacet {
   readonly jsonDefaultFields?: readonly string[];
   readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
   readonly format?: string;
+  /**
+   * Which coordinate a path input is read in. A flag whose name ends in `-file` (or is `--path`)
+   * must declare one so the CLI path-contract gate can evaluate every registered command; the
+   * value names the reader that owns the boundary, not a per-command choice.
+   */
+  readonly pathKind?: "ledger-document" | "workspace-file" | "cli-local";
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly lengthUnit?: "characters" | "bytes";

@@ -6,6 +6,7 @@ import {
   defineRepoReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   defineRuntimeLocalWriteCommand,
+  workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
@@ -15,9 +16,6 @@ const agentHistoryLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
 // object, and `kindId` may default from the file), so its path is relative to the selected root —
 // `--root` or the current directory — not to the center's workspace root that `workspacePathFormat`
 // names. Reusing that wording here told callers the wrong directory.
-const callerRootPathFormat =
-  "<path; relative paths resolve from the selected root (--root), defaulting to the current directory>";
-
 export const agentProtocolCommands = Object.freeze([
   // Artifact kind authoring is a CLI surface over the same center actions the GUI calls. The five
   // commands below are the thin projections of `repo.vertical.kind.*`: no second write path exists.
@@ -68,7 +66,8 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
-          format: callerRootPathFormat,
+          format: workspacePathFormat,
+          pathKind: "workspace-file",
           conflictsWith: ["--declaration"],
           jsonFields: [
             "id",
@@ -845,8 +844,20 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--listen-address", "single", false, { code: "invalid_field" }, { field: "listenAddress" }),
       cliInput("--hostname", "single", false, { code: "invalid_field" }),
       cliInput("--port", "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
-      cliInput("--certificate-file", "single", false, { code: "invalid_field" }, { field: "certificateFile" }),
-      cliInput("--certificate-key-file", "single", false, { code: "invalid_field" }, { field: "certificateKeyFile" }),
+      cliInput(
+        "--certificate-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "certificateFile", pathKind: "cli-local" },
+      ),
+      cliInput(
+        "--certificate-key-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "certificateKeyFile", pathKind: "cli-local" },
+      ),
       cliInput("--team-id", "single", false, { code: "invalid_field" }, { field: "teamId" }),
       cliInput("--team-name", "single", false, { code: "invalid_field" }, { field: "teamName" }),
       cliInput("--node-id", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
@@ -855,7 +866,13 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--person-id", "single", false, { code: "invalid_field" }, { field: "personId" }),
       cliInput("--group-id", "single", false, { code: "invalid_field" }, { field: "groupId" }),
       cliInput("--resource", "single", false, { code: "invalid_field" }),
-      cliInput("--credential-file", "single", false, { code: "invalid_field" }, { field: "credentialFile" }),
+      cliInput(
+        "--credential-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "credentialFile", pathKind: "cli-local" },
+      ),
       cliInput(
         "--join-mode",
         "single",
@@ -872,7 +889,13 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--username", "single", false, { code: "invalid_field" }, { field: "username" }),
       cliInput("--email", "single", false, { code: "invalid_field" }, { field: "email" }),
       cliInput("--display-name", "single", false, { code: "invalid_field" }, { field: "displayName" }),
-      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput(
+        "--password-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "passwordFile", pathKind: "cli-local" },
+      ),
     ],
   }),
   defineHostAdminCommand({
