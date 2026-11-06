@@ -185,18 +185,10 @@ function dependencyDescription(content) {
     .join(" ");
 }
 
-// Existing declarations belong to their author, including prior generated declarations and
-// template defaults. Only a body and closeout without a section permit generation (owner 2026-11-05).
-const GOVERNANCE_TITLE = /^##[ \t]+(?:Governance Declaration|Governance 声明|治理声明)[ \t]*\r?$/gimu;
-
-function governanceSections(body) {
-  return [...body.matchAll(GOVERNANCE_TITLE)].map((existing) => {
-    const start = existing.index,
-      next = /^##[ \t]+/mu.exec(body.slice(start + existing[0].length)),
-      end = next ? start + existing[0].length + next.index : body.length;
-    return body.slice(start, end);
-  });
-}
+// The system owns this entire section. Manual exceptions live in a separate section that this
+// renderer never writes (owner 2026-11-06); no provenance or edit detection is needed.
+const GOVERNANCE_SECTION =
+  /^##[ \t]+(?:Governance Declaration|Governance 声明|治理声明)[ \t]*\r?$[\s\S]*?(?=^##[ \t]+|(?![\s\S]))/gimu;
 
 function governanceDeclaration(taskId, decision, files) {
   const lines = [
@@ -214,20 +206,16 @@ function governanceDeclaration(taskId, decision, files) {
   return lines.join("\n");
 }
 
-function declareProtectedSurfaces(body, taskId, changedFiles, manifest, decision, closeout) {
-  if (governanceSections(body).length > 0) return body;
-  let section = governanceSections(closeout).join("");
-  if (!section) {
-    if (!manifest) return body;
-    const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
-    if (files.length === 0) return body;
-    section = `${governanceDeclaration(taskId, decision, files)}\n\n`;
-  }
-  // Copy the original heading, fields and whitespace. No emergency status is inferred from receipts.
-  if (!section.endsWith("\n")) section += "\n";
-  const verification = /^##[ \t]+(?:Verification|验证)[ \t]*$/mu.exec(body);
-  if (!verification) return `${body.replace(/\s+$/u, "")}\n\n${section}`;
-  return `${body.slice(0, verification.index)}${section}${body.slice(verification.index)}`;
+function declareProtectedSurfaces(body, taskId, changedFiles, manifest, decision) {
+  const stripped = body.replace(GOVERNANCE_SECTION, ""),
+    files = manifest
+      ? classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file)
+      : [];
+  if (files.length === 0) return stripped;
+  const section = `${governanceDeclaration(taskId, decision, files)}\n\n`,
+    verification = /^##[ \t]+(?:Verification|验证)[ \t]*$/mu.exec(stripped);
+  if (!verification) return `${stripped.replace(/\s+$/u, "")}\n\n${section}`;
+  return `${stripped.slice(0, verification.index)}${section}${stripped.slice(verification.index)}`;
 }
 
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
@@ -255,14 +243,7 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     // heading is absent, publish the author's original document in its original order.
     rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
-  rendered = declareProtectedSurfaces(
-    rendered,
-    taskId,
-    submissionFacts.changedFiles,
-    manifest,
-    decisionAuthority,
-    typeof closeout === "string" ? closeout : "",
-  );
+  rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest, decisionAuthority);
   const { start, end } = markerPair(rendered, "PR template");
   return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
 }

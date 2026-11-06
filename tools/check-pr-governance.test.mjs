@@ -52,9 +52,11 @@ function bodyWithGovernance({ breakGlass = false } = {}) {
     "",
     "- Protected surface touched: yes",
     "- Authority: ADR-0023 D5/D8 and task_01KWVTPX3AH5TG8VK4RJYXE7EZ",
-    `- Break-glass: ${breakGlass ? "yes" : "no"}`,
     ...(breakGlass
       ? [
+          "## Governance Exception",
+          "",
+          "- Break-glass: yes",
           "- Break-glass reason: restore main after an urgent CI outage",
           "- Break-glass scope: pr-body-lint governance declaration only",
           "- Follow-up governance task: task_01KWVTPX3AH5TG8VK4RJYXE7EZ",
@@ -73,7 +75,6 @@ function bodyWithGovernance({ breakGlass = false } = {}) {
     "",
     "- 触碰 protected surface：是",
     "- 依据：ADR-0023 D5/D8 与 task_01KWVTPX3AH5TG8VK4RJYXE7EZ",
-    "- Break-glass：否",
   ].join("\n");
 }
 
@@ -142,14 +143,14 @@ test("break-glass declaration requires reason scope and follow-up task", () => {
     body: [
       "# English",
       "",
-      "## Governance Declaration",
+      "## Governance Exception",
       "",
       "- Authority: ADR-0023 D8",
       "- Break-glass: yes",
       "",
       "# 中文",
       "",
-      "## 治理声明",
+      "## 治理例外",
       "",
       "- 依据：ADR-0023 D8",
       "- Break-glass：是",
@@ -180,7 +181,7 @@ test("break-glass follow-up accepts both real task id shapes", () => {
       body: [
         "# English",
         "",
-        "## Governance Declaration",
+        "## Governance Exception",
         "",
         "- Authority: ADR-0023 D8",
         "- Break-glass: yes",
@@ -200,7 +201,7 @@ test("break-glass follow-up rejects ids that are not one of the two real shapes"
   for (const followUpId of ["task_2301", "task_abc", "task_f7cc215a54a194898ad733c20"]) {
     const result = checkPrGovernance({
       body: [
-        "## Governance Declaration",
+        "## Governance Exception",
         "",
         "- Authority: ADR-0023 D8",
         "- Break-glass: yes",
@@ -240,6 +241,47 @@ test("break-glass declaration rejects an empty reason before the scope line", ()
 
   assert.equal(result.ok, false);
   assert.match(result.issues.join("\n"), /non-empty break-glass reason/u);
+});
+
+for (const heading of ["Governance Exception", "治理例外"]) {
+  test(`a standalone ${heading} emergency declaration authorizes protected changes`, () => {
+    const body = `## ${heading}\n- Break-glass: yes\n- Break-glass reason: restore main\n- Break-glass scope: package.json\n- Follow-up governance task: task_f7cc215a54a194898ad733c20a`,
+      result = checkPrGovernance({ body, changedFiles: ["package.json"], manifest: makeManifest() });
+    assert.equal(result.ok, true, result.issues.join("\n"));
+  });
+}
+
+test("manual notes cannot supply the missing system authority without an emergency declaration", () => {
+  const result = checkPrGovernance({
+    body: "## Governance Declaration\n- Authority: not applicable\n\n## Governance Exception\n- Note: discuss ADR-0023",
+    changedFiles: ["package.json"],
+    manifest: makeManifest(),
+  });
+  assert.equal(result.ok, false);
+});
+
+test("a valid system declaration does not hide incomplete manual emergency fields", () => {
+  const result = checkPrGovernance({
+    body: `${bodyWithGovernance()}\n## Governance Exception\n- Break-glass: yes`,
+    changedFiles: ["package.json"],
+    manifest: makeManifest(),
+  });
+  assert.equal(result.ok, false);
+  for (const required of ["break-glass reason", "break-glass scope", "follow-up governance task"])
+    assert.ok(
+      result.issues.some((issue) => issue.includes(required)),
+      result.issues.join("\n"),
+    );
+});
+
+test("a manual emergency uses its own fields rather than fields from the system section", () => {
+  const result = checkPrGovernance({
+    body: `## Governance Declaration\n- Authority: ADR-0023\n- Reason: unrelated system prose\n- Scope: unrelated scope\n- Follow-up governance task: task_f7cc215a54a194898ad733c20a\n\n## Governance Exception\n- Break-glass: yes`,
+    changedFiles: ["package.json"],
+    manifest: makeManifest(),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.issues.length, 3);
 });
 
 test("classifies wildcard package surfaces", () => {

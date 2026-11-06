@@ -2,7 +2,6 @@
 
 ## Summary
 
-
 ## What Changed
 
 <!-- Persisted format changes ship an explicit `ha migrate` conversion and a frozen old-sample rejection → migration → current-reader test in the same PR; see `docs-release/data-format-migrations.md`. -->
@@ -18,7 +17,9 @@
 <!-- These declarations are checked by jobs in `.github/workflows/pr-body.yml`; `tools/gate-manifest.json` is the authority for their workflow mapping. -->
 <!-- Keep every uncommented keyword and its value on the same line, flush left, exactly once, without a Markdown list marker. -->
 <!-- Required only when any package.json or package-lock.json changes: replace the rejected `none` sentinel with a complete deterministic description; otherwise delete the entire next line. -->
+
 Dependency-Change: none
+
 <!-- Required only when packages/kernel/fixtures/canonical-events/**/accepted*.json changes. Name one command from `ha migrate --help`, or explain in one sentence why the refresh does not require a migration. -->
 <!-- Event-Migration: ha migrate <name> -->
 <!-- Event-Migration: none — <why no event migration is required> -->
@@ -44,21 +45,16 @@ Dependency-Change: none
 <!-- phase: <measured phase> -->
 <!-- baseline: <full 40-character SHA or HTTPS evidence URL> -->
 
+<!-- The task renderer owns and rewrites Governance Declaration / 治理声明 from ledger authorization on every render; it removes the section when no protected surface is touched. -->
+<!-- Human supplements and emergency declarations belong in a separate ## Governance Exception / ## 治理例外 section. The renderer preserves that section verbatim. -->
+<!-- For an emergency, record Break-glass: yes, Break-glass reason, Break-glass scope, and Follow-up governance task in the manual section. -->
+
 ## Governance Declaration
 
-<!-- Required only when the PR touches a manifest-derived protected surface; otherwise the defaults below are complete. -->
-<!-- These governance fields are Markdown list items; unlike the flush-left declarations above, this parser accepts the `- ` prefix. -->
-<!-- When a protected surface is touched, set the next line to yes, describe the scope, and replace the Authority default with the authorizing ADR-####, dec_<ID>, or task_<ID>. -->
 - Protected surface touched: no
 - Protected surface scope:
 - Authority: not applicable
 - Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.
-- Break-glass: no
-<!-- Only when Break-glass is yes, uncomment these lines and fill them in:
-- Break-glass reason:
-- Break-glass scope:
-- Follow-up governance task: task_<ID>
--->
 
 ## Verification
 

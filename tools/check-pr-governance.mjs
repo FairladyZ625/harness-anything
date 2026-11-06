@@ -5,8 +5,8 @@
  * This checker classifies changed PR paths against the protected surfaces
  * declared in tools/gate-manifest.json. If a PR touches that governance surface,
  * the PR body must contain a governance declaration that cites an ADR, decision,
- * or task. Break-glass declarations must also record reason, scope, and a
- * follow-up governance task.
+ * or task, or a manual governance exception declaring break-glass. Exceptions
+ * must record reason, scope, and a follow-up governance task.
  *
  * Honest boundary: this is a presence-and-shape check only. It proves that a PR
  * body carries governance evidence fields for a protected-surface change; it
@@ -22,6 +22,7 @@ import { pullRequestBase } from "./gates/git.mjs";
 const DEFAULT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = "tools/gate-manifest.json";
 const GOVERNANCE_HEADING = /^##\s+(?:Governance Declaration|Governance 声明|治理声明)\s*$/imu;
+const EXCEPTION_HEADING = /^##\s+(?:Governance Exception|治理例外)\s*$/imu;
 const NEXT_HEADING = /^##\s+/mu;
 // Real task ids come in exactly two shapes: ULID (uppercase Crockford base32) or lowercase hex, both 26 chars.
 const TASK_ID_SHAPES = "task_[0-9A-HJKMNP-TV-Z]{26}|task_[0-9a-f]{26}";
@@ -89,28 +90,29 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
     };
   }
 
-  const sections = extractGovernanceSections(body);
-  const sectionText = sections.join("\n\n");
-  const issues = [];
+  const sections = extractSections(body, GOVERNANCE_HEADING),
+    manual = extractSections(body, EXCEPTION_HEADING).join("\n\n"),
+    breakGlass = BREAK_GLASS_YES.test(manual),
+    issues = [];
 
-  if (sections.length === 0) {
+  if (sections.length === 0 && !breakGlass) {
     issues.push(
-      "Protected-surface change requires a `## Governance Declaration` / `## 治理声明` section in the PR body.",
+      "Protected-surface change requires a `## Governance Declaration` / `## 治理声明` section or a `## Governance Exception` / `## 治理例外` break-glass declaration in the PR body.",
     );
-  } else if (!GOVERNANCE_REFERENCE.test(sectionText)) {
+  } else if (!GOVERNANCE_REFERENCE.test(sections.join("\n\n")) && !breakGlass) {
     issues.push("Governance declaration must cite at least one ADR, decision, or task reference.");
   }
 
-  if (BREAK_GLASS_YES.test(sectionText)) {
+  if (breakGlass) {
     for (const field of [
       { label: "break-glass reason", patterns: ["Break-glass reason", "Reason", "Break-glass 原因", "原因"] },
       { label: "break-glass scope", patterns: ["Break-glass scope", "Scope", "Break-glass 范围", "范围"] },
     ]) {
-      if (!hasLabeledValue(sectionText, field.patterns)) {
+      if (!hasLabeledValue(manual, field.patterns)) {
         issues.push(`Break-glass declaration must include a non-empty ${field.label}.`);
       }
     }
-    const followUp = readLabeledValue(sectionText, ["Follow-up governance task", "Follow-up task", "后续治理任务"]);
+    const followUp = readLabeledValue(manual, ["Follow-up governance task", "Follow-up task", "后续治理任务"]);
     if (!followUp || !FOLLOW_UP_TASK_ID.test(followUp)) {
       issues.push("Break-glass declaration must include a follow-up governance task id.");
     }
@@ -152,11 +154,11 @@ function makeSurfaceMatcher(surface) {
   return (file) => file === surface;
 }
 
-function extractGovernanceSections(body) {
+function extractSections(body, heading) {
   const sections = [];
   const lines = body.split(/\r?\n/u);
   for (let index = 0; index < lines.length; index += 1) {
-    if (!GOVERNANCE_HEADING.test(lines[index])) {
+    if (!heading.test(lines[index])) {
       continue;
     }
     const sectionLines = [lines[index]];
@@ -285,8 +287,8 @@ function printHelp() {
       "Usage: node tools/check-pr-governance.mjs --body-env PR_BODY --base-env PR_BASE_SHA --head-env PR_HEAD_SHA",
       "",
       "Checks whether changed PR paths touch manifest-derived protected surfaces.",
-      "If they do, the PR body must include `## Governance Declaration` / `## 治理声明` with ADR/decision/task evidence.",
-      "Break-glass declarations must include reason, scope, and a follow-up governance task.",
+      "If they do, include `## Governance Declaration` / `## 治理声明` with ADR/decision/task evidence, or a `## Governance Exception` / `## 治理例外` break-glass declaration.",
+      "Manual break-glass declarations must include reason, scope, and a follow-up governance task.",
     ].join("\n"),
   );
   process.stdout.write("\n");
@@ -314,7 +316,7 @@ function printResult(result) {
       "",
       ...result.issues,
       "",
-      "How to fix: add `## Governance Declaration` / `## 治理声明` to the PR body, cite the authorizing ADR/decision/task, and fill break-glass fields only when used.",
+      "How to fix: render `## Governance Declaration` / `## 治理声明` from the task authorization, or record break-glass reason, scope and follow-up task in `## Governance Exception` / `## 治理例外`.",
     ].join("\n"),
   );
   process.stderr.write("\n");
