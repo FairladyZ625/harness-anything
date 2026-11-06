@@ -1,6 +1,7 @@
 import { isNativeExecution, type TaskProjection } from "@harness-anything/kernel";
 import {
   documentPath,
+  documentWorkspacePath,
   resolveDocRoute,
   stableStringify,
   type DocSyncReceiptDetail,
@@ -13,6 +14,13 @@ import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts"
 import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
 import { localProseSource, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 import { formatShellCommand } from "./shell-command-text.ts";
+
+/** One output spelling: every path a receipt prints is relative to the caller's workspace root. */
+export function workspacePathOf(input: Pick<Input, "rootDir">): (document: string) => string {
+  return (document) => documentWorkspacePath(input.rootDir, document);
+}
+
+const toWorkspace = workspacePathOf;
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
@@ -48,11 +56,11 @@ export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlement
           scan.rows.every((row) => row.state === "clean"),
         ),
         detail,
-        ...(input.action.kind === "doc-status" ? { summary: statusSummary(scan) } : {}),
+        ...(input.action.kind === "doc-status" ? { summary: statusSummary(scan, toWorkspace(input)) } : {}),
       };
 }
 
-function statusSummary(scan: DocCandidateScan): string {
+function statusSummary(scan: DocCandidateScan, workspacePath: (document: string) => string): string {
   const blocked = scan.rows.filter(
       (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
     ),
@@ -62,23 +70,30 @@ function statusSummary(scan: DocCandidateScan): string {
   return [
     blocked.length ? `doc-status: BLOCKED (${blocked.length})` : "doc-status: clean",
     ...(blocked.length
-      ? ["blocked:", ...blocked.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}`)]
+      ? [
+          "blocked:",
+          ...blocked.map((row) => `${workspacePath(row.path)}\t${row.state}\t${row.reason ?? "candidate is blocked"}`),
+        ]
       : []),
-    ...retireNextLines(blocked.filter((row) => row.state === "deletion")),
-    ...rebuiltSummaryLines(rebuilt),
+    ...retireNextLines(
+      blocked.filter((row) => row.state === "deletion"),
+      workspacePath,
+    ),
+    ...rebuiltSummaryLines(rebuilt, workspacePath),
     `eligible: ${eligible}`,
     `inapplicable: ${inapplicable}`,
   ].join("\n");
 }
 
 export function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail {
+  const workspacePath = toWorkspace(input);
   return {
     kind: "doc_sync",
     code,
     baseLedgerSha: scan.baseLedgerSha,
     currentLedgerSha: input.store.currentCut(),
     paths: scan.rows.map((row) => ({
-      path: row.path,
+      path: workspacePath(row.path),
       baseBlobSha256: row.baseBlobSha256,
       currentBlobSha256: input.projection.readDocument(row.path).document?.blobSha256 ?? null,
       candidateBlobSha256: row.candidateBlobSha256,
@@ -89,7 +104,7 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
       .filter((row) => row.state === "blocked" || row.state === "conflict")
       .map((row) =>
         touch(
-          row.path,
+          workspacePath(row.path),
           row.state === "conflict"
             ? "local-conflict-resolution"
             : (row.requiredRoute ?? resolveDocRoute(documentPath(row.path)).requiredRoute),
@@ -101,7 +116,7 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
     deletions: scan.rows
       .filter((row) => row.state === "deletion" && row.baseBlobSha256)
       .map((row) => ({
-        path: row.path,
+        path: workspacePath(row.path),
         baseBlobSha256: row.baseBlobSha256!,
         source: "intent" as const,
       })),
@@ -115,7 +130,11 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
 // it only spelled the same whole-tree sweep; the fleet edge channel keeps its own confirmation
 // gate and never reaches this scanner.
 export function scopeRequiredRejection(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
-  const summary = scopeRequiredSummary(scan, (candidate) => input.projection.taskIdForDocumentPath(candidate));
+  const summary = scopeRequiredSummary(
+    scan,
+    (candidate) => input.projection.taskIdForDocumentPath(candidate),
+    toWorkspace(input),
+  );
   return Object.assign(
     rejectDocSyncAction(
       `scan:${scan.baseLedgerSha.headDigest}`,
@@ -128,12 +147,16 @@ export function scopeRequiredRejection(input: Input, scan: DocCandidateScan): Do
   );
 }
 
-export function scopeRequiredSummary(scan: DocCandidateScan, taskOwner: (path: string) => string | null): string {
+export function scopeRequiredSummary(
+  scan: DocCandidateScan,
+  taskOwner: (path: string) => string | null,
+  workspacePath: (document: string) => string = (document) => document,
+): string {
   const candidates = scan.rows.filter((row) => row.state !== "clean" && row.state !== "inapplicable"),
     groups = new Map<string, string[]>();
   for (const row of candidates) {
     const owner = taskOwner(row.path);
-    groups.set(owner ?? "", [...(groups.get(owner ?? "") ?? []), `${row.path}\t${row.state}`]);
+    groups.set(owner ?? "", [...(groups.get(owner ?? "") ?? []), `${workspacePath(row.path)}\t${row.state}`]);
   }
   return [
     "doc-submit: op_rejected (doc_submit_scope_required)",
@@ -160,7 +183,13 @@ export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt
     visibility: "center",
     proof: proof(revision, revision, true, true),
     detail: scanDetail(input, scan, "no_changes"),
-    summary: submitSummary("no_changes", [], scan, (candidate) => input.projection.taskIdForDocumentPath(candidate)),
+    summary: submitSummary(
+      "no_changes",
+      [],
+      scan,
+      (candidate) => input.projection.taskIdForDocumentPath(candidate),
+      toWorkspace(input),
+    ),
   };
 }
 
@@ -176,12 +205,16 @@ export function scannerSettlement(
       unresolvedTouches: scanned.unresolvedTouches,
       deletions: scanned.deletions,
     };
-  const submitNext = receipt.outcome === "applied" ? closeoutSubmitNext(input.projection, receiptDetail) : [];
+  const submitNext = receipt.outcome === "applied" ? closeoutSubmitNext(input.projection, scanned) : [];
   return {
     ...receipt,
     ...(detail ? { detail } : {}),
-    summary: submitSummary(receipt.outcome, receiptDetail?.paths.map((row) => row.path) ?? [], scan, (candidate) =>
-      input.projection.taskIdForDocumentPath(candidate),
+    summary: submitSummary(
+      receipt.outcome,
+      receiptDetail?.paths.map((row) => row.path) ?? [],
+      scan,
+      (candidate) => input.projection.taskIdForDocumentPath(candidate),
+      toWorkspace(input),
     ),
     ...(submitNext.length ? { next: submitNext } : {}),
   };
@@ -215,6 +248,7 @@ export function submitSummary(
   applied: readonly string[],
   scan: DocCandidateScan,
   taskOwner: (path: string) => string | null,
+  workspacePath: (document: string) => string,
 ): string {
   const blocked = scan.rows.filter(
       (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
@@ -229,14 +263,17 @@ export function submitSummary(
     ...(blocked.length
       ? blocked.map(
           (row) =>
-            `${row.path}\t${row.state}\ttask=${taskOwner(row.path) ?? "-"}\t` +
+            `${workspacePath(row.path)}\t${row.state}\ttask=${taskOwner(row.path) ?? "-"}\t` +
             `requiredRoute=${row.requiredRoute ?? "ha doc sync"}\t${row.reason ?? "candidate is not eligible"}`,
         )
       : ["(none)"]),
     "inapplicable:",
-    ...(inapplicable.length ? inapplicable.map((row) => `${row.path}\t${row.reason}`) : ["(none)"]),
-    ...rebuiltSummaryLines(rebuiltRows(scan)),
-    ...retireNextLines(blocked.filter((row) => row.state === "deletion")),
+    ...(inapplicable.length ? inapplicable.map((row) => `${workspacePath(row.path)}\t${row.reason}`) : ["(none)"]),
+    ...rebuiltSummaryLines(rebuiltRows(scan), workspacePath),
+    ...retireNextLines(
+      blocked.filter((row) => row.state === "deletion"),
+      workspacePath,
+    ),
   ].join("\n");
 }
 
@@ -246,30 +283,47 @@ function rebuiltRows(scan: DocCandidateScan) {
   return scan.rows.filter((row) => row.state === "clean" && row.reason !== null);
 }
 
-function rebuiltSummaryLines(rebuilt: readonly { readonly path: string; readonly reason: string | null }[]): string[] {
+function rebuiltSummaryLines(
+  rebuilt: readonly { readonly path: string; readonly reason: string | null }[],
+  workspacePath: (document: string) => string,
+): string[] {
   return rebuilt.length === 0
     ? []
     : [
         "rebuilt (route-owned projections restored from the canonical document):",
-        ...rebuilt.map((row) => `${row.path}\t${row.reason}`),
+        ...rebuilt.map((row) => `${workspacePath(row.path)}\t${row.reason}`),
       ];
 }
 
 // A receipt that reports a canonical document missing from the worktree must name its one exit:
 // retirement at the center. `requiredRoute=deletion_forbidden` is a rejection code, not a route,
 // so without these lines the receipt points at nothing the operator can run.
-function retireNextLines(deletions: readonly { readonly path: string }[]): string[] {
+function retireNextLines(
+  deletions: readonly { readonly path: string }[],
+  workspacePath: (document: string) => string = (document) => document,
+): string[] {
   return deletions.length === 0
     ? []
     : [
         "next: a canonical document deleted from the worktree is retired at the center, not synced:",
         ...deletions.map((row) =>
-          formatShellCommand("ha", ["doc", "retire", "--path", row.path, "--reason", "<why the document is gone>"]),
+          formatShellCommand("ha", [
+            "doc",
+            "retire",
+            "--path",
+            workspacePath(row.path),
+            "--reason",
+            "<why the document is gone>",
+          ]),
         ),
       ];
 }
 
-export function scanRejectionSummary(code: string, scan: DocCandidateScan): string {
+export function scanRejectionSummary(
+  code: string,
+  scan: DocCandidateScan,
+  workspacePath: (document: string) => string = (document) => document,
+): string {
   const blocked = scan.rows.filter(
       (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
     ),
@@ -283,14 +337,14 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
                 "ha doc sync --submit with --task <task-id> or --path <path>",
             ]
           : []),
-      ...retireNextLines(deletions),
+      ...retireNextLines(deletions, workspacePath),
     ].join("\n");
   return [
     `doc-submit: op_rejected (${code})`,
     "blocked:",
     ...blocked.map(
       (row) =>
-        `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}\t` +
+        `${workspacePath(row.path)}\t${row.state}\t${row.reason ?? "candidate is blocked"}\t` +
         `requiredRoute=${row.requiredRoute ?? "ha doc sync"}`,
     ),
     next,

@@ -16,7 +16,13 @@ export const providerProtocolCommands = Object.freeze([
       cliInput("--name", "single", true, { code: "missing_field" }),
       cliInput("--model", "single", true, { code: "missing_field" }),
       cliInput("--base-url", "single", false, { code: "invalid_field" }),
-      cliInput("--api-key-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--credential-ref"] }),
+      cliInput(
+        "--api-key-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", conflictsWith: ["--credential-ref"] },
+      ),
       cliInput(
         "--credential-ref",
         "single",
@@ -63,7 +69,13 @@ export const providerProtocolCommands = Object.freeze([
       cliInput("--model", "single", false, { code: "invalid_field" }),
       cliInput("--base-url", "single", false, { code: "invalid_field" }),
       cliInput("--clear-base-url", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--base-url"] }),
-      cliInput("--api-key-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--credential-ref"] }),
+      cliInput(
+        "--api-key-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", conflictsWith: ["--credential-ref"] },
+      ),
       cliInput(
         "--credential-ref",
         "single",
