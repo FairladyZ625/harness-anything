@@ -334,7 +334,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Assigned Mission\n本任务的 task_plan\.md 全文如下（已内嵌，不必再读文件）：\n\n# CLI agent runtime\n\n## Brief[\s\S]*# 台账查询引导[\s\S]*\n\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
       );
     });
-    await t.test("enforced Codex runtimes receive a callback relay without opening operator routes", async () => {
+    await t.test("sealed runtimes receive a callback relay without opening operator routes", async () => {
       const directEndpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
         cases = [
           {
@@ -424,7 +424,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           },
         });
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-        const receivesRelay = runtime.kindId === "codex" && runtime.isolationState === "enforced";
+        const receivesRelay =
+          (runtime.kindId === "codex" && runtime.isolationState === "enforced") ||
+          (runtime.kindId === "claude" && runtime.permissionMode === "workspace-write");
         if (receivesRelay) {
           assert.match(
             String(launchedEnv?.HARNESS_DAEMON_ENDPOINT),

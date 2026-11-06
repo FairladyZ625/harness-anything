@@ -22,13 +22,20 @@ export function runtimeCallbackRelaySpec(
 export function dispatchCallbackRelay(
   dispatchId: string,
   route: RuntimeDaemonRoute | undefined,
-  instance: { readonly kindId: string; readonly isolationState?: string } | undefined,
+  instance:
+    | {
+        readonly kindId: string;
+        readonly isolationState?: string;
+        readonly permissionMode?: string | null;
+      }
+    | undefined,
+  permissionMode?: string | null,
 ): RuntimeCallbackRelay | undefined {
   return process.platform !== "win32" &&
     route &&
     isSealedRuntimeDaemonRoute(route) &&
-    instance?.kindId === "codex" &&
-    instance.isolationState === "enforced"
+    ((instance?.kindId === "codex" && instance.isolationState === "enforced") ||
+      (instance?.kindId === "claude" && (permissionMode ?? instance.permissionMode) === "workspace-write"))
     ? runtimeCallbackRelaySpec(dispatchId, route)
     : undefined;
 }

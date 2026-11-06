@@ -112,7 +112,21 @@ export function launchArgs(
         JSON.stringify({
           attribution: { commit: "", pr: "", sessionUrl: false },
           ...(hookSettings ? { hooks: hookSettings, disableAllHooks: false } : {}),
-          ...(permissionMode === "workspace-write" ? { sandbox: claudeWorkspaceWriteSandbox } : {}),
+          ...(permissionMode === "workspace-write"
+            ? {
+                sandbox: {
+                  ...claudeWorkspaceWriteSandbox,
+                  ...(callbackRelayPath
+                    ? {
+                        network: {
+                          ...claudeWorkspaceWriteSandbox.network,
+                          allowUnixSockets: [callbackRelayPath],
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
         }),
       ];
     if (token === "$model") return [model];

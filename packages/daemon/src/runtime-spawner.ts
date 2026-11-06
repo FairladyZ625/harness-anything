@@ -619,7 +619,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ? "workspace-write"
                 : (permissionMode ?? agent?.permissionMode),
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
-            callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance),
+            callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance, effectivePermissionMode),
             // A relayed sandbox still hides the host user root and daemon id; a bypass worker
             // already has that host access and keeps the real identity in its mission. Only the
             // endpoint is shared: the relay is located by the injected socket path.
