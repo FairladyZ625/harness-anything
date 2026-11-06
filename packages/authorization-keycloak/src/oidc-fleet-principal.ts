@@ -35,6 +35,7 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
     claims.iss !== `${input.issuerUrl}${realmPath}` ||
     typeof claims.azp !== "string" ||
     claims.azp.length === 0 ||
+    (claims.azp.startsWith("harness-node-") && claims.azp !== `harness-node-${input.auth.nodePrincipal?.nodeId}`) ||
     (input.expectedAzps !== undefined &&
       !input.expectedAzps.some(
         (expected) =>

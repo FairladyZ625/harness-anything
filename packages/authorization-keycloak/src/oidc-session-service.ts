@@ -580,17 +580,38 @@ export class OidcSessionService {
         });
       const config = this.#config();
       const adminAccessToken = await this.#centerToken();
-      return verifyFleetHuman({
-        auth,
-        url: config.url,
-        issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
-        realm: config.realm,
-        clientId: "harness-center",
-        expectedAzps: auth.fleetExpectedAzps,
-        clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
-        adminAccessToken,
-        fetch: this.#ports.fetch,
-        now: this.#ports.now(),
+      // Keep device-login verification and ownership settlement in the existing session queue:
+      // the next login must observe any consent revoked by the previous one.
+      return this.serialize(async () => {
+        const bound = await verifyFleetHuman({
+          auth,
+          url: config.url,
+          issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
+          realm: config.realm,
+          clientId: "harness-center",
+          expectedAzps: auth.fleetExpectedAzps,
+          clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
+          adminAccessToken,
+          fetch: this.#ports.fetch,
+          now: this.#ports.now(),
+        });
+        const principal = bound.oidcPrincipal!;
+        // A BFF's personal token supplies request authority, never device ownership.
+        if (
+          principal.azp !== `harness-node-${auth.nodePrincipal?.nodeId}` ||
+          principal.personId === auth.nodePrincipal?.personId
+        )
+          return bound;
+        const node = await principal.provider.readNode(adminAccessToken, auth.nodePrincipal!.nodeId);
+        if (!node || node.state !== "active" || node.revocation !== "complete")
+          throw coded("node_owner_unregistered", "The device is not active.");
+        if (node.personId !== principal.personId)
+          await principal.provider.transferNode(
+            adminAccessToken,
+            { ...node, personId: principal.personId, revision: node.revision + 1 },
+            node.personId,
+          );
+        return { ...bound, nodePrincipal: { nodeId: node.nodeId, personId: principal.personId } };
       });
     }
     const { sessionStore } = await this.#centerIdentity(loginTarget),

@@ -4,6 +4,8 @@ A Web/BFF can use the existing Fleet TLS v1 API with a different user's Keycloak
 
 Configure the OAuth client in the center's Keycloak realm to issue personal access tokens with audience `harness-center` and the administrator-managed `harness_person_id` claim. HA checks active status, expiry, the configured realm issuer, audience, nonempty `azp`, and the enabled non-service-account user whose person attribute matches the token. A token issued for another center/realm or audience is rejected. Invitation admission additionally retains its invitation-specific client/person restriction.
 
+Use a separate OAuth client for a shared Web/BFF. The `harness-node-<nodeId>` clients retain device-login semantics: their tokens are accepted only on that node, and signing in as a different person transfers device ownership and revokes the previous owner's session for that device. Tokens issued to the Web/BFF client choose only the current request's person and do not transfer device ownership.
+
 For consent, assign the OAuth client the Keycloak client scope named `consent` (default or optional); if optional, request it during login. The introspected access token must include that exact space-delimited scope. This is separate from the person's RBAC permission to run `task-review-consent`; both are required. Missing scopes grant no consent authority. To revoke access immediately, revoke the relevant user session/token as well as changing future scope issuance; existing person permissions are evaluated again on writes.
 
 ## Calling the API
