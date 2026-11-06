@@ -471,7 +471,8 @@ for (const restart of [false, true])
       assert.equal(childRows[0]?.outcome, "succeeded");
       assert.equal(
         readFileSync(path.join(fixture.root, "harness", childRows[0].reportPath!), "utf8").trim(),
-        "child delivery",
+        `child delivery\n\nTask ${child.taskId} is not submitted: runtime success and task submission are separate states. ` +
+          `The owner can recover this delivered closeout with: ha task submit ${child.taskId} --as-owner`,
       );
       const report = readFileSync(path.join(fixture.root, "harness", rows[0].reportPath!), "utf8");
       assert.match(report, new RegExp(`Worker branch pushed at settlement: ${taskId} @`, "u"));
@@ -479,7 +480,7 @@ for (const restart of [false, true])
         git(fixture.bare, "for-each-ref", "--format=%(objectname)", `refs/heads/${taskId}`),
         git(cwd, "rev-parse", "HEAD"),
       );
-      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${taskId}--squad-`), "");
+      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${child.taskId}`), "");
     },
   );
 
