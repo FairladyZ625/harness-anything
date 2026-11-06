@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
+import type {
+  AgentRuntimeEventV1,
+  CanonicalEventStore,
+  CanonicalSquadRun,
+  RuntimeResultClaim,
+} from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
   archiveDispatchStream,
@@ -1105,11 +1110,28 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // coordinator parsing it. The same evidence class as a taskless run witnesses the turn.
   if (active.squadId !== null && active.delegatedBy === null)
     return active.providerOutcome === "succeeded" && active.finalText !== null;
-  // A squad worker hands local commits on its child task branch to the commander. A remote edge
-  // also uses branch commits because it has no canonical projection to read a submission from.
-  // At the center a direct dispatch delivers only its accepted submission — mid-work branch commits
-  // are not a delivery facet (dec_614F7BBB18C8687E7EFC72173D RJ1: a normal exit without a submitted
-  // delivery must not settle succeeded).
+  // A squad worker hands local commits on its child task branch to the commander. That branch is
+  // stacked on the Commander HEAD the run recorded before the spawn, so counting from the
+  // repository baseline would credit inherited Commander commits to a worker that committed
+  // nothing. A remote edge has no canonical projection to read that base from and keeps the
+  // repository-baseline witness. At the center a direct dispatch delivers only its accepted
+  // submission — mid-work branch commits are not a delivery facet (dec_614F7BBB18C8687E7EFC72173D
+  // RJ1: a normal exit without a submitted delivery must not settle succeeded).
+  if (active.squadId !== null) {
+    const cut = squadWorkerCut(context, active);
+    if (cut.runOwned) {
+      if (cut.baseRef !== undefined)
+        return workerBranchHasDelivery({
+          cwd: active.cwd,
+          canonicalRoot: context.input.rootDir,
+          taskId: active.task.taskId,
+          baseRef: cut.baseRef,
+        });
+      // A run-owned worker whose run no longer names its cut must not fall back to the repository
+      // baseline: that is exactly the silent false positive this witness exists to prevent.
+      return false;
+    }
+  }
   if (
     (active.squadId !== null || !context.input.projection) &&
     (await workerBranchHasDelivery({
@@ -1122,6 +1144,24 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // Remote-edge settlement has no local canonical projection. Its repo-root fixtures also have no
   // repository-diff witness; absence must settle unknown rather than abort terminal publication.
   return hasAcceptedExecutionSubmission(context, active);
+}
+
+/** Whether this dispatch belongs to a squad run, and if so the exact cut its child branch was
+ * stacked on. The run records that base before spawning the worker, so settlement counts only the
+ * worker's own commits. A dispatch that carries a squad roster id but no run context is not a
+ * run-owned worker and keeps the repository-baseline witness. */
+function squadWorkerCut(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+): { readonly runOwned: boolean; readonly baseRef?: string } {
+  if (active.squadId === null || context.input.projection === undefined) return { runOwned: false };
+  const projection = context.requiredRuntimeProjection(context.input),
+    dispatch = projection.readRuntimeDispatchById(active.dispatchId)?.event,
+    squadRunId = dispatch?.payload.squadRun?.squadRunId;
+  if (squadRunId === undefined) return { runOwned: false };
+  const run = projection.readSquadRun(squadRunId)?.state as unknown as CanonicalSquadRun | undefined,
+    baseRef = run?.workerAttempts.find((attempt) => attempt.dispatchId === active.dispatchId)?.baseSha;
+  return baseRef === null || baseRef === undefined ? { runOwned: true } : { runOwned: true, baseRef };
 }
 
 function hasAcceptedExecutionSubmission(context: RuntimeSpawnerContext, active: ActiveRuntime): boolean {

@@ -39,6 +39,44 @@ test("worker delivery is witnessed only on its bound task branch with commits ab
   assert.equal(await workerBranchHasDelivery(input), true);
 });
 
+test("a stacked squad checkout counts only where its own branch was cut", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-squad-stacked-witness-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main", "repo");
+  const repo = path.join(root, "repo"),
+    commander = path.join(root, "commander"),
+    worker = path.join(root, "worker");
+  git(repo, "config", "user.email", "squad-test@example.invalid");
+  git(repo, "config", "user.name", "Squad Test");
+  writeFileSync(path.join(repo, "README.md"), "fixture\n");
+  git(repo, "add", "README.md");
+  git(repo, "commit", "--quiet", "-m", "fixture");
+  git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
+  // The Commander is one commit ahead of the repository baseline before the child is cut.
+  git(repo, "worktree", "add", "--quiet", "-b", "task_commander", commander);
+  writeFileSync(path.join(commander, "commander.txt"), "commander\n");
+  git(commander, "add", "commander.txt");
+  git(commander, "commit", "--quiet", "-m", "commander work");
+  const base = git(commander, "rev-parse", "HEAD").trim();
+  // The child branch starts at the Commander HEAD, exactly like a squad stage checkout.
+  git(repo, "worktree", "add", "--quiet", "-b", "task_child", worker, base);
+  const input = { cwd: worker, canonicalRoot: repo, taskId: "task_child" };
+  assert.equal(
+    await workerBranchHasDelivery(input),
+    true,
+    "the repository baseline alone cannot tell Commander commits from the worker's",
+  );
+  assert.equal(
+    await workerBranchHasDelivery({ ...input, baseRef: base }),
+    false,
+    "a zero-commit worker above its stacked base must not be witnessed as delivered",
+  );
+  writeFileSync(path.join(worker, "work.txt"), "worker\n");
+  git(worker, "add", "work.txt");
+  git(worker, "commit", "--quiet", "-m", "worker work");
+  assert.equal(await workerBranchHasDelivery({ ...input, baseRef: base }), true);
+});
+
 test("worker push publishes only the dispatched task's own branch with force-with-lease", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-")),
     bare = path.join(root, "remote.git"),

@@ -223,7 +223,9 @@ export function deliveryProjection(
   reviews: readonly Record<string, unknown>[] = [],
   closeoutRecorded = false,
   submissionPresent = false,
+  squadAttempt?: { readonly dispatchId: string; readonly baseSha: string },
 ) {
+  const squadRunId = "squad_0123456789abcdef01234567";
   return {
     read: () => ({
       packagePath: "tasks/task_0123456789abcdef01234567-fixture",
@@ -246,6 +248,32 @@ export function deliveryProjection(
           : null,
     }),
     readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
+    ...(squadAttempt === undefined
+      ? {}
+      : {
+          readRuntimeDispatchById: (dispatchId: string) =>
+            dispatchId === squadAttempt.dispatchId
+              ? {
+                  event: {
+                    payload: {
+                      squadRun: { squadRunId, ownerDispatchId: "dispatch_owner", turnId: "leader-1" },
+                    },
+                  },
+                }
+              : null,
+          readSquadRun: (id: string) =>
+            id === squadRunId
+              ? {
+                  squadRunId,
+                  revision: 1,
+                  state: {
+                    workerAttempts: [
+                      { dispatchId: squadAttempt.dispatchId, taskId: fixtureTaskId, baseSha: squadAttempt.baseSha },
+                    ],
+                  },
+                }
+              : null,
+        }),
   } as never;
 }
 
