@@ -20,6 +20,8 @@ import { appendQueryParityFixtures } from "./pg-query-parity.fixture.ts";
 import { appendRuntimeQueryFixtures } from "./pg-runtime-query-parity.fixture.ts";
 import { appendGraphQueryFixtures } from "./pg-complete-query-parity.fixture.ts";
 import { runtimeProviderEvents } from "../runtime-provider-bytes.assertions.ts";
+import { reduceDecisionDocument } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
+import { proposal } from "../store/relation-graph-projection.fixtures.ts";
 
 test("external PG release sequence upgrades populated read indexes before reader handoff", async (t) => {
   const fixture = await pgRuntimeFixture(),
@@ -223,8 +225,9 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
     await manage(async (client) => {
       await client.query(
         `INSERT INTO ha_decisions(tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
-        SELECT $1,$2,$3,'dec_upgrade_'||n,1,'{"state":"proposed"}'::jsonb FROM generate_series(1,130)n`,
-        keys,
+        SELECT $1,$2,$3,'dec_upgrade_'||n,1,
+          jsonb_set($4::jsonb,'{decisionId}',to_jsonb('dec_upgrade_'||n)) FROM generate_series(1,130)n`,
+        [...keys, JSON.stringify(reduceDecisionDocument(null, proposal(1, "dec_upgrade")))],
       );
       // Previous-generation state has original columns but no derived ordering keys.
       await client.query("UPDATE ha_decisions SET decision_sort_key=NULL");
