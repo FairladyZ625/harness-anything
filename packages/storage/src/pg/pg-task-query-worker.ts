@@ -14,7 +14,6 @@ import type { PostgresTaskEventStoreRequest } from "../postgres/pg-task-event-st
 import type { CanonicalEventV1, LeaseV1 } from "@harness-anything/kernel";
 import { changePgLease } from "./pg-lease-cas.ts";
 import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
-import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
@@ -46,7 +45,6 @@ interface PgQueryWorkerRequest {
     | "lease"
     | "rebuild"
     | "warm-indexes"
-    | "artifact-backfill"
     | "backfill-read-indexes"
     | "epoch"
     | "replication";
@@ -328,19 +326,6 @@ function startWorker(
           request.id,
           input.state,
           await backfillPgEntityDeclarationPage(pool, input.scope, input.repoId, Number(request.args?.[0] ?? 64)),
-        );
-        return;
-      }
-      if (request.op === "artifact-backfill") {
-        if (sessionClient) throw new Error("artifact backfill cannot run inside a projection read session");
-        respond(
-          request.id,
-          input.state,
-          await withPostgresTransaction(
-            pool,
-            (client) => backfillPgArtifactDocuments(client, input.scope, input.repoId),
-            input.scope,
-          ),
         );
         return;
       }

@@ -37,13 +37,17 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_entity_declaration_heads",
   "ha_artifact_documents",
   "ha_artifact_counts",
+  "ha_artifact_backfill",
 ] as const);
 
 /** Read/digest tables compared with the other backend. The current-set projection is derived
  * from ha_projection_values and is maintained by triggers, so it is not part of the replay audit
  * even though it shares the projection's RLS and grants. */
 export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
-  PG_PROJECTION_TABLES.filter((table) => table !== "ha_runtime_unsettled" && table !== "ha_event_summary_state"),
+  PG_PROJECTION_TABLES.filter(
+    (table) =>
+      table !== "ha_runtime_unsettled" && table !== "ha_event_summary_state" && table !== "ha_artifact_backfill",
+  ),
 );
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
@@ -287,7 +291,7 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS raw_lease jsonb",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS package_path text",
     // Old binary wrote projections before the artifact timeline index existed; the version asks
-    // the embedded upgrade path to backfill once. Fresh inserts declare themselves complete.
+    // the writer queue to backfill in bounded pages. Fresh inserts declare themselves complete.
     "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS artifact_index_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",

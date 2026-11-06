@@ -5,7 +5,7 @@ import { artifactTimelineDdl } from "../../src/pg/pg-artifact-timeline.ts";
 import { PG_PROJECTION_TABLES, projectionDdl } from "../../src/pg/pg-projection-schema.ts";
 
 test("the artifact timeline tables join the projection registry that owns grants, RLS and rebuild cleanup", () => {
-  for (const table of ["ha_artifact_documents", "ha_artifact_counts"])
+  for (const table of ["ha_artifact_documents", "ha_artifact_counts", "ha_artifact_backfill"])
     assert.ok(
       (PG_PROJECTION_TABLES as readonly string[]).includes(table),
       `${table} must be in PG_PROJECTION_TABLES so grantPgProjectionRuntimeAccess, the scope RLS policy and rebuild cleanup all include it`,
@@ -29,5 +29,5 @@ test("the artifact timeline tables carry tenant scope, readers and the ordered p
   assert.match(ddl, /all_readers boolean NOT NULL/u);
   assert.match(ddl, /relative text NOT NULL COLLATE "C"/u);
   assert.match(ddl, /package_dir text NOT NULL COLLATE "C"/u);
-  assert.match(ddl, /substr\(v\.entity_id, strpos\(v\.entity_id, '\/artifacts\/'\) \+ 1\)/u);
+  assert.match(ddl, /ha_artifact_backfill[\s\S]*cursor jsonb, upper_bound text/u);
 });

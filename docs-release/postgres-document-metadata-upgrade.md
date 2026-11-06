@@ -301,3 +301,29 @@ scan as a complete search result. For local PGlite, the daemon writer performs b
 pages after opening; keep it running until the Decision queries succeed before switching
 users. Reopening resumes committed pending rows/index-copy cursors. Fleet edges do not
 perform backfill; the center's writer or scoped management process owns it.
+
+### Artifact timelines during an online upgrade
+
+An existing scope with `artifact_index_version=0` returns `projection_pending` for artifact
+pages and counts. Ordinary document point reads remain available. Neither PGlite opening nor
+projection `catchUp` rebuilds the historical timeline before admitting readers.
+
+The same `backfillReadIndexes` writer queue that advances the other read indexes also owns
+artifact expansion. Each transaction removes at most 64 stale index/count rows, or processes
+at most 64 document/reader units. A document with many readers resumes at its saved reader
+offset; its entire reader fanout is not written in one migration transaction. Scope, phase,
+key cursor and the finite document upper bound live in `ha_artifact_backfill`. Restarting
+resumes the committed position; rollback leaves the previous position intact.
+
+During cleanup, canonical document writes persist while their derived artifact maintenance
+waits for the subsequent document pass. Once copying starts, normal writes maintain rows
+and counts, including new paths behind the cursor or beyond its captured upper bound.
+Background inserts count only newly installed reader rows, so a foreground replacement or
+retirement cannot double-count a partly copied path. The final empty document page atomically
+publishes `artifact_index_version=1`; the next read uses the existing indexed timeline.
+A fresh scope is already current, and an explicit projection rebuild reconstructs the index
+with the canonical projection. Fleet edges do not run this migration. Keep all pages in the
+center's existing fenced writer queue; do not start a second artifact maintenance loop.
+
+The pre-timeline migration state and compatibility window contract on 2026-12-05 under
+dec_659E15CF. No historical collection is scanned to provide a successful partial timeline.

@@ -48,59 +48,14 @@ export const artifactTimelineDdl = (): readonly string[] => [
     kind text NOT NULL, total bigint NOT NULL CHECK (total >= 0),
     PRIMARY KEY (tenant_id, project_id, policy_epoch, all_readers, reader, kind)
   )`,
-  // Backfill for deployments whose documents predate this index. The caller passes the repository
-  // because canonical revisions are repo-scoped while projection rows are not. Each document
-  // contributes its `*` row and one row per reader; counts are rebuilt from those rows.
-  `CREATE OR REPLACE FUNCTION ha_backfill_artifact_documents(tenant text, project text, epoch bigint, repo text)
-    RETURNS integer LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
-    DECLARE processed integer;
-    BEGIN
-      -- Reconstruct the scope's index rather than only adding rows: a partial or dirty index is
-      -- repaired by the same one-time expansion, so readiness cannot hide stale outputs.
-      DELETE FROM ha_artifact_documents WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
-      DELETE FROM ha_artifact_counts WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
-      INSERT INTO ha_artifact_documents(
-        tenant_id, project_id, policy_epoch, all_readers, reader, readers, path, package_dir, relative, kind,
-        sort_ms, occurred_at, size_bytes)
-      SELECT v.tenant_id, v.project_id, v.policy_epoch, r.all_readers, r.reader, v.readers, v.entity_id,
-        split_part(v.entity_id, '/', 2),
-        substr(v.entity_id, strpos(v.entity_id, '/artifacts/') + 1),
-        CASE WHEN metadata->>'mediaType' = 'text/html' THEN 'html'
-             WHEN metadata->>'mediaType' = 'text/markdown' THEN 'md'
-             ELSE 'raw' END,
-        -round(extract(epoch FROM e.occurred_at::timestamptz) * 1000)::bigint,
-        e.occurred_at,
-        (metadata->>'size')::bigint
-      FROM ha_projection_values v
-      JOIN ha_events e
-        ON e.tenant_id = v.tenant_id AND e.project_id = v.project_id
-       AND e.repo_id = repo AND e.revision = v.workspace_revision
-      -- Metadata columns may still be migrating. Reuse the canonical extractor rather
-      -- than certifying an incomplete artifact index after silently skipping old documents.
-      CROSS JOIN LATERAL (SELECT COALESCE(v.document_metadata, ha_document_metadata_from_value(v.value))::jsonb AS metadata) m
-      CROSS JOIN LATERAL (
-        SELECT true AS all_readers, ''::text AS reader
-        UNION ALL
-        SELECT false, unnest(v.readers)
-      ) r
-      WHERE v.tenant_id = tenant AND v.project_id = project AND v.policy_epoch = epoch
-        AND v.model = 'document' AND v.owner_id = ''
-        AND v.entity_id LIKE 'tasks/%/artifacts/%'
-        AND ((metadata->>'mediaType') IN ('text/html', 'text/markdown')
-          OR (metadata->>'policyId') = 'raw-artifact-bytes/v1')
-      ON CONFLICT (tenant_id, project_id, policy_epoch, all_readers, reader, path) DO UPDATE SET
-        readers=excluded.readers, package_dir=excluded.package_dir, relative=excluded.relative,
-        kind=excluded.kind, sort_ms=excluded.sort_ms, occurred_at=excluded.occurred_at,
-        size_bytes=excluded.size_bytes;
-      SELECT count(DISTINCT path) INTO processed
-        FROM ha_artifact_documents
-       WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
-      INSERT INTO ha_artifact_counts(tenant_id, project_id, policy_epoch, all_readers, reader, kind, total)
-      SELECT tenant_id, project_id, policy_epoch, all_readers, reader, kind, count(*)
-      FROM ha_artifact_documents WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch
-      GROUP BY tenant_id, project_id, policy_epoch, all_readers, reader, kind;
-      RETURN processed;
-    END $function$`,
+  // Scope-local migration progress; the ordinary writer queue owns all phases. Contract after
+  // the pre-timeline upgrade window closes on 2026-12-05 (dec_659E15CF).
+  `CREATE TABLE IF NOT EXISTS ha_artifact_backfill (
+    tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
+    phase smallint NOT NULL DEFAULT 0, cursor jsonb, upper_bound text,
+    PRIMARY KEY (tenant_id,project_id,policy_epoch)
+  )`,
+  "DROP FUNCTION IF EXISTS ha_backfill_artifact_documents(text,text,bigint,text)",
 ];
 
 const artifactKindOf = (document: {
@@ -185,6 +140,22 @@ export async function flushPgArtifactDocuments(
   entries: readonly PgArtifactTimelineEntry[],
 ): Promise<void> {
   if (entries.length === 0) return;
+  // During bounded cleanup, retain the canonical document but defer its derived rows. The
+  // subsequent snapshot covers these writes. Once copying starts, foreground replacements
+  // maintain exact rows/counts, including paths behind the persisted cursor.
+  if (
+    (
+      await client.query(
+        `SELECT 1 FROM ha_projection_meta m
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'
+       AND artifact_index_version=0 AND NOT EXISTS (
+         SELECT 1 FROM ha_artifact_backfill b WHERE b.tenant_id=m.tenant_id
+           AND b.project_id=m.project_id AND b.policy_epoch=m.policy_epoch AND b.phase=2)`,
+        scopeValues(scope),
+      )
+    ).rows.length
+  )
+    return;
   const paths = entries.map(({ path }) => path),
     removed = await client.query<{ all_readers: boolean; reader: string; kind: ArtifactTimelineKind }>(
       `DELETE FROM ha_artifact_documents
@@ -388,29 +359,4 @@ export async function readPgArtifactTimeline(
     hasMore: ordered.length > limit,
     counts,
   };
-}
-
-/** One-time expansion for projections whose documents predate the index. Idempotent, and it
- * marks the projection complete so a later catch-up does not rescan. */
-export async function backfillPgArtifactDocuments(
-  client: PoolClient,
-  scope: PgProjectionScope,
-  repoId: string,
-): Promise<number> {
-  const version = await client.query<{ artifact_index_version: number }>(
-    `SELECT artifact_index_version FROM ha_projection_meta
-     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
-    scopeValues(scope),
-  );
-  if ((version.rows[0]?.artifact_index_version ?? 1) !== 0) return 0;
-  const result = await client.query<{ readonly processed: number }>(
-    "SELECT ha_backfill_artifact_documents($1,$2,$3,$4) AS processed",
-    [...scopeValues(scope), repoId],
-  );
-  await client.query(
-    `UPDATE ha_projection_meta SET artifact_index_version=1
-     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
-    scopeValues(scope),
-  );
-  return Number(result.rows[0]?.processed ?? 0);
 }

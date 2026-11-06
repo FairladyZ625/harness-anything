@@ -79,6 +79,9 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       backend = await createPGliteStorageBackend(input);
       assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: false });
       assert.deepEqual((await backend.pool.query("SELECT ready FROM ha_event_summary_state")).rows, [{ ready: true }]);
+      // The old scope also needs the artifact migration's empty cleanup/count/document phases.
+      for (let phase = 0; phase < 3; phase++)
+        assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: false });
       assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: true });
       assert.equal(
         (await backend.pool.query("SELECT count(*)::int AS count FROM ha_events WHERE summary_json IS NULL")).rows[0]

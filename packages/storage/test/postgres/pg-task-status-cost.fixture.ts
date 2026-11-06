@@ -48,11 +48,19 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
         VALUES($1,$2,$3,'task-status-cost',1,'fixture','fixture','fixture') ON CONFLICT DO NOTHING`,
           [scope.tenantId, scope.projectId, scope.policyEpoch],
         );
+        // This fixture isolates parent/status work on a post-timeline cache with no documents.
         await client.query(
           `INSERT INTO ha_projection_meta
-        (tenant_id,project_id,policy_epoch,schema_version,watermark,source_revision)
-        VALUES($1,$2,$3,$4,1,1) ON CONFLICT DO NOTHING`,
+        (tenant_id,project_id,policy_epoch,schema_version,watermark,source_revision,artifact_index_version)
+        VALUES($1,$2,$3,$4,1,1,1) ON CONFLICT DO NOTHING`,
           [scope.tenantId, scope.projectId, scope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION],
+        );
+        // No canonical events are seeded here. Certify that empty summary remainder, as the
+        // embedded cold open does, so only the deliberately reset parent index can be pending.
+        await client.query(
+          `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
+           VALUES($1,$2,$3,'task-status-cost',true) ON CONFLICT DO NOTHING`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
         );
         await client.query(
           `INSERT INTO ha_task_snapshots

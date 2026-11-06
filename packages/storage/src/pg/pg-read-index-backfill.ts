@@ -1,3 +1,4 @@
+import { backfillPgArtifactDocumentsPage } from "./pg-artifact-backfill.ts";
 import { backfillPgDecisionSearchPage } from "./pg-decision-search.ts";
 import { isPgDecisionReadReady } from "./pg-decision-read-status.ts";
 import { PG_EVENT_READ_INDEX_VERSION } from "./pg-event-read-index-migration.ts";
@@ -48,6 +49,17 @@ export function backfillPgReadIndexPage(pool: Pool, scope: PgProjectionScope, re
         AND model='document' AND document_metadata IS NULL LIMIT 1`,
           "SELECT processed FROM ha_backfill_document_metadata($1,$2,$3)",
         ),
+        {
+          pending: async () =>
+            (
+              await client.query(
+                `SELECT 1 FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+              AND projection_name='task/v1' AND artifact_index_version=0`,
+                keys,
+              )
+            ).rows.length > 0,
+          run: () => backfillPgArtifactDocumentsPage(client, scope, repoId),
+        },
         {
           pending: async () => !(await isPgDecisionReadReady(client, scope, "search")),
           run: async () => (await backfillPgDecisionSearchPage(client, scope)).processed,

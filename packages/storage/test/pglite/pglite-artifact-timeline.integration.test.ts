@@ -7,11 +7,11 @@ import test from "node:test";
 import {
   artifactRetirementEntry,
   artifactTimelineDdl,
-  backfillPgArtifactDocuments,
   flushPgArtifactDocuments,
   projectPgArtifactDocument,
   readPgArtifactTimeline,
 } from "../../src/pg/pg-artifact-timeline.ts";
+import { backfillPgArtifactDocumentsPage } from "../../src/pg/pg-artifact-backfill.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 import { documentMetadataDdl } from "../../src/pg/pg-document-metadata-migration.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
@@ -106,7 +106,17 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
         ],
       );
       await db.query(`INSERT INTO ha_projection_meta VALUES ('t','p',1,'task/v1',0)`);
-      assert.equal(await backfillPgArtifactDocuments(client, base, "repo"), 1);
+      let processed = 0;
+      for (let turns = 0; ; turns++) {
+        processed += await backfillPgArtifactDocumentsPage(client, base, "repo");
+        if (
+          (await db.query<{ artifact_index_version: number }>("SELECT artifact_index_version FROM ha_projection_meta"))
+            .rows[0]!.artifact_index_version === 1
+        )
+          break;
+        assert.ok(turns < 10);
+      }
+      assert.equal(processed, 2, "one all-reader row and one scoped-reader row");
       const backfilled = await readPgArtifactTimeline(client, scopeA, { kind: "html", limit: 10 });
       assert.deepEqual(
         backfilled.rows.map(({ relative }) => relative),
@@ -119,7 +129,7 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
     }
   });
 
-  test("catch-up backfills a pre-index projection before serving and a cold rebuild discards dirty rows", async () => {
+  test("upgrade keeps timeline pending until background pages finish and a cold rebuild discards dirty rows", async () => {
     await withTempStoreAsync(async (rootDir) => {
       const repoId = "pglite-artifact-timeline",
         storage = {
@@ -162,9 +172,23 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
       }
       const second = open();
       try {
-        // Opening the embedded backend runs the one-time expansion before readers are admitted,
-        // so a version-0 cache is repaired rather than served as a partial timeline. The direct
-        // read-level pending case is covered by the first test.
+        assert.throws(() => second.projection.readArtifactTimelinePage({ kind: "md", limit: 10 }), {
+          code: "projection_pending",
+        });
+        second.projection.catchUp();
+        assert.throws(
+          () => second.projection.readArtifactTimelinePage({ kind: "html", limit: 10 }),
+          {
+            code: "projection_pending",
+          },
+          "ordinary catch-up must not drain the artifact migration either",
+        );
+        for (let turns = 0; ; turns++) {
+          const page = second.projection.backfillReadIndexes!();
+          assert.ok(page.processed <= 64);
+          if (page.done) break;
+          assert.ok(turns < 30);
+        }
         const repaired = second.projection.readArtifactTimelinePage({ kind: "md", limit: 10 });
         assert.deepEqual(
           repaired.rows.map(({ relative }) => relative),

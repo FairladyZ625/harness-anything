@@ -66,7 +66,12 @@ pgliteIntegrationSuite("PGlite v5 document metadata upgrade", () => {
         processed += page.processed;
         if (page.done) break;
       }
-      assert.equal(processed, 130);
+      assert.equal(processed, 260, "130 metadata rows plus 130 non-artifact document visits in the shared queue");
+      assert.equal(
+        (await backend.pool.query("SELECT artifact_index_version FROM ha_projection_meta")).rows[0]!
+          .artifact_index_version,
+        1,
+      );
       assert.equal(await pending(), 0);
 
       assert.equal((await backend.projection.readDocument("docs/0.md")).document!.body, "previous\u0000 bytes\ud800");

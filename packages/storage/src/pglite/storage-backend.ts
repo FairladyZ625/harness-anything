@@ -3,7 +3,6 @@ import { backfillPgReadIndexPage } from "../pg/pg-read-index-backfill.ts";
 import type { PgProjectionScope } from "../pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
-import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { createPGliteStorage, type PGliteStorage, type PGliteStorageOptions } from "./transaction.ts";
@@ -44,11 +43,6 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
         ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO NOTHING`,
           [scope.tenantId, scope.projectId, scope.policyEpoch, options.repoId],
         ),
-      scope,
-    );
-    await withPostgresTransaction(
-      storage.pool,
-      (client) => backfillPgArtifactDocuments(client, scope, options.repoId),
       scope,
     );
     return {
