@@ -200,6 +200,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     ].every(dispatchText) &&
     validTaskDispatchAttemptValues(value) &&
     (value.taskTitle === undefined || dispatchText(value.taskTitle)) &&
+    (value.squadRunId === undefined || dispatchText(value.squadRunId)) &&
     (value.role === undefined || dispatchText(value.role)) &&
     (value.lastObservedAt === undefined ||
       (dispatchText(value.lastObservedAt) && isUtcTimestamp(value.lastObservedAt))) &&

@@ -130,6 +130,8 @@ export interface TaskDispatchRow {
   readonly delegatedByAgentId?: string;
   readonly delegatedByAgentName?: string;
   readonly squadId?: string;
+  /** Canonical run ownership; a squad roster alone does not own a direct dispatch's lifecycle. */
+  readonly squadRunId?: string;
   readonly parentRuntimeSessionId?: string;
   readonly providerSessionId: string | null;
   readonly eventStreamRef: string | null;
