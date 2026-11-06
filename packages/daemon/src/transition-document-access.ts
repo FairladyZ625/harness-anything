@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   assessTransitionDocument,
   assertTransitionDocumentReady,
+  completionContractGap,
   normalizeRelativeDocumentPath,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
@@ -203,6 +204,11 @@ export function assertTaskTransitionDocumentReady(input: {
       "content_not_ready",
       `Transition ${input.transition} consumes ${kind}, not ${input.slot}.`,
     );
+  // Start and dispatch both consume the plan. A task whose frozen preset snapshot is gone has no
+  // usable completion contract, so it must be refused here — with the explicit migration — instead
+  // of accepting the turn and failing at submit.
+  const gap = completionContractGap(input.projection.read(input.taskId).snapshot.task);
+  if (gap) throw transitionDocumentAccessError(gap.code, `${gap.reason} Run ${gap.action}.`);
   const document = readTaskTransitionDocument(input);
   if (document.contract === null)
     throw transitionDocumentAccessError(

@@ -19,7 +19,7 @@ import {
 } from "./review.ts";
 import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
 import { leaseIsEffective, submissionDigest, type ExecutionV1 } from "./execution.ts";
-import { isWorkRoot } from "./task.ts";
+import { isWorkRoot, type TaskV2 } from "./task.ts";
 
 export type CompletionBlockerCode =
   | "projection_unknown"
@@ -72,6 +72,34 @@ export interface CompletionReadinessContext {
   readonly executorDeclarationCandidates?: readonly string[];
   /** Direct children with an active package; with a null parent it makes the task a derived work root. */
   readonly childTaskCount?: number;
+}
+
+/** The completion-contract judgment for a task whose frozen preset snapshot bytes are gone. */
+export interface CompletionContractGap {
+  readonly code: "document_invalid";
+  readonly gate: "completion-contract";
+  readonly action: string;
+  readonly reason: string;
+}
+
+/**
+ * One judgment for admission, completion and submit: a task carrying `presetSnapshotGap` has an
+ * accepted history but no usable completion contract. The remediation is the explicit migration,
+ * never an implicit one. Callers prefix their own surface (dispatch, start, submission) around it.
+ */
+export function completionContractGap(
+  task: Pick<TaskV2, "taskId" | "presetSnapshotDigest" | "presetSnapshotGap" | "metadata"> | null | undefined,
+): CompletionContractGap | null {
+  if (!task?.presetSnapshotGap) return null;
+  const presetId = task.metadata?.presetId ?? "standard-task";
+  return {
+    code: "document_invalid",
+    gate: "completion-contract",
+    action: `ha task contract migrate --task ${task.taskId} --to-preset ${presetId} --apply`,
+    reason:
+      `Historical snapshot gap: original bytes for ${task.presetSnapshotDigest ?? "the task preset snapshot"} ` +
+      "are unavailable. The accepted history remains recorded; this gap cannot satisfy completion.",
+  };
 }
 
 export function completionBlockers(
@@ -185,13 +213,8 @@ function evaluateCompletion(
       `ha task complete ${task.taskId}`,
       `Ask task owner ${task.createdBy.principal.personId} to run completion with the required authority.`,
     );
-  if (task.presetSnapshotGap)
-    return one(
-      "document_invalid",
-      "completion-contract",
-      `ha task contract migrate ${task.taskId} --to-preset ${task.metadata?.presetId ?? "standard-task"} --dry-run`,
-      `Historical snapshot gap: original bytes for ${task.presetSnapshotDigest} are unavailable. The accepted history remains recorded; this gap cannot satisfy completion.`,
-    );
+  const contractGap = completionContractGap(task);
+  if (contractGap) return one(contractGap.code, contractGap.gate, contractGap.action, contractGap.reason);
   if (context.invalidDocument)
     return one(
       "document_invalid",

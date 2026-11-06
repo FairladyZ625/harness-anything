@@ -67,6 +67,7 @@ export {
 export type { LifecycleDocumentState } from "./domain/task-lifecycle-publication.ts";
 export {
   completionBlockers,
+  completionContractGap,
   completionPreparationBlockers,
   releasedLeaseRestartNext,
   taskCompletionNext,
