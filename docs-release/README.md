@@ -15,7 +15,7 @@ bypass.
 ## Choose your installation
 
 - **Harness Anything only:** copy the [Harness setup prompt](../README.md#harness-anything-only).
-- **Harness + DeepSeek Harness plugin:** copy the [DSH setup prompt](../README.md#harness-anything--deepseek-harness-plugin-macos). It requires an installed macOS DSH desktop App, reuses an existing Harness installation, and preserves customized skills.
+- **Harness + DeepSeek Harness plugin:** copy the [DSH setup prompt](../README.md#harness-anything--deepseek-harness-plugin-macos-windows). It requires an installed DSH desktop App on macOS or Windows, reuses an existing Harness installation, and preserves customized skills.
 
 ## Install the 0.1.0 source candidate
 

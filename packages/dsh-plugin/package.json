@@ -29,7 +29,8 @@
     "bundle": {
       "patch": "./cordis.patch.yml",
       "platforms": [
-        "darwin"
+        "darwin",
+        "win32"
       ]
     },
     "client": {

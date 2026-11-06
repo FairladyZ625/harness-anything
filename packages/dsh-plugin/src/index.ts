@@ -4,7 +4,9 @@ import {
   BROKER_ROUTE,
   chooseWorkspace,
   createBrokerManager,
+  hostWindowsCommandLookup,
   readRegisteredRepos,
+  windowsCliArgv,
   type BrokerSubprocessRuntime,
 } from "./broker.ts";
 
@@ -42,9 +44,16 @@ interface HostContext extends Context {
 }
 
 /** Register the lazy Host broker route; all Harness state remains behind the `ha` CLI. */
-export function apply(ctx: HostContext, config: Config = {}): void {
+export function apply(ctx: HostContext, config: Config = {}, platform: NodeJS.Platform = process.platform): void {
   const executable = config.executable ?? "ha";
-  const manager = createBrokerManager(ctx.subprocess, {
+  const subprocess: BrokerSubprocessRuntime =
+    platform === "win32"
+      ? {
+          spawn: (spec) =>
+            ctx.subprocess.spawn({ ...spec, argv: windowsCliArgv(spec.argv, hostWindowsCommandLookup()) }),
+        }
+      : ctx.subprocess;
+  const manager = createBrokerManager(subprocess, {
     executable,
     resolveWorkspace: async (requested) =>
       config.cwd !== undefined && config.cwd.length > 0
@@ -52,7 +61,7 @@ export function apply(ctx: HostContext, config: Config = {}): void {
         : chooseWorkspace({
             requested,
             workspaces: ctx.workspaceRegistry.list().map((workspace) => workspace.path),
-            repos: await readRegisteredRepos(ctx.subprocess, executable, process.cwd()),
+            repos: await readRegisteredRepos(subprocess, executable, process.cwd()),
             separator: path.sep,
             fallback: process.cwd(),
           }),
