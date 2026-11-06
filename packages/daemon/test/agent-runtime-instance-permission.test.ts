@@ -4,9 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import { dispatchMissionForPermission, explicitPromptMission } from "../src/runtime-spawn-mission.ts";
+import { dispatchCallbackRelay } from "../src/runtime-callback-relay.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",
@@ -89,16 +91,6 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
           autoAllowBashIfSandboxed: true,
           allowUnsandboxedCommands: false,
           failIfUnavailable: true,
-          excludedCommands: [
-            "--help",
-            "task submit",
-            "task escalate",
-            "task read-set",
-            "task show",
-            "task push",
-            "doc show",
-            "fact record",
-          ].map((command) => `ha ${command} *`),
           filesystem: { disabled: false },
           // Loopback listening is open on macOS only; outbound stays denied by the empty allowlist.
           network: { allowedDomains: [], allowLocalBinding: true },
@@ -134,6 +126,64 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
     () => launchArgs(config, "claude-fable-5", mission, undefined, null, "workspace-write", false, undefined, "win32"),
     { code: "claude_workspace_sandbox_unavailable" },
   );
+});
+
+test("Claude workspace-write CLI uses only its per-dispatch relay socket", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-claude-relay-permission-")),
+    claude: RuntimeInstallationWitness = {
+      ...observed,
+      kindId: "claude",
+      installationId: "claude-relay-permission",
+      executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
+    },
+    store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [claude],
+      resolveCredential: () => "test-key",
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+      platform: "darwin",
+    });
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  store.create({
+    schemaVersion: 2,
+    instanceId: "claude-relay",
+    name: "Claude Relay",
+    kindId: "claude",
+    installationId: claude.installationId,
+    providerId: "anthropic",
+    models: ["claude-fable-5"],
+    defaultModel: "claude-fable-5",
+    enabled: true,
+    isolationState: "enforced",
+    permissionMode: "workspace-write",
+    claude: {},
+    auth: { mode: "subscription" },
+  });
+  const callbackRelayPath = "/tmp/ha-dispatch_0123456789abcdef01234567.sock",
+    launch = await store.prepareLaunch("claude-relay", {
+      cwd: "/workspace/repo",
+      prompt: "Run the authorized task submit command.",
+      callbackRelayPath,
+    }),
+    settings = JSON.parse(launch.args[launch.args.indexOf("--settings") + 1]!);
+  assert.deepEqual(settings.sandbox.network, {
+    allowedDomains: [],
+    allowLocalBinding: true,
+    allowUnixSockets: [callbackRelayPath],
+  });
+  assert.equal(Object.hasOwn(settings.sandbox, "excludedCommands"), false);
+});
+
+test("Claude workspace-write selects a relay only for the workspace-write permission mode", () => {
+  const userRoot = path.join(tmpdir(), "ha-claude-relay-route"),
+    daemonId = "claude-relay-test",
+    route = { userRoot, daemonId, endpoint: localUserDaemonEndpoint(userRoot, daemonId) },
+    dispatchId = "dispatch_0123456789abcdef01234567",
+    claude = { kindId: "claude", isolationState: "operator-environment", permissionMode: null };
+  assert.ok(dispatchCallbackRelay(dispatchId, route, claude, "workspace-write"));
+  assert.equal(dispatchCallbackRelay(dispatchId, route, claude, "read-only"), undefined);
+  assert.ok(dispatchCallbackRelay(dispatchId, route, { kindId: "codex", isolationState: "enforced" }));
 });
 
 test("permission defaults open and tightens through the instance record or a single dispatch", async () => {

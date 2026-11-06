@@ -33,16 +33,13 @@ export const claudeWorkspaceWriteCli = {
   ],
 } as const;
 
-// Strict native Bash sandbox: arbitrary build/test/git commands stay inside its boundary;
-// only daemon-mediated CLI calls leave it to reach the authenticated daemon socket.
+// Strict native Bash sandbox: arbitrary build/test/git/CLI commands stay inside its boundary;
+// daemon-mediated CLI calls use the per-dispatch relay socket injected by the runtime launcher.
 export const claudeWorkspaceWriteSandbox = {
   enabled: true,
   autoAllowBashIfSandboxed: true,
   allowUnsandboxedCommands: false,
   failIfUnavailable: true,
-  excludedCommands: claudeWorkspaceWriteCli.prefixes.flatMap((prefix) =>
-    claudeWorkspaceWriteCli.commands.map((command) => `${prefix} ${command} *`),
-  ),
   filesystem: { disabled: false },
   // Claude Code docs (sandboxing: "A command fails to reach a server on localhost"):
   // on macOS this lets sandboxed commands listen on localhost for local E2E servers;
