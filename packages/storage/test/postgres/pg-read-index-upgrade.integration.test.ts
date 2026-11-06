@@ -407,8 +407,8 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
     return client.query(
       `INSERT INTO ha_decisions
        (tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
-       VALUES($1,$2,$3,$4,1,'{"state":"proposed"}'::jsonb)`,
-      [...writerScope, id],
+       VALUES($1,$2,$3,$4,1,$5::jsonb)`,
+      [...writerScope, id, JSON.stringify(reduceDecisionDocument(null, proposal(1, id)))],
     );
   };
   try {

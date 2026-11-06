@@ -1,4 +1,4 @@
-import { pgEventReadSource } from "./pg-event-read-index-migration.ts";
+import { assertPgEventReadIndexReady, pgEventReadSource } from "./pg-event-read-index-migration.ts";
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
