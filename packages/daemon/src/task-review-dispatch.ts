@@ -371,6 +371,23 @@ export function reviewDispatchPrompt(input: {
     `Read ha task show ${taskId} --json and select execution ${execution.executionId} from executions. ` +
       "Its submission contains the authoritative delivery, frozen completion contract, and complete artifact anchors. " +
       "The prompt references that submission; it does not inline evidence or enumerate anchors.",
+    "Read that task show's reviewAttribution index before attributing actions. Each recorded actor identifies " +
+      "the ledger action only; an artifact's author or submitter does not identify actors described inside it. " +
+      `Follow page.nextCursor with ha event list --entity task/${taskId} --cursor <cursor> --json, ` +
+      "and use ha event show <opId> --json for the original event and its target. " +
+      `Use ha task dispatches ${taskId} --json to corroborate runtime/execution bindings. ` +
+      "A shared principal, task membership, or model/agent name never establishes executor identity or permission. " +
+      "For an authorization finding, establish who performed which action, the constraints/authorization at that " +
+      "time, and why the action exceeded them. An execution lease does not authorize external publication. " +
+      "Owner read-only API activity must not be attributed to the worker; a worker's action is not excused by " +
+      "sharing the owner's principal. External statements and unknown actors remain asserted/unverified until " +
+      "corroborated by original service evidence (time, actor, method/endpoint and authorization). " +
+      "An unknown actor is an evidence gap; a proven shared invariant violation may still block the delivery " +
+      "without claiming worker misconduct.",
+    "For re-review, read the previous registered reviews and reports, this submission's frozen reviewResponses " +
+      "and their referenced attribution evidence. Verify corrections against the exact cut; a rebuttal does not " +
+      "waive unrelated findings. Responses must come from the current authorized implementation identity, " +
+      "never by impersonating an old worker.",
     `The execution-frozen delivery baseline is ${JSON.stringify(execution.deliveryBaseline ?? null)}; it is ` +
       `${EXECUTION_DELIVERY_BASELINE_NOTE}. The delivered head is the submission's commitSha ` +
       "(null for artifact-only cuts); treat the baseline and the submission delivery as authoritative. " +
