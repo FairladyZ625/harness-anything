@@ -127,14 +127,17 @@ async function exerciseTaskPush(
           assert.equal(prepared.env.GIT_AUTHOR_EMAIL, undefined);
           assert.equal(prepared.env.GIT_COMMITTER_NAME, undefined);
           assert.equal(prepared.env.GIT_COMMITTER_EMAIL, undefined);
-          assert.equal(gitText(workerRoot, "config", "--worktree", "user.name").trim(), "person-github-worker");
-          assert.equal(
-            gitText(workerRoot, "config", "--worktree", "user.email").trim(),
-            "person-github-worker@users.noreply.github.com",
-          );
+          // The checkout takes the identity the fixture repository declares; the daemon writes
+          // no provider-shaped worktree override of its own.
+          assert.equal(gitText(workerRoot, "config", "user.name").trim(), "GitHub Worker Test");
+          assert.equal(gitText(workerRoot, "config", "user.email").trim(), "github-worker@example.invalid");
           writeFileSync(path.join(workerRoot, "worker-change.txt"), "task-bound worker change\n");
           git(workerRoot, "add", "worker-change.txt");
           git(workerRoot, "commit", "--quiet", "-m", "feat: add worker change");
+          assert.equal(
+            gitText(workerRoot, "log", "-1", "--format=%an <%ae>").trim(),
+            "GitHub Worker Test <github-worker@example.invalid>",
+          );
           mainPush = spawnSync("git", ["-C", workerRoot, "push", "origin", "HEAD:main"], {
             cwd: workerRoot,
             encoding: "utf8",
