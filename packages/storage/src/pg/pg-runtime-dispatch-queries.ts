@@ -164,7 +164,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           new Set(taskIds).size !== taskIds.length
         )
           throw new Error("runtime dispatch task latest read requires 1..500 unique task ids");
-        await assertPgEventReadIndexReady(client, scope, repoId);
+        const events = await pgEventReadSource(client, scope, repoId);
         // One LATERAL index seek per requested id: the task's total dispatch history is never
         // materialized just to pick its newest row.
         const result = await client.query<{ event_json: string }>(
@@ -172,7 +172,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
              FROM unnest($6::text[]) WITH ORDINALITY AS requested(task_id, position)
              CROSS JOIN LATERAL (
                SELECT ha_events.event_json
-                 FROM ha_events
+                 FROM ${events} AS ha_events
                 WHERE ha_events.tenant_id=$1 AND ha_events.project_id=$2 AND ha_events.repo_id=$3
                   AND ha_events.policy_epoch=$4
                   AND (cardinality($5::text[])=0 OR ha_events.readers && $5::text[])
