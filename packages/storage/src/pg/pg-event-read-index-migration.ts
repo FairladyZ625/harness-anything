@@ -231,10 +231,11 @@ export async function assertPgEventReadIndexReady(
   client: PoolClient,
   scope: PgProjectionScope,
   repoId: string,
+  minimumVersion: 5 | 6 = 5,
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND read_index_version<6 LIMIT 1`,
+      AND read_index_version<${minimumVersion} LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length)

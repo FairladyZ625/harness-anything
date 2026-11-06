@@ -142,7 +142,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       async (client) => {
         if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500)
           throw new Error("event list limit must be between 1 and 500");
-        await assertPgEventReadIndexReady(client, claims, repoId);
+        await assertPgEventReadIndexReady(client, claims, repoId, 6);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, cut.watermark],
           where = [

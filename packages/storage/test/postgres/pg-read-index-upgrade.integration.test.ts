@@ -314,7 +314,7 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
       // A populated previous writer has completed v5, but predates fleet summaries.
       // UPDATE on an empty event table would let the global contraction skip this build.
       await admin.query(
-        "UPDATE ha_events SET summary_json=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+        "UPDATE ha_events SET summary_json=NULL,read_index_version=5 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
         keys,
       );
       assert.deepEqual((await admin.query("SELECT read_index_version,summary_json FROM ha_events")).rows, [
