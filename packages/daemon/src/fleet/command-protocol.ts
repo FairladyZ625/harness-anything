@@ -279,7 +279,8 @@ export type FleetFrameV1 =
           | "repo.task.dispatches"
           | "repo.fleet.overview.read"
           | "repo.policy.metadata.read"
-          | "repo.tasks.autoClaimCandidates";
+          | "repo.tasks.autoClaimCandidates"
+          | "repo.tasks.autoDispatchCandidates";
         payload: Readonly<Record<string, unknown>>;
       }
     >
@@ -965,6 +966,7 @@ const schemas: Readonly<Record<string, Check>> = {
       "repo.fleet.overview.read",
       "repo.policy.metadata.read",
       "repo.tasks.autoClaimCandidates",
+      "repo.tasks.autoDispatchCandidates",
     ),
     payload: record,
   }),

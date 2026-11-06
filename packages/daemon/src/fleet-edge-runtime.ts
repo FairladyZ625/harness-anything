@@ -89,6 +89,7 @@ export interface FleetEdgeRuntimeRequest {
       | "repo.agentRuntime.sessions.read"
       | "repo.task.dispatches"
       | "repo.tasks.autoClaimCandidates"
+      | "repo.tasks.autoDispatchCandidates"
       | "repo.schedule.run"
       | "repo.squad.control";
     readonly action: JsonObject;
@@ -1081,7 +1082,7 @@ export function openFleetEdgeRuntime(input: {
       let handoffControlBinding: import("./repo-cell-types.ts").RepoCellBinding | undefined;
       if (method === "repo.agentRuntime.sessions.await" && readBinding.keycloakAuthorization === undefined)
         return awaitLocalRuntimeSessions(action, readReplica, connectionSignal);
-      if (method === "repo.tasks.autoClaimCandidates")
+      if (method === "repo.tasks.autoClaimCandidates" || method === "repo.tasks.autoDispatchCandidates")
         return (await readFleetOperationalClient({
           ...runtimeReadPeer,
           // Candidate generation joins the center projection, assignment witness and directory

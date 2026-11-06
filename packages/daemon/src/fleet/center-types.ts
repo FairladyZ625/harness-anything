@@ -26,6 +26,7 @@ export interface FleetCenterOptions {
     | "status"
     | "authorize"
     | "readNodeAutoClaimCandidates"
+    | "readNodeAutoDispatchCandidates"
   >;
   readonly stateRoot: string;
   readonly writerEpochStateRoot?: string;

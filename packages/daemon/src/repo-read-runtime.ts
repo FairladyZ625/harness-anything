@@ -17,6 +17,8 @@ import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { readReplicaHealth } from "./fleet/replica-health.ts";
 import { readObserveEventTail } from "./observe-tail.ts";
+import { nodeReworkDispatchCandidate } from "./task-return-dispatch.ts";
+import { nodeReviewDispatchCandidate } from "./task-review-dispatch.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -411,6 +413,27 @@ export function makeRepoReadRuntime(
         ? edgeReplicaRead(binding, (projection) => readAssignments(projection))
         : query(readAssignments);
     },
+    readNodeAutoDispatchCandidates: (nodeId: string) =>
+      query((projection) => {
+        const cell = readRuntime(projection).actionContext,
+          rows: import("@harness-anything/kernel").TaskProjectionListRow[] = [];
+        for (const status of ["in_review", "active"] as const) {
+          let cursor: string | undefined;
+          while (true) {
+            const page = projection.list({ status, limit: 500, ...(cursor ? { cursor } : {}) });
+            rows.push(...page.rows);
+            const next = page.page?.nextCursor;
+            if (!next) break;
+            cursor = next;
+          }
+        }
+        return rows.flatMap((row) => {
+          const review = nodeReviewDispatchCandidate(cell, { taskId: row.taskId, requiredNodeId: nodeId });
+          if (review) return [review];
+          const rework = nodeReworkDispatchCandidate(cell, { taskId: row.taskId, requiredNodeId: nodeId });
+          return rework ? [rework] : [];
+        });
+      }),
     observeTail: (
       payload: Parameters<RepoCell["observeTail"]>[0],
       _daemon: Parameters<RepoCell["observeTail"]>[1],

@@ -594,7 +594,8 @@ export async function readFleetOperationalClient(
       | "repo.task.dispatches"
       | "repo.fleet.overview.read"
       | "repo.policy.metadata.read"
-      | "repo.tasks.autoClaimCandidates";
+      | "repo.tasks.autoClaimCandidates"
+      | "repo.tasks.autoDispatchCandidates";
     readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },

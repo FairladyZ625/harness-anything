@@ -1,12 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { submissionDigest } from "@harness-anything/kernel";
 
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { readFleetOperationalClient } from "../src/fleet/peer.ts";
+import { parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 
@@ -180,9 +182,63 @@ test(
   "edge reviewer binds each resubmitted canonical iteration and rejects historical explicit ids",
   { timeout: 90_000 },
   async (t) => {
-    const fixture = await dualSyncFixture(scheduleRuntimePorts().runtimeInstances());
+    const fixture = await dualSyncFixture(scheduleRuntimePorts().runtimeInstances(), {
+      runtimeDiscover: () => [
+        {
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          executablePath: "/opt/test/codex",
+          version: "1.0.0",
+          observedAt: "2026-08-26T00:00:00.000Z",
+        },
+      ],
+    });
     t.after(() => fixture.close());
+    await fixture.registerRuntimeInstance({
+      instanceId: definition.instanceId,
+      name: "Schedule Codex",
+      kindId: definition.kindId,
+      installationId: definition.installationId,
+      providerId: definition.providerId,
+      models: [definition.model],
+      authMode: definition.authMode,
+    });
+    const installed = await fixture.centerRun({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "fleet-reviewer",
+        name: "Fleet reviewer",
+        instructions: "Review the submitted cut.",
+        runtimes: [{ type: "codex", model: definition.model }],
+        instance: definition.instanceId,
+        role: "reviewer",
+      },
+    });
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const reviewerSettings = await fixture.centerRun({
+      kind: "settings-update",
+      roles: { defaultReviewer: "fleet-reviewer" },
+    });
+    assert.equal(reviewerSettings.outcome, "applied", JSON.stringify(reviewerSettings));
     const created = await fixture.createTask("node-one", "task-rework", "Review rework", "docs-task");
+    const readAutoDispatchCandidates = async (nodeId: "node-one" | "node-two") => {
+      const channel = fixture.channel(nodeId);
+      return parseNodeAutoDispatchSnapshot(
+        await readFleetOperationalClient({
+          hostname: channel.host,
+          port: channel.port,
+          ca: readFileSync(channel.caPath),
+          servername: channel.servername,
+          nodeId: channel.nodeId,
+          credential: channel.credential,
+          repoId: channel.repoId,
+          readAccessToken: channel.readAccessToken,
+          method: "repo.tasks.autoDispatchCandidates",
+          payload: {},
+        }),
+      ).candidates;
+    };
     const config = fixture.channel("node-one");
     let launches = 0;
     const launchedPrompts: string[] = [];
@@ -338,6 +394,16 @@ test(
       assert.equal(submitted.ok, true, JSON.stringify(submitted));
       // The edge runtime answers from the resident replica after the center-side submit lands.
       assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+      const reviewCandidates = await readAutoDispatchCandidates("node-one"),
+        otherNodeReviewCandidates = await readAutoDispatchCandidates("node-two"),
+        reviewCandidate = reviewCandidates.find((candidate) => candidate.taskId === created.taskId);
+      assert.equal(reviewCandidate?.kind, "review", JSON.stringify(reviewCandidates));
+      assert.equal(reviewCandidate?.requiredNodeId, "node-one");
+      assert.match(String(reviewCandidate?.payload.prompt), /Implementation node: node-one\. Reviewer node: node-one/u);
+      assert.equal(
+        otherNodeReviewCandidates.some((candidate) => candidate.taskId === created.taskId),
+        false,
+      );
       const reviewers: string[] = [];
       for (const explicit of [false, true]) {
         const result = await spawn(`review-${iteration}-${explicit}`, explicit ? executionId : undefined);
@@ -385,6 +451,17 @@ test(
       // Below the budget the adverse verdict itself reopens the next round; the final round
       // approves and stays at the gate.
       await recordVerdict(iteration, executionId, iteration < 2 ? "changes_requested" : "approved");
+      if (iteration < 2) {
+        const reworkCandidates = await readAutoDispatchCandidates("node-one"),
+          otherNodeReworkCandidates = await readAutoDispatchCandidates("node-two"),
+          reworkCandidate = reworkCandidates.find((candidate) => candidate.taskId === created.taskId);
+        assert.equal(reworkCandidate?.kind, "rework", JSON.stringify(reworkCandidates));
+        assert.equal(reworkCandidate?.requiredNodeId, "node-one");
+        assert.equal(
+          otherNodeReworkCandidates.some((candidate) => candidate.taskId === created.taskId),
+          false,
+        );
+      }
       assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
     }
     // No held implementation lease remains after submission.

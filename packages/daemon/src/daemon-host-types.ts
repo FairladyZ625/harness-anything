@@ -83,6 +83,10 @@ export interface DaemonHost {
     repoId: string,
     auth: DaemonAuthenticationContext,
   ) => Promise<Readonly<Record<string, unknown>>>;
+  readonly readNodeAutoDispatchCandidates: (
+    repoId: string,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<Readonly<Record<string, unknown>>>;
   readonly attach: (
     repoId: string,
     runtimeSessionId: string,
