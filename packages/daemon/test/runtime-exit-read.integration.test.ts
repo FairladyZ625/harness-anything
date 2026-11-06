@@ -49,6 +49,7 @@ for (const role of ["implementation", "reviewer"] as const) {
       readRuntimeSession: () => session,
       readRuntimeSessions: () => [session],
       readRuntimeSessionEvents: () => [],
+      readRuntimeSessionEventsByType: () => [],
       readRuntimeInstallation: () => null,
       readRuntimeInstallations: () => [],
       readRuntimeDispatch: () => dispatch,

@@ -1021,6 +1021,7 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
     readRuntimeInstallations: () => [],
     readRuntimeDispatch: () => ((exactDispatchReads += 1), null),
     readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEventsByType: () => [],
     currentLease: () => null,
   };
   const overview = makeAgentRuntimeReadModel({

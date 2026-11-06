@@ -6,11 +6,12 @@ import {
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { currentExecutionArrangement } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
-import { readTaskDispatches } from "./dispatch-read.ts";
+import { readLastExecutionWorkerDispatch } from "./dispatch-read.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
+import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 
 /** The receipt extension a rework continuation contributes to the recorded review's receipt. */
 type ReviewReworkStep = {
@@ -486,16 +487,17 @@ function submittingWorkerDispatch(
   cell: RepoCellOperationalContext,
   taskId: string,
   executionId: string,
-): ReturnType<typeof readTaskDispatches>["dispatches"][number] | undefined {
-  const workers = new Set(
+): TaskDispatchRow | undefined {
+  const workerExecutorIds = new Set(
     cell.projection
       .readLeaseIntervals(taskId)
       .filter((interval) => interval.executionId === executionId)
-      .map((interval) => interval.holder.actor.executor?.id),
+      .flatMap((interval) => {
+        const executorId = interval.holder.actor.executor?.id;
+        return executorId === undefined ? [] : [executorId];
+      }),
   );
-  return readTaskDispatches({ projection: cell.projection, taskId }).dispatches.findLast(
-    (row) => row.executionId === executionId && workers.has(`runtime-session:${row.runtimeSessionId}`),
-  );
+  return readLastExecutionWorkerDispatch(cell.projection, { taskId, executionId, workerExecutorIds });
 }
 
 function prepareWorkerContinuation(

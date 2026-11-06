@@ -14,7 +14,7 @@ import {
 } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord } from "./dispatch-stream.ts";
 import { storedAgentDeclarationOutcome } from "./agent-declaration-resolution.ts";
-import { readTaskDispatches } from "./dispatch-read.ts";
+import { readTaskAgentDispatch } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding, TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
@@ -776,15 +776,7 @@ export function makeSquadCoordinator(input: {
       );
       attempt = { ...attempt, taskId };
       state = await save(state);
-      const accepted = input
-        .query((projection) =>
-          readTaskDispatches({
-            projection,
-            rootDir: input.rootDir,
-            taskId,
-          }),
-        )
-        .dispatches.find((row) => row.agentId === plan.workerId);
+      const accepted = input.query((projection) => readTaskAgentDispatch(projection, taskId, plan.workerId));
       if (accepted) {
         attempt = {
           ...attempt,

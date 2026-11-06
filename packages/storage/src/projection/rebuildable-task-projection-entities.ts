@@ -15,6 +15,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import type { EntityProjectionRow, PinnedEntityProjectionRow } from "@harness-anything/kernel";
+import { entityValueFilterEntries } from "./entity-value-filter.ts";
 import type { EntityFreshness, EntityVersion } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
 
 const UPSERT_ENTITY_SQL = [
@@ -94,6 +95,26 @@ function writeEntityProjection(
 
 export function listEntityProjectionRows(db: DatabaseSync, entityKind: string): readonly EntityProjectionRow[] {
   return queryRows(db, LIST_ENTITY_SQL, entityKind).map(entityProjectionRow);
+}
+
+/** Count one entity kind at the storage boundary, filtered by top-level value fields. */
+export function countEntityProjectionRows(
+  db: DatabaseSync,
+  entityKind: string,
+  valueEquals: Readonly<Record<string, string | number | boolean>>,
+): number {
+  const entries = entityValueFilterEntries(valueEquals),
+    filters = entries.map(([field]) => `json_extract(value_json, '$.${field}') = ?`),
+    row = queryRows(
+      db,
+      [
+        "SELECT COUNT(*) AS count FROM entity_projection WHERE entity_kind = ?",
+        ...(filters.length === 0 ? [] : [`AND ${filters.join(" AND ")}`]),
+      ].join(" "),
+      entityKind,
+      ...entries.map(([, value]) => (typeof value === "boolean" ? Number(value) : value)),
+    )[0];
+  return Number(row?.count ?? 0);
 }
 
 export function getEntityProjectionRow(

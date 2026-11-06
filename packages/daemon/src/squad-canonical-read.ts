@@ -37,7 +37,7 @@ export function makeSquadCanonicalReader(input: {
     const session = runtimeSessionId ? projection.readRuntimeSession(runtimeSessionId) : null;
     const dispatch = runtimeSessionId ? projection.readRuntimeDispatch(runtimeSessionId) : null;
     const events = runtimeSessionId
-      ? projection.readRuntimeSessionEvents(runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+      ? projection.readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_outcome_observed"])
       : [];
     const outcome = events.findLast((row) => row.type === "runtime_session_outcome_observed");
     const metrics =

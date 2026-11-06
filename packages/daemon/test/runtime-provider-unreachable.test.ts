@@ -125,7 +125,10 @@ function projection(startedAt: string, providerUnreachable: RuntimeProviderUnrea
     readRuntimeDispatchesBySession: () => [],
     readRuntimeInstallations: () => [installationRow],
     readRuntimeInstallation: () => installationRow,
-    readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEvents: () => {
+      throw new Error("bounded session reads must use readRuntimeSessionEventsByType");
+    },
+    readRuntimeSessionEventsByType: () => [],
     readRuntimeDispatchEventsBySession: () => [],
     currentLease: () => null,
     readDocument: () => ({ document: null }),

@@ -1,4 +1,10 @@
-import type { AgentRuntimeEventV1, RuntimeInstallation, RuntimeSession } from "./agent-runtime.ts";
+import {
+  agentRuntimeEventTypes,
+  type AgentRuntimeEventType,
+  type AgentRuntimeEventV1,
+  type RuntimeInstallation,
+  type RuntimeSession,
+} from "./agent-runtime.ts";
 
 /** Binding and installation observations are control metadata; public activity uses their projected rows. */
 export const privateRuntimeEventTypes = [
@@ -7,6 +13,15 @@ export const privateRuntimeEventTypes = [
   "runtime_session_task_bound",
   "runtime_squad_run_observed",
 ] as const;
+
+/** Validate a runtime event type filter before it becomes SQL; empty or unknown filters fail closed. */
+export function assertRuntimeEventTypes(types: readonly AgentRuntimeEventType[]): readonly AgentRuntimeEventType[] {
+  if (!Array.isArray(types) || types.length === 0)
+    throw new Error("runtime session event type filter requires at least one type");
+  for (const type of types)
+    if (!agentRuntimeEventTypes.includes(type)) throw new Error(`unknown runtime event type: ${String(type)}`);
+  return types;
+}
 
 export function publicRuntimeDispatch<T extends Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>>(
   event: T,

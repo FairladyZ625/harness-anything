@@ -22,7 +22,7 @@ export function runEntityPinAction(
     throw cell.cellCodedError("invalid_field", `${entityRef} is not a local EntityRef.`);
   const exists =
     parsed.kind === "schedule"
-      ? cell.projection.listEntities("schedule").some((row) => row.id === parsed.id)
+      ? cell.projection.getEntity("schedule", parsed.id) !== null
       : cell.projection.readEntityVersionWitness(entityRef).currentVersion !== null;
   const pinned = action.kind === "entity-pin",
     pinnedEntities = cell.projection.listPinnedEntities(),

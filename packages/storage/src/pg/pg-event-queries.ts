@@ -5,6 +5,7 @@ import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/doma
 import { withReviewerQualifiedDispatchKey } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import {
+  assertRuntimeEventTypes,
   privateRuntimeEventTypes,
   publicRuntimeDispatch,
 } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
@@ -129,6 +130,29 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           "LIMIT $9",
           [limit],
         );
+        return events
+          .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
+          .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readRuntimeSessionEventsByType: PgTaskProjectionSource["readRuntimeSessionEventsByType"] = (
+    runtimeSessionId,
+    types,
+  ) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        const requested = assertRuntimeEventTypes(types),
+          events = await readEventsInTransaction(
+            client,
+            claims,
+            readers,
+            repoId,
+            "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])",
+            [runtimeSessionId, requested, privateRuntimeEventTypes],
+          );
         return events
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
@@ -337,6 +361,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
     readReckoningEvents,
     readScheduleOutputEvents,
     readRuntimeSessionEvents,
+    readRuntimeSessionEventsByType,
     readEventList,
     readEventWitness,
     readEventSummaries,

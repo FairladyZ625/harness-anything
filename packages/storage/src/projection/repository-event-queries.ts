@@ -4,6 +4,7 @@ import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readEventList } from "./event-list-query.ts";
 import {
+  assertRuntimeEventTypes,
   privateRuntimeEventTypes,
   publicRuntimeDispatch,
 } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
@@ -138,6 +139,18 @@ const RUNTIME_SESSION_EVENTS_SQL = [
   `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
   "ORDER BY workspace_revision LIMIT ?",
 ].join(" ");
+// Narrow one session to the requested event types: a caller looking for its newest outcome must
+// not receive the session's other events only to discard them in JavaScript. event_index_runtime_session
+// bounds the scan to that session and revision order; it deliberately carries no type column, because
+// a session+type index would also be chosen for the dispatch lookup and replace its one-row seek.
+const RUNTIME_SESSION_EVENTS_BY_TYPE_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+  "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
+  `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
+  "ORDER BY workspace_revision",
+].join(" ");
 const SCHEDULE_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
@@ -170,6 +183,7 @@ export function repositoryEventQueries(
   | "readRuntimeDispatchPage"
   | "readRuntimeDispatchesByMember"
   | "readRuntimeSessionEvents"
+  | "readRuntimeSessionEventsByType"
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
   | "readReckoningEvents"
@@ -428,6 +442,14 @@ export function repositoryEventQueries(
         if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1)
           throw new Error("runtime session event page requires a non-negative revision and a positive limit");
         return queryRows(db, RUNTIME_SESSION_EVENTS_SQL, afterRevision, runtimeSessionIdValue, limit)
+          .map((row) => JSON.parse(String(row.event_json)))
+          .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
+          .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
+      }),
+    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types) =>
+      withRead((db) => {
+        const requested = assertRuntimeEventTypes(types);
+        return queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested))
           .map((row) => JSON.parse(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));

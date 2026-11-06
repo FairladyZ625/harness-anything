@@ -5,6 +5,7 @@ import type { PgTaskQueryMethods } from "../../src/pg/pg-task-query-contract.ts"
 type ValueQueries = Pick<
   TaskProjectionQueries,
   | "listEntities"
+  | "countEntities"
   | "getEntity"
   | "listPinnedEntities"
   | "readRuntimeInstallation"
@@ -74,6 +75,8 @@ function valueContract(queries: ValueQueries) {
   }));
   return {
     entities,
+    entityCounts: entities.map(({ kind, rows }) => [kind, queries.countEntities(kind, {}), rows.length]),
+    filteredEntityCount: queries.countEntities("runtime-session", { runtimeSessionId: "runtime-query-session" }),
     singleEntities: entities.flatMap(({ kind, rows }) => rows.map(({ id }) => queries.getEntity(kind, id))),
     pinned,
     installation: queries.readRuntimeInstallation("runtime-query-installation"),

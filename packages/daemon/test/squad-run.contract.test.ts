@@ -461,7 +461,10 @@ function canonicalFixture() {
         lastObservedAt: identity.acceptedAt,
       }) as RuntimeSession,
     readRuntimeDispatch: () => ({ payload: {}, occurredAt: identity.acceptedAt }),
-    readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEvents: () => {
+      throw new Error("bounded session reads must use readRuntimeSessionEventsByType");
+    },
+    readRuntimeSessionEventsByType: () => [],
   } as unknown as TaskProjection;
   return {
     rows,

@@ -140,6 +140,9 @@ export interface PgTaskProjectionSource
   readonly readRuntimeSessionEvents: (
     ...args: Parameters<TaskProjectionQueries["readRuntimeSessionEvents"]>
   ) => Promise<ReturnType<TaskProjectionQueries["readRuntimeSessionEvents"]>>;
+  readonly readRuntimeSessionEventsByType: (
+    ...args: Parameters<TaskProjectionQueries["readRuntimeSessionEventsByType"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readRuntimeSessionEventsByType"]>>;
   readonly readEventList: (query: EventListQuery) => Promise<EventListPage>;
   readonly readEventWitness: (revision: number) => Promise<ReturnType<TaskProjectionQueries["readEventWitness"]>>;
   readonly readEventSummaries: (

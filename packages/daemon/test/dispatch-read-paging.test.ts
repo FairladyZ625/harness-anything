@@ -36,6 +36,7 @@ function largeDispatchProjection(count = 500, reason = "派工原因 / long/path
     readRuntimeDispatchByResumeSource: () => null,
     readRuntimeDispatchesByAttemptGroup: () => [],
     readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEventsByType: () => [],
     readDocument: (path: string) => ({
       document: path.endsWith(".json") ? { body: JSON.stringify({ schema: "runtime-dispatch/v1", reason }) } : null,
     }),

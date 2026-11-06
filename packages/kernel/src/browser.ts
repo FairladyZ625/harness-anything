@@ -15,4 +15,4 @@ export type {
 } from "./ports/projection-contracts.ts";
 export type { ProjectionWarning } from "./ports/projection-types.ts";
 
-export { todoIsOpen, type Todo } from "./domain/todo.ts";
+export { openTodoValueEquals, todoIsOpen, type Todo } from "./domain/todo.ts";

@@ -123,6 +123,7 @@ export function taskQueryApi(
   | "readRuntimeDispatchPage"
   | "readRuntimeDispatchesByMember"
   | "readRuntimeSessionEvents"
+  | "readRuntimeSessionEventsByType"
   | "readCanonicalEvents"
   | "readScheduleEvents"
   | "readScheduleOutputEvents"

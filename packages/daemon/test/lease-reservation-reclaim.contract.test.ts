@@ -490,6 +490,7 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
       projection: {
         read: () => ({ status: "ready", snapshot: snapshot(), packagePath: "tasks/task-orphaned-reservation" }),
         readRuntimeSessionEvents: () => runtimeEvents,
+        readRuntimeSessionEventsByType: () => runtimeEvents,
         readRuntimeDispatch: () => undefined,
       },
     },

@@ -1,4 +1,4 @@
-import { todoIsOpen, todoSoftLimitAdvisory, type Todo } from "@harness-anything/kernel";
+import { openTodoValueEquals, todoSoftLimitAdvisory } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { projectedTaskSettings } from "./task-wip-settings.ts";
 
@@ -8,9 +8,7 @@ import { projectedTaskSettings } from "./task-wip-settings.ts";
  * returns the receipt advisory strings; the write itself is never refused here.
  */
 export function todoSoftLimitWarnings(cell: RepoCellOperationalContext): readonly string[] {
-  const openTodos = cell.projection
-      .listEntities("todo")
-      .filter((row) => todoIsOpen(row.value as unknown as Todo)).length,
+  const openTodos = cell.projection.countEntities("todo", openTodoValueEquals),
     advisory = todoSoftLimitAdvisory(openTodos, projectedTaskSettings(cell.projection).todos.softLimit);
   return advisory === null ? [] : [advisory];
 }

@@ -1392,7 +1392,7 @@ function unsubmittedDeliveryAttentionRows(
     )
       return [];
     const outcome = projection
-      .readRuntimeSessionEvents(latest.event.payload.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+      .readRuntimeSessionEventsByType(latest.event.payload.runtimeSessionId, ["runtime_session_outcome_observed"])
       .findLast(
         (event) => event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_outcome_observed",
       );

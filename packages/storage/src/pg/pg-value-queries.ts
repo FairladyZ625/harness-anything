@@ -1,5 +1,6 @@
 import { prefixUpperBound } from "../projection/document-read-range.ts";
 import { documentPathAncestors } from "../projection/document-path-ancestors.ts";
+import { entityValueFilterEntries } from "../projection/entity-value-filter.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { readPgTaskSessions, readPgSessionPage } from "./pg-runtime-session-queries.ts";
 import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
@@ -21,6 +22,7 @@ import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
 export type PgValueQueries = AsyncQueries<
   | "listEntities"
+  | "countEntities"
   | "getEntity"
   | "listPinnedEntities"
   | "readRuntimeInstallation"
@@ -98,6 +100,27 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       read(async (client) => {
         await ready(client);
         return listPgProjectionValues<EntityProjectionRow>(client, scope, `entity:${kind}`);
+      }),
+    countEntities: (kind, valueEquals) =>
+      read(async (client) => {
+        await ready(client);
+        // The PG projection stores the whole EntityProjectionRow, so the caller's entity fields
+        // live under its `value` member; SQLite stores the entity value at the row root.
+        const entries = entityValueFilterEntries(valueEquals),
+          filters = entries.map(([field], index) => `ha_read_index_json(value)->'value'->>'${field}' = $${6 + index}`),
+          row = await client.query<{ count: string }>(
+            `SELECT count(*)::text AS count FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4
+             AND (cardinality($5::text[])=0 OR readers && $5::text[])${filters.length === 0 ? "" : ` AND ${filters.join(" AND ")}`}`,
+            [
+              scope.tenantId,
+              scope.projectId,
+              scope.policyEpoch,
+              `entity:${kind}`,
+              readers,
+              ...entries.map(([, value]) => String(value)),
+            ],
+          );
+        return Number(row.rows[0]?.count ?? 0);
       }),
     getEntity: (kind, id) =>
       read(async (client) => {

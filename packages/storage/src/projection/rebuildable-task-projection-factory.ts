@@ -401,6 +401,7 @@ export function makeTaskProjectionReader(
       readRuntimeDispatchPage: taskQueries.readRuntimeDispatchPage,
       readRuntimeDispatchesByMember: taskQueries.readRuntimeDispatchesByMember,
       readRuntimeSessionEvents: taskQueries.readRuntimeSessionEvents,
+      readRuntimeSessionEventsByType: taskQueries.readRuntimeSessionEventsByType,
       readCanonicalEvents: taskQueries.readCanonicalEvents,
       readScheduleEvents: taskQueries.readScheduleEvents,
       readReckoningEvents: taskQueries.readReckoningEvents,

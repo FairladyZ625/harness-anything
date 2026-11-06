@@ -114,7 +114,7 @@ export function makeAgentRuntimeReadModel(input: {
         session.liveness === "live" && session.outcome === null ? (session.providerUnreachable ?? null) : null,
       providerUnreachable = evidence === undefined ? reportedProviderUnreachable : localProviderUnreachable,
       outcome = input.projection
-        .readRuntimeSessionEvents(session.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+        .readRuntimeSessionEventsByType(session.runtimeSessionId, ["runtime_session_outcome_observed"])
         .findLast(
           (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
             event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_outcome_observed",
