@@ -38,6 +38,12 @@ export function runtimeAuthPresentationText(
     return t(instance.authMode === "api-key" ? "agentRuntime.apiKeyProbing" : "agentRuntime.authProbing");
   if (presentation.state === "failed") return t("agentRuntime.authProbeFailed", { error: presentation.error ?? "" });
   return instance.authReadiness.status === "ready"
-    ? t(instance.authMode === "api-key" ? "agentRuntime.apiKeyReady" : "agentRuntime.authMetadataOnly")
+    ? t(
+        instance.authMode === "api-key"
+          ? "agentRuntime.apiKeyReady"
+          : instance.authReadiness.basis === "provider"
+            ? "agentRuntime.authVerified"
+            : "agentRuntime.authMetadataOnly",
+      )
     : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
 }

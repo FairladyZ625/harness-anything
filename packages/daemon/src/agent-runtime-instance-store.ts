@@ -244,11 +244,24 @@ export function openRuntimeInstanceStore(input: {
       return rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
-    if (config.auth.mode === "subscription")
+    if (config.auth.mode === "subscription") {
+      const codexProbe =
+        !input.subscriptionReady && config.kindId === "codex"
+          ? {
+              config,
+              cwd: path.join(instancesRoot, config.instanceId),
+              model: selectRuntimeModel(config),
+              effort: selectRuntimeEffort(config),
+              fast: selectRuntimeFast(config),
+              permissionMode: "read-only" as const,
+            }
+          : undefined;
+      if (codexProbe) mkdirSync(codexProbe.cwd, { recursive: true, mode: 0o700 });
       return rememberAuthReadiness(
         config.instanceId,
-        await probeSubscription(installation, env, config.isolationState),
+        await probeSubscription(installation, env, config.isolationState, codexProbe),
       );
+    }
     try {
       const secret = await resolveCredential(config.auth.credentialRef);
       return rememberAuthReadiness(
@@ -1072,11 +1085,14 @@ export function openRuntimeInstanceStore(input: {
     installation: RuntimeInstallationWitness,
     env: NodeJS.ProcessEnv,
     isolationState: RuntimeIsolationState,
+    codexProbe?: NonNullable<Parameters<typeof providerSubscriptionReadiness>[0]["codexProbe"]>,
   ): Promise<RuntimeAuthReadiness> {
     try {
-      return await (
-        input.subscriptionReady ?? ((probe) => providerSubscriptionReadiness({ ...probe, isolationState }, platform))
-      )({ installation, env });
+      if (input.subscriptionReady) return await input.subscriptionReady({ installation, env });
+      return await providerSubscriptionReadiness(
+        { installation, env, isolationState, ...(codexProbe ? { codexProbe } : {}) },
+        platform,
+      );
     } catch (error) {
       consumeKnownError(error);
       return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
@@ -1086,7 +1102,5 @@ export function openRuntimeInstanceStore(input: {
 
 function authReadinessLabel(readiness: RuntimeAuthReadiness): string {
   if (readiness.code === "runtime_auth_not_checked") return "not-checked";
-  // A ready verdict built from local login state must not print as bare "ready": the
-  // first real request is the only thing that can verify a refresh token.
   return readiness.status === "ready" && readiness.basis === "metadata" ? "ready (metadata)" : readiness.status;
 }

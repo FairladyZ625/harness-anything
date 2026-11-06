@@ -34,8 +34,8 @@ interface AgentRuntimeInstanceCommonDto {
     readonly status: "ready" | "not-ready";
     readonly code: string | null;
     readonly hint: string | null;
-    /** `"metadata"` marks a ready verdict that only observed local login state/credential presence. */
-    readonly basis?: "metadata";
+    /** `"metadata"` observes local auth state; `"provider"` observes a completed authenticated request. */
+    readonly basis?: "metadata" | "provider";
   };
   readonly hostingCredentialState?: "configured";
   readonly isolationState: "enforced" | "operator-environment";
@@ -511,7 +511,7 @@ function validReadiness(value: unknown): boolean {
     isAgentRuntimeContractRecord(value) &&
     hasAgentRuntimeContractFields(value, ["status", "code", "hint"], ["basis"]) &&
     ["ready", "not-ready"].includes(String(value.status)) &&
-    (value.basis === undefined || value.basis === "metadata") &&
+    (value.basis === undefined || value.basis === "metadata" || value.basis === "provider") &&
     (value.code === null || typeof value.code === "string") &&
     (value.hint === null || typeof value.hint === "string") &&
     (value.status === "ready"

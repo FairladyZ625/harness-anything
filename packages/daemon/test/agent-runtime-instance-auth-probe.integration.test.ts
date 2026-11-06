@@ -5,7 +5,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { launchArgs, isolatedEnvironment } from "../src/agent-runtime-launch-config.ts";
 import type { RuntimeInstanceConfig } from "../src/agent-runtime-instance-types.ts";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { runProcessExitAsync } from "../src/process-port.ts";
@@ -28,14 +27,9 @@ interface CapturedRequest {
 interface Scenario {
   readonly root: string;
   readonly server: Server;
-  readonly providerUrl: string;
   readonly requests: CapturedRequest[];
   readonly store: ReturnType<typeof openRuntimeInstanceStore>;
-  readonly config: RuntimeInstanceConfig;
-  readonly executablePath: string;
-  readonly executableScript: string;
   readonly instanceRoot: string;
-  readonly sourceEnvironment: NodeJS.ProcessEnv;
   close(): Promise<void>;
 }
 
@@ -55,11 +49,15 @@ test("Codex probe distinguishes a 401 invalid_api_key from a locally present log
       readiness = await scenario.store.authStatus("codex-probe");
     context.diagnostic(
       `fake provider returned HTTP 401 invalid_api_key (Incorrect API key provided: [FAKE_TOKEN]); ` +
-        `pre-fix probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
+        `probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
     );
     assert.equal(dispatch.exitCode, 1);
     assert.equal(readiness.code, "runtime_authentication_failed");
     assert.doesNotMatch(readiness.hint ?? "", /agt_code_fake_probe_token/u);
+    assert.equal(
+      (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
+      "unauthenticated",
+    );
     assert.deepEqual(
       scenario.requests.map(({ method, url }) => [method, url]),
       [
@@ -88,11 +86,15 @@ test("Codex probe distinguishes exhausted quota from login metadata", async (con
       readiness = await scenario.store.authStatus("codex-probe");
     context.diagnostic(
       `fake provider returned HTTP 429 insufficient_quota; ` +
-        `pre-fix probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
+        `probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
     );
     assert.equal(dispatch.exitCode, 1);
     assert.equal(readiness.code, "runtime_quota_unavailable");
     assert.match(readiness.hint ?? "", /quota/u);
+    assert.equal(
+      (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
+      "authenticated",
+    );
     assert.deepEqual(
       scenario.requests.map(({ method, url }) => [method, url]),
       [
@@ -115,11 +117,15 @@ test("Codex probe distinguishes an invalid refresh token", async (context) => {
       readiness = await scenario.store.authStatus("codex-probe");
     context.diagnostic(
       `fake Codex emitted turn.failed code=invalid_refresh_token; ` +
-        `pre-fix probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
+        `probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
     );
     assert.equal(dispatch.exitCode, 1);
     assert.equal(readiness.code, "runtime_refresh_token_invalid");
     assert.match(readiness.hint ?? "", /runtime instance login/u);
+    assert.equal(
+      (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
+      "unauthenticated",
+    );
     assert.equal(scenario.requests.length, 0);
   } finally {
     await scenario.close();
@@ -132,7 +138,11 @@ test("Codex probe stays ready after a successful provider response", async () =>
     const dispatch = await runProviderCall(scenario),
       readiness = await scenario.store.authStatus("codex-probe");
     assert.equal(dispatch.exitCode, 0);
-    assert.deepEqual(readiness, { status: "ready", code: null, hint: null });
+    assert.deepEqual(readiness, { status: "ready", code: null, hint: null, basis: "provider" });
+    assert.equal(
+      (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
+      "authenticated",
+    );
     assert.deepEqual(
       scenario.requests.map(({ method, url }) => [method, url]),
       [
@@ -210,14 +220,9 @@ async function makeScenario(response: ProviderResponse, refreshToken = "fake-ref
   return {
     root,
     server,
-    providerUrl,
     requests,
     store,
-    config,
-    executablePath,
-    executableScript,
     instanceRoot,
-    sourceEnvironment,
     close: async () => {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       rmSync(root, { recursive: true, force: true });
@@ -226,25 +231,12 @@ async function makeScenario(response: ProviderResponse, refreshToken = "fake-ref
 }
 
 async function runProviderCall(scenario: Scenario) {
-  const env = isolatedEnvironment(scenario.sourceEnvironment, scenario.instanceRoot, "codex", process.platform),
-    args = launchArgs(
-      scenario.config,
-      scenario.config.defaultModel,
-      "Reply with exactly READY. Do not use tools or inspect files.",
-      undefined,
-      null,
-      "read-only",
-      false,
-      undefined,
-      process.platform,
-    );
-  return runProcessExitAsync(
-    process.execPath,
-    [scenario.executableScript, ...args],
-    scenario.instanceRoot,
-    env,
-    "Reply with exactly READY. Do not use tools or inspect files.\n",
-  );
+  const launch = await scenario.store.prepareLaunch("codex-probe", {
+    cwd: scenario.instanceRoot,
+    prompt: "Reply with exactly READY. Do not use tools or inspect files.",
+    permissionMode: "read-only",
+  });
+  return runProcessExitAsync(launch.executablePath, launch.args, launch.cwd, launch.env, `${launch.prompt}\n`);
 }
 
 const fakeCodexBody = `

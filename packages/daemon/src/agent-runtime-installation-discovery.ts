@@ -3,7 +3,7 @@ import { accessSync, constants, realpathSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
-import { runProcessTextAsync } from "./process-port.ts";
+import { runProcessExitAsync, runProcessTextAsync, type ProcessExitResult } from "./process-port.ts";
 import { runtimeKindForId, runtimeKinds, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
 import { runtimeVersionGate } from "./runtime-version.ts";
 
@@ -206,17 +206,45 @@ export async function runExecutable(
     readonly captureOutput: boolean;
   },
 ): Promise<string> {
-  const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath);
-  const command =
-    shim && process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe") : "cmd.exe";
-  const stdout = await runProcessTextAsync(
-    shim ? command : executablePath,
-    shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],
-    undefined,
-    options.env,
-    undefined,
-    undefined,
-    { timeoutMs: options.timeoutMs, ...(shim ? { windowsVerbatimArguments: true } : {}) },
-  );
+  const invocation = executableInvocation(platform, executablePath, args),
+    { command, argv, windowsVerbatimArguments } = invocation;
+  const stdout = await runProcessTextAsync(command, argv, undefined, options.env, undefined, undefined, {
+    timeoutMs: options.timeoutMs,
+    ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+  });
   return options.captureOutput ? stdout.trim() : "";
+}
+
+export function runExecutableResult(
+  platform: NodeJS.Platform,
+  executablePath: string,
+  args: readonly string[],
+  options: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly timeoutMs: number;
+    readonly cwd?: string;
+    readonly input?: string;
+  },
+): Promise<ProcessExitResult> {
+  const invocation = executableInvocation(platform, executablePath, args),
+    { command, argv, windowsVerbatimArguments } = invocation;
+  return runProcessExitAsync(command, argv, options.cwd, options.env, options.input, undefined, {
+    timeoutMs: options.timeoutMs,
+    ...(windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+  });
+}
+
+function executableInvocation(
+  platform: NodeJS.Platform,
+  executablePath: string,
+  args: readonly string[],
+): { readonly command: string; readonly argv: readonly string[]; readonly windowsVerbatimArguments: boolean } {
+  const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath),
+    command =
+      shim && process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe") : "cmd.exe";
+  return {
+    command: shim ? command : executablePath,
+    argv: shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],
+    windowsVerbatimArguments: shim,
+  };
 }

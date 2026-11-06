@@ -54,6 +54,7 @@
   "agentRuntime.authModeSubscription": "Subscription login",
   "agentRuntime.authModeApiKey": "API key",
   "agentRuntime.authMetadataOnly": "Signed in; refresh token not verified",
+  "agentRuntime.authVerified": "Authentication verified",
   "agentRuntime.authNotChecked": "Authentication not checked",
   "agentRuntime.authProbing": "Checking authentication…",
   "agentRuntime.authNotReady": "Authentication not ready",

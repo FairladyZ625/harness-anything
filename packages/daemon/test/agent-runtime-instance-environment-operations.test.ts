@@ -550,13 +550,9 @@ test("win32 installation discovery probes PATHEXT suffixes and witnesses the shi
   }
 });
 
-// The shared stub fixture must forward the exact argv through the platform's
-// real launch shape: the discovery version probe proves single-argument
-// passthrough (`--version`), and the codex subscription probe proves
-// multi-argument passthrough (`login status`) — the stub answers ready only
-// when it receives that argv verbatim, so a shim that dropped or reordered
-// arguments would surface as runtime_subscription_required, not readiness.
-test("the shared provider stub fixture launches with the exact argv on every platform", async () => {
+// The shared stub fixture must forward argv through the platform's real launch
+// shape for version, login-status, and Codex provider-request commands.
+test("the shared provider stub fixture forwards probe argv on every platform", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-stub-fixture-")),
     bin = path.join(root, "bin"),
     witness = path.join(root, "argv-witness.json"),
@@ -566,7 +562,7 @@ test("the shared provider stub fixture launches with the exact argv on every pla
     requireDirectory(bin);
     const executablePath = writeProviderExecutable(
       script,
-      `const fs = require("node:fs");\nconst argv = process.argv.slice(2), serialized = JSON.stringify(argv);\nfs.writeFileSync(${JSON.stringify(witness)}, serialized);\nconsole.log(serialized);\nif (serialized !== JSON.stringify(["--version"]) && serialized !== JSON.stringify(["login", "status"])) process.exit(9);\n`,
+      `const fs = require("node:fs");\nconst argv = process.argv.slice(2), calls = fs.existsSync(${JSON.stringify(witness)}) ? JSON.parse(fs.readFileSync(${JSON.stringify(witness)}, "utf8")) : [];\ncalls.push(argv); fs.writeFileSync(${JSON.stringify(witness)}, JSON.stringify(calls));\nif (argv[0] === "--version") { console.log("stub-runtime-1.0.0"); process.exit(0); }\nif (argv[0] === "debug") { console.log(JSON.stringify({ models: [{ slug: "argv-model" }] })); process.exit(0); }\nif (argv.length === 2 && argv[0] === "login" && argv[1] === "status") process.exit(0);\nif (argv[0] === "exec") { console.log(JSON.stringify({ type: "turn.completed" })); process.exit(0); }\nprocess.exit(9);\n`,
     );
     assert.equal(readFileSync(script, "utf8").startsWith(`#!${process.execPath}\n`), true);
     if (process.platform === "win32") assert.equal(executablePath.endsWith(".cmd"), true);
@@ -574,7 +570,7 @@ test("the shared provider stub fixture launches with the exact argv on every pla
     const installations = await discoverRuntimeInstallations({ env: { PATH: bin } });
     assert.equal(installations.length, 1, JSON.stringify(installations));
     assert.equal(installations[0]!.executablePath, realpathSync(executablePath));
-    assert.equal(installations[0]!.version, JSON.stringify(["--version"]));
+    assert.equal(installations[0]!.version, "stub-runtime-1.0.0");
     const store = openRuntimeInstanceStore({ userRoot, discover: () => installations });
     store.create({
       schemaVersion: 2,
@@ -593,9 +589,12 @@ test("the shared provider stub fixture launches with the exact argv on every pla
       status: "ready",
       code: null,
       hint: null,
-      basis: "metadata",
+      basis: "provider",
     });
-    assert.equal(readFileSync(witness, "utf8"), JSON.stringify(["login", "status"]));
+    const calls = JSON.parse(readFileSync(witness, "utf8")) as string[][];
+    assert.deepEqual(calls[2], ["login", "status"]);
+    assert.equal(calls[3]?.[0], "exec");
+    assert.ok(calls[3]?.includes("argv-model"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

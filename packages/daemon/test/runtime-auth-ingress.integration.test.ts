@@ -16,8 +16,8 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 // The provider stub models an interactive CLI: `login` prompts on the terminal, waits for the
 // person to type a token, and only then writes credentials into the isolated CODEX_HOME; the
-// readiness probe (`login status`) answers from that same state root. No credential ever exists
-// outside the stub's own prompted flow and its isolated state root.
+// readiness probe checks login status and performs a minimal provider request from that same
+// state root. No credential ever exists outside the stub's prompted flow and isolated state root.
 const stubBody = `const fs = require("node:fs");
 const args = process.argv.slice(2);
 const authFile = (process.env.CODEX_HOME ?? "") + "/auth.json";
@@ -30,6 +30,14 @@ if (args[0] === "login") {
   process.stdin.on("data", (chunk) => { buffer += chunk; if (!buffer.includes("\\n")) return; const token = buffer.trim(); fs.mkdirSync(process.env.CODEX_HOME ?? "", { recursive: true }); fs.writeFileSync(authFile, JSON.stringify({ token })); console.log("Signed in as " + token + "."); process.exit(0); });
   process.stdin.resume();
   return;
+}
+if (args[0] === "exec") {
+  if (!fs.existsSync(authFile)) {
+    console.log(JSON.stringify({ type: "turn.failed", error: { code: "invalid_refresh_token" } }));
+    process.exit(1);
+  }
+  console.log(JSON.stringify({ type: "turn.completed" }));
+  process.exit(0);
 }
 process.exit(9);
 `;
@@ -161,7 +169,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
           status: "ready",
           code: null,
           hint: null,
-          basis: "metadata",
+          basis: "provider",
         });
       });
     }
