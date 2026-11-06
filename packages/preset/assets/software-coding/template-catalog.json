@@ -18,16 +18,8 @@
       "requiredAnchors": ["## Architecture", "## Development", "## Integrations", "## Research"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Architecture", "## Development", "## Integrations", "## Research"],
-          "bodyPath": "templates/repository.context.index/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Architecture", "## Development", "## Integrations", "## Research"],
-          "bodyPath": "templates/repository.context.index/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Architecture", "## Development", "## Integrations", "## Research"], "bodyPath": "templates/repository.context.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Architecture", "## Development", "## Integrations", "## Research"], "bodyPath": "templates/repository.context.index/en-US.md" }
       ]
     },
     {
@@ -40,16 +32,8 @@
       "requiredAnchors": ["## Purpose", "## Opt-in Boundary"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Purpose", "## Opt-in Boundary"],
-          "bodyPath": "templates/repository.context.architecture/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Purpose", "## Opt-in Boundary"],
-          "bodyPath": "templates/repository.context.architecture/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Purpose", "## Opt-in Boundary"], "bodyPath": "templates/repository.context.architecture/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Purpose", "## Opt-in Boundary"], "bodyPath": "templates/repository.context.architecture/en-US.md" }
       ]
     },
     {
@@ -62,11 +46,7 @@
       "requiredAnchors": ["\"schema\": \"architecture-manifest/v1\"", "\"modelContract\": \"architecture-model/v1\""],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["\"schema\": \"architecture-manifest/v1\"", "\"modelContract\": \"architecture-model/v1\""],
-          "bodyPath": "templates/repository.architecture.manifest/en-US.txt"
-        }
+        { "locale": "en-US", "anchors": ["\"schema\": \"architecture-manifest/v1\"", "\"modelContract\": \"architecture-model/v1\""], "bodyPath": "templates/repository.architecture.manifest/en-US.txt" }
       ]
     },
     {
@@ -79,11 +59,7 @@
       "requiredAnchors": ["\"name\": \"repository-architecture\""],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["\"name\": \"repository-architecture\""],
-          "bodyPath": "templates/repository.architecture.likec4.config/en-US.txt"
-        }
+        { "locale": "en-US", "anchors": ["\"name\": \"repository-architecture\""], "bodyPath": "templates/repository.architecture.likec4.config/en-US.txt" }
       ]
     },
     {
@@ -96,11 +72,7 @@
       "requiredAnchors": ["specification {"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["specification {"],
-          "bodyPath": "templates/repository.architecture.likec4.specification/en-US.txt"
-        }
+        { "locale": "en-US", "anchors": ["specification {"], "bodyPath": "templates/repository.architecture.likec4.specification/en-US.txt" }
       ]
     },
     {
@@ -113,11 +85,7 @@
       "requiredAnchors": ["model {", "system.repository"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["model {", "system.repository"],
-          "bodyPath": "templates/repository.architecture.likec4.model/en-US.txt"
-        }
+        { "locale": "en-US", "anchors": ["model {", "system.repository"], "bodyPath": "templates/repository.architecture.likec4.model/en-US.txt" }
       ]
     },
     {
@@ -130,11 +98,7 @@
       "requiredAnchors": ["view landscape"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["view landscape"],
-          "bodyPath": "templates/repository.architecture.likec4.view.landscape/en-US.txt"
-        }
+        { "locale": "en-US", "anchors": ["view landscape"], "bodyPath": "templates/repository.architecture.likec4.view.landscape/en-US.txt" }
       ]
     },
     {
@@ -147,11 +111,7 @@
       "requiredAnchors": ["dynamic view writePath"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["dynamic view writePath"],
-          "bodyPath": "templates/repository.architecture.likec4.view.write-path/en-US.txt"
-        }
+        { "locale": "en-US", "anchors": ["dynamic view writePath"], "bodyPath": "templates/repository.architecture.likec4.view.write-path/en-US.txt" }
       ]
     },
     {
@@ -164,11 +124,7 @@
       "requiredAnchors": ["view runtime"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["view runtime"],
-          "bodyPath": "templates/repository.architecture.likec4.view.runtime/en-US.txt"
-        }
+        { "locale": "en-US", "anchors": ["view runtime"], "bodyPath": "templates/repository.architecture.likec4.view.runtime/en-US.txt" }
       ]
     },
     {
@@ -181,16 +137,8 @@
       "requiredAnchors": ["## Local Setup", "## Code Map", "## External Context"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Local Setup", "## Code Map", "## External Context"],
-          "bodyPath": "templates/repository.context.development/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Local Setup", "## Code Map", "## External Context"],
-          "bodyPath": "templates/repository.context.development/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Local Setup", "## Code Map", "## External Context"], "bodyPath": "templates/repository.context.development/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Local Setup", "## Code Map", "## External Context"], "bodyPath": "templates/repository.context.development/en-US.md" }
       ]
     },
     {
@@ -203,16 +151,8 @@
       "requiredAnchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"],
-          "bodyPath": "templates/repository.context.integrations/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"],
-          "bodyPath": "templates/repository.context.integrations/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"], "bodyPath": "templates/repository.context.integrations/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## APIs", "## Events", "## Webhooks", "## Vendors"], "bodyPath": "templates/repository.context.integrations/en-US.md" }
       ]
     },
     {
@@ -225,16 +165,8 @@
       "requiredAnchors": ["## Package Convention", "## Sources"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Package Convention", "## Sources"],
-          "bodyPath": "templates/repository.context.research/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Package Convention", "## Sources"],
-          "bodyPath": "templates/repository.context.research/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Package Convention", "## Sources"], "bodyPath": "templates/repository.context.research/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Package Convention", "## Sources"], "bodyPath": "templates/repository.context.research/en-US.md" }
       ]
     },
     {
@@ -247,16 +179,8 @@
       "requiredAnchors": ["## Purpose", "## Active Rules"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Purpose", "## Active Rules"],
-          "bodyPath": "templates/repository.standard.index/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Purpose", "## Active Rules"],
-          "bodyPath": "templates/repository.standard.index/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Purpose", "## Active Rules"], "bodyPath": "templates/repository.standard.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Purpose", "## Active Rules"], "bodyPath": "templates/repository.standard.index/en-US.md" }
       ]
     },
     {
@@ -269,16 +193,8 @@
       "requiredAnchors": ["## Change Flow", "## Preservation"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Change Flow", "## Preservation"],
-          "bodyPath": "templates/repository.standard.governance/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Change Flow", "## Preservation"],
-          "bodyPath": "templates/repository.standard.governance/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Change Flow", "## Preservation"], "bodyPath": "templates/repository.standard.governance/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Change Flow", "## Preservation"], "bodyPath": "templates/repository.standard.governance/en-US.md" }
       ]
     },
     {
@@ -291,16 +207,8 @@
       "requiredAnchors": ["## Decision Boundary", "## Evidence"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Decision Boundary", "## Evidence"],
-          "bodyPath": "templates/repository.standard.decision-writing/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Decision Boundary", "## Evidence"],
-          "bodyPath": "templates/repository.standard.decision-writing/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Decision Boundary", "## Evidence"], "bodyPath": "templates/repository.standard.decision-writing/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Decision Boundary", "## Evidence"], "bodyPath": "templates/repository.standard.decision-writing/en-US.md" }
       ]
     },
     {
@@ -313,16 +221,8 @@
       "requiredAnchors": ["\"schema\": \"walls/v1\""],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["\"schema\": \"walls/v1\""],
-          "bodyPath": "templates/repository.walls.manifest/zh-CN.txt"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["\"schema\": \"walls/v1\""],
-          "bodyPath": "templates/repository.walls.manifest/en-US.txt"
-        }
+        { "locale": "zh-CN", "anchors": ["\"schema\": \"walls/v1\""], "bodyPath": "templates/repository.walls.manifest/zh-CN.txt" },
+        { "locale": "en-US", "anchors": ["\"schema\": \"walls/v1\""], "bodyPath": "templates/repository.walls.manifest/en-US.txt" }
       ]
     },
     {
@@ -335,16 +235,8 @@
       "requiredAnchors": ["const manifest", "const needsReport"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["const manifest", "const needsReport"],
-          "bodyPath": "templates/repository.walls.runner/zh-CN.txt"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["const manifest", "const needsReport"],
-          "bodyPath": "templates/repository.walls.runner/en-US.txt"
-        }
+        { "locale": "zh-CN", "anchors": ["const manifest", "const needsReport"], "bodyPath": "templates/repository.walls.runner/zh-CN.txt" },
+        { "locale": "en-US", "anchors": ["const manifest", "const needsReport"], "bodyPath": "templates/repository.walls.runner/en-US.txt" }
       ]
     },
     {
@@ -368,37 +260,11 @@
       "slot": "repository.agent.base",
       "materializeAs": "{{paths.rootDir}}/AGENTS.md",
       "frontmatterSchema": "none",
-      "requiredAnchors": [
-        "## Context Loading",
-        "## Worktree Discipline",
-        "## Kernel Workflow",
-        "## Relation Rules",
-        "## Write Coordination"
-      ],
+      "requiredAnchors": ["## Context Loading", "## Worktree Discipline", "## Kernel Workflow", "## Relation Rules", "## Write Coordination"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Context Loading",
-            "## Worktree Discipline",
-            "## Kernel Workflow",
-            "## Relation Rules",
-            "## Write Coordination"
-          ],
-          "bodyPath": "templates/repository.agent.base/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Context Loading",
-            "## Worktree Discipline",
-            "## Kernel Workflow",
-            "## Relation Rules",
-            "## Write Coordination"
-          ],
-          "bodyPath": "templates/repository.agent.base/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Context Loading", "## Worktree Discipline", "## Kernel Workflow", "## Relation Rules", "## Write Coordination"], "bodyPath": "templates/repository.agent.base/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Context Loading", "## Worktree Discipline", "## Kernel Workflow", "## Relation Rules", "## Write Coordination"], "bodyPath": "templates/repository.agent.base/en-US.md" }
       ]
     },
     {
@@ -408,37 +274,11 @@
       "slot": "repository.agent.overlay",
       "materializeAs": "{{paths.rootDir}}/AGENTS.md",
       "frontmatterSchema": "none",
-      "requiredAnchors": [
-        "## Harness CLI (software/coding)",
-        "## Repository Scaffolds",
-        "## Architecture-aware Changes",
-        "## Governance Routing",
-        "## Script Discovery"
-      ],
+      "requiredAnchors": ["## Harness CLI (software/coding)", "## Repository Scaffolds", "## Architecture-aware Changes", "## Governance Routing", "## Script Discovery"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Harness CLI (software/coding)",
-            "## Repository Scaffolds",
-            "## Architecture-aware Changes",
-            "## Governance Routing",
-            "## Script Discovery"
-          ],
-          "bodyPath": "templates/repository.agent.overlay/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Harness CLI (software/coding)",
-            "## Repository Scaffolds",
-            "## Architecture-aware Changes",
-            "## Governance Routing",
-            "## Script Discovery"
-          ],
-          "bodyPath": "templates/repository.agent.overlay/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Harness CLI (software/coding)", "## Repository Scaffolds", "## Architecture-aware Changes", "## Governance Routing", "## Script Discovery"], "bodyPath": "templates/repository.agent.overlay/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Harness CLI (software/coding)", "## Repository Scaffolds", "## Architecture-aware Changes", "## Governance Routing", "## Script Discovery"], "bodyPath": "templates/repository.agent.overlay/en-US.md" }
       ]
     },
     {
@@ -462,64 +302,11 @@
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": [
-        "## Brief",
-        "## Goal",
-        "## Cheaper Alternatives",
-        "## Context",
-        "## Required Reading",
-        "## Entry Conditions",
-        "## Dependencies",
-        "## Execution Surface",
-        "## Constraints",
-        "## Checkpoint",
-        "## Implementation Plan",
-        "## Deliverable Contract",
-        "## Evidence Protocol",
-        "## Verification"
-      ],
+      "requiredAnchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Brief",
-            "## Goal",
-            "## Cheaper Alternatives",
-            "## Context",
-            "## Required Reading",
-            "## Entry Conditions",
-            "## Dependencies",
-            "## Execution Surface",
-            "## Constraints",
-            "## Checkpoint",
-            "## Implementation Plan",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "templates/task.plan/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Brief",
-            "## Goal",
-            "## Cheaper Alternatives",
-            "## Context",
-            "## Required Reading",
-            "## Entry Conditions",
-            "## Dependencies",
-            "## Execution Surface",
-            "## Constraints",
-            "## Checkpoint",
-            "## Implementation Plan",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "templates/task.plan/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
       ]
     },
     {
@@ -529,52 +316,11 @@
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": [
-        "## Brief",
-        "## Goal",
-        "## Cheaper Alternatives",
-        "## Context",
-        "## Required Reading",
-        "## Execution Surface",
-        "## Constraints",
-        "## Deliverable Contract",
-        "## Evidence Protocol",
-        "## Verification"
-      ],
+      "requiredAnchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Brief",
-            "## Goal",
-            "## Cheaper Alternatives",
-            "## Context",
-            "## Required Reading",
-            "## Execution Surface",
-            "## Constraints",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "templates/task.plan.v2/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Brief",
-            "## Goal",
-            "## Cheaper Alternatives",
-            "## Context",
-            "## Required Reading",
-            "## Execution Surface",
-            "## Constraints",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "templates/task.plan.v2/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/en-US.md" }
       ]
     },
     {
@@ -587,16 +333,8 @@
       "requiredAnchors": ["## Brief", "## Context", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Brief", "## Context", "## Verification"],
-          "bodyPath": "templates/task.plan.lightweight/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Brief", "## Context", "## Verification"],
-          "bodyPath": "templates/task.plan.lightweight/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Context", "## Verification"], "bodyPath": "templates/task.plan.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Context", "## Verification"], "bodyPath": "templates/task.plan.lightweight/en-US.md" }
       ]
     },
     {
@@ -606,61 +344,11 @@
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": [
-        "## Brief",
-        "## Goal",
-        "## Context",
-        "## Required Reading",
-        "## Entry Conditions",
-        "## Dependencies",
-        "## Execution Surface",
-        "## Constraints",
-        "## Checkpoint",
-        "## Implementation Plan",
-        "## Deliverable Contract",
-        "## Evidence Protocol",
-        "## Verification"
-      ],
+      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Brief",
-            "## Goal",
-            "## Context",
-            "## Required Reading",
-            "## Entry Conditions",
-            "## Dependencies",
-            "## Execution Surface",
-            "## Constraints",
-            "## Checkpoint",
-            "## Implementation Plan",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "presets/lifecycle-blackbox-acceptance/templates/task.lifecycle.blackbox.plan/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Brief",
-            "## Goal",
-            "## Context",
-            "## Required Reading",
-            "## Entry Conditions",
-            "## Dependencies",
-            "## Execution Surface",
-            "## Constraints",
-            "## Checkpoint",
-            "## Implementation Plan",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "presets/lifecycle-blackbox-acceptance/templates/task.lifecycle.blackbox.plan/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "presets/lifecycle-blackbox-acceptance/templates/task.lifecycle.blackbox.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "presets/lifecycle-blackbox-acceptance/templates/task.lifecycle.blackbox.plan/en-US.md" }
       ]
     },
     {
@@ -670,70 +358,11 @@
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": [
-        "## Mission",
-        "## Usage Questions",
-        "## Wave Decomposition",
-        "## Exit Criteria",
-        "## Context",
-        "## Required Reading",
-        "## Entry Conditions",
-        "## Dependencies",
-        "## Execution Surface",
-        "## PR/merge Operations",
-        "## Constraints",
-        "## Checkpoint",
-        "## Implementation Plan",
-        "## Deliverable Contract",
-        "## Evidence Protocol",
-        "## Verification"
-      ],
+      "requiredAnchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Mission",
-            "## Usage Questions",
-            "## Wave Decomposition",
-            "## Exit Criteria",
-            "## Context",
-            "## Required Reading",
-            "## Entry Conditions",
-            "## Dependencies",
-            "## Execution Surface",
-            "## PR/merge Operations",
-            "## Constraints",
-            "## Checkpoint",
-            "## Implementation Plan",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "templates/task.work.plan/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Mission",
-            "## Usage Questions",
-            "## Wave Decomposition",
-            "## Exit Criteria",
-            "## Context",
-            "## Required Reading",
-            "## Entry Conditions",
-            "## Dependencies",
-            "## Execution Surface",
-            "## PR/merge Operations",
-            "## Constraints",
-            "## Checkpoint",
-            "## Implementation Plan",
-            "## Deliverable Contract",
-            "## Evidence Protocol",
-            "## Verification"
-          ],
-          "bodyPath": "templates/task.work.plan/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.work.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.work.plan/en-US.md" }
       ]
     },
     {
@@ -743,37 +372,11 @@
       "slot": "task.closeout",
       "materializeAs": "closeout.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": [
-        "## Summary",
-        "## What Changed",
-        "## Verification",
-        "## Residual Risk",
-        "## Same Mechanism Elsewhere"
-      ],
+      "requiredAnchors": ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Summary",
-            "## What Changed",
-            "## Verification",
-            "## Residual Risk",
-            "## Same Mechanism Elsewhere"
-          ],
-          "bodyPath": "templates/task.closeout/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Summary",
-            "## What Changed",
-            "## Verification",
-            "## Residual Risk",
-            "## Same Mechanism Elsewhere"
-          ],
-          "bodyPath": "templates/task.closeout/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"], "bodyPath": "templates/task.closeout/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"], "bodyPath": "templates/task.closeout/en-US.md" }
       ]
     },
     {
@@ -786,16 +389,8 @@
       "requiredAnchors": ["## Summary", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Summary", "## Verification"],
-          "bodyPath": "templates/task.closeout.lightweight/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": ["## Summary", "## Verification"],
-          "bodyPath": "templates/task.closeout.lightweight/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/en-US.md" }
       ]
     },
     {
@@ -819,46 +414,11 @@
       "slot": "task.code.impact.analysis",
       "materializeAs": "code-impact-analysis.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": [
-        "## Change Intent",
-        "## Affected Surfaces",
-        "## Dependency Paths",
-        "## Architecture Context",
-        "## Compatibility and Data",
-        "## Test and Verification Impact",
-        "## Risks and Unknowns",
-        "## Evidence"
-      ],
+      "requiredAnchors": ["## Change Intent", "## Affected Surfaces", "## Dependency Paths", "## Architecture Context", "## Compatibility and Data", "## Test and Verification Impact", "## Risks and Unknowns", "## Evidence"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Change Intent",
-            "## Affected Surfaces",
-            "## Dependency Paths",
-            "## Architecture Context",
-            "## Compatibility and Data",
-            "## Test and Verification Impact",
-            "## Risks and Unknowns",
-            "## Evidence"
-          ],
-          "bodyPath": "templates/task.code.impact.analysis/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Change Intent",
-            "## Affected Surfaces",
-            "## Dependency Paths",
-            "## Architecture Context",
-            "## Compatibility and Data",
-            "## Test and Verification Impact",
-            "## Risks and Unknowns",
-            "## Evidence"
-          ],
-          "bodyPath": "templates/task.code.impact.analysis/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Change Intent", "## Affected Surfaces", "## Dependency Paths", "## Architecture Context", "## Compatibility and Data", "## Test and Verification Impact", "## Risks and Unknowns", "## Evidence"], "bodyPath": "templates/task.code.impact.analysis/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Change Intent", "## Affected Surfaces", "## Dependency Paths", "## Architecture Context", "## Compatibility and Data", "## Test and Verification Impact", "## Risks and Unknowns", "## Evidence"], "bodyPath": "templates/task.code.impact.analysis/en-US.md" }
       ]
     },
     {
@@ -868,40 +428,11 @@
       "slot": "task.worker.flow",
       "materializeAs": "worker-flow.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": [
-        "## Dispatch Goal",
-        "## Scope Boundaries",
-        "## Inputs and Dependencies",
-        "## Acceptance Criteria",
-        "## Stop Conditions",
-        "## Commit and Handoff"
-      ],
+      "requiredAnchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"],
       "fallbackLocale": "en-US",
       "locales": [
-        {
-          "locale": "zh-CN",
-          "anchors": [
-            "## Dispatch Goal",
-            "## Scope Boundaries",
-            "## Inputs and Dependencies",
-            "## Acceptance Criteria",
-            "## Stop Conditions",
-            "## Commit and Handoff"
-          ],
-          "bodyPath": "templates/task.worker.flow.v2/zh-CN.md"
-        },
-        {
-          "locale": "en-US",
-          "anchors": [
-            "## Dispatch Goal",
-            "## Scope Boundaries",
-            "## Inputs and Dependencies",
-            "## Acceptance Criteria",
-            "## Stop Conditions",
-            "## Commit and Handoff"
-          ],
-          "bodyPath": "templates/task.worker.flow.v2/en-US.md"
-        }
+        { "locale": "zh-CN", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow.v2/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Dispatch Goal", "## Scope Boundaries", "## Inputs and Dependencies", "## Acceptance Criteria", "## Stop Conditions", "## Commit and Handoff"], "bodyPath": "templates/task.worker.flow.v2/en-US.md" }
       ]
     }
   ]
