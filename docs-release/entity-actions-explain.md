@@ -109,6 +109,10 @@ the client supplied valid parameters, or that a later write will still be allowe
 | Denied      | `authorizationDecision.outcome === "denied"` or an `unmet` criterion, with non-empty `reasonCodes` and `nextActions` | Keep the action disabled and show the reason/next action. Do not retry blindly.                                                                       |
 | Unavailable | The read fails with error code `keycloak_unavailable`                                                                | Treat authority as temporarily unavailable: no action is allowed, show a retry path, and use bounded backoff with jitter. Never fall back to enabled. |
 
+A provider that is reachable but answers HTTP 5xx (for example 503 while starting or
+overloaded) is also unavailable, not a denial: it carries no policy decision. An
+authorization `401`/`403` is a real denial; a malformed `2xx` body is a defect.
+
 Stable codes a Web caller can see in `authorizationDecision.reasonCodes`:
 
 | Code                          | Source                                                                              |

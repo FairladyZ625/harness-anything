@@ -176,6 +176,63 @@ test("authority transport outage is unavailable while a malformed authority resp
   }
 });
 
+test("HTTP 5xx from the session or center authority is unavailable, not a denial", async () => {
+  const fixture = await openExplainFixture(),
+    { rootDir, repoId, realm, binding, cell } = fixture;
+  try {
+    realm.keycloak.permit(actor.principal.personId, repoId, ["task-create"]);
+    await createTask(fixture, "task-explain-http-503");
+    // Session/UMA path: a 503 is not a "no grant" answer and must not become keycloak_denied.
+    await assert.rejects(
+      withFetch(
+        async () => new Response("unavailable", { status: 503 }),
+        () => cell.read(method, explainPayload(["task/task-explain-http-503"]), binding),
+      ),
+      (error: Error & { readonly code?: string }) => {
+        assert.equal(error.code, "keycloak_unavailable");
+        return true;
+      },
+    );
+
+    const centerProvider = new KeycloakPolicyAdapter(
+        { url: realm.url, realm: "harness", resourceServerClientId: "harness-center" },
+        realm.fetch,
+      ),
+      centerBinding: RepoCellBinding = {
+        ...binding,
+        keycloakAuthorization: {
+          ...binding.keycloakAuthorization!,
+          center: async () => ({
+            provider: centerProvider,
+            url: realm.url,
+            realm: "harness",
+            clientId: "harness-center",
+            accessToken: "center-token",
+          }),
+        },
+      };
+    // Center path: userinfo succeeds, then Admin REST answers 503. The 503 is an availability
+    // answer even though it arrives from a reachable endpoint.
+    await assert.rejects(
+      withFetch(
+        async (input) =>
+          String(input).includes("/protocol/openid-connect/userinfo")
+            ? Response.json({ sub: actor.principal.personId, harness_person_id: actor.principal.personId })
+            : new Response("unavailable", { status: 503 }),
+        () => cell.read(method, explainPayload(["task/task-explain-http-503"]), centerBinding),
+      ),
+      (error: Error & { readonly code?: string }) => {
+        assert.equal(error.code, "keycloak_unavailable");
+        return true;
+      },
+    );
+  } finally {
+    await cell.close();
+    await realm.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("catalog discovers every action without authorizing, and identity preconditions fail closed", async () => {
   const fixture = await openExplainFixture(),
     { rootDir, repoId, realm, binding, cell } = fixture;

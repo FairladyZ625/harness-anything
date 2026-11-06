@@ -508,7 +508,9 @@ test("center policy evaluates the matching live session once and can still deny 
   assert.equal(centerCalls, 3);
   assert.equal(adminReads, 3, "center ids are retained in process memory");
   centerFails = true;
-  await assert.rejects(evaluate({ center, session: authenticatedSession }), { code: "keycloak_admin_rejected" });
+  // A reachable center that answers 503 carries no policy decision; the authorization boundary
+  // reports a retryable identity outage instead of a rejection.
+  await assert.rejects(evaluate({ center, session: authenticatedSession }), { code: "keycloak_unavailable" });
 });
 
 test("center policy rejects a session after its current user token is rejected", async () => {

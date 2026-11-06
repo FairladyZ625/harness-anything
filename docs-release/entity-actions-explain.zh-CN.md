@@ -77,6 +77,8 @@ catalog 模式只发现动作，不求值：
 | 拒绝   | `authorizationDecision.outcome === "denied"` 或有 `unmet` criterion，`reasonCodes` 与 `nextActions` 非空 | 保持禁用，展示原因与下一步；不要盲目重试。                                                 |
 | 不可用 | 读取失败，错误码 `keycloak_unavailable`                                                                  | 视为授权中心暂时不可用：不允许任何动作，给出重试入口，使用有界退避加抖动；绝不回退为启用。 |
 
+授权方可达但返回 HTTP 5xx（例如启动中或过载时的 503）同样属于不可用而不是拒绝：它没有给出策略结论。授权 `401`/`403` 是真实拒绝；`2xx` 畸形正文是缺陷。
+
 Web 调用方在 `authorizationDecision.reasonCodes` 可能看到的稳定码：
 
 | 码                            | 来源                                               |
