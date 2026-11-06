@@ -42,6 +42,40 @@ test("task release accepts owner force-takeover only with an audit reason", () =
   assert.equal(rpcRelease.ok, true, JSON.stringify(rpcRelease));
 });
 
+test("round takeover CLI and RPC consume the same rework action fields", () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  const parsed = parseThinCommand([
+    "task",
+    "rework",
+    "task-1",
+    "--takeover",
+    "--execution-id",
+    "execution-1",
+    "--submission-digest",
+    digest,
+    "--reason",
+    "Arrange this round",
+    "--agent",
+    "replacement",
+  ]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (!parsed.ok) return;
+  assert.deepEqual(parsed.command.action, {
+    kind: "task-rework",
+    commandType: "ReworkTask",
+    taskId: "task-1",
+    takeover: true,
+    executionId: "execution-1",
+    submissionDigest: digest,
+    reason: "Arrange this round",
+    agentId: "replacement",
+  });
+  assert.equal(
+    parseDaemonRpcParams("repo.task.run", { repo: { repoId: "repo" }, payload: { action: parsed.command.action } }).ok,
+    true,
+  );
+});
+
 test("settings CLI and RPC accept role deltas and reject the retired root reviewer input", () => {
   const roles = { defaultWorker: "dev-worker", defaultReviewer: null };
   const command = parseThinCommand(["settings", "update", "--roles", JSON.stringify(roles)]);

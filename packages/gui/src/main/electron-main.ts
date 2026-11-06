@@ -158,6 +158,8 @@ export function createMainWindow(initialRepoId?: string): BrowserWindow {
     backgroundColor: windowBackgroundColor(nativeTheme.shouldUseDarkColors),
     webPreferences: {
       backgroundThrottling: !backgroundTest,
+      // Hidden acceptance windows still need fresh frames for CDP input and screenshots.
+      offscreen: backgroundTest,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,

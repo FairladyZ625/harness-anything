@@ -686,7 +686,9 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
   );
   if (!isJsonObject(value)) return [validationError(entityId, "$", value, "must be an object")];
   if (value.schema === "squad-control-result/v1") return validateSquadControlReceipt(value);
-  const allowed = ["schema", "ok", "command", ...writeReceiptFields, ...guiReceiptExtensions],
+  const taskFields =
+      value.command === "task-show" ? ["assignmentRevision"] : value.command === "task-rework" ? ["continuation"] : [],
+    allowed = ["schema", "ok", "command", ...writeReceiptFields, ...guiReceiptExtensions, ...taskFields],
     receipt = Object.fromEntries(
       writeReceiptFields.filter((field) => Object.hasOwn(value, field)).map((field) => [field, value[field]]),
     ) as JsonObject,
@@ -733,6 +735,20 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
       );
     else errors.push(...validateRuntimeHandoffCheckpoint(value.checkpoint));
   }
+  // These are fields already produced by task-show and the shared return handoff. Keep their
+  // GUI transport admission scoped to those actions; they are not generic receipt extensions.
+  if (
+    Object.hasOwn(value, "assignmentRevision") &&
+    (!integer(value.assignmentRevision) || Number(value.assignmentRevision) < 0)
+  )
+    errors.push(
+      validationError(entityId, "assignmentRevision", value.assignmentRevision, "must be a non-negative integer"),
+    );
+  if (
+    Object.hasOwn(value, "continuation") &&
+    (!isJsonObject(value.continuation) || !statusWord(receiptOutcomeWords, value.continuation.outcome))
+  )
+    errors.push(validationError(entityId, "continuation", value.continuation, "must name a declared receipt outcome"));
   return errors;
 }
 

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -64,6 +64,20 @@ test(
     // the profile open, so the is-removed assertion below turns red with EPERM. Assert the real
     // Electron process is gone as well, not just that the directory disappeared.
     const electronPid = await driver.app.evaluate(() => process.pid);
+    assert.equal(
+      await driver.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.isOffscreen()),
+      true,
+    );
+    const viewport = await driver.page.evaluate(() => ({
+      width: globalThis.innerWidth,
+      height: globalThis.innerHeight,
+      scale: globalThis.devicePixelRatio,
+    }));
+    const png = readFileSync(await driver.shot("background"));
+    assert.equal(png.subarray(1, 4).toString(), "PNG");
+    assert.equal(png.readUInt32BE(16), Math.round(viewport.width * viewport.scale));
+    assert.equal(png.readUInt32BE(20), Math.round(viewport.height * viewport.scale));
+    await driver.assertBackground();
     await driver.close();
     assert.equal(existsSync(userData), false, `profile ${userData} must be removed when the driver closes`);
     assert.throws(
@@ -72,7 +86,7 @@ test(
       `Electron process ${electronPid} must exit when the driver closes`,
     );
     assert.deepEqual(readdirSync(outDir), ["run"], "the output directory must receive only run deliverables");
-    assert.deepEqual(readdirSync(runRoot), ["window-state.json"]);
+    assert.deepEqual(readdirSync(runRoot), ["background.png", "window-state.json"]);
   },
 );
 

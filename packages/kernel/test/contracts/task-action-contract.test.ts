@@ -22,6 +22,9 @@ test("owner rework exposes explicit worker identity overrides", () => {
   assert.ok(action);
   const fields = new Map(action.input.fields.map((field) => [field.field, field] as const));
   for (const [field, flag] of [
+    ["takeover", "--takeover"],
+    ["executionId", "--execution-id"],
+    ["submissionDigest", "--submission-digest"],
     ["agentId", "--agent"],
     ["runtimeInstanceId", "--instance"],
     ["model", "--model"],

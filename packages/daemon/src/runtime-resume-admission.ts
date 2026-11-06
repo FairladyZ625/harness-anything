@@ -299,6 +299,7 @@ export function resolveRuntimeResume(
 ) {
   const allowed = [
       "handoffEnabled",
+      "arrangementId",
       "runtimeInstanceId",
       "dispatchId",
       "agentId",

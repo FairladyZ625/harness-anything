@@ -488,6 +488,34 @@ test("task snapshot protocol keeps offline-converted tasks that carry a presetSn
   assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [gapRow] }), []);
 });
 
+test("task snapshot protocol keeps the writer-validated execution arrangement without widening task fields", () => {
+  const arrangement = {
+    id: "owner-round",
+    executionId: "execution-repoint",
+    submissionDigest: `sha256:${"a".repeat(64)}`,
+    iteration: 1,
+    actor,
+    source: "local",
+    reason: "Owner arranges this round.",
+    ready: true,
+  };
+  for (const ready of [false, true]) {
+    const valid = {
+      ...row,
+      snapshot: {
+        ...row.snapshot,
+        task: { ...gapTask, iteration: 1, executionArrangement: { ...arrangement, ready } },
+      },
+    };
+    assert.deepEqual(isolateDaemonTaskSnapshotRows([valid]), { rows: [valid], invalidRows: [] });
+    const unknown = {
+      ...valid,
+      snapshot: { ...valid.snapshot, task: { ...valid.snapshot.task, undeclaredField: true } },
+    };
+    assert.equal(isolateDaemonTaskSnapshotRows([unknown]).invalidRows[0]?.field, "rows[0].snapshot.task");
+  }
+});
+
 test("task snapshot protocol isolates a malformed presetSnapshotGap", () => {
   for (const [label, gap] of [
     ["wrong reason", { reason: "bytes-missing", sourceGeneration: 2, sourceRevision: 41344 }],

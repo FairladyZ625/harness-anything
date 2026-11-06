@@ -1,3 +1,4 @@
+import { continueReviewRework } from "./task-return-dispatch.ts";
 import { runCompletionSources } from "./task-witness-runner.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
@@ -266,6 +267,7 @@ export function makeRepoCellCommandRunner(
     const enqueuePublication = (
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
       ingest?: (authorizationDecision?: AuthorizationDecision) => void,
+      continueReturn = true,
     ): Promise<WriteReceipt | SquadControlResult> => {
       context.queueDepth += 1;
       let queuedDecision: AuthorizationDecision | undefined,
@@ -389,6 +391,31 @@ export function makeRepoCellCommandRunner(
       return pending
         .catch((error) => failAction(context, action, binding, error, queuedDecision))
         .then(async (receipt) => {
+          if (
+            continueReturn &&
+            "outcome" in receipt &&
+            receipt.outcome === "applied" &&
+            ["task-review-execution", "task-rework"].includes(action.kind)
+          ) {
+            const event = context.store.readTaskEvent(receipt.opId);
+            if (event)
+              return (await continueReviewRework(
+                context.extracted,
+                event,
+                binding,
+                receipt,
+                async (work) => (await enqueuePublication(work, undefined, false)) as WriteReceiptDraft,
+                action.kind === "task-rework"
+                  ? {
+                      ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
+                      ...(typeof action.runtimeInstanceId === "string"
+                        ? { runtimeInstanceId: action.runtimeInstanceId }
+                        : {}),
+                      ...(typeof action.model === "string" ? { model: action.model } : {}),
+                    }
+                  : undefined,
+              )) as WriteReceipt;
+          }
           if (!replaceAfterPublication) return receipt;
           await context.attemptRecovery(true);
           return context.state === "attached"

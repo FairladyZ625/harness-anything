@@ -89,3 +89,28 @@ test("task show labels the delivery baseline as the start-frozen comparison cut,
     ),
   );
 });
+
+test("task show prints the daemon-derived takeover cut and actual handoff phase", () => {
+  const digest = `sha256:${"b".repeat(64)}`;
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    summary: "task-show: applied",
+    outcome: "applied",
+    opId: "show",
+    evidence: JSON.stringify({
+      task: {
+        status: "active",
+        currentNode: "implementation",
+        completionGateIds: [],
+        executionArrangement: { id: "arrangement-1", iteration: 2, ready: false },
+      },
+      reworkTargets: [{ executionId: "execution-old", submissionDigest: digest }],
+    }),
+  });
+  assert.match(
+    rendered.text,
+    new RegExp(`rework cut: --execution-id execution-old --submission-digest ${digest}`, "u"),
+  );
+  assert.match(rendered.text, /execution arrangement: arrangement-1; handoff pending; round 2/u);
+});

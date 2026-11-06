@@ -320,6 +320,25 @@ export type TaskMutationEvent = TaskEventEnvelope<
   TaskMutationEventType,
   { readonly task: TaskV2; readonly mutation: TaskMutationV1 }
 >;
+
+// dec_5DBF5F2B38719E4B52003D178D/CH1: metadata edits and round arrangements
+// share the same amendment constructor; adapters only add their event envelope.
+export function taskAmendment(
+  task: TaskV2,
+  reason: string,
+  fields: readonly string[],
+): {
+  readonly type: "task_amended";
+  readonly task: TaskV2;
+  readonly audit: TaskMutationV1 & { readonly command: "amend" };
+} {
+  return {
+    type: "task_amended",
+    task,
+    audit: { command: "amend", reason, fields },
+  };
+}
+
 export type TaskEventV1 =
   | TaskCreatedEvent
   | ExecutionStartedEvent

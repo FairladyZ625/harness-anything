@@ -132,6 +132,8 @@ export async function fixture(
   hybridDelivery = false,
   options: {
     readonly autoSubmit?: boolean;
+    /** Observable cancellation barrier/error injection, without wall-clock sleeps. */
+    readonly beforeRuntimeStop?: (launchIndex: number) => Promise<void>;
     readonly submitCommit?: boolean;
     readonly guiDelivery?: boolean;
     readonly providerRoundBackoffBaseSeconds?: number;
@@ -304,6 +306,7 @@ export async function fixture(
           occurredAt: new Date().toISOString(),
           pid: options.runtimePid ?? process.pid,
         });
+        const launchIndex = launches.length - 1;
         const pending: (typeof pendingProviders)[number] = {};
         pendingProviders.push(pending);
         return {
@@ -325,6 +328,7 @@ export async function fixture(
           },
           onErrorOutput: () => undefined,
           terminate: () => undefined,
+          ...(options.beforeRuntimeStop ? { terminateTree: () => options.beforeRuntimeStop!(launchIndex) } : {}),
           onExit: (listener) => {
             pending.exit = (code) => {
               pending.exit = undefined;

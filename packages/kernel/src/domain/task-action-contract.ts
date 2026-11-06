@@ -252,7 +252,7 @@ const lifecycleSpecs = Object.freeze({
     topology: "ledger-write",
     remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
-    eventType: "submission_returned",
+    eventType: "submission_returned" as "submission_returned" | "task_amended",
     proof: ["ownerActor", "task-rework@v1", "exhaustedBudgetOrOwnerBlocker", "auditableReason"],
     validatorCriterionRef: "task-lifecycle-command-transitions/rework.validate",
   },
@@ -577,7 +577,9 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      field("executionId", "string", false),
+      cli("executionId", "string", false, "--execution-id"),
+      cli("takeover", "boolean", false, "--takeover", "boolean"),
+      cli("submissionDigest", "string", false, "--submission-digest"),
       field("reviewId", "string", false),
       cli("reason", "string", true, "--reason"),
       cli("agentId", "string", false, "--agent"),
@@ -601,7 +603,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "operation-id", semanticKey: "taskId/executionId/reviewId" },
     ),
     explain:
-      "Return a review cut, or a review-exempt submitted cut, to rework with an owner reason; resume the worker.",
+      "Return a cut; --takeover reserves its round. --agent selects its worker; otherwise the caller arranges it.",
   }),
   lifecycle("consent", {
     input: input([

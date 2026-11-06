@@ -82,6 +82,7 @@ export function buildCommand(
       [lifecycleAction.targetIdField]: executionId,
       ...(Number.isSafeInteger(action.ttlMs) ? { ttlMs: action.ttlMs as number } : {}),
       ...(typeof action.stackOn === "string" ? { stackOn: action.stackOn } : {}),
+      ...(typeof action.arrangementId === "string" ? { arrangementId: action.arrangementId } : {}),
     } as Parameters<typeof normalizeTaskLifecycleCommand>[1]);
   }
   if (action.kind === "task-transition") {
@@ -101,16 +102,22 @@ export function buildCommand(
     });
   }
   if (lifecycleAction?.commandType === "ReworkTask") {
-    const requestedExecutionId = explicitExecutionId(action),
-      executionId =
-        requestedExecutionId ??
-        uniqueDerivedExecutionId(
-          currentSubmittedExecutions(snapshot),
-          "Current submitted execution",
-          `Run ha task show ${taskId}; only a current submitted execution can be returned.`,
-          (candidate) => `ha task rework ${taskId} --execution-id ${candidate} --reason <why>`,
-        );
-    if (requestedExecutionId) assertCurrentSubmittedExecution(snapshot, taskId, requestedExecutionId);
+    const requestedExecutionId = explicitExecutionId(action);
+    if (action.takeover === true && !requestedExecutionId)
+      throw cellCodedError(
+        "invalid_command",
+        "Takeover requires --execution-id and --submission-digest naming the target cut.",
+      );
+    const executionId =
+      requestedExecutionId ??
+      uniqueDerivedExecutionId(
+        currentSubmittedExecutions(snapshot),
+        "Current submitted execution",
+        `Run ha task show ${taskId}; only a current submitted execution can be returned.`,
+        (candidate) => `ha task rework ${taskId} --execution-id ${candidate} --reason <why>`,
+      );
+    if (requestedExecutionId && action.takeover !== true)
+      assertCurrentSubmittedExecution(snapshot, taskId, requestedExecutionId);
     const submitted = currentSubmittedExecutions(snapshot).find((value) => value.executionId === executionId),
       currentReviews = submitted ? reviewsForExecution(snapshot.reviews, submitted) : [],
       requestedReviewId =
@@ -129,6 +136,15 @@ export function buildCommand(
       executionId,
       ...(review ? { reviewId: review.reviewId } : {}),
       reason: requiredCellText(action.reason, "reason"),
+      ...(action.takeover === true
+        ? {
+            takeover: true as const,
+            submissionDigest: requiredCellText(action.submissionDigest, "submissionDigest") as `sha256:${string}`,
+            ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
+            ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+            ...(typeof action.model === "string" ? { model: action.model } : {}),
+          }
+        : {}),
     });
   }
   if (lifecycleAction?.commandType === "SubmitExecution") {

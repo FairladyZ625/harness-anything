@@ -1,3 +1,7 @@
+import {
+  currentExecutionArrangement,
+  executionArrangementAllows,
+} from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
@@ -371,8 +375,34 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             agentId !== undefined &&
             input.resolveAgent(agentId)?.permissionMode === "read-only"
           : false,
-      attachTarget = readOnlyAttach ? selectReadOnlyAttachTarget(taskId!, taskSnapshot!) : null;
+      attachTarget = readOnlyAttach ? selectReadOnlyAttachTarget(taskId!, taskSnapshot!) : null,
+      arrangement = taskSnapshot ? currentExecutionArrangement(taskSnapshot) : undefined,
+      arrangementKey = arrangement ? `task-arrangement:${arrangement.id}` : undefined,
+      resumeKey =
+        requestedDispatchId && projection
+          ? projection.readRuntimeDispatchById(requestedDispatchId)?.event.payload.dispatchKey
+          : undefined,
+      arrangementId =
+        payload.arrangementId !== undefined
+          ? requiredRuntimeSpawnText(payload.arrangementId, "arrangementId")
+          : arrangementKey &&
+              (inheritedFallback?.rootDispatchKey === arrangementKey ||
+                resumeKey === arrangementKey ||
+                resumeKey?.startsWith(`${arrangementKey}:fallback:`))
+            ? arrangement?.id
+            : undefined;
     if (taskId && !input.remote && !reviewerBinding) {
+      if (
+        !dryRun &&
+        taskSnapshot &&
+        (!executionArrangementAllows(taskSnapshot, binding.actor, arrangementId, binding.source) ||
+          (currentExecutionArrangement(taskSnapshot)?.agentId !== undefined &&
+            currentExecutionArrangement(taskSnapshot)?.agentId !== agentId))
+      )
+        throw runtimeSpawnError(
+          "execution_scope_mismatch",
+          "This dispatch no longer owns the task execution arrangement.",
+        );
       const leaseQualifies = taskDispatchLeaseQualifies(
         leaseAtAdmission,
         binding.actor,
@@ -794,6 +824,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             taskId: taskId!,
             runtimeSessionId,
             fromRuntimeSessionId: trustedHandoffSource,
+            ...(arrangementId ? { arrangementId } : {}),
             binding,
           })
         : binding;

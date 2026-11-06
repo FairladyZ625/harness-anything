@@ -511,6 +511,7 @@ export interface RuntimeSpawnerInput {
     terminal: RuntimeAttemptTerminal,
   ) => void | RuntimeLeaseReleasePending | Promise<void | RuntimeLeaseReleasePending>;
   readonly handoffTaskLease?: (input: {
+    readonly arrangementId?: string;
     readonly taskId: string;
     readonly runtimeSessionId: string;
     readonly fromRuntimeSessionId: string | null;

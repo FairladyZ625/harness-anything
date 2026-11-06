@@ -8,6 +8,7 @@ import {
   runtimeSessionIdFromActor,
   sameWriteSource,
   taskClasses,
+  taskAmendment,
   type AuthorizationDecision,
   type LeaseV1,
   type RuntimeSession,
@@ -82,7 +83,7 @@ function taskMutationWithStopResult(
 ): TaskMutation | RuntimeLeaseReleasePending {
   const forceTakeover = action.kind === "task-release" && action.forceTakeover === true,
     reason = forceTakeover
-      ? `Owner forced takeover: ${cell.requiredCellText(action.reason, "reason")}`
+      ? `Owner forced lease release: ${cell.requiredCellText(action.reason, "reason")}`
       : typeof action.reason === "string" && action.reason.trim()
         ? action.reason.trim()
         : "Authenticated holder released the lease.",
@@ -300,15 +301,7 @@ function taskMutationWithStopResult(
         );
       fields.push(field);
     }
-    return {
-      type: "task_amended",
-      task: changed,
-      audit: {
-        command: "amend",
-        reason: "Declared task metadata amendment",
-        fields,
-      },
-    };
+    return taskAmendment(changed, "Declared task metadata amendment", fields);
   }
   if (action.kind === "task-archive") {
     if ((task.packageDisposition ?? "active") !== "active")

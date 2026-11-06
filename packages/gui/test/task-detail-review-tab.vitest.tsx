@@ -36,6 +36,7 @@ const task: TaskRow = {
   packageDisposition: "active",
   closeoutReadiness: "not_required",
   engine: "kernel/task-lifecycle/v1",
+  origin: "native",
   source: "local-document",
   packagePath: "tasks/task-rework",
   gates: [],
@@ -43,11 +44,19 @@ const task: TaskRow = {
   ...projectedTaskFields("active"),
 };
 
-async function selectedTab(initialTab?: "closeout") {
+async function selectedTab(initialTab?: "closeout" | "dispatch") {
   vi.stubGlobal("window", {
     harness: {
       getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: task.taskId, documents: [] })),
       getTaskDocument: vi.fn(),
+      showTask: vi.fn(async () => ({
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "task-show",
+        outcome: "applied",
+        opId: "read:task-rework",
+        evidence: JSON.stringify({ reworkTargets: [], task: {} }),
+      })),
       getTaskCompletion: vi.fn(async () => ({ ok: true, status: "ready", completionBlocker: null })),
     },
     // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize;document/localStorage
@@ -84,6 +93,11 @@ async function selectedTab(initialTab?: "closeout") {
 describe("任务详情的评审落点", () => {
   it("initialTab=closeout 时打开即停在收口页签", async () => {
     expect(await selectedTab("closeout")).toBe("task-tab-closeout");
+  });
+
+  it("派工页签提供本轮接管入口", async () => {
+    await selectedTab("dispatch");
+    expect(document.querySelector('[data-testid="task-rework-panel"]')).not.toBeNull();
   });
 
   it("缺省仍从概况开始", async () => {

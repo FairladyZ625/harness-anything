@@ -289,6 +289,7 @@ export function task(value: unknown): boolean {
     ],
     optional = [
       "assignment",
+      "executionArrangement",
       "provenance",
       "metadata",
       "packageDisposition",

@@ -7,7 +7,8 @@ export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
   // dec_5EC2631352B17EE2BF4979E37E; owner-authorized single offline Task retirement constructor.
   "packages/kernel/src/domain/task-completion-generation-retirement.ts|envelope-call|task_completion_generation_retired": 1,
   "packages/daemon/src/repo-cell-task-command-docs.ts|dynamic-task-event|<dynamic>": 1,
-  "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_amended": 1,
+  // Existing metadata-amend constructor moved to a pure aggregate builder shared with ReworkTask.
+  "packages/kernel/src/domain/task-lifecycle-event.ts|literal-type|task_amended": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_archived": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_contract_migrated": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_deleted": 1,
