@@ -124,7 +124,6 @@ test(
       })),
       ...{ edgeJoinStatus: (input: { joinId: string; accessToken: string }) => memberAdmin.edgeJoinStatus(input) },
       createMemberEdgeJoin: (repos, person, token) => memberAdmin.createMemberEdgeJoin(repos, person, token),
-      invitationClientForNode: (nodeId) => memberAdmin.invitationClientForNode(nodeId),
       edgeJoin: async (input) => {
         const admitted = await memberAdmin.admitEdgeJoin(input);
         const invite = invites.get(input.joinId)!;
@@ -354,7 +353,15 @@ test(
       taskId: "former-owner-write",
       title: "Former owner write",
     });
-    assert.equal(formerOwnerWrite.code, "human_confirmation_required", JSON.stringify(formerOwnerWrite));
+    // dec_E610E1D99A39003886D1B5EE7C CH1: device ownership does not replace the current token person.
+    assert.equal(formerOwnerWrite.outcome, "applied", JSON.stringify(formerOwnerWrite));
+    f.owners.keycloak.endInteractiveSession("device-token-node-one");
+    const revokedWrite = await formerOwnerEdge.command({
+      kind: "task-create",
+      taskId: "revoked-user-write",
+      title: "Revoked user write",
+    });
+    assert.equal(revokedWrite.code, "human_confirmation_required", JSON.stringify(revokedWrite));
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
   },
 );

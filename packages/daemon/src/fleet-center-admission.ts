@@ -50,7 +50,6 @@ export interface FleetCenterAdmissionRequest {
     FleetCenterOptions,
     | "authenticate"
     | "nodeOwner"
-    | "invitationClientForNode"
     | "loginAuthority"
     | "verifyHuman"
     | "createMemberEdgeJoin"

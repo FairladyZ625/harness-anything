@@ -77,6 +77,8 @@ export interface RepoCellBinding {
       readonly currentAccessToken?: () => Promise<string>;
       readonly personId: string;
       readonly accessToken: string;
+      readonly azp?: string;
+      readonly scopes?: readonly string[];
       readonly url: string;
       readonly realm: string;
       readonly clientId: string;

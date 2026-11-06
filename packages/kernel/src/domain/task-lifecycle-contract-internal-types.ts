@@ -241,6 +241,8 @@ export interface ReviewResponseProof {
   readonly capabilityRef: string;
 }
 export interface ReviewConsentProof {
+  /** Server-verified token issued-to client; absent for the local interactive path. */
+  readonly azp?: string;
   readonly actorBinding: ActorAxes;
   readonly capability: "execution-consent@v1";
   readonly capabilityRef: string;

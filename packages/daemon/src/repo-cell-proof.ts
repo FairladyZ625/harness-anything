@@ -430,13 +430,19 @@ export async function proofFor(
     } as TaskLifecycleServiceProof<typeof command>;
   }
   if (command.type === "RecordReviewConsent") {
-    // Consent is a person's own confirmation. A fleet assignment authenticates a machine: the owner the
-    // center resolves for it decides what the node may do, and confirmed nothing.
-    if (typeof command.source === "object" && command.source.kind === "node")
+    // dec_E610E1D99A39003886D1B5EE7C CH1: a personal token may delegate confirmation to its
+    // issued-to client. Only the IdP-granted consent scope admits that client; device or execution
+    // authority alone cannot consent. The client is responsible for displaying the current cut.
+    const session = binding.keycloakAuthorization?.session;
+    if (
+      binding.executionPrincipal ||
+      (typeof command.source === "object" &&
+        command.source.kind === "node" &&
+        (!session?.azp || !session.scopes?.includes("consent")))
+    )
       throw cellCodedError(
         "human_confirmation_required",
-        `Consent on task ${command.taskId} is a person's own confirmation, and node ${command.source.nodeId} ` +
-          "holds a device session, which does not prove human confirmation. Confirm through the center's interactive interface.",
+        "Consent requires a personal session and a client granted the consent scope.",
       );
     // Consent confirms that this cut's reviews concluded: an approved review beside a lane that is
     // still queued or running is not that confirmation, and the owner would merge on it (task_cffec8b1,
@@ -476,6 +482,7 @@ export async function proofFor(
     return {
       actorBinding: command.actor,
       capability: "execution-consent@v1",
+      ...(session?.azp ? { azp: session.azp } : {}),
       capabilityRef: authorizationDecision.policyRef,
       authorizationDecision,
     };

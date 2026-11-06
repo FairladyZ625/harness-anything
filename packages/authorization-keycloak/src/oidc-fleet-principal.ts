@@ -8,19 +8,18 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
   readonly issuerUrl: string;
   readonly realm: string;
   readonly clientId: string;
-  readonly expectedAzps: readonly { readonly clientId: string; readonly personId?: string }[];
+  readonly expectedAzps?: readonly { readonly clientId: string; readonly personId?: string }[];
   readonly clientSecret: string;
   readonly adminAccessToken: string;
   readonly fetch: typeof fetch;
   readonly now: number;
 }): Promise<T & IdentityAuthenticationContext> {
-  const token = input.auth.humanAccessToken,
-    node = input.auth.nodePrincipal;
+  const token = input.auth.humanAccessToken;
   const reject = () =>
-    Object.assign(new Error("The command requires the current node owner's active interactive Keycloak session."), {
+    Object.assign(new Error("The command requires an active personal Keycloak access token issued for this center."), {
       code: "human_confirmation_required",
     });
-  if (!token || !node) throw reject();
+  if (!token) throw reject();
   const realmPath = `/realms/${encodeURIComponent(input.realm)}`;
   const response = await input.fetch(`${input.url}${realmPath}/protocol/openid-connect/token/introspect`, {
     method: "POST",
@@ -31,13 +30,17 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
   const expiresAt = typeof claims.exp === "number" ? claims.exp * 1_000 : 0;
   if (
     claims.active !== true ||
+    !Number.isFinite(expiresAt) ||
     expiresAt <= input.now ||
     claims.iss !== `${input.issuerUrl}${realmPath}` ||
-    !input.expectedAzps.some(
-      (expected) =>
-        claims.azp === expected.clientId &&
-        (expected.personId === undefined || claims.harness_person_id === expected.personId),
-    ) ||
+    typeof claims.azp !== "string" ||
+    claims.azp.length === 0 ||
+    (input.expectedAzps !== undefined &&
+      !input.expectedAzps.some(
+        (expected) =>
+          claims.azp === expected.clientId &&
+          (expected.personId === undefined || claims.harness_person_id === expected.personId),
+      )) ||
     ![claims.aud].flat().includes(input.clientId) ||
     typeof claims.sub !== "string" ||
     typeof claims.harness_person_id !== "string" ||
@@ -61,7 +64,6 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
     throw reject();
   return {
     ...input.auth,
-    nodePrincipal: { ...node, personId: claims.harness_person_id },
     oidcPrincipal: {
       provider: new KeycloakPolicyAdapter(
         { url: input.url, realm: input.realm, resourceServerClientId: input.clientId },
@@ -69,6 +71,8 @@ export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(
       ),
       personId: claims.harness_person_id,
       subject: claims.sub,
+      azp: claims.azp,
+      scopes: typeof claims.scope === "string" ? claims.scope.split(/\s+/u).filter(Boolean) : [],
       expiresAt,
       accessToken: token,
       authority: { url: input.url, realm: input.realm, clientId: input.clientId },

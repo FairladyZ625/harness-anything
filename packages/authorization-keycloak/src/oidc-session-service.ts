@@ -580,34 +580,17 @@ export class OidcSessionService {
         });
       const config = this.#config();
       const adminAccessToken = await this.#centerToken();
-      return this.serialize(async () => {
-        const bound = await verifyFleetHuman({
-          auth,
-          url: config.url,
-          issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
-          realm: config.realm,
-          clientId: "harness-center",
-          expectedAzps: [{ clientId: `harness-node-${auth.nodePrincipal!.nodeId}` }, ...(auth.fleetExpectedAzps ?? [])],
-          clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
-          adminAccessToken,
-          fetch: this.#ports.fetch,
-          now: this.#ports.now(),
-        });
-        if (bound.nodePrincipal!.personId === auth.nodePrincipal!.personId) return bound;
-        const adapter = new KeycloakPolicyAdapter(
-            { ...config, resourceServerClientId: "harness-center" },
-            this.#ports.fetch,
-          ),
-          node = await adapter.readNode(adminAccessToken, bound.nodePrincipal!.nodeId);
-        if (!node || node.state !== "active" || node.revocation !== "complete")
-          throw coded("node_owner_unregistered", "The device is not active.");
-        if (node.personId !== bound.nodePrincipal!.personId)
-          await adapter.transferNode(
-            adminAccessToken,
-            { ...node, personId: bound.nodePrincipal!.personId, revision: node.revision + 1 },
-            node.personId,
-          );
-        return bound;
+      return verifyFleetHuman({
+        auth,
+        url: config.url,
+        issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
+        realm: config.realm,
+        clientId: "harness-center",
+        expectedAzps: auth.fleetExpectedAzps,
+        clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
+        adminAccessToken,
+        fetch: this.#ports.fetch,
+        now: this.#ports.now(),
       });
     }
     const { sessionStore } = await this.#centerIdentity(loginTarget),

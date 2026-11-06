@@ -457,7 +457,7 @@ export const consent: Transition = {
       );
     return issues;
   },
-  reduce: (snapshot, raw) => {
+  reduce: (snapshot, raw, rawProof) => {
     const command = raw as RecordReviewConsentCommand,
       current = execution(snapshot, command.executionId) as ExecutionV1,
       recorded = snapshot.reviews.find((value) => value.reviewId === command.reviewId) as ReviewV1,
@@ -472,6 +472,7 @@ export const consent: Transition = {
         submissionDigest: submissionDigest(current.submission as NonNullable<ExecutionV1["submission"]>),
         actor: command.actor,
         source: command.source,
+        ...((rawProof as ReviewConsentProof).azp ? { azp: (rawProof as ReviewConsentProof).azp } : {}),
         consentedAt: command.occurredAt,
       },
       hasDispositionAction = Boolean(command.disposedReviewIds?.length),

@@ -120,7 +120,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return lease;
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
-    // dec_F01770FD0DCF72683B7C4C7A47: each request presents this device owner's user session.
+    // dec_E610E1D99A39003886D1B5EE7C CH1: device admission and per-request person are independent.
     readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
       nodeAdmission.assertOpen(node.nodeId);
       const personId = await options.nodeOwner(node.nodeId);
@@ -128,14 +128,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!node.accessToken || !options.verifyHuman)
         throw new FleetFault("authentication_required", "Sign in on this device before using Fleet.");
       try {
-        const invitation = options.invitationClientForNode?.(node.nodeId);
         const principal = await options.verifyHuman({
           transportKind: "fleet-tls",
           nodePrincipal: { nodeId: node.nodeId, personId },
           humanAccessToken: node.accessToken,
-          ...(invitation && invitation.personId === personId
-            ? { fleetExpectedAzps: [{ clientId: invitation.clientId, personId: invitation.personId }] }
-            : {}),
         });
         nodeAdmission.assertOpen(node.nodeId);
         return principal;
@@ -179,14 +175,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         },
       };
     };
-  // The one repository admission port: reader identity plus the node owner's grant on this
+  // The one repository admission port: verified request identity plus that person's grant on this
   // repository (dec_66CE6F92 — a cross-cutting responsibility has a single implementation that
   // callers reuse instead of copying).
   const repoAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
     const principal = await readerAuth(node),
       decision = await options.host.authorize(node.repoId, "repository-read", principal);
     if (decision.outcome !== "allowed")
-      throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
+      throw new FleetFault("authorization_denied", "The request user may not read this repository.");
     return principal;
   };
   const extracted = {
@@ -554,13 +550,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId, accessToken);
-    // The node owner's repository-read authority admits the replica
-    // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
-    await repoAdmission(a);
-    const owner = await options.nodeOwner(nodeId);
-    if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
-    const replica = options.host.replica(a.repoId);
-    return { a, replica, readerProfile: { personId: owner, nodeId } };
+    // The request user's repository-read authority admits this node's replica (CH1).
+    const principal = await repoAdmission(a),
+      replica = options.host.replica(a.repoId);
+    return { a, replica, readerProfile: { personId: principal.oidcPrincipal!.personId, nodeId } };
   };
   const handle = async (
     nodeId: string,
@@ -626,7 +619,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         try {
           assertFleetDeliveryHolder(snapshot, {
             nodeId,
-            personId: principal.nodePrincipal!.personId,
+            personId: principal.oidcPrincipal!.personId,
             ...(frame.executionId !== null ? { executionId: frame.executionId } : {}),
           });
         } catch (error) {
@@ -642,7 +635,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         : { originUrl: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
-        personId: principal.nodePrincipal!.personId,
+        personId: principal.oidcPrincipal!.personId,
         actionAllowed,
         messageId: mid(frame.messageId, "metadata"),
         inReplyTo: frame.messageId,
@@ -929,7 +922,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             if (snapshot.workspace?.kind === "worktree" && snapshot.lease) {
               const executionId = assertFleetDeliveryHolder(snapshot, {
                 nodeId,
-                personId: (await readerAuth(a)).nodePrincipal!.personId,
+                personId: (await readerAuth(a)).oidcPrincipal!.personId,
                 ...(typeof command.executionId === "string" ? { executionId: command.executionId } : {}),
               });
               const commitSha = await fetchWorkerDelivery(

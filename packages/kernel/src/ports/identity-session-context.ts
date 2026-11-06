@@ -6,6 +6,9 @@ export interface IdentityAuthenticationContext {
     readonly provider: AuthorizationProvider;
     readonly personId: string;
     readonly subject: string;
+    /** Token issued-to client and OAuth scopes established by online introspection. */
+    readonly azp?: string;
+    readonly scopes?: readonly string[];
     readonly expiresAt: number;
     readonly accessToken: string;
     readonly authority: {

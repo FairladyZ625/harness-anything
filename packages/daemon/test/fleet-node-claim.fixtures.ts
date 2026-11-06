@@ -95,10 +95,7 @@ export async function fleetNodeClaimFixture(
   const openCenter = async (
     host: DaemonHost,
     port?: number,
-    extra: Pick<
-      Parameters<typeof listenFleetTls>[0],
-      "edgeJoin" | "invitationClientForNode" | "createMemberEdgeJoin"
-    > = {},
+    extra: Pick<Parameters<typeof listenFleetTls>[0], "edgeJoin" | "createMemberEdgeJoin"> = {},
   ): Promise<FleetTlsCenter> => {
     const center = await listenFleetTls({
       host,
