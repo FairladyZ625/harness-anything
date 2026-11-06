@@ -37,7 +37,9 @@ export function cliDispatchError(input: {
       const params = errorParams(input.error),
         hint =
           failure.errorCode === "daemon_target_conflict" && params
-            ? renderCliGuidance("daemon-target-conflict", params)
+            ? params.route === "relay"
+              ? renderCliGuidance("daemon-relay-route", params)
+              : renderCliGuidance("daemon-target-conflict", params)
             : failure.errorCode === "daemon_build_stale"
               ? renderCliGuidance("daemon-build-stale", {})
               : renderCliGuidance("direct-daemon-failure", { message: failure.message });

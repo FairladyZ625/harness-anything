@@ -51,24 +51,40 @@ export async function fleetEdgeRegistration(
   env: NodeJS.ProcessEnv,
 ): Promise<(FleetEdgeConfigModule & { readonly workspaceRoot: string }) | null> {
   const { readFleetEdgeConfig } = await import("@harness-anything/daemon/internal/client/fleet-edge-config");
-  const commandRoot = canonicalRoot(command.rootDir),
-    registered = (await readRegisteredRepos(daemonUserRoot(env)))
-      // 只解析 enabled 条目,且解析不了根目录的(已删除的 e2e 残留登记)直接丢弃:
-      // 它们不可能是本命令的根,不能让一条死登记把所有命令的路由一起炸掉。
-      .filter((repo) => repo.state === "enabled")
-      .flatMap((repo) => {
-        try {
-          return [{ ...repo, canonicalRoot: canonicalRoot(repo.canonicalRoot, true) }];
-        } catch {
-          return [];
-        }
-      })
-      .filter(
-        (repo) =>
-          commandRoot === path.resolve(repo.canonicalRoot) ||
-          commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`),
-      )
-      .sort((left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length)[0];
+  const commandRoot = canonicalRoot(command.rootDir);
+  // A relayed runtime already holds its canonical root and repo id: the daemon that dispatched it
+  // bound both. The registry that records remote-edge mode belongs to the host and is not readable
+  // inside the sandbox, so a relayed command reads the workspace-owned fleet-edge.json instead and
+  // matches it against the injected repo. No match (the ordinary local workspace) stays on the
+  // relay; a match keeps the fleet channel, including its center-side credential check.
+  if (env.HARNESS_DAEMON_RELAY === "1") {
+    const repoId = env.HARNESS_DAEMON_REPO_ID?.trim(),
+      injectedRoot = env.HARNESS_CANONICAL_ROOT?.trim();
+    if (!repoId || !injectedRoot) return null;
+    // The dispatcher hands over an absolute workspace root. A symlinked root that resolves outside
+    // the command root simply keeps this command on the relay; the target resolver owns refusing it.
+    const workspaceRoot = path.resolve(injectedRoot);
+    if (commandRoot !== workspaceRoot && !commandRoot.startsWith(`${workspaceRoot}${path.sep}`)) return null;
+    const config = readFleetEdgeConfig(workspaceRoot);
+    return config?.repoId === repoId ? { ...config, workspaceRoot } : null;
+  }
+  const registered = (await readRegisteredRepos(daemonUserRoot(env)))
+    // 只解析 enabled 条目,且解析不了根目录的(已删除的 e2e 残留登记)直接丢弃:
+    // 它们不可能是本命令的根,不能让一条死登记把所有命令的路由一起炸掉。
+    .filter((repo) => repo.state === "enabled")
+    .flatMap((repo) => {
+      try {
+        return [{ ...repo, canonicalRoot: canonicalRoot(repo.canonicalRoot, true) }];
+      } catch {
+        return [];
+      }
+    })
+    .filter(
+      (repo) =>
+        commandRoot === path.resolve(repo.canonicalRoot) ||
+        commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`),
+    )
+    .sort((left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length)[0];
   if (registered?.mode !== "remote-edge") return null;
   const config = readFleetEdgeConfig(registered.canonicalRoot);
   return config?.repoId === registered.repoId

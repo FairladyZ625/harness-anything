@@ -182,28 +182,138 @@ test("local daemon target ignores an environment repo id from another registered
   }
 });
 
-test("local daemon relay rejects an unregistered environment target from another root", async () => {
-  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-target-")),
-    canonicalRoot = realpathSync.native(process.cwd()),
-    endpoint = path.join(canonicalRoot, ".harness", "r-000000000000000000000000.sock");
+test("local daemon relay rejects a root outside the dispatched canonical root", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-target-")),
+    canonicalRoot = path.join(fixtureRoot, "workspace"),
+    foreignRoot = path.join(fixtureRoot, "foreign"),
+    userRoot = path.join(fixtureRoot, "user"),
+    endpoint = path.join(perUserSocketRoot(), "r-000000000000000000000000.sock");
   try {
+    mkdirSync(canonicalRoot);
+    mkdirSync(foreignRoot);
+    mkdirSync(userRoot);
     assert.equal(existsSync(endpoint), false);
     await assert.rejects(
       () =>
         resolveLocalDaemonTarget({
-          rootDir: process.platform === "darwin" ? "/private/tmp" : tmpdir(),
+          rootDir: foreignRoot,
           userRoot,
           env: {
-            HARNESS_CANONICAL_ROOT: canonicalRoot,
+            HARNESS_CANONICAL_ROOT: realpathSync.native(canonicalRoot),
             HARNESS_DAEMON_REPO_ID: "unregistered-a",
             HARNESS_DAEMON_RELAY: "1",
             HARNESS_DAEMON_ENDPOINT: endpoint,
           },
         }),
-      { code: "workspace_not_registered" },
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+        assert.match((error as Error).message, /outside the dispatched canonical root/u);
+        assert.equal((error as { readonly params?: { readonly route?: string } }).params?.route, "relay");
+        return true;
+      },
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("local daemon relay resolves from the injected route when the host registry is unreadable", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-unreadable-")),
+    userRoot = path.join(fixtureRoot, "user"),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    workerRoot = path.join(workspaceRoot, ".worktrees", "worker"),
+    endpoint = path.join(perUserSocketRoot(), "r-0123456789abcdef01234567.sock");
+  try {
+    mkdirSync(workerRoot, { recursive: true });
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    mkdirSync(userRoot);
+    // A registry.json that is a directory fails every read for any uid: the resolver must not open it.
+    mkdirSync(path.join(userRoot, "registry.json"));
+    const target = await resolveLocalDaemonTarget({
+      rootDir: workerRoot,
+      userRoot,
+      env: {
+        HARNESS_DAEMON_RELAY: "1",
+        HARNESS_CANONICAL_ROOT: canonicalWorkspaceRoot,
+        HARNESS_DAEMON_REPO_ID: "runtime-worker",
+        HARNESS_DAEMON_ENDPOINT: endpoint,
+      },
+    });
+    assert.deepEqual(target, {
+      repoId: "runtime-worker",
+      canonicalRoot: canonicalWorkspaceRoot,
+      userRoot,
+      daemonId: "default",
+      socketPath: endpoint,
+    });
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("local daemon relay rejects a route missing its repo id or canonical root", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-incomplete-")),
+    userRoot = path.join(fixtureRoot, "user"),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    endpoint = path.join(perUserSocketRoot(), "r-0123456789abcdef01234567.sock");
+  try {
+    mkdirSync(workspaceRoot);
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    mkdirSync(userRoot);
+    for (const env of [
+      {
+        HARNESS_DAEMON_RELAY: "1",
+        HARNESS_CANONICAL_ROOT: canonicalWorkspaceRoot,
+        HARNESS_DAEMON_ENDPOINT: endpoint,
+      },
+      {
+        HARNESS_DAEMON_RELAY: "1",
+        HARNESS_DAEMON_REPO_ID: "runtime-worker",
+        HARNESS_DAEMON_ENDPOINT: endpoint,
+      },
+    ])
+      await assert.rejects(
+        () => resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, env }),
+        (error: unknown) => {
+          assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+          assert.match((error as Error).message, /daemon_relay_route_required/u);
+          return true;
+        },
+      );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("local daemon relay rejects a repo id override outside the dispatched scope", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-scope-")),
+    userRoot = path.join(fixtureRoot, "user"),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    endpoint = path.join(perUserSocketRoot(), "r-0123456789abcdef01234567.sock");
+  try {
+    mkdirSync(workspaceRoot);
+    mkdirSync(userRoot);
+    await assert.rejects(
+      () =>
+        resolveLocalDaemonTarget({
+          rootDir: workspaceRoot,
+          repoIdOverride: "other-repo",
+          userRoot,
+          env: {
+            HARNESS_DAEMON_RELAY: "1",
+            HARNESS_CANONICAL_ROOT: realpathSync.native(workspaceRoot),
+            HARNESS_DAEMON_REPO_ID: "runtime-worker",
+            HARNESS_DAEMON_ENDPOINT: endpoint,
+          },
+        }),
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+        assert.match((error as Error).message, /does not match the dispatched repo/u);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
 
@@ -353,7 +463,7 @@ test("local daemon target keeps a matching injected endpoint across an isolated 
   }
 });
 
-test("workspace relay resolves through an enabled registration matching the current root", async () => {
+test("workspace relay resolves a worktree under the dispatched canonical root", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-relay-")),
     userRoot = path.join(fixtureRoot, "user"),
     workspaceRoot = path.join(fixtureRoot, "workspace"),
@@ -363,9 +473,10 @@ test("workspace relay resolves through an enabled registration matching the curr
     mkdirSync(workerRoot, { recursive: true });
     const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
     mkdirSync(userRoot);
+    // The registry names a different repo on purpose: the injected route, not this file, decides.
     writeFileSync(
       path.join(userRoot, "registry.json"),
-      JSON.stringify(registry([repo("runtime-worker", canonicalWorkspaceRoot)])),
+      JSON.stringify(registry([repo("registered-elsewhere", canonicalWorkspaceRoot)])),
     );
     const target = await resolveLocalDaemonTarget({
       rootDir: workerRoot,
@@ -396,10 +507,8 @@ test("workspace relay rejects a missing endpoint instead of deriving a fallback 
   try {
     mkdirSync(workspaceRoot);
     mkdirSync(userRoot);
-    writeFileSync(
-      path.join(userRoot, "registry.json"),
-      JSON.stringify(registry([repo("runtime-worker", realpathSync.native(workspaceRoot))])),
-    );
+    // No registry is written: a relayed route is complete without one, and the missing endpoint
+    // must be refused before any host lookup instead of falling back to the implicit user socket.
     await assert.rejects(
       () =>
         resolveLocalDaemonTarget({
@@ -413,10 +522,48 @@ test("workspace relay rejects a missing endpoint instead of deriving a fallback 
         }),
       (error: unknown) => {
         assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+        assert.match((error as Error).message, /HARNESS_DAEMON_ENDPOINT is not set/u);
         assert.deepEqual((error as { readonly params?: unknown }).params, {
+          route: "relay",
+          reason: "HARNESS_DAEMON_ENDPOINT is not set",
           endpoint: null,
+          userRoot,
+          daemonId: "default",
           repoId: "runtime-worker",
+          canonicalRoot: workspaceRoot,
         });
+        return true;
+      },
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("workspace relay rejects an endpoint that is not this dispatch's relay socket", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-relay-foreign-")),
+    userRoot = path.join(fixtureRoot, "user"),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    foreignEndpoint = path.join(fixtureRoot, ".harness", "r-0123456789abcdef01234567.sock");
+  try {
+    mkdirSync(workspaceRoot);
+    mkdirSync(userRoot);
+    await assert.rejects(
+      () =>
+        resolveLocalDaemonTarget({
+          rootDir: workspaceRoot,
+          userRoot,
+          env: {
+            HARNESS_DAEMON_RELAY: "1",
+            HARNESS_CANONICAL_ROOT: realpathSync.native(workspaceRoot),
+            HARNESS_DAEMON_REPO_ID: "runtime-worker",
+            HARNESS_DAEMON_ENDPOINT: foreignEndpoint,
+          },
+        }),
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+        assert.match((error as Error).message, /per-dispatch relay socket/u);
+        assert.equal((error as { readonly params?: { readonly route?: string } }).params?.route, "relay");
         return true;
       },
     );

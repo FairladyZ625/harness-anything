@@ -259,6 +259,18 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       "Unset HARNESS_DAEMON_ENDPOINT to use the resolved registry target, or restore the original " +
       "HARNESS_DAEMON_USER_ROOT and HARNESS_DAEMON_ID before retrying.",
   ],
+  // A dispatched runtime has one route: the daemon that launched it bound the relay, repo and
+  // canonical root together. Reading the host registry, deriving the implicit user socket, or
+  // starting a daemon would each answer for a repo the dispatch never named.
+  [
+    "cli:daemon-relay-route",
+    (args) =>
+      `Relay daemon route rejected: ${textArg(args, "reason")}. ` +
+      `endpoint=${JSON.stringify(args.endpoint ?? null)} repoId=${JSON.stringify(args.repoId ?? null)} ` +
+      `canonicalRoot=${JSON.stringify(args.canonicalRoot ?? null)}. ` +
+      "The dispatching daemon injects HARNESS_DAEMON_ENDPOINT, HARNESS_DAEMON_REPO_ID and " +
+      "HARNESS_CANONICAL_ROOT together; restore that injection instead of falling back to the host daemon socket.",
+  ],
   [
     "cli:explain-usage",
     () =>

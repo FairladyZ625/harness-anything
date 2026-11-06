@@ -73,6 +73,7 @@ for (const resource of [
   "clean-autostart",
   "relay-admin",
   "relay-conflict",
+  "relay-read",
   "runtime-bootstrap",
   "vertical-wedge",
   "runtime-attach-live",
