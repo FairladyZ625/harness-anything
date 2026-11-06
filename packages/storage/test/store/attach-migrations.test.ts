@@ -103,6 +103,7 @@ test("attach migration registry covers each retired historical field and is idem
       "vertical.completion.closeoutCodeDoc",
       "submission.delivery-facts",
       "review.finding.category",
+      "task.packageDisposition",
     ],
   );
   assert.deepEqual(
@@ -332,7 +333,7 @@ test("a retired codeDoc step still runs on a ledger that already applied its par
 test("legacy submission facts stay readable without an attach migration event", () => {
   assert.deepEqual(
     publicHistoricalReadConclusions.map(({ name }) => name),
-    ["submission.delivery-facts", "review.finding.category"],
+    ["submission.delivery-facts", "review.finding.category", "task.packageDisposition"],
   );
   const conclusion = attachMigrationRegistry.find(
     (entry) => entry.kind === "read-conclusion" && entry.name === "submission.delivery-facts",

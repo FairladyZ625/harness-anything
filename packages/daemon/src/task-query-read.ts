@@ -319,7 +319,7 @@ export function makeTaskQueryReadModel(input: {
                   task: { ...task, assignment: assignment === null ? null : assignmentFromRelation(assignment) },
                 },
           metadata = task?.metadata,
-          disposition = requiredPackageDisposition(row.taskId, task?.packageDisposition),
+          disposition = taskPackageDisposition(task?.packageDisposition),
           derived = activeDerives.get(`task/${row.taskId}`) ?? [],
           scopes = derived
             .flatMap((edge) => {
@@ -1166,12 +1166,15 @@ function relationFacetWarnings(status: "ready" | "pending") {
         },
       ];
 }
-export function requiredPackageDisposition(
-  taskId: string,
+/**
+ * `task.packageDisposition` read conclusion: a task whose history never stated a disposition (imported
+ * before the importer defaulted it) reads as active, as the generated package_disposition column does.
+ * Applied here, not in the projection snapshot, so replay and write-side comparisons keep the event bytes.
+ */
+export function taskPackageDisposition(
   disposition: "active" | "archived" | "tombstoned" | undefined,
 ): "active" | "archived" | "tombstoned" {
-  if (disposition !== undefined) return disposition;
-  throw new Error(`Event-backed task projection is missing packageDisposition for ${taskId}.`);
+  return disposition ?? "active";
 }
 /** Attach the kernel's uncovered-cause classification so consumers never re-derive it. */
 function withFreshnessReason<T extends FreshnessReasonInput>(row: T): T & { freshnessReason?: FreshnessReason } {

@@ -21,7 +21,7 @@ import {
 import { readTaskReadSet } from "@harness-anything/application";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { requiredPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
+import { taskPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
 import { projectedTaskSettings, resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
 import { selectTaskIndex } from "./task-index-query.ts";
 
@@ -282,7 +282,7 @@ export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string
       title: activatingRead.snapshot.task.title,
       status: activatingRead.snapshot.task.status,
       taskClass: activatingRead.snapshot.task.taskClass,
-      packageDisposition: requiredPackageDisposition(activatingTaskId, activatingRead.snapshot.task.packageDisposition),
+      packageDisposition: taskPackageDisposition(activatingRead.snapshot.task.packageDisposition),
       hasCloseoutEvidence: hasCloseoutEvidence(activatingRead.snapshot.executions),
       hasOwnExecution:
         activatingRead.snapshot.lease !== null ||
@@ -326,7 +326,7 @@ function occupyingWipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnaps
     title: row.snapshot.task?.title ?? "",
     status: row.snapshot.task?.status ?? "planned",
     taskClass: row.snapshot.task?.taskClass ?? "standard",
-    packageDisposition: requiredPackageDisposition(row.taskId, row.snapshot.task?.packageDisposition),
+    packageDisposition: taskPackageDisposition(row.snapshot.task?.packageDisposition),
     hasCloseoutEvidence: hasCloseoutEvidence(row.snapshot.executions),
     hasOwnExecution:
       row.snapshot.lease !== null ||

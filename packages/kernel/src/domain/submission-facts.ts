@@ -27,6 +27,17 @@ export const historicalReadConclusions = Object.freeze([
       "identity. Findings remain report content; the current review verdict and owner consent decide " +
       "completion, while historical disposition records remain readable without migration.",
   },
+  {
+    kind: "read-conclusion",
+    name: "task.packageDisposition",
+    fields: ["Task.packageDisposition"],
+    attachRequired: false,
+    conclusion:
+      "Tasks imported before the importer defaulted this field stay byte-identical in events and " +
+      "projection snapshots; daemon task reads conclude active for a task whose history never stated " +
+      "a disposition, the same answer as the projection's generated package_disposition column " +
+      "(taskPackageDisposition).",
+  },
 ] as const);
 
 /** Historical Submission/v1 rows have path prose but no frozen G33 facts to replay. */
