@@ -283,6 +283,11 @@ test(
       assert.match(String(receipt.summary), /not running \(exited build_superseded at \d{4}-\d{2}-\d{2}T/u);
       assert.match(String(receipt.nextAction), /autostart/u);
       assert.match(String(receipt.nextAction), /ha daemon start --service/u);
+      assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "status must remain read-only");
+      // A first init in a clone uses the same autostart path as other ordinary commands.
+      register(fixture.root, fixture.userRoot, "autostart");
+      const successorPid = readDaemonPid(fixture.userRoot, "default");
+      assert.ok(successorPid && successorPid !== child.pid, "init must start a successor without an explicit start");
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       await exited;
