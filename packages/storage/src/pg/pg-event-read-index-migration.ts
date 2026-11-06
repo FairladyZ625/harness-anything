@@ -1,5 +1,7 @@
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
+import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
+import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 
 const eventReadFields = {
   list_row: `json_build_object('revision',NEW.revision,'opId',NEW.op_id,'eventId',NEW.event_id,
@@ -70,6 +72,12 @@ const dispatchIndexes = [
  */
 export function eventReadIndexDdl(): readonly string[] {
   return [
+    ...POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
+    ...postgresScopeRlsStatements("ha_event_entity_refs", { ifNotExists: true }),
+    // An old writer may run as soon as the trigger is installed. Prepare its table privileges
+    // first, without relying on default grants. Embedded/schema-owner-only databases have no
+    // runtime roles; the explicit external grant entrypoint still requires both existing roles.
+    ...eventRefIndexGrantDdl(),
     ...Object.keys(eventReadFields).map(
       (column) => `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS ${column} text COLLATE "C"`,
     ),
@@ -225,6 +233,17 @@ export function eventReadIndexDdl(): readonly string[] {
         RETURN processed;
       END $function$`,
   ];
+}
+
+/** Shared by pre-trigger installation and the explicit runtime grant upgrade. */
+export function eventRefIndexGrantDdl(): readonly string[] {
+  return [POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime, POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.migration].map(
+    (role) => `DO $grant$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${role}') THEN
+        GRANT SELECT,INSERT,DELETE ON ha_event_entity_refs TO "${role}";
+      END IF;
+    END $grant$`,
+  );
 }
 
 export async function assertPgEventReadIndexReady(

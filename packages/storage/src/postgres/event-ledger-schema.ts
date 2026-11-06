@@ -12,6 +12,19 @@ export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
   "ha_replication_slots",
 ] as const);
 
+/** Shared by cold ledger creation and the existing schema-owner read-index upgrade. */
+export const POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS: readonly string[] = Object.freeze([
+  `CREATE TABLE IF NOT EXISTS ha_event_entity_refs (
+    tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL,
+    ${scopeColumns()}, entity_ref text COLLATE "C" NOT NULL, revision bigint NOT NULL,
+    PRIMARY KEY (tenant_id,project_id,policy_epoch,repo_id,entity_ref,revision),
+    FOREIGN KEY (tenant_id,project_id,repo_id,revision)
+      REFERENCES ha_events(tenant_id,project_id,repo_id,revision) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS ha_event_entity_refs_revision ON ha_event_entity_refs
+    (tenant_id,project_id,repo_id,revision)`,
+]);
+
 /** DDL owned by the event-ledger adapter; callers run it as the schema owner before runtime access. */
 export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object.freeze([
   `CREATE TABLE IF NOT EXISTS ha_repo_heads (
@@ -62,15 +75,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
   `CREATE INDEX IF NOT EXISTS ha_events_entity_refs_gin_idx ON ha_events USING gin (entity_refs)`,
   // Derived ledger index: survives task-projection rebuilds and is maintained by the event
   // read-index trigger, including writes from the previous binary during the upgrade window.
-  `CREATE TABLE IF NOT EXISTS ha_event_entity_refs (
-    tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL,
-    ${scopeColumns()}, entity_ref text COLLATE "C" NOT NULL, revision bigint NOT NULL,
-    PRIMARY KEY (tenant_id,project_id,policy_epoch,repo_id,entity_ref,revision),
-    FOREIGN KEY (tenant_id,project_id,repo_id,revision)
-      REFERENCES ha_events(tenant_id,project_id,repo_id,revision) ON DELETE CASCADE
-  )`,
-  `CREATE INDEX IF NOT EXISTS ha_event_entity_refs_revision ON ha_event_entity_refs
-    (tenant_id,project_id,repo_id,revision)`,
+  ...POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS ha_command_outcomes (
     tenant_id text NOT NULL,
     project_id text NOT NULL,

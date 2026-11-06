@@ -4,7 +4,7 @@ This release retains projection generation **5**. Previous binaries continue to 
 original `value` and write their original columns. Current binaries write the additional
 `document_metadata` column in the same row and transaction. Scalar-index backfills do not
 rewrite canonical events or switch the projection generation. The same generation also adds runtime read indexes **v2** and event
-read indexes **v5** (v4 plus the normalized dispatch-key column), and a task-parent scalar
+read indexes **v6** (v5 dispatch keys plus stored event-list descriptors and entity-reference rows), and a task-parent scalar
 index. JSON parent expressions cannot serve indexed predicates under runtime RLS; the
 shared snapshot trigger maintains `parent_task_id` for both writer versions. External PostgreSQL does not backfill these automatically: ordinary
 reader startup and `TaskProjection.catchUp` do not run the two management SQL functions.
@@ -26,6 +26,11 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    existing projection tables. Old grants do not cover newly created tables; do not assume
    deployment-specific default privileges. Commit these grants before allowing previous or
    current writers to invoke the shared binding triggers. Runtime logins do not perform DDL.
+   The event-index expansion itself creates `ha_event_entity_refs`, its indexes and scope
+   policy, then grants SELECT/INSERT/DELETE to existing runtime/migration roles **before**
+   installing its event trigger. This ordering keeps previous event INSERTs usable while
+   the remaining expansion runs. Embedded databases without those roles use their schema
+   owner. Retrying the same schema entrypoint repairs partial installation and missing grants.
 2. Backfill each tenant/project/policy-epoch scope using the existing management connection
    and transaction-local RLS claims (`ha.tenant_id`, `ha.project_id`, `ha.policy_epoch`).
    Start with empty cursor strings. Run one call per transaction and commit before saving
@@ -82,7 +87,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    ```
 
    Again commit each <=64-row call and repeat to a committed `processed=0`. All old event
-   rows, including non-runtime schemas, must reach version 5. The same call also fills the
+   rows, including non-runtime schemas, must reach version 6 before descriptor readers switch.
+   Version 6 fills `list_row` and the entity-reference/suffix index without rewriting canonical
+   bytes. Existing canonical/runtime readers still require version 5. The same call also fills the
    derived `summary_json` fleet header and re-triggers rows that are already version 5 but
    still have a NULL header, so a completed-v5 database needs no separate command. Version 5 derives
    `dispatch_key` from either payload spelling (`dispatchKey`, or the pre-rename
@@ -102,7 +109,7 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    LIMIT 1;
    SELECT 1 FROM ha_events
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
-     AND read_index_version<5 LIMIT 1;
+     AND read_index_version<6 LIMIT 1;
    SELECT 1 FROM ha_task_snapshots
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1
      AND parent_index_version=0 LIMIT 1;

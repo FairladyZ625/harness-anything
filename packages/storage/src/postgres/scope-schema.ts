@@ -29,13 +29,23 @@ const scopePredicate = [
 ].join(" AND ");
 
 /** One RLS predicate for every tenant/project scoped table; missing or stale claims match no rows. */
-export function postgresScopeRlsStatements(tableName: string): readonly string[] {
+export function postgresScopeRlsStatements(
+  tableName: string,
+  options: { readonly ifNotExists?: boolean } = {},
+): readonly string[] {
   const table = quoteIdentifier(tableName),
-    policy = quoteIdentifier(`${tableName}_scope_policy`);
+    policy = quoteIdentifier(`${tableName}_scope_policy`),
+    createPolicy = `CREATE POLICY ${policy} ON ${table} USING (${scopePredicate}) WITH CHECK (${scopePredicate})`;
   return [
     `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
     `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
-    `CREATE POLICY ${policy} ON ${table} USING (${scopePredicate}) WITH CHECK (${scopePredicate})`,
+    options.ifNotExists
+      ? `DO $policy$ BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = current_schema() AND tablename = '${tableName}' AND policyname = '${tableName}_scope_policy') THEN
+             EXECUTE $policy_sql$${createPolicy}$policy_sql$;
+           END IF;
+         END $policy$`
+      : createPolicy,
   ];
 }
 

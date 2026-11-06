@@ -1,6 +1,10 @@
 import type { PoolClient } from "pg";
 import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
-import { contractPgEventSummaryIndex, eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
+import {
+  contractPgEventSummaryIndex,
+  eventReadIndexDdl,
+  eventRefIndexGrantDdl,
+} from "./pg-event-read-index-migration.ts";
 import { readIndexDdl } from "./pg-read-index-migration.ts";
 import { taskParentIndexDdl } from "./pg-task-parent-index.ts";
 import { decisionReadStatusDdl } from "./pg-decision-read-status.ts";
@@ -80,19 +84,8 @@ export async function ensurePgProjectionSchema(
     } else await client.query(statement);
   }
   for (const table of PG_PROJECTION_TABLES) {
-    for (const statement of postgresScopeRlsStatements(table)) {
-      if (statement.startsWith("CREATE POLICY ")) {
-        const policy = `${table}_scope_policy`;
-        await client.query(
-          `DO $policy$ BEGIN
-             IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = current_schema() AND tablename = '${table}' AND policyname = '${policy}') THEN
-               EXECUTE $policy_sql$${statement}$policy_sql$;
-             END IF;
-           END $policy$`,
-        );
-      } else {
-        await client.query(statement);
-      }
+    for (const statement of postgresScopeRlsStatements(table, { ifNotExists: true })) {
+      await client.query(statement);
     }
   }
 }
@@ -107,6 +100,7 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
   await client.query(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")} TO "${roles.runtime}", "${roles.migration}"`,
   );
+  for (const statement of eventRefIndexGrantDdl()) await client.query(statement);
 }
 
 export function projectionDdl(): readonly string[] {
