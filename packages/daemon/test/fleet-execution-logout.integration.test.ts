@@ -997,9 +997,11 @@ test(
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
     t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest stopped settlement passed after logout.");
     // The settled execution's edge-local identity is no longer available, so the write is refused.
-    // A relayed command whose worker host is gone cannot silently fall back to the edge user socket.
+    // A relayed command whose worker host is gone reports the transport failure of its fixed relay:
+    // it neither starts a daemon nor falls back to the edge user socket.
     const relayedAfter = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
-    assert.equal(relayedAfter.code, "daemon_start_runtime_forbidden", JSON.stringify(relayedAfter));
+    assert.equal(relayedAfter.code, "daemon_unavailable", JSON.stringify(relayedAfter));
+    assert.match(JSON.stringify(relayedAfter), /connect ENOENT \/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock/u);
     // A direct caller still meets the center's settled-identity refusal.
     const directAfter = await spawnCli(
       ["--root", worktree, "--json", "task", "progress", "append", taskId, "--text", "After settlement."],

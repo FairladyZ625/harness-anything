@@ -18,6 +18,10 @@ export async function withAutostart(
     readonly commandCategory: "operation" | "daemon-lifecycle";
   },
 ): Promise<JsonObject> {
+  // A relayed runtime owns no daemon lifecycle: its dispatcher bound one fixed relay, so an
+  // unreachable endpoint is a transport failure, not a reason to start a daemon on the host. The
+  // check is deliberately independent of HARNESS_ACTOR, which the caller can unset.
+  if (options.env.HARNESS_DAEMON_RELAY === "1") return request();
   const startedAt = Date.now(),
     budgetMs = options.restartBudgetMs ?? 30_000;
   // The pid before the request is the only daemon this request can legitimately be answered by.
