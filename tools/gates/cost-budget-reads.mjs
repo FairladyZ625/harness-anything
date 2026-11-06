@@ -6,7 +6,13 @@ import { pathToFileURL } from "node:url";
 
 export const READ_SCALES = Object.freeze({ small: 200, large: 2000 });
 export const READ_OUTPUT_SCALES = Object.freeze({ small: 3400, large: 34000 });
-export const readScalesFor = (dimension) => (dimension === "task-outputs" ? READ_OUTPUT_SCALES : READ_SCALES);
+export const READ_VISIBILITY_SCALES = Object.freeze({ small: 200, large: 2000 });
+export const readScalesFor = (dimension) =>
+  dimension === "task-outputs"
+    ? READ_OUTPUT_SCALES
+    : dimension === "relation-visibility"
+      ? READ_VISIBILITY_SCALES
+      : READ_SCALES;
 // CEO 2026-11-05: known scans may use declared smaller 10x pairs in the required
 // lane. Removing the last exemption restores the full scales automatically.
 export function readScalesForProbe(section, id, backend, dimension) {
@@ -38,9 +44,16 @@ export const READ_DIMENSIONS = Object.freeze([
   "dispatches",
   "task-outputs",
   "relations",
+  "relation-visibility",
   "event-bytes",
   "source-events",
 ]);
+export function readProbeAppliesTo(probe, backend, dimension) {
+  if (probe.sourceAudit ? dimension !== "source-events" : dimension === "source-events") return false;
+  if (probe.dimensions && !probe.dimensions.includes(dimension)) return false;
+  if (probe.backends && !probe.backends.includes(backend)) return false;
+  return true;
+}
 // Protocol methods are enumerated below. These non-RPC entry points were traced from
 // repo-cell-open, daemon-host-open/recovery, squad-coordinator and schedule-scheduler.
 // Keep coverage at their actual readers, so startup and timer work cannot hide behind
@@ -183,9 +196,7 @@ export function evaluateReadMeasurements({
   const usedExemptions = new Set();
   for (const id of selected)
     for (const backend of backends)
-      for (const dimension of dimensions.filter((value) =>
-        probes[id].sourceAudit ? value === "source-events" : value !== "source-events",
-      )) {
+      for (const dimension of dimensions.filter((value) => readProbeAppliesTo(probes[id], backend, value))) {
         const pair = measured[backend]?.[dimension]?.[id],
           scales = readScalesForProbe(section, id, backend, dimension);
         required(pair, `missing read measurement ${backend}/${dimension}/${id}`);
@@ -237,7 +248,12 @@ export function evaluateReadMeasurements({
       }
   for (const entry of exemptions) {
     const key = [entry.probe, entry.backend, entry.dimension, entry.metric].join("/");
-    if (backends.includes(entry.backend) && dimensions.includes(entry.dimension) && !usedExemptions.has(key))
+    if (
+      backends.includes(entry.backend) &&
+      dimensions.includes(entry.dimension) &&
+      readProbeAppliesTo(probes[entry.probe], entry.backend, entry.dimension) &&
+      !usedExemptions.has(key)
+    )
       errors.push(`${key}: knownScaling exemption is stale; remove it`);
   }
   return { ok: errors.length === 0, errors, measured, inventory, knownScaling: exemptions };
@@ -256,9 +272,7 @@ export async function measureReadCosts(
   for (const backend of backends) {
     measured[backend] = {};
     for (const dimension of dimensions) {
-      const dimensionProbes = selected.filter((id) =>
-        READ_PROBES[id].sourceAudit ? dimension === "source-events" : dimension !== "source-events",
-      );
+      const dimensionProbes = selected.filter((id) => readProbeAppliesTo(READ_PROBES[id], backend, dimension));
       const groups = new Map();
       for (const id of dimensionProbes) {
         const scales = readScalesForProbe(section, id, backend, dimension),

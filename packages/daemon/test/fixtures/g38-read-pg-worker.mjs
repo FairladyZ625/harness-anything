@@ -39,7 +39,7 @@ pg.Client.prototype.query = function (...args) {
   });
 };
 installReadProbe();
-const { state, responsePort, size, dimension, rootDir } = workerData;
+const { state, responsePort, size, dimension, rootDir, lowVisibility } = workerData;
 let backend;
 const respond = (value) => {
   responsePort.postMessage(value);
@@ -55,7 +55,12 @@ try {
     },
     storage: {
       backend: "pglite",
-      scope: { tenantId: "g38", projectId: "read", policyEpoch: 0 },
+      scope: {
+        tenantId: "g38",
+        projectId: "read",
+        policyEpoch: 0,
+        ...(lowVisibility ? { readers: ["reader-visible"] } : {}),
+      },
     },
   });
   const bundles = [],
@@ -88,6 +93,32 @@ try {
     seeded.baseRevision + seeded.growth,
     "PG fixture did not seed the committed collection size",
   );
+  if (lowVisibility) {
+    // Keep the authorization port unchanged and make only the fixture's relation rows sparse:
+    // the last 1% in the relation-id order are visible to the reader. This is an adversarial
+    // page position, so an ordered scan must visit the hidden prefix before returning k=1.
+    await backend.pool.query(`
+      WITH ranked AS (
+        SELECT relation_id,
+               row_number() OVER (ORDER BY relation_id) AS row_number,
+               count(*) OVER () AS total_rows
+        FROM ha_relations
+        WHERE tenant_id='g38' AND project_id='read' AND policy_epoch=0 AND relation_type='depends-on'
+      ), visibility AS (
+        SELECT relation_id,
+               CASE WHEN row_number > total_rows - GREATEST(1, CEIL(total_rows / 100.0))
+                 THEN ARRAY['reader-visible']::text[]
+                 ELSE ARRAY['reader-hidden']::text[]
+               END AS readers
+        FROM ranked
+      )
+      UPDATE ha_relations AS relation
+      SET readers = visibility.readers
+      FROM visibility
+      WHERE relation.tenant_id='g38' AND relation.project_id='read' AND relation.policy_epoch=0
+        AND relation.relation_id=visibility.relation_id
+    `);
+  }
   // Bulk fixtures need current planner statistics, just like PostgreSQL bulk restores.
   // https://www.postgresql.org/docs/current/populate.html#POPULATE-ANALYZE
   // This is setup, outside both cold/warm cost measurements; no scan is hidden.

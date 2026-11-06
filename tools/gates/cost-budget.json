@@ -1109,6 +1109,7 @@
           "measurements": [
             "cli-relation-list",
             "relation-page",
+            "relation-page-low-visibility",
             "relation-freshness-page"
           ]
         },
@@ -1461,7 +1462,8 @@
         },
         "method:repo.triadic.relationGraph": {
           "measurements": [
-            "relation-page"
+            "relation-page",
+            "relation-page-low-visibility"
           ]
         },
         "method:repo.vertical.declaration.read": {
@@ -1613,6 +1615,15 @@
       ]
     },
     "knownScaling": [
+      {
+        "probe": "relation-page-low-visibility",
+        "backend": "pglite",
+        "dimension": "relation-visibility",
+        "metric": "sqlRowsRead",
+        "reason": "The readers overlap predicate is applied while the relation_id order is scanned; the adversarial 1% fixture observed sqlRowsRead 211 at 200 -> 1993 at 2000 for fixed k=1. Keep the probe red until the scope-key/index implementation bounds work by visible scopes and page k.",
+        "deletionTaskId": "task_b3549dbda8a88bd640d1636418",
+        "expiresAt": "2026-12-07T00:00:00Z"
+      },
       {
         "probe": "agenda",
         "backend": "pglite",

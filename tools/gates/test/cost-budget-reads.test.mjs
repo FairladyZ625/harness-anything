@@ -20,6 +20,7 @@ import {
   readScalesForProbe,
   measureReadCosts,
   readInventory,
+  readProbeAppliesTo,
 } from "../cost-budget-reads.mjs";
 
 const inventory = [{ id: "method:repo.fixture.read" }],
@@ -115,6 +116,14 @@ test("G38 requires matching production probes and rejects blank or duplicate ina
   assert.deepEqual(validateReadCoverage(f.section, inventory, {}), []);
   f.section.readCoverage.notApplicable.push(f.section.readCoverage.notApplicable[0]);
   assert.throws(() => validateReadCoverage(f.section, inventory, {}), /duplicates read/u);
+});
+
+test("G38 relation visibility applies only to the permission-aware PostgreSQL projection", async () => {
+  const { READ_PROBES } = await import("../../../packages/daemon/test/fixtures/g38-read-cost.mjs"),
+    probe = READ_PROBES["relation-page-low-visibility"];
+  assert.equal(readProbeAppliesTo(probe, "pglite", "relation-visibility"), true);
+  assert.equal(readProbeAppliesTo(probe, "sqlite", "relation-visibility"), false);
+  assert.equal(readProbeAppliesTo(probe, "pglite", "relations"), false);
 });
 
 test("G38 judges the full backend × dimension × probe matrix without silently dropping a measurement", () => {
