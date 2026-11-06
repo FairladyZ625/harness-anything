@@ -179,3 +179,77 @@ test("real daemon RPC review-return uses owner rework and retains policy and own
   assert.equal(event.payload.execution.state, "changes_requested");
   t.diagnostic(JSON.stringify({ intent: "review-return", event: event.type, outcome: returned.outcome }));
 });
+
+test("owner rework past the rework budget requires a premise review recorded after the last return", async (t) => {
+  const f = await fixture(t),
+    taskId = "task-rpc-premise",
+    created = await f.applied({ kind: "task-create", taskId, title: "RPC premise review" }),
+    packagePath = String(created.packagePath);
+  await f.published(created.opId);
+  await realizeTaskPlanFixture(f.repoRoot, packagePath, (planPath) =>
+    f.applied({ kind: "doc-submit", paths: [planPath] }),
+  );
+  f.signIn("lifecycle-owner", "maintainer");
+  const submitRound = async (round: number) => {
+      const executionId = `execution-rpc-premise-${String(round)}`,
+        started = await f.applied({ kind: "task-start", taskId, executionId });
+      await f.published(started.opId);
+      writeFileSync(path.join(f.repoRoot, "README.md"), `# Premise round ${String(round)}\n`);
+      for (const args of [
+        ["add", "README.md"],
+        ["commit", "-qm", `premise round ${String(round)}`],
+      ])
+        execFileSync("git", args, { cwd: f.repoRoot, stdio: "pipe", windowsHide: true });
+      const closeout = path.join(f.repoRoot, "harness", packagePath, "closeout.md");
+      mkdirSync(path.dirname(closeout), { recursive: true });
+      writeFileSync(
+        closeout,
+        `# Closeout\n\n## Summary\n\nRound ${String(round)}.\n\n## Verification\n\nSocket assertions.\n\n` +
+          "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared rework ingress.\n",
+      );
+      const submitted = await f.applied({ kind: "task-submit", taskId, executionId });
+      await f.published(submitted.opId);
+      return executionId;
+    },
+    rework = (executionId: string) =>
+      f.run({ kind: "task-rework", taskId, executionId, reason: "Return the cut once more." }),
+    premise = (conclusion: string) =>
+      f.applied({
+        kind: "fact-record",
+        taskId,
+        statement:
+          "restart: only if the attach pause is measured first. alternative: schedule upgrades off-peak. " +
+          `sunk-cost: three rounds spent; not a reason. conclusion: ${conclusion}`,
+        evidenceSource: "review:premise",
+        confidence: "medium",
+        domainTypes: ["premise-review"],
+        memoryClass: "episodic",
+        memoryTags: [],
+      });
+
+  // The default repository budget is three returns; the owner's first three go through unasked.
+  for (let round = 0; round < 3; round += 1) {
+    const executionId = await submitRound(round);
+    // A premise review written before the latest return does not cover the round after it.
+    if (round === 2) await premise("continue");
+    const returned = await rework(executionId);
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+  }
+  const fourth = await submitRound(3);
+  const before = f.events().revision;
+  const refused = await rework(fourth);
+  assert.equal(refused.code, "premise_review_required", JSON.stringify(refused));
+  assert.match(String(refused.rejectionExplanation ?? refused.message ?? JSON.stringify(refused)), /premise-review/u);
+  assert.equal(f.events().revision, before, "a refused return publishes no event");
+
+  await premise("stop");
+  const stopped = await rework(fourth);
+  assert.equal(stopped.code, "premise_review_stop", JSON.stringify(stopped));
+
+  await premise("narrow");
+  const returned = await rework(fourth),
+    event = f.events().events.find(({ opId }) => opId === returned.opId);
+  assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+  assert.equal(event?.type, "submission_returned", JSON.stringify(event));
+  t.diagnostic(JSON.stringify({ refused: refused.code, stopped: stopped.code, returned: returned.outcome }));
+});

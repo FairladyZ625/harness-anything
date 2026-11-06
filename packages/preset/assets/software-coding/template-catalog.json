@@ -305,8 +305,8 @@
       "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan/en-US.md" }
       ]
     },
     {
@@ -319,8 +319,8 @@
       "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Cheaper Alternatives", "## Context", "## Required Reading", "## Execution Surface", "## Constraints", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.plan.v2/en-US.md" }
       ]
     },
     {

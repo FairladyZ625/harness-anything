@@ -8,7 +8,11 @@ One-line statement of the task objective and scope.
 
 ## Goal
 
-Describe the verifiable result this task must produce, plus the deliverable's form and destination: what shape it takes, who receives it, where it lands, and who uses it first.
+State the problem itself, not a solution: the symptom to remove and its measured impact (frequency × duration × blast radius, with the measurement source). Then describe the verifiable result this task must produce, plus the deliverable's form and destination: what shape it takes, who receives it, where it lands, and who uses it first.
+
+## Cheaper Alternatives
+
+List at least two, each with one sentence on why it was not chosen: doing nothing (what living with the problem costs) and one low-cost option (for example changing the timing, speeding up the existing path, or accepting a one-time cost). Past the rework budget `ha task rework` requires a premise review; this section is where that review starts.
 
 ## Context
 

@@ -43,6 +43,7 @@ import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
+import { latestPremiseReview, PREMISE_REVIEW_TYPE, premiseReviewCommand } from "./premise-review.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
@@ -422,6 +423,7 @@ export async function proofFor(
         "repo-cell-proof/proofFor.ReworkTask",
         [`ha task rework ${command.taskId} --reason <why the owner is returning this cut>`],
       );
+    assertPremiseReviewedPastBudget(command, snapshot, projection);
     return {
       actorBinding: command.actor,
       capability: "task-rework@v1",
@@ -490,6 +492,72 @@ export async function proofFor(
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
   return completeProof(command, snapshot, binding, projection, rootDir) as TaskLifecycleServiceProof<typeof command>;
+}
+
+/**
+ * Past the repository rework budget, an owner return needs a premise review newer than the last
+ * return: rounds beyond the budget are where a task keeps being repaired inside a contract nobody
+ * re-asked about (task_9e275cf8: 24 rounds). A `stop` conclusion refuses the return outright.
+ */
+function assertPremiseReviewedPastBudget(
+  command: Extract<TaskLifecycleCommand, { readonly type: "ReworkTask" }>,
+  snapshot: Snapshot,
+  projection: ReturnType<typeof makeTaskProjection>,
+): void {
+  const task = snapshot.task,
+    // Same split as the kernel reduce: a handoff or a takeover of an already-returned round only
+    // arranges the next round; every other rework returns the current cut.
+    returnsCut =
+      command.handoffId === undefined &&
+      (command.takeover !== true ||
+        (task?.currentNode === "review" &&
+          (task.status === "submitted" ||
+            snapshot.reviews.some(
+              (review) =>
+                review.executionId === command.executionId && review.submissionDigest === command.submissionDigest,
+            )))),
+    returned = snapshot.executions.filter((execution) => execution.state === "changes_requested"),
+    budget = readEffectiveReviewReturnBudget(projection);
+  if (!returnsCut || returned.length < budget) return;
+  const lastReturn = returned.reduce((latest, execution) => {
+      const closedAt = execution.closedAt ?? "";
+      return closedAt > latest ? closedAt : latest;
+    }, ""),
+    found = latestPremiseReview(projection, command.taskId, lastReturn),
+    recordCommand = premiseReviewCommand(command.taskId),
+    rounds = `${String(returned.length)} returns already reached the rework budget of ${String(budget)}`;
+  if (found?.review.ok === true && found.review.conclusion !== "stop") return;
+  if (found?.review.ok === true)
+    throw cellCriterionError(
+      "premise_review_stop",
+      `Task ${command.taskId}: premise review ${found.fact.ref} concluded stop, so the cut is not returned for ` +
+        "another round. Cancel the task, or record a newer premise review if the conclusion changed.",
+      "rework",
+      "repo-cell-proof/proofFor.ReworkTask",
+      [
+        `ha task transition ${command.taskId} cancelled --reason "<premise review ${found.fact.ref}: stop>"`,
+        recordCommand,
+      ],
+    );
+  throw cellCriterionError(
+    "premise_review_required",
+    `Task ${command.taskId}: ${rounds}. Another return needs a premise review recorded after the last return` +
+      (lastReturn ? ` (${lastReturn})` : "") +
+      (found
+        ? `; ${found.fact.ref} is missing ${found.review.ok ? "" : found.review.missing.join(", ")}.`
+        : ". Answer: would we start this today, what is the simplest alternative, is spent cost driving it; " +
+          "then conclude continue, narrow, or stop."),
+    "rework",
+    "repo-cell-proof/proofFor.ReworkTask",
+    [recordCommand, `ha task rework ${command.taskId} --reason <why>`],
+    {
+      kind: "validation",
+      entity: `task ${command.taskId}`,
+      field: "premiseReview",
+      actual: found ? found.fact.ref : "none after the last return",
+      expectation: `A standing ${PREMISE_REVIEW_TYPE} Fact for this task, recorded after the last return, concluding continue or narrow`,
+    },
+  );
 }
 
 function validNoIndependentReview(

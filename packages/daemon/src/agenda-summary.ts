@@ -74,6 +74,7 @@ export function renderAgendaSummary(
   > & {
     readonly unanchoredWorks?: readonly { readonly taskId: string; readonly title: string }[];
     readonly undispatchedReviews?: readonly { readonly taskId: string; readonly title: string }[];
+    readonly shapeSignals?: readonly { readonly taskId: string; readonly title: string; readonly next: string }[];
   },
 ): string {
   const workLabel = (row: AgendaTaskRow | AgendaExecutionRow) => (row.work ? ` [工作 ${row.work.title}]` : ""),
@@ -124,6 +125,11 @@ export function renderAgendaSummary(
       "评审派发待 CEO 处理",
       "已提交的当前 cut 没有有效评审或在飞 reviewer；worker 无权重派",
       (groups.undispatchedReviews ?? []).map((row) => `- ${row.taskId} ${row.title}`),
+    ),
+    section(
+      "形状信号",
+      "同一任务出现第二次 escalation：先回答今天还会不会做、最简替代、沉没成本，结论 continue/narrow/stop 落 premise-review Fact",
+      (groups.shapeSignals ?? []).map((row) => `- ${row.taskId} ${row.title}\n  前提复核: ${row.next}`),
     ),
     section(
       "注意力顺序（前 7 条）",

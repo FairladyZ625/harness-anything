@@ -1809,3 +1809,105 @@ test("a ready submitted low-risk cut exposes ha task complete instead of a null 
   // The read names the same step a reader can execute; it no longer reads as blocker-free but empty.
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
 });
+
+test("agenda marks a second escalation on one task as a shape signal until a newer premise review", () => {
+  const taskId = "task_shape_signal",
+    packagePath = `tasks/${taskId}`,
+    ruling = (suffix: string, createdAt: string) => ({
+      path: `${packagePath}/artifacts/rulings/dispatch_${suffix}.md`,
+      body: JSON.stringify({
+        schema: "worker-escalation/v1",
+        status: "awaiting",
+        dispatchId: `dispatch_${suffix}`,
+        question: `Does collection ${suffix} also get a migration-window exception?`,
+        options: ["Extend the exception", "Build the index before switching readers"],
+        createdAt,
+      }),
+    }),
+    premiseFact = (statement: string, occurredAt: string) => ({
+      ref: "fact/F-PREMISE1",
+      taskId,
+      factId: "F-PREMISE1",
+      statement,
+      observedAt: occurredAt,
+      occurredAt,
+      state: "standing",
+      archived: false,
+      invalidated: false,
+    }),
+    agendaFor = (rulings: readonly { path: string; body: string }[], facts: readonly unknown[]) => {
+      const row = protocolTaskRow(taskId, [], { status: "active" }),
+        base = projectionStub({ taskRows: [{ ...row, packagePath }] }),
+        projection = {
+          ...base,
+          readDocuments: (prefix: string) => ({
+            documents: rulings.filter(({ path: candidate }) => candidate.startsWith(prefix)),
+          }),
+          readDocument: (documentPath: string) => {
+            const found = rulings.find(({ path: candidate }) => candidate === documentPath);
+            return found ? { ...readyCut, document: { body: found.body } } : base.readDocument(documentPath);
+          },
+          readRuntimeDispatchById: () => null,
+          readRuntimeDispatchesByTaskExecution: () => [],
+          readRuntimeDispatchByResumeSource: () => null,
+          readRuntimeDispatchesByAttemptGroup: () => [],
+          searchFacts: (filters: { taskId?: string; domainType?: string }) => ({
+            ...readyCut,
+            facts: filters.taskId === taskId && filters.domainType === "premise-review" ? facts : [],
+          }),
+        } as unknown as TaskProjection;
+      return makeTaskQueryReadModel({
+        rootDir: canonicalRoot(process.cwd()),
+        projection,
+        readPinnedEntities: () => [],
+        judgments: {
+          closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+          blocking: ((tasks: readonly { taskId: string }[]) =>
+            tasks.map(({ taskId }) => ({
+              taskId,
+              state: "clear",
+              label: "none",
+              blockers: [],
+              warnings: [],
+            }))) as never,
+        },
+      }).agenda();
+    },
+    signalOf = (result: ReturnType<typeof agendaFor>) =>
+      result.attentionItems.find(({ ref, title }) => ref === `task/${taskId}` && title.includes("形状信号"));
+  const first = ruling("a00000000000000000000001", "2026-11-05T10:56:59.001Z"),
+    second = ruling("a00000000000000000000002", "2026-11-05T12:56:33.279Z");
+
+  const single = agendaFor([first], []);
+  assert.equal(signalOf(single), undefined, "one escalation is not a shape yet");
+
+  const repeated = agendaFor([first, second], []);
+  assert.equal(signalOf(repeated)?.kind, "needs-handling", JSON.stringify(repeated.attentionItems));
+  assert.match(repeated.summary, /形状信号 \(1\)/u);
+  assert.match(repeated.summary, /2 次 escalation/u);
+  assert.match(repeated.summary, /ha fact record --task task_shape_signal --type premise-review/u);
+  assert.deepEqual(validateDaemonAgenda(repeated), []);
+
+  // A premise review that predates the latest escalation did not see it.
+  const stale = agendaFor(
+    [first, second],
+    [premiseFact("restart: yes alternative: none sunk-cost: no conclusion: continue", "2026-11-05T11:00:00.000Z")],
+  );
+  assert.ok(signalOf(stale), "a review before the second escalation does not clear it");
+
+  const unanswered = agendaFor([first, second], [premiseFact("conclusion: continue", "2026-11-05T13:00:00.000Z")]);
+  assert.ok(signalOf(unanswered), "a review that skips the three questions does not clear it");
+
+  const reviewed = agendaFor(
+    [first, second],
+    [
+      premiseFact(
+        "restart: no, measure the attach pause first. alternative: schedule upgrades off-peak. " +
+          "sunk-cost: twenty rounds, which is not a reason. conclusion: narrow",
+        "2026-11-05T13:00:00.000Z",
+      ),
+    ],
+  );
+  assert.equal(signalOf(reviewed), undefined, JSON.stringify(reviewed.attentionItems));
+  assert.match(reviewed.summary, /形状信号 \(0\)/u);
+});
