@@ -148,8 +148,11 @@ export function refreshRelationCycleAudit(db: DatabaseSync): void {
       if (!witness) continue;
       changedCycles = true;
       const reverse = new Map<string, string[]>();
-      for (const edge of edges.values())
-        reverse.set(edge.targetRef, [...(reverse.get(edge.targetRef) ?? []), edge.sourceRef]);
+      for (const edge of edges.values()) {
+        const incoming = reverse.get(edge.targetRef) ?? [];
+        incoming.push(edge.sourceRef);
+        reverse.set(edge.targetRef, incoming);
+      }
       const reaching = new Set(witness.nodeRefs);
       for (const node of reaching) for (const previous of reverse.get(node) ?? []) reaching.add(previous);
       const priority = [...reaching].sort((a, b) => a.localeCompare(b))[0]!;
