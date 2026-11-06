@@ -274,6 +274,7 @@ function makeRecoveryFixture(
     readRuntimeDispatchByResumeSource: () => null,
     readDocument: () => ({ status: "ready", document: null, watermark: 1, sourceRevision: 1 }),
     readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEventsByType: () => [],
     readRuntimeDispatchesByAttemptGroup: () => [],
     readSquadRuns: () => [
       {

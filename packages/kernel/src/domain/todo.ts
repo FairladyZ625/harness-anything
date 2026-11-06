@@ -24,8 +24,15 @@ export const todoSchema: EntityDocumentJsonSchema<Todo> = {
   additionalProperties: false,
 };
 
+/** The stored fields that make a todo open. The read-side count compares this same object, so
+ *  "open" is defined once even when the filter runs in SQL. */
+export const openTodoValueEquals = Object.freeze({ completed: false, archived: false }) as Readonly<{
+  readonly completed: false;
+  readonly archived: false;
+}>;
+
 export function todoIsOpen(todo: Todo): boolean {
-  return !todo.completed && !todo.archived;
+  return todo.completed === openTodoValueEquals.completed && todo.archived === openTodoValueEquals.archived;
 }
 
 export function changeTodo(todo: Todo, action: "done" | "reopen" | "archive"): Todo {

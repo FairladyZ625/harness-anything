@@ -1149,6 +1149,7 @@ test("a genesis-imported session without a dispatch is terminalized only by its 
         ({
           readRuntimeDispatch: () => null,
           readRuntimeSessionEvents: () => [started],
+          readRuntimeSessionEventsByType: () => [started],
         }) as never,
     ),
     contract = getExecutableEntityAction("runtime_session_outcome_observed");

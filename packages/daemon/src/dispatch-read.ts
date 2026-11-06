@@ -3,6 +3,7 @@ import {
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
+  type DecisionReadSurface,
   type RuntimeSession,
   type TaskProjection,
   type TaskProjectionQueries,
@@ -88,7 +89,9 @@ type DispatchQueries = Pick<
   TaskProjectionQueries,
   | "read"
   | "readDocument"
-  | "readRuntimeSessionEvents"
+  | "readRuntimeSession"
+  | "readRuntimeSessionEventsByType"
+  | "readRuntimeDispatchesByTaskExecution"
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesByAttemptGroup"
   | "readSquadRun"
@@ -727,6 +730,71 @@ export function readRuntimeAttemptChain(
   };
 }
 
+/** Assemble one dispatch row from its canonical event. Callers that selected a single dispatch
+ *  use this instead of assembling every dispatch of the task. */
+export function readTaskDispatchRow(
+  projection: DispatchQueries,
+  event: DispatchEvent,
+  options: { readonly rootDir?: string; readonly advisorySurface?: DecisionReadSurface } = {},
+): TaskDispatchRow {
+  const annotations = options.rootDir
+    ? readDecisionAnnotationsByDispatch(
+        options.rootDir,
+        [event.payload.dispatchId],
+        options.advisorySurface ?? "task.dispatches",
+      )
+    : new Map<string, readonly import("./decision-annotations.ts").DecisionAnnotationEntry[]>();
+  return canonicalDispatchRow(
+    projection,
+    event,
+    projection.readRuntimeSession(event.payload.runtimeSessionId) ?? undefined,
+    options.rootDir,
+    annotations.get(event.payload.dispatchId) ?? [],
+  );
+}
+
+function dispatchStartedAt(event: DispatchEvent): string {
+  return event.payload.startedAt ?? event.occurredAt;
+}
+
+/** The last dispatch of one execution whose runtime session is one of the given executor ids.
+ *  Reads that execution's dispatch events only, then assembles the selected row. */
+export function readLastExecutionWorkerDispatch(
+  projection: DispatchQueries,
+  input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly workerExecutorIds: ReadonlySet<string>;
+  },
+): TaskDispatchRow | undefined {
+  const event = projection
+    .readRuntimeDispatchesByTaskExecution(input.taskId, input.executionId)
+    .map((row) => row.event)
+    .filter((candidate) => input.workerExecutorIds.has(`runtime-session:${candidate.payload.runtimeSessionId}`))
+    .sort((left, right) => dispatchStartedAt(left).localeCompare(dispatchStartedAt(right)))
+    .at(-1);
+  return event === undefined ? undefined : readTaskDispatchRow(projection, event);
+}
+
+/** The dispatch a fresh child task was accepted with, resolved from the dispatch events alone. */
+export function readTaskAgentDispatch(
+  projection: Pick<TaskProjectionQueries, "readRuntimeDispatchesByTaskIds">,
+  taskId: string,
+  agentId: string,
+): { readonly dispatchId: string; readonly runtimeSessionId: string; readonly executionId: string } | null {
+  const event = projection
+    .readRuntimeDispatchesByTaskIds([taskId])
+    .filter((candidate) => candidate.payload.agentId === agentId)
+    .sort((left, right) => dispatchStartedAt(left).localeCompare(dispatchStartedAt(right)))[0];
+  return event === undefined
+    ? null
+    : {
+        dispatchId: event.payload.dispatchId,
+        runtimeSessionId: event.payload.runtimeSessionId,
+        executionId: event.payload.executionId ?? "",
+      };
+}
+
 function canonicalDispatchRow(
   projection: DispatchQueries,
   event: DispatchEvent,
@@ -746,7 +814,7 @@ function canonicalDispatchRow(
     squadRunId = payload.squadRun?.squadRunId,
     squadChildTaskIds = squadOwnerChildTaskIds(projection, payload),
     outcomeEvent = projection
-      .readRuntimeSessionEvents(payload.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+      .readRuntimeSessionEventsByType(payload.runtimeSessionId, ["runtime_session_outcome_observed"])
       .findLast(
         (entry): entry is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
           entry.schema === "agent-runtime-event/v1" && entry.type === "runtime_session_outcome_observed",

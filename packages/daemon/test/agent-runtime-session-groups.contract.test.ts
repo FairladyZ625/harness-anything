@@ -276,6 +276,7 @@ test("stopped session semantics pass overview contracts while unknown words rema
       readRuntimeSessions: () => [stopped],
       readRuntimeSessionsForTask: () => [stopped],
       readRuntimeSessionEvents: () => [],
+      readRuntimeSessionEventsByType: () => [],
       readRuntimeInstallation: () => null,
       readRuntimeDispatch: () => null,
       currentLease: () => null,
@@ -704,6 +705,7 @@ test("session groups and overview use only accepted events and sessions", () => 
     ...projectionFixture(),
     currentLease: () => null,
     readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEventsByType: () => [],
   } as unknown as TaskProjection;
   const reads = makeAgentRuntimeReadModel({ projection, store: {} as never, readDispatches: () => dispatches });
   assert.deepEqual(reads.sessionGroups({ since: SINCE_ALL }), reads.sessionGroups({ since: SINCE_ALL }));

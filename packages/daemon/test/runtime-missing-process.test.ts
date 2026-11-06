@@ -367,6 +367,13 @@ test("runtime cancel settles a missing-process stream only after its canonical g
               payload: { processGroupPid: 2_147_483_646 },
             },
           ],
+          readRuntimeSessionEventsByType: () => [
+            {
+              type: "runtime_session_liveness_changed",
+              source: "local",
+              payload: { processGroupPid: 2_147_483_646 },
+            },
+          ],
         }),
         processes: new Map(),
         exiting: new Set<string>(),
@@ -452,6 +459,9 @@ test("runtime cancel settles the task lease before closing a missing-process tas
         readRuntimeSessionEvents: () => [
           { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
         ],
+        readRuntimeSessionEventsByType: () => [
+          { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
+        ],
       }),
       processes: new Map(),
       exiting: new Set<string>(),
@@ -532,6 +542,9 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
         readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
         readRuntimeSessionEvents: () => [
+          { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
+        ],
+        readRuntimeSessionEventsByType: () => [
           { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
         ],
       }),

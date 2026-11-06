@@ -500,7 +500,10 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
       }),
       readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) =>
         dispatches.filter(({ event }) => event.payload.taskId === taskId && event.payload.executionId === executionId),
-      readRuntimeSessionEvents: (runtimeSessionId: string) => sessionEvents.get(runtimeSessionId) ?? [],
+      readRuntimeSessionEvents: () => {
+        throw new Error("bounded session reads must use readRuntimeSessionEventsByType");
+      },
+      readRuntimeSessionEventsByType: (runtimeSessionId: string) => sessionEvents.get(runtimeSessionId) ?? [],
       readRuntimeDispatchByResumeSource: (dispatchId: string) =>
         dispatchId === dispatchIdFor("dispatch_resumed")
           ? { event: { payload: { dispatchId: dispatchIdFor("dispatch_next") } } }
@@ -611,6 +614,7 @@ test("agenda keeps a leased or live-runtime execution in flight and names start 
           ? ({ runtimeSessionId, liveness: "live", outcome: null, taskBindings: [] } as never)
           : null,
       readRuntimeSessionEvents: () => [],
+      readRuntimeSessionEventsByType: () => [],
       readRuntimeDispatchByResumeSource: () => null,
       readDocument: taskContractProjection,
     } as unknown as TaskProjection,
@@ -683,6 +687,7 @@ test("agenda restart rows take the complete completion next, including contract 
       readRuntimeDispatchesByTaskExecution: (taskId: string) => [dispatch(taskId)],
       readRuntimeSession: () => null,
       readRuntimeSessionEvents: () => [],
+      readRuntimeSessionEventsByType: () => [],
       readRuntimeDispatchByResumeSource: () => null,
       readDocument: (documentPath: string) =>
         documentPath.includes("task_closeout_missing")

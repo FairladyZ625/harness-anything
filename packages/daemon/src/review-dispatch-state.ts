@@ -6,13 +6,13 @@ export function reviewAttemptEnded(
   cell: Pick<RepoCellOperationalContext, "projection">,
   runtimeSessionId: string,
 ): boolean {
-  return cell.projection
-    .readRuntimeSessionEvents(runtimeSessionId, 0, 10_000)
-    .some((event) =>
-      ["runtime_session_exited", "runtime_session_outcome_observed", "runtime_dispatch_outcome_unknown"].includes(
-        event.type,
-      ),
-    );
+  return (
+    cell.projection.readRuntimeSessionEventsByType(runtimeSessionId, [
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+      "runtime_dispatch_outcome_unknown",
+    ]).length > 0
+  );
 }
 
 /** A task cut can have only one active primary reviewer, including keys written before migration. */

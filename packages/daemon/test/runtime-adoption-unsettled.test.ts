@@ -330,6 +330,7 @@ test("an imported session without a dispatch is settled once and leaves the unse
       readRuntimeSessions: (query?: RuntimeSessionReadQuery) => (query?.unsettledOnly && settled ? [] : [session]),
       readRuntimeDispatch: () => null,
       readRuntimeSessionEvents: () => [started],
+      readRuntimeSessionEventsByType: () => [started],
     }),
     publishRuntimeEvent: async (
       type: string,

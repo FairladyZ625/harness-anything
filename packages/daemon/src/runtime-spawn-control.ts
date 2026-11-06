@@ -204,7 +204,7 @@ export async function cancelRuntime(
 }
 
 export function readRuntimeDispatchOwnerEvidence(
-  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch" | "readRuntimeSessionEvents">,
+  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch" | "readRuntimeSessionEventsByType">,
   runtimeSessionId: string,
 ): RuntimeDispatchOwnerEvidence | null {
   const session = projection.readRuntimeSession(runtimeSessionId);
@@ -212,7 +212,7 @@ export function readRuntimeDispatchOwnerEvidence(
   const dispatch = projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
   if (!dispatch) return null;
   const livenessEvent = projection
-    .readRuntimeSessionEvents(runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+    .readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_liveness_changed"])
     .findLast(
       (event) =>
         event.type === "runtime_session_liveness_changed" &&

@@ -283,6 +283,7 @@ export function projectionStub(
     readRuntimeDispatchesByTaskExecution: () => [],
     readRuntimeDispatchByResumeSource: () => null,
     readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEventsByType: () => [],
     listDecisionAgendaPage: (query) => ({
       ...decisionCut,
       decisions: decisionAgendaRows,

@@ -136,6 +136,19 @@ function fixture(
             },
           ]
         : [],
+    readRuntimeSessionEventsByType: () =>
+      options.metrics || options.attemptFallbackState
+        ? [
+            {
+              schema: "agent-runtime-event/v1",
+              type: "runtime_session_outcome_observed",
+              payload: {
+                ...(options.metrics ? { runtimeMetrics: options.metrics } : {}),
+                ...(options.attemptFallbackState ? { attempt: { fallbackState: options.attemptFallbackState } } : {}),
+              },
+            },
+          ]
+        : [],
     readDocument: (path: string) => ({
       document:
         options.archive && path.endsWith(".json")
@@ -903,6 +916,7 @@ test("member dispatch reads page an executor's newest rows with window groups an
     read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
     readDocument: () => ({ document: null }),
     readRuntimeSessionEvents: () => [],
+    readRuntimeSessionEventsByType: () => [],
     readRuntimeDispatchByResumeSource: () => null,
     readRuntimeDispatchesByAttemptGroup: () => [],
     readLeaseIntervals: () => [],
@@ -998,6 +1012,7 @@ test("a member page window group falls back to the session's newest dispatch, no
       read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
       readDocument: () => ({ document: null }),
       readRuntimeSessionEvents: () => [],
+      readRuntimeSessionEventsByType: () => [],
       readRuntimeDispatchByResumeSource: () => null,
       readRuntimeDispatchesByAttemptGroup: () => [],
       readLeaseIntervals: () => [],
@@ -1131,6 +1146,7 @@ test("cut review settlement selects reviewer dispatches of one submission digest
       readRuntimeDispatchesByAttemptGroup: () => [],
       readRuntimeDispatchByResumeSource: () => null,
       readRuntimeSessionEvents: () => [],
+      readRuntimeSessionEventsByType: () => [],
       readDocument: () => ({ document: null }),
       readEventWitness: () => null,
       readCanonicalEvents: () => ({ events: [] }),

@@ -3,6 +3,7 @@ import type { EventListQuery, EventListPage } from "../domain/event-list.ts";
 import type { SettingsEventV1 } from "../domain/settings-event.ts";
 import type { DecisionDocumentState } from "../domain/decision-event-types.ts";
 import type {
+  AgentRuntimeEventType,
   AgentRuntimeEventV1,
   RuntimeDispatchMetrics,
   RuntimeInstallation,
@@ -150,6 +151,12 @@ export interface TaskProjection {
     readonly sourceRevision: number;
   };
   readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
+  /** Row count for one kind whose value matches every named top-level field. Counted at the
+   *  storage boundary so a caller that only needs a number never materializes the collection. */
+  readonly countEntities: (
+    entityKind: string,
+    valueEquals: Readonly<Record<string, string | number | boolean>>,
+  ) => number;
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
   /**
@@ -273,6 +280,14 @@ export interface TaskProjection {
     runtimeSessionIdValue: string,
     afterRevision: number,
     limit: number,
+  ) => readonly AgentRuntimeEventV1[];
+  /**
+   * One session's events narrowed to the requested types, revision ascending. Callers that need
+   * the newest outcome or liveness event read only the matching rows, never the whole session.
+   */
+  readonly readRuntimeSessionEventsByType: (
+    runtimeSessionIdValue: string,
+    types: readonly AgentRuntimeEventType[],
   ) => readonly AgentRuntimeEventV1[];
   readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
   readonly readEventList: (query: EventListQuery) => EventListPage;

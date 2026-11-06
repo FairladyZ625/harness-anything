@@ -361,6 +361,7 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
         },
         readRuntimeDispatchesByTaskExecution: () => [],
         readRuntimeSessionEvents: () => [],
+        readRuntimeSessionEventsByType: () => [],
       },
       settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
       now: () => "2026-11-02T00:00:00.000Z",
