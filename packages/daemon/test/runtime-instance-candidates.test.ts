@@ -350,6 +350,27 @@ for (const firstReady of [true, false]) {
   });
 }
 
+for (const code of ["runtime_authentication_failed", "runtime_quota_unavailable", "runtime_refresh_token_invalid"]) {
+  test(`automatic selection retries past ${code}`, async () => {
+    const attempts: string[] = [],
+      selected = await prepareRuntimeInstance(
+        {
+          agent: agent(),
+          instances: [instance("codex-first", "codex", "openai"), instance("devin-second", "devin", "devin")],
+          sessions: [],
+          allowedInstanceIds: ["codex-first", "devin-second"],
+        },
+        async (id) => {
+          attempts.push(id);
+          if (id === "codex-first") throw Object.assign(new Error(code), { code });
+          return { prepared: id };
+        },
+      );
+    assert.equal(selected.instanceId, "devin-second");
+    assert.deepEqual(attempts, ["codex-first", "devin-second"]);
+  });
+}
+
 // An old CLI is a per-installation refusal, not a per-kind one: one node can witness two
 // installations of the same kind, and automatic selection must reach the usable one. An
 // explicit pin keeps the refusal, because it names that exact installation.

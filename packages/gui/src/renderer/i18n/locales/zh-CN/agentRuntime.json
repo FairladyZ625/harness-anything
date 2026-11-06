@@ -54,6 +54,7 @@
   "agentRuntime.authModeSubscription": "登录态",
   "agentRuntime.authModeApiKey": "API 调用",
   "agentRuntime.authMetadataOnly": "已登录;刷新令牌未验证",
+  "agentRuntime.authVerified": "认证已验证",
   "agentRuntime.authNotChecked": "认证未探测",
   "agentRuntime.authProbing": "正在探测认证…",
   "agentRuntime.authNotReady": "认证未通过",

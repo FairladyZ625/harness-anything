@@ -830,12 +830,9 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
   }
 });
 
-// `codex login status` reads the stored login document: an access token whose exp is long
-// past, paired with a refresh token the server has already revoked, still prints "Logged in
-// using ChatGPT" and exits 0 (measured against codex-cli 0.163.0). The probe can therefore
-// prove "signed in", never "usable"; readiness must record which evidence it rests on so a
-// receipt cannot present the local login record as verified provider usability.
-test("a codex login-status probe records metadata as its basis, not verified usability", async () => {
+// A locally present refresh token can be revoked while `codex login status` still exits 0.
+// The explicit instance probe must exercise the provider path and report that rejection.
+test("a codex auth probe rejects an invalid refresh token despite successful login status", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-metadata-")),
     home = path.join(parent, "home"),
     userRoot = path.join(parent, "user"),
@@ -864,6 +861,10 @@ if (args.length === 2 && args[0] === "login" && args[1] === "status") {
   if (!state.tokens || !state.tokens.refresh_token) process.exit(1);
   console.log("Logged in using ChatGPT");
   process.exit(0);
+}
+if (args[0] === "exec") {
+  console.log(JSON.stringify({ type: "turn.failed", error: { code: "invalid_refresh_token", message: "invalid_refresh_token" } }));
+  process.exit(1);
 }
 process.exit(9);
 `,
@@ -895,18 +896,19 @@ process.exit(9);
       auth: { mode: "subscription" },
     });
     const readiness = (await store.authStatus("codex-metadata")) as unknown as Record<string, unknown>;
-    assert.equal(readiness.status, "ready");
-    assert.equal(readiness.basis, "metadata");
+    assert.equal(readiness.status, "not-ready");
+    assert.equal(readiness.code, "runtime_refresh_token_invalid");
+    assert.match(String(readiness.hint), /ha runtime instance login/u);
     const receipt = (await store.command({
       kind: "runtime-instance-show",
       instanceId: "codex-metadata",
       probe: true,
     })) as Record<string, unknown>;
-    assert.match(String(receipt.summary), /auth: ready \(metadata\)/u);
+    assert.match(String(receipt.summary), /auth: not-ready/u);
     assert.equal(
-      (JSON.parse(String(receipt.evidence)) as { readonly authReadiness: { readonly basis: string } }).authReadiness
-        .basis,
-      "metadata",
+      (JSON.parse(String(receipt.evidence)) as { readonly authReadiness: { readonly code: string } }).authReadiness
+        .code,
+      "runtime_refresh_token_invalid",
     );
   } finally {
     rmSync(parent, { recursive: true, force: true });

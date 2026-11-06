@@ -102,12 +102,11 @@ export interface RuntimeAuthReadiness {
   readonly code: string | null;
   readonly hint: string | null;
   /**
-   * What a ready verdict observed. `"metadata"` is the provider's own login-state
-   * document/status command or a credential's presence: it proves the local record exists,
-   * not that the provider will accept it — a revoked refresh token still reads as signed in
-   * until the first real request. Absent when nothing was probed (and on the not-ready path).
+   * What a ready verdict observed. `"metadata"` means the local login record or credential
+   * exists; `"provider"` means an authenticated request completed. Absent when nothing was
+   * probed (and on the not-ready path).
    */
-  readonly basis?: "metadata";
+  readonly basis?: "metadata" | "provider";
 }
 
 export type RuntimeInstanceSummary = AgentRuntimeInstanceDto;

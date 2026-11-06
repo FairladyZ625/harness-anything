@@ -181,9 +181,14 @@ export function publicConfig(
     authState:
       config.auth.mode === "api-key"
         ? ("configured" as const)
-        : authReadiness.status === "ready"
+        : authReadiness.status === "ready" || authReadiness.code === "runtime_quota_unavailable"
           ? ("authenticated" as const)
-          : authReadiness.code === "runtime_subscription_required"
+          : [
+                "runtime_subscription_required",
+                "runtime_subscription_expired",
+                "runtime_authentication_failed",
+                "runtime_refresh_token_invalid",
+              ].includes(String(authReadiness.code))
             ? ("unauthenticated" as const)
             : ("unknown" as const),
     authReadiness,

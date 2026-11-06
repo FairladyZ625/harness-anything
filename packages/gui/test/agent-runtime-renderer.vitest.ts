@@ -435,6 +435,12 @@ describe("agent runtime renderer", () => {
     } as never);
     expect(metadataMarkup).toContain("Signed in; refresh token not verified");
     expect(metadataMarkup).not.toContain("Authentication verified");
+    expect(
+      runtimeCard({
+        ...claudeInstance,
+        authReadiness: { status: "ready", code: null, hint: null, basis: "provider" },
+      } as never),
+    ).toContain("Authentication verified");
   });
   it("models not-started, probing, success, and retryable failure without pending fallback", () => {
     const unchecked = {

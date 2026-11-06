@@ -22,11 +22,10 @@ export function runtimeInstanceError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
-// Every readiness producer in this checkout observes a local artifact — a provider
-// login-state document/status command or a resolved credential. None exercises the
-// credential against the provider, so a ready verdict carries that basis explicitly.
-export function available(): RuntimeAuthReadiness {
-  return { status: "ready", code: null, hint: null, basis: "metadata" };
+// Most readiness producers inspect local state; probes that complete an authenticated
+// provider request pass `provider` so callers can distinguish the stronger evidence.
+export function available(basis: "metadata" | "provider" = "metadata"): RuntimeAuthReadiness {
+  return { status: "ready", code: null, hint: null, basis };
 }
 
 export function unavailable(code: string, hint: string): RuntimeAuthReadiness {

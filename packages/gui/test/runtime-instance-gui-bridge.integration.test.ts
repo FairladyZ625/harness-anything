@@ -23,7 +23,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
   mkdirSync(rootDir, { recursive: true });
   const executablePath = writeProviderExecutable(
     path.join(parent, "codex-runtime-stub"),
-    `const args = process.argv.slice(2);\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nprocess.exit(args[0] === "--version" ? 0 : 9);\n`,
+    `const args = process.argv.slice(2);\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nif (args[0] === "exec") { console.log(JSON.stringify({ type: "turn.completed" })); process.exit(0); }\nprocess.exit(args[0] === "--version" ? 0 : 9);\n`,
   );
   const installation: RuntimeInstallationWitness = {
       installationId: "installation-gui-runtime-a",
@@ -246,6 +246,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       probe: true,
     })) as RuntimeReceipt;
     assert.equal(probed.instance?.authReadiness?.status, "ready", JSON.stringify(probed));
+    assert.equal(probed.instance?.authReadiness?.basis, "provider", JSON.stringify(probed));
     const deleted = (await bridge.invoke("deleteRuntimeInstance", { instanceId: "codex-gui" })) as RuntimeReceipt;
     assert.equal(deleted.deletedInstanceId, "codex-gui", JSON.stringify(deleted));
     const after = (await bridge.invoke("listRuntimeInstances", { all: true })) as RuntimeReceipt;
@@ -279,7 +280,7 @@ interface RuntimeReceipt {
     readonly models?: readonly string[];
     readonly defaultModel?: string;
     readonly configuration?: { readonly effort?: string | null; readonly reasoningEffort?: string | null };
-    readonly authReadiness?: { readonly status: string };
+    readonly authReadiness?: { readonly status: string; readonly basis?: string };
   };
   readonly deletedInstanceId?: string;
 }
