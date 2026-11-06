@@ -32,8 +32,10 @@ test("a v2 document response from the previous daemon parses as unobservable", (
   assert.equal("unobservableReason" in parsed ? parsed.unobservableReason : null, "previous_daemon_response");
   assert.equal("canonicalVersion" in parsed ? parsed.canonicalVersion : "missing", null);
   assert.equal("execution" in parsed ? parsed.execution : "missing", null);
-  assert.equal("body" in parsed ? parsed.body : "missing", "");
-  assert.equal("blobSha256" in parsed ? parsed.blobSha256 : "missing", null);
+  assert.equal("body" in parsed ? parsed.body : "missing", "# Plan\n");
+  assert.equal("worktreeBody" in parsed ? parsed.worktreeBody : "missing", "# Plan\n");
+  assert.equal("blobSha256" in parsed ? parsed.blobSha256 : "missing", "a".repeat(64));
+  assert.equal("size" in parsed ? parsed.size : "missing", 100);
 });
 
 test("the v3 writer contract still rejects a response without source metadata", () => {

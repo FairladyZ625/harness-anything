@@ -31,7 +31,7 @@ import {
 } from "./doc-sync-files.ts";
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
+import { presetSnapshotReader, readTaskWorktreeExecutionBinding, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import {
   readSubmissionArtifact,
@@ -710,7 +710,12 @@ function observeExecution(
   // execution, so it must not wear this execution's label.
   if (lease.source !== "local") return { reason: "execution_owner_not_local" };
   const workspace = executionWorkspaceRoot(context, task, packagePath);
-  if (workspace.root === null) return { reason: workspace.reason };
+  if (workspace.root === null || workspace.worktreeRoot === null) return { reason: workspace.reason };
+  // The marker is written only by the local start that prepared this worktree. A reused old
+  // checkout, a failed checkout, or a marker from another execution has no matching proof.
+  const binding = readTaskWorktreeExecutionBinding(workspace.worktreeRoot);
+  if (binding === null || binding.taskId !== task.snapshot.task?.taskId || binding.executionId !== executionId)
+    return { reason: "execution_workspace_unbound" };
   const row = readWorktreeDocument(workspace.root, requested, binary);
   if (row === null) return { reason: "document_not_observed" };
   return {
@@ -731,16 +736,20 @@ function executionWorkspaceRoot(
   context: ProjectedDocumentReadContext,
   task: ReturnType<TaskProjection["read"]> & { readonly packagePath: string },
   packagePath: string,
-): { readonly root: string | null; readonly reason: string } {
+): { readonly root: string | null; readonly worktreeRoot: string | null; readonly reason: string } {
   if (taskWorktreeBinding(task.snapshot.task, presetSnapshotReader(context.projection)) === null)
-    return { root: null, reason: "execution_workspace_unavailable" };
+    return { root: null, worktreeRoot: null, reason: "execution_workspace_unavailable" };
   const taskRoot = taskWorktreeRoot(context, task.snapshot);
-  if (taskRoot === null) return { root: null, reason: "execution_workspace_not_materialized" };
+  if (taskRoot === null) return { root: null, worktreeRoot: null, reason: "execution_workspace_not_materialized" };
   const layout = resolveHarnessLayout(context.rootDir),
     relative = path.relative(layout.rootDir, layout.authoredRoot);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    return { root: null, reason: "execution_workspace_outside_checkout" };
-  return { root: path.resolve(taskRoot, relative, ...packagePath.split("/")), reason: "" };
+    return { root: null, worktreeRoot: null, reason: "execution_workspace_outside_checkout" };
+  return {
+    root: path.resolve(taskRoot, relative, ...packagePath.split("/")),
+    worktreeRoot: taskRoot,
+    reason: "",
+  };
 }
 
 /** Repository-relative path of an authored document, resolved from the configured authored root. */

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   deriveTaskWorktreeBinding,
@@ -463,6 +463,8 @@ export interface TaskWorktreeLifecycleInput {
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly readPresetSnapshot: PresetSnapshotRead;
   readonly readWorktree: () => WorktreeSetupSettings;
+  /** The lease as applied after the start write; the annotate step binds the checkout to it. */
+  readonly readCurrentLease?: (taskId: string) => { readonly executionId: string; readonly version: number } | null;
 }
 
 type TaskWorktreeAction = {
@@ -471,6 +473,59 @@ type TaskWorktreeAction = {
   readonly taskIds?: unknown;
   readonly dryRun?: unknown;
 };
+
+const executionBindingFileName = "harness-execution-binding.json";
+
+/** Node-local proof that the worktree was prepared for one execution. It lives in the worktree's
+ * own git directory, so it never enters the ledger and cannot be forged by a document write. */
+export interface TaskWorktreeExecutionBindingV1 {
+  readonly schema: "task-worktree-execution-binding/v1";
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly boundAt: string;
+}
+
+export function taskWorktreeExecutionBindingPath(cwd: string): string {
+  const gitPath = path.join(cwd, ".git"),
+    gitDirectory = lstatSync(gitPath).isFile()
+      ? path.resolve(cwd, /^gitdir: (.+)$/mu.exec(readFileSync(gitPath, "utf8"))![1]!.trim())
+      : gitPath;
+  return path.join(gitDirectory, executionBindingFileName);
+}
+
+export function writeTaskWorktreeExecutionBinding(
+  cwd: string,
+  taskId: string,
+  executionId: string,
+  boundAt = new Date().toISOString(),
+): void {
+  const file = taskWorktreeExecutionBindingPath(cwd);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    `${JSON.stringify({ schema: "task-worktree-execution-binding/v1", taskId, executionId, boundAt })}\n`,
+  );
+}
+
+/** Null when no binding was written or the file is not a complete binding: absence of proof, never a match. */
+export function readTaskWorktreeExecutionBinding(cwd: string): TaskWorktreeExecutionBindingV1 | null {
+  const file = taskWorktreeExecutionBindingPath(cwd);
+  if (!existsSync(file)) return null;
+  // A present but malformed marker is node-local damage, not "no observation": let JSON.parse throw
+  // so the read fails closed instead of silently relabelling the worktree.
+  const value: unknown = JSON.parse(readFileSync(file, "utf8"));
+  return typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { readonly schema?: unknown }).schema === "task-worktree-execution-binding/v1" &&
+    typeof (value as { readonly taskId?: unknown }).taskId === "string" &&
+    (value as { readonly taskId: string }).taskId.length > 0 &&
+    typeof (value as { readonly executionId?: unknown }).executionId === "string" &&
+    (value as { readonly executionId: string }).executionId.length > 0 &&
+    typeof (value as { readonly boundAt?: unknown }).boundAt === "string"
+    ? (value as TaskWorktreeExecutionBindingV1)
+    : null;
+}
 
 /**
  * A start checks its worktree out and prepares it before the start is queued for writing, so a setup step that
@@ -487,10 +542,13 @@ export function prepareTaskStartWorktree(
 ): Promise<(receipt: WriteReceipt) => WriteReceipt> | null {
   if (source !== "local" || action.dryRun === true || action.kind !== "task-start" || typeof action.taskId !== "string")
     return null;
-  return checkoutOnStart(input, action.taskId, stackedCommit).then(
-    (checkout) => (receipt) =>
-      receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt,
-  );
+  return checkoutOnStart(input, action.taskId, stackedCommit).then((checkout) => (receipt) => {
+    if (receipt.outcome === "applied" && checkout.cwd !== null) {
+      const lease = input.readCurrentLease?.(action.taskId as string);
+      if (lease) writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, lease.executionId);
+    }
+    return receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt;
+  });
 }
 
 /**
@@ -621,12 +679,12 @@ async function checkoutOnStart(
   input: TaskWorktreeLifecycleInput,
   taskId: string,
   stackedCommit?: string,
-): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[] }> {
+): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[]; readonly cwd: string | null }> {
   const binding = openTaskWorktreeBinding(input.readTask(taskId), input.readPresetSnapshot);
   if (!binding) {
     if (stackedCommit !== undefined)
       throw cellCodedError("invalid_proof", "A stacked task requires a managed worktree.");
-    return { notes: [], warnings: [] };
+    return { notes: [], warnings: [], cwd: null };
   }
   let checkout: TaskWorktreeCheckout | null;
   try {
@@ -640,19 +698,20 @@ async function checkoutOnStart(
     );
   } catch (error) {
     if (stackedCommit !== undefined) throw error;
-    return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`] };
+    return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`], cwd: null };
   }
   if (!checkout)
     return {
       notes: [`No worktree on this node: no default branch resolves here, so work stays in ${input.rootDir}.`],
       warnings: [],
+      cwd: null,
     };
   if (!checkout.setup.ok)
     throw cellCodedError(
       "worktree_setup_failed",
       worktreeSetupFailure(checkout.cwd, checkout.setup, `run ha task start ${taskId} again`, checkout.baseRef),
     );
-  return { notes: [taskWorktreeCheckoutNote(checkout)], warnings: [] };
+  return { notes: [taskWorktreeCheckoutNote(checkout)], warnings: [], cwd: checkout.cwd };
 }
 
 function withNotes(receipt: WriteReceipt, notes: readonly string[], warnings: readonly string[]): WriteReceipt {

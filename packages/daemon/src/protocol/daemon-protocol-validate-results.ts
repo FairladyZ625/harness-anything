@@ -307,8 +307,10 @@ export function validateDaemonDocumentRead(value: unknown): readonly string[] {
     [
       "blobSha256",
       value.blobSha256,
-      value.source !== "unobservable" || (value.blobSha256 === null && value.size === null),
-      "must be null with no size when unobservable",
+      value.source !== "unobservable" ||
+        value.unobservableReason === "previous_daemon_response" ||
+        (value.blobSha256 === null && value.size === null),
+      "must be null with no size when unobservable, except for a preserved previous-daemon response",
     ],
     ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
     ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
@@ -326,12 +328,6 @@ export function validateDaemonDocumentReadPrevious(value: unknown): readonly str
     ...value,
     source: "unobservable",
     syncState: "unobservable",
-    body: "",
-    blobSha256: null,
-    size: null,
-    bytes: null,
-    worktreeBody: null,
-    uncommitted: false,
     canonicalVersion: null,
     execution: null,
     unobservableReason: "previous_daemon_response",

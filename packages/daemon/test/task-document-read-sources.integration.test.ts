@@ -13,6 +13,11 @@ import test from "node:test";
 import { sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
+import {
+  readTaskWorktreeExecutionBinding,
+  taskWorktreeExecutionBindingPath,
+  writeTaskWorktreeExecutionBinding,
+} from "../src/task-worktree.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -237,6 +242,41 @@ test("a remote lease never relabels the center's local worktree as its observati
     assert.equal(observed.unobservableReason, "execution_owner_not_local");
     assert.equal(observed.body, "");
     assert.equal(observed.blobSha256, null);
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a stale or missing worktree execution marker is unobservable", async () => {
+  const fixture = await startTaskWithTwoCuts();
+  try {
+    const worktree = worktreeRoots(fixture.rootDir).find(
+      (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
+    );
+    assert.ok(worktree, "the fixture must have a materialized execution worktree");
+    assert.equal(readTaskWorktreeExecutionBinding(worktree)?.executionId, executionId);
+
+    writeTaskWorktreeExecutionBinding(worktree, taskId, "execution-stale");
+    const stale = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(stale.source, "unobservable");
+    assert.equal(stale.unobservableReason, "execution_workspace_unbound");
+    assert.equal(stale.body, "");
+
+    rmSync(taskWorktreeExecutionBindingPath(worktree));
+    const missing = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(missing.source, "unobservable");
+    assert.equal(missing.unobservableReason, "execution_workspace_unbound");
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
