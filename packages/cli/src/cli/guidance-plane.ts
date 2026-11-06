@@ -263,6 +263,14 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   // canonical root together. Reading the host registry, deriving the implicit user socket, or
   // starting a daemon would each answer for a repo the dispatch never named.
   [
+    "cli:daemon-registry-unreadable",
+    (args) =>
+      `The local daemon registry could not be read, so no workspace route was resolved: ` +
+      `${textArg(args, "message")}. ` +
+      "The daemon may be running: repair that file's permissions or contents under the daemon user " +
+      "root, or point HARNESS_DAEMON_USER_ROOT at the user root that owns it, then retry.",
+  ],
+  [
     "cli:daemon-relay-route",
     (args) =>
       `Relay daemon route rejected: ${textArg(args, "reason")}. ` +

@@ -4,13 +4,7 @@ import path from "node:path";
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { cliFailure } from "../cli-meta.ts";
 import { cliDispatchError } from "../cli-render.ts";
-import {
-  daemonAutostartFailureCode,
-  daemonResponseTimeoutCode,
-  daemonTargetFailureCode,
-  cliEntryFailureCode,
-  runCommandThroughDaemon,
-} from "../daemon/client.ts";
+import { cliDispatchFailureCode, daemonResponseTimeoutCode, runCommandThroughDaemon } from "../daemon/client.ts";
 import { globalOption } from "./thin-command-flags.ts";
 import { daemonRequestTimer } from "./timing.ts";
 import type { ThinCommand } from "./thin-command-types.ts";
@@ -76,7 +70,7 @@ export async function runDoctorHealth(
   } catch (error) {
     const failure = cliDispatchError({
       error,
-      directCode: daemonAutostartFailureCode(error) ?? daemonTargetFailureCode(error) ?? cliEntryFailureCode(error),
+      directCode: cliDispatchFailureCode(error),
       timeoutCode: daemonResponseTimeoutCode(error),
     });
     emit(cliFailure("doctor", failure.code, failure.hint), json);

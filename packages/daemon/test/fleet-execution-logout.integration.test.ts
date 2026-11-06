@@ -343,9 +343,13 @@ test(
       const result = await cli(args);
       assert.equal(result.outcome, "applied", JSON.stringify(result));
     }
+    // Relayed fleet commands carry the dispatch credential the relay injects, so this negative probe
+    // uses the direct daemon socket where the caller's own credential is the one under test.
     const unknownCredential = await spawnCli(["--root", worktree, "--json", "task", "show", taskId], {
       ...process.env,
       ...env,
+      HARNESS_DAEMON_ENDPOINT: daemon.endpoint,
+      HARNESS_DAEMON_RELAY: undefined,
       HARNESS_EXECUTION_CREDENTIAL: "unknown-execution-credential",
     });
     assert.match(unknownCredential.stdout, /authorization_denied/u);
@@ -993,7 +997,20 @@ test(
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
     t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest stopped settlement passed after logout.");
     // The settled execution's edge-local identity is no longer available, so the write is refused.
-    const after = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
-    assert.equal(after.code, "authorization_denied", JSON.stringify(after));
+    // A relayed command whose worker host is gone cannot silently fall back to the edge user socket.
+    const relayedAfter = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
+    assert.equal(relayedAfter.code, "daemon_start_runtime_forbidden", JSON.stringify(relayedAfter));
+    // A direct caller still meets the center's settled-identity refusal.
+    const directAfter = await spawnCli(
+      ["--root", worktree, "--json", "task", "progress", "append", taskId, "--text", "After settlement."],
+      {
+        ...process.env,
+        ...env,
+        HARNESS_DAEMON_ENDPOINT: daemon.endpoint,
+        HARNESS_DAEMON_RELAY: undefined,
+      },
+    );
+    const directReceipt = JSON.parse(directAfter.stdout) as JsonObject;
+    assert.equal(directReceipt.code, "authorization_denied", JSON.stringify(directReceipt));
   },
 );

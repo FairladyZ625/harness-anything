@@ -572,6 +572,28 @@ test("workspace relay rejects an endpoint that is not this dispatch's relay sock
   }
 });
 
+test("local daemon target reports an unreadable registry instead of an unavailable daemon", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-registry-")),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    userRoot = path.join(fixtureRoot, "user");
+  try {
+    mkdirSync(workspaceRoot);
+    mkdirSync(userRoot);
+    // A registry.json that is a directory fails every read for any uid.
+    mkdirSync(path.join(userRoot, "registry.json"));
+    await assert.rejects(
+      () => resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, env: {} }),
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "daemon_registry_unreadable");
+        assert.match((error as Error).message, /daemon registry at .*registry\.json could not be read/u);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("local daemon target rejects an injected endpoint owned by another user root", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-conflict-")),
     workspaceRoot = path.join(fixtureRoot, "workspace"),

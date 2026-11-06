@@ -42,7 +42,9 @@ export function cliDispatchError(input: {
               : renderCliGuidance("daemon-target-conflict", params)
             : failure.errorCode === "daemon_build_stale"
               ? renderCliGuidance("daemon-build-stale", {})
-              : renderCliGuidance("direct-daemon-failure", { message: failure.message });
+              : failure.errorCode === "daemon_registry_unreadable"
+                ? renderCliGuidance("daemon-registry-unreadable", { message: failure.message })
+                : renderCliGuidance("direct-daemon-failure", { message: failure.message });
       return { code: failure.errorCode, hint };
     }
     case "ReceiptRenderFailure":

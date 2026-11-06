@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -226,14 +226,39 @@ export function resolveLocalDaemonTargetFromRepos(
     socketPath,
   };
 }
+export const daemonRegistryUnreadableCode = "daemon_registry_unreadable";
+function registryUnreadable(registryPath: string, error: unknown): Error {
+  // A registry that cannot be opened, parsed or decoded is a local state failure, not an
+  // unreachable daemon: callers must be able to tell the operator which one broke.
+  return Object.assign(
+    new Error(
+      `daemon registry at ${registryPath} could not be read: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    ),
+    { code: daemonRegistryUnreadableCode, cause: error },
+  );
+}
 export async function readRegisteredRepos(
   userRoot: string,
 ): Promise<ReadonlyArray<DaemonRegistryRepo & { readonly canonicalRoot: string }>> {
-  if (!existsSync(path.join(userRoot, "registry.json"))) return [];
+  const registryPath = path.join(userRoot, "registry.json");
+  // stat, not existsSync: a sandbox-denied directory reports EACCES here instead of a silent
+  // "missing", so an unreadable host root is not mistaken for an unregistered workspace.
+  let present: boolean;
+  try {
+    present = statSync(registryPath, { throwIfNoEntry: false }) !== undefined;
+  } catch (error) {
+    throw registryUnreadable(registryPath, error);
+  }
+  if (!present) return [];
   const { readDaemonRegistry } = await import("@harness-anything/kernel/daemon-registry");
-  return readDaemonRegistry({ userRoot }).repos.filter(
-    (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
-  );
+  try {
+    return readDaemonRegistry({ userRoot }).repos.filter(
+      (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
+    );
+  } catch (error) {
+    throw registryUnreadable(registryPath, error);
+  }
 }
 function localDaemonTargetHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
