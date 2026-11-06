@@ -13,10 +13,16 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import threads, { type WorkerOptions } from "node:worker_threads";
 import { sha256Text } from "@harness-anything/kernel";
+import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
 import { readTaskWorktreeExecutionBinding, taskWorktreeExecutionBindingPath } from "../src/task-worktree.ts";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  fixtureFence,
+  openBootstrappedRepoCell as openRepoCell,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -262,10 +268,10 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
     writeFileSync(
       markerPath,
       JSON.stringify({
-        schema: "task-worktree-execution-binding/v1",
+        schema: "task-worktree-execution-binding/v2",
         taskId,
         executionId,
-        leaseVersion: 0,
+        acquiredRevision: 0,
         boundAt: new Date().toISOString(),
       }),
     );
@@ -278,6 +284,28 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
     assert.equal(stale.source, "unobservable");
     assert.equal(stale.unobservableReason, "execution_workspace_stale_marker");
     assert.equal(stale.body, "");
+
+    // Old node-local markers cannot be reinterpreted as acquisition proof after an upgrade.
+    const lease = (await fixture.cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)?.snapshot
+      .lease;
+    writeFileSync(
+      markerPath,
+      JSON.stringify({
+        schema: "task-worktree-execution-binding/v1",
+        taskId,
+        executionId,
+        leaseVersion: lease?.version,
+        boundAt: new Date().toISOString(),
+      }),
+    );
+    const legacy = await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    });
+    assert.equal(legacy.source, "unobservable");
+    assert.equal(legacy.unobservableReason, "execution_workspace_marker_invalid");
 
     writeFileSync(markerPath, '{"schema":"task-worktree-execution-binding/v1","taskId":');
     const corrupt = (await fixture.cell.read("repo.tasks.document.read", {
@@ -335,11 +363,114 @@ test("a rejected competing start cannot overwrite the holder's marker", async ()
   }
 });
 
+// Close the RepoCell writer before calling the actual lifecycle renewal service, then reopen it.
+// No renewal RPC exists; this exercises canonical lease_renewed acceptance/replay without a second writer.
+async function renewFixtureLease(fixture: Awaited<ReturnType<typeof startTaskWithTwoCuts>>) {
+  await fixture.cell.close();
+  const repoId = workspaceId("task-doc-sources"),
+    fence = fixtureFence(repoId, fixture.rootDir, path.join(fixture.rootDir, ".harness", "fixture-writer-epochs")),
+    store = makeTaskEventStore({ repoId, rootDir: fixture.rootDir, writerFence: () => fence }),
+    projection = makeTaskProjection({ rootDir: fixture.rootDir, eventStore: store });
+  try {
+    const service = makeTaskLifecycleService({ eventStore: store, projection }),
+      before = projection.currentLease(taskId),
+      beforeInterval = projection.readLeaseIntervals(taskId).at(-1);
+    assert.ok(before, "renewal requires the started lease");
+    const revision = store.read().revision + 1,
+      renewed = await service.renewLease({
+        taskId,
+        executionId,
+        actor,
+        source: "local",
+        expectedVersion: before.version,
+        expiresAt: new Date(Date.now() + before.ttlMs).toISOString(),
+        opId: "op-document-source-renew",
+        eventId: "event-document-source-renew",
+        workspaceRevision: revision,
+        occurredAt: new Date().toISOString(),
+      });
+    assert.equal(renewed.version, before.version + 1);
+    assert.equal(store.readTaskEvent("op-document-source-renew")?.type, "lease_renewed");
+    const interval = projection.readLeaseIntervals(taskId).at(-1);
+    assert.ok(interval);
+    assert.equal(interval.releasedRevision, null);
+    assert.equal(interval.acquiredRevision, beforeInterval?.acquiredRevision, "renewal preserves acquisition identity");
+    return { before, renewed, acquiredRevision: interval.acquiredRevision };
+  } finally {
+    projection.close();
+    await store.drain();
+    fixture.cell = await openRepoCell({ repoId, rootDir: canonicalRoot(fixture.rootDir), ownerId: repoId });
+  }
+}
+
+test("same-holder renewal preserves execution document observation without republishing its marker", async () => {
+  const fixture = await startTaskWithTwoCuts();
+  try {
+    const markerPath = taskWorktreeExecutionBindingPath(executionWorktree(fixture), executionId),
+      marker = readFileSync(markerPath, "utf8"),
+      initial = await fixture.cell.read("repo.tasks.document.read", {
+        taskId,
+        path: "task_plan.md",
+        view: "execution",
+        executionId,
+      });
+    assert.equal(initial.source, "execution");
+    const { renewed } = await renewFixtureLease(fixture);
+    assert.equal(readFileSync(markerPath, "utf8"), marker, "renewal must keep the original workspace proof");
+    const observed = await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    });
+    assert.equal(observed.source, "execution", "an effective same-holder renewal must remain observable");
+    assert.equal(observed.body, fixture.v2Body);
+    assert.equal(observed.blobSha256, sha256Text(fixture.v2Body));
+    assert.equal(observed.execution?.leaseVersion, renewed.version, "the response still reports current CAS version");
+    assert.equal(observed.execution?.leaseExpiresAt, renewed.expiresAt);
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("renewal followed by release and failed same-execution re-entry rejects the old marker", async (t) => {
+  const fixture = await startFaultFixture(t);
+  try {
+    const worktree = executionWorktree(fixture),
+      markerPath = taskWorktreeExecutionBindingPath(worktree, executionId),
+      marker = readFileSync(markerPath, "utf8");
+    await renewFixtureLease(fixture);
+    const released = await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding);
+    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    writeFileSync(fixture.control, JSON.stringify({ kind: "checkout", target: worktree }));
+    const restarted = await fixture.cell.run({ kind: "task-start", taskId, executionId }, fixture.binding);
+    rmSync(fixture.control);
+    assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
+    assert.equal(readFileSync(fixture.hit, "utf8"), "checkout");
+    assert.equal(readFileSync(markerPath, "utf8"), marker);
+    const observed = await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    });
+    assert.equal(observed.source, "unobservable");
+    assert.equal(observed.unobservableReason, "execution_workspace_stale_marker");
+    assert.equal(observed.body, "");
+    assert.equal(observed.execution, null);
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a same-execution re-entry publishes a marker for the new lease generation", async () => {
   const fixture = await startTaskWithTwoCuts();
   try {
     const before = (await fixture.cell.read("repo.tasks.list")).rows.find((candidate) => candidate.taskId === taskId);
-    const firstLease = before?.snapshot.lease;
+    const firstLease = before?.snapshot.lease,
+      firstMarker = readTaskWorktreeExecutionBinding(executionWorktree(fixture), executionId).binding;
     assert.ok(firstLease, "the fixture must hold a lease");
     const released = await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding);
     assert.equal(released.outcome, "applied", JSON.stringify(released));
@@ -353,8 +484,9 @@ test("a same-execution re-entry publishes a marker for the new lease generation"
     );
     assert.ok(worktree, "the fixture must have a materialized execution worktree");
     const marker = readTaskWorktreeExecutionBinding(worktree, executionId).binding;
-    assert.equal(marker?.leaseVersion, after?.snapshot.lease?.version);
-    assert.notEqual(marker?.leaseVersion, firstLease.version);
+    assert.ok(marker);
+    assert.ok(firstMarker);
+    assert.ok(marker.acquiredRevision > firstMarker.acquiredRevision, "re-entry changes the acquisition revision");
 
     const observed = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
@@ -363,7 +495,7 @@ test("a same-execution re-entry publishes a marker for the new lease generation"
       executionId,
     })) as DocumentRead;
     assert.equal(observed.source, "execution");
-    assert.equal(observed.execution?.leaseVersion, marker?.leaseVersion);
+    assert.equal(observed.execution?.leaseVersion, after?.snapshot.lease?.version);
     assert.equal(observed.body, fixture.v2Body);
   } finally {
     await fixture.cell.close();

@@ -473,8 +473,8 @@ export interface TaskWorktreeLifecycleInput {
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly readPresetSnapshot: PresetSnapshotRead;
   readonly readWorktree: () => WorktreeSetupSettings;
-  /** The lease as applied after the start write; the marker binds to its generation. */
-  readonly readCurrentLease?: (taskId: string) => { readonly executionId: string; readonly version: number } | null;
+  /** Stable acquisition revision after the start write; renewal leaves it unchanged. */
+  readonly readLeaseAcquiredRevision?: (taskId: string, executionId: string) => number | null;
 }
 
 type TaskWorktreeAction = {
@@ -489,12 +489,23 @@ const executionBindingsDirectory = "harness-execution-bindings";
 
 /** Node-local proof that the worktree was prepared for one execution. It lives in the worktree's
  * own git directory, so it never enters the ledger and cannot be forged by a document write. */
-export interface TaskWorktreeExecutionBindingV1 {
-  readonly schema: "task-worktree-execution-binding/v1";
+export interface TaskWorktreeExecutionBindingV2 {
+  readonly schema: "task-worktree-execution-binding/v2";
   readonly taskId: string;
   readonly executionId: string;
-  readonly leaseVersion: number;
+  readonly acquiredRevision: number;
   readonly boundAt: string;
+}
+
+/** The latest canonical acquisition fences re-entry even when it reuses the execution id.
+ * Lease CAS versions change on renewal; the interval's acquisition revision does not. */
+export function taskLeaseAcquiredRevision(
+  projection: Pick<TaskProjection, "readLeaseIntervals">,
+  taskId: string,
+  executionId: string,
+): number | null {
+  const interval = projection.readLeaseIntervals(taskId).at(-1);
+  return interval?.executionId === executionId && interval.releasedRevision === null ? interval.acquiredRevision : null;
 }
 
 /** One file per execution: a rejected or competing start can only write its own id, never the
@@ -512,22 +523,22 @@ export function writeTaskWorktreeExecutionBinding(
   cwd: string,
   taskId: string,
   executionId: string,
-  leaseVersion: number,
+  acquiredRevision: number,
   boundAt = new Date().toISOString(),
 ): void {
   const file = taskWorktreeExecutionBindingPath(cwd, executionId),
     temporary = `${file}.tmp`;
   mkdirSync(path.dirname(file), { recursive: true });
   // A failed write may leave complete bytes behind. Only the successful rename publishes proof;
-  // the previous marker remains fenced out by its lease version if preparation/publication fails.
+  // the previous marker remains fenced out by its acquisition revision if preparation/publication fails.
   try {
     writeFileSync(
       temporary,
       `${JSON.stringify({
-        schema: "task-worktree-execution-binding/v1",
+        schema: "task-worktree-execution-binding/v2",
         taskId,
         executionId,
-        leaseVersion,
+        acquiredRevision,
         boundAt,
       })}\n`,
     );
@@ -543,7 +554,7 @@ export function readTaskWorktreeExecutionBinding(
   cwd: string,
   executionId: string,
 ): {
-  readonly binding: TaskWorktreeExecutionBindingV1 | null;
+  readonly binding: TaskWorktreeExecutionBindingV2 | null;
   readonly invalid: boolean;
 } {
   const file = taskWorktreeExecutionBindingPath(cwd, executionId);
@@ -558,16 +569,16 @@ export function readTaskWorktreeExecutionBinding(
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
-    (value as { readonly schema?: unknown }).schema === "task-worktree-execution-binding/v1" &&
+    (value as { readonly schema?: unknown }).schema === "task-worktree-execution-binding/v2" &&
     typeof (value as { readonly taskId?: unknown }).taskId === "string" &&
     (value as { readonly taskId: string }).taskId.length > 0 &&
     typeof (value as { readonly executionId?: unknown }).executionId === "string" &&
     (value as { readonly executionId: string }).executionId.length > 0 &&
-    Number.isInteger((value as { readonly leaseVersion?: unknown }).leaseVersion) &&
-    Number((value as { readonly leaseVersion: number }).leaseVersion) >= 0 &&
+    Number.isInteger((value as { readonly acquiredRevision?: unknown }).acquiredRevision) &&
+    Number((value as { readonly acquiredRevision: number }).acquiredRevision) >= 0 &&
     typeof (value as { readonly boundAt?: unknown }).boundAt === "string" &&
     (value as { readonly executionId: string }).executionId === executionId
-      ? (value as TaskWorktreeExecutionBindingV1)
+      ? (value as TaskWorktreeExecutionBindingV2)
       : null;
   return { binding, invalid: binding === null };
 }
@@ -596,8 +607,8 @@ export function prepareTaskStartWorktree(
     // committed start being reported as rejected.
     let warnings = checkout.warnings;
     if (checkout.cwd !== null && executionId !== null) {
-      const lease = input.readCurrentLease?.(action.taskId as string);
-      if (lease === null || lease === undefined || lease.executionId !== executionId) {
+      const acquiredRevision = input.readLeaseAcquiredRevision?.(action.taskId as string, executionId);
+      if (acquiredRevision === null || acquiredRevision === undefined) {
         warnings = [
           ...warnings,
           `Worktree ${checkout.cwd} was checked out but its lease generation was not readable. ` +
@@ -605,7 +616,7 @@ export function prepareTaskStartWorktree(
         ];
       } else {
         try {
-          writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId, lease.version);
+          writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, executionId, acquiredRevision);
         } catch (error) {
           consumeKnownError(error);
           warnings = [

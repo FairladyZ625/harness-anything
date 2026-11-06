@@ -31,7 +31,12 @@ import {
 } from "./doc-sync-files.ts";
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { presetSnapshotReader, readTaskWorktreeExecutionBinding, taskWorktreeBinding } from "./task-worktree.ts";
+import {
+  presetSnapshotReader,
+  readTaskWorktreeExecutionBinding,
+  taskLeaseAcquiredRevision,
+  taskWorktreeBinding,
+} from "./task-worktree.ts";
 import { taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import {
   readSubmissionArtifact,
@@ -721,7 +726,8 @@ function observeExecution(
     marker.binding.executionId !== executionId
   )
     return { reason: "execution_workspace_unbound" };
-  if (marker.binding.leaseVersion !== lease.version) return { reason: "execution_workspace_stale_marker" };
+  if (marker.binding.acquiredRevision !== taskLeaseAcquiredRevision(context.projection, lease.taskId, executionId))
+    return { reason: "execution_workspace_stale_marker" };
   const row = readWorktreeDocument(workspace.root, requested, binary);
   if (row === null) return { reason: "document_not_observed" };
   return {
