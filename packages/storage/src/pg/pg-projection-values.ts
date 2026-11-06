@@ -105,6 +105,7 @@ export function pgRuntimeSessionReadStatement(
     readonly runtimeSessionId?: string;
     readonly providerSessionId?: string;
     readonly unsettledOnly?: boolean;
+    readonly nonExitedOnly?: boolean;
     readonly inFlightOnly?: boolean;
     readonly executionOwnerNodeId?: string;
   } = {},
@@ -135,6 +136,7 @@ export function pgRuntimeSessionReadStatement(
   const sessionParameter = query.runtimeSessionId === undefined ? undefined : bind(query.runtimeSessionId);
   if (sessionParameter) where.push(`v.entity_id=${sessionParameter}`);
   if (query.unsettledOnly) where.push("v.runtime_outcome IS NULL");
+  if (query.nonExitedOnly) where.push("v.runtime_liveness <> 'exited'");
   if (query.providerSessionId !== undefined)
     where.push(`ha_read_index_json(v.value)->>'providerSessionId'=${bind(query.providerSessionId)}`);
   if (query.executionOwnerNodeId !== undefined) {
@@ -172,10 +174,11 @@ export async function listPgRuntimeSessions(
     readonly runtimeSessionId?: string;
     readonly providerSessionId?: string;
     readonly unsettledOnly?: boolean;
+    readonly nonExitedOnly?: boolean;
     readonly executionOwnerNodeId?: string;
   } = {},
 ): Promise<readonly RuntimeSession[]> {
-  if (query.unsettledOnly) await assertPgReadIndexReady(client, scope, "runtime-session");
+  if (query.unsettledOnly || query.nonExitedOnly) await assertPgReadIndexReady(client, scope, "runtime-session");
   if (query.executionOwnerNodeId !== undefined) await assertPgEventReadIndexReady(client, scope, repoId);
   const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
     result = await client.query<{ value: string }>(statement.text, [...statement.values]);

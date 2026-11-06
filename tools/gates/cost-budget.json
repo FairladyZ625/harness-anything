@@ -3089,24 +3089,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "runtime-overview-default",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 242 at 200 -> 2042 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
-        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "runtime-overview-default",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 164147 at 200 -> 1497984 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
-        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "task-list",
         "backend": "sqlite",
         "dimension": "runtime-sessions",
@@ -3634,15 +3616,6 @@
         "dimension": "runtime-sessions",
         "metric": "sqliteVmSteps",
         "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 3757 at 200 -> 11259 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "runtime-overview-default",
-        "backend": "sqlite",
-        "dimension": "runtime-sessions",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 1653 at 200 -> 8853 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
         "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
         "expiresAt": "2026-11-26T00:00:00Z"
       },

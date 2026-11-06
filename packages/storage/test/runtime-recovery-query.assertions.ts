@@ -64,6 +64,7 @@ export async function appendRecoveryQueryFixtures(
       providerSessionId: suffix === "b" ? "provider-query-b" : "provider-query-shared",
       transcriptRef: `artifact:runtime-transcript/${id}`,
     });
+    if (suffix === "b") await put("runtime_session_exited", { runtimeSessionId: id });
     if (suffix === "c")
       await put("runtime_session_outcome_observed", {
         runtimeSessionId: id,
@@ -91,6 +92,13 @@ export function assertRecoveryQueryContract(queries: TaskProjectionQueries): voi
   ]);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", executionOwnerNodeId: "node-query-b" }), []);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", unsettledOnly: true }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-b", nonExitedOnly: true }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", nonExitedOnly: true }), ["recovery-query-c"]);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-a", nonExitedOnly: true }), [
+    "recovery-query-a",
+    "recovery-query-c",
+  ]);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-b", nonExitedOnly: true }), []);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-a", unsettledOnly: true }), ["recovery-query-a"]);
   assert.deepEqual(ids({ providerSessionId: "provider-query-shared" }), ["recovery-query-a", "recovery-query-c"]);
   assert.deepEqual(ids({ providerSessionId: "provider-query-shared", unsettledOnly: true }), ["recovery-query-a"]);
