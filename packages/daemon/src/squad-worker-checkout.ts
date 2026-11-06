@@ -1,16 +1,13 @@
 import path from "node:path";
-import { existsSync } from "node:fs";
-import type { TaskProjection } from "@harness-anything/kernel";
+import type { TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
-import { addManagedWorktree, reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
+import { reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
 import { checkoutTaskWorktree, openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
-import { runWorktreeSetup, worktreeSetupFailure, type WorktreeSetupSettings } from "./worktree-setup.ts";
+import { worktreeSetupFailure, type WorktreeSetupSettings } from "./worktree-setup.ts";
 
 /** Where a squad worker runs: the run cwd, or its own worktree and branch cut at the run baseline. */
 export type WorkerCheckout = { readonly cwd: string; readonly branch: string; readonly baseSha: string };
-
-const workerBranchSeparator = "--";
 
 /** Without a requested cwd a Squad run works in its task's own worktree, checked out and prepared on first use. */
 export async function resolveSquadCwd(
@@ -41,49 +38,27 @@ export function cwdPayload(rootDir: string, cwd: string): JsonObject {
   return relative ? { scope: "repo-relative", path: relative } : { scope: "repo-root" };
 }
 
-/** Writing workers get their own worktree when the run cwd is a Git work tree with a commit; a cwd without
- * a Git baseline (a Git-less edge, or a repo before its first commit) keeps the shared cwd. */
+/** A worker commits in its child task's bound worktree, cut from the Commander's current stage.
+ * A second squad-specific checkout would diverge from the HEAD that task submit freezes. */
 export async function prepareWorkerWorktree(
-  state: { readonly squadRunId: string; readonly cwd: string },
   baseSha: string | null,
-  workerId: string,
-  attemptId: string,
+  binding: TaskWorktreeBindingV1 | null,
   setup: { readonly rootDir: string; readonly taskId: string } & WorktreeSetupSettings,
 ): Promise<WorkerCheckout | null> {
-  if (baseSha === null) return null;
-  // Workers branch off whatever the Commander has checked out, so the Commander can merge them back
-  // with the child SHAs intact. A detached HEAD owns no ref to hang siblings from.
-  const commanderBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], state.cwd)).trim();
-  if (!commanderBranch) throw new Error("Squad workers require the Commander to run on a checked-out branch.");
-  const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}-${attemptId}`,
-    // Git cannot create refs/heads/<mission>/worker while refs/heads/<mission> exists.
-    // A sibling ref retains the visible mission owner without colliding with the Commander ref.
-    branch = `${commanderBranch}${workerBranchSeparator}${slug}`,
-    cwd = path.join(state.cwd, ".worktrees", slug);
-  if (existsSync(cwd)) {
-    const currentBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], cwd)).trim();
-    if (currentBranch !== branch) throw new Error(`Squad checkout ${cwd} does not hold ${branch}.`);
-    await runProcessTextAsync("git", ["merge-base", "--is-ancestor", baseSha, "HEAD"], cwd);
-  } else {
-    await addManagedWorktree(state.cwd, { cwd, branch, baseRef: baseSha });
-  }
-  const prepared = await runWorktreeSetup({
-    rootDir: setup.rootDir,
-    cwd,
-    taskId: setup.taskId,
-    steps: setup.setup,
-    stepTimeoutMs: setup.setupStepTimeoutMs,
-  });
-  if (!prepared.ok) throw new Error(worktreeSetupFailure(cwd, prepared, "let the Commander dispatch the worker again"));
-  return { cwd, branch, baseSha };
+  if (baseSha === null || binding === null) return null;
+  const checkout = await checkoutTaskWorktree(setup.rootDir, setup.taskId, binding, setup, undefined, baseSha);
+  if (!checkout) return null;
+  if (!checkout.setup.ok)
+    throw new Error(worktreeSetupFailure(checkout.cwd, checkout.setup, "let the Commander dispatch the worker again"));
+  return { cwd: checkout.cwd, branch: checkout.branch, baseSha };
 }
 
 /** A finished run's worker checkout is reclaimed against the Commander branch its work merges into. */
-export function reclaimWorkerWorktree(commanderCwd: string, worktree: WorkerCheckout): Promise<WorktreeReclaim> {
+export async function reclaimWorkerWorktree(commanderCwd: string, worktree: WorkerCheckout): Promise<WorktreeReclaim> {
   return reclaimManagedWorktree(commanderCwd, {
     cwd: worktree.cwd,
     branch: worktree.branch,
-    baseRef: worktree.branch.slice(0, worktree.branch.lastIndexOf(`${workerBranchSeparator}squad-`)),
+    baseRef: (await runProcessTextAsync("git", ["rev-parse", "HEAD"], commanderCwd)).trim(),
   });
 }
 

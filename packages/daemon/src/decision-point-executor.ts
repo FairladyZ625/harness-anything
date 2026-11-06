@@ -156,12 +156,12 @@ export function openDecisionPointExecutor(input: {
       for (const [pointId, point] of points) {
         const question = decisionContract.questions[point.question];
         if (!question) continue;
-        // A successful terminal outcome is delivered work (including registered review work), so
-        // the incident action must not reopen it even when an older frozen filter still matches.
+        // The squad coordinator owns its members' continuation. Successful deliveries also stay
+        // closed even when an older filter still matches. Advisory questions keep their read path.
         if (
           question.version === incidentDispositionQuestionVersion &&
-          event.payload.outcome !== "failed" &&
-          event.payload.outcome !== "stopped"
+          (dispatch.squadRunId !== undefined ||
+            (event.payload.outcome !== "failed" && event.payload.outcome !== "stopped"))
         )
           continue;
         const descriptor = decisionEventDescriptor(point.on);

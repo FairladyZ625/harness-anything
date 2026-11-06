@@ -58,35 +58,23 @@ export function workerGitIdentityForPerson(personId: string): WorkerGitIdentity 
   return { name: personId, email: `${personId}@users.noreply.github.com` };
 }
 
-/** A repository-diff delivery is a task branch with at least one commit above the repository baseline. */
+/** A repository-diff delivery is a task branch with at least one commit above the baseline. A
+ * caller that knows the branch's own cut (a squad child stacked on its Commander) passes it:
+ * counting from the repository baseline would credit inherited Commander commits to the worker. */
 export async function workerBranchHasDelivery(input: {
   readonly cwd: string;
   readonly canonicalRoot: string;
   readonly taskId: string;
+  /** Exact commit or ref the branch was cut from; defaults to the repository delivery baseline. */
+  readonly baseRef?: string;
 }): Promise<boolean> {
   if (samePath(input.cwd, input.canonicalRoot)) return false;
   const env = gitEnvironment();
   try {
     const branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim(),
-      baseRef = repositoryBaseRef(input.canonicalRoot);
+      baseRef = input.baseRef ?? repositoryBaseRef(input.canonicalRoot);
     if (branch !== input.taskId || !baseRef) return false;
     return (await readGitText(input.cwd, ["rev-list", "--count", `${baseRef}..HEAD`], env)).trim() !== "0";
-  } catch {
-    return false;
-  }
-}
-
-// A squad worker delivers on the branch its checkout cut: `<commander branch>--squad-…` (the naming
-// squad-worker-checkout.ts derives), which never equals the task id the witness above requires. Its
-// delivery is commits on that branch beyond the commander branch it was cut from.
-export async function squadWorkerBranchHasDelivery(input: { readonly cwd: string }): Promise<boolean> {
-  const env = gitEnvironment();
-  try {
-    const branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim(),
-      marker = branch.lastIndexOf("--squad-");
-    if (marker <= 0) return false;
-    const commander = branch.slice(0, marker);
-    return (await readGitText(input.cwd, ["rev-list", "--count", `${commander}..HEAD`], env)).trim() !== "0";
   } catch {
     return false;
   }

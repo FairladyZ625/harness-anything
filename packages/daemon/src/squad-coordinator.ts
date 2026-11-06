@@ -28,6 +28,7 @@ import {
   workerPrompt,
 } from "./squad-worker-checkout.ts";
 import type { WorktreeSetupSettings } from "./worktree-setup.ts";
+import { openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
 import {
   callbackLeaderPrompt,
   initialLeaderPrompt,
@@ -804,11 +805,11 @@ export function makeSquadCoordinator(input: {
         state.permissionMode === "read-only"
           ? null
           : await prepareWorkerWorktree(
-              state,
               // Stages share the Commander branch: a later worker starts from what earlier stages delivered there.
               attempt.worktree?.baseSha ?? localGitObjectRefStore.headCommit(state.cwd),
-              plan.workerId,
-              attemptId,
+              input.query((projection) =>
+                openTaskWorktreeBinding(projection.read(taskId).snapshot.task, presetSnapshotReader(projection)),
+              ),
               { rootDir: input.rootDir, taskId, ...input.readWorktreeSetup() },
             );
       attempt = { ...attempt, worktree, executionId };

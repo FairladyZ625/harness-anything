@@ -2,6 +2,7 @@ import {
   consumeKnownError,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
+  type CanonicalSquadRun,
   type RuntimeSession,
   type TaskProjection,
   type TaskProjectionQueries,
@@ -90,6 +91,7 @@ type DispatchQueries = Pick<
   | "readRuntimeSessionEvents"
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesByAttemptGroup"
+  | "readSquadRun"
   | "readTaskRelationsBySources"
   | "readLeaseIntervals"
   | "readCanonicalEvents"
@@ -741,6 +743,8 @@ function canonicalDispatchRow(
     documentPath = packagePath ? `${packagePath}/artifacts/dispatches/${payload.dispatchId}.json` : null,
     document = documentPath ? projection.readDocument(documentPath).document : null,
     archive = document ? parseArchive(document.body) : null,
+    squadRunId = payload.squadRun?.squadRunId,
+    squadChildTaskIds = squadOwnerChildTaskIds(projection, payload),
     outcomeEvent = projection
       .readRuntimeSessionEvents(payload.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
       .findLast(
@@ -897,6 +901,8 @@ function canonicalDispatchRow(
     ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
+    ...(squadRunId === undefined ? {} : { squadRunId }),
+    ...(squadChildTaskIds === undefined ? {} : { squadChildTaskIds }),
     providerSessionId,
     eventStreamRef: dispatchStream?.header.eventStreamRef ?? null,
     startedAt: payload.startedAt ?? event.occurredAt,
@@ -922,6 +928,26 @@ function canonicalDispatchRow(
     // on this canonical row even when the decision annotation store has since evicted the advisory.
     ...(decisionAction === null ? {} : { decisionAction }),
   };
+}
+
+/**
+ * The initial leader row is the run's owner: its dispatch context names the run itself, whereas
+ * worker and later-turn contexts only point back at the owner dispatch. Reading that one run is
+ * how the owner row names the child tasks, bounded by the run's own attempts instead of a scan.
+ */
+function squadOwnerChildTaskIds(
+  projection: DispatchQueries,
+  payload: DispatchEvent["payload"],
+): readonly string[] | undefined {
+  const context = payload.squadRun;
+  if (context === undefined || !("subject" in context)) return undefined;
+  // The projection stores the run state it wrote and validated; `ha squad status` already reads
+  // `workerAttempts` from the same row, so following that shape here adds no new assumption.
+  const run = projection.readSquadRun(context.squadRunId)?.state as unknown as CanonicalSquadRun | undefined;
+  if (run === undefined) return undefined;
+  return [
+    ...new Set(run.workerAttempts.flatMap((attempt) => (attempt.taskId === null ? [] : [attempt.taskId]))),
+  ].sort();
 }
 
 /**

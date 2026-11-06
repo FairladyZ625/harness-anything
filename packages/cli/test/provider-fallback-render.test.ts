@@ -68,6 +68,24 @@ test("an awaiting-ruling dispatch row shows the question and every option withou
   assert.match(renderDispatchRow({ dispatchId: "dispatch-two", status: "succeeded" }), /\truling:-$/u);
 });
 
+test("task dispatch receipts show the canonical squad run handle without inferring one from the roster", () => {
+  const row = {
+      dispatchId: "dispatch-one",
+      status: "stopped",
+      runtimeSessionId: "runtime-one",
+      squadId: "fixture-squad",
+    },
+    squadRunId = "squad_0123456789abcdef01234567",
+    squadChildTaskIds = ["task_two", "task_one"],
+    owned = renderCliReceipt({ ok: true, dispatches: [{ ...row, squadRunId, squadChildTaskIds }] }),
+    direct = renderCliReceipt({ ok: true, dispatches: [row] });
+  assert.equal(owned.stream, "stdout");
+  assert.match(owned.text, /\tsquad:fixture-squad\tsquad-run:squad_0123456789abcdef01234567\t/u);
+  assert.match(owned.text, /\tsquad-children:task_two,task_one\t/u);
+  assert.doesNotMatch(direct.text, /\tsquad-run:/u);
+  assert.doesNotMatch(direct.text, /\tsquad-children:/u);
+});
+
 test("task dispatch rows render typed decision advisories with options and distribution", () => {
   const rendered = renderDispatchRow({
     dispatchId: "dispatch-one",

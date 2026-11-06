@@ -109,6 +109,47 @@ async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void
   await closed;
 }
 
+test("canonical squad dispatch rows expose the run owner for leaders and children", { timeout: 30_000 }, async (t) => {
+  const fixture = await openFixture(t, "canonical-run-owner");
+  await fixture.plan(["a.txt"], ["b.txt"]);
+  const running = await fixture.waitStatus(
+    (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((worker) => worker.runtimeSessionId),
+  );
+  const taskIds = [fixture.taskId, ...running.workerAttempts.map((worker) => worker.taskId!)],
+    dispatches = (await Promise.all(taskIds.map((taskId) => fixture.cell.read("repo.task.dispatches", { taskId }))))
+      .flatMap((result) => result.dispatches)
+      .sort((left, right) => left.dispatchId.localeCompare(right.dispatchId)),
+    expectedDispatchIds = [
+      ...running.leaderTurns.map((turn) => turn.dispatchId),
+      ...running.workerAttempts.map((worker) => worker.dispatchId!),
+    ].sort();
+  assert.deepEqual(
+    dispatches.map((dispatch) => dispatch.dispatchId),
+    expectedDispatchIds,
+    "the public query must include the leader and both workers before checking their owner",
+  );
+  assert.deepEqual(
+    dispatches.map((dispatch) => ({ dispatchId: dispatch.dispatchId, squadRunId: dispatch.squadRunId ?? null })),
+    expectedDispatchIds.map((dispatchId) => ({ dispatchId, squadRunId: running.squadRunId })),
+    "canonical run ownership must reach the generic incident consumer through the public dispatch query",
+  );
+  const ownerRow = dispatches.find((dispatch) =>
+      running.leaderTurns.some((turn) => turn.dispatchId === dispatch.dispatchId),
+    ),
+    workerRows = dispatches.filter(
+      (dispatch) => !running.leaderTurns.some((turn) => turn.dispatchId === dispatch.dispatchId),
+    );
+  assert.deepEqual(
+    ownerRow?.squadChildTaskIds,
+    running.workerAttempts.map((worker) => worker.taskId!).sort(),
+    "the run owner row must name the child tasks it dispatched",
+  );
+  assert.ok(
+    workerRows.every((dispatch) => dispatch.squadChildTaskIds === undefined),
+    "only the run owner row carries the child list; a worker row must not fan out",
+  );
+});
+
 test(
   "squad children submit independently, resume one leader and integrate a verified local-remote delivery",
   { timeout: 30_000 },
@@ -156,6 +197,13 @@ test(
     for (const child of running.workerAttempts) {
       const row = fixture.task(child.taskId!);
       assert.equal(row.snapshot.lease?.executionId, child.executionId);
+      const context = await fixture.cell.read("repo.tasks.runtimeContext.read", { taskId: child.taskId! });
+      assert.equal(context.snapshot.workspace?.kind, "worktree");
+      assert.equal(
+        fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)?.cwd,
+        path.resolve(fixture.root, context.snapshot.workspace!.path),
+        "the worker must commit in the same bound worktree that task submit reads",
+      );
       assert.match(
         readFileSync(path.join(fixture.root, "harness", row.packagePath!, "task_plan.md"), "utf8"),
         /worker mission/u,
@@ -190,7 +238,7 @@ test(
       heads.push(
         git(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, "rev-parse", "HEAD"),
       );
-      await fixture.submit(child, heads[index]);
+      await fixture.submit(child, heads[index], index === 1);
       await fixture.finish(child.dispatchId!, "child delivery");
       if (index === 0) {
         await fixture.waitStatus((state) => state.workerCallbackCount === 1);
@@ -464,7 +512,8 @@ for (const restart of [false, true])
       assert.equal(childRows[0]?.outcome, "succeeded");
       assert.equal(
         readFileSync(path.join(fixture.root, "harness", childRows[0].reportPath!), "utf8").trim(),
-        "child delivery",
+        `child delivery\n\nTask ${child.taskId} is not submitted: runtime success and task submission are separate states. ` +
+          `The owner can recover this delivered closeout with: ha task submit ${child.taskId} --as-owner`,
       );
       const report = readFileSync(path.join(fixture.root, "harness", rows[0].reportPath!), "utf8");
       assert.match(report, new RegExp(`Worker branch pushed at settlement: ${taskId} @`, "u"));
@@ -472,7 +521,7 @@ for (const restart of [false, true])
         git(fixture.bare, "for-each-ref", "--format=%(objectname)", `refs/heads/${taskId}`),
         git(cwd, "rev-parse", "HEAD"),
       );
-      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${taskId}--squad-`), "");
+      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${child.taskId}`), "");
     },
   );
 
@@ -1014,7 +1063,7 @@ async function openFixture(
         }),
       );
     },
-    submit: async (child: WorkerAttemptView, head: string) => {
+    submit: async (child: WorkerAttemptView, head: string, inferCommit = false) => {
       await cell.settlePendingMaterialization("child closeout fixture");
       const row = task(child.taskId!),
         holder = {
@@ -1029,7 +1078,12 @@ async function openFixture(
         `# Closeout\n\n## Summary\n\nDelivered ${head}.\n\n## Verification\n\nCommitted child file contents inspected.\n\n## Residual Risk\n\nIntegration review remains.\n\n## Same Mechanism Elsewhere\n\nSibling delivery uses the same protocol.\n`,
       );
       const receipt = await cell.run(
-        { kind: "task-submit", taskId: child.taskId!, executionId: child.executionId!, commitSha: head },
+        {
+          kind: "task-submit",
+          taskId: child.taskId!,
+          executionId: child.executionId!,
+          ...(inferCommit ? {} : { commitSha: head }),
+        },
         holder,
       );
       assert.equal(receipt.outcome, "applied", `real child submit: ${JSON.stringify(receipt)}`);

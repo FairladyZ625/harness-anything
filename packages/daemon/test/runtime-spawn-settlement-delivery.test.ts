@@ -923,7 +923,11 @@ test("commander-owned settlement keeps its commit local and reports an unsubmitt
   await publishExit(
     {
       ...settleContext,
-      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+      requiredRuntimeProjection: () =>
+        deliveryProjection(null, "repository-diff", [], [], true, false, {
+          dispatchId: "dispatch_0123456789abcdef01234567",
+          baseSha: git(fixture.worker, "rev-parse", "HEAD~1").trim(),
+        }),
       prepareDaemonGitEnvironment: async () => {
         credentialRequests += 1;
         return {};
@@ -957,7 +961,11 @@ test("commander-owned settlement without a local commit does not report a delive
   await publishExit(
     {
       ...settleContext,
-      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+      requiredRuntimeProjection: () =>
+        deliveryProjection(null, "repository-diff", [], [], true, false, {
+          dispatchId: "dispatch_0123456789abcdef01234567",
+          baseSha: git(fixture.worker, "rev-parse", "HEAD").trim(),
+        }),
     },
     runtime,
     0,
@@ -1026,13 +1034,9 @@ test("a squad leader turn without the provider's structured success settles stop
   assert.equal(outcomes[0]?.outcome, "stopped");
 });
 
-test("a squad worker's delivery is the commits on its commander-cut branch", async (context) => {
-  // Squad checkouts branch as `<commander>--squad-…`, never the child task id, so the task-branch
-  // witness cannot name them; the commits beyond the commander branch are the child's delivery.
+test("a squad worker's delivery is the commits on its bound child task branch", async (context) => {
   const fixture = workerGitFixture(context, "squad-worker-branch", { reachableRemote: true }),
-    commanderBranch = git(fixture.canonical, "branch", "--show-current").trim();
-  git(fixture.worker, "branch", "-m", `${commanderBranch}--squad-0123456789ab-terra-1`);
-  const runtime = workerSettlementRuntime(fixture, {
+    runtime = workerSettlementRuntime(fixture, {
       agent: { id: "terra", name: "Terra" },
       delegatedBy: { id: "fable", name: "Fable" },
       squadId: "core-squad",
@@ -1047,12 +1051,58 @@ test("a squad worker's delivery is the commits on its commander-cut branch", asy
   await publishExit(
     {
       ...settleContext,
-      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+      requiredRuntimeProjection: () =>
+        deliveryProjection(null, "repository-diff", [], [], true, false, {
+          dispatchId: "dispatch_0123456789abcdef01234567",
+          baseSha: git(fixture.worker, "rev-parse", "HEAD~1").trim(),
+        }),
     },
     runtime,
     0,
   );
   assert.equal(outcomes[0]?.outcome, "succeeded");
+});
+
+test("a Commander commit above the repository baseline is not a zero-commit squad worker's delivery", async (context) => {
+  const fixture = workerGitFixture(context, "squad-stacked-base", { reachableRemote: true, delivery: false }),
+    commander = path.join(fixture.root, "commander");
+  // The Commander is ahead of the repository baseline before the child stage is cut.
+  git(fixture.canonical, "worktree", "add", "--quiet", "-b", "task_commander", commander);
+  writeFileSync(path.join(commander, "commander.txt"), "commander\n");
+  git(commander, "add", "commander.txt");
+  git(commander, "commit", "--quiet", "-m", "commander work");
+  const base = git(commander, "rev-parse", "HEAD").trim();
+  // The child's bound branch holds the inherited Commander commit and no worker commit.
+  git(fixture.worker, "reset", "--hard", base);
+  const runtime = workerSettlementRuntime(fixture, {
+      agent: { id: "terra", name: "Terra" },
+      delegatedBy: { id: "fable", name: "Fable" },
+      squadId: "core-squad",
+      finalText: "worker stopped",
+      publicationOwner: "commander",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () =>
+        deliveryProjection(null, "repository-diff", [], [], true, false, {
+          dispatchId: "dispatch_0123456789abcdef01234567",
+          baseSha: base,
+        }),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(
+    outcomes[0]?.outcome,
+    "stopped",
+    "the witness must count from the run's stacked base, not from origin/main",
+  );
 });
 
 test("terminal settlement names the branch when the worker push fails", async (context) => {
