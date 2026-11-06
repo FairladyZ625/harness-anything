@@ -527,6 +527,37 @@ test("the settings read built by its only constructor passes its own result vali
   assert.notDeepEqual(validateDaemonSettingsRead({ ...read, revision: "initial" as unknown as number }), []);
 });
 
+test("settings read ignores fields a newer daemon added and keeps declared fields strict", () => {
+  const read = daemonSettingsRead(INITIAL_SETTINGS_V1, 4, "initial"),
+    newer = {
+      ...read,
+      daemonAddedTopLevel: "ignored",
+      settings: {
+        ...read.settings,
+        daemonAddedSection: { enabled: true },
+        runtime: { ...read.settings.runtime, daemonAddedSetting: ["new-value"] },
+      },
+      values: { ...read.values, daemonAddedActionValue: [{ id: "new-value" }] },
+    };
+  assert.deepEqual(validateDaemonSettingsRead(newer), []);
+  assert.notDeepEqual(
+    validateDaemonSettingsRead({
+      ...newer,
+      values: { ...newer.values, runtimeCommandInterceptions: ["invalid"] },
+    }),
+    [],
+    "a declared action value keeps its shape check",
+  );
+  assert.notDeepEqual(
+    validateDaemonSettingsRead({
+      ...newer,
+      settings: { ...newer.settings, runtime: { ...newer.settings.runtime, allowedInstances: "invalid" } },
+    }),
+    [],
+    "a declared settings field keeps its type check",
+  );
+});
+
 test("settings read accepts nonempty interception arrays without admitting object arrays for string-list settings", () => {
   const rules = [
     { id: "release", pattern: "npm run release", agent: "worker" },

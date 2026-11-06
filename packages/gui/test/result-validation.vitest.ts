@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import { describe, expect, it } from "vitest";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
+import { parseDaemonGuiReadResponse } from "@harness-anything/daemon/client";
 import { daemonSettingsRead } from "../../daemon/src/protocol/daemon-settings-read-types.ts";
 import { isSettingsSuccess } from "../src/renderer/settings-payload.ts";
 import { localErrorHint, rendererErrorHint, rendererReadError } from "../src/renderer/result-validation.ts";
@@ -83,4 +84,32 @@ it("accepts nonempty command interception rules from the real settings read cons
     isSettingsSuccess({ ...response, values: { ...response.values, runtimeCommandInterceptions: ["invalid"] } }),
   ).toBe(false);
   expect(isSettingsSuccess({ ...response, values: { ...response.values, worktreeSetup: rules } })).toBe(false);
+});
+
+// A GUI built before a daemon release must keep reading that daemon's results. The main process
+// parser is the frozen copy that failed live for runtime.commandInterceptions (#4358); this
+// fixture adds a top-level field, a declared settings container child, and a new action value,
+// exactly the additive shape the current/previous protocol window allows.
+it("accepts settings fields a newer daemon added at the main-process parser", () => {
+  const response = daemonSettingsRead(INITIAL_SETTINGS_V1, 1, "initial"),
+    newer = {
+      ...response,
+      daemonAddedTopLevel: "ignored",
+      settings: {
+        ...response.settings,
+        daemonAddedSection: { enabled: true },
+        runtime: { ...response.settings.runtime, daemonAddedSetting: ["new-value"] },
+      },
+      values: { ...response.values, daemonAddedActionValue: [{ id: "new-value" }] },
+    },
+    parsed = parseDaemonGuiReadResponse("repo.settings.read", newer);
+  expect(isSettingsSuccess(parsed)).toBe(true);
+  expect((parsed as { readonly daemonAddedTopLevel?: string }).daemonAddedTopLevel).toBe("ignored");
+  expect((parsed as { readonly values: Record<string, unknown> }).values).not.toHaveProperty("daemonAddedActionValue");
+  expect(() =>
+    parseDaemonGuiReadResponse("repo.settings.read", {
+      ...newer,
+      values: { ...newer.values, runtimeCommandInterceptions: ["invalid"] },
+    }),
+  ).toThrow(/field=values/u);
 });

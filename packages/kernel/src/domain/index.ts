@@ -327,6 +327,7 @@ export {
   serializeLocalSettings,
   validateRepositorySettings,
   validateSettingsV1,
+  withoutUndeclaredSettingsFields,
   writeGatesFacet,
   writeRepositorySettingsFacet,
 } from "./settings.ts";

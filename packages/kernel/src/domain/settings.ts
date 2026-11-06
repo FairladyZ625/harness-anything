@@ -120,6 +120,26 @@ export function validateSettingsV1(value: unknown): readonly string[] {
   return withGateMappingIssues(validateEntityJsonSchema(SETTINGS_V1_SCHEMA, value, "settings"), value);
 }
 
+/** Read-side projection for a client built before a daemon release. Additive fields are inside the
+ * current/previous protocol window, so undeclared keys are dropped before the caller runs the closed
+ * validateSettingsV1; every declared field keeps its full check. Never use this on a write path. */
+export function withoutUndeclaredSettingsFields(value: unknown): unknown {
+  return withoutUndeclaredFields(SETTINGS_V1_SCHEMA, value);
+}
+
+function withoutUndeclaredFields(schema: EntityJsonSchemaNode, value: unknown): unknown {
+  if (typeof schema.type !== "string") return value;
+  if (schema.type === "array")
+    return Array.isArray(value) ? value.map((item) => withoutUndeclaredFields(schema.items, item)) : value;
+  if (schema.type !== "object" || value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const projected: Record<string, unknown> = {};
+  for (const [field, item] of Object.entries(value)) {
+    const fieldSchema = schema.properties[field];
+    if (fieldSchema !== undefined) projected[field] = withoutUndeclaredFields(fieldSchema, item);
+  }
+  return projected;
+}
+
 export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1): RepositorySettingsV1 {
   return settingsValueFromDeclarations(
     SETTINGS_FIELD_DECLARATIONS.filter(({ ownership }) => ownership === "repository"),
