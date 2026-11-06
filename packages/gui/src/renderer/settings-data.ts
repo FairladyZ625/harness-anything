@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type SettingsUpdateInput } from "./api-client.ts";
 import type { GuiActionResult, SettingsRead } from "../api/renderer-dto.ts";
+import { localErrorHint } from "./result-validation.ts";
 
 export const settingsQueryKeys = {
   read: (repoId: string) => ["settings", repoId] as const,
@@ -29,8 +30,7 @@ export function useSettingsMutation(repoId: string | null) {
       // 失败回执(ok:false)也走错误面:静默吞掉会让整表提交原地消失(2026-09-18 实测:
       // 路由白名单漂移让每次提交都 unknown_field 拒收,UI 无任何显示)。
       if (receipt.ok !== true) {
-        const explanation = typeof receipt.rejectionExplanation === "string" ? receipt.rejectionExplanation : undefined;
-        throw new Error(explanation ?? `${receipt.command} ${receipt.outcome}`);
+        throw new Error(localErrorHint(receipt, `${receipt.command} ${receipt.outcome}`));
       }
       // 回执携带写后的 singleton 行修订:落地即顶进缓存,使刷新完成前的下一次提交带上
       // 新令牌,而不是拿 invalidate 前的旧修订再撞一次 revision_conflict(2026-10-14 实测复现)。

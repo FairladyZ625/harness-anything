@@ -65,6 +65,7 @@ type Props = {
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSetEnabled: (enabled: boolean) => void;
   readonly projectAllowed: boolean;
+  readonly projectSettingsBusy: boolean;
   readonly onSetProjectAllowed: (allowed: boolean) => void;
   readonly providerHealth?: {
     readonly nodeId: string;
@@ -99,6 +100,7 @@ export function RuntimeCard({
   onValidate,
   onSetEnabled,
   projectAllowed,
+  projectSettingsBusy,
   onSetProjectAllowed,
   providerHealth,
   onClearFreeze,
@@ -149,7 +151,7 @@ export function RuntimeCard({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={busy || projectOrder <= 1}
+                  disabled={busy || projectSettingsBusy || projectOrder <= 1}
                   tip={t("agentRuntime.moveProjectOrderUp")}
                   ariaLabel={t("agentRuntime.moveProjectOrderUp")}
                   onClick={() => onMoveProjectOrder(-1)}
@@ -159,7 +161,7 @@ export function RuntimeCard({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={busy}
+                  disabled={busy || projectSettingsBusy}
                   tip={t("agentRuntime.moveProjectOrderDown")}
                   ariaLabel={t("agentRuntime.moveProjectOrderDown")}
                   onClick={() => onMoveProjectOrder(1)}
@@ -180,6 +182,7 @@ export function RuntimeCard({
               <Toggle
                 checked={projectAllowed}
                 label={t("agentRuntime.projectAllowed")}
+                disabled={projectSettingsBusy}
                 onChange={onSetProjectAllowed}
               />
             </span>
