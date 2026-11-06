@@ -620,11 +620,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 : (permissionMode ?? agent?.permissionMode),
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
             callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance),
-            // Only the endpoint changes for a relayed launch: the worker still needs the real
-            // user root and daemon id to describe the route it is bound to, and the relay itself
-            // is located by the injected socket path, not by either identity field.
+            // A relayed sandbox still hides the host user root and daemon id; a bypass worker
+            // already has that host access and keeps the real identity in its mission. Only the
+            // endpoint is shared: the relay is located by the injected socket path.
             missionDaemonRoute =
-              callbackRelay && daemonRoute ? { ...daemonRoute, endpoint: callbackRelay.path } : daemonRoute,
+              callbackRelay && daemonRoute
+                ? {
+                    ...(effectivePermissionMode === "bypass" ? daemonRoute : { userRoot: "", daemonId: "" }),
+                    endpoint: callbackRelay.path,
+                  }
+                : daemonRoute,
             selfContainedMission =
               taskMission && daemonRoute
                 ? assembleTaskMission({
