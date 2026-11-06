@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { parseDaemonGuiReadResponse, parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import {
   validateAgentDispatchPreview,
   validateCatalogPreset,
@@ -64,6 +64,50 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
       ...valid,
       settings: { ...settings, walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 } },
     }),
+  );
+});
+
+test("client inbound tolerates additive settings fields while the daemon exit stays exact", () => {
+  const settings = {
+      schema: "settings/v1",
+      settingsId: "repository",
+      defaultVertical: "software/coding",
+      defaultPreset: "standard-task",
+      defaultProfile: "baseline",
+      reviewIndependence: "execution",
+      locale: "en-US",
+      scaffolds: {
+        task: "governance/task-scaffold.json",
+        repository: "governance/repository-scaffold.json",
+      },
+    },
+    newer = {
+      schema: "daemon.settings-read/v1",
+      decisionPoints: [],
+      ok: true,
+      settings: {
+        ...settings,
+        daemonAddedSection: { enabled: true },
+        scaffolds: { ...settings.scaffolds, daemonAddedScaffold: "new" },
+      },
+      values: {
+        defaultVertical: settings.defaultVertical,
+        reviewIndependence: settings.reviewIndependence,
+        closeoutProfile: "standard",
+        daemonAddedActionValue: [{ id: "new" }],
+      },
+      revision: 7,
+      lastChanged: "initial",
+    };
+  assert.throws(
+    () => parseDaemonGuiReadResult("repo.settings.read", newer),
+    "the daemon exit keeps the exact canonical Settings shape",
+  );
+  const parsed = parseDaemonGuiReadResponse("repo.settings.read", newer);
+  assert.equal(parsed.ok, true);
+  assert.equal(
+    Object.hasOwn((parsed as { readonly values: Record<string, unknown> }).values, "daemonAddedActionValue"),
+    false,
   );
 });
 

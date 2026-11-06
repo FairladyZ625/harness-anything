@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateDaemonSettingsRead } from "../src/protocol/gui-result-validation.ts";
+import { parseDaemonGuiReadResponse, validateDaemonSettingsRead } from "../src/protocol/gui-result-validation.ts";
 import { daemonSettingsRead } from "../src/protocol/daemon-settings-read-types.ts";
 import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
@@ -525,6 +525,56 @@ test("the settings read built by its only constructor passes its own result vali
   );
   assert.notDeepEqual(validateDaemonSettingsRead({ ...read, values: { ...read.values, taskScaffold: {} } }), []);
   assert.notDeepEqual(validateDaemonSettingsRead({ ...read, revision: "initial" as unknown as number }), []);
+});
+
+test("daemon settings exit stays closed while the GUI client accepts fields a newer daemon added", () => {
+  const read = daemonSettingsRead(INITIAL_SETTINGS_V1, 4, "initial"),
+    newer = {
+      ...read,
+      daemonAddedTopLevel: "ignored",
+      settings: {
+        ...read.settings,
+        daemonAddedSection: { enabled: true },
+        runtime: { ...read.settings.runtime, daemonAddedSetting: ["new-value"] },
+      },
+      values: { ...read.values, daemonAddedActionValue: [{ id: "new-value" }] },
+    },
+    parsed = parseDaemonGuiReadResponse("repo.settings.read", newer);
+  assert.match(
+    validateDaemonSettingsRead(newer).join("\n"),
+    /field=settings/u,
+    "the daemon exit still judges its own served shape",
+  );
+  assert.equal(parsed.ok, true);
+  assert.equal(
+    Object.hasOwn((parsed as { readonly values: Record<string, unknown> }).values, "daemonAddedActionValue"),
+    false,
+  );
+  assert.notDeepEqual(
+    validateDaemonSettingsRead({
+      ...newer,
+      values: { ...newer.values, runtimeCommandInterceptions: ["invalid"] },
+    }),
+    [],
+    "a declared action value keeps its shape check at the daemon exit",
+  );
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResponse("repo.settings.read", {
+        ...newer,
+        values: { ...newer.values, runtimeCommandInterceptions: ["invalid"] },
+      }),
+    /field=values/u,
+    "the GUI client still rejects a malformed declared action value",
+  );
+  assert.notDeepEqual(
+    validateDaemonSettingsRead({
+      ...newer,
+      settings: { ...newer.settings, runtime: { ...newer.settings.runtime, allowedInstances: "invalid" } },
+    }),
+    [],
+    "a declared settings field keeps its type check at the daemon exit",
+  );
 });
 
 test("settings read accepts nonempty interception arrays without admitting object arrays for string-list settings", () => {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
 export default {
@@ -104,5 +105,42 @@ export default {
     await page.getByTestId("settings-runtimeCommandInterceptions-restore").click();
     await save([]);
     assert.deepEqual((await read()).values.runtimeCommandInterceptions, []);
+
+    // A GUI release stays attached while the daemon upgrades. Simulate the next daemon adding a
+    // top-level field, a nested settings field and an action value this GUI has never declared;
+    // the frozen main-process parser must still accept the read and the page must stay usable.
+    await app.evaluate(
+      ({ ipcMain }, paths) => {
+        const load = process.getBuiltinModule("module").createRequire(paths.bridge),
+          { createLocalGuiServiceBridge } = load(paths.bridge),
+          { parseDaemonGuiReadResponse } = load(paths.parser),
+          bridge = createLocalGuiServiceBridge();
+        ipcMain.removeHandler("harness:getSettings");
+        ipcMain.handle("harness:getSettings", async (_event, payload) => {
+          const result = await bridge.invoke("getSettings", payload);
+          return parseDaemonGuiReadResponse("repo.settings.read", {
+            ...result,
+            daemonAddedTopLevel: "ignored",
+            settings: {
+              ...result.settings,
+              daemonAddedSection: { enabled: true },
+              runtime: { ...result.settings.runtime, daemonAddedSetting: ["new-value"] },
+            },
+            values: { ...result.values, daemonAddedActionValue: [{ id: "new-value" }] },
+          });
+        });
+      },
+      {
+        bridge: fileURLToPath(new URL("../../../packages/gui/src/main/local-composition-root.ts", import.meta.url)),
+        parser: fileURLToPath(
+          new URL("../../../packages/daemon/src/protocol/gui-result-validation.ts", import.meta.url),
+        ),
+      },
+    );
+    await page.reload();
+    await openSettings();
+    assert.equal(await page.getByTestId("command-interceptions-editor").isVisible(), true);
+    assert.doesNotMatch(await page.getByTestId("settings-content").innerText(), /invalid_result|field is unknown/u);
+    await shot("settings-newer-daemon-fields");
   },
 };
