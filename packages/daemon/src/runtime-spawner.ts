@@ -619,7 +619,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ? "workspace-write"
                 : (permissionMode ?? agent?.permissionMode),
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
-            callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance, effectivePermissionMode),
+            callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance),
             missionDaemonRoute =
               callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
             selfContainedMission =

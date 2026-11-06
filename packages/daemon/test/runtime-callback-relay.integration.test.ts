@@ -19,6 +19,7 @@ import path from "node:path";
 import test from "node:test";
 import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
 import { runtimeExecutionActor, type RuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
+import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import {
   localUserDaemonEndpoint,
@@ -170,6 +171,105 @@ test(
       assert.deepEqual(recordedActor, { principal: { personId: "owner" }, executor: null });
     } finally {
       await runtime?.terminateTree?.();
+      await new Promise<void>((resolve) => privateServer.close(() => resolve()));
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "bypass runtime reaches the daemon through the relay while its execution scope still refuses another task",
+  { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-bypass-")),
+      userRoot = path.join(parent, "daemon-user"),
+      dispatchId = uniqueDispatchId(),
+      daemonId = "callback-relay-bypass",
+      executionCredential = "bypass-execution-credential",
+      repoId = "repo-callback-relay-bypass",
+      taskId = "task-callback-relay-bypass",
+      foreignTaskId = "task-callback-relay-foreign",
+      principal: RuntimeExecutionPrincipal = {
+        personId: "owner",
+        repoId,
+        runtimeSessionId: "runtime_callback_relay_bypass",
+        dispatchId,
+        taskId,
+        executionId: "exec-callback-relay-bypass",
+        role: "implementation",
+        source: "local",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      };
+    mkdirSync(userRoot, { recursive: true });
+    mkdirSync(perUserSocketRoot(), { recursive: true, mode: 0o700 });
+    const expectedEndpoint = localUserDaemonEndpoint(userRoot, daemonId),
+      route = { userRoot, daemonId, endpoint: expectedEndpoint },
+      privateServer = net.createServer((socket) => {
+        serveJsonRpcStream({
+          input: socket,
+          output: socket,
+          transportKind: "unix-socket",
+          authContext: { transportKind: "unix-socket" },
+          createProtocolServer: (authContext, emit, connectionId, signal) =>
+            createJsonRpcProtocolServer({
+              host: {
+                run: async () => ({ outcome: "applied" }),
+              } as never,
+              build: daemonBuildStamp(),
+              authContext: { ...authContext, connectionSignal: signal },
+              executionPrincipal: async (credential, method, params) => {
+                assert.equal(credential, executionCredential);
+                requireExecutionRequestScope(principal, method, params);
+                return principal;
+              },
+              emit,
+              connectionId,
+            }),
+        });
+      });
+    await listen(privateServer, route.endpoint);
+    const spec = runtimeCallbackRelaySpec(dispatchId, route),
+      relay = createRuntimeCallbackRelay({
+        dispatchId,
+        route,
+        relayPath: spec.path,
+        executionCredential,
+      });
+    try {
+      await relay.start();
+      const socket = await new Promise<net.Socket>((resolve, reject) => {
+          const clientSocket = net.createConnection(relay.endpoint);
+          clientSocket.once("connect", () => resolve(clientSocket));
+          clientSocket.once("error", reject);
+        }),
+        client = new JsonRpcLineClient(socket, socket);
+      try {
+        await client.request("protocol.hello", {
+          protocolVersion: currentDaemonProtocolVersion,
+          buildCommit: daemonBuildStamp().commit,
+        });
+        const read = await client.request("repo.task.read", {
+          repo: { repoId },
+          payload: { action: { kind: "task-show", taskId } },
+        });
+        assert.equal(read.outcome, "applied", JSON.stringify(read));
+        const write = await client.request("repo.task.run", {
+          repo: { repoId },
+          payload: { action: { kind: "task-progress-append", taskId, text: "bypass relay write" } },
+        });
+        assert.equal(write.outcome, "applied", JSON.stringify(write));
+        const foreign = await client.request("repo.task.run", {
+          repo: { repoId },
+          payload: { action: { kind: "task-progress-append", taskId: foreignTaskId, text: "foreign write" } },
+        });
+        assert.equal(foreign.outcome, "op_rejected", JSON.stringify(foreign));
+        assert.equal(foreign.code, "execution_credential_rejected");
+      } finally {
+        client.close();
+        socket.destroy();
+      }
+    } finally {
+      await relay.stop();
       await new Promise<void>((resolve) => privateServer.close(() => resolve()));
       rmSync(parent, { recursive: true, force: true });
     }

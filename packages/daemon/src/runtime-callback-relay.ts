@@ -16,19 +16,19 @@ export function runtimeCallbackRelaySpec(
   return { endpoint: route.endpoint, path: runtimeCallbackRelayPath(dispatchId) };
 }
 
-/** A sealed Codex worker that may write, or only read, reaches the daemon through a per-dispatch relay socket. */
+/** A sealed Codex worker reaches the daemon through a per-dispatch relay socket, in every
+ * filesystem permission mode. The relay is the execution-credential channel, not a sandbox
+ * permission: bypass runs unsandboxed yet still has to inject the dispatch principal. */
 export function dispatchCallbackRelay(
   dispatchId: string,
   route: RuntimeDaemonRoute | undefined,
   instance: { readonly kindId: string; readonly isolationState?: string } | undefined,
-  permissionMode: string | undefined,
 ): RuntimeCallbackRelay | undefined {
   return process.platform !== "win32" &&
     route &&
     isSealedRuntimeDaemonRoute(route) &&
     instance?.kindId === "codex" &&
-    instance.isolationState === "enforced" &&
-    (permissionMode === "workspace-write" || permissionMode === "read-only")
+    instance.isolationState === "enforced"
     ? runtimeCallbackRelaySpec(dispatchId, route)
     : undefined;
 }

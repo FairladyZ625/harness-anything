@@ -364,6 +364,15 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             provider: "openai",
             extra: { codex: {} },
           },
+          {
+            id: "codex-bypass-route",
+            kindId: "codex" as const,
+            installationId: ingressInstallation.installationId,
+            permissionMode: "bypass" as const,
+            isolationState: "enforced" as const,
+            provider: "openai",
+            extra: { codex: {} },
+          },
         ];
       for (const [index, runtime] of cases.entries()) {
         await host.runtimeInstance(
