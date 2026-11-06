@@ -1021,7 +1021,11 @@ for (const rejectedStatus of [401, 403, 503]) {
       assert.deepEqual(policyTokens, ["Bearer center-1", "Bearer center-2", "Bearer center-2"]);
       assert.equal(tokenCalls, 2, "the replacement token remains cached");
     } else {
-      await assert.rejects(evaluate(), { code: "keycloak_admin_rejected" });
+      // 403 is a policy rejection; a 503 is an availability answer and therefore
+      // `keycloak_unavailable` (F-1). Neither refreshes the center token.
+      await assert.rejects(evaluate(), {
+        code: rejectedStatus === 503 ? "keycloak_unavailable" : "keycloak_admin_rejected",
+      });
       assert.deepEqual(policyTokens, ["Bearer center-1"]);
       assert.equal(tokenCalls, 1);
     }

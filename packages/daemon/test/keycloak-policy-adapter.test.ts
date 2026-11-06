@@ -195,7 +195,14 @@ test("online evaluation returns explicit allow and denies unknown, negative, and
       action: "task-create",
       resource: { kind: "entity", repoId: "repo-a", entityRef: "task/task_123" },
     }),
-    /offline/u,
+    (error: Error & { readonly code?: string; readonly cause?: unknown }) => {
+      // A rejected fetch never produced an HTTP answer: the adapter keeps its transport sentinel
+      // and the original cause instead of leaking an unclassified TypeError.
+      assert.equal(error.code, "daemon_error");
+      assert.match(error.message, /could not be reached/u);
+      assert.equal((error.cause as Error).message, "offline");
+      return true;
+    },
   );
 });
 
