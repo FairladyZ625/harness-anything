@@ -325,7 +325,7 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
         const parameters = [repo.tenant_id, repo.project_id, repo.policy_epoch, repo.repo_id];
         for (;;) {
           const page = await backfillPgReadIndexPage(
-            fixture.adminPool,
+            fixture.pool,
             { tenantId: repo.tenant_id, projectId: repo.project_id, policyEpoch: Number(repo.policy_epoch) },
             repo.repo_id,
           );
