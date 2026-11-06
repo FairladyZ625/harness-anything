@@ -26,11 +26,11 @@ export const boundedContextExceptions: readonly BoundedContextActionException[] 
   }),
   Object.freeze({
     actions: Object.freeze([
-      "daemon.runtimeInstance.create",
-      "daemon.runtimeInstance.list",
-      "daemon.runtimeInstance.show",
-      "daemon.runtimeInstance.update",
-      "daemon.runtimeInstance.delete",
+      "runtime-instance-create",
+      "runtime-instance-list",
+      "runtime-instance-show",
+      "runtime-instance-update",
+      "runtime-instance-delete",
     ]),
     boundedContext: "daemon-user-root" as const,
     residency: "runtime-local" as const,

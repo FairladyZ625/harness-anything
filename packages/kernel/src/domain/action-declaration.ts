@@ -342,10 +342,10 @@ const hostAdmin = (
     ...(socketOwnerAuthority ? {} : { socketOwnerAuthority: false }),
   });
 
-const runtimeAdmin = (kind: keyof typeof actionPresentation): ActionDeclaration =>
+const runtimeAdmin = (kind: keyof typeof actionPresentation, catalogId: string | null = null): ActionDeclaration =>
   Object.freeze({
     kind,
-    catalogId: null,
+    catalogId,
     executionClass: "admin",
     policyAction: kind,
     policyTier: "admin",
@@ -470,15 +470,15 @@ export const actionDeclarations = Object.freeze([
   // record to the dispatch's own stream and settles no canonical event, so its state stays on the
   // daemon host. The maintainer tier is preserved: reclassification must not widen who may dismiss.
   local("runtime-incident-dismiss", "repo-write", hostResidency, { policyTier: "maintainer" }),
-  runtimeAdmin("runtime-instance-create"),
-  runtimeAdmin("runtime-instance-delete"),
+  runtimeAdmin("runtime-instance-create", "runtime-instance/create"),
+  runtimeAdmin("runtime-instance-delete", "runtime-instance/delete"),
   runtimeAdmin("runtime-instance-hosting-credential-set"),
   runtimeAdmin("runtime-instance-hosting-credential-unset"),
   runtimeAdmin("runtime-instance-list"),
   local("runtime-instance-login", "repo-write", runtimeResidency),
   local("runtime-instance-logout", "repo-write", runtimeResidency),
   runtimeAdmin("runtime-instance-show"),
-  runtimeAdmin("runtime-instance-update"),
+  runtimeAdmin("runtime-instance-update", "runtime-instance/update"),
   // dec_6C9E3399972A2F06C046BA89DC/CH3: ha runtime run and ha agent run share the canonical
   // runtime-session/run target; Policy action stays runtime-run and the command behavior is unchanged.
   canonicalWithPolicyAction("runtime-run", "runtime-session/run", "repo-write", "runtime-run"),

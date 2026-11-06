@@ -1,7 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
+import {
+  baseEntityPolicyActions,
+  entityKindContracts,
+  explainEntityKind,
+  getExecutableEntityAction,
+} from "../../src/domain/entity-kind-registry.ts";
+import { actionDeclarations } from "../../src/domain/action-declaration.ts";
 import { artifactEntityActionCatalog } from "../../src/domain/artifact-entity-actions.ts";
 import {
   projectArtifactActionDeclarations,
@@ -87,6 +93,25 @@ test("Agent, Decision, Fact, Relation, RuntimeSession, Schedule, and Settings in
   }
   assert.equal(getExecutableEntityAction("fact-undeclared"), undefined);
   assert.equal(getExecutableEntityAction("schedule-fire"), undefined);
+});
+
+test("built-in catalog writes name a declared ingress and its Policy scope", () => {
+  // A catalog write is either a declared Action kind (bound through its catalogId) or a compiled
+  // canonical event that runs under a declared Policy scope. A name the daemon never receives
+  // leaves the catalog describing an Action no entry executes.
+  const declaredByKind = new Map(actionDeclarations.map((declaration) => [declaration.kind, declaration])),
+    policyScopes = new Set([...actionDeclarations.map(({ policyAction }) => policyAction), ...baseEntityPolicyActions]);
+  for (const { kind, actionCatalog } of entityKindContracts)
+    for (const action of actionCatalog?.actions ?? []) {
+      const execution = action.execution,
+        ref = `${kind}/${action.id}`;
+      if (execution === null || execution.read) continue;
+      assert.ok(action.policy.action !== null && policyScopes.has(action.policy.action), ref);
+      if (execution.compile !== null) continue;
+      const declaration = declaredByKind.get(execution.ingress);
+      assert.ok(declaration, `${ref}: ingress ${execution.ingress} is not a declared Action kind`);
+      if (declaration.catalogId === ref) assert.equal(action.policy.action, declaration.policyAction, ref);
+    }
 });
 
 test("runtime artifact kinds project distinct <kind>/<action> scopes per kind", () => {
