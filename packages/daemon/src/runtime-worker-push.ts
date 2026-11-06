@@ -151,14 +151,18 @@ export async function configureWorkerGitIdentity(
     if (parent === checkout) return;
     checkout = parent;
   }
-  const env = gitEnvironment(environment);
-  // The worker checkout is daemon-owned, so any worktree override there is stale. The canonical
-  // root is the user's checkout: only the synthetic values this daemon writes are removed, and a
-  // user-declared per-worktree identity survives. The checkout then inherits the authoritative
-  // config, which also makes `git config --show-origin` name the file it actually comes from.
-  await clearWorktreeIdentity(checkout, env, false);
-  if (!samePath(checkout, canonicalRoot)) await clearWorktreeIdentity(canonicalRoot, env, true);
-  const declared = await readRepositoryGitIdentity({ cwd: canonicalRoot, env });
+  const env = gitEnvironment(environment),
+    sameRoot = samePath(checkout, canonicalRoot);
+  // The worker checkout is daemon-owned, so any worktree override there is stale. A runtime that
+  // operates in the canonical root itself is still the user's checkout: only the synthetic values
+  // this daemon writes are removed there, and a user-declared per-worktree identity survives.
+  await clearWorktreeIdentity(checkout, env, sameRoot);
+  if (!sameRoot) await clearWorktreeIdentity(canonicalRoot, env, true);
+  // For a runtime at the canonical root the checkout's effective identity includes a user-declared
+  // worktree override; it must win over the person fallback, or the fallback write would replace it.
+  const declared =
+    (await readRepositoryGitIdentity({ cwd: canonicalRoot, env })) ??
+    (sameRoot ? await readWorkerGitIdentity({ cwd: checkout, env }) : null);
   if (declared) return;
   const identity = fallbackWorkerGitIdentity(personId);
   await readGitText(checkout, ["config", "--local", "extensions.worktreeConfig", "true"], env);

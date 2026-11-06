@@ -759,6 +759,64 @@ test("a user-declared canonical worktree identity survives and does not become t
   });
 });
 
+test("a runtime at the canonical root keeps a user-declared worktree identity when the repo has one", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-same-root-repo-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.name", "Repo Identity");
+  git(canonical, "config", "user.email", "repo@example.invalid");
+  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
+  git(canonical, "config", "extensions.worktreeConfig", "true");
+  git(canonical, "config", "--worktree", "user.name", "User Declared");
+  git(canonical, "config", "--worktree", "user.email", "user@example.invalid");
+
+  await configureWorkerGitIdentity(canonical, canonical, "person-worker", hermeticGitEnvironment());
+  assert.equal(
+    git(canonical, "config", "--worktree", "--get", "user.email").trim(),
+    "user@example.invalid",
+    "the user-declared canonical identity is not deleted",
+  );
+  assert.deepEqual(await readWorkerGitIdentity({ cwd: canonical, env: hermeticGitEnvironment() }), {
+    name: "User Declared",
+    email: "user@example.invalid",
+  });
+});
+
+test("a runtime at the canonical root does not overwrite a user identity with the fallback", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-same-root-fallback-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  // The fixture commit states its identity inline; the repository itself declares none.
+  git(
+    canonical,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "fixture",
+  );
+  git(canonical, "config", "extensions.worktreeConfig", "true");
+  git(canonical, "config", "--worktree", "user.name", "User Declared");
+  git(canonical, "config", "--worktree", "user.email", "user@example.invalid");
+
+  await configureWorkerGitIdentity(canonical, canonical, "person-worker", hermeticGitEnvironment());
+  assert.equal(
+    git(canonical, "config", "--worktree", "--get", "user.email").trim(),
+    "user@example.invalid",
+    "the fallback must not replace the user-declared identity",
+  );
+  assert.deepEqual(await readWorkerGitIdentity({ cwd: canonical, env: hermeticGitEnvironment() }), {
+    name: "User Declared",
+    email: "user@example.invalid",
+  });
+});
+
 test("a workflow-scope rejection reports the dedicated code and the CEO handoff push command", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-workflow-")),
     bare = path.join(root, "remote.git"),
