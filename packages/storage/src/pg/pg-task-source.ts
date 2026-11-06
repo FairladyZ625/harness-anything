@@ -104,6 +104,7 @@ export interface PgTaskProjectionSource
     taskId: string,
     presentationStatus?: boolean,
     presentationRollup?: boolean,
+    concludePackageDisposition?: boolean,
   ) => Promise<TaskProjectionRead>;
   readonly list: (query?: TaskProjectionListQuery) => Promise<TaskProjectionListRead>;
   readonly readSnapshot: (taskId: string) => Promise<TaskLifecycleSnapshot | null>;
@@ -186,7 +187,12 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const read = (taskId: string, presentationStatus = false, presentationRollup = true): Promise<TaskProjectionRead> =>
+  const read = (
+    taskId: string,
+    presentationStatus = false,
+    presentationRollup = true,
+    concludePackageDisposition = true,
+  ): Promise<TaskProjectionRead> =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
@@ -211,7 +217,16 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
           ),
           snapshot = result.rows[0]?.snapshot
-            ? (await hydrateSnapshots(client, options.scope, [result.rows[0].snapshot], now()))[0]!
+            ? (
+                await hydrateSnapshots(
+                  client,
+                  options.scope,
+                  [result.rows[0].snapshot],
+                  now(),
+                  false,
+                  concludePackageDisposition,
+                )
+              )[0]!
             : null;
         return {
           status: cut.status,
@@ -650,6 +665,7 @@ async function hydrateSnapshots(
   snapshots: readonly TaskLifecycleSnapshot[],
   now: string,
   decisionRelationsOnly = false,
+  concludePackageDisposition = true,
 ): Promise<readonly TaskLifecycleSnapshot[]> {
   if (!snapshots.length) return [];
   const relations: Awaited<ReturnType<typeof readRelationsInTransaction>>[number][] = [];
@@ -677,8 +693,12 @@ async function hydrateSnapshots(
     return {
       ...snapshot,
       // Historical import snapshots may predate the field while every SQL read already answers
-      // `active`. Conclude on read; never rewrite the stored jsonb.
-      task: snapshot.task === null ? null : withDefaultPackageDisposition(snapshot.task),
+      // `active`. Conclude on read; never rewrite the stored jsonb. Contract migration opts out
+      // so it still reads the stored shape.
+      task:
+        snapshot.task === null || !concludePackageDisposition
+          ? snapshot.task
+          : withDefaultPackageDisposition(snapshot.task),
       executions: [...snapshot.executions].sort(
         (a, b) =>
           a.iteration - b.iteration ||

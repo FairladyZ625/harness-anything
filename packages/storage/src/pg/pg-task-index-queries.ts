@@ -34,7 +34,9 @@ export function pgTaskIndexQueries(
       )
     ).rows;
   return {
-    readForTaskContractMigration: source.read,
+    // Contract migration reads the stored shape: an absent disposition must stay absent so the
+    // migration never mistakes a read conclusion for a stated field (SQLite reads the same way).
+    readForTaskContractMigration: (taskId) => source.read(taskId, false, true, false),
     readTaskIdsForTaskContractMigration: () =>
       read(async (client) => (await rows(client)).map(({ task_id }) => task_id)),
     readTaskExists: (id) => read(async (client) => (await rows(client, "task_id=$5", [id])).length > 0),

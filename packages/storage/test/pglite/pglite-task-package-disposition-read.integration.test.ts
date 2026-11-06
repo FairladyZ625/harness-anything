@@ -43,10 +43,13 @@ pgliteIntegrationSuite("PGlite task package disposition read default", () => {
       );
       const source = createPgTaskProjectionSource({ pool: backend.pool, scope, repoId, ownsPool: false }),
         list = await source.list(),
-        read = await source.read(taskId);
+        read = await source.read(taskId),
+        raw = await source.readForTaskContractMigration(taskId);
       assert.equal(list.rows.length, 1);
       assert.equal(list.rows[0]!.snapshot.task!.packageDisposition, "active");
       assert.equal(read.snapshot.task!.packageDisposition, "active");
+      // Contract migration reads the stored shape, so an absent field stays absent there.
+      assert.equal(raw.snapshot.task!.packageDisposition, undefined);
       // The read concludes; the stored jsonb still has no disposition field.
       const stored = await withPostgresTransaction(
         backend.pool,
