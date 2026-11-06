@@ -52,7 +52,14 @@ function ledger() {
         state,
         sourceRef,
         revision,
-        JSON.stringify({ direction, strength: "strong", origin: "authored", rationale: "", sourcePath: "", recordIndex: 0 }),
+        JSON.stringify({
+          direction,
+          strength: "strong",
+          origin: "authored",
+          rationale: "",
+          sourcePath: "",
+          recordIndex: 0,
+        }),
       );
       refreshRelationCycleAudit(db);
     },
@@ -134,8 +141,12 @@ test("incremental audit matches the full domain audit across independent cycles,
     fixture.db.exec("DELETE FROM task_relation WHERE relation_id IN ('ab','ba')");
     check();
     // Event-backed truth replaces the legacy row with the same id, including after deletion.
+    fixture.db.exec("DELETE FROM task_relation WHERE relation_id='cd'");
+    fixture.db.exec("DELETE FROM relation_edge WHERE relation_id='cd'");
     fixture.db
-      .prepare("INSERT INTO relation_edge VALUES ('cd','task/C','task/d','depends-on','retired',NULL,'task/C',99,'',?)")
+      .prepare(
+        "INSERT INTO relation_edge VALUES ('cd','task/C','task/d','depends-on','retired',NULL,'task/C',99,'',?,'current',NULL)",
+      )
       .run(JSON.stringify({ direction: "directed" }));
     check();
     fixture.db.exec("DELETE FROM relation_edge WHERE relation_id='cd'");

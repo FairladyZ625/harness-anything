@@ -246,6 +246,17 @@ function makeRecoveryFixture(
       watermark: 1,
       sourceRevision: 1,
     }),
+    readTaskIndex: (query: { readonly taskIds?: readonly string[] } = {}) => ({
+      status: "ready",
+      rows: (query.taskIds ?? []).map((taskId) => ({
+        taskId,
+        title: "Squad recovery",
+        packagePath: `tasks/${taskId}`,
+      })),
+      watermark: 1,
+      sourceRevision: 1,
+      warnings: [],
+    }),
     readRuntimeDispatch: (runtimeSessionId: string) => {
       const dispatchId = dispatchBySession.get(runtimeSessionId);
       return dispatchId

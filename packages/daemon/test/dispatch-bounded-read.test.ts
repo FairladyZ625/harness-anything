@@ -71,6 +71,17 @@ function largeTaskProjection() {
         counts.taskReads += 1;
         return { packagePath: "tasks/task-bounded", snapshot: { task: { taskId, title: "Bounded" } } };
       },
+      readTaskIndex: (query: { readonly taskIds?: readonly string[] } = {}) => {
+        counts.taskReads += 1;
+        const ids = query.taskIds ?? [];
+        return {
+          status: "ready",
+          rows: ids.map((id) => ({ taskId: id, title: "Bounded", packagePath: "tasks/task-bounded" })),
+          watermark: 1,
+          sourceRevision: 1,
+          warnings: [],
+        };
+      },
       readDocument: () => ({ document: null }),
       readRuntimeSession: (id: string) => {
         counts.sessionReads += 1;

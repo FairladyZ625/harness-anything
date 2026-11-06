@@ -164,7 +164,7 @@ test("an unparameterized guiTasks read serves one default-bounded page, never th
 
   const result = queryRead(process.cwd(), projection).guiTasks();
 
-  assert.deepEqual(listCalls, [{ limit: 500, presentationStatus: true }]);
+  assert.deepEqual(listCalls, [{ limit: 500, decisionRelationsOnly: true, presentationStatus: true }]);
   assert.equal(result.rows.length, 500);
   assert.deepEqual(result.page, { limit: 500, cursor: null, nextCursor: "task_page_0499" });
 });
