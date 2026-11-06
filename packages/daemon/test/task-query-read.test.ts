@@ -1471,14 +1471,17 @@ test("agenda counts a cut as reviewed only by an approval of its current submiss
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
-test("task reads fail closed when event truth has no packageDisposition", () => {
+test("task reads conclude active when event truth never stated packageDisposition", () => {
   const row = taskRowWithoutDisposition(),
     projection = projectionStub({ taskRows: [row] }),
-    read = queryRead(process.cwd(), projection),
     cell = { projection } as unknown as TaskQueryCell;
 
-  assert.throws(() => read.guiTasks(), /missing packageDisposition for task_missing/u);
-  assert.throws(() => wipSnapshotEntries(cell, "task_missing"), /missing packageDisposition for task_missing/u);
+  assert.equal(wipSnapshotEntries(cell, "task_missing")[0]?.packageDisposition, "active");
+  const imported = activeTaskRow("task_imported") as { snapshot: { task: Record<string, unknown> } };
+  delete imported.snapshot.task.packageDisposition;
+  const tasks = queryRead(process.cwd(), projectionStub({ taskRows: [imported] })).guiTasks();
+  assert.equal(tasks.invalidRows.length, 0);
+  assert.match(JSON.stringify(tasks.rows), /"packageDisposition":"active"/u);
 });
 
 test("task WIP read returns daemon-counted leaves and root assessments", (t) => {
