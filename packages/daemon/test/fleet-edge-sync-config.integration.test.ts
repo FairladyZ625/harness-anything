@@ -11,6 +11,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import { waitForFleetReplicaReady } from "../src/fleet/replica-sync.ts";
 
 test(
@@ -20,7 +21,7 @@ test(
     let publishedAuthority: { readonly url: string; readonly realm: string; readonly clientId: string } | null = null;
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true);
     publishedAuthority = {
-      url: "https://login.example",
+      url: f.owners.url,
       realm: "tenant-realm",
       clientId: "harness-node-node-one",
     };
@@ -155,7 +156,7 @@ test(
     let machineTokenExchanges = 0;
     const keycloakFetch = f.owners.keycloak.fetch;
     f.owners.keycloak.fetch = (async (input, init) => {
-      if (String(input).endsWith("/protocol/openid-connect/token")) {
+      if (new URL(String(input)).pathname.endsWith("/protocol/openid-connect/token")) {
         const form = init?.body as URLSearchParams;
         if (form.get("grant_type") === "client_credentials" && form.get("client_id") === "harness-node-node-one")
           machineTokenExchanges += 1;
@@ -171,9 +172,11 @@ test(
       },
     });
     assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, undefined, "the persisted config predates loginRealm");
+    const ready = await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" });
     assert.equal(
-      await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" }),
+      ready,
       true,
+      JSON.stringify(readReplicaHealth(path.join(edge.viewRoot, "repos", "lease-repo", "views", "node-one"))),
     );
     const generation = readReplicaGeneration(path.join(edge.viewRoot, "repos", "lease-repo", "views", "node-one"));
     assert.equal(generation?.metadata.readerProfile?.personId, "person-one");
