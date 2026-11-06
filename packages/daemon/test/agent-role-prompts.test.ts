@@ -87,11 +87,13 @@ for (const role of [undefined, "worker"] as const)
     const prompt = assembleUnboundPrompt("Do the mission.", role);
     for (const grant of writeGrants) assert.ok(prompt.includes(grant), grant);
     assert.match(prompt, /Worktrees share one git stash stack/u);
-    // A historical read has one path; the ad-hoc scratch worktree with a shared node_modules is the
-    // write-through that broke the canonical root on 2026-10-27.
-    assert.match(prompt, /node tools\/readonly-checkout\.mjs --rev <commit>/u);
-    assert.match(prompt, /use it instead of `git worktree add`/u);
+    // A historical read keeps the mechanism but not this repository's tool path: the product baseline
+    // serves every repository, so the concrete checkout entry belongs to that repository's declaration.
+    assert.match(prompt, /Read another commit without registering a worktree or sharing a dependency store/u);
+    assert.match(prompt, /extract it with `git archive` into a plain directory outside the repository/u);
     assert.match(prompt, /a link resolves its parent directory first/u);
+    assert.match(prompt, /Use the repository's declared read-only checkout entry when it has one/u);
+    assert.doesNotMatch(prompt, /readonly-checkout\.mjs|tools\/readonly-checkout|check:static/u);
     assert.match(
       prompt,
       /For repository changes, push early and often: after each coherent piece of code change, commit and publish it through the task delivery commands, even if a local test is still red/u,
@@ -161,9 +163,11 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   assert.match(prompt, /changes_requested verdict returns the cut for rework while the automatic budget remains/u);
   assert.match(prompt, /# Required Skills.*review: \/skills\/review\/SKILL.md/su);
   assert.match(prompt, /Honor declared gates/u);
-  // Reviewers read baselines too; the safe path must reach them without granting a worker's write surface.
-  assert.match(prompt, /node tools\/readonly-checkout\.mjs --rev <commit> \[--show <path>\] \[--deps\]/u);
-  assert.match(prompt, /needs neither `git worktree add` nor a node_modules link/u);
+  // Reviewers read baselines too; the mechanism must reach them without this repository's tool path
+  // and without granting a worker's write surface.
+  assert.match(prompt, /Read another commit in a plain directory outside the repository that registers no worktree/u);
+  assert.match(prompt, /shares no dependency store, or use the repository's declared read-only checkout entry/u);
+  assert.doesNotMatch(prompt, /readonly-checkout\.mjs|tools\/readonly-checkout|check:static/u);
   // The CI wait is the reviewer's one write-family reach; publication stays delivery-only.
   assert.doesNotMatch(
     prompt,
@@ -241,6 +245,23 @@ test("agent instructions and prompts append to the role baseline without a repla
   assert.ok(prompt.indexOf("# Worker Role") < prompt.indexOf("APPENDED_WITNESS"));
   assert.ok(prompt.indexOf("APPENDED_WITNESS") < prompt.indexOf("MISSION_WITNESS"));
   assert.equal(prompt.split("# Worker Role").length, 2);
+});
+
+test("a repository's own checkout entry rides its declaration, not the product baseline", () => {
+  // The defect this guards: the product baseline serves every repository, so a tool path that exists
+  // only in this checkout reached workers of repositories that never had `tools/` or `node_modules`.
+  const haEntry =
+    "Read another commit with `node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]`.";
+  for (const role of [undefined, "worker", "commander", "reviewer"] as const)
+    assert.doesNotMatch(assembleUnboundPrompt("Do the mission.", role), /readonly-checkout/u);
+
+  // The repository that owns the entry declares it; only that declaration's dispatches carry it.
+  const declared = assembleAgentPrompt(
+    { id: "ha-worker", name: "HA Worker", instructions: "I", prompts: [haEntry], role: "worker", runtimes: [] },
+    "Do the mission.",
+  );
+  assert.ok(declared.includes(haEntry), "the declared entry is appended verbatim");
+  assert.ok(declared.indexOf("# Worker Role") < declared.indexOf(haEntry));
 });
 
 test("the private read section rides after the declared prompts and before the mission", () => {

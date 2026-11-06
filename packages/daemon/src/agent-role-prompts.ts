@@ -11,7 +11,7 @@ const mutatorDiscipline = `# Implementation Permissions
 
 - Inspect beyond the suggested file map when needed; respect shared exclusions and task boundaries, and stage only owned files.
 - Keep the injected canonical repository root read-only; edit code in the worker repository root.
-- Read another commit with \`node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]\`. It extracts an archive into a plain directory, so use it instead of \`git worktree add\`, and never link a checkout's node_modules at a shared store: a link resolves its parent directory first, so replacing an entry through it rewrites the store's own workspace links, and deleting that checkout then breaks every consumer.
+- Read another commit without registering a worktree or sharing a dependency store: extract it with \`git archive\` into a plain directory outside the repository, and never point that checkout's dependency links at a shared store — a link resolves its parent directory first, so replacing an entry through it rewrites the store's own workspace links, and deleting the checkout then breaks every consumer. Use the repository's declared read-only checkout entry when it has one.
 - Worktrees share one git stash stack. Park changes in a temporary WIP commit instead.
 - Task-package documents belong to the ledger: task submit accepts them independently of code Git. Never force-add ignored ledger paths. A checkpoint asking for a commit applies only to repository changes; for ledger-only work, record the checkpoint in the task package and submit it without a code commit, push or PR.
 - Before handoff, rebase onto the latest default branch and rerun affected evidence commands.`;
@@ -29,9 +29,8 @@ const reviewerDiscipline = [
     "checks are not green. `gh run view <run-id> --log-failed` reads a failure's log. When the checks cannot be read, record " +
     "the exact error and label the check unverified.",
   "- For a ledger-only Task delivery, review its frozen accepted artifacts and applicable gates; no repository PR, CI or merge is required.",
-  "- Read another commit with `node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]`. It " +
-    "extracts outside the repository and shares no store, so a baseline read needs neither `git worktree add` " +
-    "nor a node_modules link.",
+  "- Read another commit in a plain directory outside the repository that registers no worktree and shares no " +
+    "dependency store, or use the repository's declared read-only checkout entry when it has one.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
     "For a Task use ha task review-execution <task-id> --execution-id <execution-id> " +
     "--review-id review-<this-dispatch-id> --from-file <dispatch-assigned-json-path>; use the exact " +
