@@ -204,16 +204,19 @@ export function makeAgentRuntimeReadModel(input: {
           `Dispatch id ${runtimeSessionId} is ambiguous (${candidateSample(match.candidates)}). Use a longer prefix or the full id.`,
         );
     }
-    const prefixed = resolveUniquePrefix(
-      runtimeSessionId,
-      input.projection.readRuntimeSessions().map(({ runtimeSessionId: candidate }) => candidate),
-    );
-    if (prefixed.matched) return input.projection.readRuntimeSession(prefixed.id);
-    if (prefixed.candidates.length > 1)
+    // Primary-key order makes every prefix match adjacent to the prefix, so one keyset page is
+    // enough to tell a unique short id from an ambiguous one. The page limit bounds the read;
+    // the full session history is never materialized for a status lookup.
+    const candidates = input.projection
+      .readRuntimeSessionPage({ limit: 8, afterRuntimeSessionId: runtimeSessionId })
+      .rows.map(({ runtimeSessionId: candidate }) => candidate)
+      .filter((candidate) => candidate.startsWith(runtimeSessionId));
+    if (candidates.length === 1) return input.projection.readRuntimeSession(candidates[0]!);
+    if (candidates.length > 1)
       throw coded(
         "runtime_session_ambiguous_id",
-        `Runtime session id ${runtimeSessionId} is a prefix of ${String(prefixed.candidates.length)} sessions ` +
-          `(${candidateSample(prefixed.candidates)}). Use a longer prefix or the full id.`,
+        `Runtime session id ${runtimeSessionId} is a prefix of at least ${String(candidates.length)} sessions ` +
+          `(${candidateSample(candidates)}). Use a longer prefix or the full id.`,
       );
     return null;
   };
