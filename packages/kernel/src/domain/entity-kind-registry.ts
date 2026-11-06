@@ -285,7 +285,7 @@ export interface EntityActionInputField {
     };
     readonly conflictsWith?: readonly string[];
     readonly format?: string;
-    readonly projection?: "number" | "fact-hold-array" | "json-object";
+    readonly projection?: "number" | "fact-hold-array" | "json-object" | "json-object-array";
   };
 }
 

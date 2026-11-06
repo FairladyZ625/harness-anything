@@ -154,3 +154,14 @@ test("Settings CLI rejects retired CI and permission switches while preserving c
   assert.equal(kept.ok, true);
   if (kept.ok) assert.deepEqual(kept.command.action, { kind: "settings-update", workerPermissionsMode: "restricted" });
 });
+
+test("Settings CLI writes command interception declarations through the shared settings action", () => {
+  const rules = [{ id: "release", pattern: "npm publish", agent: "sol" }],
+    result = parseThinCommand(["settings", "update", "--runtime-command-interceptions", JSON.stringify(rules)]);
+  assert.equal(result.ok, true);
+  if (result.ok)
+    assert.deepEqual(result.command.action, { kind: "settings-update", runtimeCommandInterceptions: rules });
+  const cleared = parseThinCommand(["settings", "update", "--runtime-command-interceptions", "[]"]);
+  assert.equal(cleared.ok, true);
+  if (cleared.ok) assert.deepEqual(cleared.command.action.runtimeCommandInterceptions, []);
+});

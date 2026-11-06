@@ -111,3 +111,28 @@ test("a reviewer authored at the pre-roles root key survives the first read and 
   const both = `${legacy}  roles:\n    defaultReviewer: arch-reviewer\n`;
   assert.deepEqual(readSettingsFacet(both).roles, { defaultReviewer: "arch-reviewer" });
 });
+
+// dec_5DBF5F2B38719E4B52003D178D: one project-owned declaration for every dispatch path.
+test("command interceptions retain global and agent scopes and reject invalid declarations", () => {
+  const source = `${body}  runtime:
+    commandInterceptions:
+      - id: no-publish
+        pattern: 'npm\\s+publish'
+      - id: no-release-script
+        agent: sol
+        pattern: 'scripts/release'
+`,
+    settings = readSettingsFacet(source);
+  assert.deepEqual(settings.runtime.commandInterceptions, [
+    { id: "no-publish", pattern: "npm\\s+publish" },
+    { id: "no-release-script", agent: "sol", pattern: "scripts/release" },
+  ]);
+  assert.deepEqual(readSettingsFacet(writeRepositorySettingsFacet(source, repositorySettings(settings))), settings);
+  for (const malformed of [
+    source.replace("npm\\s+publish", "["),
+    source.replace("id: no-release-script", "id: no-publish"),
+    source.replace("agent: sol", "agent: ''"),
+    source.replace("pattern: 'scripts/release'", "patern: 'scripts/release'"),
+  ])
+    assert.throws(() => readSettingsFacet(malformed), /commandInterceptions/u);
+});

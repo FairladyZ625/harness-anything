@@ -749,6 +749,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ...(cloudRelay ? { cloudRelay: { baseUrl: cloudRelay.baseUrl, token: cloudRelay.token } } : {}),
                 runtimeSessionId,
                 handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
+                commandInterceptions: (input.readSettings?.().runtime.commandInterceptions ?? []).filter(
+                  (rule) => rule.agent === undefined || rule.agent === agent?.id,
+                ),
               });
             } catch (error) {
               await cloudRelay?.close();

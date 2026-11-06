@@ -1,6 +1,7 @@
 import builtinSidebar from "./scenarios/builtin-sidebar.mjs";
 import repositoryTodos from "./scenarios/repository-todos.mjs";
 import decisionPoints from "./scenarios/decision-points.mjs";
+import commandInterceptions from "./scenarios/settings-command-interceptions.mjs";
 import myDevices from "./scenarios/my-devices.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import agentRuntimeEffort from "./scenarios/agent-runtime-effort.mjs";
@@ -70,6 +71,7 @@ export const catalog = [
   builtinSidebar,
   repositoryTodos,
   decisionPoints,
+  commandInterceptions,
   myDevices,
   edgeReadFreshness,
   runtimeHandoff,

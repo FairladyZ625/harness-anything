@@ -132,6 +132,7 @@ export async function fixture(
   hybridDelivery = false,
   options: {
     readonly autoSubmit?: boolean;
+    readonly commandInterceptions?: import("@harness-anything/kernel").SettingsV1["runtime"]["commandInterceptions"];
     /** Observable cancellation barrier/error injection, without wall-clock sleeps. */
     readonly beforeRuntimeStop?: (launchIndex: number) => Promise<void>;
     readonly submitCommit?: boolean;
@@ -187,7 +188,18 @@ export async function fixture(
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
-  const launches: { prompt: string; instanceId: string; model: string; args: readonly string[]; cwd: string }[] = [],
+  const launches: {
+      prompt: string;
+      instanceId: string;
+      model: string;
+      args: readonly string[];
+      cwd: string;
+      commandInterceptions?: import("@harness-anything/kernel").SettingsV1["runtime"]["commandInterceptions"];
+    }[] = [],
+    interceptionRequests = new Map<
+      string,
+      import("@harness-anything/kernel").SettingsV1["runtime"]["commandInterceptions"]
+    >(),
     launchWaiters = new Set<() => void>();
   const pendingProviders: {
     output?: (chunk: string) => void;
@@ -254,6 +266,7 @@ export async function fixture(
             ],
       onRuntimeOutcome: (event) => noteOutcome(event.payload.runtimeSessionId),
       prepareRuntimeLaunch: (instanceId, request) => {
+        interceptionRequests.set(request.prompt, request.commandInterceptions ?? []);
         const extra = extraInstances.find((row) => row.instanceId === instanceId),
           kindId = extra?.kindId ?? installation.kindId,
           preparedInstallation = kindId === installation.kindId ? installation : { ...installation, kindId };
@@ -296,6 +309,9 @@ export async function fixture(
           model: prepared.definition.model,
           args: prepared.args,
           cwd: prepared.cwd,
+          ...(options.commandInterceptions === undefined
+            ? {}
+            : { commandInterceptions: interceptionRequests.get(prepared.prompt) }),
         });
         providerSessionStarted = true;
         for (const notify of launchWaiters) notify();
@@ -355,9 +371,11 @@ export async function fixture(
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
     "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
     `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n` +
-    (options.providerRoundBackoffBaseSeconds === undefined && options.stallTimeoutMs === undefined
+    (options.providerRoundBackoffBaseSeconds === undefined &&
+    options.stallTimeoutMs === undefined &&
+    options.commandInterceptions === undefined
       ? ""
-      : `  runtime:\n${options.providerRoundBackoffBaseSeconds === undefined ? "" : `    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`}${options.stallTimeoutMs === undefined ? "" : `    stallTimeoutMs: ${String(options.stallTimeoutMs)}\n`}`) +
+      : `  runtime:\n${options.commandInterceptions === undefined ? "" : `    commandInterceptions: ${JSON.stringify(options.commandInterceptions)}\n`}${options.providerRoundBackoffBaseSeconds === undefined ? "" : `    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`}${options.stallTimeoutMs === undefined ? "" : `    stallTimeoutMs: ${String(options.stallTimeoutMs)}\n`}`) +
     (worktreeSetup?.length
       ? `  worktree:\n    setup:\n${worktreeSetup.map((step) => `      - ${JSON.stringify(step)}\n`).join("")}`
       : "");

@@ -1,4 +1,8 @@
 import {
+  commandInterceptionNeedsFiles,
+  compileCommandInterceptionFiles,
+} from "./runtime-command-interception-files.ts";
+import {
   chmodSync,
   existsSync,
   mkdirSync,
@@ -98,13 +102,17 @@ function withoutHostPaths({
   return installation;
 }
 
-function runtimeTempDirectory(instancesRoot: string, instanceId: string, runtimeSessionId: string): string {
-  if (!runtimeTempSessionPattern.test(runtimeSessionId))
+function requiredRuntimeSessionId(runtimeSessionId: string | undefined): string {
+  if (!runtimeSessionId || !runtimeTempSessionPattern.test(runtimeSessionId))
     throw runtimeInstanceError(
       "invalid_runtime_session_id",
       "A per-run temp directory requires the spawner-minted runtime session id shape runtime_<24 hex>.",
     );
-  return path.join(instancesRoot, instanceId, "tmp", runtimeSessionId);
+  return runtimeSessionId;
+}
+
+function runtimeTempDirectory(instancesRoot: string, instanceId: string, runtimeSessionId: string): string {
+  return path.join(instancesRoot, instanceId, "tmp", requiredRuntimeSessionId(runtimeSessionId));
 }
 
 /** One entry the settled-session sweep could not reclaim; the daemon logs these and retries
@@ -337,10 +345,21 @@ export function openRuntimeInstanceStore(input: {
         config.isolationState === "enforced" && request.runtimeSessionId !== undefined
           ? runtimeTempDirectory(instancesRoot, config.instanceId, request.runtimeSessionId)
           : null,
-      env = {
+      env: NodeJS.ProcessEnv = {
         ...authEnvironment(config, launchTempDirectory ?? undefined),
         ...(permissionMode ? launch.permissionEnvironment?.[permissionMode] : undefined),
+        ...(config.kindId === "claude" && request.commandInterceptions?.length
+          ? { CLAUDE_CODE_SIMPLE: undefined }
+          : {}),
       },
+      nativeInterceptionFiles =
+        request.commandInterceptions?.length && commandInterceptionNeedsFiles(config.kindId)
+          ? compileCommandInterceptionFiles(
+              config.kindId,
+              request.commandInterceptions,
+              path.join(instancesRoot, config.instanceId, "hooks", requiredRuntimeSessionId(request.runtimeSessionId)),
+            )
+          : null,
       args = launchArgs(
         config,
         model,
@@ -351,6 +370,8 @@ export function openRuntimeInstanceStore(input: {
         fast,
         request.callbackRelayPath,
         platform,
+        request.commandInterceptions,
+        nativeInterceptionFiles?.args,
       ),
       definition = definitionSnapshot(config, model, effort, fast),
       // ACP agents take the model through the session handshake (a configOptions selector),
@@ -370,14 +391,20 @@ export function openRuntimeInstanceStore(input: {
         resolveGithubToken && config.kindId !== "deepseek-harness"
           ? applyGithubLaunchCredential(env, await resolveGithubToken(operatorEnvironment))
           : undefined;
+    // The three auth paths finish through the same per-launch scratch port. No
+    // rejected credential probe leaves an unowned policy directory behind.
+    const finishLaunch = (launch: PreparedRuntimeLaunch): PreparedRuntimeLaunch => {
+      if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
+      for (const file of nativeInterceptionFiles?.files ?? []) writeFileDurably(file.path, file.body, 0o600);
+      return launch;
+    };
     if (config.auth.mode === "subscription") {
       const readiness = rememberAuthReadiness(
         config.instanceId,
         await probeSubscription(installation, env, config.isolationState),
       );
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
-      if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
-      return {
+      return finishLaunch({
         definition,
         installation,
         protocolFamily,
@@ -390,7 +417,7 @@ export function openRuntimeInstanceStore(input: {
         ...(permissionMode ? { permissionMode } : {}),
         ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
         ...acpLaunch,
-      };
+      });
     }
     if (request.cloudRelay) {
       if (config.kindId !== "codex" || config.auth.mode !== "api-key")
@@ -401,8 +428,7 @@ export function openRuntimeInstanceStore(input: {
       const configPath = path.join(env.CODEX_HOME!, "config.toml");
       writeCodexConfig(configPath, config, request.cloudRelay.token, request.cloudRelay.baseUrl, platform);
       rememberAuthReadiness(config.instanceId, available());
-      if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
-      return {
+      return finishLaunch({
         definition,
         installation,
         protocolFamily,
@@ -415,7 +441,7 @@ export function openRuntimeInstanceStore(input: {
         ...(permissionMode ? { permissionMode } : {}),
         ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
         ...acpLaunch,
-      };
+      });
     }
     let secret: string;
     try {
@@ -444,8 +470,7 @@ export function openRuntimeInstanceStore(input: {
       env[deepseekHarnessApiKeyEnvironment] = secret;
     } else if (protocolFamily !== "acp") env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
-    if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
-    return {
+    return finishLaunch({
       definition,
       installation,
       protocolFamily,
@@ -461,7 +486,7 @@ export function openRuntimeInstanceStore(input: {
       // launch manifest rather than the provider's environment.
       ...(protocolFamily === "acp" && config.kindId !== "deepseek-harness" ? { acpApiKey: secret } : {}),
       ...acpLaunch,
-    };
+    });
   }
 
   async function prepareCloudRelay(request: {
@@ -812,16 +837,17 @@ export function openRuntimeInstanceStore(input: {
   }
   /** Reclaims one runtime session's per-run temp directory. Returns the filesystem failure
    *  instead of throwing, so terminal settlement can record it; a session id outside the
-   *  spawner-minted shape and an instance without enforced isolation are no-ops, not failures. */
+   *  spawner-minted shape is a no-op. Operator instances own only hook scratch, never operator TMPDIR. */
   function reclaimRuntimeTempDirectory(instanceId: string, runtimeSessionId: string): Error | null {
     if (!runtimeTempSessionPattern.test(runtimeSessionId)) return null;
     const config = read().find((entry) => entry.instanceId === instanceId);
-    if (!config || config.isolationState !== "enforced") return null;
+    if (!config) return null;
     try {
-      rmSync(runtimeTempDirectory(instancesRoot, config.instanceId, runtimeSessionId), {
-        recursive: true,
-        force: true,
-      });
+      for (const namespace of ["hooks", ...(config.isolationState === "enforced" ? ["tmp"] : [])])
+        rmSync(path.join(instancesRoot, config.instanceId, namespace, runtimeSessionId), {
+          recursive: true,
+          force: true,
+        });
       return null;
     } catch (error) {
       // The next daemon start's settled-session sweep (below) retries this directory.
@@ -834,11 +860,12 @@ export function openRuntimeInstanceStore(input: {
   function listRuntimeTempSessionIds(): string[] {
     const runtimeSessionIds = new Set<string>();
     for (const config of read()) {
-      if (config.isolationState !== "enforced") continue;
-      const instanceTmpRoot = path.join(instancesRoot, config.instanceId, "tmp");
-      if (!existsSync(instanceTmpRoot)) continue;
-      for (const entry of readdirSync(instanceTmpRoot, { withFileTypes: true }))
-        if (entry.isDirectory() && runtimeTempSessionPattern.test(entry.name)) runtimeSessionIds.add(entry.name);
+      for (const namespace of ["hooks", ...(config.isolationState === "enforced" ? ["tmp"] : [])]) {
+        const instanceTmpRoot = path.join(instancesRoot, config.instanceId, namespace);
+        if (!existsSync(instanceTmpRoot)) continue;
+        for (const entry of readdirSync(instanceTmpRoot, { withFileTypes: true }))
+          if (entry.isDirectory() && runtimeTempSessionPattern.test(entry.name)) runtimeSessionIds.add(entry.name);
+      }
     }
     return [...runtimeSessionIds].sort();
   }
@@ -853,16 +880,17 @@ export function openRuntimeInstanceStore(input: {
     const failures: RuntimeTempReclaimFailure[] = [],
       settled = new Set(settledRuntimeSessionIds);
     for (const config of read()) {
-      if (config.isolationState !== "enforced") continue;
-      const instanceTmpRoot = path.join(instancesRoot, config.instanceId, "tmp");
-      if (!existsSync(instanceTmpRoot)) continue;
-      for (const entry of readdirSync(instanceTmpRoot, { withFileTypes: true })) {
-        // Only spawner-minted session ids name per-run directories; anything else an operator
-        // or provider left in the instance tmp root stays untouched.
-        if (!entry.isDirectory() || !runtimeTempSessionPattern.test(entry.name)) continue;
-        if (!settled.has(entry.name)) continue;
-        const error = reclaimRuntimeTempDirectory(config.instanceId, entry.name);
-        if (error) failures.push({ instanceId: config.instanceId, runtimeSessionId: entry.name, error });
+      for (const namespace of ["hooks", ...(config.isolationState === "enforced" ? ["tmp"] : [])]) {
+        const instanceTmpRoot = path.join(instancesRoot, config.instanceId, namespace);
+        if (!existsSync(instanceTmpRoot)) continue;
+        for (const entry of readdirSync(instanceTmpRoot, { withFileTypes: true })) {
+          // Only spawner-minted session ids name per-run directories; anything else an operator
+          // or provider left in the instance tmp root stays untouched.
+          if (!entry.isDirectory() || !runtimeTempSessionPattern.test(entry.name)) continue;
+          if (!settled.has(entry.name)) continue;
+          const error = reclaimRuntimeTempDirectory(config.instanceId, entry.name);
+          if (error) failures.push({ instanceId: config.instanceId, runtimeSessionId: entry.name, error });
+        }
       }
     }
     return failures;

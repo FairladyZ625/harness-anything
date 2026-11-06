@@ -48,6 +48,7 @@ export const claudeWorkspaceWriteSandbox = {
 } as const;
 
 const sharedCapabilities = {
+  commandInterception: "unsupported",
   resume: "supported",
   streamingOutput: "supported",
   sessionIdEveryFrame: "unsupported",
@@ -127,6 +128,7 @@ function acpKind<K extends RuntimeKindId>(
     gui: { modelFamily, effort: "none", effortValues: [] },
     capabilities: {
       ...sharedCapabilities,
+      commandInterception: ["codebuddy", "copilot", "auggie", "droid"].includes(kindId) ? "supported" : "unsupported",
       sessionIdEveryFrame: "supported",
       toolAllowlist: "unsupported",
       toolDenylist: "unsupported",
@@ -266,6 +268,7 @@ export const runtimeKinds = [
     gui: { modelFamily: "open", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
     capabilities: {
       ...sharedCapabilities,
+      commandInterception: "supported",
       toolAllowlist: "supported",
       toolDenylist: "supported",
       turnLimit: "supported",
@@ -406,6 +409,7 @@ export const runtimeKinds = [
     gui: { modelFamily: "codex-only", effort: "free", effortValues: [] },
     capabilities: {
       ...sharedCapabilities,
+      commandInterception: "supported",
       toolAllowlist: "unsupported",
       toolDenylist: "unsupported",
       turnLimit: "unsupported",
@@ -684,6 +688,7 @@ export const runtimeKinds = [
     gui: { modelFamily: "open", effort: "none", effortValues: [] },
     capabilities: {
       ...sharedCapabilities,
+      commandInterception: "supported",
       sessionIdEveryFrame: "supported",
       toolAllowlist: "unsupported",
       toolDenylist: "unsupported",

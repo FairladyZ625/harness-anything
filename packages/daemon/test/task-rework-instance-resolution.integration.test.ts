@@ -108,3 +108,19 @@ test("a rework agent override resolves the declared runtime kind instead of pinn
     await f.close();
   }
 });
+
+test("reviewer dispatches use the same project interception launch port", async () => {
+  const global = { id: "global", pattern: "npm publish" },
+    reviewerRule = { id: "reviewer", agent: "closeout-reviewer", pattern: "git push" },
+    f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      commandInterceptions: [global, reviewerRule],
+    });
+  try {
+    await f.install();
+    await f.submit();
+    assert.deepEqual(f.launches.at(-1)?.commandInterceptions, [global, reviewerRule]);
+  } finally {
+    await f.close();
+  }
+});

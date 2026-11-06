@@ -1,3 +1,9 @@
+import {
+  commandInterceptionsSchema,
+  commandInterceptionPatternIssues,
+  type CommandInterception,
+} from "../domain/command-interceptions.ts";
+import { validateEntityJsonSchema } from "../domain/entity-json-schema.ts";
 import { Schema } from "effect";
 import { SETTINGS_FIELD_DECLARATIONS, type SettingsFieldDeclaration } from "../domain/settings-field-declarations.ts";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
@@ -105,6 +111,24 @@ function authoredSettingSchema(declaration: SettingsFieldDeclaration): Schema.Sc
         ? array.pipe(Schema.filter((values) => new Set(values).size === values.length))
         : array;
     }
+    case "command-interceptions":
+      return Schema.Unknown.pipe(
+        Schema.filter(
+          (value) =>
+            validateEntityJsonSchema(
+              {
+                $schema: "https://json-schema.org/draft/2020-12/schema",
+                $id: "command-interceptions",
+                type: "object",
+                properties: { rules: commandInterceptionsSchema },
+                required: ["rules"],
+                additionalProperties: false,
+              },
+              { rules: value },
+              "commandInterceptions",
+            ).length === 0 && commandInterceptionPatternIssues(value as readonly CommandInterception[]).length === 0,
+        ),
+      );
     case "gate-mappings":
       return Schema.Record({ key: Schema.String, value: Schema.Unknown });
   }

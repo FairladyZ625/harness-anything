@@ -1,3 +1,4 @@
+import type { CommandInterception } from "./command-interceptions.ts";
 import type { EntityActionInputField } from "./entity-kind-registry.ts";
 import type { GateWitnessMappingV1 } from "./completion-contract.ts";
 import { closeoutProfiles } from "./settings-closeout.ts";
@@ -5,7 +6,14 @@ import { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT } from "./task-wip-
 import { DEFAULT_TODO_SOFT_LIMIT } from "./todo-soft-limit.ts";
 
 export type SettingsFieldOwnership = "repository" | "local";
-export type SettingsFieldValueKind = "string" | "enum" | "integer" | "boolean" | "string-array" | "gate-mappings";
+export type SettingsFieldValueKind =
+  | "string"
+  | "enum"
+  | "integer"
+  | "boolean"
+  | "string-array"
+  | "gate-mappings"
+  | "command-interceptions";
 
 export interface SettingsFieldActionDeclaration {
   readonly field: string;
@@ -21,7 +29,7 @@ export interface SettingsFieldCliDeclaration {
   readonly regex?: string;
   readonly enum?: readonly string[];
   readonly format?: string;
-  readonly projection?: "number" | "boolean" | "json-object";
+  readonly projection?: "number" | "boolean" | "json-object" | "json-object-array";
 }
 
 /** Presentation group for a settings field, declared once here and derived by the GUI and CLI.
@@ -679,6 +687,17 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     yamlStyle: "block-list",
   }),
   defineSettingsField({
+    path: ["runtime", "commandInterceptions"],
+    ownership: repository,
+    valueKind: "command-interceptions",
+    action: { field: "runtimeCommandInterceptions", type: "json-object-array" },
+    cli: { name: "--runtime-command-interceptions", kind: "single", projection: "json-object-array" },
+    defaultValue: Object.freeze([] as readonly CommandInterception[]),
+    description: "Named regular expressions that deny matching shell commands, optionally scoped to an agent id.",
+    effect: "Every dispatch injects matching rules into native provider hooks; unsupported runtimes refuse to launch.",
+    group: "worker-permissions",
+  }),
+  defineSettingsField({
     path: ["runtime", "agentSkills"],
     ownership: repository,
     valueKind: "string-array",
@@ -908,7 +927,9 @@ type DeclaredValue<Declaration extends SettingsFieldDeclaration> = Declaration["
         ? readonly string[]
         : Declaration["valueKind"] extends "gate-mappings"
           ? readonly GateWitnessMappingV1[]
-          : string;
+          : Declaration["valueKind"] extends "command-interceptions"
+            ? readonly CommandInterception[]
+            : string;
 
 type DeclaredPath<Path extends readonly string[], Value, Optional extends boolean> = Path extends readonly [
   infer Head extends string,

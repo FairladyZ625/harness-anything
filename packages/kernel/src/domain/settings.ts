@@ -1,3 +1,8 @@
+import {
+  commandInterceptionsSchema,
+  commandInterceptionPatternIssues,
+  type CommandInterception,
+} from "./command-interceptions.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { isMap, isSeq, parseDocument } from "yaml";
 import type { EntityDocumentJsonSchema, EntityJsonSchemaNode } from "./entity-json-schema.ts";
@@ -376,6 +381,8 @@ function declaredFieldSchema(declaration: SettingsFieldDeclaration): EntityJsonS
       };
     case "gate-mappings":
       return { ...gateSettingsSchema(), ...common };
+    case "command-interceptions":
+      return { ...commandInterceptionsSchema, ...common };
   }
 }
 
@@ -404,7 +411,14 @@ function gateSettingsSchema() {
 
 function withGateMappingIssues(errors: readonly string[], value: unknown): readonly string[] {
   const gates = (value as { readonly gates?: readonly GateWitnessMappingV1[] } | null)?.gates;
-  return errors.length || gates === undefined ? errors : gateWitnessMappingIssues(gates);
+  if (errors.length) return errors;
+  const rules = (
+    value as { readonly runtime?: { readonly commandInterceptions?: readonly CommandInterception[] } } | null
+  )?.runtime?.commandInterceptions;
+  return [
+    ...(gates === undefined ? [] : gateWitnessMappingIssues(gates)),
+    ...(rules === undefined ? [] : commandInterceptionPatternIssues(rules)),
+  ];
 }
 
 /**
@@ -472,6 +486,8 @@ function readDeclaredField(authored: Readonly<SettingsRecord>, declaration: Sett
     case "integer":
       return value;
     case "boolean":
+      return value;
+    case "command-interceptions":
       return value;
     case "string-array":
       if (!Array.isArray(value))
@@ -678,6 +694,7 @@ function parseActionValue(value: unknown, declaration: SettingsFieldDeclaration)
         throw new SettingsDeclarationError(`${label} contains invalid or duplicate values.`);
       return strings;
     }
+    case "command-interceptions":
     case "gate-mappings":
       if (Array.isArray(value) && value.every((entry) => typeof entry === "object" && entry !== null)) return value;
       throw new SettingsDeclarationError(`${label} must be an array of gate witness mappings.`);

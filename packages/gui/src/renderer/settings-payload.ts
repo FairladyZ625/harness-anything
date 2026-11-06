@@ -14,10 +14,12 @@ export function isSettingsSuccess(value: unknown): value is SettingsRead {
       // `roles` is the one action field that is itself a record (role name to declared agent id).
       field === "roles"
         ? isRendererRecord(item) && Object.values(item).every((agent) => typeof agent === "string")
-        : typeof item === "string" ||
-          typeof item === "number" ||
-          typeof item === "boolean" ||
-          (Array.isArray(item) && item.every((entry) => typeof entry === "string")),
+        : field === "runtimeCommandInterceptions"
+          ? Array.isArray(item) && item.every(isRendererRecord)
+          : typeof item === "string" ||
+            typeof item === "number" ||
+            typeof item === "boolean" ||
+            (Array.isArray(item) && item.every((entry) => typeof entry === "string")),
     ) &&
     settings.schema === "settings/v1" &&
     settings.settingsId === "repository" &&
