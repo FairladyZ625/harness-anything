@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { ensurePgProjectionSchema, grantPgProjectionRuntimeAccess } from "../../src/pg/pg-projection-schema.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
@@ -25,9 +26,20 @@ test("previous event schema upgrades table, RLS and grants before exposing the r
             bytes = JSON.stringify(event);
           await client.query(
             `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,
-              event_type,event_json,event_digest,occurred_at,entity_refs,readers)
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'sha256:fixture',$10,ARRAY['task/target'],$11)`,
-            [...keys, revision, event.opId, event.eventId, event.type, bytes, event.occurredAt, scope.readers],
+              event_type,event_json,event_digest,occurred_at,entity_refs,actor_refs,readers)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'sha256:fixture',$10,$11,$12,$13)`,
+            [
+              ...keys,
+              revision,
+              event.opId,
+              event.eventId,
+              event.type,
+              bytes,
+              event.occurredAt,
+              canonicalEventEntityRefs(event),
+              [event.actor.principal.personId, ...(event.actor.executor ? [event.actor.executor.id] : [])],
+              scope.readers,
+            ],
           );
           await client.query(
             `UPDATE ha_repo_heads SET revision=$5,head_op_id=$6,head_event_digest='sha256:fixture',
@@ -166,8 +178,12 @@ test("previous event schema upgrades table, RLS and grants before exposing the r
       scope,
     );
     assert.deepEqual(
-      (await source.readEventList({ entity: "target", limit: 10 })).rows.map((row) => row.revision),
+      (await source.readEventList({ limit: 10 })).rows.map((row) => row.revision),
       [3, 2, 1],
+    );
+    assert.deepEqual(
+      (await source.readEventList({ entity: "task-1", limit: 10 })).rows.map((row) => row.revision),
+      [1],
     );
     for (const foreign of [
       { ...scope, tenantId: "other" },

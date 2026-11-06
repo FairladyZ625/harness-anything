@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanonicalEventV1, TaskProjectionQueries } from "@harness-anything/kernel";
+import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { compileEntityUpsert } from "@harness-anything/kernel/internal/domain/entity-event-compile.ts";
@@ -63,8 +64,8 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
         for (const event of events) {
           const body = serializeCanonicalEventUnchecked(event).trimEnd();
           await client.query(
-            `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers)
-                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers,entity_refs,actor_refs)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
             [
               scope.tenantId,
               scope.projectId,
@@ -78,6 +79,8 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
               event.occurredAt,
               scope.policyEpoch,
               scope.readers,
+              canonicalEventEntityRefs(event),
+              [event.actor.principal.personId, ...(event.actor.executor ? [event.actor.executor.id] : [])],
             ],
           );
         }
