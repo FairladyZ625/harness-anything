@@ -413,6 +413,10 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
   // runtime_session_unsettled_order covers the outcome filter and the recovery ORDER BY together,
   // so the read cannot fall back to scanning the repository's settled history.
   if (query?.unsettledOnly || query?.inFlightOnly) clauses.push("json_extract(value_json, '$.outcome') IS NULL");
+  if (query?.providerSessionId !== undefined) {
+    clauses.push("json_extract(value_json, '$.providerSessionId') = ?");
+    values.push(query.providerSessionId);
+  }
   // Edge recovery is scoped by the canonical dispatch source stored beside the session. The
   // node_unsettled index applies both predicates before any session row is visited.
   if (query?.executionOwnerNodeId !== undefined) {

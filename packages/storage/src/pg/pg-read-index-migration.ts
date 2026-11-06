@@ -83,6 +83,11 @@ export function readIndexDdl(): readonly string[] {
          OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)`,
     `CREATE INDEX IF NOT EXISTS ha_projection_runtime_unsettled_order ON ha_projection_values
       (tenant_id,project_id,policy_epoch,entity_id,owner_id) WHERE model='runtime-session' AND runtime_outcome IS NULL`,
+    // A resume names its native provider session. The expression is built with the schema, so no
+    // backfill or readiness state; queries must repeat ha_read_index_json(value) verbatim.
+    `CREATE INDEX IF NOT EXISTS ha_projection_runtime_provider_session ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,(ha_read_index_json(value)->>'providerSessionId'),entity_id)
+      WHERE model='runtime-session' AND owner_id=''`,
     `CREATE INDEX IF NOT EXISTS ha_projection_pin_order ON ha_projection_values
       (tenant_id,project_id,policy_epoch,order_at DESC,entity_id) WHERE model='pin'`,
     `CREATE INDEX IF NOT EXISTS ha_projection_interval_order ON ha_projection_values

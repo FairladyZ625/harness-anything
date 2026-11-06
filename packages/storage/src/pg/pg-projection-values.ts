@@ -103,6 +103,7 @@ export function pgRuntimeSessionReadStatement(
   repoId: string,
   query: {
     readonly runtimeSessionId?: string;
+    readonly providerSessionId?: string;
     readonly unsettledOnly?: boolean;
     readonly inFlightOnly?: boolean;
     readonly executionOwnerNodeId?: string;
@@ -134,6 +135,8 @@ export function pgRuntimeSessionReadStatement(
   const sessionParameter = query.runtimeSessionId === undefined ? undefined : bind(query.runtimeSessionId);
   if (sessionParameter) where.push(`v.entity_id=${sessionParameter}`);
   if (query.unsettledOnly) where.push("v.runtime_outcome IS NULL");
+  if (query.providerSessionId !== undefined)
+    where.push(`ha_read_index_json(v.value)->>'providerSessionId'=${bind(query.providerSessionId)}`);
   if (query.executionOwnerNodeId !== undefined) {
     const repoParameter = bind(repoId),
       nodeParameter = bind(query.executionOwnerNodeId);
@@ -167,6 +170,7 @@ export async function listPgRuntimeSessions(
   repoId: string,
   query: {
     readonly runtimeSessionId?: string;
+    readonly providerSessionId?: string;
     readonly unsettledOnly?: boolean;
     readonly executionOwnerNodeId?: string;
   } = {},

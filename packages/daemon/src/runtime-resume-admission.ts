@@ -280,8 +280,7 @@ export function assertNativeResumeNotExported(
   providerSessionId: string,
   projection: TaskProjection,
 ): void {
-  for (const session of projection.readRuntimeSessions()) {
-    if (session.providerSessionId !== providerSessionId) continue;
+  for (const session of projection.readRuntimeSessions({ providerSessionId })) {
     const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId);
     if (dispatch && readHandoffCheckpoint(rootDir, dispatch.payload.dispatchId))
       throw runtimeSpawnError(

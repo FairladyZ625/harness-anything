@@ -449,7 +449,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, canonicalRuntimeSessions] =
-        await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
+        await resolveRuntimeDispatchResources(
+          input,
+          input.remote,
+          projection!,
+          processes,
+          providerSessionId ?? undefined,
+        ),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
         binding,
