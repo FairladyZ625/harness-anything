@@ -292,17 +292,7 @@ export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseI
     ),
     taskId,
   );
-  return rows.map((row) => ({
-    taskId: String(row.task_id),
-    executionId: String(row.execution_id),
-    acquiredRevision: Number(row.acquired_revision),
-    releasedRevision: row.released_revision === null ? null : Number(row.released_revision),
-    holder: JSON.parse(String(row.holder_json)) as LeaseHolder,
-    previousHolder:
-      row.previous_holder_json === null ? null : (JSON.parse(String(row.previous_holder_json)) as LeaseHolder),
-    leaseExpiresAt: String(row.lease_expires_at),
-    reason: String(row.reason) as LeaseChangeReason,
-  }));
+  return rows.map(leaseIntervalFromRow);
 }
 
 function leaseIntervalFromRow(row: ProjectionSqlRow): LeaseInterval {
