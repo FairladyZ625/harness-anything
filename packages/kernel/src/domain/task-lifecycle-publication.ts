@@ -372,9 +372,11 @@ function renderIndex(
     )?.action,
     next =
       task.status === "done"
-        ? snapshot.siblingResolution
-          ? `Resolved by task/${snapshot.siblingResolution.sourceTaskId}: ${snapshot.siblingResolution.rationale}\n\nEvidence: ${snapshot.siblingResolution.factRef}.`
-          : "Task complete."
+        ? snapshot.externalResolution
+          ? `Resolved by commit ${snapshot.externalResolution.commitSha}: ${snapshot.externalResolution.rationale}\n\nEvidence: ${snapshot.externalResolution.factRef}.`
+          : snapshot.siblingResolution
+            ? `Resolved by task/${snapshot.siblingResolution.sourceTaskId}: ${snapshot.siblingResolution.rationale}\n\nEvidence: ${snapshot.siblingResolution.factRef}.`
+            : "Task complete."
         : nextAction
           ? `Run \`${nextAction}\`.`
           : "Task complete.",

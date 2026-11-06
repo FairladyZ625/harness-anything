@@ -43,6 +43,10 @@ import type {
   Snapshot,
 } from "./repo-cell-types.ts";
 
+/** `--resolved-by` names either an accepted sibling task or an immutable commit already on the
+ * published default branch. The daemon proof, not this syntax check, proves the commit is on main. */
+const resolutionCommitSha = /^[0-9a-f]{40}$/u;
+
 export function dispatchRead<M extends RepoCellReadMethod>(
   handlers: DaemonGuiReadHandlers,
   method: M,
@@ -319,11 +323,17 @@ export function buildCommand(
       executionId: typeof action.executionId === "string" ? action.executionId : "",
       ...(typeof action.resolvedBy === "string"
         ? {
-            resolution: {
-              resolvedByTaskId: action.resolvedBy,
-              rationale: requiredCellText(action.resolutionRationale, "resolution-rationale"),
-              factRef: requiredCellText(action.resolutionFact, "resolution-fact"),
-            },
+            resolution: resolutionCommitSha.test(action.resolvedBy)
+              ? {
+                  resolvedByCommit: action.resolvedBy,
+                  rationale: requiredCellText(action.resolutionRationale, "resolution-rationale"),
+                  factRef: requiredCellText(action.resolutionFact, "resolution-fact"),
+                }
+              : {
+                  resolvedByTaskId: action.resolvedBy,
+                  rationale: requiredCellText(action.resolutionRationale, "resolution-rationale"),
+                  factRef: requiredCellText(action.resolutionFact, "resolution-fact"),
+                },
           }
         : {}),
       ...(Array.isArray(action.factRetirementAttestations) && action.factRetirementAttestations.length

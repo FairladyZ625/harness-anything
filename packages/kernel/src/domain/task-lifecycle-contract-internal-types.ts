@@ -47,6 +47,7 @@ export interface TaskLifecycleSnapshot {
   readonly forwardedCuts?: readonly ForwardedCutRecord[];
   readonly decisionRelations?: readonly CoverageRelation[];
   readonly siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
+  readonly externalResolution?: { readonly commitSha: string; readonly rationale: string; readonly factRef: string };
 }
 export const TASK_LIFECYCLE_SCHEMA = Object.freeze({
   id: "task-lifecycle/v1",
@@ -145,9 +146,14 @@ export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent">
   readonly disposedReviewIds?: readonly string[];
   readonly rationale?: string;
 }
+/** A completion whose goal another delivered cut already satisfies: a HA sibling task, or an
+ * external contribution already merged into the published default branch. */
+export type TaskResolution =
+  | { readonly resolvedByTaskId: string; readonly rationale: string; readonly factRef: string }
+  | { readonly resolvedByCommit: string; readonly rationale: string; readonly factRef: string };
 export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
   readonly executionId: string;
-  readonly resolution?: { readonly resolvedByTaskId: string; readonly rationale: string; readonly factRef: string };
+  readonly resolution?: TaskResolution;
   readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
 }
 export type TaskLifecycleCommandIntent =
@@ -263,6 +269,9 @@ export interface CompleteTaskProof {
     readonly iteration: number;
   }[];
   readonly siblingResolution?: { readonly sourceTaskId: string; readonly sourceDone: true; readonly factRef: string };
+  /** The daemon verified the commit is an ancestor of the published default branch; the kernel
+   * cannot read Git, so the proof carries that observation. */
+  readonly externalResolution?: { readonly commitSha: string; readonly factOnMain: true; readonly factRef: string };
 }
 export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTaskCommand
   ? CreateReplayTaskProof

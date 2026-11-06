@@ -484,7 +484,8 @@ export const taskActionDescriptorProjection = {
         ],
         exactlyOneOf: [],
       },
-      explain: "Complete; use --resolved-by with rationale + Fact for sibling fixes, replacing cancel + relate.",
+      explain:
+        "Complete; --resolved-by with rationale + Fact resolves a sibling or merged commit, replacing cancel + relate.",
       execution: {
         ingress: "task-complete",
         topology: "ledger-write",

@@ -163,3 +163,64 @@ test("sibling completion persists and replays without inventing a target executi
     /open task/u,
   );
 });
+
+test("external completion records the commit already on main and replays without a target execution", () => {
+  const created = lifecycleFixture().events[0]!;
+  const snapshot = reduceTaskEvent(emptyTaskLifecycleSnapshot(), created),
+    resolution = {
+      resolvedByCommit: "a".repeat(40),
+      rationale: "Upstream PR #4354 merged the fix this task asked for",
+      factRef: "fact/F-1234ABCD",
+    },
+    commandFor = (
+      value:
+        | { readonly resolvedByCommit: string; readonly rationale: string; readonly factRef: string }
+        | { readonly resolvedByTaskId: string; readonly rationale: string; readonly factRef: string } = resolution,
+    ) => ({
+      ...normalizeTaskLifecycleCommand(
+        { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
+        { type: "CompleteTask", taskId: snapshot.task!.taskId, executionId: "", resolution: value },
+      ),
+      eventId: "event-external-complete",
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-11-06T06:00:00.000Z",
+    }),
+    proof = {
+      ...completeProof(standardGates),
+      externalResolution: { commitSha: resolution.resolvedByCommit, factOnMain: true, factRef: resolution.factRef },
+    },
+    result = applyTransition(snapshot, commandFor(), proof);
+  assert.equal(result.snapshot.task?.status, "done");
+  assert.deepEqual(result.snapshot.executions, []);
+  assert.equal(result.event.type, "task_completed");
+  if (result.event.type !== "task_completed") throw new Error("unreachable");
+  assert.equal(result.event.payload.execution, undefined);
+  assert.deepEqual(result.event.payload.externalResolution, {
+    commitSha: resolution.resolvedByCommit,
+    rationale: resolution.rationale,
+    factRef: resolution.factRef,
+  });
+  assert.deepEqual(reduceTaskEvent(snapshot, result.event).externalResolution, result.snapshot.externalResolution);
+  assert.throws(
+    () => applyTransition(snapshot, commandFor(), { ...proof, externalResolution: undefined }),
+    /proven on main/u,
+  );
+  assert.throws(
+    () => applyTransition(snapshot, commandFor({ ...resolution, resolvedByCommit: "not-a-sha" }), proof),
+    /commit sha/u,
+  );
+  assert.throws(
+    () => reduceTaskEvent({ ...snapshot, task: { ...snapshot.task!, status: "cancelled" } }, result.event),
+    /open task/u,
+  );
+  // The sibling path keeps its own proof: a task id without a done source is still refused.
+  assert.throws(
+    () =>
+      applyTransition(
+        snapshot,
+        commandFor({ resolvedByTaskId: "task-source", rationale: "A fixes B", factRef: resolution.factRef }),
+        proof,
+      ),
+    /durably done/u,
+  );
+});

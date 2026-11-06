@@ -534,6 +534,18 @@ function validExternalCompletionEvidence(
   );
 }
 
+/** External resolution is only proven when the named immutable commit is in the published
+ * default branch's history; a local-only or unmerged commit is not evidence of a delivered fix. */
+function isCommitOnPublishedDefaultBranch(rootDir: string | undefined, commitSha: string): boolean {
+  if (!rootDir || !/^[0-9a-f]{40}$/u.test(commitSha)) return false;
+  const published = remoteDefaultBranch(rootDir);
+  return (
+    published !== null &&
+    localGitObjectRefStore.hasCommit(rootDir, commitSha) &&
+    localGitObjectRefStore.isAncestor(rootDir, commitSha, published)
+  );
+}
+
 export function completeProof(
   command: CompleteTaskCommand,
   snapshot: Snapshot,
@@ -557,6 +569,32 @@ export function completeProof(
       COMPLETE_VALIDATION_CRITERION,
     );
   if (command.resolution) {
+    const fact = projection?.readFact(command.resolution.factRef.slice("fact/".length));
+    if ("resolvedByCommit" in command.resolution) {
+      const commitSha = command.resolution.resolvedByCommit;
+      if (!isCommitOnPublishedDefaultBranch(rootDir, commitSha))
+        throw cellCodedError(
+          "invalid_proof",
+          `External resolution requires commit ${commitSha} to be an ancestor of main. ` +
+            "Merge the contribution first, then pass its merge commit sha.",
+        );
+      if (
+        !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(command.resolution.factRef) ||
+        !fact?.fact ||
+        fact.status !== "ready"
+      )
+        throw cellCodedError("invalid_proof", "External resolution requires an existing, projected canonical Fact.");
+      return {
+        capability: "task-complete@v1",
+        capabilityRef: authorizationDecision.policyRef,
+        actorRole: "owner",
+        noActiveLease: true,
+        closeoutGates: { review: false, consent: false, factDisposition: false },
+        gateReceipts: [],
+        externalResolution: { commitSha, factOnMain: true, factRef: command.resolution.factRef },
+        authorizationDecision,
+      };
+    }
     const source = projection?.read(command.resolution.resolvedByTaskId),
       sourceSnapshot = source?.snapshot,
       accepted = sourceSnapshot?.executions.find(
@@ -564,8 +602,7 @@ export function completeProof(
           isNativeExecution(candidate) &&
           candidate.state === "accepted" &&
           candidate.iteration === sourceSnapshot.task?.iteration,
-      ),
-      fact = projection?.readFact(command.resolution.factRef.slice("fact/".length));
+      );
     if (
       !sourceSnapshot ||
       source?.status !== "ready" ||

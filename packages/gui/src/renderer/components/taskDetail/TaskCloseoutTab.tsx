@@ -116,6 +116,23 @@ export function TaskCloseoutTab({
           <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-8">
             <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
               <CloseoutBadge value={task.closeoutReadiness} />
+              {task.externalResolution ? (
+                <div data-testid="task-external-resolution" className="text-sm">
+                  <strong>
+                    {t("components.taskCloseout.resolvedByPrefix")}
+                    <code className="break-all font-mono" title={task.externalResolution.commitSha}>
+                      {task.externalResolution.commitSha}
+                    </code>
+                    {t("components.taskCloseout.resolvedBySuffix")}
+                  </strong>
+                  <span className="ml-2">{task.externalResolution.rationale}</span>
+                  <EntityRefLink
+                    entityRef={task.externalResolution.factRef}
+                    onNavigate={onNavigateEntity}
+                    className="ml-2 text-accent"
+                  />
+                </div>
+              ) : null}
               {task.siblingResolution ? (
                 <div data-testid="task-sibling-resolution" className="text-sm">
                   <strong>

@@ -425,3 +425,27 @@ it("shows sibling resolution with working source and fact navigation without a t
   for (const button of resolution.querySelectorAll("button")) act(() => button.click());
   expect(navigated).toEqual(["task/task-source", "fact/F-1234ABCD"]);
 });
+
+it("shows an external commit resolution with fact navigation and no target execution", async () => {
+  const navigated: string[] = [];
+  const commitSha = "a".repeat(40);
+  const container = await mountCloseout(
+    {
+      ...fixtureTask([], []),
+      coordinationStatus: "done",
+      closeoutReadiness: "passed",
+      externalResolution: {
+        commitSha,
+        rationale: "Upstream PR #4354 merged the fix",
+        factRef: "fact/F-1234ABCD",
+      },
+    },
+    (ref) => navigated.push(ref),
+  );
+  const resolution = container.querySelector('[data-testid="task-external-resolution"]')!;
+  expect(resolution.textContent).toContain(commitSha);
+  expect(resolution.textContent).toContain("Upstream PR #4354 merged the fix");
+  expect(resolution.textContent).toContain("解决");
+  act(() => resolution.querySelector("button")!.click());
+  expect(navigated).toEqual(["fact/F-1234ABCD"]);
+});

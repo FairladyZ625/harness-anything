@@ -163,21 +163,32 @@ export async function completeTask(
   if (action.resolvedBy !== undefined && (action.executionId !== undefined || action.factHolds !== undefined))
     throw cell.cellCodedError(
       "invalid_command",
-      "Sibling resolution cannot select an execution or attest its Fact retirement.",
+      "Resolution cannot select an execution or attest its Fact retirement.",
     );
   if (action.resolvedBy !== undefined) {
-    const sourceTaskId = String(action.resolvedBy),
+    const resolvedBy = String(action.resolvedBy),
+      external = /^[0-9a-f]{40}$/u.test(resolvedBy),
       rationale = String(action.resolutionRationale ?? "").trim(),
       factRef = String(action.resolutionFact ?? "").trim();
+    if (!external && (resolvedBy.includes("/") || resolvedBy.includes("..")))
+      throw cell.cellCodedError(
+        "invalid_command",
+        "--resolved-by must be a sibling task id or a 40-character commit sha already on main. " +
+          "Pass the merged PR's commit sha, not its URL or title.",
+      );
     if (!rationale || !factRef || !factRef.startsWith("fact/"))
       throw cell.cellCodedError(
         "invalid_command",
-        "Sibling resolution requires --resolution-rationale and a canonical --resolution-fact fact/<id>.",
+        "Resolution requires --resolution-rationale and a canonical --resolution-fact fact/<id>.",
       );
     const previous = cell.projection.readTaskCompletion(taskId, null);
     if (previous?.type === "task_completed") {
-      if (stableStringify(previous.payload.siblingResolution) !== stableStringify({ sourceTaskId, rationale, factRef }))
-        throw cell.cellCodedError("invalid_command", "Task already completed with a different sibling resolution.");
+      const recorded = external ? previous.payload.externalResolution : previous.payload.siblingResolution;
+      const expected = external
+        ? { commitSha: resolvedBy, rationale, factRef }
+        : { sourceTaskId: resolvedBy, rationale, factRef };
+      if (stableStringify(recorded) !== stableStringify(expected))
+        throw cell.cellCodedError("invalid_command", "Task already completed with a different resolution.");
       const publication = cell.publicPublication(cell.store.publication(previous));
       return cell.completionApplied(
         cell.lifecycleReceipt(previous, initial.snapshot, publication, cell.receiptProof(previous, publication)),
@@ -189,35 +200,37 @@ export async function completeTask(
     const fact = cell.projection.readFact(factRef.slice("fact/".length));
     if (!fact.fact)
       throw cell.cellCodedError("invalid_command", `Resolution Fact ${factRef} does not exist in the projection.`);
-    const source = await cell.service.read(sourceTaskId),
-      sourceReadiness = closeoutReadiness(
-        source.snapshot,
-        undefined,
-        readEffectiveCloseoutGates(cell.projection, source.snapshot),
-        readCompletionDeliveryStatus(cell.projection, source.snapshot, cell.rootDir),
-      );
-    if (source.snapshot.task?.status !== "done" || sourceReadiness.readiness !== "passed")
-      return cell.completionStopped(
-        initialOpId,
-        initial.snapshot,
-        "",
-        {
-          code: "not_in_review",
-          gate: "sibling-resolution",
-          next: {
-            action: `Wait for ${sourceTaskId} to complete review, consent, and its configured delivery gates, then retry ha task complete ${taskId} --resolved-by ${sourceTaskId}.`,
-            reason: `Sibling task ${sourceTaskId} is not fully accepted (readiness: ${sourceReadiness.readiness}).`,
-            authority: "task owner",
-            readCut: { revision: initial.snapshot.revision, iteration: null, executionId: null },
+    if (!external) {
+      const source = await cell.service.read(resolvedBy),
+        sourceReadiness = closeoutReadiness(
+          source.snapshot,
+          undefined,
+          readEffectiveCloseoutGates(cell.projection, source.snapshot),
+          readCompletionDeliveryStatus(cell.projection, source.snapshot, cell.rootDir),
+        );
+      if (source.snapshot.task?.status !== "done" || sourceReadiness.readiness !== "passed")
+        return cell.completionStopped(
+          initialOpId,
+          initial.snapshot,
+          "",
+          {
+            code: "not_in_review",
+            gate: "sibling-resolution",
+            next: {
+              action: `Wait for ${resolvedBy} to complete review, consent, and its configured delivery gates, then retry ha task complete ${taskId} --resolved-by ${resolvedBy}.`,
+              reason: `Sibling task ${resolvedBy} is not fully accepted (readiness: ${sourceReadiness.readiness}).`,
+              authority: "task owner",
+              readCut: { revision: initial.snapshot.revision, iteration: null, executionId: null },
+            },
           },
-        },
-        [],
-      );
+          [],
+        );
+    }
     const completed = await cell.lifecycleAction(
       {
         kind: "task-complete",
         taskId,
-        resolvedBy: sourceTaskId,
+        resolvedBy,
         resolutionRationale: rationale,
         resolutionFact: factRef,
       },
