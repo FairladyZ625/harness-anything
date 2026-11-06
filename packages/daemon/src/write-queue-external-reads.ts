@@ -109,7 +109,7 @@ export function readBeforeWriteQueue(
             HARNESS_TASK_BOUND: "1",
           }
         : undefined;
-      return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {
+      return async (_action: RepoTaskAction, executionBinding: RepoCellBinding) => {
         const latest = context.projection.read(taskId).snapshot,
           executionId = binding.executionPrincipal?.executionId,
           executions = executionId
@@ -125,6 +125,7 @@ export function readBeforeWriteQueue(
             cwd,
             canonicalRoot: context.rootDir,
             taskId,
+            personId: executionBinding.actor.principal.personId,
             ...(gitEnvironment ? { env: gitEnvironment } : {}),
             ...(hosting && submission?.commitSha
               ? {

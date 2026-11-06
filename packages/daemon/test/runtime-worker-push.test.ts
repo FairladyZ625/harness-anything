@@ -11,6 +11,7 @@ import {
   configureWorkerGitIdentity,
   readWorkerGitIdentity,
   workerBranchHasDelivery,
+  resolveWorkerGitIdentity,
 } from "../src/runtime-worker-push.ts";
 import { readBeforeWriteQueue } from "../src/write-queue-external-reads.ts";
 import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
@@ -614,7 +615,7 @@ test("canonical roots never trigger worker push", async () => {
   });
 });
 
-test("the dispatch identity is scoped to its worktree for commits and rebases", async (context) => {
+test("worker commits take the GitLab repository identity, never a stale GitHub noreply override", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-env-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
@@ -622,42 +623,198 @@ test("the dispatch identity is scoped to its worktree for commits and rebases", 
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
-  git(canonical, "config", "user.email", "conventional@example.invalid");
-  git(canonical, "config", "user.name", "Conventional Identity");
+  git(canonical, "config", "user.email", "lizeyu990625@gmail.com");
+  git(canonical, "config", "user.name", "ZeyuLi");
   git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
   git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_identity_env");
-  // The failure shape this guards against: the worktree resolves a different identity than the
-  // canonical root, so implicit inheritance would publish the wrong committer.
+  // The pre-fix daemon wrote this override on every dispatch: it outranks the repository's own
+  // identity, which is the GitLab author the repository declares.
   git(canonical, "config", "extensions.worktreeConfig", "true");
-  git(worker, "config", "--worktree", "user.email", "misconfigured-worktree@example.invalid");
-  git(worker, "config", "--worktree", "user.name", "Misconfigured Worktree");
-  assert.equal(git(worker, "config", "--get", "user.email").trim(), "misconfigured-worktree@example.invalid");
+  git(worker, "config", "--worktree", "user.email", "person_zeyu@users.noreply.github.com");
+  git(worker, "config", "--worktree", "user.name", "person_zeyu");
+  // The canonical checkout can carry the same stale layer (a trusted schedule or reviewer ran
+  // there), so the repair must not trust the canonical root's worktree config either.
+  git(canonical, "config", "--worktree", "user.email", "person_zeyu@users.noreply.github.com");
+  git(canonical, "config", "--worktree", "user.name", "person_zeyu");
+  assert.match(
+    git(worker, "config", "--show-origin", "user.email"),
+    /config\.worktree\tperson_zeyu@users\.noreply\.github\.com/u,
+  );
+  assert.match(
+    git(canonical, "config", "--show-origin", "user.email"),
+    /config\.worktree\tperson_zeyu@users\.noreply\.github\.com/u,
+  );
 
-  await configureWorkerGitIdentity(worker, "person-worker");
+  await configureWorkerGitIdentity(worker, canonical, "person_zeyu");
+  const origin = git(worker, "config", "--show-origin", "user.email").trim();
+  assert.match(origin, /file:(?:.*\/)?\.git\/config\tlizeyu990625@gmail\.com$/u);
+  assert.doesNotMatch(origin, /noreply\.github\.com/u);
+  assert.match(
+    git(canonical, "config", "--show-origin", "user.email").trim(),
+    /file:(?:.*\/)?\.git\/config\tlizeyu990625@gmail\.com$/u,
+  );
   const identity = await readWorkerGitIdentity({ cwd: worker, env: hermeticGitEnvironment() });
-  assert.deepEqual(identity, { name: "person-worker", email: "person-worker@users.noreply.github.com" });
-  assert.deepEqual(await readWorkerGitIdentity({ cwd: canonical, env: hermeticGitEnvironment() }), {
-    name: "Conventional Identity",
-    email: "conventional@example.invalid",
+  assert.deepEqual(identity, { name: "ZeyuLi", email: "lizeyu990625@gmail.com" });
+  writeFileSync(path.join(worker, "committed.txt"), "worker\n");
+  git(worker, "add", "committed.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  assert.equal(
+    git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
+    "ZeyuLi|lizeyu990625@gmail.com|ZeyuLi|lizeyu990625@gmail.com",
+  );
+
+  // A rebase recreates commits with a fresh committer; the inherited repository identity applies
+  // to both, so no worktree override may survive the configure step.
+  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "chore: move main forward");
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  git(worker, "rebase", "origin/main");
+  assert.equal(
+    git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
+    "ZeyuLi|lizeyu990625@gmail.com|ZeyuLi|lizeyu990625@gmail.com",
+  );
+});
+
+test("a repository with no identity falls back to a provider-neutral person identity", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-fallback-")),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  // The fixture commit states its identity inline; the repository itself declares none.
+  git(
+    canonical,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "fixture",
+  );
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_identity_fallback");
+
+  // The host's global identity must not decide this fixture: the test states the hermetic
+  // environment explicitly, and an ambient global config is present to prove configure uses it.
+  const ambientGlobal = path.join(root, "ambient.gitconfig");
+  writeFileSync(ambientGlobal, "[user]\n\tname = Ambient Host\n\temail = ambient@example.invalid\n");
+  const previousGlobal = process.env.GIT_CONFIG_GLOBAL,
+    previousSystem = process.env.GIT_CONFIG_SYSTEM;
+  process.env.GIT_CONFIG_GLOBAL = ambientGlobal;
+  delete process.env.GIT_CONFIG_SYSTEM;
+  try {
+    await configureWorkerGitIdentity(worker, canonical, "person-worker", hermeticGitEnvironment());
+  } finally {
+    if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
+    if (previousSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
+    else process.env.GIT_CONFIG_SYSTEM = previousSystem;
+  }
+  assert.deepEqual(await readWorkerGitIdentity({ cwd: worker, env: hermeticGitEnvironment() }), {
+    name: "person-worker",
+    email: "person-worker@harness.invalid",
   });
   writeFileSync(path.join(worker, "committed.txt"), "worker\n");
   git(worker, "add", "committed.txt");
   git(worker, "commit", "--quiet", "-m", "feat: worker change");
   assert.equal(
     git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
-    "person-worker|person-worker@users.noreply.github.com|person-worker|person-worker@users.noreply.github.com",
+    "person-worker|person-worker@harness.invalid|person-worker|person-worker@harness.invalid",
   );
+});
 
-  // A rebase recreates commits with a fresh committer; worktree config applies to both identities.
-  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "chore: move main forward");
-  git(canonical, "push", "--quiet", "origin", "HEAD:main");
-  git(worker, "rebase", "origin/main");
-  assert.equal(
-    git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
-    "person-worker|person-worker@users.noreply.github.com|person-worker|person-worker@users.noreply.github.com",
+test("a user-declared canonical worktree identity survives and does not become the push expectation", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-canonical-")),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.name", "Repo Identity");
+  git(canonical, "config", "user.email", "repo@example.invalid");
+  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_identity_canonical");
+  // A user may deliberately pin a per-worktree identity on the canonical checkout. It is not one
+  // of the daemon's synthetic values, so the repair must keep it.
+  git(canonical, "config", "extensions.worktreeConfig", "true");
+  git(canonical, "config", "--worktree", "user.name", "User Declared");
+  git(canonical, "config", "--worktree", "user.email", "user@example.invalid");
+
+  await configureWorkerGitIdentity(worker, canonical, "person-worker", hermeticGitEnvironment());
+  assert.match(
+    git(canonical, "config", "--show-origin", "user.email").trim(),
+    /config\.worktree\tuser@example\.invalid$/u,
+    "the user-declared canonical override is preserved",
   );
+  // The push expectation ignores the canonical worktree layer: a linked worker does not inherit it.
+  assert.deepEqual(
+    await resolveWorkerGitIdentity({ cwd: canonical, personId: "person-worker", env: hermeticGitEnvironment() }),
+    { name: "Repo Identity", email: "repo@example.invalid" },
+  );
+  assert.deepEqual(await readWorkerGitIdentity({ cwd: worker, env: hermeticGitEnvironment() }), {
+    name: "Repo Identity",
+    email: "repo@example.invalid",
+  });
+});
+
+test("a runtime at the canonical root keeps a user-declared worktree identity when the repo has one", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-same-root-repo-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.name", "Repo Identity");
+  git(canonical, "config", "user.email", "repo@example.invalid");
+  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
+  git(canonical, "config", "extensions.worktreeConfig", "true");
+  git(canonical, "config", "--worktree", "user.name", "User Declared");
+  git(canonical, "config", "--worktree", "user.email", "user@example.invalid");
+
+  await configureWorkerGitIdentity(canonical, canonical, "person-worker", hermeticGitEnvironment());
+  assert.equal(
+    git(canonical, "config", "--worktree", "--get", "user.email").trim(),
+    "user@example.invalid",
+    "the user-declared canonical identity is not deleted",
+  );
+  assert.deepEqual(await readWorkerGitIdentity({ cwd: canonical, env: hermeticGitEnvironment() }), {
+    name: "User Declared",
+    email: "user@example.invalid",
+  });
+});
+
+test("a runtime at the canonical root does not overwrite a user identity with the fallback", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-same-root-fallback-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  // The fixture commit states its identity inline; the repository itself declares none.
+  git(
+    canonical,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "fixture",
+  );
+  git(canonical, "config", "extensions.worktreeConfig", "true");
+  git(canonical, "config", "--worktree", "user.name", "User Declared");
+  git(canonical, "config", "--worktree", "user.email", "user@example.invalid");
+
+  await configureWorkerGitIdentity(canonical, canonical, "person-worker", hermeticGitEnvironment());
+  assert.equal(
+    git(canonical, "config", "--worktree", "--get", "user.email").trim(),
+    "user@example.invalid",
+    "the fallback must not replace the user-declared identity",
+  );
+  assert.deepEqual(await readWorkerGitIdentity({ cwd: canonical, env: hermeticGitEnvironment() }), {
+    name: "User Declared",
+    email: "user@example.invalid",
+  });
 });
 
 test("a workflow-scope rejection reports the dedicated code and the CEO handoff push command", async (context) => {
@@ -761,6 +918,77 @@ test("the queued task-push receipt defers PR publication until submission", asyn
   assert.equal(receipt.next, undefined);
   assert.equal(receipt.summary, receipt.evidence);
   assert.match(receipt.evidence, /Submit the delivery before publishing its pull request/u);
+});
+
+test("the task-push entry supplies the dispatching person to the missing-identity fallback", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-person-")),
+    bare = path.join(root, "remote.git");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  // The fixture commit states its identity inline; the repository declares none, so the worker
+  // checkout carries the fallback and only the dispatching person can verify the push.
+  git(
+    canonical,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "fixture",
+  );
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  const worktree = path.join(canonical, ".worktrees", "task_push_person");
+  git(canonical, "worktree", "add", "--quiet", worktree, "-b", "task_push_person");
+  await configureWorkerGitIdentity(worktree, canonical, "person-owner", hermeticGitEnvironment());
+  writeFileSync(path.join(worktree, "change.txt"), "worker\n");
+  git(worktree, "add", "change.txt");
+  git(worktree, "commit", "--quiet", "-m", "feat: worker change");
+
+  const cell = {
+    rootDir: canonical,
+    projection: {
+      read: () => ({
+        snapshot: {
+          task: { taskId: "task_push_person", taskClass: "standard", presetSnapshotDigest: "digest" },
+          executions: [],
+        },
+      }),
+      readPresetSnapshot: () => ({ snapshot: { profile: { outputShape: "repository-diff" } } }),
+    },
+    store: { readHead: () => ({ revision: 7 }) },
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    withHumanSummary: (receipt: unknown) => receipt,
+    input: {},
+  } as unknown as RepoCellApiContext;
+  const binding = {
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    source: "local",
+  } satisfies RepoCellBinding;
+  // The CLI entry builds no env override here, so strip the host global identity for the push.
+  const previousGlobal = process.env.GIT_CONFIG_GLOBAL,
+    previousSystem = process.env.GIT_CONFIG_SYSTEM;
+  process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+  process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+  try {
+    const publication = await readBeforeWriteQueue(cell, { kind: "task-push", taskId: "task_push_person" }, binding);
+    assert.ok(publication, "task-push prepares its publication outside the write queue");
+    const receipt = (await publication({ kind: "task-push", taskId: "task_push_person" }, binding)) as {
+      readonly evidence: string;
+    };
+    assert.match(receipt.evidence, /Worker branch pushed: task_push_person @/u);
+  } finally {
+    if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
+    if (previousSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
+    else process.env.GIT_CONFIG_SYSTEM = previousSystem;
+  }
+  assert.equal(refExists(bare, "refs/heads/task_push_person"), true, "the fallback identity was accepted");
 });
 
 function git(root, ...args) {

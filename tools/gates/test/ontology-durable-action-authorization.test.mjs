@@ -394,8 +394,8 @@ for (const mutation of [
   {
     name: "prepared publication return",
     file: "write-queue-external-reads",
-    before: "return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {",
-    after: "return async function (_action: RepoTaskAction, _binding: RepoCellBinding) {",
+    before: "return async (_action: RepoTaskAction, executionBinding: RepoCellBinding) => {",
+    after: "return async function (_action: RepoTaskAction, executionBinding: RepoCellBinding) {",
   },
 ]) {
   for (const kind of ["task-push"])

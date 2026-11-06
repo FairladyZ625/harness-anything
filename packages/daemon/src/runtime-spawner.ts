@@ -830,7 +830,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agentId: agent?.id,
       });
       if (taskId || trustedSchedule || reviewerBinding)
-        await configureWorkerGitIdentity(cwd, binding.actor.principal.personId);
+        await configureWorkerGitIdentity(cwd, input.rootDir, binding.actor.principal.personId);
       if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
       // Every implementation runtime, including squad leaders, takes the actual lease. A read-only
       // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
