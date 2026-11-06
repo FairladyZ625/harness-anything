@@ -37,7 +37,7 @@ function store(events: readonly CanonicalEventV1[]) {
 test("scoped summaries merge the newest task windows, exclude unrelated events and report overflow exactly", () => {
   const ledger = store(
       ["a", "a", "b", "a", "b", "unrelated"].map((taskId, index) =>
-        event({ workspaceRevision: index + 1, payload: { taskId } }),
+        event({ workspaceRevision: index + 1, taskId, payload: {} }),
       ),
     ),
     queries = repositoryEventQueries((read) =>
