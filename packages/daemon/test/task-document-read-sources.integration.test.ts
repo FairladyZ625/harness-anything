@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -255,7 +255,7 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
       (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
     );
     assert.ok(worktree, "the fixture must have a materialized execution worktree");
-    assert.equal(readTaskWorktreeExecutionBinding(worktree)?.executionId, executionId);
+    assert.equal(readTaskWorktreeExecutionBinding(worktree).binding?.executionId, executionId);
 
     writeTaskWorktreeExecutionBinding(worktree, taskId, "execution-stale");
     const stale = (await fixture.cell.read("repo.tasks.document.read", {
@@ -268,6 +268,19 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
     assert.equal(stale.unobservableReason, "execution_workspace_unbound");
     assert.equal(stale.body, "");
 
+    writeFileSync(
+      taskWorktreeExecutionBindingPath(worktree),
+      '{"schema":"task-worktree-execution-binding/v1","taskId":',
+    );
+    const corrupt = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(corrupt.source, "unobservable");
+    assert.equal(corrupt.unobservableReason, "execution_workspace_marker_invalid");
+
     rmSync(taskWorktreeExecutionBindingPath(worktree));
     const missing = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
@@ -277,6 +290,37 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
     })) as DocumentRead;
     assert.equal(missing.source, "unobservable");
     assert.equal(missing.unobservableReason, "execution_workspace_unbound");
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a marker write failure refuses the start before the command is written", async () => {
+  const fixture = await startTaskWithTwoCuts();
+  try {
+    const released = await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding);
+    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    const worktree = worktreeRoots(fixture.rootDir).find(
+      (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
+    );
+    assert.ok(worktree, "the fixture must have a materialized execution worktree");
+    const markerPath = taskWorktreeExecutionBindingPath(worktree);
+    rmSync(markerPath);
+    mkdirSync(markerPath);
+
+    // Rejoin the same execution after release: the start is admissible, but the marker write is not.
+    const outcome = await fixture.cell
+      .run({ kind: "task-start", taskId, executionId }, fixture.binding)
+      .catch((error: unknown) => ({ outcome: "threw", message: String(error) }) as const);
+    assert.notEqual(outcome.outcome, "applied", "a marker write failure must reject the start, not hide it as applied");
+    assert.match(
+      JSON.stringify(outcome),
+      /harness-execution-binding|EISDIR|not a directory|marker/iu,
+      "the rejection must name the marker write, not an unrelated transition rule",
+    );
+    const row = (await fixture.cell.read("repo.tasks.list")).rows.find((candidate) => candidate.taskId === taskId);
+    assert.equal(row?.snapshot.lease, null, "the rejected start must not commit a new lease");
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });

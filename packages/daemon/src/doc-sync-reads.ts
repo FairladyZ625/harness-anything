@@ -713,8 +713,13 @@ function observeExecution(
   if (workspace.root === null || workspace.worktreeRoot === null) return { reason: workspace.reason };
   // The marker is written only by the local start that prepared this worktree. A reused old
   // checkout, a failed checkout, or a marker from another execution has no matching proof.
-  const binding = readTaskWorktreeExecutionBinding(workspace.worktreeRoot);
-  if (binding === null || binding.taskId !== task.snapshot.task?.taskId || binding.executionId !== executionId)
+  const marker = readTaskWorktreeExecutionBinding(workspace.worktreeRoot);
+  if (marker.invalid) return { reason: "execution_workspace_marker_invalid" };
+  if (
+    marker.binding === null ||
+    marker.binding.taskId !== task.snapshot.task?.taskId ||
+    marker.binding.executionId !== executionId
+  )
     return { reason: "execution_workspace_unbound" };
   const row = readWorktreeDocument(workspace.root, requested, binary);
   if (row === null) return { reason: "document_not_observed" };

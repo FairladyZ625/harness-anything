@@ -2,6 +2,7 @@
 // Rolling upgrade: a new client must be able to read a previous daemon's v2 document response.
 // Missing v3 fields are normalized to an explicit unobservable answer, never guessed.
 import assert from "node:assert/strict";
+import { sha256Bytes } from "@harness-anything/kernel";
 import test from "node:test";
 import { validateDaemonDocumentRead } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResponse } from "../src/protocol/gui-result-validation.ts";
@@ -41,4 +42,29 @@ test("a v2 document response from the previous daemon parses as unobservable", (
 test("the v3 writer contract still rejects a response without source metadata", () => {
   const errors = validateDaemonDocumentRead(v2Response);
   assert.match(errors.join("; "), /source.*field is required/u);
+});
+
+test("a v2 binary response hashes the bytes it actually returned", () => {
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0x0a]),
+    parsed = parseDaemonGuiReadResponse("repo.tasks.document.read", {
+      ...v2Response,
+      contentKind: "binary",
+      body: "",
+      mediaType: "image/png",
+      worktreeBody: null,
+      bytes: bytes.toString("base64"),
+      blobSha256: "b".repeat(64),
+      size: 999,
+    }) as {
+      readonly ok: true;
+      readonly source: string;
+      readonly blobSha256: string | null;
+      readonly size: number | null;
+      readonly bytes: string | null;
+    };
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.source, "unobservable");
+  assert.equal(parsed.blobSha256, sha256Bytes(bytes), "the digest must describe the returned bytes");
+  assert.equal(parsed.size, bytes.byteLength);
+  assert.deepEqual(Buffer.from(String(parsed.bytes), "base64"), bytes);
 });

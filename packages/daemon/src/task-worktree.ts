@@ -463,14 +463,13 @@ export interface TaskWorktreeLifecycleInput {
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly readPresetSnapshot: PresetSnapshotRead;
   readonly readWorktree: () => WorktreeSetupSettings;
-  /** The lease as applied after the start write; the annotate step binds the checkout to it. */
-  readonly readCurrentLease?: (taskId: string) => { readonly executionId: string; readonly version: number } | null;
 }
 
 type TaskWorktreeAction = {
   readonly kind: string;
   readonly taskId?: unknown;
   readonly taskIds?: unknown;
+  readonly executionId?: unknown;
   readonly dryRun?: unknown;
 };
 
@@ -507,14 +506,22 @@ export function writeTaskWorktreeExecutionBinding(
   );
 }
 
-/** Null when no binding was written or the file is not a complete binding: absence of proof, never a match. */
-export function readTaskWorktreeExecutionBinding(cwd: string): TaskWorktreeExecutionBindingV1 | null {
+/** A partial or corrupt file is `invalid`, not "no marker": the read must answer unobservable with
+ * a named reason instead of throwing on a node-local write that was interrupted. */
+export function readTaskWorktreeExecutionBinding(cwd: string): {
+  readonly binding: TaskWorktreeExecutionBindingV1 | null;
+  readonly invalid: boolean;
+} {
   const file = taskWorktreeExecutionBindingPath(cwd);
-  if (!existsSync(file)) return null;
-  // A present but malformed marker is node-local damage, not "no observation": let JSON.parse throw
-  // so the read fails closed instead of silently relabelling the worktree.
-  const value: unknown = JSON.parse(readFileSync(file, "utf8"));
-  return typeof value === "object" &&
+  if (!existsSync(file)) return { binding: null, invalid: false };
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return { binding: null, invalid: true };
+  }
+  const binding =
+    typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
     (value as { readonly schema?: unknown }).schema === "task-worktree-execution-binding/v1" &&
@@ -523,8 +530,9 @@ export function readTaskWorktreeExecutionBinding(cwd: string): TaskWorktreeExecu
     typeof (value as { readonly executionId?: unknown }).executionId === "string" &&
     (value as { readonly executionId: string }).executionId.length > 0 &&
     typeof (value as { readonly boundAt?: unknown }).boundAt === "string"
-    ? (value as TaskWorktreeExecutionBindingV1)
-    : null;
+      ? (value as TaskWorktreeExecutionBindingV1)
+      : null;
+  return { binding, invalid: binding === null };
 }
 
 /**
@@ -542,13 +550,15 @@ export function prepareTaskStartWorktree(
 ): Promise<(receipt: WriteReceipt) => WriteReceipt> | null {
   if (source !== "local" || action.dryRun === true || action.kind !== "task-start" || typeof action.taskId !== "string")
     return null;
-  return checkoutOnStart(input, action.taskId, stackedCommit).then((checkout) => (receipt) => {
-    if (receipt.outcome === "applied" && checkout.cwd !== null) {
-      const lease = input.readCurrentLease?.(action.taskId as string);
-      if (lease) writeTaskWorktreeExecutionBinding(checkout.cwd, action.taskId as string, lease.executionId);
-    }
-    return receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt;
-  });
+  return checkoutOnStart(
+    input,
+    action.taskId,
+    stackedCommit,
+    typeof action.executionId === "string" && action.executionId.length > 0 ? action.executionId : null,
+  ).then(
+    (checkout) => (receipt) =>
+      receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt,
+  );
 }
 
 /**
@@ -679,6 +689,7 @@ async function checkoutOnStart(
   input: TaskWorktreeLifecycleInput,
   taskId: string,
   stackedCommit?: string,
+  executionId?: string | null,
 ): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[]; readonly cwd: string | null }> {
   const binding = openTaskWorktreeBinding(input.readTask(taskId), input.readPresetSnapshot);
   if (!binding) {
@@ -711,6 +722,9 @@ async function checkoutOnStart(
       "worktree_setup_failed",
       worktreeSetupFailure(checkout.cwd, checkout.setup, `run ha task start ${taskId} again`, checkout.baseRef),
     );
+  // Bind before the start is committed. If this write fails, the start is refused with no committed
+  // lease, so an applied receipt can never disagree with a missing/failed marker.
+  if (executionId) writeTaskWorktreeExecutionBinding(checkout.cwd, taskId, executionId);
   return { notes: [taskWorktreeCheckoutNote(checkout)], warnings: [], cwd: checkout.cwd };
 }
 
