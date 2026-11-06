@@ -498,6 +498,8 @@ export async function proofFor(
  * Past the repository rework budget, an owner return needs a premise review newer than the last
  * return: rounds beyond the budget are where a task keeps being repaired inside a contract nobody
  * re-asked about (task_9e275cf8: 24 rounds). A `stop` conclusion refuses the return outright.
+ * The owner return that budget exhaustion itself asks for (`ha task rework` once the review stops
+ * returning) stays unasked; only a return after that one exceeds the budget.
  */
 function assertPremiseReviewedPastBudget(
   command: Extract<TaskLifecycleCommand, { readonly type: "ReworkTask" }>,
@@ -518,14 +520,14 @@ function assertPremiseReviewedPastBudget(
             )))),
     returned = snapshot.executions.filter((execution) => execution.state === "changes_requested"),
     budget = readEffectiveReviewReturnBudget(projection);
-  if (!returnsCut || returned.length < budget) return;
+  if (!returnsCut || returned.length <= budget) return;
   const lastReturn = returned.reduce((latest, execution) => {
       const closedAt = execution.closedAt ?? "";
       return closedAt > latest ? closedAt : latest;
     }, ""),
     found = latestPremiseReview(projection, command.taskId, lastReturn),
     recordCommand = premiseReviewCommand(command.taskId),
-    rounds = `${String(returned.length)} returns already reached the rework budget of ${String(budget)}`;
+    rounds = `${String(returned.length)} returns already exceed the rework budget of ${String(budget)}`;
   if (found?.review.ok === true && found.review.conclusion !== "stop") return;
   if (found?.review.ok === true)
     throw cellCriterionError(

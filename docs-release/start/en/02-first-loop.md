@@ -175,8 +175,9 @@ ha task review-consent task_... --review-id review-docs-loop
 For `changes_requested` below the repository rework limit (`reviewReturnBudget`, default 2), the task
 automatically returns to `active` and reopens the rework round; the worker session that submitted it is
 resumed automatically with the review report. At the limit the cut stays `in_review` for the owner
-(dispose the verdict with `ha task review-consent ... --dispose <id>`, or supersede the task). At the limit
-`ha task rework` also refuses another return until the owner records a premise review after the last return:
+(dispose the verdict with `ha task review-consent ... --dispose <id>`, or supersede the task). The owner may
+return that cut once with `ha task rework`; past it, `ha task rework` refuses another return until the owner
+records a premise review after the last return:
 `ha fact record --task task_... --source review:premise --statement "restart: ... alternative: ... sunk-cost: ... conclusion: continue|narrow|stop"`;
 a `stop` conclusion keeps the return refused.
 

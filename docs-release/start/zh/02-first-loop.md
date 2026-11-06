@@ -152,8 +152,8 @@ ha task review-consent task_... --review-id review-docs-loop
 
 若结论是 `changes_requested`，任务在未超过仓库返工上限（`reviewReturnBudget`，默认 2）时自动回到
 `active` 重开返工轮，提交它的 worker 会话被自动续跑并带上评审报告；超过上限则停在 `in_review` 等
-owner 处置（用 `ha task review-consent ... --dispose <id>` 处置该结论，或 supersede 任务）。到达上限后
-`ha task rework` 也会拒绝再次退回，直到 owner 在最近一次退回之后记下一条前提复核：
+owner 处置（用 `ha task review-consent ... --dispose <id>` 处置该结论，或 supersede 任务）。owner 可用
+`ha task rework` 再退回一次；此后 `ha task rework` 会拒绝再次退回，直到 owner 在最近一次退回之后记下一条前提复核：
 `ha fact record --task task_... --source review:premise --statement "restart: ... alternative: ... sunk-cost: ... conclusion: continue|narrow|stop"`；
 结论为 `stop` 时退回仍被拒绝。
 

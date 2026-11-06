@@ -226,17 +226,18 @@ test("owner rework past the rework budget requires a premise review recorded aft
         memoryTags: [],
       });
 
-  // Below the repository rework budget the owner returns cuts unasked.
+  // Up to the repository rework budget, and the one owner return its exhaustion asks for, the
+  // owner returns cuts unasked.
   const shown = await f.run({ kind: "task-show", taskId }),
     budget = (JSON.parse(String(shown.evidence)) as { returnBudget: number }).returnBudget;
-  for (let round = 0; round < budget; round += 1) {
+  for (let round = 0; round <= budget; round += 1) {
     const executionId = await submitRound(round);
-    // A premise review written before the latest return does not cover the round after it.
+    // A premise review written before the latest returns does not cover the round after them.
     if (round === budget - 1) await premise("continue");
     const returned = await rework(executionId);
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
   }
-  const pastBudget = await submitRound(budget);
+  const pastBudget = await submitRound(budget + 1);
   const before = f.events().revision;
   const refused = await rework(pastBudget);
   assert.equal(refused.code, "premise_review_required", JSON.stringify(refused));
