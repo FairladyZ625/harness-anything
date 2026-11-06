@@ -1,5 +1,6 @@
 import { backfillPgDecisionSearchPage } from "./pg-decision-search.ts";
 import { isPgDecisionReadReady } from "./pg-decision-read-status.ts";
+import { PG_EVENT_READ_INDEX_VERSION } from "./pg-event-read-index-migration.ts";
 import type { Pool } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
@@ -30,7 +31,7 @@ export function backfillPgReadIndexPage(pool: Pool, scope: PgProjectionScope, re
         ),
         sqlPage(
           `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-        AND read_index_version<5
+        AND read_index_version<${PG_EVENT_READ_INDEX_VERSION}
         UNION ALL SELECT 1 WHERE NOT EXISTS (
           SELECT 1 FROM ha_event_summary_state WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
           AND repo_id=$4 AND ready) LIMIT 1`,

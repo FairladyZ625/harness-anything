@@ -353,6 +353,16 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
         null,
         "all repositories backfilled and ready contract the pending index",
       );
+      // Completed summaries must not hide a newly introduced event-index generation.
+      await admin.query(
+        "UPDATE ha_events SET read_index_version=5 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+        [...keys, repoId],
+      );
+      const { projection } = createPgStorageBackend({ pool: fixture.pool, repoId, scope });
+      await assert.rejects(projection.readEventList({ entity: "missing", limit: 1 }), { code: "projection_pending" });
+      assert.deepEqual(await backfillPgReadIndexPage(fixture.pool, scope, repoId), { processed: 1, done: false });
+      assert.deepEqual(await backfillPgReadIndexPage(fixture.pool, scope, repoId), { processed: 0, done: true });
+      assert.deepEqual((await projection.readEventList({ entity: "missing", limit: 1 })).rows, []);
     } finally {
       admin.release();
     }

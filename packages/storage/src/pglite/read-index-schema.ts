@@ -196,6 +196,16 @@ export async function backfillPGliteIndexPage(client: PoolClient): Promise<{ pro
     ]);
   }
   // Metadata-only publication. Keep the prior tree until the compatibility window closes.
+  // Capture definitions before renaming: foreign keys follow the old relation OID,
+  // while the captured REFERENCES name must resolve to the published replacement.
+  const inbound = (
+    await client.query<{ schema_name: string; table_name: string; conname: string; definition: string }>(
+      `SELECT n.nspname AS schema_name,r.relname AS table_name,c.conname,pg_get_constraintdef(c.oid) AS definition
+      FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace
+      WHERE c.contype='f' AND c.confrelid=$1::regclass ORDER BY c.oid`,
+      [job.table_name],
+    )
+  ).rows;
   await client.query(`DROP TRIGGER ha_pglite_index_mirror ON ${identifier(job.table_name)}`);
   for (const [index, row] of job.indexes.entries()) {
     if (
@@ -212,6 +222,15 @@ export async function backfillPGliteIndexPage(client: PoolClient): Promise<{ pro
   await client.query(`ALTER TABLE ${identifier(job.staging)} RENAME TO ${identifier(job.table_name)}`);
   for (const row of job.indexes)
     await client.query(`ALTER INDEX ${identifier(row.staged)} RENAME TO ${identifier(row.name)}`);
+  for (const constraint of inbound) {
+    const table = `${identifier(constraint.schema_name)}.${identifier(constraint.table_name)}`;
+    // Every referenced PK was copied, and foreground writes/deletes mirrored in
+    // the same transaction. Rebinding preserves that key set. NOT VALID avoids a
+    // history scan on this single connection and still enforces every future write
+    // and the original cascade/deferrability rules. Never forge catalog validity.
+    await client.query(`ALTER TABLE ${table} DROP CONSTRAINT ${identifier(constraint.conname)},
+      ADD CONSTRAINT ${identifier(constraint.conname)} ${constraint.definition.replace(/ NOT VALID$/u, "")} NOT VALID`);
+  }
   await client.query("UPDATE ha_pglite_index_backfill SET complete=true WHERE table_name=$1", [job.table_name]);
   // Rebind materialization triggers/RLS to the published relation; no historical index is built here.
   await initializePGliteReadSchema(client);

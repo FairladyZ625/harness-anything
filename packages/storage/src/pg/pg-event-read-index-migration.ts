@@ -3,6 +3,8 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 
+export const PG_EVENT_READ_INDEX_VERSION = 6;
+
 const eventReadFields = {
   list_row: `json_build_object('revision',NEW.revision,'opId',NEW.op_id,'eventId',NEW.event_id,
     'schema',v->>'schema','type',NEW.event_type,'occurredAt',NEW.occurred_at,
@@ -141,7 +143,7 @@ export function eventReadIndexDdl(): readonly string[] {
         IF NEW.summary_json IS NULL THEN
           NEW.summary_json := ha_fleet_event_summary_from_jsonb(v);
         END IF;
-        NEW.read_index_version := 6;
+        NEW.read_index_version := ${PG_EVENT_READ_INDEX_VERSION};
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json,entity_refs ON ha_events
@@ -151,7 +153,7 @@ export function eventReadIndexDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v6 ON ha_events
-      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<6`,
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<${PG_EVENT_READ_INDEX_VERSION}`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,event_schema,revision)`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_entity_revision ON ha_events
@@ -221,7 +223,7 @@ export function eventReadIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,repo_id,revision FROM ha_events
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
-            AND (read_index_version<6 OR summary_json IS NULL)
+            AND (read_index_version<${PG_EVENT_READ_INDEX_VERSION} OR summary_json IS NULL)
           ORDER BY revision LIMIT 64 FOR UPDATE
         ), filled AS (
           UPDATE ha_events e SET event_json=e.event_json, summary_json=ha_fleet_event_summary(e.event_json) FROM batch b
