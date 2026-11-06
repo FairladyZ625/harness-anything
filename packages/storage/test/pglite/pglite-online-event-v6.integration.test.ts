@@ -106,8 +106,9 @@ async function seed(backend: Backend, size: number) {
   await backend.pool.query(`INSERT INTO ha_repo_heads
     (tenant_id,project_id,policy_epoch,repo_id,revision,head_op_id,head_event_digest,head_digest)
     VALUES('v6','v6',1,'v6',130,'fixture','fixture','fixture')`);
+  // This event-only fixture has no document history and a current artifact index.
   await backend.pool.query(`INSERT INTO ha_projection_meta
-    (tenant_id,project_id,policy_epoch,schema_version,watermark,source_revision) VALUES('v6','v6',1,5,130,130)`);
+    (tenant_id,project_id,policy_epoch,schema_version,watermark,source_revision,artifact_index_version) VALUES('v6','v6',1,5,130,130,1)`);
   await backend.pool.query(
     `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_digest,occurred_at,event_json,entity_refs)
     SELECT 'v6','v6',1,'v6',n,'event-'||n,'event-'||n,'task_created','fixture','2026-11-06',
