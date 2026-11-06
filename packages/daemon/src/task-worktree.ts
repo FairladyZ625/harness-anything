@@ -1,4 +1,13 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import {
   consumeKnownError,
@@ -506,18 +515,26 @@ export function writeTaskWorktreeExecutionBinding(
   leaseVersion: number,
   boundAt = new Date().toISOString(),
 ): void {
-  const file = taskWorktreeExecutionBindingPath(cwd, executionId);
+  const file = taskWorktreeExecutionBindingPath(cwd, executionId),
+    temporary = `${file}.tmp`;
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(
-    file,
-    `${JSON.stringify({
-      schema: "task-worktree-execution-binding/v1",
-      taskId,
-      executionId,
-      leaseVersion,
-      boundAt,
-    })}\n`,
-  );
+  // A failed write may leave complete bytes behind. Only the successful rename publishes proof;
+  // the previous marker remains fenced out by its lease version if preparation/publication fails.
+  try {
+    writeFileSync(
+      temporary,
+      `${JSON.stringify({
+        schema: "task-worktree-execution-binding/v1",
+        taskId,
+        executionId,
+        leaseVersion,
+        boundAt,
+      })}\n`,
+    );
+    renameSync(temporary, file);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }
 
 /** A partial or corrupt file is `invalid`, not "no marker": the read must answer unobservable with

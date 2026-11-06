@@ -6,10 +6,12 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import threads, { type WorkerOptions } from "node:worker_threads";
 import { sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
@@ -51,10 +53,13 @@ const taskId = "task-doc-sources",
   V1_APPENDIX = "Canonical V1 body.",
   V2_APPENDIX = "Worker V2 body.";
 
-async function startTaskWithTwoCuts(options: { readonly startBinding?: RepoCellBinding } = {}) {
+async function startTaskWithTwoCuts(
+  options: { readonly startBinding?: RepoCellBinding; readonly beforeOpen?: (root: string) => void } = {},
+) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-sources-")),
     repoId = workspaceId("task-doc-sources");
   initRepo(rootDir);
+  options.beforeOpen?.(rootDir);
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: repoId }),
     binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" }, "admin"),
     created = (await cell.run({ kind: "task-create", taskId, title: "Document sources" }, binding)) as {
@@ -330,7 +335,7 @@ test("a rejected competing start cannot overwrite the holder's marker", async ()
   }
 });
 
-test("a same-execution re-entry cannot reuse the previous lease generation's marker", async () => {
+test("a same-execution re-entry publishes a marker for the new lease generation", async () => {
   const fixture = await startTaskWithTwoCuts();
   try {
     const before = (await fixture.cell.read("repo.tasks.list")).rows.find((candidate) => candidate.taskId === taskId);
@@ -347,10 +352,40 @@ test("a same-execution re-entry cannot reuse the previous lease generation's mar
       (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
     );
     assert.ok(worktree, "the fixture must have a materialized execution worktree");
-    const markerPath = taskWorktreeExecutionBindingPath(worktree, executionId),
-      marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;
-    writeFileSync(markerPath, JSON.stringify({ ...marker, leaseVersion: firstLease.version }));
+    const marker = readTaskWorktreeExecutionBinding(worktree, executionId).binding;
+    assert.equal(marker?.leaseVersion, after?.snapshot.lease?.version);
+    assert.notEqual(marker?.leaseVersion, firstLease.version);
 
+    const observed = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(observed.source, "execution");
+    assert.equal(observed.execution?.leaseVersion, marker?.leaseVersion);
+    assert.equal(observed.body, fixture.v2Body);
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a same-execution checkout failure cannot reuse the previous lease's marker", async (t) => {
+  const fixture = await startFaultFixture(t);
+  try {
+    const worktree = executionWorktree(fixture),
+      markerPath = taskWorktreeExecutionBindingPath(worktree, executionId),
+      previousMarker = readFileSync(markerPath, "utf8");
+    const released = await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding);
+    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    writeFileSync(fixture.control, JSON.stringify({ kind: "checkout", target: worktree }));
+    const restarted = await fixture.cell.run({ kind: "task-start", taskId, executionId }, fixture.binding);
+    rmSync(fixture.control);
+    assert.equal(readFileSync(fixture.hit, "utf8"), "checkout", "the writer must hit the real checkout failure");
+    assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
+    assert.match(String(restarted.warnings?.join("\n")), /injected checkout failure/u);
+    assert.equal(readFileSync(markerPath, "utf8"), previousMarker, "the old proof is still on disk");
     const observed = (await fixture.cell.read("repo.tasks.document.read", {
       taskId,
       path: "task_plan.md",
@@ -359,11 +394,116 @@ test("a same-execution re-entry cannot reuse the previous lease generation's mar
     })) as DocumentRead;
     assert.equal(observed.source, "unobservable");
     assert.equal(observed.unobservableReason, "execution_workspace_stale_marker");
+    assert.equal(observed.body, "");
+    assert.equal(observed.blobSha256, null);
   } finally {
     await fixture.cell.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });
   }
 });
+
+test("a failed marker write cannot publish even complete new bytes over the old proof", async (t) => {
+  const fixture = await startFaultFixture(t);
+  try {
+    const worktree = executionWorktree(fixture),
+      markerPath = taskWorktreeExecutionBindingPath(worktree, executionId),
+      previousMarker = readFileSync(markerPath, "utf8"),
+      markerDirectory = path.dirname(markerPath);
+    const released = await fixture.cell.run({ kind: "task-release", taskId }, fixture.binding);
+    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    // A failed write can have written all bytes. Only a separate successful rename may publish proof.
+    writeFileSync(fixture.control, JSON.stringify({ kind: "write", target: markerDirectory }));
+    const restarted = await fixture.cell.run({ kind: "task-start", taskId, executionId }, fixture.binding);
+    rmSync(fixture.control);
+    assert.equal(readFileSync(fixture.hit, "utf8"), "write", "the writer must hit the marker write failure");
+    assert.equal(restarted.outcome, "applied", "the committed start must not be reported as rejected");
+    assert.match(String(restarted.warnings?.join("\n")), /execution marker was not written/u);
+    const observed = (await fixture.cell.read("repo.tasks.document.read", {
+      taskId,
+      path: "task_plan.md",
+      view: "execution",
+      executionId,
+    })) as DocumentRead;
+    assert.equal(observed.source, "unobservable", "failed marker publication cannot be trusted");
+    assert.equal(observed.unobservableReason, "execution_workspace_stale_marker");
+    assert.equal(observed.body, "");
+    assert.equal(observed.execution, null);
+    assert.equal(readFileSync(markerPath, "utf8"), previousMarker, "the previous generation stays intact");
+    assert.deepEqual(readdirSync(markerDirectory), [path.basename(markerPath)], "temporary proof is cleaned up");
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+/** Inject inside the real RepoCell writer, as runtime-observation-fault's worker preload does. */
+async function startFaultFixture(t: TestContext) {
+  let control = "",
+    hit = "";
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const fixture = await startTaskWithTwoCuts({
+    beforeOpen(root) {
+      control = path.join(root, ".harness", "marker-test-fault.json");
+      hit = path.join(root, ".harness", "marker-test-fault-hit");
+      const preload = `
+import fs from "node:fs";
+import path from "node:path";
+import { syncBuiltinESMExports } from "node:module";
+const nativeExists = fs.existsSync, nativeWrite = fs.writeFileSync;
+function fail(kind, target) {
+  if (!nativeExists(${JSON.stringify(control)})) return;
+  const fault = JSON.parse(fs.readFileSync(${JSON.stringify(control)}, "utf8"));
+  if (fault.kind === kind && String(target) === fault.target) {
+    nativeWrite(${JSON.stringify(hit)}, kind);
+    throw new Error("injected " + kind + " failure");
+  }
+}
+fs.existsSync = function(target) { fail("checkout", target); return nativeExists(target); };
+fs.writeFileSync = function(...args) {
+  nativeWrite(...args);
+  fail("write", path.dirname(String(args[0])));
+};
+syncBuiltinESMExports();
+`;
+      const NativeWorker = threads.Worker;
+      t.mock.method(
+        threads,
+        "Worker",
+        class extends NativeWorker {
+          constructor(filename: string | URL, options: WorkerOptions = {}) {
+            const writer = String(filename).includes("repo-writer-worker.") && options.workerData?.role !== "reader";
+            super(
+              filename,
+              writer
+                ? {
+                    ...options,
+                    execArgv: [
+                      ...(options.execArgv ?? []),
+                      "--import",
+                      `data:text/javascript,${encodeURIComponent(preload)}`,
+                    ],
+                  }
+                : options,
+            );
+          }
+        },
+      );
+      syncBuiltinESMExports();
+    },
+  });
+  return { ...fixture, control, hit };
+}
+
+function executionWorktree(fixture: { readonly rootDir: string; readonly packagePath: string }): string {
+  const worktree = worktreeRoots(fixture.rootDir).find(
+    (root) => root !== fixture.rootDir && existsSync(path.join(root, "harness", fixture.packagePath, "task_plan.md")),
+  );
+  assert.ok(worktree, "the fixture must have a materialized execution worktree");
+  return worktree;
+}
 
 test("a marker write failure keeps the applied start and leaves observation unobservable", async () => {
   const fixture = await startTaskWithTwoCuts();
