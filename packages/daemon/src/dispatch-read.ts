@@ -972,7 +972,13 @@ function canonicalDispatchRow(
     ...(squadRunId === undefined ? {} : { squadRunId }),
     ...(squadChildTaskIds === undefined ? {} : { squadChildTaskIds }),
     providerSessionId,
-    eventStreamRef: dispatchStream?.header.eventStreamRef ?? null,
+    // The running edge publishes its transcript ref with the provider binding; a settled edge
+    // dispatch also archives the same ref into its dispatch document. Either one survives the
+    // center read, where no local stream exists to answer for it.
+    eventStreamRef:
+      dispatchStream?.header.eventStreamRef ??
+      session?.transcriptRef ??
+      (typeof archive?.eventStreamRef === "string" ? archive.eventStreamRef : null),
     startedAt: payload.startedAt ?? event.occurredAt,
     endedAt: outcomeEvent?.payload.endedAt ?? (outcome !== null ? (session?.lastObservedAt ?? event.occurredAt) : null),
     outcome,
@@ -996,6 +1002,70 @@ function canonicalDispatchRow(
     // on this canonical row even when the decision annotation store has since evicted the advisory.
     ...(decisionAction === null ? {} : { decisionAction }),
   };
+}
+
+/**
+ * Join the executing node's own dispatch stream into rows served by the center. The center keeps
+ * the canonical identity, task and outcome fields; only the evidence that can exist solely on the
+ * node that ran the provider is replaced: the live activity judgment, the progress clock, the
+ * process fact and the transcript ref. A row whose stream is not on this node is returned untouched,
+ * so a plain center read behaves exactly as before.
+ */
+export function withLocalDispatchStreamEvidence(
+  rows: readonly TaskDispatchRow[],
+  input: { readonly rootDir: string; readonly nowMs?: number },
+): readonly TaskDispatchRow[] {
+  const nowMs = input.nowMs ?? Date.now();
+  return rows.map((row) => {
+    const stream = readDispatchStreamSummary(input.rootDir, row.dispatchId);
+    if (stream === null) return row;
+    const eventStreamRef = stream.header.eventStreamRef;
+    // A submitted implementation waits on the PR/CI/review path; that canonical judgment outranks
+    // any provider frame still trickling in locally.
+    if (row.status !== "running" || row.activityStatus === "waiting") return { ...row, eventStreamRef };
+    const processAlive =
+        stream.process === null || stream.process === undefined
+          ? null
+          : stream.process.exited === true
+            ? false
+            : runtimePidIsAlive(stream.process.pid),
+      providerUnreachable = providerConnectionFailure({
+        lastProgressAt: stream.lastProgressAt,
+        providerReconnect: stream.lastProviderReconnect,
+        processAlive,
+        ...(stream.header.stallTimeoutMs === undefined ? {} : { stallTimeoutMs: stream.header.stallTimeoutMs }),
+      }),
+      lastObservedAt = latestRuntimeActivityAt([
+        ...(row.lastObservedAt === undefined ? [row.startedAt] : [row.lastObservedAt]),
+        stream.lastObservedAt,
+      ]),
+      activityObservedAt = stream.lastProgressAt,
+      { providerUnreachable: _reported, ...rest } = row;
+    return {
+      ...rest,
+      eventStreamRef,
+      lastObservedAt,
+      activityStatus: dispatchActivityStatus(
+        {
+          status: row.status,
+          taskStatus: undefined,
+          role: row.role,
+          lastObservedAt: activityObservedAt,
+          lastProgressAt: stream.lastProgressAt,
+          stallTimeoutMs: stream.header.stallTimeoutMs,
+          stalledAt: stream.stalledAt,
+          processAlive,
+          providerActivity: stream.lastProviderActivity?.kind ?? null,
+          providerReconnect: stream.lastProviderReconnect ?? null,
+          reportedProviderUnreachable: null,
+        },
+        nowMs,
+      ),
+      activityObservedAt,
+      activityIdleMinutes: dispatchActivityIdleMinutes(activityObservedAt, nowMs),
+      ...(providerUnreachable === null ? {} : { providerUnreachable }),
+    };
+  });
 }
 
 /**

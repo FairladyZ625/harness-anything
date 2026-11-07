@@ -39,9 +39,11 @@ import type { DaemonHost } from "./daemon-host.ts";
 import {
   canonicalRoot,
   commandDescriptorForAction,
+  type DaemonGuiReadResultMap,
   type DaemonGuiRpcReadMethod,
 } from "./protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
+import { withLocalDispatchStreamEvidence } from "./dispatch-read.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
@@ -932,7 +934,7 @@ export function createDaemonHostRepositoryApi(
           if (!config)
             throw context.hostCodedError("fleet_edge_config_missing", "Center reads require fleet-edge.json.");
           try {
-            return parseDaemonGuiReadResult(
+            const result = parseDaemonGuiReadResult(
               method,
               await readFleetOperationalClient({
                 hostname: config.host,
@@ -949,6 +951,10 @@ export function createDaemonHostRepositoryApi(
                   (await context.oidc.bind(auth, edge.canonicalRoot!)).oidcPrincipal?.accessToken,
               }),
             );
+            // The center holds the canonical row but not this node's dispatch stream. Join the
+            // stream back in here, where the provider evidence actually lives, instead of
+            // teaching the center to judge a file it cannot read.
+            return withEdgeDispatchStreams(method, result, edge.canonicalRoot);
           } catch (error) {
             if (
               method === "repo.fleet.overview.read" &&
@@ -1110,4 +1116,19 @@ export function createDaemonHostRepositoryApi(
       return parseDaemonGuiReadResult(method, result);
     },
   };
+}
+
+/** The center owns the canonical dispatch row; only the file-backed evidence that exists on this
+ *  node is joined here, so the result type stays exactly the method-mapped public read shape. */
+function withEdgeDispatchStreams<M extends DaemonGuiRpcReadMethod>(
+  method: M,
+  result: DaemonGuiReadResultMap[M],
+  rootDir: string,
+): DaemonGuiReadResultMap[M] {
+  if (method !== "repo.task.dispatches") return result;
+  const dispatches = result as DaemonGuiReadResultMap["repo.task.dispatches"];
+  return {
+    ...dispatches,
+    dispatches: withLocalDispatchStreamEvidence(dispatches.dispatches, { rootDir }),
+  } as DaemonGuiReadResultMap[M];
 }

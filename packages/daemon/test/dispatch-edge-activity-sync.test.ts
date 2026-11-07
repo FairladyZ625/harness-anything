@@ -1,30 +1,27 @@
 // harness-test-tier: fast
-// Edge dispatches execute their provider stream on the edge node, but `repo.task.dispatches`
-// behind `ha task dispatches` is served by the center. These cases pin the two fields that were
-// lost at that boundary: the transcript ref the executing node already published, and the live
-// provider activity that never reached the center's projection. The center-shaped projection
-// below deliberately has no local dispatch stream, exactly like the center daemon.
+// Edge dispatches execute their provider stream on the edge node, while `repo.task.dispatches`
+// behind `ha task dispatches` is served by the center. The center keeps the canonical row; the
+// read on the executing node must join back the evidence that only exists there: the live
+// activity judgment and the transcript ref. The center-shaped projection below deliberately has
+// no local dispatch stream, exactly like the center daemon. The two instances named by the
+// incident are covered: the DeepSeek Harness worker on ds-bailian and the Codex worker on
+// codex-api.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
-import { dispatchProviderActivity } from "../src/dispatch-activity.ts";
-import { readTaskDispatches } from "../src/dispatch-read.ts";
-import { noteProviderProgress } from "../src/runtime-provider-connectivity.ts";
-import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import { readTaskDispatches, withLocalDispatchStreamEvidence } from "../src/dispatch-read.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 const dispatchId = "dispatch_5beaecffdf966066d2816b0d",
   runtimeSessionId = "runtime_c55acf69e24aca9e79143d30",
   taskId = "task_edge_activity",
-  taskPackagePath = "tasks/task_edge_activity";
+  taskPackagePath = "tasks/task_edge_activity",
+  executionId = "execution_edge_activity";
 type Dispatch = Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
 
-/** The instances named by the incident: the DeepSeek Harness worker on ds-bailian and the Codex
- *  worker on codex-api. `dispatchProviderActivity` falls through to the shared ACP vocabulary for
- *  the deepseek-harness kind, so both kinds must reduce the same tool frame to `tool`. */
 const edgeInstances = [
   {
     kindId: "deepseek-harness",
@@ -43,7 +40,6 @@ function edgeSession(input: {
   readonly instanceId: string;
   readonly transcriptRef: string | null;
   readonly lastObservedAt: string;
-  readonly activity?: RuntimeSession["activity"];
 }): RuntimeSession {
   return {
     runtimeSessionId,
@@ -61,7 +57,6 @@ function edgeSession(input: {
     exitCode: null,
     resultRef: null,
     lastObservedAt: input.lastObservedAt,
-    ...(input.activity === undefined ? {} : { activity: input.activity }),
   };
 }
 
@@ -74,7 +69,7 @@ function dispatchEvent(session: RuntimeSession, startedAt: string): Dispatch {
       dispatchId,
       runtimeSessionId,
       taskId,
-      executionId: "execution-edge",
+      executionId,
       instanceId: session.instanceId,
       definitionSnapshotRef: session.definitionSnapshotRef,
       attemptGroupId: dispatchId,
@@ -97,15 +92,28 @@ function dispatchEvent(session: RuntimeSession, startedAt: string): Dispatch {
 }
 
 /** A center-side projection: the canonical session plus its dispatch event, and no local stream. */
-function centerProjection(session: RuntimeSession): TaskProjection {
-  const event = dispatchEvent(session, session.lastObservedAt);
+function centerProjection(
+  session: RuntimeSession,
+  options: {
+    readonly taskStatus?: string;
+    readonly archive?: Record<string, unknown>;
+  } = {},
+): TaskProjection {
+  const event = dispatchEvent(session, session.lastObservedAt),
+    dispatchDocumentPath = `${taskPackagePath}/artifacts/dispatches/${dispatchId}.json`;
   return {
     readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
     read: () => ({
       watermark: 1,
       sourceRevision: 1,
       packagePath: taskPackagePath,
-      snapshot: { task: { taskId, title: "edge dispatch" } },
+      snapshot: {
+        task: {
+          taskId,
+          title: "edge dispatch",
+          ...(options.taskStatus === undefined ? {} : { status: options.taskStatus }),
+        },
+      },
     }),
     readTaskRuntimeBatch: () => ({
       status: "ready",
@@ -119,7 +127,10 @@ function centerProjection(session: RuntimeSession): TaskProjection {
     readRuntimeDispatchByResumeSource: () => null,
     readRuntimeDispatchesByAttemptGroup: () => [],
     readRuntimeSessionEventsByType: () => [],
-    readDocument: () => ({ document: null }),
+    readDocument: (documentPath: string) =>
+      options.archive && documentPath === dispatchDocumentPath
+        ? { document: { path: documentPath, body: JSON.stringify(options.archive) } }
+        : { document: null },
     readTaskRelationsBySources: () => ({ rows: [] }),
     readLeaseIntervals: () => [],
     readCanonicalEvents: () => ({ events: [] }),
@@ -127,32 +138,38 @@ function centerProjection(session: RuntimeSession): TaskProjection {
   } as unknown as TaskProjection;
 }
 
-function activeEdgeRuntime(input: {
-  readonly kindId: string;
-  readonly instanceId: string;
-  readonly frame: Record<string, unknown>;
-  readonly now: number;
+/** The executing node's own stream: a live process plus one provider frame of the named kind. */
+function writeEdgeStream(input: {
+  readonly rootDir: string;
+  readonly instance: (typeof edgeInstances)[number];
   readonly startedAt: string;
-}): ActiveRuntime {
-  return {
-    runtimeSessionId,
+  readonly frameAt: string;
+}): void {
+  openDispatchStream(input.rootDir, {
     dispatchId,
-    kindId: input.kindId,
-    instanceId: input.instanceId,
-    binding: {},
-    stalledAt: null,
-    providerUnreachable: null,
-    lastRealProgressAtMs: input.now,
-    lastProgressAtMs: input.now,
-    lastProviderActivity: dispatchProviderActivity(input.kindId, input.frame),
-    lastActivityReportedAtMs: Date.parse(input.startedAt),
-  } as unknown as ActiveRuntime;
+    taskId,
+    executionId,
+    runtimeSessionId,
+    instanceId: input.instance.instanceId,
+    kindId: input.instance.kindId,
+    startedAt: input.startedAt,
+  });
+  appendRuntimeWorkerRecord(input.rootDir, dispatchId, {
+    kind: "process_started",
+    occurredAt: input.startedAt,
+    pid: process.pid,
+  });
+  appendRuntimeWorkerRecord(input.rootDir, dispatchId, {
+    kind: "provider_event",
+    occurredAt: input.frameAt,
+    event: input.instance.toolFrame,
+  });
 }
 
 test("an edge dispatch row carries the transcript ref the executing node published", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-edge-transcript-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
-  const startedAt = "2026-11-07T11:40:00.000Z",
+  const startedAt = "2026-11-07T03:40:00.000Z",
     transcriptRef = `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
     row = readTaskDispatches({
       projection: centerProjection(
@@ -164,32 +181,101 @@ test("an edge dispatch row carries the transcript ref the executing node publish
   assert.equal(row.eventStreamRef, transcriptRef);
 });
 
+test("a settled edge dispatch keeps its transcript ref from the archived dispatch document", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-edge-archive-transcript-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const startedAt = "2026-11-07T03:40:00.000Z",
+    transcriptRef = `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
+    row = readTaskDispatches({
+      projection: centerProjection(
+        edgeSession({ kindId: "codex", instanceId: "codex-api", transcriptRef: null, lastObservedAt: startedAt }),
+        { archive: { schema: "runtime-dispatch/v1", eventStreamRef: transcriptRef } },
+      ),
+      taskId,
+      rootDir,
+    }).dispatches[0]!;
+  assert.equal(row.eventStreamRef, transcriptRef);
+});
+
+test("an ended edge dispatch still gets its transcript ref from the local stream", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-edge-ended-")),
+    now = Date.now(),
+    startedAt = new Date(now - 40 * 60_000).toISOString(),
+    frameAt = new Date(now - 30 * 60_000).toISOString();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  writeEdgeStream({ rootDir, instance: edgeInstances[1], startedAt, frameAt });
+  const ended: RuntimeSession = {
+    ...edgeSession({
+      kindId: "codex",
+      instanceId: "codex-api",
+      transcriptRef: null,
+      lastObservedAt: frameAt,
+    }),
+    liveness: "exited",
+    outcome: "succeeded",
+    exitCode: 0,
+  };
+  const row = readTaskDispatches({ projection: centerProjection(ended), taskId }).dispatches[0]!;
+  assert.equal(row.status, "succeeded");
+  assert.equal(row.eventStreamRef, null);
+  const [joined] = withLocalDispatchStreamEvidence([row], { rootDir, nowMs: now });
+  assert.equal(joined?.activityStatus, "unknown");
+  assert.equal(joined?.eventStreamRef, `file:.harness/runtime/dispatches/${dispatchId}.jsonl`);
+});
+
 for (const instance of edgeInstances) {
-  test(`the executing node reports ${instance.instanceId} provider activity to the center`, async () => {
-    const now = Date.parse("2026-11-07T12:20:00.000Z"),
+  test(`the executing node joins ${instance.instanceId} activity into the center's running row`, (t) => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-edge-activity-")),
+      now = Date.now(),
       startedAt = new Date(now - 40 * 60_000).toISOString(),
-      published: { readonly type: string; readonly payload: Record<string, unknown> }[] = [],
-      context = {
-        input: { now: () => new Date(now).toISOString() },
-        exiting: new Set<string>(),
-        publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
-          published.push({ type, payload });
-          return {};
-        },
-      } as unknown as RuntimeSpawnerContext,
-      active = activeEdgeRuntime({
-        kindId: instance.kindId,
-        instanceId: instance.instanceId,
-        frame: instance.toolFrame,
-        now,
-        startedAt,
-      });
-    await noteProviderProgress(context, active, now);
-    assert.equal(published.length, 1);
-    assert.equal(published[0]?.type, "runtime_session_liveness_changed");
-    assert.deepEqual(published[0]?.payload.activity, {
-      providerActivity: "tool",
-      lastProgressAt: new Date(now).toISOString(),
-    });
+      frameAt = new Date(now - 5_000).toISOString(),
+      transcriptRef = `file:.harness/runtime/dispatches/${dispatchId}.jsonl`;
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    writeEdgeStream({ rootDir, instance, startedAt, frameAt });
+    const row = readTaskDispatches({
+      projection: centerProjection(
+        edgeSession({
+          kindId: instance.kindId,
+          instanceId: instance.instanceId,
+          transcriptRef,
+          lastObservedAt: startedAt,
+        }),
+      ),
+      taskId,
+    }).dispatches[0]!;
+    // Negative control: with no stream on this node the center can only see the session's
+    // 40-minute-old start observation, so it must call the working dispatch silent.
+    assert.equal(row.activityStatus, "silent");
+    assert.equal(row.eventStreamRef, transcriptRef);
+    const [joined] = withLocalDispatchStreamEvidence([row], { rootDir, nowMs: now });
+    assert.equal(joined?.activityStatus, "tool");
+    assert.equal(joined?.activityObservedAt, frameAt);
+    assert.equal(joined?.activityIdleMinutes, 0);
+    assert.equal(joined?.eventStreamRef, transcriptRef);
+    assert.equal(joined?.providerUnreachable, undefined);
   });
 }
+
+test("a submitted implementation stays waiting even when local provider frames keep arriving", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-edge-waiting-")),
+    now = Date.now(),
+    startedAt = new Date(now - 40 * 60_000).toISOString(),
+    frameAt = new Date(now - 5_000).toISOString();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  writeEdgeStream({ rootDir, instance: edgeInstances[0], startedAt, frameAt });
+  const row = readTaskDispatches({
+    projection: centerProjection(
+      edgeSession({
+        kindId: edgeInstances[0].kindId,
+        instanceId: edgeInstances[0].instanceId,
+        transcriptRef: null,
+        lastObservedAt: startedAt,
+      }),
+      { taskStatus: "submitted" },
+    ),
+    taskId,
+  }).dispatches[0]!;
+  assert.equal(row.activityStatus, "waiting");
+  const [joined] = withLocalDispatchStreamEvidence([row], { rootDir, nowMs: now });
+  assert.equal(joined?.activityStatus, "waiting");
+});

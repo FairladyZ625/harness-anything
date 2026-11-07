@@ -8,6 +8,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { decisionReadSurfaces } from "@harness-anything/kernel";
 
 // Real center projection + local-only annotations + authenticated edge JSON-RPC read.
@@ -169,6 +170,83 @@ test(
       (unpagedFull.dispatches[0]?.advisories?.[0] as typeof advisory | undefined)?.options[0]?.text,
       "长评审依据".repeat(30_000),
     );
+    // The center owns the canonical row but not this node's dispatch stream. Join the stream
+    // back in on the edge read, and keep the center read free of evidence it cannot observe.
+    const runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
+      transcriptRef = `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
+      ingress = (type: string, payload: Record<string, unknown>) =>
+        f.host.runtimeIngress(
+          "lease-repo",
+          { kind: "event", type, opId: `runtime-${type}-${hash.slice(0, 16)}`, payload },
+          localAuthFixture(),
+        );
+    assert.equal(
+      (
+        await ingress("runtime_session_started", {
+          runtimeSessionId,
+          instanceId: "fixture-runtime",
+          installationId: "fixture-installation",
+          kindId: "codex",
+          definitionSnapshotRef: "artifact:runtime-definition/advisory-edge",
+          launchGeneration: 1,
+          attachable: true,
+        })
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await ingress("runtime_session_provider_bound", {
+          runtimeSessionId,
+          providerSessionId: "provider-session-edge",
+          transcriptRef,
+        })
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await ingress("runtime_session_task_bound", {
+          runtimeSessionId,
+          taskId: "advice-task",
+          executionId: started.receipt!.executionId,
+          providerSessionId: "provider-session-edge",
+          transcriptRef,
+        })
+      ).outcome,
+      "applied",
+    );
+    openDispatchStream(e.edgeRoot, {
+      dispatchId,
+      taskId: "advice-task",
+      executionId: started.receipt!.executionId,
+      runtimeSessionId,
+      instanceId: "fixture-runtime",
+      kindId: "codex",
+      startedAt: new Date().toISOString(),
+    });
+    appendRuntimeWorkerRecord(e.edgeRoot, dispatchId, {
+      kind: "process_started",
+      occurredAt: new Date().toISOString(),
+      pid: process.pid,
+    });
+    appendRuntimeWorkerRecord(e.edgeRoot, dispatchId, {
+      kind: "provider_event",
+      occurredAt: new Date().toISOString(),
+      event: { type: "item.started", item: { type: "command_execution" } },
+    });
+    const centerRow = (
+        await f.host.read("lease-repo", "repo.task.dispatches", { taskId: "advice-task" }, localAuthFixture())
+      ).dispatches[0]!,
+      edgeRow = (await read()).dispatches[0]!;
+    // The center only has the canonical session's last observation, so it shows the generic live
+    // state and cannot name a transcript it never received. The edge joins its own stream and
+    // reports the real tool activity plus the transcript ref the row was missing.
+    assert.equal(centerRow.activityStatus, "thinking");
+    assert.equal(centerRow.eventStreamRef, null);
+    assert.equal(edgeRow.eventStreamRef, transcriptRef);
+    assert.equal(edgeRow.activityStatus, "tool");
+
     await store.remove(dispatchId);
     assert.equal((await read()).dispatches[0]!.advisories, undefined);
     assert.equal(existsSync(path.join(e.edgeRoot, ".harness/decision-annotations.json")), false);
