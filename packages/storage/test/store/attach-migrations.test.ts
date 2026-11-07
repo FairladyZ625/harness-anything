@@ -64,6 +64,31 @@ function fakeStore(initial: readonly PersistedCanonicalEventV1[]) {
   return { store, events, reads, watermarks };
 }
 
+function canonicalDispatchFakeStore(initial: readonly PersistedCanonicalEventV1[]) {
+  const fixture = fakeStore(initial),
+    { events } = fixture,
+    base = fixture.store as unknown as Record<string, unknown>;
+  base.ledgerMetadata = () => ({ repoId: "legacy-repo", generation: 3, revision: events.length });
+  base.queryEvents = ({ type, limit }: { readonly type?: string; readonly limit: number }) =>
+    events
+      .filter((event) => type === undefined || event.type === type)
+      .slice(-limit)
+      .reverse();
+  base.readDispatchLifecycleMigrationEvents = () => events.filter((event) => event.schema === "agent-runtime-event/v1");
+  base.append = ({
+    event,
+    preceding,
+  }: {
+    readonly event: PersistedCanonicalEventV1;
+    readonly preceding?: readonly { readonly event: PersistedCanonicalEventV1 }[];
+  }) => {
+    for (const bundle of preceding ?? []) events.push(bundle.event);
+    events.push(event);
+    return {};
+  };
+  return fixture;
+}
+
 const actor = { principal: { personId: "fixture" }, executor: null } as const;
 const envelope = (schema: string, payload: unknown, opId: string, workspaceRevision = 1): PersistedCanonicalEventV1 =>
   ({
@@ -101,6 +126,7 @@ test("attach migration registry covers each retired historical field and is idem
       "runtime.reviewDispatchKey",
       "vertical.completion.sources",
       "vertical.completion.closeoutCodeDoc",
+      "dispatch-lifecycle.import",
       "submission.delivery-facts",
       "review.finding.category",
       "task.packageDisposition",
@@ -206,6 +232,92 @@ test("attach migration registry covers each retired historical field and is idem
   assert.equal(reads.readBatch, 1, "a completed migration set does not rescan the event history");
 });
 
+test("dispatch lifecycle attach imports unfinished legacy groups with all attempts and settles unknown ownership", () => {
+  const request = (revision: number, dispatchId: string, sessionId: string, attemptIndex: number) =>
+      ({
+        ...envelope(
+          "agent-runtime-event/v1",
+          {
+            dispatchId,
+            runtimeSessionId: sessionId,
+            instanceId: "instance-legacy",
+            installationId: "installation-legacy",
+            kindId: "codex",
+            dispatchKey: `legacy-${dispatchId}`,
+            definitionSnapshotRef: "artifact:runtime-definition/legacy",
+            definitionSnapshot: {},
+            attemptGroupId: "group-legacy",
+            attemptIndex,
+            taskId: "task-legacy",
+            executionId: "execution-legacy",
+            leaseVersion: 7,
+            cwd: "/repo/workspace",
+          },
+          `legacy-request-${revision}`,
+          revision,
+        ),
+        type: "runtime_dispatch_requested",
+      }) as unknown as PersistedCanonicalEventV1,
+    started = {
+      ...envelope("agent-runtime-event/v1", { runtimeSessionId: "session-closed" }, "legacy-started", 2),
+      type: "runtime_session_started",
+    } as unknown as PersistedCanonicalEventV1,
+    closedOutcome = {
+      ...envelope(
+        "agent-runtime-event/v1",
+        {
+          runtimeSessionId: "session-closed",
+          outcome: "succeeded",
+          exitCode: 0,
+          resultRef: "artifact:runtime-result/legacy",
+          result: null,
+        },
+        "legacy-outcome",
+        3,
+      ),
+      type: "runtime_session_outcome_observed",
+    } as unknown as PersistedCanonicalEventV1,
+    { store, events } = canonicalDispatchFakeStore([
+      request(1, "dispatch-closed", "session-closed", 0),
+      started,
+      closedOutcome,
+      request(4, "dispatch-active", "session-active", 1),
+    ]);
+
+  const first = applyAttachMigrations({ store, now: () => "2026-11-08T00:00:00.000Z" });
+  assert.deepEqual(first.applied, ["dispatch-lifecycle.import"]);
+  const lifecycle = events.find((event) => event.type === "runtime_dispatch_lifecycle_observed");
+  assert.ok(lifecycle);
+  const imported = (lifecycle.payload as { readonly lifecycle: { readonly group: Record<string, unknown> } }).lifecycle
+    .group;
+  assert.equal(imported.phase, "settling");
+  assert.equal(imported.ownerFenceVerified, false);
+  assert.equal(imported.attempts.length, 2);
+  assert.equal(imported.attempts[0].phase, "closed");
+  assert.equal(imported.attempts[0].capacity, "released");
+  assert.equal(imported.attempts[1].phase, "starting");
+  assert.equal(imported.attempts[1].capacity, "held");
+  assert.deepEqual(imported.attempts[1].taskLease, {
+    taskId: "task-legacy",
+    executionId: "execution-legacy",
+    version: 7,
+  });
+  assert.equal(events.filter((event) => event.type === "runtime_dispatch_lifecycle_observed").length, 1);
+  const second = applyAttachMigrations({ store, now: () => "2026-11-08T00:00:01.000Z" });
+  assert.deepEqual(second.applied, []);
+  assert.equal(events.filter((event) => event.type === "runtime_dispatch_lifecycle_observed").length, 1);
+});
+
+test("dispatch lifecycle migration uses the indexed candidate cut instead of scanning queryEvents", () => {
+  const fixture = canonicalDispatchFakeStore([]),
+    base = fixture.store as unknown as Record<string, unknown>;
+  base.queryEvents = () => {
+    throw new Error("migration must not scan the canonical history when indexed candidates are available");
+  };
+  const result = applyAttachMigrations({ store: fixture.store, now: () => "2026-11-08T00:00:00.000Z" });
+  assert.deepEqual(result.applied, ["dispatch-lifecycle.import"]);
+});
+
 test("zero-match attach scans persist their local watermark and skip an unchanged head", () => {
   const { store, events, reads, watermarks } = fakeStore([
     envelope("task-event/v1", { task: { title: "Historical one" } }, "historical-one", 1),
@@ -213,7 +325,7 @@ test("zero-match attach scans persist their local watermark and skip an unchange
   ]);
 
   applyAttachMigrations({ store });
-  assert.equal(events.length, 2, "zero matches do not append canonical marker events");
+  assert.equal(events.length, 2, "shape-only test stores do not run the canonical lifecycle import");
   assert.deepEqual(
     [...watermarks],
     attachMigrationRegistry.filter((entry) => entry.kind === "event-migration").map(({ name }) => [name, 2]),
@@ -268,7 +380,7 @@ test("a watermark ahead of the rolled-back head is discarded and rescanned", () 
 
   assert.deepEqual(reads.scannedRevisions, [1], "the stale watermark causes a scan from revision zero");
   assert.equal(reads.readBatch, previousReadBatches + 1);
-  assert.equal(events.length, 1, "a zero-match rescan does not append an event");
+  assert.equal(events.length, 1, "a zero-match rescan appends no lifecycle marker");
   assert.ok([...watermarks.values()].every((revision) => revision === 1));
 });
 
@@ -377,7 +489,7 @@ test("legacy submission facts stay readable without an attach migration event", 
     false,
   );
   assert.deepEqual(applyAttachMigrations({ store }).applied, []);
-  assert.equal(events.length, 1, "a read conclusion does not append a zero-match migration event");
+  assert.equal(events.length, 1, "read conclusions do not append a lifecycle marker");
   assert.deepEqual(
     (events[0] as unknown as { payload: { execution: { submission: unknown } } }).payload.execution.submission,
     legacySubmission,

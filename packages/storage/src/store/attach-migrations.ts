@@ -1,5 +1,10 @@
 import type { ActorIdentity } from "@harness-anything/kernel/internal/domain/actor-identity.ts";
 import {
+  migrateUnclosedDispatchGroup,
+  type DispatchLifecycleAttempt,
+  type DispatchLifecycleGroup,
+} from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import {
   eventShapeMigrationNames,
   eventShapeMigrationWritePlan,
   isEventShapeMigrationEvent,
@@ -10,11 +15,20 @@ import {
   type EventShapeMigrationEventV1,
   type EventShapeMigrationName,
 } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
-import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
+import type {
+  CanonicalEventV1,
+  PersistedCanonicalEventV1,
+} from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
+import {
+  isAgentRuntimeEvent,
+  type AgentRuntimeEventV1,
+} from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { isRecord } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { RETIRED_SETTINGS_PATHS } from "@harness-anything/kernel/internal/domain/settings.ts";
 import { historicalReadConclusions } from "@harness-anything/kernel/internal/domain/index.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import { isRecord } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import { canonicalEventWritePlan } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
+import type { CanonicalWriteBundle } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 export type AttachMigrationRegistryEntry =
   | Readonly<{
@@ -32,6 +46,11 @@ export type AttachMigrationRegistryEntry =
       readonly fields: readonly string[];
       readonly attachRequired: false;
       readonly conclusion: string;
+    }>
+  | Readonly<{
+      readonly kind: "dispatch-lifecycle-import";
+      readonly name: "dispatch-lifecycle.import";
+      readonly fields: readonly string[];
     }>;
 
 function taskOverrideAt(event: PersistedCanonicalEventV1, key: "fact" | "codeDoc"): boolean {
@@ -289,6 +308,11 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     fields: ["Vertical.completion.closeoutDefaults.codeDoc"],
     matches: hasRetiredVerticalCloseoutCodeDoc,
   },
+  {
+    kind: "dispatch-lifecycle-import",
+    name: "dispatch-lifecycle.import",
+    fields: ["RuntimeDispatchRequested", "RuntimeSessionFacts", "DispatchLifecycleProjection"],
+  },
   ...historicalReadConclusions,
 ]);
 
@@ -302,6 +326,231 @@ if (
   throw new Error("retired persisted schema fields must have exactly one attach migration registration");
 
 const defaultMigrationActor: ActorIdentity = { principal: { personId: "daemon-upgrade" }, executor: null };
+
+const dispatchLifecycleMigrationVersion = "dispatch-lifecycle/v1";
+
+type HistoricalDispatchGroup = {
+  readonly dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
+  readonly started: boolean;
+  readonly exited: boolean;
+  readonly outcome: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> | null;
+};
+
+function runtimeEventsByType(
+  store: CanonicalEventStore,
+  type: AgentRuntimeEventV1["type"],
+): readonly AgentRuntimeEventV1[] {
+  // Both SQLite and PG answer this through the runtime type index. Page by the canonical revision
+  // bound rather than using readBatch, so attach never walks unrelated event types and remains
+  // within the shared 500-row query contract.
+  if (!store.queryEvents) return [];
+  const events: AgentRuntimeEventV1[] = [];
+  let revisionBound: number | undefined;
+  for (;;) {
+    const page = store.queryEvents({ type, limit: 500, ...(revisionBound === undefined ? {} : { revisionBound }) });
+    const runtime = page.filter(isAgentRuntimeEvent);
+    events.push(...runtime);
+    if (page.length < 500) break;
+    const oldest = page.reduce(
+      (minimum, event) => Math.min(minimum, event.workspaceRevision),
+      Number.POSITIVE_INFINITY,
+    );
+    if (!Number.isFinite(oldest) || oldest >= (revisionBound ?? Number.POSITIVE_INFINITY)) break;
+    revisionBound = oldest;
+  }
+  return events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
+}
+
+function historicalDispatchGroups(store: CanonicalEventStore, repoId: string): readonly DispatchLifecycleGroup[] {
+  // A real canonical store always exposes ledger metadata. Keeping malformed unit fakes out of
+  // the indexed import path preserves the existing shape-migration scan contract while still
+  // making the production path fail closed on any missing metadata.
+  if (store.ledgerMetadata === undefined) return [];
+  const indexedEvents = store.readDispatchLifecycleMigrationEvents?.(),
+    eventsByType = (type: AgentRuntimeEventV1["type"]): readonly AgentRuntimeEventV1[] =>
+      indexedEvents === undefined
+        ? runtimeEventsByType(store, type)
+        : indexedEvents.filter(
+            (event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event) && event.type === type,
+          ),
+    requests = eventsByType("runtime_dispatch_requested").filter(
+      (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
+        event.type === "runtime_dispatch_requested" &&
+        (event.payload.attemptGroupId === undefined || typeof event.payload.attemptGroupId === "string"),
+    ),
+    starts = new Set(
+      eventsByType("runtime_session_started")
+        .filter((event) => event.type === "runtime_session_started")
+        .map((event) => event.payload.runtimeSessionId),
+    ),
+    exits = new Set(
+      eventsByType("runtime_session_exited")
+        .filter((event) => event.type === "runtime_session_exited")
+        .map((event) => event.payload.runtimeSessionId),
+    ),
+    outcomes = new Map<string, Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>>();
+  for (const event of eventsByType("runtime_session_outcome_observed")) {
+    if (event.type === "runtime_session_outcome_observed") outcomes.set(event.payload.runtimeSessionId, event);
+  }
+  const grouped = new Map<string, HistoricalDispatchGroup[]>();
+  for (const dispatch of requests) {
+    const groupId = dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId,
+      values = grouped.get(groupId) ?? [];
+    values.push({
+      dispatch,
+      started: starts.has(dispatch.payload.runtimeSessionId),
+      exited: exits.has(dispatch.payload.runtimeSessionId),
+      outcome: outcomes.get(dispatch.payload.runtimeSessionId) ?? null,
+    });
+    grouped.set(groupId, values);
+  }
+  const result: DispatchLifecycleGroup[] = [];
+  for (const [attemptGroupId, values] of grouped) {
+    values.sort(
+      (left, right) =>
+        (left.dispatch.payload.attemptIndex ?? 0) - (right.dispatch.payload.attemptIndex ?? 0) ||
+        left.dispatch.workspaceRevision - right.dispatch.workspaceRevision,
+    );
+    const attempts: DispatchLifecycleAttempt[] = values.map((value, index) => {
+      const payload = value.dispatch.payload,
+        current = index === values.length - 1,
+        outcome = value.outcome?.payload.outcome ?? null,
+        terminal = value.outcome !== null,
+        process = value.exited ? "exited" : value.started ? "alive" : "unobserved";
+      // Historical outcome/stream summaries close prior attempts, but they do not prove the
+      // current process group was stopped. The current attempt therefore keeps its reservation
+      // and lease until the center accepts a fenced stop proof.
+      return {
+        dispatchId: payload.dispatchId,
+        runtimeSessionId: payload.runtimeSessionId,
+        instanceId: payload.instanceId,
+        phase: current && !terminal ? (value.started ? "running" : "starting") : current ? "settling" : "closed",
+        process: current ? process : value.exited ? "exited" : "lost",
+        stopProof: current ? "unproven" : "proven_stopped",
+        capacity: current ? "held" : "released",
+        reservationId: payload.dispatchId,
+        outcome,
+        taskLease:
+          payload.taskId && payload.executionId
+            ? {
+                taskId: payload.taskId,
+                executionId: payload.executionId,
+                version: Number.isSafeInteger((payload as unknown as Readonly<Record<string, unknown>>).leaseVersion)
+                  ? Number((payload as unknown as Readonly<Record<string, unknown>>).leaseVersion)
+                  : 0,
+              }
+            : null,
+        workspaceRef: payload.cwd ?? null,
+      };
+    });
+    const current = values.at(-1)!,
+      currentOutcome = current.outcome?.payload,
+      fallbackScheduled = currentOutcome?.attempt?.fallbackState === "scheduled",
+      awaitingRuling = currentOutcome?.attempt?.classification === "awaiting_ruling",
+      currentTerminal = current.outcome !== null,
+      // A terminal current attempt with no successor/fallback/ruling is already closed and needs
+      // no lifecycle import. All other groups are unfinished from the new aggregate's view.
+      unfinished = !currentTerminal || fallbackScheduled || awaitingRuling;
+    if (!unfinished) continue;
+    const currentAttempt = attempts.at(-1)!;
+    result.push({
+      repoId,
+      attemptGroupId,
+      phase: "settling",
+      ownerFence: null,
+      ownerFenceVerified: false,
+      version: 1,
+      currentDispatchId: currentAttempt.dispatchId,
+      successorDispatchId: fallbackScheduled
+        ? `${attemptGroupId}:fallback:${(current.dispatch.payload.attemptIndex ?? values.length - 1) + 1}`
+        : null,
+      notBeforeAt: null,
+      rulingId: awaitingRuling ? `ruling-${currentAttempt.dispatchId}` : null,
+      attempts,
+    });
+  }
+  return result;
+}
+
+function makeDispatchLifecycleImportEvents(input: {
+  readonly store: CanonicalEventStore;
+  readonly now: () => string;
+  readonly repoId: string;
+  readonly sourceRevision: number;
+}): { readonly preceding: readonly CanonicalWriteBundle[]; readonly groups: number } {
+  const groups = historicalDispatchGroups(input.store, input.repoId),
+    baseRevision = input.store.readHead()?.revision ?? 0,
+    preceding: CanonicalWriteBundle[] = [];
+  for (const [index, group] of groups.entries()) {
+    const migrated = migrateUnclosedDispatchGroup({
+        group: {
+          ...group,
+          phase: "settling",
+          fenceVerifiable: false,
+        },
+        lifecycleMigrationVersion: dispatchLifecycleMigrationVersion,
+      }),
+      lifecycle = migrated.events[0]!,
+      opId = `dispatch-lifecycle-import-${group.attemptGroupId}`,
+      event = {
+        schema: "agent-runtime-event/v1" as const,
+        eventId: `event-${opId}`,
+        workspaceRevision: baseRevision + index + 1,
+        opId,
+        type: "runtime_dispatch_lifecycle_observed" as const,
+        actor: defaultMigrationActor,
+        source: "local" as const,
+        occurredAt: input.now(),
+        payload: {
+          runtimeSessionId: group.attempts.at(-1)!.runtimeSessionId,
+          lifecycle,
+        },
+      } as unknown as CanonicalEventV1;
+    preceding.push({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+  }
+  return { preceding, groups: groups.length };
+}
+
+function applyDispatchLifecycleImport(input: {
+  readonly store: CanonicalEventStore;
+  readonly now?: () => string;
+  readonly actor?: ActorIdentity;
+  readonly sourceRevision: number;
+}): boolean {
+  const now = input.now ?? (() => new Date().toISOString()),
+    repoId = input.store.ledgerMetadata?.().repoId ?? "legacy-repository",
+    { preceding, groups } = makeDispatchLifecycleImportEvents({
+      store: input.store,
+      now,
+      repoId,
+      sourceRevision: input.sourceRevision,
+    }),
+    markerRevision = (input.store.readHead()?.revision ?? 0) + preceding.length + 1,
+    opId = "upgrade-dispatch-lifecycle-import",
+    marker: EventShapeMigrationEventV1 = {
+      schema: "event-shape-migration/v1",
+      eventId: `event-${opId}`,
+      workspaceRevision: markerRevision,
+      opId,
+      type: "event_shape_migration_applied",
+      actor: input.actor ?? defaultMigrationActor,
+      source: "local",
+      occurredAt: now(),
+      payload: {
+        migration: "dispatch-lifecycle.import",
+        version: 1,
+        sourceRevision: input.sourceRevision,
+        affectedEvents: groups,
+      },
+    };
+  input.store.append({
+    event: marker,
+    plan: eventShapeMigrationWritePlan(marker),
+    blobs: [],
+    ...(preceding.length > 0 ? { preceding } : {}),
+  });
+  return true;
+}
 
 export interface AttachMigrationReport {
   readonly applied: readonly EventShapeMigrationName[];
@@ -367,8 +616,8 @@ export function applyAttachMigrations(input: {
   for (const migration of attachMigrationRegistry) {
     // Read conclusions belong to this registry so attach and the public reader share one
     // historical contract, but they intentionally append no event and leave old bytes intact.
-    if (migration.kind === "read-conclusion") continue;
-    if (applied.has(migration.name)) continue;
+    if (migration.kind !== "event-migration") continue;
+    if (migration.name === "dispatch-lifecycle.import" || applied.has(migration.name)) continue;
     const affectedCount = affectedEvents.get(migration.name) ?? 0;
     if (affectedCount === 0) continue;
     const revision = (input.store.readHead()?.revision ?? 0) + 1,
@@ -392,6 +641,16 @@ export function applyAttachMigrations(input: {
     input.store.append({ event, plan: eventShapeMigrationWritePlan(event), blobs: [] });
     appliedNow.push(migration.name);
     applied.add(migration.name);
+  }
+  if (!applied.has("dispatch-lifecycle.import") && input.store.ledgerMetadata !== undefined) {
+    applyDispatchLifecycleImport({
+      store: input.store,
+      now: input.now,
+      actor: input.actor,
+      sourceRevision: total,
+    });
+    appliedNow.push("dispatch-lifecycle.import");
+    applied.add("dispatch-lifecycle.import");
   }
   if (canPersistWatermarks) {
     const completed = pending

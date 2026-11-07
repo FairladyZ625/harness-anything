@@ -23,6 +23,7 @@ export const eventShapeMigrationNames = Object.freeze([
   "runtime.reviewDispatchKey",
   "vertical.completion.sources",
   "vertical.completion.closeoutCodeDoc",
+  "dispatch-lifecycle.import",
 ] as const);
 export type EventShapeMigrationName = (typeof eventShapeMigrationNames)[number];
 export const retiredPersistedSchemaFields = Object.freeze([
