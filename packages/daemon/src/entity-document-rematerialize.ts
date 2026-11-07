@@ -70,7 +70,7 @@ export function runEntityDocumentRematerialize(
     base = {
       opId,
       revision: existingOutcome?.lastRevision ?? headRevision,
-      workspacePathPrefix: documentWorkspacePrefix(cell.rootDir),
+      workspacePathPrefix: documentWorkspacePrefix(cell.rootDir, cell.layout),
       evidence: JSON.stringify(evidenceBase),
       visibility: "center" as const,
       proof: {
