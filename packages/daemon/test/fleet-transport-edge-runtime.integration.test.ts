@@ -981,7 +981,19 @@ test(
         )
       ).session.activity.outcome;
     await eventually(async () => (await settled()) !== null, "edge runtime archive outcome to be observed");
-    assert.equal(await settled(), "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
+    assert.equal(
+      await settled(),
+      "succeeded",
+      JSON.stringify({
+        runtimeArchiveReceipts: fixture.runtimeArchiveReceipts,
+        terminal: readDispatchStream(edgeRoot, String(receipt.dispatchId))?.terminalOutcome,
+      }),
+    );
+    assert.ok(fixture.runtimeArchiveReceipts.length > 0, "the settled dispatch archives its runtime evidence");
+    assert.ok(
+      fixture.runtimeArchiveReceipts.every((archiveReceipt) => archiveReceipt.outcome === "applied"),
+      `runtime archive replays must return the first accepted event: ${JSON.stringify(fixture.runtimeArchiveReceipts)}`,
+    );
     const centerHeadAfterDispatch = await readFleetRepositoryMetadataClient({
       hostname: "127.0.0.1",
       port: center.port,
