@@ -12,7 +12,7 @@ import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { openNodeAutoClaimLoop } from "../src/node-auto-claim.ts";
 import { readNodeAutoClaimDiagnostics, writeNodeAutoClaimPolicy } from "../src/node-auto-claim-config.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
-import { eventually } from "./fixtures/runtime-ingress.ts";
+import { eventually, eventuallyValue } from "./fixtures/runtime-ingress.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 
 test("Fleet replies own disconnects while awaiting drain (30 controlled interleavings each)", () => {
@@ -162,6 +162,7 @@ test(
           finish: () => Promise<void>;
           readonly child: ChildProcess;
         }> = [],
+        launchWaiters = new Map<string, () => void>(),
         edgeHosts: { readonly name: string; readonly close: () => Promise<void> }[] = [];
       phase = "migrate center repository vertical declaration";
       const vertical = await fixture.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuth);
@@ -214,6 +215,8 @@ test(
           };
         if (!child.pid) throw new Error("fixture runtime process did not expose a pid");
         launches.push(launch);
+        launchWaiters.get(taskId)?.();
+        launchWaiters.delete(taskId);
         return {
           pid: child.pid,
           onOutput: (listener: (chunk: string) => void) => {
@@ -235,31 +238,56 @@ test(
           },
         };
       };
-      const waitForLaunch = async (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, taskId: string) => {
-        try {
-          await eventually(() => launches.some((candidate) => candidate.taskId === taskId));
-          await launches.find((candidate) => candidate.taskId === taskId)!.ready;
-        } catch (error) {
-          const detail = readNodeAutoClaimDiagnostics(edge.edgeUser).slice(-20),
-            centerTask = await fixture.host.read(
-              "lease-repo",
-              "repo.tasks.runtimeContext.read",
-              { taskId },
-              fixture.owners.auth({ nodeId: "node-one" }),
-            ),
-            centerRuntime = await fixture.host.read(
-              "lease-repo",
-              "repo.agentRuntime.overview",
-              { taskId },
-              fixture.owners.auth({ nodeId: "node-one" }),
-            );
-          throw new Error(
-            `waiting for ${taskId}: ${error instanceof Error ? error.message : String(error)}; ` +
-              `launches=${JSON.stringify(launches.map((launch) => launch.taskId))}; ` +
-              `auto-claim=${JSON.stringify(detail)}; lease=${JSON.stringify(centerTask.snapshot.lease)}; ` +
-              `runtime=${JSON.stringify(centerRuntime.sessions)}`,
+      const launchDiagnostics = async (
+        edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>,
+        taskId: string,
+      ): Promise<string> => {
+        const detail = readNodeAutoClaimDiagnostics(edge.edgeUser).slice(-20),
+          centerTask = await fixture.host.read(
+            "lease-repo",
+            "repo.tasks.runtimeContext.read",
+            { taskId },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          ),
+          centerRuntime = await fixture.host.read(
+            "lease-repo",
+            "repo.agentRuntime.overview",
+            { taskId },
+            fixture.owners.auth({ nodeId: "node-one" }),
           );
+        return (
+          `launches=${JSON.stringify(launches.map((launch) => launch.taskId))}; ` +
+          `auto-claim=${JSON.stringify(detail)}; lease=${JSON.stringify(centerTask.snapshot.lease)}; ` +
+          `runtime=${JSON.stringify(centerRuntime.sessions)}`
+        );
+      };
+      const waitForLaunch = async (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, taskId: string) => {
+        // A launch is an event of the edge runtime, not a poll deadline. Claiming crosses the edge
+        // lease write, the center command and the center-to-edge spawn before runtimeLaunch fires;
+        // no product hop promises to finish that chain within 5s. The test's own timeout bounds
+        // this wait, and the checkpoint below leaves the diagnostics a deadline used to throw.
+        const diagnosed = setTimeout(() => {
+          if (launches.some((candidate) => candidate.taskId === taskId)) return;
+          void launchDiagnostics(edge, taskId)
+            .then((diagnostics) =>
+              console.error(`[node-auto-claim integration] ${taskId} has not launched after 5000ms; ${diagnostics}`),
+            )
+            .catch((error: unknown) =>
+              console.error(
+                `[node-auto-claim integration] ${taskId} has not launched after 5000ms; diagnostics unavailable`,
+                error,
+              ),
+            );
+        }, 5_000);
+        try {
+          await new Promise<void>((resolve) => {
+            if (launches.some((candidate) => candidate.taskId === taskId)) resolve();
+            else launchWaiters.set(taskId, resolve);
+          });
+        } finally {
+          clearTimeout(diagnosed);
         }
+        await launches.find((candidate) => candidate.taskId === taskId)!.ready;
       };
       const createAssignedTask = async (
         taskId: string,
@@ -423,12 +451,21 @@ test(
         );
         assert.equal(activeTask.outcome, "applied", JSON.stringify(activeTask));
         phase = "read foreign-node lease and verify source denial";
-        const otherNodeLease = await fixture.host.read(
-          "lease-repo",
-          "repo.tasks.runtimeContext.read",
-          { taskId: "task-a-node-runtime" },
-          fixture.owners.auth({ nodeId: "node-one" }),
-        );
+        const otherNodeLease = await eventuallyValue(async () => {
+          const context = await fixture.host.read(
+            "lease-repo",
+            "repo.tasks.runtimeContext.read",
+            { taskId: "task-a-node-runtime" },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          );
+          const lease = context.snapshot.lease;
+          return lease?.phase === "held" &&
+            lease.source &&
+            typeof lease.source === "object" &&
+            lease.source.nodeId === "node-two"
+            ? context
+            : null;
+        });
         assert.equal(
           otherNodeLease.snapshot.lease?.source && typeof otherNodeLease.snapshot.lease.source === "object"
             ? otherNodeLease.snapshot.lease.source.nodeId
@@ -547,12 +584,17 @@ test(
           false,
         );
         phase = "settle first concurrency slot";
-        const predecessor = await fixture.host.read(
-          "lease-repo",
-          "repo.agentRuntime.overview",
-          { taskId: tasks.next },
-          fixture.owners.auth({ nodeId: "node-one" }),
-        );
+        // The launch callback fires on the edge; the center session is a projection of that event.
+        // Wait for the projected session instead of sampling the read once after the launch.
+        const readOverview = (taskId: string) =>
+          fixture.host.read(
+            "lease-repo",
+            "repo.agentRuntime.overview",
+            { taskId },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          );
+        await eventually(async () => (await readOverview(tasks.next)).sessions.length === 1);
+        const predecessor = await readOverview(tasks.next);
         assert.equal(predecessor.sessions.length, 1);
         // Provider exit only starts Fleet settlement. Join its canonical terminal event before
         // applying the launch wait's budget to the successor; do not manually wake auto-claim.
@@ -564,14 +606,29 @@ test(
         await launches.find((launch) => launch.taskId === tasks.next)!.finish();
         assert.equal((await settled).status, "ready");
         await waitForLaunch(edge, "task-50-waits-for-b-slot");
-        let startedOnB: Awaited<ReturnType<typeof fixture.host.read>>;
-        try {
-          startedOnB = await fixture.host.read(
+        const readContext = (taskId: string) =>
+          fixture.host.read(
             "lease-repo",
             "repo.tasks.runtimeContext.read",
-            { taskId: "task-50-waits-for-b-slot" },
+            { taskId },
             fixture.owners.auth({ nodeId: "node-one" }),
           );
+        const heldByNodeOne = (context: Awaited<ReturnType<typeof readContext>>) => {
+          const lease = context.snapshot.lease;
+          return {
+            phase: lease?.phase,
+            nodeId: lease?.source && typeof lease.source === "object" ? lease.source.nodeId : null,
+          };
+        };
+        // The spawn writes the successor lease to the center before launching; the read here sees
+        // the center projection of that write, so wait for the held state instead of racing it.
+        let startedOnB: Awaited<ReturnType<typeof readContext>>;
+        try {
+          startedOnB = await eventuallyValue(async () => {
+            const context = await readContext("task-50-waits-for-b-slot");
+            const state = heldByNodeOne(context);
+            return state.phase === "held" && state.nodeId === "node-one" ? context : null;
+          });
         } catch (error) {
           throw new Error(
             `reading queued task lease failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -581,13 +638,7 @@ test(
           );
         }
         assert.deepEqual(
-          {
-            phase: startedOnB.snapshot.lease?.phase,
-            nodeId:
-              startedOnB.snapshot.lease?.source && typeof startedOnB.snapshot.lease.source === "object"
-                ? startedOnB.snapshot.lease.source.nodeId
-                : null,
-          },
+          heldByNodeOne(startedOnB),
           { phase: "held", nodeId: "node-one" },
           "Fleet terminal settlement released B's first lease and admitted the next assigned task",
         );

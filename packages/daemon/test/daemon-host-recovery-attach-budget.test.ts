@@ -12,6 +12,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { eventually } from "./fixtures/runtime-ingress.ts";
 
 test("a repository whose open never settles is bounded by an attach budget while the rest attach and serve", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-attach-budget-")),
@@ -130,11 +131,17 @@ test("a disabled repository is not resurrected by its in-flight attach landing l
     });
   try {
     await host.attachmentsSettled(); // the attach budget expires; the underlying open is still hung
-    const started = performance.now(),
-      disabled = await host.admin({ kind: "update", repoId: "disable-attach", state: "disabled" }, auth),
-      elapsedMs = performance.now() - started;
-    assert.equal(disabled.outcome, "applied");
-    assert.ok(elapsedMs < 1_000, `disable must not wait for the in-flight attach: ${elapsedMs.toFixed(1)}ms`);
+    assert.equal(
+      (await host.admin({ kind: "update", repoId: "disable-attach", state: "disabled" }, auth)).outcome,
+      "applied",
+    );
+    // The gated open is still parked, so reaching this line already proves disable did not wait
+    // for it. A wall-clock budget here only measured CI scheduling delay, not that property.
+    assert.equal(
+      records.some((record) => record.event === "repo_attach_completed" || record.event === "repo_attach_discarded"),
+      false,
+      "disable must not wait for the in-flight attach",
+    );
     // The late completion is a real Cell: it owns a writer worker and the workspace lock.
     const late = await openRepoCell({
       repoId: workspaceId("disable-attach"),
@@ -163,10 +170,14 @@ test("a disabled repository is not resurrected by its in-flight attach landing l
     assert.equal(existsSync(lockPath), false, "the discarded attach must release the workspace writer lock");
     assert.equal(host.status().repos.find((repo) => repo.repoId === "disable-attach")?.state, "closed");
     // Re-enabling is unaffected: the next registry refresh opens a fresh Cell and serves writes.
+    // That open runs under the same 2s attach budget. Losing it is the designed unavailable latch:
+    // the open keeps running and performOpenRegistered publishes the Cell when it completes, so
+    // wait for the published attach instead of sampling the state at the budget boundary.
     assert.equal(
       (await host.admin({ kind: "update", repoId: "disable-attach", state: "enabled" }, auth)).outcome,
       "applied",
     );
+    await eventually(() => host.status().repos.find((repo) => repo.repoId === "disable-attach")?.state === "attached");
     assert.equal(host.status().repos.find((repo) => repo.repoId === "disable-attach")?.state, "attached");
     assert.equal(
       (
