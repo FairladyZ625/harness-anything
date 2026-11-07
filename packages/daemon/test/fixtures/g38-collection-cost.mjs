@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { durableActionKinds, getExecutableEntityAction } from "@harness-anything/kernel";
 import { measureWorktreeDocuments } from "./g38-worktree-document-cost.mjs";
+import { measureTaskDispatchAdmission } from "./g38-dispatch-recovery-cost.mjs";
 import { DECISION_PROBES, measureDecisionCollection } from "./g38-decision-cost.mjs";
 import {
   measureTaskReviewConsent,
@@ -815,6 +816,11 @@ export const COLLECTION_PROBES = Object.freeze({
     action: "task-dispatch-review",
     dimension: "task-ids",
     run: measureTaskReviewDispatchBatch,
+  },
+  "runtime-run:execution-dispatches": {
+    action: "runtime-run",
+    dimension: "execution-dispatches",
+    run: measureTaskDispatchAdmission,
   },
   "task-witness-run:frozen-gates": {
     action: "task-witness-run",
