@@ -75,6 +75,10 @@ test("fleet task routing requires both edge config and remote-edge registry mode
         payload = payloadByField.get(field),
         type = payload?.type;
       if (input.enum?.length) return input.enum[0];
+      if (field === "taskId") return "task_one";
+      if (field === "decisionId") return `dec_${"a".repeat(24)}`;
+      if (field === "dispatchId") return `dispatch_${"a".repeat(24)}`;
+      if (field === "executionId") return `execution_${"a".repeat(24)}`;
       if (type === "number" || input.projection === "number") return 0;
       if (type === "json-object") return {};
       if (type === "json-object-array") return [];
@@ -134,6 +138,22 @@ test("fleet task routing requires both edge config and remote-edge registry mode
         const input = inputByField.get(group[0]);
         if (input) add(input);
       }
+    }
+    for (const token of "syntaxPath" in canonical ? canonical.syntaxPath : canonical.path) {
+      const match = token.match(/^<([a-z][a-z0-9-]*)>$/u);
+      if (!match) continue;
+      const field = match[1]!.replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
+      if (Object.hasOwn(action, field)) continue;
+      action[field] =
+        field === "taskId"
+          ? "task_one"
+          : field === "decisionId"
+            ? `dec_${"a".repeat(24)}`
+            : field === "dispatchId"
+              ? `dispatch_${"a".repeat(24)}`
+              : field === "executionId"
+                ? `execution_${"a".repeat(24)}`
+                : `${field}_one`;
     }
     return action;
   };

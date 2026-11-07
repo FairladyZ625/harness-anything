@@ -75,58 +75,68 @@ function inputsOf(descriptor: ReturnType<typeof descriptorFor>): readonly CliInp
   return ("inputs" in descriptor ? descriptor.inputs : []) as readonly CliInputFacet[];
 }
 
+type DeclaredInput = CliInputFacet & {
+  readonly field?: string;
+  readonly maxLength?: number;
+  readonly wire?: EntityActionInputField["wire"];
+  readonly projection?: "number" | "fact-hold-array" | "json-object" | "json-object-array";
+};
+
+function validationFieldFromInput(input: DeclaredInput): EntityActionInputField | null {
+  const codec = typeof input.codec === "object" ? input.codec : undefined;
+  if (input.jsonAllowedFields || codec?.kind === "json-object") return null;
+  const typeByProjection = {
+      number: "number",
+      "fact-hold-array": "fact-hold-array",
+      "json-object": "json-object",
+      "json-object-array": "json-object-array",
+    } as const,
+    type = input.projection
+      ? typeByProjection[input.projection]
+      : input.kind === "boolean"
+        ? "boolean"
+        : input.kind === "repeated"
+          ? "string-array"
+          : "string",
+    effectiveType = codec?.kind === "line-list-file" ? "string-array" : type;
+  return {
+    field: declaredField(input),
+    type: effectiveType,
+    required: input.required,
+    ...(input.enum ? { enum: input.enum } : {}),
+    ...(input.regex && type !== "number" ? { regex: input.regex } : {}),
+    ...(input.maxLength === undefined ? {} : { wire: { maxLength: input.maxLength } }),
+    ...(input.wire
+      ? { wire: { ...input.wire, ...(input.maxLength === undefined ? {} : { maxLength: input.maxLength }) } }
+      : {}),
+  };
+}
+
 function validationFields(descriptor: ReturnType<typeof descriptorFor>): readonly EntityActionInputField[] {
-  const fields = new Map<string, EntityActionInputField>();
-  const taskAction = generatedTaskActionProtocolDeclarations.find(
-    (candidate) => candidate.execution.ingress === descriptor.id,
-  );
-  for (const field of taskAction?.input.fields ?? []) {
-    if (field.cli?.codec) continue;
-    fields.set(field.field, {
-      field: field.field,
-      type: field.type,
-      required: field.required,
-      ...(field.enum ? { enum: field.enum } : {}),
-      ...(field.regex ? { regex: field.regex } : {}),
-    });
-  }
+  const fields = new Map<string, EntityActionInputField>(),
+    taskAction = generatedTaskActionProtocolDeclarations.find(
+      (candidate) => candidate.execution.ingress === descriptor.id,
+    );
+  for (const field of taskAction?.input.fields ?? [])
+    if (!field.cli?.codec)
+      fields.set(field.field, {
+        field: field.field,
+        type: field.type,
+        required: field.required,
+        ...(field.enum ? { enum: field.enum } : {}),
+        ...(field.regex ? { regex: field.regex } : {}),
+      });
   for (const input of inputsOf(descriptor) as readonly DeclaredInput[]) {
-    const field = declaredField(input),
-      codec = typeof input.codec === "object" ? input.codec : undefined;
-    if (input.jsonAllowedFields || codec?.kind === "json-object") continue;
-    const type =
-      input.projection === "json-object"
-        ? "json-object"
-        : input.projection === "json-object-array"
-          ? "json-object-array"
-          : input.projection === "fact-hold-array"
-            ? "fact-hold-array"
-            : input.projection === "number"
-              ? "number"
-              : input.kind === "boolean"
-                ? "boolean"
-                : input.kind === "repeated"
-                  ? "string-array"
-                  : "string";
-    fields.set(field, {
-      field,
-      type: codec?.kind === "line-list-file" ? "string-array" : type,
-      required: input.required,
-      ...(input.enum ? { enum: input.enum } : {}),
-      ...(input.regex && type !== "number" ? { regex: input.regex } : {}),
-      ...(input.maxLength === undefined ? {} : { wire: { maxLength: input.maxLength } }),
-      ...(input.wire
-        ? { wire: { ...input.wire, ...(input.maxLength === undefined ? {} : { maxLength: input.maxLength }) } }
-        : {}),
-    });
-    if (codec && !fields.has(codec.target)) {
+    const field = validationFieldFromInput(input);
+    if (field) fields.set(field.field, field);
+    const codec = typeof input.codec === "object" ? input.codec : undefined;
+    if (codec && "target" in codec && !fields.has(codec.target))
       fields.set(codec.target, {
         field: codec.target,
         type: codec.kind === "line-list-file" ? "string-array" : "string",
         required: false,
         ...(codec.maxBytes === undefined ? {} : { wire: { maxLength: codec.maxBytes } }),
       });
-    }
   }
   if ("payloadFields" in descriptor)
     for (const field of descriptor.payloadFields as readonly EntityActionInputField[]) fields.set(field.field, field);
@@ -146,13 +156,6 @@ function validationFields(descriptor: ReturnType<typeof descriptorFor>): readonl
   }
   return [...fields.values()];
 }
-
-type DeclaredInput = CliInputFacet & {
-  readonly field?: string;
-  readonly maxLength?: number;
-  readonly wire?: EntityActionInputField["wire"];
-  readonly projection?: "number" | "fact-hold-array" | "json-object" | "json-object-array";
-};
 
 function declaredField(input: DeclaredInput): string {
   return input.field ?? fieldName(input.name);
@@ -208,7 +211,9 @@ export function serializeFleetAction(command: ThinCommand): Action {
     commandType: _commandType,
     ...wireAction
   } = original;
-  const action: Action = { ...wireAction };
+  const action: Action = Object.fromEntries(
+    Object.entries(wireAction).filter(([, value]) => value !== undefined),
+  ) as Action;
   for (const input of inputsOf(descriptor)) {
     const codec = (typeof input.codec === "object" ? input.codec : undefined) as Codec | undefined;
     if (!codec) continue;
@@ -240,7 +245,11 @@ export function serializeFleetAction(command: ThinCommand): Action {
             .filter((line) => line.length > 0 && !line.startsWith("#"))
         : text;
   }
-  if ("payloadFields" in descriptor) {
+  const hasJsonObjectInput = inputsOf(descriptor).some((input) => {
+    const codec = typeof input.codec === "object" ? input.codec : undefined;
+    return Boolean(input.jsonAllowedFields || codec?.kind === "json-object");
+  });
+  if ("payloadFields" in descriptor && hasJsonObjectInput && !command.method.startsWith("repo.agentRuntime.")) {
     const { kind: _kind, ...payload } = action;
     const issue = fleetActionPayloadIssue(validationFields(descriptor), payload);
     if (issue) invalid(`${issue} does not match its Fleet declaration`);
