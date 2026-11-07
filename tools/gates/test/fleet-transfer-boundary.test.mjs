@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   checkFleetTransferBoundary,
+  forwardingSources,
   findFleetForwardingBypasses,
   findFleetTransferBypasses,
 } from "../fleet-transfer-boundary.mjs";
@@ -75,6 +76,73 @@ test("the full checker scans a real nested Fleet source path", () => {
   }
 });
 
+test("the full checker rejects forwarding construction in an unregistered CLI file", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-boundary-"));
+  try {
+    const newCallsite = path.join(root, "packages/cli/src/daemon/new-forwarding-callsite.ts");
+    mkdirSync(path.dirname(newCallsite), { recursive: true });
+    writeFileSync(newCallsite, 'const request = { schema: "fleet.task.action/v1", repoId, action };\n');
+    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    const errors = checkFleetTransferBoundary(root);
+    assert.deepEqual(errors, [
+      "packages/cli/src/daemon/new-forwarding-callsite.ts#<module>: fleetRequestEnvelope count 1 exceeds ratchet baseline 0",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the full checker applies zero allowance to new CLI and daemon forwarding sources", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-new-sources-"));
+  try {
+    const fixtures = [
+      [
+        "packages/cli/src/daemon/new-envelope.ts",
+        'const request = { schema: "fleet.task.command/v1", messageId, repoId: config.repoId, nodeId: config.nodeId, action };',
+      ],
+      [
+        "packages/daemon/src/new-edge-target.ts",
+        'const config = JSON.parse(readFileSync(path.join(rootDir, "fleet-edge.json"), "utf8"));',
+      ],
+      [
+        "packages/daemon/src/new-credential-assembly.ts",
+        "const hostBinding = { credential: config.credential, accessToken: command.action.executor?.accessToken };",
+      ],
+      [
+        "packages/daemon/src/new-method-selection.ts",
+        'const method = action.kind === "task-start" ? "fleet.task.action" : "fleet.runtime.control";',
+      ],
+      ["packages/daemon/src/new-runtime-lookup.ts", "edgeRuntimeFor(rootDir);"],
+      ["packages/cli/src/daemon/new-file-branch.ts", "if (fromFile) payload.action = JSON.parse(value);"],
+    ];
+    for (const [relative, source] of fixtures) {
+      const absolute = path.join(root, relative);
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, `${source}\n`);
+    }
+    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    const errors = checkFleetTransferBoundary(root);
+    assert.deepEqual(
+      errors
+        .map((error) => error.match(/: ([A-Za-z][A-Za-z0-9]+) count/u)?.[1])
+        .filter(Boolean)
+        .sort(),
+      [
+        "directFleetEdgeFileRead",
+        "fleetMethodByDiscriminant",
+        "fleetRequestEnvelope",
+        "forwardingCredentialAssembly",
+        "fromFileSpecialCase",
+        "edgeRuntimeFor",
+      ].sort(),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the gate catches socket aliases and stringify wrappers", () => {
   const violations = findFleetTransferBypasses(
     `const writer = socket;
@@ -118,6 +186,61 @@ test("the forwarding ratchet rejects route-level construction and file special c
       { fingerprint: "readFleetEdgeConfig", line: 1 },
       { fingerprint: "fromFileSpecialCase", line: 2 },
     ],
+  );
+});
+
+test("the forwarding ratchet rejects every prohibited construction responsibility", () => {
+  const fixtures = [
+    ["envelope", 'const request = { schema: "fleet.task.action/v1", repoId, action };', "fleetRequestEnvelope"],
+    ["edge-config", 'const target = readFileSync("fleet-edge.json", "utf8");', "directFleetEdgeFileRead"],
+    [
+      "credential",
+      "const hostBinding = { credential: config.credential, accessToken: executor.accessToken };",
+      "forwardingCredentialAssembly",
+    ],
+    [
+      "discriminant",
+      'const method = action.kind === "task-start" ? "fleet.task.action" : "fleet.runtime.control";',
+      "fleetMethodByDiscriminant",
+    ],
+    ["runtime", "edgeRuntimeFor(rootDir);", "edgeRuntimeFor"],
+    ["file", "if (fromFile) payload.action = JSON.parse(value);", "fromFileSpecialCase"],
+  ];
+  for (const [name, source, fingerprint] of fixtures) {
+    const violations = findFleetForwardingBypasses(source, `packages/daemon/src/${name}.ts`);
+    assert.equal(
+      violations.some((violation) => violation.fingerprint === fingerprint),
+      true,
+      name,
+    );
+  }
+});
+
+test("an unregistered CLI or daemon production source has zero allowance", () => {
+  assert.equal(
+    findFleetForwardingBypasses(
+      'const request = { schema: "fleet.task.action/v1", repoId, action };',
+      "packages/cli/src/daemon/new-forwarding-callsite.ts",
+    ).length,
+    1,
+  );
+  assert.equal(forwardingSources(process.cwd()).includes("packages/cli/src/daemon/client.ts"), true);
+});
+
+test("the forwarding boundary permits the serializer and forwarding port", () => {
+  assert.deepEqual(
+    findFleetForwardingBypasses(
+      'const request = { schema: "fleet.task.action/v1", repoId, action }; if (fromFile) return action;',
+      "packages/cli/src/daemon/fleet-payload-serializer.ts",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    findFleetForwardingBypasses(
+      'const request = { schema: "fleet.task.action/v1", repoId, action };',
+      "packages/daemon/src/fleet/forwarding-port.ts",
+    ),
+    [],
   );
 });
 

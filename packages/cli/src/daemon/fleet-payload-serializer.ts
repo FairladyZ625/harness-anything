@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import {
+  fleetActionPayloadIssue,
+  type EntityActionInputField,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-fleet-validation";
 import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import type { CliInputFacet } from "@harness-anything/preset/internal/preset-command-contract";
 import { cliErrorMessage } from "../cli-error.ts";
@@ -68,7 +72,39 @@ function inputsOf(descriptor: ReturnType<typeof descriptorFor>): readonly CliInp
   return ("inputs" in descriptor ? descriptor.inputs : []) as readonly CliInputFacet[];
 }
 
-type DeclaredInput = CliInputFacet & { readonly field?: string };
+function validationFields(descriptor: ReturnType<typeof descriptorFor>): readonly EntityActionInputField[] {
+  const fields = new Map<string, EntityActionInputField>();
+  for (const input of inputsOf(descriptor) as readonly DeclaredInput[]) {
+    const field = declaredField(input),
+      codec = typeof input.codec === "object" ? input.codec : undefined;
+    fields.set(field, {
+      field,
+      type: codec?.kind === "line-list-file" ? "string-array" : input.kind === "boolean" ? "boolean" : "string",
+      required: input.required,
+      ...(input.maxLength === undefined ? {} : { wire: { maxLength: input.maxLength } }),
+      ...(input.wire
+        ? { wire: { ...input.wire, ...(input.maxLength === undefined ? {} : { maxLength: input.maxLength }) } }
+        : {}),
+    });
+    if (codec && "target" in codec) {
+      fields.set(codec.target, {
+        field: codec.target,
+        type: codec.kind === "line-list-file" ? "string-array" : "string",
+        required: false,
+        ...(codec.maxBytes === undefined ? {} : { wire: { maxLength: codec.maxBytes } }),
+      });
+    }
+  }
+  if ("payloadFields" in descriptor)
+    for (const field of descriptor.payloadFields as readonly EntityActionInputField[]) fields.set(field.field, field);
+  return [...fields.values()];
+}
+
+type DeclaredInput = CliInputFacet & {
+  readonly field?: string;
+  readonly maxLength?: number;
+  readonly wire?: EntityActionInputField["wire"];
+};
 
 function declaredField(input: DeclaredInput): string {
   return input.field ?? fieldName(input.name);
@@ -109,35 +145,6 @@ function validateInputs(descriptor: ReturnType<typeof descriptorFor>, original: 
   for (const group of constraints ?? []) {
     const selected = group.filter((field) => present(original, field, inputForName(field)));
     if (selected.length !== 1) invalid(`exactly one of ${group.join(", ")} is required`);
-  }
-}
-
-function validateDeclaredTypes(descriptor: ReturnType<typeof descriptorFor>, action: Action): void {
-  if (!("payloadFields" in descriptor)) return;
-  for (const field of descriptor.payloadFields as readonly {
-    readonly field: string;
-    readonly type?: string;
-    readonly wire?: { readonly maxLength?: number };
-  }[]) {
-    if (!Object.hasOwn(action, field.field)) continue;
-    const value = action[field.field];
-    const valid =
-      field.type === "string"
-        ? typeof value === "string"
-        : field.type === "number"
-          ? typeof value === "number" && Number.isSafeInteger(value)
-          : field.type === "boolean"
-            ? typeof value === "boolean"
-            : field.type === "string-array"
-              ? Array.isArray(value) && value.every((item) => typeof item === "string")
-              : field.type === "json-object"
-                ? value !== null && typeof value === "object" && !Array.isArray(value)
-                : field.type === "json-object-array"
-                  ? Array.isArray(value) && value.every((item) => item !== null && typeof item === "object")
-                  : true;
-    if (!valid) invalid(`action field ${field.field} does not match its declared type`);
-    if (typeof value === "string" && field.wire?.maxLength !== undefined && value.length > field.wire.maxLength)
-      invalid(`action field ${field.field} exceeds its declared size limit`);
   }
 }
 
@@ -185,8 +192,10 @@ export function serializeFleetAction(command: ThinCommand): Action {
             .filter((line) => line.length > 0 && !line.startsWith("#"))
         : text;
   }
-  validateDeclaredTypes(descriptor, action);
-  // Packet fields are closed-world validated above. The remaining action fields are already
-  // produced by the parser/entity declaration (including positional and derived policy fields).
+  if ("payloadFields" in descriptor) {
+    const { kind: _kind, ...payload } = action;
+    const issue = fleetActionPayloadIssue(validationFields(descriptor), payload);
+    if (issue) invalid(`${issue} does not match its Fleet declaration`);
+  }
   return action;
 }

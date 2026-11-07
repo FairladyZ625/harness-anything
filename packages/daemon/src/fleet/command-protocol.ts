@@ -11,6 +11,7 @@ import {
 } from "@harness-anything/kernel";
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { daemonProtocolCommands } from "../protocol/daemon-protocol-commands.ts";
+import { FLEET_ACTION_PAGE_ROWS, fleetActionPayloadIssue } from "../protocol/daemon-protocol-fleet-validation.ts";
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
 
 export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
@@ -25,7 +26,7 @@ export const FLEET_FRAME_BYTES = 96 * 1024,
   /** Failed hello authentications one connection source may produce before its next hello is refused locally. */
   FLEET_HELLO_FAILURE_LIMIT = 5,
   FLEET_HELLO_FAILURE_WINDOW_MS = 60_000,
-  FLEET_PAGE_ROWS = 128,
+  FLEET_PAGE_ROWS = FLEET_ACTION_PAGE_ROWS,
   FLEET_KEY_SEND_WINDOW_BYTES = 256 * 1024,
   FLEET_SESSION_SEND_WINDOW_BYTES = 512 * 1024;
 export type FleetCut = Readonly<{ revision: number; headDigest: string; schemaGeneration: number }>;
@@ -518,57 +519,8 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
         else if (typeof value === "boolean") add({ field, type: "boolean", required: false });
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
-// Declaration-derived patterns are static, so each compiles once per module instance.
-const patternCache = new Map<string, RegExp>();
-const patternMatches = (pattern: string, value: string): boolean => {
-  let compiled = patternCache.get(pattern);
-  if (compiled === undefined) {
-    compiled = new RegExp(pattern, "u");
-    patternCache.set(pattern, compiled);
-  }
-  return compiled.test(value);
-};
-const fieldCheck = (field: EntityActionInputField, value: unknown): boolean => {
-  if (field.wire?.nullable && value === null) return true;
-  const type = field.type;
-  if (type === "boolean") return boolean(value);
-  if (type === "number") return Number.isSafeInteger(value) && Number(value) >= (field.wire?.minimum ?? 0);
-  if (type === "json-object") {
-    if (!record(value)) return false;
-    return !field.fields || checkFields(field.fields, value);
-  }
-  if (type === "string-array" || type === "fact-hold-array" || type === "json-object-array") {
-    if (!Array.isArray(value) || value.length > FLEET_PAGE_ROWS) return false;
-    return value.every((item) =>
-      fieldCheck(
-        field.items ?? {
-          field: field.field,
-          type: type === "string-array" ? "string" : "json-object",
-          required: true,
-          regex: field.regex,
-          enum: field.enum,
-          wire: field.wire,
-          ...(field.fields ? { fields: field.fields } : {}),
-        },
-        item,
-      ),
-    );
-  }
-  return (
-    typeof value === "string" &&
-    (!field.wire?.normalization || value === value.normalize(field.wire.normalization)) &&
-    value.length > 0 &&
-    value.length <= (field.wire?.maxLength ?? 512) &&
-    (!(field.wire?.enum ?? field.enum) || (field.wire?.enum ?? field.enum)!.includes(value)) &&
-    (!(field.wire?.pattern ?? field.regex) || patternMatches((field.wire?.pattern ?? field.regex)!, value))
-  );
-};
 const checkFields = (fields: readonly EntityActionInputField[], value: RecordValue): boolean =>
-  fields.every((field) => !(field.wire?.required ?? field.required) || Object.hasOwn(value, field.field)) &&
-  Object.entries(value).every(([name, entry]) => {
-    const field = fields.find((candidate) => candidate.field === name);
-    return field !== undefined && fieldCheck(field, entry);
-  });
+  fleetActionPayloadIssue(fields, value) === null;
 const taskAction: Check = (value) => {
   if (!record(value) || typeof value.kind !== "string") return false;
   const fields = declaredActionFields(value.kind);
@@ -606,10 +558,8 @@ function fleetTaskActionIssue(value: unknown): string | null {
     (field) => (field.wire?.required ?? field.required) && !Object.hasOwn(payload, field.field),
   );
   if (missing !== undefined) return `action field ${missing.field} is required for ${value.kind}`;
-  const invalid = fields.find(
-    (field) => Object.hasOwn(payload, field.field) && !fieldCheck(field, payload[field.field]),
-  );
-  return invalid === undefined ? null : `action field ${invalid.field} does not match its declared shape`;
+  const issue = fleetActionPayloadIssue(fields, payload);
+  return issue === null ? null : `${issue} does not match its declared shape`;
 }
 const scheduleActionShapes: Readonly<Record<string, Check>> = {
     "schedule-create": (value) =>

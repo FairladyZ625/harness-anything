@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { serializeFleetAction } from "../src/daemon/fleet-payload-serializer.ts";
 
 const command = (rootDir: string, action: Record<string, unknown>) =>
@@ -100,4 +101,32 @@ test("ordinary required declarations fail before a Fleet action is emitted", (t)
     () => serializeFleetAction(command(root, { kind: "task-progress-append", taskId: "task-one" })),
     (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
   );
+});
+
+test("decision JSON arrays obey the same shape and row bound as center admission", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-wire-rows-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const base = {
+    title: "Edge proposal",
+    question: "Which writer?",
+    riskTier: "low",
+    urgency: "medium",
+    decisionClass: "ordinary",
+    rejected: [],
+    claims: [],
+  };
+
+  for (const [label, chosen] of [
+    ["nested-array", [[]]],
+    ["oversized-list", Array.from({ length: 501 }, () => ({ id: "CH1", text: "Probe choice" }))],
+  ] as const) {
+    const parsed = parseThinCommand(["decision", "propose", "--json-input", JSON.stringify({ ...base, chosen })], root);
+    assert.equal(parsed.ok, true, `${label} remains valid CLI JSON syntax`);
+    if (!parsed.ok) continue;
+    assert.throws(
+      () => serializeFleetAction(parsed.command),
+      (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
+      `${label} must be rejected before a Fleet action is emitted`,
+    );
+  }
 });
