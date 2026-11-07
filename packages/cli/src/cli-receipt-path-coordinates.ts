@@ -16,14 +16,9 @@
  * same boundary rule from the authored root's own top-level names, so the daemon keeps the authored
  * key it indexes by and the caller reads the workspace spelling it can paste back into `--path`.
  */
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import {
-  consumeKnownError,
-  documentWorkspacePath,
-  resolveHarnessLayout,
-  type HarnessLayout,
-} from "@harness-anything/kernel";
+import { documentWorkspacePath, resolveHarnessLayout, type HarnessLayout } from "@harness-anything/kernel";
 
 type Receipt = Readonly<Record<string, unknown>>;
 type PackagePathPair = { readonly canonical: string; readonly workspace: string };
@@ -110,14 +105,14 @@ function translateEvidence(evidence: unknown, translate: (document: string) => s
 
 /** A rematerialization report is the one JSON evidence body that carries authored path arrays. */
 function rematerializationReport(evidence: string): Record<string, unknown> | null {
-  if (!evidence.startsWith("{")) return null;
+  // Only a report carrying both markers is parsed; a document body that merely starts with `{`
+  // is not this receipt and keeps its bytes.
+  if (!evidence.startsWith("{") || !evidence.includes('"writeStatus"') || !evidence.includes('"targets"')) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(evidence);
   } catch (error) {
-    // Any other JSON-looking evidence is not this receipt; leave it byte-for-byte alone.
-    consumeKnownError(error);
-    return null;
+    throw new Error("rematerialization evidence is not valid JSON", { cause: error });
   }
   return isRecord(parsed) && Array.isArray(parsed.targets) && typeof parsed.writeStatus === "string" ? parsed : null;
 }
@@ -125,15 +120,8 @@ function rematerializationReport(evidence: string): Record<string, unknown> | nu
 function authoredTopLevelNames(layout: HarnessLayout): readonly string[] {
   const cached = authoredTopLevelCache.get(layout.authoredRoot);
   if (cached !== undefined) return cached;
-  let names: string[] = [];
-  try {
-    names = readdirSync(layout.authoredRoot);
-  } catch (error) {
-    // A workspace without a ledger has no authored keys to translate; other read failures surface.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    consumeKnownError(error);
-  }
-  const topLevel = layout.configPath === undefined ? names : [...names, path.basename(layout.configPath)];
+  const names = existsSync(layout.authoredRoot) ? readdirSync(layout.authoredRoot) : [],
+    topLevel = layout.configPath === undefined ? names : [...names, path.basename(layout.configPath)];
   authoredTopLevelCache.set(layout.authoredRoot, topLevel);
   return topLevel;
 }
