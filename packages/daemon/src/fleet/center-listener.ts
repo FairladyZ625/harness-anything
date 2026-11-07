@@ -1364,6 +1364,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         } else if (frame.method === "repo.tasks.autoClaimCandidates") {
           markDaemonOperationPhase("projection-read");
           result = await options.host.readNodeAutoClaimCandidates(a.repoId, binding);
+        } else if (frame.method === "repo.tasks.autoDispatchCandidates") {
+          markDaemonOperationPhase("projection-read");
+          result = await options.host.readNodeAutoDispatchCandidates(a.repoId, binding);
         } else {
           markDaemonOperationPhase("projection-read");
           if (frame.method === "repo.task.dispatches") {

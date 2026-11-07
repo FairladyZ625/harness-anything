@@ -318,6 +318,21 @@ export function readLatestInterval(db: DatabaseSync, taskId: string): LeaseInter
   return row === undefined ? null : leaseIntervalFromRow(row);
 }
 
+/** Latest acquisition for one execution, independent of leases from every other task round. */
+export function readLatestIntervalForExecution(
+  db: DatabaseSync,
+  taskId: string,
+  executionId: string,
+): LeaseInterval | null {
+  const row = queryRow(
+    db,
+    "SELECT * FROM lease_interval WHERE task_id = ? AND execution_id = ? ORDER BY acquired_revision DESC LIMIT 1",
+    taskId,
+    executionId,
+  );
+  return row === undefined ? null : leaseIntervalFromRow(row);
+}
+
 export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 {
   const current = effectiveLease(db, lease.taskId, now),
     count = prepareQuery(db, COUNT_ACTIVE_LEASES_SQL, (sql) =>

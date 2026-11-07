@@ -12,6 +12,9 @@ import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
+import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { taskExecutionPlacement } from "./task-execution-placement.ts";
 
 /** The receipt extension a rework continuation contributes to the recorded review's receipt. */
 type ReviewReworkStep = {
@@ -53,10 +56,108 @@ export async function dispatchReviewRework(
     readonly binding: RepoCellBinding;
     readonly opId: string;
     readonly workerIdentity?: WorkerIdentityOverrides;
+    /** A node-owned continuation is returned as a pending intent for that node. */
+    readonly requiredNodeId?: string;
     readonly write: ReturnWrite;
   },
 ): Promise<ReviewReworkStep> {
   return dispatchContinuation(cell, input, principalBinding(input.binding));
+}
+
+/**
+ * Rebuilds a node-owned rework continuation from canonical task facts. The candidate is deliberately
+ * not persisted: the implementation dispatch/source and the current execution state remain the
+ * authority, so an offline node can retry the same intent after its replica catches up.
+ */
+export function nodeReworkDispatchCandidate(
+  cell: RepoCellOperationalContext,
+  input: { readonly taskId: string; readonly requiredNodeId: string },
+): NodeAutoDispatchCandidate | null {
+  const read = cell.projection.read(input.taskId),
+    task = read.snapshot.task;
+  if (task?.status !== "active" || !read.packagePath) return null;
+  const execution = read.snapshot.executions
+    .filter(
+      (candidate): candidate is ExecutionV1 =>
+        candidate.schema === "execution/v1" && candidate.state === "changes_requested" && candidate.submission !== null,
+    )
+    .find((candidate) => task.iteration === candidate.iteration + 1);
+  if (!execution) return null;
+  const placement = taskExecutionPlacement(cell, input.taskId, execution.executionId);
+  if (placement.kind !== "node" || placement.nodeId !== input.requiredNodeId) return null;
+  const review = read.snapshot.reviews
+      .filter(
+        (candidate) => candidate.executionId === execution.executionId && candidate.verdict === "changes_requested",
+      )
+      .toSorted((left, right) => Date.parse(left.reviewedAt) - Date.parse(right.reviewedAt))
+      .at(-1),
+    arrangement = currentExecutionArrangement(read.snapshot),
+    ownerReturnReason = review ? null : (arrangement?.reason ?? null),
+    reportPath = review ? reviewReportRelativePath(read.packagePath, review.reviewId) : null,
+    previous = submittingWorkerDispatch(cell, input.taskId, execution.executionId),
+    active = read.snapshot.lease
+      ? submittingWorkerDispatch(cell, input.taskId, read.snapshot.lease.executionId)
+      : undefined;
+  if (
+    [previous, active].some(
+      (worker) =>
+        worker !== undefined &&
+        (worker.status === "running" || (worker.status === "unknown" && worker.outcome === null)),
+    )
+  )
+    return null;
+  const hasIdentityOverride = Object.values(arrangement ?? {}).some((value) => value !== undefined),
+    mode = previous?.resume === undefined || hasIdentityOverride ? "fresh" : "resume",
+    continuation = prepareWorkerContinuation(
+      cell,
+      {
+        taskId: input.taskId,
+        execution,
+        ...(review ? { review: { reviewId: review.reviewId, reason: review.reason } } : {}),
+        reportPath,
+        ownerReturnReason,
+        ...(arrangement
+          ? {
+              workerIdentity: {
+                ...(arrangement.agentId ? { agentId: arrangement.agentId } : {}),
+                ...(arrangement.runtimeInstanceId ? { runtimeInstanceId: arrangement.runtimeInstanceId } : {}),
+                ...(arrangement.model ? { model: arrangement.model } : {}),
+              },
+            }
+          : {}),
+      },
+      mode,
+    ),
+    payload = {
+      ...continuation.payload,
+      ...(arrangement ? { arrangementId: arrangement.id, dispatchKey: `task-arrangement:${arrangement.id}` } : {}),
+    },
+    dispatchKey = payload.dispatchKey;
+  if (typeof dispatchKey !== "string") return null;
+  return {
+    repoId: cell.input.repoId,
+    taskId: input.taskId,
+    executionId: execution.executionId,
+    kind: "rework",
+    requiredNodeId: input.requiredNodeId,
+    dispatchKey,
+    payload: payload as JsonObject,
+    ...(mode === "resume"
+      ? {
+          fallbackPayload: prepareWorkerContinuation(
+            cell,
+            {
+              taskId: input.taskId,
+              execution,
+              ...(review ? { review: { reviewId: review.reviewId, reason: review.reason } } : {}),
+              reportPath,
+              ownerReturnReason,
+            },
+            "fresh",
+          ).payload as JsonObject,
+        }
+      : {}),
+  };
 }
 
 /** The plain-principal view of a session binding: the loop acts on the principal's standing
@@ -128,6 +229,15 @@ export async function continueReviewRework(
     const reportPath = read.packagePath && reviewId ? reviewReportRelativePath(read.packagePath, reviewId) : null;
     if (ownerReturnReason === null && reportPath === null && !currentExecutionArrangement(read.snapshot))
       return receipt;
+    const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
+    if (placement.kind === "unresolved")
+      return {
+        ...receipt,
+        warnings: [
+          ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
+          `Task ${taskId} rework is pending: ${placement.reason}. The continuation will not run on the center.`,
+        ],
+      } as WriteReceiptDraft;
     const step = await dispatchReviewRework(cell, {
       taskId,
       execution,
@@ -137,6 +247,7 @@ export async function continueReviewRework(
       binding,
       opId: receipt.opId ?? taskId,
       write,
+      ...(placement.kind === "node" ? { requiredNodeId: placement.nodeId } : {}),
       ...(workerIdentity ? { workerIdentity } : {}),
     });
     return {
@@ -231,6 +342,7 @@ async function dispatchContinuation(
     readonly binding: RepoCellBinding;
     readonly opId: string;
     readonly workerIdentity?: WorkerIdentityOverrides;
+    readonly requiredNodeId?: string;
     readonly write: ReturnWrite;
   },
   binding: RepoCellBinding,
@@ -263,18 +375,20 @@ async function dispatchContinuation(
         runtimeSessionId: existing.event.payload.runtimeSessionId,
       },
     };
-  for (const prior of new Map(
-    [previous, active].filter((value) => value !== undefined).map((value) => [value.runtimeSessionId, value]),
-  ).values()) {
-    if (prior.status === "running" || (prior.status === "unknown" && prior.outcome === null)) {
-      try {
-        await cancelSubmittingWorker(cell, input.taskId, prior.runtimeSessionId, binding);
-      } catch (error) {
-        const failure = cell.failed(input.opId, error);
-        return {
-          continuation: { mode: prior.resume === undefined ? "fresh" : "resume", ...failure },
-          steps: [failure],
-        };
+  if (!input.requiredNodeId) {
+    for (const prior of new Map(
+      [previous, active].filter((value) => value !== undefined).map((value) => [value.runtimeSessionId, value]),
+    ).values()) {
+      if (prior.status === "running" || (prior.status === "unknown" && prior.outcome === null)) {
+        try {
+          await cancelSubmittingWorker(cell, input.taskId, prior.runtimeSessionId, binding);
+        } catch (error) {
+          const failure = cell.failed(input.opId, error);
+          return {
+            continuation: { mode: prior.resume === undefined ? "fresh" : "resume", ...failure },
+            steps: [failure],
+          };
+        }
       }
     }
   }
@@ -347,6 +461,19 @@ async function dispatchContinuation(
           command: `ha task start ${input.taskId}`,
           reason: "交接完成，可以由声明本轮安排的执行会话继续；本轮提交后恢复自动。",
         },
+      ],
+    };
+  if (input.requiredNodeId)
+    return {
+      continuation: {
+        mode: "pending",
+        outcome: "pending",
+        requiredNodeId: input.requiredNodeId,
+        ...(arrangementId ? { arrangementId, ready: true, targetExecutionId: input.execution.executionId } : {}),
+      },
+      warnings: [
+        `Task ${input.taskId} rework is pending on implementation node ${input.requiredNodeId}; ` +
+          "the center did not create a runtime dispatch.",
       ],
     };
   // One resume attempt, then one fresh fallback: a provider that cannot resume the prior session

@@ -43,6 +43,22 @@ export const statusWord = (vocabulary: readonly string[], value: unknown): boole
 const closeoutOverridesEnvelope = (value: unknown): value is JsonObject =>
   isJsonObject(value) && Object.values(value).every((entry) => typeof entry === "boolean");
 
+function reviewDispatchIntent(value: unknown): boolean {
+  const fields = ["executionId", "reviewerId", "runtimeInstanceId", "model", "effort", "fast"];
+  return (
+    recordWith(value, ["executionId", "reviewerId"]) &&
+    Object.keys(value).every((field) => fields.includes(field)) &&
+    nonEmpty(value.executionId) &&
+    typeof value.reviewerId === "string" &&
+    /^[A-Za-z0-9_-]{1,96}$/u.test(value.reviewerId) &&
+    (value.runtimeInstanceId === undefined || nonEmpty(value.runtimeInstanceId)) &&
+    (value.model === undefined || nonEmpty(value.model)) &&
+    (value.effort === undefined ||
+      ["minimal", "low", "medium", "high", "xhigh", "max"].includes(String(value.effort))) &&
+    (value.fast === undefined || typeof value.fast === "boolean")
+  );
+}
+
 export function validationError(entityId: string, field: string, actual: unknown, expectation: string): string {
   return (
     `entity=${validationValueSummary(entityId)} field=${field} ${expectation}; ` +
@@ -298,6 +314,7 @@ export function task(value: unknown): boolean {
       // Legacy read-only history: snapshots written before the rework budget moved to repository Settings.
       "reviewReturnBudget",
       "reviewer",
+      "reviewDispatchIntent",
       "closeoutOverrides",
       "archiveOnComplete",
       "presetSnapshotGap",
@@ -352,6 +369,7 @@ export function task(value: unknown): boolean {
     (value.reviewReturnBudget === undefined ||
       (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0)) &&
     (value.reviewer === undefined || typeof value.reviewer === "string") &&
+    (value.reviewDispatchIntent === undefined || reviewDispatchIntent(value.reviewDispatchIntent)) &&
     (value.closeoutOverrides === undefined || closeoutOverridesEnvelope(value.closeoutOverrides)) &&
     (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
   );

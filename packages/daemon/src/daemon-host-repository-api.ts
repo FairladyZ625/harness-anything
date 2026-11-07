@@ -105,8 +105,30 @@ export function createDaemonHostRepositoryApi(
   | "presetRun"
   | "read"
   | "readNodeAutoClaimCandidates"
+  | "readNodeAutoDispatchCandidates"
 > {
   return {
+    readNodeAutoDispatchCandidates: async (repoId, auth) => {
+      if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
+        throw context.hostCodedError(
+          "authentication_required",
+          "Auto-dispatch candidates require a Fleet node session.",
+        );
+      const cell = context.cells.get(repoId);
+      if (!cell || cell.status().mode === "remote-edge")
+        throw context.hostCodedError("repo_unavailable", `Center repository ${repoId} is unavailable.`);
+      const binding = await context.binding(cell.status().rootDir, auth),
+        nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+      if (nodeId !== auth.nodePrincipal.nodeId || binding.actor.principal.personId !== auth.nodePrincipal.personId)
+        throw context.hostCodedError(
+          "authentication_required",
+          "Fleet node binding does not match its authenticated owner.",
+        );
+      if (!cell.readNodeAutoDispatchCandidates)
+        throw context.hostCodedError("repo_unavailable", `Repository ${repoId} cannot read node dispatch candidates.`);
+      const candidates = await cell.readNodeAutoDispatchCandidates(nodeId!);
+      return { schema: "node-auto-dispatch-candidates/v1", candidates };
+    },
     readNodeAutoClaimCandidates: async (repoId, auth) => {
       if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
         throw context.hostCodedError("authentication_required", "Auto-claim candidates require a Fleet node session.");

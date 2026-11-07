@@ -46,6 +46,9 @@ function executeRead(request: RepoWriterRequestV1): unknown {
     case "readNodeAutoClaimAssignments":
       value = reader.readNodeAutoClaimAssignments(binding);
       break;
+    case "readNodeAutoDispatchCandidates":
+      value = reader.readNodeAutoDispatchCandidates(String(args[0]));
+      break;
     case "observeTail":
       value = reader.observeTail(args[0] as never, args[1] as never, binding);
       break;

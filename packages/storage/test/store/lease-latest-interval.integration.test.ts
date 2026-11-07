@@ -31,6 +31,14 @@ test("latest acquisition seeks one indexed row after the task is re-entered", as
       const latest = projection.readLatestLeaseInterval(taskId);
       assert.equal(latest?.executionId, "execution-round-two");
       assert.deepEqual(latest, history.at(-1));
+      const submittedExecutionLatest = projection.readLatestLeaseIntervalForExecution(taskId, "execution-round-one");
+      assert.equal(submittedExecutionLatest?.executionId, "execution-round-one");
+      assert.deepEqual(
+        submittedExecutionLatest,
+        history.find((interval) => interval.executionId === "execution-round-one"),
+        "a later task round must not change the submitted execution's placement lease",
+      );
+      assert.equal(projection.readLatestLeaseIntervalForExecution(taskId, "execution-missing"), null);
       assert.equal(projection.readLatestLeaseInterval("task-missing"), null);
 
       const db = new DatabaseSync(projection.path);
@@ -44,6 +52,15 @@ test("latest acquisition seeks one indexed row after the task is re-entered", as
           .join("\n");
         assert.match(plan, /lease_interval_task_acquisition/u, plan);
         assert.doesNotMatch(plan, /TEMP B-TREE/u, plan);
+        const executionPlan = db
+          .prepare(
+            "EXPLAIN QUERY PLAN SELECT * FROM lease_interval WHERE task_id = ? AND execution_id = ? ORDER BY acquired_revision DESC LIMIT 1",
+          )
+          .all(taskId, "execution-round-one")
+          .map((row) => String((row as { readonly detail: string }).detail))
+          .join("\n");
+        assert.match(executionPlan, /sqlite_autoindex_lease_interval_1/u, executionPlan);
+        assert.doesNotMatch(executionPlan, /TEMP B-TREE/u, executionPlan);
       } finally {
         db.close();
       }

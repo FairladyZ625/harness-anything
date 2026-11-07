@@ -26,7 +26,8 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
         `INSERT INTO ha_projection_values
       (tenant_id,project_id,policy_epoch,model,owner_id,entity_id,workspace_revision,value)
       SELECT $1,$2,$3,'lease-interval','task-target',n::text,1,
-        json_build_object('taskId','task-target','executionId','execution-' || n::text,
+        json_build_object('taskId','task-target','executionId',
+          CASE WHEN n IN (10,20) THEN 'submitted-execution' ELSE 'execution-' || n::text END,
           'acquiredRevision',n,'releasedRevision',n+1)::text FROM generate_series(1,100000) n`,
         [scope.tenantId, scope.projectId, scope.policyEpoch],
       );
@@ -144,6 +145,26 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
   for (const row of scans(plans))
     assert.ok(Number(row["Actual Rows"]) <= 1, `latest interval read visited the task history: ${JSON.stringify(row)}`);
   await measurePgRead(backend, "readLatestLeaseInterval", () => timed.readLatestLeaseInterval("task-target"));
+  plans.length = 0;
+  const latestExecution = await source.readLatestLeaseIntervalForExecution("task-target", "submitted-execution");
+  assert.equal(latestExecution?.executionId, "submitted-execution");
+  assert.equal(latestExecution?.acquiredRevision, 20, "select the newest acquisition of the requested execution");
+  assert.equal(latestExecution?.releasedRevision, 21, "closed execution leases still locate the submitted cut");
+  assert.equal(await source.readLatestLeaseIntervalForExecution("task-target", "missing"), null);
+  process.stdout.write(`VALUE_INDEX ${backend} latest-execution-interval ${JSON.stringify(plans)}\n`);
+  assert.ok(
+    explainNodes(plans).some((row) => String(row["Index Name"] ?? "").includes("ha_projection_interval_execution")),
+    "execution lease read must use the task/execution index",
+  );
+  assert.ok(!explainNodes(plans).some((row) => row["Node Type"] === "Sort"), "execution lease order uses its index");
+  for (const row of scans(plans))
+    assert.ok(
+      (Number(row["Actual Rows"]) + Number(row["Rows Removed by Filter"] ?? 0)) * Number(row["Actual Loops"]) <= 1,
+      `execution lease read visited unrelated history: ${JSON.stringify(row)}`,
+    );
+  await measurePgRead(backend, "readLatestLeaseIntervalForExecution", () =>
+    timed.readLatestLeaseIntervalForExecution("task-target", "submitted-execution"),
+  );
   await assertOnlineReadIndexUpgrade(pool, seedPool);
 }
 function scans(value: unknown) {

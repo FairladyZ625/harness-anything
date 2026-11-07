@@ -91,7 +91,7 @@ function taskMutationWithStopResult(
       amendPatches.length > 0 &&
       amendPatches.every((raw) => {
         const field = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>).field : null;
-        return field === "reviewer" || field === "pinned";
+        return field === "reviewer" || field === "pinned" || field === "reviewDispatchIntent";
       });
   if (action.kind === "task-release") {
     if (!activeLease)
@@ -288,12 +288,22 @@ function taskMutationWithStopResult(
         changed = { ...changed, metadata: { ...changed.metadata!, surfaces } };
       } else if (field === "reviewer" && /^[A-Za-z0-9_-]{1,96}$/u.test(value))
         changed = { ...changed, reviewer: value };
-      else
+      else if (field === "reviewDispatchIntent") {
+        let intent: unknown;
+        try {
+          intent = JSON.parse(value);
+        } catch {
+          throw cell.cellCodedError("invalid_amend", "reviewDispatchIntent must be a JSON object.");
+        }
+        if (!intent || typeof intent !== "object" || Array.isArray(intent))
+          throw cell.cellCodedError("invalid_amend", "reviewDispatchIntent must be a JSON object.");
+        changed = { ...changed, reviewDispatchIntent: intent as TaskV2["reviewDispatchIntent"] };
+      } else
         throw cell.cellCodedError(
           "invalid_amend",
           [
             "Amend title, parentTaskId, workKind, urgency, surfaces, ",
-            "taskClass, reviewer (agent id), or pinned (true/false); use task contract ",
+            "taskClass, reviewer (agent id), reviewDispatchIntent (internal), or pinned (true/false); use task contract ",
             "migrate for contract shape changes.",
           ].join(""),
         );

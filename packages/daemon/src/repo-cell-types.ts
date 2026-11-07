@@ -250,6 +250,9 @@ export interface RepoCell {
   ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
   /** Assignment edges and actor witnesses read from one authorized projection cut. */
   readonly readNodeAutoClaimAssignments: (binding: RepoCellBinding) => Promise<readonly RepoCellAutoClaimAssignment[]>;
+  readonly readNodeAutoDispatchCandidates?: (
+    nodeId: string,
+  ) => Promise<readonly import("./node-auto-dispatch.ts").NodeAutoDispatchCandidate[]>;
   readonly workspaceSummary: () => Promise<DaemonGuiReadResultMap["repo.workspace.summary.read"]>;
   readonly workspaceScope: (
     payload: DaemonGuiReadPayloadMap["repo.workspace.scope.read"],

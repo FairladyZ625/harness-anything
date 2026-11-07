@@ -15,7 +15,10 @@ import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import {
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+  registerFixtureRuntimeInstance,
+} from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
@@ -35,6 +38,7 @@ const replicaQuota = 64 * 1024 * 1024,
 type NodeId = (typeof nodes)[number];
 export async function dualSyncFixture(
   runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[],
+  options: { readonly runtimeDiscover?: NonNullable<Parameters<typeof openDaemonHost>[0]["runtimeDiscover"]> } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-dual-")),
     repo = path.join(root, "repo"),
@@ -92,7 +96,11 @@ export async function dualSyncFixture(
       repoIds: ["dual-repo"],
       localPersonId: "person-fixture",
     }),
-    host = await openDaemonHost({ daemonId: "dual-center", userRoot });
+    host = await openDaemonHost({
+      daemonId: "dual-center",
+      userRoot,
+      ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
+    });
   await host.attachmentsSettled();
   // Match daemon-fleet-center-start: local and edge ingress share the host lease.
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
@@ -266,6 +274,8 @@ export async function dualSyncFixture(
     createTask,
     centerRun,
     waitPublished,
+    registerRuntimeInstance: (declaration: Readonly<Record<string, unknown>>) =>
+      registerFixtureRuntimeInstance(host, "dual-repo", localAuth, declaration),
     // One resident stream owns one replica view: the center's replication slot bumps its fence on
     // every claim, so a second stream for the same node tears the first down mid-batch and both
     // reconnect forever. A test that opens its own edge daemon host for a node hands the stream

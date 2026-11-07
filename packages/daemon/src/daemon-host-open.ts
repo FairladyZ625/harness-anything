@@ -40,6 +40,11 @@ import {
   type NodeAutoClaimDiagnosticRow,
 } from "./node-auto-claim.ts";
 import {
+  openNodeAutoDispatchLoop,
+  parseNodeAutoDispatchSnapshot,
+  type NodeAutoDispatchCandidate,
+} from "./node-auto-dispatch.ts";
+import {
   readNodeAutoClaimDiagnostics,
   readNodeAutoClaimPolicy,
   parseNodeAutoClaimPolicy,
@@ -129,6 +134,7 @@ import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-h
 import { openRemoteProxyManager } from "./remote-proxy.ts";
 import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
+import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
 import { createNodeRetirement } from "./fleet/node-retirement.ts";
@@ -471,6 +477,65 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       });
     },
   });
+  const readAutoDispatchCandidates = async (
+    repo: AutoClaimRepo,
+    signal: AbortSignal,
+  ): Promise<readonly NodeAutoDispatchCandidate[]> => {
+    const edge = readFleetEdgeConfig(repo.rootDir);
+    if (!edge || edge.repoId !== repo.repoId) return [];
+    return parseNodeAutoDispatchSnapshot(
+      await edgeRuntimeFor({
+        ...edge,
+        caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
+        viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
+        workspaceRoot: repo.rootDir,
+        method: "repo.tasks.autoDispatchCandidates",
+        action: {},
+      }).run("repo.tasks.autoDispatchCandidates", {}, signal),
+    ).candidates;
+  };
+  const autoDispatchLoop = openNodeAutoDispatchLoop({
+    read: async (signal) =>
+      (await Promise.all(autoClaimRepos().map((repo) => readAutoDispatchCandidates(repo, signal)))).flat(),
+    spawn: async (candidate, signal) => {
+      const repo = autoClaimRepos().find((value) => value.repoId === candidate.repoId);
+      if (!repo) throw new Error(`required node repository for ${candidate.taskId} is unavailable`);
+      const edge = readFleetEdgeConfig(repo.rootDir);
+      if (!edge || edge.repoId !== repo.repoId) throw new Error("fleet_edge_config_invalid");
+      if (candidate.requiredNodeId !== edge.nodeId)
+        throw new Error(
+          `auto-dispatch candidate for ${candidate.taskId} requires ${candidate.requiredNodeId}, not local node ${edge.nodeId}`,
+        );
+      const runtime = edgeRuntimeFor({
+        ...edge,
+        caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
+        viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
+        workspaceRoot: repo.rootDir,
+        method: "repo.agentRuntime.spawn",
+        action: candidate.payload,
+      });
+      const spawn = (payload: JsonObject) => runtime.run("repo.agentRuntime.spawn", payload, signal);
+      let receipt: JsonObject;
+      try {
+        receipt = await spawn(candidate.payload);
+      } catch (error) {
+        if (!candidate.fallbackPayload || runtimeErrorCode(error) !== "runtime_resume_failed") throw error;
+        consumeKnownError(error);
+        receipt = await spawn(candidate.fallbackPayload);
+      }
+      if (receipt.code === "runtime_resume_failed" && candidate.fallbackPayload)
+        receipt = await spawn(candidate.fallbackPayload);
+      const runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
+      if (!runtimeSessionId || !["applied", "no_changes"].includes(String(receipt.outcome)))
+        throw Object.assign(
+          new Error(
+            `Node runtime spawn did not start ${candidate.dispatchKey}: ${String(receipt.code ?? receipt.outcome)}.`,
+          ),
+          { code: typeof receipt.code === "string" ? receipt.code : "node_auto_dispatch_failed" },
+        );
+      await runtime.awaitCanonicalRuntimeSessions({ runtimeSessionIds: [runtimeSessionId], mode: "all" }, signal);
+    },
+  });
   function edgeRuntimeFor(request: FleetEdgeRuntimeRequest["payload"]): ReturnType<typeof openFleetEdgeRuntime> {
     const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
       runtime =
@@ -502,6 +567,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                   code: "NODE_AUTO_CLAIM_SCAN_FAILED",
                 });
               });
+            void autoDispatchLoop.trigger("runtime-terminal").catch((error: unknown) => {
+              process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
+                code: "NODE_AUTO_DISPATCH_SCAN_FAILED",
+              });
+            });
           },
           waitForReplicaReady: () =>
             waitForFleetReplicaReady({
@@ -660,6 +730,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       void autoClaimLoop.trigger(reason, releasedTask).catch((error: unknown) => {
         process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
           code: "NODE_AUTO_CLAIM_SCAN_FAILED",
+        });
+      });
+      void autoDispatchLoop.trigger(reason).catch((error: unknown) => {
+        process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
+          code: "NODE_AUTO_DISPATCH_SCAN_FAILED",
         });
       });
     },
@@ -1200,6 +1275,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       parkedWaitController.abort();
       markDaemonOperationPhase("auto-claim.close");
       await autoClaimLoop.close();
+      await autoDispatchLoop.close();
       for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
       markDaemonOperationPhase("rbac-resume-and-access-admin.close");
@@ -1318,6 +1394,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             action: {},
           }).reconcile();
           await autoClaimLoop.trigger("replica-confirmed");
+          await autoDispatchLoop.trigger("replica-confirmed");
         },
         onConfirmedFailure: (error) =>
           input.recordLifecycle?.({

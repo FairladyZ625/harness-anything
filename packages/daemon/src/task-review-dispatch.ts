@@ -13,6 +13,7 @@ import {
   decisionReviewContentDigest,
   type ExecutionV1,
   type ReviewV1,
+  type TaskReviewDispatchIntentV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { derivedTaskActionProtocolCommands } from "./protocol/daemon-protocol-commands-task.ts";
@@ -33,6 +34,9 @@ import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { DecisionReviewContentConflictError } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { taskExecutionPlacement } from "./task-execution-placement.ts";
 
 /**
  * The one seat a submitted cut reviews under (dec_6A77D43B8523823ABA1F5E4D3C CH1). A professional
@@ -56,6 +60,80 @@ export function reviewSeatForCut(input: {
     // dispatch time would let a later settings edit move a cut that is already under review.
     pathReviewers: submission?.riskTierAssessment?.matchedPathReviewers ?? [],
   });
+}
+
+/** Builds the edge-owned reviewer spawn from canonical cut facts. The implementation runtime's
+ * event source is the only placement authority; reviewer identity and task membership are never
+ * used as a node hint. */
+export function nodeReviewDispatchCandidate(
+  cell: RepoCellOperationalContext,
+  input: { readonly taskId: string; readonly requiredNodeId: string },
+): NodeAutoDispatchCandidate | null {
+  const read = cell.projection.read(input.taskId),
+    snapshot = read.snapshot;
+  if (snapshot.task?.status !== "in_review") return null;
+  const execution = currentSubmittedExecutions(snapshot).find(
+    (candidate) => candidate.state === "submitted" && candidate.submission !== null,
+  );
+  if (!execution || !read.packagePath) return null;
+  const placement = taskExecutionPlacement(cell, input.taskId, execution.executionId);
+  if (placement.kind !== "node" || placement.nodeId !== input.requiredNodeId) return null;
+  const intent =
+      snapshot.task.reviewDispatchIntent?.executionId === execution.executionId
+        ? snapshot.task.reviewDispatchIntent
+        : undefined,
+    selection = intent
+      ? {
+          kind: "seat" as const,
+          seat: { reviewerId: intent.reviewerId, source: "argument" as const },
+        }
+      : reviewSeatForCut({ cell, execution, taskReviewer: snapshot.task.reviewer });
+  if (selection.kind === "escalated") return null;
+  const { reviewerId } = selection.seat,
+    resolved = readAgentDeclarationResolution({
+      rootDir: cell.rootDir,
+      agentId: reviewerId,
+      entityStore: createEntityStore(cell.store),
+    });
+  if (!resolved) return null;
+  const { declaration: agent, layer } = resolved,
+    intentModel = intent?.model;
+  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof intentModel !== "string")
+    return null;
+  const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(input.taskId, execution, reviewerId));
+  if (existing !== null || activeCutReviewDispatches(cell, input.taskId, execution).length > 0) return null;
+  const seatPrompt = selection.seat.source === "path" ? `\n${reviewPathSeatPrompt({ seat: selection.seat })}` : "";
+  const payload = {
+    agentId: resolved.declaration.id,
+    role: "reviewer",
+    taskId: input.taskId,
+    executionId: execution.executionId,
+    dispatchKey: key,
+    prompt:
+      reviewDispatchPrompt({
+        taskId: input.taskId,
+        packagePath: read.packagePath,
+        dispatchId: ids.dispatchId,
+        execution,
+        gates: completionGateIds(snapshot.task.completionGateIds, execution.submission),
+        artifactPrefix: path.relative(cell.rootDir, resolveHarnessLayout(cell.rootDir).authoredRoot),
+        implementationNodeId: input.requiredNodeId,
+        reviewerNodeId: input.requiredNodeId,
+      }) + seatPrompt,
+    ...(intent?.runtimeInstanceId ? { runtimeInstanceId: intent.runtimeInstanceId } : {}),
+    ...(intent?.model ? { model: intent.model } : {}),
+    ...(intent?.effort ? { effort: intent.effort } : {}),
+    ...(intent?.fast === undefined ? {} : { fast: intent.fast }),
+  } satisfies JsonObject;
+  return {
+    repoId: cell.input.repoId,
+    taskId: input.taskId,
+    executionId: execution.executionId,
+    kind: "review",
+    requiredNodeId: input.requiredNodeId,
+    dispatchKey: key,
+    payload,
+  };
 }
 
 /** Cut-review keys are qualified by reviewer so rerouting cannot reuse another reviewer's session. */
@@ -349,6 +427,11 @@ export function reviewDispatchPrompt(input: {
   readonly ownerNote?: string;
   /** Absolute authored root when the reviewer runs in a checkout that does not hold the ledger. */
   readonly artifactRoot?: string;
+  /** Relative authored root for a reviewer in a different node's checkout. */
+  readonly artifactPrefix?: string;
+  /** Physical node facts used by the fleet placement contract; absent means canonical-local. */
+  readonly implementationNodeId?: string;
+  readonly reviewerNodeId?: string;
 }): string {
   const { taskId, packagePath, dispatchId, execution, gates } = input,
     inapplicable = (execution.submission?.completionContract?.gates ?? [])
@@ -356,8 +439,12 @@ export function reviewDispatchPrompt(input: {
       .map((gate) => gate.gateId),
     report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
     packet = `${packagePath}/artifacts/reports/${dispatchId}.json`,
-    reportFile = input.artifactRoot ? path.join(input.artifactRoot, report) : `harness/${report}`,
-    packetFile = input.artifactRoot ? path.join(input.artifactRoot, packet) : `harness/${packet}`;
+    reportFile = input.artifactRoot
+      ? path.join(input.artifactRoot, report)
+      : path.join(input.artifactPrefix ?? "harness", report),
+    packetFile = input.artifactRoot
+      ? path.join(input.artifactRoot, packet)
+      : path.join(input.artifactPrefix ?? "harness", packet);
   return [
     `Independently review task ${taskId}, execution ${execution.executionId}, ` + `iteration ${execution.iteration}.`,
     ...(input.ownerNote
@@ -368,6 +455,8 @@ export function reviewDispatchPrompt(input: {
         ]
       : []),
     `The exact submission digest is ${submissionDigest(execution.submission!)}.`,
+    `Implementation node: ${input.implementationNodeId ?? "canonical-local"}. Reviewer node: ${input.reviewerNodeId ?? "canonical-local"}. ` +
+      "Keep these identities separate from the reviewer principal, Agent, instance, or model.",
     `Read ha task show ${taskId} --json and select execution ${execution.executionId} from executions. ` +
       "Its submission contains the authoritative delivery, frozen completion contract, and complete artifact anchors. " +
       "The prompt references that submission; it does not inline evidence or enumerate anchors.",
@@ -384,6 +473,11 @@ export function reviewDispatchPrompt(input: {
       "corroborated by original service evidence (time, actor, method/endpoint and authorization). " +
       "An unknown actor is an evidence gap; a proven shared invariant violation may still block the delivery " +
       "without claiming worker misconduct.",
+    "For every evidence source, record its node and whether you observed it directly. Frozen canonical artifacts may be " +
+      "verified from the center projection; live device or Lab data from another node is unverified when that node is " +
+      "unreachable. Mark the item `unverified` and name the missing node/source instead of treating a cross-node " +
+      "difference as a contradiction. Only same-node, same-cut evidence checked from the named source can establish " +
+      "a conflicting finding.",
     "For re-review, read the previous registered reviews and reports, this submission's frozen reviewResponses " +
       "and their referenced attribution evidence. Verify corrections against the exact cut; a rebuttal does not " +
       "waive unrelated findings. Responses must come from the current authorized implementation identity, " +
@@ -428,6 +522,7 @@ export function reviewDispatchPrompt(input: {
 type DispatchStep = {
   readonly taskId: string;
   readonly executionId?: string;
+  readonly requiredNodeId?: string;
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
   readonly dispatchOpId?: string;
@@ -435,7 +530,7 @@ type DispatchStep = {
   readonly agentId?: string;
   /** The runtime instance the dispatch actually landed on, from its dispatch request. */
   readonly instanceId?: string;
-  readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
+  readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "pending" | "failed";
   readonly error?: string;
 };
 
@@ -725,6 +820,7 @@ export async function dispatchInReviewCutReview(
   const selection = reviewSeatForCut({
     cell,
     execution,
+    taskReviewer: current.snapshot.task.reviewer,
     argument: typeof action.reviewer === "string" ? action.reviewer : undefined,
   });
   if (selection.kind === "escalated")
@@ -737,10 +833,45 @@ export async function dispatchInReviewCutReview(
           `${selection.reason} Ask the CEO to select a reviewer with ha task dispatch-review ${taskId} --agent <agent-id>; workers cannot dispatch reviewers.`,
         ),
       ),
+      warnings: [selection.reason],
+    };
+  const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
+  if (placement.kind === "node") {
+    const step = {
+      ...receipt,
+      outcome: "pending",
+      continuation: {
+        mode: "pending",
+        outcome: "pending",
+        requiredNodeId: placement.nodeId,
+        taskId,
+        executionId: execution.executionId,
+      },
       warnings: [
-        `${selection.reason} Ask the CEO to select a reviewer with ha task dispatch-review ${taskId} --agent <agent-id>; workers cannot dispatch reviewers.`,
+        ...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []),
+        `Task ${taskId} review is pending on implementation node ${placement.nodeId}; the center did not create a runtime dispatch.`,
+      ],
+    } as WriteReceiptDraft;
+    return {
+      seat: selection.seat,
+      step,
+      warnings: [
+        `Task ${taskId} review is pending on implementation node ${placement.nodeId}; it will dispatch when that node is online.`,
       ],
     };
+  }
+  if (placement.kind === "unresolved") {
+    const warning = `Task ${taskId} review is pending: ${placement.reason}; the center did not create a runtime dispatch.`;
+    return {
+      seat: selection.seat,
+      step: {
+        ...receipt,
+        outcome: "pending",
+        warnings: [...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []), warning],
+      } as WriteReceiptDraft,
+      warnings: [warning],
+    };
+  }
   const { seat } = selection,
     { reviewerId } = seat,
     pathSeat = seat.source === "path",
@@ -906,6 +1037,17 @@ export async function dispatchTaskReview(
     }
     const { seat } = selection,
       { reviewerId } = seat;
+    const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
+    if (placement.kind === "unresolved") {
+      steps.push({
+        taskId,
+        executionId: execution.executionId,
+        agentId: reviewerId,
+        outcome: "pending",
+      });
+      warnings.push(`Task ${taskId} review is pending: ${placement.reason}; no runtime dispatch was created.`);
+      continue;
+    }
     let resolved;
     try {
       resolved = readAgentDeclarationResolution({
@@ -994,6 +1136,35 @@ export async function dispatchTaskReview(
       });
       continue;
     }
+    if (placement.kind === "node") {
+      const intent: TaskReviewDispatchIntentV1 = {
+        executionId: execution.executionId,
+        reviewerId,
+        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+        ...(typeof action.model === "string" ? { model: action.model } : {}),
+        ...(typeof action.effort === "string" ? { effort: action.effort as TaskReviewDispatchIntentV1["effort"] } : {}),
+        ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
+      };
+      const intentReceipt = cell.taskSurfaceWrite(
+        {
+          kind: "task-amend",
+          taskId,
+          patches: [{ field: "reviewDispatchIntent", value: JSON.stringify(intent) }],
+        },
+        binding,
+      );
+      if (!["applied", "no_changes"].includes(String(intentReceipt.outcome))) {
+        fail(
+          `Task ${taskId} review intent could not be persisted on implementation node ${placement.nodeId}.`,
+          reviewerId,
+          execution.executionId,
+        );
+        continue;
+      }
+      steps.push({ taskId, executionId: execution.executionId, requiredNodeId: placement.nodeId, outcome: "pending" });
+      warnings.push(`Task ${taskId} review is pending on implementation node ${placement.nodeId}.`);
+      continue;
+    }
     const seatPrompt = seat.source === "path" ? reviewPathSeatPrompt({ seat }) : null,
       payload = {
         agentId: agent.id,
@@ -1060,10 +1231,15 @@ export async function dispatchTaskReview(
       fail(error instanceof Error ? error.message : String(error), reviewerId, execution.executionId);
     }
   }
-  const dispatchedTasks = new Set(steps.filter((step) => step.outcome !== "failed").map((step) => step.taskId)),
+  const dispatchedTasks = new Set(
+      steps
+        .filter((step) => ["dispatched", "already_dispatched", "already_reviewed"].includes(step.outcome))
+        .map((step) => step.taskId),
+    ),
+    pending = steps.filter((step) => step.outcome === "pending"),
     failed = steps.filter((step) => step.outcome === "failed");
   return {
-    outcome: dispatchedTasks.size === 0 ? "op_rejected" : "applied",
+    outcome: dispatchedTasks.size > 0 ? "applied" : pending.length > 0 ? "pending" : "op_rejected",
     opId: cell.operationId(action, binding, cell.input.repoId, revision),
     revision,
     ...(failed.length === 0 ? {} : { code: "review_dispatch_failed" }),
@@ -1073,7 +1249,9 @@ export async function dispatchTaskReview(
     ...(failed.length === steps.length
       ? { rejectionExplanation: failed.map((step) => `${step.taskId}: ${step.error ?? ""}`).join("; ") }
       : {}),
-    summary: `dispatch-review: ${String(dispatchedTasks.size)} of ${String(taskIds.length)} task(s) have a review dispatch.`,
+    summary:
+      `dispatch-review: ${String(dispatchedTasks.size)} of ${String(taskIds.length)} task(s) have a review dispatch; ` +
+      `${String(pending.length)} are pending on their implementation node.`,
     dispatches: steps,
   } as WriteReceiptDraft;
 }

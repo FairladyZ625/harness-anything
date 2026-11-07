@@ -278,6 +278,7 @@ export async function openRepoCellProxy(
     },
     readEventWitness: (revision) => query("readEventWitness", [revision]),
     readNodeAutoClaimAssignments: (binding) => query("readNodeAutoClaimAssignments", [], binding),
+    readNodeAutoDispatchCandidates: (nodeId) => query("readNodeAutoDispatchCandidates", [nodeId]),
     workspaceSummary: () => query("read", ["repo.workspace.summary.read", {}]),
     workspaceScope: (payload) => query("read", ["repo.workspace.scope.read", payload]),
     // File tails already use async I/O with a fixed byte/page budget. Only the ledger

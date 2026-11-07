@@ -92,6 +92,8 @@ export function readIndexDdl(): readonly string[] {
       (tenant_id,project_id,policy_epoch,order_at DESC,entity_id) WHERE model='pin'`,
     `CREATE INDEX IF NOT EXISTS ha_projection_interval_order ON ha_projection_values
       (tenant_id,project_id,policy_epoch,owner_id,order_revision) WHERE model='lease-interval'`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_interval_execution ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,owner_id,execution_id,order_revision DESC) WHERE model='lease-interval'`,
     `CREATE INDEX IF NOT EXISTS ha_projection_interval_open ON ha_projection_values
       (tenant_id,project_id,policy_epoch,owner_id,execution_id,order_revision)
       WHERE model='lease-interval' AND interval_open`,
