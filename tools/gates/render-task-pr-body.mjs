@@ -22,11 +22,23 @@ const START = SUBMISSION_FACTS_START,
 // feeds each one. The closeout is the single authoring place (dec_BB2BCE9F995CD3A126E2918734 CH1),
 // so no second PR-body template lives here.
 const PR_SECTIONS = Object.freeze([
-  { title: "Summary", aliases: Object.freeze(["summary", "概要"]) },
-  { title: "What Changed", aliases: Object.freeze(["what changed", "改动内容", "改动"]) },
-  { title: "Verification", aliases: Object.freeze(["verification", "验证"]) },
-  { title: "Residual Risk", aliases: Object.freeze(["residual risk", "剩余风险", "残余风险"]) },
+  { title: "Summary", aliases: Object.freeze(["summary"]) },
+  { title: "What Changed", aliases: Object.freeze(["what changed"]) },
+  { title: "Verification", aliases: Object.freeze(["verification"]) },
+  { title: "Residual Risk", aliases: Object.freeze(["residual risk"]) },
 ]);
+
+// The review facts require a `# 中文` block with a Chinese verification heading. The renderer
+// emits that shape from the same closeout instead of a second authored template; a Chinese closeout
+// section supplies its own text, otherwise the block mirrors the English source.
+const CHINESE_SECTIONS = Object.freeze([
+  { title: "摘要", aliases: Object.freeze(["摘要", "概要"]), source: "Summary" },
+  { title: "改动内容", aliases: Object.freeze(["改动内容", "改动"]), source: "What Changed" },
+  { title: "验证", aliases: Object.freeze(["验证", "验证记录", "验证结果"]), source: "Verification" },
+  { title: "残余风险", aliases: Object.freeze(["残余风险", "剩余风险"]), source: "Residual Risk" },
+]);
+
+const CHINESE_HEADING = /^#\s+中文\s*$/mu;
 
 // The PR template keeps Dependency-Change on one machine-readable line, not as a `##` section.
 // G31 rejects the `none` sentinel whenever the cut touches a package.json or the lockfile, so the
@@ -110,11 +122,16 @@ function findSection(sections, aliases) {
 
 function authoredSources(closeout, profileId) {
   const sections = [...markdownSectionEntries(closeout)],
-    sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
+    chinese = Object.fromEntries(
+      CHINESE_SECTIONS.map(({ aliases, source }) => [source, findSection(sections, aliases)]),
+    ),
+    sources = Object.fromEntries(
+      PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases) ?? chinese[title]]),
+    );
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
   sources["What Changed"] ??= sources.Summary;
   if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
-  return sources;
+  return { sources, chinese };
 }
 
 function escapeRegExp(value) {
@@ -175,6 +192,32 @@ function fillSection(body, title, content) {
   return `${body.slice(0, start)}\n\n${authoredContent(content).trim()}${keptMarkers}\n\n${body.slice(end)}`;
 }
 
+/** The generated Chinese block is system-owned, so a re-render replaces it instead of stacking one. */
+function withoutChineseSection(body) {
+  const match = CHINESE_HEADING.exec(body);
+  return match ? body.slice(0, match.index).replace(/\s+$/u, "") : body;
+}
+
+// Machine declarations stay in the one English declaration section; a closeout line copied into the
+// Chinese block would make G31 or the Event-Migration check see a second declaration.
+const MACHINE_DECLARATION = /^(?:Dependency-Change|Event-Migration):/u;
+
+function chineseContent(content) {
+  return authoredContent(content)
+    .split(/\r?\n/u)
+    .filter((line) => !MACHINE_DECLARATION.test(line))
+    .join("\n")
+    .trim();
+}
+
+/** Same closeout, second language block; no second template and no translated hand copy. */
+function chineseSection(closeout, sources, chinese) {
+  const blocks = CHINESE_SECTIONS.map(
+    ({ title, source }) => `## ${title}\n\n${chineseContent(chinese[source] ?? sources[source] ?? closeout)}`,
+  );
+  return `# 中文\n\n${blocks.join("\n\n")}`;
+}
+
 /** Collapse closeout prose onto the one machine-readable line G31 parses. */
 function dependencyDescription(content) {
   return content
@@ -222,9 +265,10 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
   const { submission, profileId, decisionAuthority } = taskProjection(receipt, taskId),
     submissionFacts = readSubmissionFacts(submission),
     delivery = renderSubmissionFacts(submission, submissionFacts),
-    stripped = withoutFacts(body),
+    authored = typeof closeout === "string" ? closeout : "",
+    stripped = withoutFacts(withoutChineseSection(body)),
     baseline = withoutFacts(template),
-    sources = authoredSources(typeof closeout === "string" ? closeout : "", profileId);
+    { sources, chinese } = authoredSources(authored, profileId);
   let rendered = stripped;
   if (hasDependencyChange(submissionFacts.changedFiles) && sources[DEPENDENCY_CHANGE.title]?.trim()) {
     const { start, end } = sectionBounds(rendered, "Machine-Readable Declarations");
@@ -244,8 +288,9 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
   rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest, decisionAuthority);
-  const { start, end } = markerPair(rendered, "PR template");
-  return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
+  const { start, end } = markerPair(rendered, "PR template"),
+    published = `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
+  return `${published.replace(/\s+$/u, "")}\n\n${chineseSection(authored, sources, chinese)}\n`;
 }
 
 function parseArgs(argv) {

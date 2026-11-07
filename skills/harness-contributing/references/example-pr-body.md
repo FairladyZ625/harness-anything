@@ -41,3 +41,18 @@ make the public entry pages point to that authority (#1234).
 
 - The live PR template or gate manifest may change; contributors must read both
   from their current branch instead of copying this example.
+
+# 中文
+
+## 摘要
+
+用一份公开 skill 记录仓库的贡献流程，并把公开入口页指向该权威（#1234）。
+
+## 改动内容
+
+- 新增公开贡献 skill，并把重复的流程说明替换为指向该 skill 的链接。
+
+## 验证
+
+- 交付事实由 `tools/gates/render-task-pr-body.mjs` 从冻结的 submission 生成；本仅文档示例没有仓库 commit 或 production delta。
+- 上节英文 Verification 中列出的命令、未运行项与理由同样适用于中文两段。

@@ -302,18 +302,26 @@ node tools/gates/render-task-pr-body.mjs --task <task-id> --body-file /tmp/harne
 mv /tmp/harness-anything-pr-body.next.md /tmp/harness-anything-pr-body.md
 ```
 
+The renderer owns both language blocks: it appends `# 中文` with `## 摘要` and
+`## 验证` (plus the other sections) from the same closeout, so do not hand-write
+or paste a Chinese section. If the closeout carries Chinese section headings
+(`## 摘要`, `## 验证`, ...), they supply the Chinese text; otherwise the block
+mirrors the English source. Re-rendering replaces the generated block instead of
+stacking a second one.
+
 Governance
 Declaration and the Dependency-Change line are required only when their
 trigger applies — a manifest-derived protected surface is touched, or a
-package manifest or lockfile changes; otherwise the template defaults are
-complete. Do not claim CI, human review, or a test that has not happened.
+package manifest or lockfile changes. The renderer also owns both machine
+sections: it writes the governance declaration from ledger authorization and
+replaces `Dependency-Change:` from the closeout's Dependency Change section when
+the cut touches a package manifest or lockfile; otherwise the template sentinel
+stays. Do not hand-delete or hand-edit either one. Do not claim CI, human
+review, or a test that has not happened.
 
 Reference the public issue number in the Summary section, for example
 `#1234`. Never put a private task ID, local planning ID, or private evidence
-path in the public PR body. If neither `package.json` nor
-`package-lock.json` changed, delete the entire `Dependency-Change:` line; do
-not leave `Dependency-Change: none`. Keep and fully describe that line only
-when one of those dependency files changed.
+path in the public PR body.
 
 In Verification, record a command only when its exact command exited zero,
 either because you ran it directly or because the manifest runner printed
@@ -347,11 +355,12 @@ docs-only example that exercises every section. It is a fixture, not a template:
 always copy the live repository template for a real PR.
 
 > 中文：task submit 冻结交付 cut 后，用 renderer 生成 PR body 的 Delivery Facts；不得
-> 手抄或重算 SHA、基线、文件清单和 production delta。PR body 按模板填写人写的节；治理声明与 `Dependency-Change:` 仅在
-> 触发条件成立时必填。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID；无
-> 依赖文件变化时删除整条 `Dependency-Change:`。Verification 只记录直接通过、或由
-> runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生的 CI、人工
-> review 或测试写成已完成。
+> 手抄或重算 SHA、基线、文件清单和 production delta。PR body 按模板填写人写的节；
+> renderer 同时生成 `# 中文` 的 `## 摘要`/`## 验证` 等节，手写或补粘贴的中文段会被下次
+> 渲染替换。治理声明与 `Dependency-Change:` 也由 renderer 按台账与 closeout 生成，不要
+> 手工删除或改写。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID。Verification
+> 只记录直接通过、或由 runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生
+> 的 CI、人工 review 或测试写成已完成。
 
 ## Push and open the PR
 

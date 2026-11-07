@@ -166,7 +166,8 @@ test("PR renderer preserves interleaved repeated risk sections in source order",
     ),
     submitted = submissionFromCloseout(authored, codeSubmission),
     body = render(submitted, { closeout: authored }),
-    riskBody = body.match(/## Residual Risk\n([\s\S]*?)(?=\n## |$)/u)?.[1].trim();
+    englishBody = body.split(/\n#\s+中文\s*$/mu)[0] ?? body,
+    riskBody = englishBody.match(/## Residual Risk\n([\s\S]*?)(?=\n## |$)/u)?.[1].trim();
   assert.ok(submitted.residualRisks.includes(risks.join("\n\n")), "the frozen risks retain the authored order");
   assert.equal(riskBody, risks.join("\n\n"), "the PR must end with the reopened issue, matching the frozen risks");
   assertPassesPrBodyCheck(body);
@@ -605,7 +606,10 @@ test("re-rendering a body refreshes delivery facts but keeps authored sections",
       { body: edited },
     );
   assert.match(refreshed, /Hand-edited summary\./u);
-  assert.doesNotMatch(refreshed, new RegExp(summary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.doesNotMatch(
+    refreshed.split(/\n#\s+中文\s*$/mu)[0] ?? "",
+    new RegExp(summary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
+  );
   assert.match(refreshed, /Production delta: \+8\/-2 \(net \+6\)/u);
   assert.equal((refreshed.match(/## Delivery Facts/gu) ?? []).length, 1);
   assertPassesPrBodyCheck(refreshed);
@@ -642,7 +646,73 @@ test("PR renderer recognises the Chinese closeout section names", () => {
   const body = render(codeSubmission, { closeout: chinese });
   for (const value of ["中文概要。", "- 中文改动。", "- 中文验证。", "- 中文风险。"])
     assert.match(body, new RegExp(value, "u"));
+  assert.match(body, /## 摘要\n\n中文概要。/u);
+  assert.match(body, /## 改动内容\n\n- 中文改动。/u);
+  assert.match(body, /## 验证\n\n- 中文验证。/u);
+  assert.match(body, /## 残余风险\n\n- 中文风险。/u);
   assertPassesPrBodyCheck(body);
+});
+
+// review-facts' bilingualVerification requires these two structural headings; the public suite
+// cannot import the private script, so the assertion pins the exact shape it reads and the
+// negative control below proves removing the block makes it fail.
+function assertBilingualShape(body) {
+  assert.match(body, /^#\s+English\s*$/imu);
+  assert.match(body, /^#\s+中文\s*$/mu);
+  assert.match(body, /^#{1,3}\s+(?:验证|验证记录|验证结果)(?:\s|$)/mu);
+}
+
+test("the rendered body satisfies the bilingual headings review facts reads", () => {
+  const body = render();
+  assertBilingualShape(body);
+  assert.ok(body.includes(`## 摘要\n\n${summary}`), "the Chinese summary carries the authored summary");
+  assert.match(body, /## 验证\n\n- Isolated renderer test passed\./u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("removing the generated Chinese block fails the bilingual assertion", () => {
+  const body = render(),
+    withoutChinese = body.replace(/^#\s+中文\s*$[\s\S]*$/mu, "");
+  assertBilingualShape(body);
+  assert.throws(
+    () => assertBilingualShape(withoutChinese),
+    /中文/u,
+    "the negative control must detect the removed block",
+  );
+});
+
+test("a bilingual closeout feeds each language block from its own sections", () => {
+  const bilingual = `# Closeout
+
+## Summary
+
+English summary.
+
+## 摘要
+
+中文摘要。
+
+## Verification
+
+- English verification.
+
+## 验证
+
+- 中文验证。
+`;
+  const body = render(codeSubmission, { closeout: bilingual });
+  assert.match(body, /## Summary\n\nEnglish summary\./u);
+  assert.match(body, /## 摘要\n\n中文摘要。/u);
+  assert.match(body, /## Verification\n\n- English verification\./u);
+  assert.match(body, /## 验证\n\n- 中文验证。/u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("re-rendering replaces the single generated Chinese block", () => {
+  const refreshed = render(codeSubmission, { body: render() });
+  assert.equal((refreshed.match(/^# 中文$/gmu) ?? []).length, 1, "one body carries one generated Chinese block");
+  assert.match(refreshed, /## 验证\n\n- Isolated renderer test passed\./u);
+  assertPassesPrBodyCheck(refreshed);
 });
 
 test("PR renderer keeps authored top-level headings from adding a new section", () => {

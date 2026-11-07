@@ -134,6 +134,15 @@ async function submitBaselineTask(
       event.payload.execution.submission?.commitSha,
       hasPublicDiff || publicChange === "package" ? deliveryHead : null,
     );
+    const submitNext = (submitted as { readonly next?: readonly { readonly command?: string }[] }).next ?? [];
+    if (event.payload.execution.submission?.commitSha === null)
+      assert.doesNotMatch(JSON.stringify(submitNext), /ha task push/u, "an artifact-only cut has no branch to publish");
+    else
+      assert.match(
+        JSON.stringify(submitNext),
+        new RegExp(`ha task push ${taskId}`, "u"),
+        "a code cut names the publish step that refreshes the PR body's submission-facts",
+      );
     assert.equal(git(worker, "rev-parse", "HEAD"), deliveryHead, "submission must not create an empty commit");
     assert.deepEqual(
       event.payload.execution.submission?.deliverables,

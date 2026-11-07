@@ -304,7 +304,20 @@ export function lifecycleReceipt(
       event.type === "task_amended" && event.payload.mutation.fields.includes("parentTaskId")
         ? (workRootOf(cell.projection, event.taskId)?.taskId ?? event.taskId)
         : null,
+    // A submitted code cut must still be published. `ha task push` reuses the one PR update path,
+    // which replaces the marked submission-facts block from this frozen submission, so a rework can
+    // never leave the previous delivery commit on the PR body. Artifact-only cuts have no branch.
+    submittedCommit =
+      event.type === "execution_submitted" ? (event.payload.execution.submission?.commitSha ?? null) : null,
     next = [
+      ...(submittedCommit === null
+        ? []
+        : [
+            {
+              command: `ha task push ${event.taskId}`,
+              reason: "publish this submitted cut; an existing PR body's submission-facts block refreshes from it",
+            },
+          ]),
       ...(nextCommand
         ? [
             {
