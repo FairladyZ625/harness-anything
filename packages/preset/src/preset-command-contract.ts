@@ -67,15 +67,8 @@ export function cliInput<const Extra extends Readonly<Record<string, unknown>> =
   error: CliInputError,
   extra?: Extra,
 ): Readonly<CliInputFacet & Extra> {
-  const codec =
-    name === "--from-file" && "jsonAllowedFields" in (extra as object)
-      ? { kind: "json-object", source: "file", maxBytes: 64 * 1024 }
-      : name === "--json-input" && "jsonAllowedFields" in (extra as object)
-        ? { kind: "json-object", source: "value", maxBytes: 64 * 1024 }
-        : undefined;
   return Object.freeze({
     ...extra,
-    ...(codec ? { codec } : {}),
     name,
     kind,
     required,
@@ -320,13 +313,6 @@ const taskCreateCliInputs = Object.freeze(
         ...(field.enum ? { enum: field.enum } : {}),
         ...(field.regex ? { regex: field.regex } : {}),
         ...cli,
-        ...(cli.name === "--from-file"
-          ? { codec: Object.freeze({ kind: "json-object" as const, source: "file" as const, maxBytes: 64 * 1024 }) }
-          : cli.name === "--json-input"
-            ? { codec: Object.freeze({ kind: "json-object" as const, source: "value" as const, maxBytes: 64 * 1024 }) }
-            : cli.name === "--plan-file"
-              ? { codec: Object.freeze({ kind: "markdown-file" as const, target: "plan", maxBytes: 32 * 1024 }) }
-              : {}),
         ...(cli.name === "--from-file" || cli.name === "--plan-file" ? { format: workspacePathFormat } : {}),
         ...(cli.name === "--profile" ? { format: taskCreateProfileFormat } : {}),
         ...(cli.name === "--title" ? { format: titleFocusFormat } : {}),

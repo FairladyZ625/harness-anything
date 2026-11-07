@@ -382,6 +382,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: [
             "reviewId",
             "reviewContentDigest",
@@ -437,6 +438,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["responses"],
           jsonFields: ["responses"],
         },
@@ -464,6 +466,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
           jsonFields: ["reviewContentDigest", "reviewIds", "reason"],
         },

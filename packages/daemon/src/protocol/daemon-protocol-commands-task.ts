@@ -44,23 +44,6 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
               }),
               ...(field.enum ? { enum: field.enum } : {}),
               ...(field.regex ? { regex: field.regex } : {}),
-              ...(field.cli.name === "--from-file"
-                ? {
-                    codec: Object.freeze({
-                      kind: "json-object" as const,
-                      source: "file" as const,
-                      maxBytes: 64 * 1024,
-                    }),
-                  }
-                : field.cli.name === "--json-input"
-                  ? {
-                      codec: Object.freeze({
-                        kind: "json-object" as const,
-                        source: "value" as const,
-                        maxBytes: 64 * 1024,
-                      }),
-                    }
-                  : {}),
               // The kernel contract carries the packet shape; the workspace-root path rule belongs
               // to the daemon read layer, so it is added here where the CLI facet is assembled.
               ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),

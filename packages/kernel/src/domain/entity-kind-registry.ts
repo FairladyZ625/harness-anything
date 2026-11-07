@@ -283,6 +283,14 @@ export interface EntityActionInputField {
       readonly schemaRef: string;
       readonly fields: readonly EntityActionInputField[];
     };
+    /** Edge-local decoding performed before the action crosses the Fleet channel. */
+    readonly codec?:
+      | { readonly kind: "json-object"; readonly source: "file" | "value"; readonly maxBytes: number }
+      | {
+          readonly kind: "markdown-file" | "text-file" | "line-list-file";
+          readonly target: string;
+          readonly maxBytes: number;
+        };
     readonly conflictsWith?: readonly string[];
     readonly format?: string;
     readonly projection?: "number" | "fact-hold-array" | "json-object" | "json-object-array";

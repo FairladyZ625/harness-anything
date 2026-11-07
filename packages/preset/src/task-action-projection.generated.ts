@@ -220,6 +220,7 @@ export const taskActionDescriptorProjection = {
             required: false,
             cli: {
               conflictsWith: ["--json-input"],
+              codec: { kind: "json-object", source: "file", maxBytes: 65536 },
               name: "--from-file",
               kind: "single",
               error: "invalid_field",
@@ -235,6 +236,7 @@ export const taskActionDescriptorProjection = {
             cli: {
               format: "<json|@->",
               conflictsWith: ["--from-file"],
+              codec: { kind: "json-object", source: "value", maxBytes: 65536 },
               name: "--json-input",
               kind: "single",
               error: "invalid_field",
@@ -280,6 +282,7 @@ export const taskActionDescriptorProjection = {
             required: false,
             cli: {
               conflictsWith: ["--json-input"],
+              codec: { kind: "json-object", source: "file", maxBytes: 65536 },
               name: "--from-file",
               kind: "single",
               error: "invalid_field",
@@ -294,6 +297,7 @@ export const taskActionDescriptorProjection = {
             cli: {
               format: "<json|@->",
               conflictsWith: ["--from-file"],
+              codec: { kind: "json-object", source: "value", maxBytes: 65536 },
               name: "--json-input",
               kind: "single",
               error: "invalid_field",
