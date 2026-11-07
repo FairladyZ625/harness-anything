@@ -355,12 +355,6 @@ export function resolveWorkspaceDocumentPath(rootDir: string, value: string): Wo
   };
 }
 
-/** The authored root's spelling from the workspace root: what a receipt prefixes every ledger key with. */
-export function documentWorkspacePrefix(rootDir: string, layout?: HarnessLayout): string {
-  const authoredRoot = (layout ?? resolveHarnessLayout(rootDir)).authoredRoot;
-  return path.relative(rootDir, authoredRoot).split(path.sep).join("/");
-}
-
 /** The inverse boundary translation: a receipt prints the path a caller would paste back in. */
 export function documentWorkspacePath(rootDir: string, document: string, layout?: HarnessLayout): string {
   const authoredRoot = (layout ?? resolveHarnessLayout(rootDir)).authoredRoot;
