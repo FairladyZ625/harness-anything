@@ -255,9 +255,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Archive selected Task packages while retaining their evidence and lifecycle history.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--ids", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--ids",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "taskIds" },
+      ),
       cliInput(
         "--filter",
         "single",

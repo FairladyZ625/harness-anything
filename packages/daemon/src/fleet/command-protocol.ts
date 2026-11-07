@@ -432,9 +432,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
     daemonProtocolCommands.find(
       (command) =>
         ("actionKind" in command ? command.actionKind : command.id) === kind &&
-        ((command.admission["remote-edge"] === "via-center-forward" &&
-          (command.path[0] !== "doc" || command.id === "doc-retire") &&
-          command.path[0] !== "schedule") ||
+        ((command.admission["remote-edge"] === "via-center-forward" && command.path[0] !== "schedule") ||
           // Execution-bound doc-show resolves frozen submission blobs at the center.
           command.id === "doc-show"),
     ),
@@ -622,6 +620,7 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
           cronExpression: text,
           timezone: text,
           agentId: id,
+          squadId: id,
           mission: bodyText,
           reasoningEffort: one(...runtimeEffortValues),
           fast: boolean,
@@ -629,11 +628,37 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
           disabled: boolean,
           idempotencyKey: text,
         },
-        ["kind", "scheduleId", "name", "mode", "agentId", "mission"],
+        ["kind", "scheduleId", "name", "mode", "mission"],
       )(value) &&
       record(value) &&
+      Object.hasOwn(value, "agentId") !== Object.hasOwn(value, "squadId") &&
       Object.hasOwn(value, "everyMs") !== Object.hasOwn(value, "cronExpression") &&
       Object.hasOwn(value, "cronExpression") === Object.hasOwn(value, "timezone"),
+    "schedule-assign": (value) =>
+      optionalShape(
+        {
+          kind: one("schedule-assign"),
+          scheduleId: id,
+          expectedVersion: uint,
+          personId: id,
+          nodeId: id,
+          teamId: id,
+          expiresAt: text,
+          idempotencyKey: text,
+        },
+        ["kind", "scheduleId", "expectedVersion"],
+      )(value) &&
+      record(value) &&
+      ["personId", "nodeId", "teamId"].filter((field) => Object.hasOwn(value, field)).length === 1,
+    "schedule-unassign": optionalShape(
+      {
+        kind: one("schedule-unassign"),
+        scheduleId: id,
+        expectedVersion: uint,
+        idempotencyKey: text,
+      },
+      ["kind", "scheduleId", "expectedVersion"],
+    ),
     "schedule-enable": optionalShape({ kind: one("schedule-enable"), scheduleId: id, idempotencyKey: text }, [
       "kind",
       "scheduleId",
