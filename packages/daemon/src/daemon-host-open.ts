@@ -347,9 +347,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           "execution_credential_rejected",
           "Execution credential belongs to a different repository.",
         );
-      const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth, rootDir));
+      const {
+        executionCredential: _executionCredential,
+        executionPrincipal: _executionPrincipal,
+        ...operatorAuth
+      } = auth;
+      const deviceSession = await hostBinding(rootDir, operatorAuth, executor, undefined, replicaRead);
       if (deviceSession.actor.principal.personId !== execution.personId) throw executionCredentialRejected();
       const base = {
+        ...deviceSession,
         actor: runtimeExecutionActor(execution),
         source: execution.source,
         sourceNodeId:
@@ -357,7 +363,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             ? execution.source.nodeId
             : `local:${input.daemonId}`,
         executionPrincipal: execution,
-        keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
         writerEpoch: auth.writerEpoch,
         withWriterEpochFence: auth.withWriterEpochFence,
         writerEpochFence: auth.writerEpochFence,
@@ -571,8 +576,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     if (!edge || edge.repoId !== repo.repoId || edge.nodeId !== candidate.requiredNodeId)
       throw new Error(`auto-dispatch node ${candidate.requiredNodeId} is unavailable`);
     const owner = await hostBinding(repo.rootDir, { transportKind: "unix-socket" }),
-      session = owner.keycloakAuthorization?.session,
-      accessToken = session?.currentAccessToken ? await session.currentAccessToken() : session?.accessToken;
+      session = await oidc.bind({ transportKind: "unix-socket" }, repo.rootDir),
+      accessToken = session.localSessionAccessToken
+        ? await session.localSessionAccessToken()
+        : session.oidcPrincipal?.accessToken;
     if (!accessToken) throw new Error("The edge owner must sign in before recording review-dispatch state.");
     const receipt = await runFleetEdgeTask(
       {

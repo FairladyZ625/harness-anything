@@ -159,7 +159,7 @@ test("missing user authorization context names the repo-cell binding boundary", 
 
   assert.equal(decision.outcome, "denied");
   assert.deepEqual(decision.reasonCodes, ["authorization_context_missing"]);
-  assert.match(decision.nextActions.join(" "), /RepoCellBinding\.keycloakAuthorization/u);
+  assert.match(decision.nextActions.join(" "), /signed-in user authorization context reached the repo-cell binding/u);
   assert.match(decision.nextActions.join(" "), /daemon host binding and Fleet writer handoff/u);
   assert.ok(decision.bindingsUsed.some((binding) => binding.scope === "task-create"));
 });

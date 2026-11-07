@@ -88,12 +88,12 @@ export async function evaluateRepoCellAction(input: {
           outcome: "denied",
           reasonCodes: ["authorization_context_missing"],
           nextActions: [
-            "No user authorization credential reached RepoCellBinding.keycloakAuthorization. Check the daemon host binding and Fleet writer handoff before retrying.",
+            "No signed-in user authorization context reached the repo-cell binding. Check the daemon host binding and Fleet writer handoff before retrying.",
           ],
           evaluatedAtCut,
         },
       });
-    return authorizeDurableRepoCellAction({
+    return authorizeRepoCellAction({
       ...input,
       binding: { ...input.binding, authorizationDecision: missingContextDecision },
     });
