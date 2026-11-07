@@ -191,7 +191,12 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
       process.stdout.write(rawTemplateBody(receipt));
     else if (typedCommand.action.kind === "doc-show" && typedCommand.action.raw === true && receipt.ok === true)
       process.stdout.write(rawDocumentBody(receipt));
-    else emit(translateReceiptPathCoordinates(receipt), typedCommand.json, explainRequestRefs(typedCommand));
+    else
+      emit(
+        translateReceiptPathCoordinates(receipt, typedCommand.rootDir),
+        typedCommand.json,
+        explainRequestRefs(typedCommand),
+      );
     cliPhaseEnd("render", renderStartedAt);
     return receiptExitCode(receipt);
   } catch (error) {

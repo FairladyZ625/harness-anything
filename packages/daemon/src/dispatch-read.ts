@@ -1,6 +1,7 @@
 import {
   consumeKnownError,
   documentWorkspacePath,
+  resolveHarnessLayout,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
@@ -812,7 +813,8 @@ function canonicalDispatchRow(
   rootDir?: string,
   annotations: readonly import("./decision-annotations.ts").DecisionAnnotationEntry[] = [],
 ): TaskDispatchRow {
-  const payload = event.payload,
+  const layout = rootDir ? resolveHarnessLayout(rootDir) : null,
+    payload = event.payload,
     taskRead = payload.taskId ? projection.readTaskIndex({ taskIds: [payload.taskId] }).rows[0] : null,
     packagePath = taskRead?.packagePath ?? null,
     // The title rides beside taskId from this one read: a caller labelling the row must never
@@ -996,14 +998,14 @@ function canonicalDispatchRow(
     // The artifact is keyed by dispatch id, so its presence means this dispatch wrote the ask. Read
     // it here rather than gating on the settled classification: the question must stay visible even
     // when the stream cut predates the classification.
-    ...awaitingRulingFields(projection, payload, rootDir ?? null),
+    ...awaitingRulingFields(projection, payload, rootDir ?? null, layout),
     resultRef,
     exitCode,
     ...(documentPath && document
-      ? { dispatchPath: rootDir ? documentWorkspacePath(rootDir, documentPath) : documentPath }
+      ? { dispatchPath: rootDir ? documentWorkspacePath(rootDir, documentPath, layout ?? undefined) : documentPath }
       : {}),
     ...(reportPath && projection.readDocument(reportPath).document
-      ? { reportPath: rootDir ? documentWorkspacePath(rootDir, reportPath) : reportPath }
+      ? { reportPath: rootDir ? documentWorkspacePath(rootDir, reportPath, layout ?? undefined) : reportPath }
       : {}),
     ...(annotations.length > 0
       ? {
@@ -1111,6 +1113,7 @@ function awaitingRulingFields(
   projection: DispatchQueries,
   dispatch: { readonly taskId?: string; readonly dispatchId: string },
   rootDir: string | null,
+  layout: ReturnType<typeof resolveHarnessLayout> | null,
 ): Pick<TaskDispatchRow, "ruling"> {
   const taskId = dispatch.taskId;
   if (!taskId) return {};
@@ -1135,7 +1138,7 @@ function awaitingRulingFields(
         ruling: {
           question: ruling.question,
           options: ruling.options,
-          path: rootDir ? documentWorkspacePath(rootDir, ruling.path) : ruling.path,
+          path: rootDir ? documentWorkspacePath(rootDir, ruling.path, layout ?? undefined) : ruling.path,
         },
       };
 }

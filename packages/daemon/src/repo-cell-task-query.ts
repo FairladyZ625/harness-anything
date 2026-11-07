@@ -5,6 +5,7 @@ import {
   allowsTaskStatusMove,
   deriveTaskRoot,
   documentWorkspacePath,
+  resolveHarnessLayout,
   explainStatusTransition,
   hasCloseoutEvidence,
   isDomainStatus,
@@ -92,13 +93,14 @@ function withWorkspacePackagePaths(
 ): Readonly<Record<string, unknown>> {
   const rows = payload.rows;
   if (!Array.isArray(rows)) return payload;
+  const layout = resolveHarnessLayout(rootDir);
   return {
     ...payload,
     rows: rows.map((row) => {
       const packagePath =
         row !== null && typeof row === "object" ? (row as { packagePath?: unknown }).packagePath : null;
       return typeof packagePath === "string"
-        ? { ...(row as object), workspacePackagePath: documentWorkspacePath(rootDir, packagePath) }
+        ? { ...(row as object), workspacePackagePath: documentWorkspacePath(rootDir, packagePath, layout) }
         : row;
     }),
   };

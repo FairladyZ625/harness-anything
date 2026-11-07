@@ -1,5 +1,4 @@
 import {
-  documentWorkspacePath,
   isEntityEvent,
   isTaskBootstrapEvent,
   isTaskEvent,
@@ -112,7 +111,7 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
         entityKind: event.payload.entityKind,
         entityId: event.payload.entityId,
         schemaId: contractForDeclarationEvent(event).schema.$id,
-        path: documentWorkspacePath(cell.rootDir, claim.path),
+        path: claim.path,
       };
     return visible
       ? {
@@ -124,7 +123,7 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
               schema: event.schema,
               eventId: event.eventId,
               opId,
-              path: documentWorkspacePath(cell.rootDir, claim.path),
+              path: claim.path,
             },
           }),
           visibility: "center",
@@ -155,7 +154,7 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
       evidence: `event-object:${opId}`,
       visibility: "center",
       proof,
-      path: documentWorkspacePath(cell.rootDir, claim.path),
+      path: claim.path,
       ...publication,
       documentSha256: claim.sha256,
       worktreeVisible: true,
