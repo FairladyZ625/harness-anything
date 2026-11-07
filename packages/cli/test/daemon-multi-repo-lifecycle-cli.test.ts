@@ -326,6 +326,10 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", `harness/${decisionPath}`]).outcome,
       "applied",
     );
+    const decisionValidation = JSON.parse(
+      String(run(fixture.alpha, fixture.userRoot, ["decision", "validate", decision.decisionId]).evidence),
+    ) as { rows: readonly { readonly path: string }[] };
+    assert.equal(decisionValidation.rows[0]?.path, `harness/${decisionPath}`);
     const beforeAccepted = ledgerReaders.open(fixture.alpha, "alpha").readHead()!.revision;
     const acceptedDecision = run(fixture.alpha, fixture.userRoot, [
       "decision",
