@@ -592,6 +592,23 @@ const taskAction: Check = (value) => {
   return fields !== null && checkFields(fields, payload);
 };
 export const isFleetTaskAction = taskAction;
+/** The named reason a fleet task action fails its closed declaration; null means it is valid. */
+function fleetTaskActionIssue(value: unknown): string | null {
+  if (!record(value) || typeof value.kind !== "string") return "action.kind must be a non-empty string";
+  const fields = declaredActionFields(value.kind);
+  if (fields === null) return `action kind ${value.kind} is not a via-center-forward command`;
+  const { kind: _kind, ...payload } = value,
+    unknown = Object.keys(payload).find((field) => !fields.some((candidate) => candidate.field === field));
+  if (unknown !== undefined) return `action field ${unknown} is not declared for ${value.kind}`;
+  const missing = fields.find(
+    (field) => (field.wire?.required ?? field.required) && !Object.hasOwn(payload, field.field),
+  );
+  if (missing !== undefined) return `action field ${missing.field} is required for ${value.kind}`;
+  const invalid = fields.find(
+    (field) => Object.hasOwn(payload, field.field) && !fieldCheck(field, payload[field.field]),
+  );
+  return invalid === undefined ? null : `action field ${invalid.field} does not match its declared shape`;
+}
 const scheduleActionShapes: Readonly<Record<string, Check>> = {
     "schedule-create": (value) =>
       optionalShape(
@@ -989,6 +1006,10 @@ function validateFleetFrame(value: unknown): FleetFrameV1 {
   const payload = record(value)
     ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken" && key !== "humanClientId"))
     : value;
+  const taskActionIssue =
+    record(payload) && payload.schema === "fleet.task.command/v1" && record(payload.action)
+      ? fleetTaskActionIssue(payload.action)
+      : null;
   if (
     !record(value) ||
     (value.accessToken !== undefined && !accessToken(value.accessToken)) ||
@@ -1000,7 +1021,8 @@ function validateFleetFrame(value: unknown): FleetFrameV1 {
     !schemas[value.schema]?.(payload)
   )
     throw new FleetContractError(
-      `Fleet frame violates closed schema ${record(value) ? String(value.schema) : "unknown"}`,
+      `Fleet frame violates closed schema ${record(value) ? String(value.schema) : "unknown"}` +
+        (taskActionIssue === null ? "" : `: ${taskActionIssue}`),
     );
   if (
     record(value) &&

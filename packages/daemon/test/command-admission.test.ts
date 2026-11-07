@@ -4,7 +4,7 @@ import test from "node:test";
 import { allDaemonProtocolMethods } from "../src/protocol/daemon-protocol-commands.ts";
 import { assertDaemonRpcRouting, daemonRpcRoutingDeclarations } from "../src/rpc-command-routing.ts";
 import { getExecutableEntityAction } from "@harness-anything/kernel";
-import { isFleetTaskAction } from "../src/fleet/command-protocol.ts";
+import { isFleetTaskAction, parseFleetFrame } from "../src/fleet/command-protocol.ts";
 import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
@@ -35,6 +35,38 @@ test("fleet declaration writes carry values and cannot ask the center to read a 
     assert.equal(isFleetTaskAction({ ...action, packageSource: "/center/private.json" }), false, kind);
     assert.equal(isFleetTaskAction({ ...action, actor: { personId: "spoofed" } }), false, kind);
   }
+});
+
+test("fleet task create carries the work-create plan policy as a declared boolean", () => {
+  const action = {
+    kind: "task-create",
+    title: "Edge work",
+    decisionRef: "dec_51BE0FEB9A078031D052101951",
+    presetId: "create-work",
+    taskClass: "work",
+    requirePlan: true,
+    plan: "# Edge work\n",
+  };
+  assert.equal(isFleetTaskAction(action), true);
+  assert.equal(isFleetTaskAction({ ...action, requirePlan: "true" }), false);
+});
+
+test("a closed fleet task frame names the undeclared action field it rejects", () => {
+  assert.throws(
+    () =>
+      parseFleetFrame({
+        schema: "fleet.task.command/v1",
+        messageId: "frame-one",
+        writerEpoch: 1,
+        opId: "op-one",
+        repoId: "repo-one",
+        taskId: null,
+        action: { kind: "task-create", title: "Edge work", undeclaredField: true },
+        docChanges: [],
+        mirrorBaseCut: null,
+      }),
+    /action field undeclaredField is not declared for task-create/u,
+  );
 });
 
 test("fleet forwarded writes use their declared entity identity", () => {
