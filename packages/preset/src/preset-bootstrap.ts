@@ -70,6 +70,8 @@ export interface CompiledTaskDocument {
   readonly mediaType: "application/json" | "text/markdown" | "text/plain" | OpaqueTextualMediaType;
   readonly owner: TaskDocumentOwner;
   readonly requiredAnchors: readonly string[];
+  /** Catalog-declared anchors this document only requires for the named work kinds. */
+  readonly requiredAnchorsByWorkKind?: Readonly<Record<string, readonly string[]>>;
   readonly templateRef: string | null;
 }
 export interface CompiledTaskPackage {
@@ -161,11 +163,20 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       fromLegacyId: null,
     },
     authoredPlan = typeof input.plan === "string" && input.plan.trim() ? input.plan : null,
-    planScaffoldBody =
-      resolved.documents.find(({ slot }) => slot === "task.plan")?.body.replaceAll("{{title}}", input.title) ?? null,
+    planTemplate = resolved.documents.find(({ slot }) => slot === "task.plan"),
+    planScaffoldBody = planTemplate?.body.replaceAll("{{title}}", input.title) ?? null,
+    planRequiredAnchors = effectiveRequiredAnchors(
+      planTemplate?.requiredAnchors ?? [],
+      planTemplate?.requiredAnchorsByWorkKind,
+      input.workKind,
+    ),
     planBody = authoredPlan ?? (input.requirePlan ? planScaffoldBody : null);
   if (planBody !== null && planScaffoldBody !== null)
-    assertTransitionDocumentReady("task.plan", planBody, transitionDocumentContract(planScaffoldBody));
+    assertTransitionDocumentReady(
+      "task.plan",
+      planBody,
+      transitionDocumentContract(planScaffoldBody, planRequiredAnchors),
+    );
   const prose = resolved.documents.map((document): CompiledTaskDocument => {
       const scaffoldBody = document.body.replaceAll("{{title}}", input.title),
         body = document.slot === "task.plan" && authoredPlan !== null ? authoredPlan : scaffoldBody;
@@ -178,6 +189,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         mediaType: document.mediaType,
         owner: document.owner,
         requiredAnchors: document.requiredAnchors,
+        requiredAnchorsByWorkKind: document.requiredAnchorsByWorkKind,
         templateRef: document.templateRef,
       };
     }),
@@ -233,7 +245,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
     // from the preset scaffold, never from the authored body: a contract frozen from the authored
     // body would flag that body's own text as retained scaffold and make the task unstartable.
     // Template sections stay required, exactly like the hand-edit-then-doc-sync path.
-    withPlanScaffold = (document: CompiledTaskDocument) => descriptor(document, planScaffoldBody),
+    withPlanScaffold = (document: CompiledTaskDocument) => descriptor(document, planScaffoldBody, input.workKind),
     descriptors = [
       descriptorStub("task.index", "INDEX.md", "machine"),
       descriptorStub("task.contract", "task-contract.json", "machine"),
@@ -557,7 +569,11 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
     ],
   };
 }
-function descriptor(document: CompiledTaskDocument, planScaffold: string | null = null) {
+function descriptor(
+  document: CompiledTaskDocument,
+  planScaffold: string | null = null,
+  workKind?: TaskMetadataV1["workKind"],
+) {
   return {
     slot: document.slot,
     path: document.relativePath,
@@ -569,11 +585,31 @@ function descriptor(document: CompiledTaskDocument, planScaffold: string | null 
     // The readiness contract this scaffold declares, frozen at materialization so judging a
     // transition document never needs the scaffold blob or the bundled catalog. Only the plan is
     // readiness-judged; a closeout is authored prose, read at submit without a scaffold comparison
-    // (dec_E369B8616F50A6208B293997E7 CH2). The map's ordered keys are the required sections.
+    // (dec_E369B8616F50A6208B293997E7 CH2). The map's ordered keys are the required sections; a
+    // catalog-declared conditional section enters the map only for the work kinds it names.
     ...(document.slot === "task.plan"
-      ? { readiness: transitionDocumentContract(planScaffold ?? document.body).scaffoldBySection }
+      ? {
+          readiness: transitionDocumentContract(
+            planScaffold ?? document.body,
+            effectiveRequiredAnchors(document.requiredAnchors, document.requiredAnchorsByWorkKind, workKind),
+          ).scaffoldBySection,
+        }
       : {}),
   };
+}
+/**
+ * The anchors this task's plan must satisfy: the catalog baseline plus the conditional anchors its
+ * work kind selects. `undefined` means the catalog made no conditional declaration, so readiness
+ * keeps deriving every heading from the scaffold exactly as before.
+ */
+function effectiveRequiredAnchors(
+  requiredAnchors: readonly string[],
+  requiredAnchorsByWorkKind: Readonly<Record<string, readonly string[]>> | undefined,
+  workKind: TaskMetadataV1["workKind"] | undefined,
+): readonly string[] | undefined {
+  if (requiredAnchorsByWorkKind === undefined || Object.keys(requiredAnchorsByWorkKind).length === 0) return undefined;
+  const conditional = workKind === undefined || workKind === null ? [] : (requiredAnchorsByWorkKind[workKind] ?? []);
+  return [...requiredAnchors, ...conditional];
 }
 function descriptorStub(slot: string, path: string, owner: TaskDocumentOwner) {
   return {
