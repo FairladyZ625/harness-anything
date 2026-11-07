@@ -151,6 +151,7 @@ import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-s
 import { requestFleetReplicaToken, resolveFleetReplicaAuthority } from "./fleet/replica-token.ts";
 import { systemCaCertificates } from "./tls-ca-certificate.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
+import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
 
 export function edgeRuntimeCacheKey(
   request: Pick<
@@ -225,7 +226,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       endpoint: input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId),
     },
     remoteProxy = openRemoteProxyManager(input.userRoot),
-    replicaSyncControllers = new Map<string, { readonly controller: AbortController; readonly config: string }>();
+    replicaSyncControllers = new Map<
+      string,
+      { readonly controller: AbortController; readonly config: string; task: Promise<void> }
+    >();
   const unavailable = new Map<string, RepoCellStatus>(),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
@@ -606,6 +610,20 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     fleetEdgeRuntimes.set(key, runtime);
     return runtime;
   }
+  async function migrateEdgeWorkspace(repoId: string, oldRoot: string, newRoot: string): Promise<void> {
+    const running = replicaSyncControllers.get(repoId);
+    if (running) {
+      running.controller.abort();
+      await running.task;
+      replicaSyncControllers.delete(repoId);
+    }
+    try {
+      migrateFleetEdgeWorkspace(oldRoot, newRoot, repoId);
+    } catch (error) {
+      startReplicaSyncs();
+      throw error;
+    }
+  }
   const scheduleScheduler = makeScheduleScheduler({
     cells,
     now,
@@ -977,6 +995,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimeDaemonRoute,
     scheduleScheduler,
     edgeRuntimeFor,
+    migrateEdgeWorkspace,
     instances,
     decisionProviders,
     requiredText,
@@ -1338,12 +1357,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       activeRemoteEdges.add(repo.repoId);
       // A stream follows its fleet-edge.json: an edge sync that changed the connection restarts it.
       const running = replicaSyncControllers.get(repo.repoId),
-        connection = JSON.stringify(config);
+        connection = JSON.stringify([rootDir, config]);
       if (running?.config === connection) continue;
       fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
-      const controller = new AbortController();
-      replicaSyncControllers.set(repo.repoId, { controller, config: connection });
+      const controller = new AbortController(),
+        replicaSync = { controller, config: connection, task: Promise.resolve() };
+      replicaSyncControllers.set(repo.repoId, replicaSync);
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
       let replicaLoginAuthority: ReturnType<typeof resolveFleetReplicaAuthority> | undefined;
@@ -1437,6 +1457,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             error: error instanceof Error ? error.message : String(error),
           }),
       });
+      replicaSync.task = task;
       replicaSyncTasks.add(task);
       void task.then(
         () => replicaSyncTasks.delete(task),

@@ -545,12 +545,22 @@ export function createDaemonHostRepositoryApi(
             actionId: `daemon-repo-update:${request.repoId}`,
             evaluatedAtCut: "daemon-registry:current",
           }),
-          result = updateDaemonRepo({
-            ...request,
-            ...(request.rootDir === undefined ? {} : { canonicalRoot: request.rootDir }),
-            userRoot: context.input.userRoot,
-            createConvenienceLinks: false,
-          });
+          requestedRoot = request.rootDir === undefined ? undefined : realpathSync(request.rootDir),
+          oldRoot = existing?.canonicalRoot;
+        if (
+          requestedRoot !== undefined &&
+          oldRoot !== undefined &&
+          oldRoot !== null &&
+          existing?.mode === "remote-edge" &&
+          requestedRoot !== oldRoot
+        )
+          await context.migrateEdgeWorkspace(request.repoId, oldRoot, requestedRoot);
+        const result = updateDaemonRepo({
+          ...request,
+          ...(request.rootDir === undefined ? {} : { canonicalRoot: request.rootDir }),
+          userRoot: context.input.userRoot,
+          createConvenienceLinks: false,
+        });
         await context.refreshRegistry();
         return {
           schema: "command-receipt/v2",
