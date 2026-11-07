@@ -555,7 +555,7 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
   if (value.kind === "failure") return exact(value, ["kind", "code"]) && isNonEmptyString(value.code);
   return (
     value.kind === "missing-sections" &&
-    exact(value, ["kind", "documentPath", "diskDiffers", "missingSections"]) &&
+    exact(value, ["kind", "documentPath", "workspacePathPrefix", "diskDiffers", "missingSections"]) &&
     isNonEmptyString(value.documentPath) &&
     typeof value.diskDiffers === "boolean" &&
     Array.isArray(value.missingSections) &&
