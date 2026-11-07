@@ -149,6 +149,11 @@ test("one invitation creates and syncs an independent workspace for every reposi
     assert.equal(path.basename(workspaceRoot), repoId);
     assert.equal(existsSync(path.join(workspaceRoot, "fleet-center-ca.pem")), true);
     assert.equal(existsSync(path.join(workspaceRoot, "harness", "harness.yaml")), true);
+    assert.equal(
+      existsSync(path.join(workspaceRoot, ".git")),
+      false,
+      "edge admission must not invent a project repository or commit its private layout file",
+    );
     assert.equal(syncs[index]?.nodeId, "edge-node");
     assert.equal(syncs[index]?.credential, "machine-credential");
   }

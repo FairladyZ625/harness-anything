@@ -283,6 +283,21 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
   }
 });
 
+test("a task checkout ignores an unpublished local main commit and starts from origin/main", async (t) => {
+  const fixture = repositoryFixture(t);
+  try {
+    const published = git(fixture.root, "rev-parse", "origin/main");
+    commit(fixture.root, "local-only.txt");
+    assert.notEqual(git(fixture.root, "rev-parse", "main"), published, "the primary checkout is locally ahead");
+
+    const checkout = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!;
+    assert.equal(checkout.baseRef, "origin/main");
+    assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), published);
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test("a fresh start refreshes only the default branch, and still starts from the main the remote published", async (t) => {
   const fixture = repositoryFixture(t);
   try {
