@@ -223,17 +223,24 @@ test("G38 refuses inconsistent, non-10x and source-audit exemption bounds", () =
 
 test("G38 measures bounded scans separately while keeping every other probe at full history", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-scale-groups-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => {
+    rmSync(rootDir, { recursive: true, force: true });
+    delete globalThis.__g38FixtureOpens;
+  });
   mkdirSync(path.join(rootDir, "packages/daemon/test/fixtures"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "packages/daemon/test/fixtures/g38-read-cost.mjs"),
-    `export const READ_PROBES={bounded:{},regular:{}};
+    `globalThis.__g38FixtureOpens=[];
+     export const READ_PROBES={bounded:{},regular:{}};
      export async function measureReadScale(backend,dimension,size,{probeIds}) {
+       globalThis.__g38FixtureOpens.push(backend+"/"+dimension+"/"+size);
        return Object.fromEntries(probeIds.map(id=>[id,{size,resultSize:1}]));
      }`,
   );
+  // 20/200 shares the 200 middle scale with the full 200/2000 pair, the shape
+  // pglite/task-outputs uses (340/3400 vs 3400/34000): one fixture can serve both.
   const section = {
-    knownScaling: [{ ...exemption, probe: "bounded", measurementScales: { small: 5, large: 50 } }],
+    knownScaling: [{ ...exemption, probe: "bounded", measurementScales: { small: 20, large: 200 } }],
   };
   const { measured } = await measureReadCosts(rootDir, {
     dimensions: ["runtime-sessions"],
@@ -245,9 +252,12 @@ test("G38 measures bounded scans separately while keeping every other probe at f
     assert.deepEqual([pairs.regular.small.size, pairs.regular.large.size], [200, 2000]);
     assert.deepEqual(
       [pairs.bounded.small.size, pairs.bounded.large.size],
-      backend === "pglite" ? [5, 50] : [200, 2000],
+      backend === "pglite" ? [20, 200] : [200, 2000],
     );
   }
+  const opens = globalThis.__g38FixtureOpens;
+  assert.equal(new Set(opens).size, opens.length, "each backend/dimension/size fixture is built once");
+  assert.equal(opens.length, 5, "sqlite builds 200/2000 once; pglite builds 20/200/2000 once");
 });
 
 test("PG scan accounting sees rows hidden by aggregates, filters and repeated loops", () => {
