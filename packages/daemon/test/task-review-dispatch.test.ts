@@ -11,7 +11,12 @@ import {
 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
-import { decisionReviewDispatchPrompt, dispatchTaskReview, reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
+import {
+  decisionReviewDispatchPrompt,
+  dispatchTaskReview,
+  nodeReviewDispatchCandidate,
+  reviewDispatchPrompt,
+} from "../src/task-review-dispatch.ts";
 import { taskExecutionPlacement } from "../src/task-execution-placement.ts";
 import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { nodeReworkDispatchCandidate } from "../src/task-return-dispatch.ts";
@@ -211,7 +216,7 @@ test("explicit review dispatch stays pending when its execution source cannot be
   assert.match(String(result.warnings), /no runtime dispatch was created/u);
 });
 
-test("a default review dispatch writes a minimal intent on the implementation node", async () => {
+test("a default review dispatch writes a minimal intent and its node consumer spawns the reviewer", async () => {
   const taskId = "task-review-default-intent",
     executionId = "execution-review-default-intent",
     task = {
@@ -236,12 +241,18 @@ test("a default review dispatch writes a minimal intent on the implementation no
       edgesTaken: [],
       lease: null,
     };
-  let writtenIntent: Record<string, unknown> | undefined;
+  let writtenIntent: Record<string, unknown> | undefined,
+    persistedTask = task;
   const cell = {
     input: { repoId: "repo-review-default-intent" },
     rootDir: process.cwd(),
     projection: {
-      read: () => ({ snapshot, packagePath: "tasks/review-default-intent", watermark: 2, sourceRevision: 2 }),
+      read: () => ({
+        snapshot: { ...snapshot, task: persistedTask },
+        packagePath: "tasks/review-default-intent",
+        watermark: 2,
+        sourceRevision: 2,
+      }),
       readLatestLeaseIntervalForExecution: () => ({
         taskId,
         executionId,
@@ -270,6 +281,21 @@ test("a default review dispatch writes a minimal intent on the implementation no
   assert.equal(result.outcome, "pending", JSON.stringify(result));
   assert.equal(step?.outcome, "pending", JSON.stringify(step));
   assert.equal(step?.requiredNodeId, "node-laptop");
+
+  // The node-side consumer must turn the persisted minimal intent into the reviewer spawn the edge runs.
+  persistedTask = { ...task, reviewDispatchIntent: writtenIntent! };
+  const candidate = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: "node-laptop" });
+  assert.equal(candidate?.kind, "review", JSON.stringify(candidate));
+  assert.equal(candidate?.taskId, taskId);
+  assert.equal(candidate?.executionId, executionId);
+  assert.equal(candidate?.requiredNodeId, "node-laptop");
+  assert.equal(candidate?.payload.agentId, "closeout-reviewer");
+  assert.equal(candidate?.payload.role, "reviewer");
+  assert.equal(candidate?.payload.taskId, taskId);
+  assert.equal(candidate?.payload.executionId, executionId);
+  for (const omitted of ["runtimeInstanceId", "model", "effort", "fast"])
+    assert.equal(candidate?.payload[omitted], undefined);
+  assert.match(String(candidate?.payload.prompt), /Independently review task task-review-default-intent/u);
 });
 
 test("execution placement uses a portable lease source without inventing a runtime dispatch", () => {
