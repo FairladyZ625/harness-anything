@@ -27,7 +27,7 @@ export function managedRbacReceiptJournal(userRoot: string): {
   };
 }
 
-/** Pending permission requests are center-owned workflow state, separate from Keycloak's grant authority. */
+/** Pending permission requests are center-owned workflow state, separate from the provider's grant authority. */
 export function managedPermissionRequestStore(userRoot: string): {
   readonly read: () => readonly string[];
   readonly write: (lines: readonly string[]) => void;

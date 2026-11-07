@@ -146,6 +146,50 @@ test("clean user roots select built-in identity without a managed runtime", asyn
   );
 });
 
+test("built-in password change replaces the login secret and declares account reset unsupported", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-password-change-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const session = new BuiltinIdentitySession(root);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "initial-password",
+    personId: "person-owner",
+  });
+  const authenticate = async (password: string): Promise<boolean> => {
+    await session.logout();
+    const begun = await session.begin("http://127.0.0.1:43123/callback"),
+      page = new URL(String(begun.authorizationUrl)),
+      response = await fetch(page, {
+        method: "POST",
+        body: new URLSearchParams({ username: "owner", password, state: String(begun.state) }),
+        redirect: "manual",
+      });
+    if (response.status !== 302) return false;
+    const callback = new URL(response.headers.get("location")!);
+    await session.complete(callback.searchParams.get("code")!, String(begun.state));
+    return true;
+  };
+  assert.equal(await authenticate("initial-password"), true);
+  const access = new AccessAdminService(session, root);
+  assert.deepEqual(await access.run({ operation: "credential-support" }), {
+    ok: true,
+    changeOwn: true,
+    resetOthers: false,
+  });
+  assert.deepEqual(await access.run({ operation: "password-change", password: "replacement-password" }), {
+    ok: true,
+    changed: true,
+  });
+  assert.equal(await authenticate("initial-password"), false);
+  assert.equal(await authenticate("replacement-password"), true);
+  await assert.rejects(
+    access.run({ operation: "password-reset", personId: "someone-else", password: "not-supported" }),
+    { code: "unsupported_capability" },
+  );
+});
+
 test("configured built-in session lifetime is used at the expiry boundary", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-session-lifetime-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

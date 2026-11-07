@@ -223,10 +223,10 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
 
     const provider = identityProviderOf(binding?.mode),
       builtin = provider === "builtin",
-      keycloak = provider === "keycloak",
+      external = provider === "external",
       signInLabel = builtin
         ? "identityAccess.localSignIn"
-        : keycloak
+        : external
           ? "identityAccess.signIn"
           : "identityAccess.signInNeutral";
     if (login)
@@ -327,7 +327,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                 title={t(
                   builtin
                     ? "identityAccess.localService"
-                    : keycloak
+                    : external
                       ? "accessControl.service.title"
                       : "identityAccess.serviceNeutral",
                 )}
@@ -346,7 +346,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                       {t(
                         builtin
                           ? "identityAccess.localDescription"
-                          : keycloak
+                          : external
                             ? "identityAccess.description"
                             : "identityAccess.descriptionNeutral",
                       )}
@@ -368,7 +368,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                       <Button
                         size="sm"
                         disabled={busy || (!authenticated && !ready)}
-                        tip={!authenticated && !ready && keycloak ? t("identityAccess.signInDisabled") : undefined}
+                        tip={!authenticated && !ready && external ? t("identityAccess.signInDisabled") : undefined}
                         testId="account-session-action"
                         onClick={() => void (authenticated ? run(() => auth.logout(repoId, rootDir)) : signIn())}
                       >

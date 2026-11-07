@@ -299,6 +299,21 @@ test("a center repository claim grants admin once and refuses a different creato
   );
 });
 
+test("password credential reset addresses the unique Harness person and never exposes the value in its audit surface", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
+  keycloak.account("person-a");
+  assert.deepEqual(adapter.credentialCapabilities, { changeOwn: true, resetOthers: true });
+  await adapter.writePasswordCredential("admin-token", "person-a", "replacement password");
+  assert.equal(keycloak.authenticatePassword("person-a", "initial-password"), false);
+  assert.equal(keycloak.authenticatePassword("person-a", "replacement password"), true);
+  assert.deepEqual(keycloak.writes, ["PUT /users/user-1/reset-password"]);
+  assert.doesNotMatch(JSON.stringify(keycloak.writes), /replacement password/u);
+  await assert.rejects(adapter.writePasswordCredential("admin-token", "missing-person", "secret"), {
+    code: "access_person_unknown",
+  });
+});
+
 test("online evaluation returns explicit allow and denies unknown, negative, and unavailable scopes", async () => {
   const allow = new KeycloakPolicyAdapter(config, async () => Response.json({ result: true }));
   assert.deepEqual(

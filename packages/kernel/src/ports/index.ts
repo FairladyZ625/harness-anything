@@ -18,6 +18,7 @@ export type {
   AuthorizationNode,
   AuthorizationGrant,
   AuthorizationPolicyGroup,
+  AuthorizationCredentialCapabilities,
 } from "./identity-provider-port.ts";
 
 export type { IdentitySessionPort } from "./identity-session-port.ts";
