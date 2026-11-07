@@ -28,11 +28,15 @@ export type PathReader =
   | "cli-local"
   | "host"
   | "none";
+/** The declared zero-hit behaviour of a write command's workspace-file selection. */
+export type ZeroHitPolicy = "refused" | "no_changes" | "not-a-selection";
 /** A positional path token (`<batch-file>`), declared where the registry owns the syntax. */
 export interface CliPositionalInputFacet {
   readonly name: string;
   readonly pathKind: PathKind;
   readonly pathReader: PathReader;
+  /** What a write command does when this positional selection matches zero write targets. */
+  readonly zeroHit?: ZeroHitPolicy;
 }
 export interface CliInputFacet {
   readonly name: string;
@@ -62,6 +66,14 @@ export interface CliInputFacet {
    * the gate can prove a reader exists and probe its containment, instead of trusting a declaration.
    */
   readonly pathReader?: PathReader;
+  /**
+   * What a write command does when a workspace-file input selects zero write targets. Mandatory on
+   * every workspace-file input of a write command: silence is what let a new selector return
+   * `applied` for zero matches. `refused` promises a coded error; `no_changes` promises an explicit
+   * settled no-write receipt; `not-a-selection` says the file supplies content or names an output,
+   * so there is no selection to hit.
+   */
+  readonly zeroHit?: ZeroHitPolicy;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly lengthUnit?: "characters" | "bytes";

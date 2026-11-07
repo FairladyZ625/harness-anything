@@ -172,6 +172,121 @@ test("a workspace-file input without a declared reader turns the gate red and is
   );
 });
 
+test("a new write command with a workspace-file selection and no zero-hit policy turns the gate red and is named", () => {
+  const result = run([
+    {
+      id: "gate-probe-workspace-write",
+      path: ["probe", "write"],
+      commandClass: "repo-write",
+      inputs: [
+        {
+          name: "--from-file",
+          field: "fromFile",
+          kind: "single",
+          required: true,
+          error: { code: "missing_field" },
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+        },
+      ],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /gate-probe-workspace-write --from-file: write command with a workspace-file selection must declare zeroHit/u,
+  );
+});
+
+test("a declared zero-hit policy is the only missing piece for the same workspace-file write command", () => {
+  const result = run([
+    {
+      id: "gate-probe-workspace-write",
+      path: ["probe", "write"],
+      commandClass: "repo-write",
+      inputs: [
+        {
+          name: "--from-file",
+          field: "fromFile",
+          kind: "single",
+          required: true,
+          error: { code: "missing_field" },
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
+        },
+      ],
+    },
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("a positional workspace-file write selection also needs a zero-hit policy", () => {
+  const result = run([
+    {
+      id: "gate-probe-positional-batch",
+      path: ["probe", "batch", "<batch-file>"],
+      syntaxPath: ["probe", "batch", "<batch-file>"],
+      commandClass: "repo-write",
+      inputs: [],
+      positionalInputs: [{ name: "<batch-file>", pathKind: "workspace-file", pathReader: "runtime-batch" }],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /gate-probe-positional-batch <batch-file>: write command with a workspace-file selection must declare zeroHit/u,
+  );
+});
+
+test("a zero-hit policy outside the declared vocabulary turns the gate red and is named", () => {
+  const result = run([
+    {
+      id: "gate-probe-workspace-write",
+      path: ["probe", "write"],
+      commandClass: "repo-write",
+      inputs: [
+        {
+          name: "--from-file",
+          field: "fromFile",
+          kind: "single",
+          required: true,
+          error: { code: "missing_field" },
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "applied",
+        },
+      ],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /gate-probe-workspace-write --from-file: write command with a workspace-file selection must declare zeroHit/u,
+  );
+});
+
+test("a read-only workspace-file input is not forced to invent a write zero-hit policy", () => {
+  const result = run([
+    {
+      id: "gate-probe-workspace-read",
+      path: ["probe", "read"],
+      commandClass: "repo-read",
+      inputs: [
+        {
+          name: "--from-file",
+          kind: "single",
+          required: true,
+          error: { code: "missing_field" },
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+        },
+      ],
+    },
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("an undeclared positional path token turns the gate red and is named", () => {
   const result = run([
     {
@@ -219,7 +334,7 @@ test("the gate actually evaluated document paths and zero-hit write commands, no
   assert.ok(Number(match[1]) > 0 && Number(match[2]) > 0, "the registry and its value inputs must be evaluated");
   assert.ok(Number(match[3]) >= 60, "flag and positional path inputs must both be evaluated");
   assert.ok(Number(match[4]) > 0, "document paths must be translated through the parser probe");
-  assert.ok(Number(match[5]) > 0, "write document selections must reach the zero-hit pipeline probe");
+  assert.ok(Number(match[5]) >= 24, "workspace-file write selections must reach the zero-hit policy check");
 });
 
 test("the path input set is exactly the registry's declarations, never a flag-name heuristic", () => {
@@ -240,4 +355,18 @@ test("the path input set is exactly the registry's declarations, never a flag-na
   );
   assert.equal(result.counts.pathInputs, declared);
   assert.ok(declared >= 64, "the declaration count must include the non-path-shaped flags");
+});
+
+test("every write command's workspace-file input declares a zero-hit policy in the registry itself", () => {
+  const policies = new Set(["refused", "no_changes", "not-a-selection"]);
+  const writeClasses = new Set(["repo-write", "arbiter", "admin"]);
+  const undeclared = daemonProtocolCommands.flatMap((command) => {
+    if (!writeClasses.has(command.commandClass)) return [];
+    const declared = [
+      ...(command.inputs ?? []).filter((input) => input.pathKind === "workspace-file"),
+      ...(command.positionalInputs ?? []).filter((input) => input.pathKind === "workspace-file"),
+    ];
+    return declared.filter((input) => !policies.has(input.zeroHit)).map((input) => `${command.id} ${input.name}`);
+  });
+  assert.deepEqual(undeclared, [], "a workspace-file write selection without a zero-hit policy is invisible");
 });

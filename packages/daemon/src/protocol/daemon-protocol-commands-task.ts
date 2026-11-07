@@ -53,6 +53,7 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
                   ? {
                       pathKind: "workspace-file" as const,
                       pathReader: "workspace-text" as const,
+                      zeroHit: "not-a-selection" as const,
                       format: workspacePathFormat,
                     }
                   : { pathKind: "non-path" as const }),
@@ -184,7 +185,13 @@ export const taskExecutionProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { field: "body", pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          field: "body",
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
+          format: workspacePathFormat,
+        },
       ),
     ],
     payloadFields: [{ field: "body", type: "string", required: false }],
@@ -328,6 +335,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
           description: "Required with --source; with --run defaults to a unique artifacts/evidence path",
           pathKind: "workspace-file",
           pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
         },
       ),
     ],

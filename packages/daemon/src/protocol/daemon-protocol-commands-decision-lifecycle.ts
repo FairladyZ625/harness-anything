@@ -182,6 +182,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonDefaultFields: decisionProposalDefaultJsonFields,
           pathKind: "workspace-file",
           pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           conflictsWith: ["--json-input"],
         },
@@ -227,6 +228,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           requiresAny: ["--from-file", "--json-input"],
           pathKind: "workspace-file",
           pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           conflictsWith: ["--body"],
           wire: { omit: true },
@@ -420,6 +422,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           pathKind: "workspace-file",
           pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           jsonAllowedFields: [
             "reviewId",
@@ -483,6 +486,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           pathKind: "workspace-file",
           pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           jsonAllowedFields: ["responses"],
           jsonFields: ["responses"],
@@ -512,6 +516,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           pathKind: "workspace-file",
           pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
           jsonFields: ["reviewContentDigest", "reviewIds", "reason"],
@@ -647,7 +652,13 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat, wire: { omit: true } },
+        {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
+          format: workspacePathFormat,
+          wire: { omit: true },
+        },
       ),
       cliInput(
         "--consent-by",

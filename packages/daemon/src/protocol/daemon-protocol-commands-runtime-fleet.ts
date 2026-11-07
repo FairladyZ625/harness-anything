@@ -50,6 +50,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       {
         pathKind: "workspace-file",
         pathReader: "prompt-file",
+        zeroHit: "not-a-selection",
         format: workspacePathFormat,
         conflictsWith: ["--mission", "--prompt"],
       },
@@ -240,7 +241,9 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     ].join(""),
     method: "repo.agentRuntime.batch",
     inputs: [],
-    positionalInputs: [{ name: "<batch-file>", pathKind: "workspace-file", pathReader: "runtime-batch" }],
+    positionalInputs: [
+      { name: "<batch-file>", pathKind: "workspace-file", pathReader: "runtime-batch", zeroHit: "refused" },
+    ],
   }),
   defineRepoReadCommand({
     id: "runtime-status",
@@ -313,6 +316,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           pathKind: "workspace-file",
           pathReader: "prompt-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           conflictsWith: ["--prompt"],
         },
@@ -569,6 +573,7 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
       jsonAllowedFields: allowedFields,
       pathKind: "workspace-file",
       pathReader: "workspace-text",
+      zeroHit: "not-a-selection",
       format: workspacePathFormat,
       conflictsWith: ["--json-input"],
     },
@@ -677,7 +682,12 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
+          format: workspacePathFormat,
+        },
       ),
       cliInput(
         "--effort",
@@ -829,7 +839,12 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
+          format: workspacePathFormat,
+        },
       ),
       cliInput(
         "--effort",

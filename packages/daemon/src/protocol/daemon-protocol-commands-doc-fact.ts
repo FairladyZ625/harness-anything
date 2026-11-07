@@ -328,7 +328,13 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          // An empty --ids-file settles as no_changes in archiveAllFacts; it never reports applied.
+          zeroHit: "no_changes",
+          format: workspacePathFormat,
+        },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",

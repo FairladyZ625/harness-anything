@@ -13,6 +13,9 @@
  *   2. Every write command with a document selection goes through the one doc action pipeline that
  *      refuses an unmatched selection. A new write command with `--path` that is not wired to that
  *      pipeline is named here instead of returning "applied" for zero candidates.
+ *   3. Every write command with a workspace-file selection declares its zero-hit behaviour
+ *      (`zeroHit`: refused, no_changes, or not-a-selection). The declaration is mandatory, so a
+ *      new `--from-file` selector cannot inherit "applied" silence by omission.
  */
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,6 +34,10 @@ import { workspaceText } from "../packages/daemon/src/repo-cell-packets.ts";
 const PATH_KINDS = new Set(["ledger-document", "workspace-file", "cli-local", "host-path", "non-path"]);
 const WORKSPACE_FILE_READERS = new Set(["workspace-text", "prompt-file", "runtime-batch"]);
 const WRITE_CLASSES = new Set(["repo-write", "arbiter", "admin"]);
+// Silence is the defect: a write command may not leave its zero-hit behaviour implicit. The
+// registry must say whether an unmatched workspace-file selection is refused, settles as an
+// explicit no-write outcome, or is not a selection at all.
+const ZERO_HIT_POLICIES = new Set(["refused", "no_changes", "not-a-selection"]);
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const CLI_SOURCE_ROOT = path.join(REPO_ROOT, "packages/cli/src");
 // The reader modules are the only places allowed to call `readFileSync` with a declared
@@ -72,6 +79,8 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
     zeroHitWriteCommands: 0,
     positionalPaths: 0,
   };
+  // Count commands, not declarations: one command may carry several path selectors.
+  const zeroHitWriteCommandIds = new Set();
 
   for (const command of commands) {
     const actionKind = actionKindOf(command);
@@ -92,7 +101,9 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
         continue;
       }
       counts.pathInputs += 1;
-      violations.push(...checkPathInput(command, input.name, input, counts, actionKind, root, known));
+      violations.push(
+        ...checkPathInput(command, input.name, input, counts, actionKind, root, known, zeroHitWriteCommandIds),
+      );
     }
     // A scalar `<id>` positional is an executable input too: the parser writes it into an action
     // field, so the command must say whether that field names a path. Otherwise `positional:
@@ -112,7 +123,9 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
           counts.pathInputs += 1;
           counts.positionalPaths += 1;
         }
-        violations.push(...checkPathInput(command, declared.name, declared, counts, actionKind, root, known));
+        violations.push(
+          ...checkPathInput(command, declared.name, declared, counts, actionKind, root, known, zeroHitWriteCommandIds),
+        );
       }
     }
     // Positional path tokens are registry syntax too (`runtime batch <batch-file>`), so a new file
@@ -131,9 +144,13 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
       counts.valueInputs += 1;
       counts.pathInputs += 1;
       counts.positionalPaths += 1;
-      violations.push(...checkPathInput(command, token, declared, counts, actionKind, root, known));
+      violations.push(
+        ...checkPathInput(command, token, declared, counts, actionKind, root, known, zeroHitWriteCommandIds),
+      );
     }
   }
+
+  counts.zeroHitWriteCommands = zeroHitWriteCommandIds.size;
 
   violations.push(...checkRawWorkspaceFileReads(commands));
 
@@ -260,24 +277,35 @@ function cliSourceFiles(root) {
   return files;
 }
 
-function checkPathInput(command, label, input, counts, actionKind, root, known) {
+function checkPathInput(command, label, input, counts, actionKind, root, known, zeroHitWriteCommandIds) {
   if (!PATH_KINDS.has(input.pathKind))
     return [
       `${command.id} ${label}: path input must declare pathKind ` +
         `(${[...PATH_KINDS].join("|")}); declare whether it names repository content or a host location, ` +
         `or mark it non-path`,
     ];
+  const violations = [];
   if (input.pathKind === "workspace-file") {
     counts.workspaceFiles += 1;
     if (!WORKSPACE_FILE_READERS.has(input.pathReader))
-      return [
+      violations.push(
         `${command.id} ${label}: workspace-file input must declare a shared pathReader ` +
           `(${[...WORKSPACE_FILE_READERS].join("|")}); a declaration without a reader is not checked`,
-      ];
+      );
+    // A write command's file selector is a write boundary: a zero-match selection must have a
+    // declared outcome, or a new command can return `applied` without anyone deciding what zero
+    // means. Read-only file inputs are not write selections and stay optional.
+    if (WRITE_CLASSES.has(command.commandClass)) {
+      zeroHitWriteCommandIds.add(command.id);
+      if (!ZERO_HIT_POLICIES.has(input.zeroHit))
+        violations.push(
+          `${command.id} ${label}: write command with a workspace-file selection must declare zeroHit ` +
+            `(${[...ZERO_HIT_POLICIES].join("|")}); an undeclared selection can report applied for zero matches`,
+        );
+    }
   }
-  if (input.pathKind !== "ledger-document") return [];
+  if (input.pathKind !== "ledger-document") return violations;
   counts.ledgerDocuments += 1;
-  const violations = [];
   if (!isDocAction(actionKind))
     violations.push(
       `${command.id} ${label}: ledger-document paths are translated by the doc action entry; ` +
@@ -286,7 +314,7 @@ function checkPathInput(command, label, input, counts, actionKind, root, known) 
   if (input.pathReader !== undefined && input.pathReader !== "doc-action")
     violations.push(`${command.id} ${label}: ledger-document input declares the wrong pathReader`);
   if (WRITE_CLASSES.has(command.commandClass)) {
-    counts.zeroHitWriteCommands += 1;
+    zeroHitWriteCommandIds.add(command.id);
     if (!isDocAction(actionKind))
       violations.push(
         `${command.id}: write command with a document path is not routed through the doc action pipeline; ` +
