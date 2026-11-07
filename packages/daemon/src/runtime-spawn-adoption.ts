@@ -26,6 +26,7 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import { IMPORTED_RUNTIME_TERMINAL_BODY, importedRuntimeTerminalResult } from "./runtime-imported-settlement.ts";
+import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
@@ -143,6 +144,7 @@ export async function adoptRuntimes(
                 event: "runtime_recovery_failed",
                 runtimeSessionId,
                 ...(dispatchId ? { dispatchId } : {}),
+                code: runtimeErrorCode(error) ?? "runtime_recovery_failed",
                 error: error instanceof Error ? error.message : String(error),
               });
               console.error(`[runtime-recovery] ${runtimeSessionId}`, error);

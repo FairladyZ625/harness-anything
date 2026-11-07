@@ -58,6 +58,8 @@ export interface DaemonLifecycleEntry {
   readonly endpoint?: string;
   readonly outcome?: string;
   readonly error?: string;
+  /** The failing operation's own error code, so a repeated failure is classifiable without parsing text. */
+  readonly code?: string;
   readonly registeredAt?: string;
   readonly attached?: number;
   readonly unavailable?: number;

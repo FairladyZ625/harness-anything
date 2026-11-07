@@ -64,6 +64,7 @@ import {
 } from "./repo-all-purge.ts";
 import { removeFileDurably } from "../../storage/src/durable-file.ts";
 import { readPolicyMetadata } from "./policy-metadata-read.ts";
+import { renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -1027,7 +1028,16 @@ export function createDaemonHostRepositoryApi(
           );
         if (!cell || !isRepoCellReadMethod(method))
           throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
-        return parseDaemonGuiReadResult(method, await cell.read(method, payload, readBinding));
+        const read = await cell.read(method, payload, readBinding),
+          at = context.now(),
+          stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [];
+        // Runtime recovery is this node's own work, so its stuck runtimes join the agenda here.
+        return parseDaemonGuiReadResult(
+          method,
+          stuck.length && "summary" in read
+            ? { ...read, summary: `${renderStuckRuntimeRecoveries(stuck, at)}\n\n${String(read.summary)}` }
+            : read,
+        );
       }
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
