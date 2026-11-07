@@ -9,6 +9,7 @@ import {
   assessTransitionDocument,
   compileTaskLifecycleWrite,
   sha256Text,
+  transitionDocumentContract,
   type TaskEventV1,
 } from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
@@ -649,6 +650,101 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
       blank.documents.find((document) => document.relativePath === "task_plan.md")!.body,
       /^# Blank$/mu,
       "a whitespace-only plan falls back to the scaffold body",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("fix plans must author a Recurrence Gate while other work kinds may omit it", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-recurrence-gate-")),
+    userRoot = path.join(rootDir, ".harness/presets");
+  try {
+    git(rootDir, "init", "-q");
+    git(rootDir, "config", "user.name", "Preset Test");
+    git(rootDir, "config", "user.email", "preset@example.invalid");
+    git(rootDir, "commit", "--allow-empty", "-qm", "base");
+    const common = {
+        userRoot,
+        repoRoot: rootDir,
+        verticalId: "software/coding",
+        profileId: "baseline",
+        locale: "en-US",
+        actor: { principal: { personId: "person-1" }, executor: null },
+        source: "local",
+        occurredAt: "2026-08-13T00:00:00.000Z",
+      } as const,
+      sections = [
+        "Brief",
+        "Goal",
+        "Cheaper Alternatives",
+        "Context",
+        "Required Reading",
+        "Execution Surface",
+        "Constraints",
+        "Deliverable Contract",
+        "Evidence Protocol",
+        "Verification",
+      ],
+      planWithoutGate = `# Fix plan\n\n${sections
+        .map((heading) => `## ${heading}\n\nAuthored content for ${heading}.`)
+        .join("\n\n")}\n`,
+      template = readFileSync(
+        new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
+        "utf8",
+      ),
+      gateScaffold = transitionDocumentContract(template).scaffoldBySection["Recurrence Gate"]?.[0];
+    assert.ok(gateScaffold, "the template carries a Recurrence Gate scaffold");
+    const descriptorReadiness = (taskId: string, plan: string, workKind: "fix" | "feat") => {
+      const compiled = compileTaskPackage({
+          ...common,
+          taskId,
+          title: taskId,
+          presetId: "standard-task",
+          workKind,
+          plan,
+        }),
+        contract = JSON.parse(
+          compiled.documents.find(({ relativePath }) => relativePath === "task-contract.json")!.body,
+        ) as {
+          readonly documents: readonly { readonly slot: string; readonly readiness?: Record<string, unknown> }[];
+        },
+        readiness = contract.documents.find(({ slot }) => slot === "task.plan")?.readiness;
+      assert.ok(readiness);
+      return readiness;
+    };
+    assert.throws(
+      () => descriptorReadiness("task-fix-missing", planWithoutGate, "fix"),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && "code" in error && error.code === "plan_placeholder");
+        assert.match(error.message, /Recurrence Gate/u);
+        return true;
+      },
+      "a fix task that omits the gate is refused at create",
+    );
+    assert.throws(
+      () =>
+        descriptorReadiness(
+          "task-fix-scaffold",
+          `${planWithoutGate}\n\n## Recurrence Gate\n\n${gateScaffold}\n`,
+          "fix",
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && "code" in error && error.code === "plan_placeholder");
+        assert.match(error.message, /Recurrence Gate/u);
+        return true;
+      },
+      "a fix task that keeps the scaffold is refused at create",
+    );
+    const featReadiness = descriptorReadiness("task-feat-optional", planWithoutGate, "feat");
+    assert.equal(Object.hasOwn(featReadiness, "Recurrence Gate"), false, "other work kinds stay optional");
+    const filled = `${planWithoutGate}\n\n## Recurrence Gate\n\nCriterion: a fix plan can omit its gate.\nGate: task-plan readiness in transition-document-readiness.ts.\nPositive control: a plan without this section is refused with plan_placeholder.\n`,
+      fixReadiness = descriptorReadiness("task-fix-filled", filled, "fix");
+    assert.ok(fixReadiness["Recurrence Gate"], "the fix descriptor freezes the conditional section");
+    assert.deepEqual(
+      Object.keys(fixReadiness).slice(-1),
+      ["Recurrence Gate"],
+      "the conditional section is appended after the baseline anchors",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

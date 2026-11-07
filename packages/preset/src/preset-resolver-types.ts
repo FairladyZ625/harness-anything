@@ -100,6 +100,8 @@ export interface InternalPresetResolution {
     readonly mediaType: "text/markdown" | "text/plain";
     readonly owner: "doc-sync";
     readonly requiredAnchors: readonly string[];
+    /** Catalog-declared anchors this task only requires when its work kind selects them. */
+    readonly requiredAnchorsByWorkKind: Readonly<Record<string, readonly string[]>>;
     readonly templateRef: string;
   }[];
   readonly scripts: readonly PresetPackageScript[];

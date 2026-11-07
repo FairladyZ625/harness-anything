@@ -298,6 +298,9 @@ export const TemplateCatalogSchema = Schema.Struct({
           locale: LocaleSchema,
           anchors: StringArray,
           bodyPath: Schema.String,
+          // Sections this locale only requires for the named work kinds. The declaration lives in
+          // the catalog; readiness reads the effective set and never branches on a work kind.
+          requiredAnchorsByWorkKind: Schema.optional(Schema.Record({ key: Schema.String, value: StringArray })),
         }),
       ).pipe(Schema.minItems(1)),
     }),
