@@ -9,7 +9,7 @@ import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
 import { parseProvider } from "./thin-command-provider.ts";
-import { parseRuntime } from "./thin-command-runtime.ts";
+import { agentRunRecovery, parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
 import { parseEntityAssignment, parseRoutedSpecial } from "./thin-command-router-special.ts";
 import { parseVerticalKindRouted } from "./thin-command-vertical-kind.ts";
@@ -434,16 +434,7 @@ function parseAgentRun(
       agentId,
       ...(f.booleans.has("--claim-next") ? { claimNext: true } : {}),
       ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
-      ...(f.one.get("--recover-dispatch")
-        ? {
-            recovery: {
-              dispatchId: f.one.get("--recover-dispatch"),
-              executionId: f.one.get("--execution-id"),
-              expectedVersion: Number(f.one.get("--expected-version")),
-            },
-            dispatchKey: f.one.get("--idempotency-key"),
-          }
-        : {}),
+      ...agentRunRecovery(f.one),
       ...(f.booleans.has("--enable-handoff") ? { handoffEnabled: true } : {}),
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),

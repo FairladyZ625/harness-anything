@@ -435,6 +435,11 @@
             "task-dispatch-review:task-ids"
           ]
         },
+        "runtime-run": {
+          "measurements": [
+            "runtime-run:execution-dispatches"
+          ]
+        },
         "task-witness-run": {
           "measurements": [
             "task-witness-run:frozen-gates"
@@ -585,12 +590,6 @@
             "relation-unrelate"
           ],
           "reason": "relation unrelate compiles one relation retirement event; it does not scan the owner relation collection."
-        },
-        {
-          "actions": [
-            "runtime-run"
-          ],
-          "reason": "runtime-session run targets one runtime session and emits one event; session history is not enumerated by this catalog action."
         },
         {
           "actions": [
