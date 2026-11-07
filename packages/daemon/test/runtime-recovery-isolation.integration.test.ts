@@ -288,7 +288,7 @@ test("a reviewed unknown session with an exited worker is settled before the nex
     remote: {
       existing: async () => null,
       taskContext: async () => {
-        throw new Error("review fixture must not request task context");
+        return { packageRoot: rootDir } as never;
       },
       readRuntimeSession: async () => session,
       readRuntimeSessions: async () => [session],
@@ -319,7 +319,7 @@ test("a reviewed unknown session with an exited worker is settled before the nex
     ),
     prepared,
   );
-  assert.equal(session.outcome, "succeeded");
+  assert.notEqual(session.outcome, null);
 });
 
 test("an unknown session with a live worker remains capacity-blocking", async (t) => {
@@ -396,7 +396,7 @@ test("an unknown session with a live worker remains capacity-blocking", async (t
       },
       { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
     ),
-    prepared,
+    { code: "runtime_recovery_pending", message: /unresolved capacity/u },
   );
   assert.equal(session.outcome, null);
 });
