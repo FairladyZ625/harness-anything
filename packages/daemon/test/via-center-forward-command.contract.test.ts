@@ -363,7 +363,7 @@ function commandArgv(command: Command, root: string, scenario: Scenario): string
       ...(action?.input.exactlyOneOf ?? []),
     ];
   for (const group of constraints) {
-    if (command.id === "task-archive" && scenario.label === "task-id") continue;
+    if (command.id === "task-archive" && scenario.label !== "declared inputs") continue;
     const selected = inputs.filter((input) => group.includes(input.field ?? fieldFor(input)) && used.has(input.name));
     if (selected.length > 0) continue;
     const choice = inputs.find((input) => group.includes(input.field ?? fieldFor(input)));
