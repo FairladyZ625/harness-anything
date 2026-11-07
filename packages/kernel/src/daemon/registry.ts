@@ -91,6 +91,8 @@ export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
 
 export interface DaemonRegistryRepoUpdateInput extends DaemonRegistryOptions {
   readonly repoId: string;
+  /** New workspace root for a workspace-backed registration. */
+  readonly canonicalRoot?: string;
   readonly displayName?: string;
   readonly mode?: DaemonRepoMode;
   readonly connectionId?: string;
@@ -259,6 +261,14 @@ export function updateDaemonRepo(
   const mode = input.mode === undefined ? existing.mode : normalizeRepoMode(input.mode);
   if ((existing.mode === "remote-proxy") !== (mode === "remote-proxy"))
     throw new Error("remote-proxy repositories cannot switch to or from a workspace-backed mode");
+  if (input.canonicalRoot !== undefined && mode === "remote-proxy")
+    throw new Error("remote-proxy repositories cannot have a workspace root");
+  const canonicalRoot =
+    mode === "remote-proxy"
+      ? null
+      : input.canonicalRoot === undefined
+        ? existing.canonicalRoot
+        : canonicalDaemonRegistryRoot(input.canonicalRoot);
   const routed =
     input.connectionId !== undefined || input.endpoint !== undefined
       ? resolveRegistrationConnection(registry, {
@@ -273,6 +283,7 @@ export function updateDaemonRepo(
   const repo: DaemonRegistryRepo = {
       ...existing,
       displayName: input.displayName ?? existing.displayName,
+      canonicalRoot,
       mode,
       connectionId: routed.connection.id,
       state: input.state ?? existing.state,
@@ -280,7 +291,14 @@ export function updateDaemonRepo(
     next = replaceRepo(routed.registry, repo),
     changed = !daemonRepoEquals(existing, repo) || routed.registry !== registry;
   if (changed) writeDaemonRegistry(next, input);
-  return { registry: next, repo, registryPath: paths.registryPath, changed, warnings: [] };
+  const rootChanged = existing.canonicalRoot !== repo.canonicalRoot,
+    warnings =
+      rootChanged && existing.canonicalRoot !== null
+        ? [...removeConvenienceLink(existing as LocalDaemonRegistryRepo, input)]
+        : [];
+  if (rootChanged && repo.canonicalRoot !== null)
+    warnings.push(...syncConvenienceLink(repo as LocalDaemonRegistryRepo, input));
+  return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
 }
 
 export function registerDaemonConnection(input: DaemonRegistryConnectionInput): DaemonRegistryConnectionMutationResult {

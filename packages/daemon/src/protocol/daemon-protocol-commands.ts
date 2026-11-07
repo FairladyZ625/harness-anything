@@ -670,6 +670,7 @@ export const daemonProtocolMethods = Object.freeze([
     requiresRepo: false,
     params: shape({
       repoId: "string",
+      rootDir: "string?",
       displayName: "string?",
       mode: optionalEnum(daemonRepoModeWords),
       endpoint: "string?",

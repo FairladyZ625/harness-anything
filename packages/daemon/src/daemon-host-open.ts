@@ -151,6 +151,23 @@ import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-s
 import { requestFleetReplicaToken, resolveFleetReplicaAuthority } from "./fleet/replica-token.ts";
 import { systemCaCertificates } from "./tls-ca-certificate.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
+
+export function edgeRuntimeCacheKey(
+  request: Pick<
+    FleetEdgeRuntimeRequest["payload"],
+    "repoId" | "nodeId" | "host" | "port" | "workspaceRoot" | "viewRoot" | "caPath"
+  >,
+): string {
+  return JSON.stringify([
+    request.repoId,
+    request.nodeId,
+    request.host,
+    request.port,
+    request.workspaceRoot,
+    request.viewRoot,
+    request.caPath,
+  ]);
+}
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
   readonly daemonId: string;
@@ -539,7 +556,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
   });
   function edgeRuntimeFor(request: FleetEdgeRuntimeRequest["payload"]): ReturnType<typeof openFleetEdgeRuntime> {
-    const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
+    const key = edgeRuntimeCacheKey(request),
       runtime =
         fleetEdgeRuntimes.get(key) ??
         openFleetEdgeRuntime({
