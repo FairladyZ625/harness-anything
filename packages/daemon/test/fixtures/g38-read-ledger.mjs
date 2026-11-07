@@ -350,13 +350,14 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
       delete event.payload.resumedFromDispatchId;
       delete event.payload.reviewTarget;
       await add({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
-    } else if (dimension === "relations") {
+    } else if (dimension === "relations" || dimension === "relation-visibility") {
       const identity = {
         source: `task/history-${id}`,
         target: `task/other-${id}`,
         type: "depends-on",
         direction: "directed",
       };
+      const relationId = deriveRelationId(identity);
       const event = compileRelationCreatedEvent({
         opId: `relation-${id}`,
         workspaceRevision: next,
@@ -365,7 +366,7 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
         occurredAt: "2026-08-01T00:00:00.000Z",
         record: {
           ...identity,
-          relation_id: deriveRelationId(identity),
+          relation_id: relationId,
           origin: "declared",
           state: "active",
           rationale: "Historical relation",

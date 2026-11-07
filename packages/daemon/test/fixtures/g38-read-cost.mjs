@@ -149,6 +149,32 @@ export const READ_PROBES = Object.freeze({
       }),
     size: (value) => value.edges.length,
   },
+  "relation-page-all-visible": {
+    reads: ["command:relation-list", "method:repo.triadic.relationGraph"],
+    dimensions: ["relations"],
+    backends: ["pglite"],
+    run: ({ runtime }) =>
+      runtime.read("repo.triadic.relationGraph", {
+        facet: "edges",
+        relationType: "depends-on",
+        state: "active",
+        limit: 1,
+      }),
+    size: (value) => value.edges.length,
+  },
+  "relation-page-low-visibility": {
+    reads: ["command:relation-list", "method:repo.triadic.relationGraph"],
+    dimensions: ["relation-visibility"],
+    backends: ["pglite"],
+    run: ({ runtime }) =>
+      runtime.read("repo.triadic.relationGraph", {
+        facet: "edges",
+        relationType: "depends-on",
+        state: "active",
+        limit: 1,
+      }),
+    size: (value) => value.edges.length,
+  },
   "relation-freshness-page": {
     // Freshness derives permission-scoped witnesses before filtering and paging.
     // The unfiltered relation-page probe does not exercise that scan.
@@ -179,7 +205,10 @@ export async function measureReadScale(
   { probeIds = Object.keys(READ_PROBES), wholeClassControl = false, quadraticArchiveControl = false } = {},
 ) {
   const started = performance.now();
-  const fixture = await openReadBackend(backend, dimension, size);
+  const fixture = await openReadBackend(backend, dimension, size, {
+    lowVisibility: dimension === "relation-visibility",
+    allVisible: dimension === "relations",
+  });
   const seededAt = performance.now();
   console.log(JSON.stringify({ g38Seed: { backend, dimension, size, durationMs: seededAt - started } }));
   // Both backends run exactly the same read business logic. The reader injection replaces
