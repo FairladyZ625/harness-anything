@@ -98,3 +98,59 @@ test("Task/v2 does not store a worktree binding: every reader derives it", () =>
     { code: "invalid_task", message: "review dispatch intent is invalid" },
   ]);
 });
+
+test("a review dispatch intent requires execution and reviewer, and admits optional fields it declares", () => {
+  const task = {
+    schema: "task/v2",
+    taskId: standard.taskId,
+    title: "Review dispatch intent",
+    taskClass: "standard",
+    status: "planned",
+    graph: REPLAY_TASK_GRAPH,
+    currentNode: "implementation",
+    iteration: 0,
+    createdBy: { principal: { personId: "person-1" }, executor: null },
+    completionGateIds: [],
+    presetSnapshotDigest: null,
+    pinned: false,
+  };
+  const invalid = [{ code: "invalid_task", message: "review dispatch intent is invalid" }];
+  assert.deepEqual(
+    validateTaskV2({
+      ...task,
+      reviewDispatchIntent: { executionId: "execution-review-intent", reviewerId: "reviewer-one" },
+    }),
+    [],
+  );
+  const optionalFields = {
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    effort: "high",
+    fast: false,
+  };
+  for (let mask = 0; mask < 1 << Object.keys(optionalFields).length; mask += 1) {
+    const selected = Object.entries(optionalFields).filter((_, index) => (mask & (1 << index)) !== 0);
+    assert.deepEqual(
+      validateTaskV2({
+        ...task,
+        reviewDispatchIntent: {
+          executionId: "execution-review-intent",
+          reviewerId: "reviewer-one",
+          ...Object.fromEntries(selected),
+        },
+      }),
+      [],
+    );
+  }
+  assert.deepEqual(
+    validateTaskV2({
+      ...task,
+      reviewDispatchIntent: {
+        executionId: "execution-review-intent",
+        reviewerId: "reviewer-one",
+        seat: "primary",
+      },
+    }),
+    invalid,
+  );
+});
