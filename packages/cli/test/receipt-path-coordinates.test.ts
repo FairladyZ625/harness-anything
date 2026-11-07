@@ -65,6 +65,17 @@ test("task show nests the same package under task, progress and artifacts; all a
   assert.doesNotMatch(String(translated.summary), new RegExp(`packagePath=${canonical}`, "u"));
 });
 
+test("a summary already carrying the workspace spelling is not double-prefixed", () => {
+  const translated = translateReceiptPathCoordinates({
+    ok: true,
+    packagePath: canonical,
+    workspacePackagePath: workspace,
+    summary: `at ${workspace}\nledger ${canonical}`,
+  });
+  assert.match(String(translated.summary), new RegExp(`at ${workspace}`, "u"));
+  assert.doesNotMatch(String(translated.summary), /harness\/harness/u);
+});
+
 test("task-create translates the receipt field, not an evidence payload", () => {
   const translated = translateReceiptPathCoordinates({
     ok: true,
