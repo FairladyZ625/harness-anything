@@ -41,6 +41,7 @@ test("task artifact add --run publishes the same-run transcript and preserves ch
   assert.ok(invocation);
   let transcript: Record<string, unknown> | undefined;
   const receipt = await runTaskArtifactCommand(invocation, undefined, async (command) => {
+    assert.equal(command.action.pathCoordinate, "workspace");
     transcript = JSON.parse(String(command.action.content));
     assert.equal(command.action.source, undefined);
     return { ok: true, outcome: "applied", destination: command.action.destination };
