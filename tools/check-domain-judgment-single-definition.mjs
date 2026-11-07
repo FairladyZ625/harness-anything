@@ -5,9 +5,13 @@
  * dec_6B963E9B83AE4AC73FB0A61E81 CH2 for the projected fact `invalidated` field.
  */
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { listWorktreeFiles } from "./gates/git.mjs";
+import ts from "typescript";
+import { git, listWorktreeFiles } from "./gates/git.mjs";
+
+const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-observation.json";
 
 const judgments = Object.freeze([
   {
@@ -147,7 +151,181 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     findings.push(
       "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
     );
+  const baseline = readDispatchObservationBaseline(root),
+    dispatchSites = scanDispatchLifecycleObservationSites(root),
+    priorBaseline = readPreviousDispatchObservationEntries(root);
+  findings.push(...checkDispatchLifecycleObservationSites(dispatchSites, baseline, priorBaseline));
   return findings;
+}
+
+export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
+  const sites = [],
+    files = listWorktreeFiles(root, ["packages"]).filter(
+      (rel) =>
+        /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(rel) &&
+        /(?:^|\/)src\//u.test(rel) &&
+        !/(?:^|\/)(?:test|tests|fixtures)\//u.test(rel) &&
+        !/\.(?:test|spec|vitest)\.[cm]?[jt]sx?$/u.test(rel),
+    );
+  for (const rel of files) {
+    const body = readFileSync(path.join(root, rel), "utf8"),
+      source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel));
+    const add = (node, symbol, kind) => {
+      const fingerprint = createHash("sha256")
+        .update(`${rel}\0${symbol}\0${kind}\0${node.getText(source).replace(/\s+/gu, " ").trim()}`)
+        .digest("hex");
+      sites.push({ path: rel, symbol, kind, fingerprint });
+    };
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "runtimePidIsAlive" &&
+        !insideProcessObservedPayload(node)
+      )
+        add(judgmentContextNode(node), enclosingSymbol(node, source), "runtimePidIsAlive");
+      if (ts.isReturnStatement(node) && node.expression) {
+        const text = node.expression.getText(source),
+          fnText = enclosingFunction(node)?.getText(source) ?? text;
+        if (/(?:process[_-]lost|processLost)/u.test(text) && /(?:terminal|outcome|closed)/iu.test(`${text} ${fnText}`))
+          add(node, enclosingSymbol(node, source), "process-lost-terminal-return");
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return sites.sort(compareObservationSite);
+}
+
+export function checkDispatchLifecycleObservationSites(sites, baseline, priorBaseline = null) {
+  const findings = [],
+    baselineEntries = Array.isArray(baseline?.entries) ? baseline.entries : [],
+    allowed = countEntries(baselineEntries);
+  if (baseline?.schema !== "dispatch-lifecycle-observation-baseline/v1")
+    findings.push(`${DISPATCH_OBSERVATION_BASELINE}: invalid or missing dispatch observation baseline`);
+  for (const site of sites) {
+    const key = observationKey(site),
+      remaining = allowed.get(key) ?? 0;
+    if (remaining === 0)
+      findings.push(
+        `${site.path}#${site.symbol}: new ${site.kind} judgment (${site.fingerprint}); remove the business judgment or obtain a governance decision`,
+      );
+    else allowed.set(key, remaining - 1);
+  }
+  for (const [key, count] of allowed)
+    if (count > 0) findings.push(`${DISPATCH_OBSERVATION_BASELINE}: stale baseline entry should be removed: ${key}`);
+  if (priorBaseline !== null) {
+    const prior = countEntries(priorBaseline),
+      current = countEntries(baselineEntries);
+    for (const [key, count] of current)
+      if (count > (prior.get(key) ?? 0))
+        findings.push(`${DISPATCH_OBSERVATION_BASELINE}: baseline may only shrink; added ${key}`);
+  }
+  return findings;
+}
+
+function countEntries(entries) {
+  const counts = new Map();
+  for (const entry of entries) {
+    const key = observationKey(entry);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function readDispatchObservationBaseline(root) {
+  try {
+    return JSON.parse(readFileSync(path.join(root, DISPATCH_OBSERVATION_BASELINE), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function readPreviousDispatchObservationEntries(root) {
+  try {
+    const base = process.env.PR_BASE_SHA ?? "origin/main",
+      body = git(root, ["show", `${base}:${DISPATCH_OBSERVATION_BASELINE}`]),
+      previous = JSON.parse(body);
+    return previous?.schema === "dispatch-lifecycle-observation-baseline/v1" && Array.isArray(previous.entries)
+      ? previous.entries
+      : [];
+  } catch {
+    return null;
+  }
+}
+
+function insideProcessObservedPayload(node) {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (ts.isObjectLiteralExpression(parent)) {
+      const type = parent.properties.find(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          propertyName(property.name) === "type" &&
+          ts.isStringLiteralLike(property.initializer),
+      );
+      if (type && ts.isPropertyAssignment(type) && ts.isStringLiteralLike(type.initializer))
+        return type.initializer.text === "process_observed";
+    }
+    if (ts.isFunctionLike(parent)) return false;
+  }
+  return false;
+}
+
+function enclosingFunction(node) {
+  for (let parent = node.parent; parent; parent = parent.parent) if (ts.isFunctionLike(parent)) return parent;
+  return null;
+}
+
+function enclosingSymbol(node, source) {
+  let foundFunction = false;
+  for (let current = node; current; current = current.parent) {
+    if (!ts.isFunctionLike(current)) continue;
+    foundFunction = true;
+    if (current.name && ts.isIdentifier(current.name)) return current.name.text;
+    if (ts.isMethodDeclaration(current) || ts.isMethodSignature(current))
+      return propertyName(current.name) ?? "<method>";
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && current.parent) {
+      if (ts.isVariableDeclaration(current.parent) && ts.isIdentifier(current.parent.name))
+        return current.parent.name.text;
+      if (ts.isPropertyAssignment(current.parent)) return propertyName(current.parent.name) ?? "<property>";
+    }
+  }
+  return foundFunction ? "<anonymous>" : "<module>";
+}
+
+function judgmentContextNode(node) {
+  for (let parent = node.parent; parent && !ts.isFunctionLike(parent); parent = parent.parent)
+    if (
+      ts.isBinaryExpression(parent) ||
+      ts.isIfStatement(parent) ||
+      ts.isConditionalExpression(parent) ||
+      ts.isVariableDeclaration(parent) ||
+      ts.isReturnStatement(parent)
+    )
+      return parent;
+  return node;
+}
+
+function compareObservationSite(left, right) {
+  return observationKey(left).localeCompare(observationKey(right));
+}
+
+function observationKey(entry) {
+  return `${entry.path}|${entry.symbol}|${entry.kind}|${entry.fingerprint}`;
+}
+
+function propertyName(node) {
+  return ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : null;
+}
+
+function scriptKind(file) {
+  return file.endsWith(".tsx")
+    ? ts.ScriptKind.TSX
+    : file.endsWith(".jsx")
+      ? ts.ScriptKind.JSX
+      : file.endsWith(".js") || file.endsWith(".mjs")
+        ? ts.ScriptKind.JS
+        : ts.ScriptKind.TS;
 }
 
 function read(root, rel) {
@@ -158,13 +336,30 @@ function read(root, rel) {
   }
 }
 async function main() {
+  if (process.argv.includes("--print-dispatch-observation-baseline")) {
+    console.log(
+      JSON.stringify(
+        {
+          schema: "dispatch-lifecycle-observation-baseline/v1",
+          authority: "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
+          policy: "entries may only be removed; each site is keyed by path, symbol, kind, and source fingerprint",
+          entries: scanDispatchLifecycleObservationSites(),
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   const findings = checkDomainJudgmentSingleDefinition();
   if (findings.length) {
     console.error("Domain judgment single-definition check failed:");
     for (const finding of findings) console.error(`- ${finding}`);
     process.exit(1);
   }
-  console.log("Domain judgment single-definition check passed (eight judgments resolve to kernel domain services).");
+  console.log(
+    "Domain judgment single-definition check passed (eight kernel judgments plus dispatch observation ratchet).",
+  );
 }
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
