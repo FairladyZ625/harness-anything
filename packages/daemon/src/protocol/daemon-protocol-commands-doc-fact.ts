@@ -248,9 +248,15 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
-      cliInput("--ids-file", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--ids-file",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "idsFile", codec: { kind: "line-list-file", target: "factIds", maxBytes: 64 * 1024 } },
+      ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),

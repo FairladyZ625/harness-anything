@@ -4,7 +4,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { checkFleetTransferBoundary, findFleetTransferBypasses } from "../fleet-transfer-boundary.mjs";
+import {
+  checkFleetTransferBoundary,
+  findFleetForwardingBypasses,
+  findFleetTransferBypasses,
+} from "../fleet-transfer-boundary.mjs";
 
 test("Fleet production paths use the unified transfer boundary", () => {
   assert.deepEqual(checkFleetTransferBoundary(process.cwd()), []);
@@ -101,4 +105,28 @@ socket.write(line);`,
       reason: "JSON payload reaches socket.write through a variable",
     },
   ]);
+});
+
+test("the forwarding ratchet rejects route-level construction and file special cases", () => {
+  const violations = findFleetForwardingBypasses(
+    `const config = readFleetEdgeConfig(root);\nif (fromFile) payload.action = JSON.parse(value);`,
+    "packages/cli/src/daemon/fleet-command-route.ts",
+  );
+  assert.deepEqual(
+    violations.map(({ fingerprint, line }) => ({ fingerprint, line })),
+    [
+      { fingerprint: "readFleetEdgeConfig", line: 1 },
+      { fingerprint: "fromFileSpecialCase", line: 2 },
+    ],
+  );
+});
+
+test("the forwarding ratchet allows construction inside the declared serializer", () => {
+  assert.deepEqual(
+    findFleetForwardingBypasses(
+      "const config = readFleetEdgeConfig(root); if (fromFile) return config;",
+      "packages/cli/src/daemon/fleet-payload-serializer.ts",
+    ),
+    [],
+  );
 });

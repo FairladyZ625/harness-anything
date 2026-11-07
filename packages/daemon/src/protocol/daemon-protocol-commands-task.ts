@@ -44,6 +44,23 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
               }),
               ...(field.enum ? { enum: field.enum } : {}),
               ...(field.regex ? { regex: field.regex } : {}),
+              ...(field.cli.name === "--from-file"
+                ? {
+                    codec: Object.freeze({
+                      kind: "json-object" as const,
+                      source: "file" as const,
+                      maxBytes: 64 * 1024,
+                    }),
+                  }
+                : field.cli.name === "--json-input"
+                  ? {
+                      codec: Object.freeze({
+                        kind: "json-object" as const,
+                        source: "value" as const,
+                        maxBytes: 64 * 1024,
+                      }),
+                    }
+                  : {}),
               // The kernel contract carries the packet shape; the workspace-root path rule belongs
               // to the daemon read layer, so it is added here where the CLI facet is assembled.
               ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),
@@ -169,7 +186,18 @@ export const taskExecutionProtocolCommands = Object.freeze([
     summary:
       "Publish the task branch and create or update its submitted pull request through daemon-held hosting credentials.",
     method: "repo.task.run",
-    inputs: [cliInput("--body-file", "single", false, { code: "invalid_field" }, { field: "body" })],
+    inputs: [
+      cliInput(
+        "--body-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "body",
+          codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 },
+        },
+      ),
+    ],
     payloadFields: [{ field: "body", type: "string", required: false }],
     commandClass: "repo-write" as const,
     admission: {

@@ -4884,6 +4884,12 @@
       "localPathGlobs": [
         "packages/daemon/src/fleet/**",
         "packages/daemon/src/daemon-host-repository-api.ts",
+        "packages/cli/src/daemon/fleet-command-route.ts",
+        "packages/cli/src/daemon/fleet-payload-serializer.ts",
+        "packages/daemon/src/fleet-edge-task.ts",
+        "packages/daemon/src/daemon-host-open.ts",
+        "packages/daemon/src/protocol/json-rpc-server.ts",
+        "tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs",
         "tools/gates/fleet-transfer-boundary.mjs",
         "tools/gates/test/fleet-transfer-boundary.test.mjs",
         "tools/gates/test/fixtures/fleet-transfer-bypasses/**"

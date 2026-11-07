@@ -245,9 +245,6 @@ export async function runCommandThroughDaemon(
   options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
   timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
-  command = materializeArtifactSource(
-    materializePromptFile(materializeScheduleMission(materializeTaskPrBody(command))),
-  );
   const env = options.env ?? process.env;
   assertCanonicalCliEntry();
   const rpc = await import("@harness-anything/daemon/internal/client/local-json-rpc-client"),
@@ -341,6 +338,21 @@ export async function runCommandThroughDaemon(
       autostart,
       request: requestLocalDaemonJsonRpcForTarget,
     });
+  const fleetDoc = await fleetDocRoute(command, env);
+  if (fleetDoc)
+    return requestFleetRoute({
+      command,
+      env,
+      method: fleetDoc.method,
+      payload: fleetDoc.payload as JsonObject,
+      autostart,
+      request: requestLocalDaemonJsonRpcForTarget,
+    });
+  // Local daemon paths still consume file arguments here. Remote-edge commands have already
+  // crossed the declaration-driven serializer above, so the center never receives a local path.
+  command = materializeArtifactSource(
+    materializePromptFile(materializeScheduleMission(materializeTaskPrBody(command))),
+  );
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),

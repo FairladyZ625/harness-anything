@@ -46,6 +46,14 @@ export interface CliInputFacet {
   readonly requires?: readonly string[];
   readonly requiresAny?: readonly string[];
   readonly conflictsWith?: readonly string[];
+  /** Wire encoding for an edge-local file/value before it enters a Fleet action. */
+  readonly codec?:
+    | { readonly kind: "json-object"; readonly source: "file" | "value"; readonly maxBytes: number }
+    | {
+        readonly kind: "markdown-file" | "text-file" | "line-list-file";
+        readonly target: string;
+        readonly maxBytes: number;
+      };
 }
 export type RpcShape = {
   readonly fields: Readonly<
