@@ -138,6 +138,37 @@ test("a fix task without an authored Recurrence Gate is refused at create and ad
       "applied",
       "an authored gate admits the fix task",
     );
+
+    // --risk-tier low would normally auto-select the lightweight three-section plan, which has no
+    // Recurrence Gate. A fix must stay on the gated baseline template, so the same gateless plan
+    // that a feat may submit is refused for a low-risk fix.
+    const lowRiskFix = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task-fix-low-risk-missing",
+        title: "Low-risk fix missing gate",
+        workKind: "fix",
+        riskTier: "low",
+        plan: realizedTaskPlan("Low-risk fix missing gate"),
+      },
+      binding,
+    );
+    assert.equal(lowRiskFix.outcome, "op_rejected");
+    assert.equal(lowRiskFix.code, "plan_placeholder");
+    assert.match(JSON.stringify((lowRiskFix as { readonly diagnostic?: unknown }).diagnostic), /Recurrence Gate/u);
+
+    const lowRiskFeat = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task-feat-low-risk-optional",
+        title: "Low-risk feat optional gate",
+        workKind: "feat",
+        riskTier: "low",
+        plan: realizedTaskPlan("Low-risk feat optional gate"),
+      },
+      binding,
+    );
+    assert.equal(lowRiskFeat.outcome, "applied", JSON.stringify(lowRiskFeat));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

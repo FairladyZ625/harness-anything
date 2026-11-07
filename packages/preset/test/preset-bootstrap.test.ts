@@ -746,6 +746,24 @@ test("fix plans must author a Recurrence Gate while other work kinds may omit it
       ["Recurrence Gate"],
       "the conditional section is appended after the baseline anchors",
     );
+    assert.throws(
+      () =>
+        compileTaskPackage({
+          ...common,
+          taskId: "task-fix-lightweight-profile",
+          title: "fix cannot use lightweight",
+          presetId: "standard-task",
+          profileId: "lightweight",
+          workKind: "fix",
+          plan: filled,
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && "code" in error && error.code === "invalid_profile");
+        assert.match(error.message, /Recurrence Gate/u);
+        return true;
+      },
+      "a fix task cannot take the gateless lightweight profile even with an authored gate",
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

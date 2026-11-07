@@ -145,6 +145,14 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
     );
   if (resolved.requiredTaskClass && input.taskClass !== resolved.requiredTaskClass)
     throw bootstrapFailure("task_class_mismatch", `Preset requires taskClass=${resolved.requiredTaskClass}.`);
+  // A fix task must land on a plan template that declares the Recurrence Gate. The lightweight
+  // profile is deliberately three sections, so it cannot serve a fix; the daemon's low-risk
+  // auto-selection skips it too. Rejecting here keeps direct callers from bypassing the gate.
+  if (input.workKind === "fix" && resolved.snapshot.profile.id === "lightweight")
+    throw bootstrapFailure(
+      "invalid_profile",
+      "Fix tasks cannot use the lightweight profile: its plan template has no Recurrence Gate. Use the baseline profile so task.plan@2 requires the gate.",
+    );
   const snapshot = input.workKind === "docs" ? withoutCodeDeliveryGates(resolved.snapshot) : resolved.snapshot,
     slug = input.slug ?? slugifyTaskTitle(input.title),
     packagePath = `tasks/${input.taskId}-${slug}`,
