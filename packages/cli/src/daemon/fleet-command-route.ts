@@ -51,14 +51,11 @@ export function materializeScheduleMission(command: ThinCommand): ThinCommand {
     typeof command.action.missionFile !== "string"
   )
     return command;
-  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
-    relative = path.relative(command.rootDir, missionPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
-      code: "invalid_field",
-    });
-  const { missionFile: _missionFile, ...action } = command.action;
-  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
+  const { missionFile, ...action } = command.action;
+  return {
+    ...command,
+    action: { ...action, mission: readWorkspaceTextFile(command.rootDir, missionFile, "--mission-file") },
+  };
 }
 
 async function resolveFleetPacketAction(
@@ -70,16 +67,14 @@ async function resolveFleetPacketAction(
     jsonInput = action.jsonInput;
   const { fromFile: _fromFile, jsonInput: _jsonInput, ...directAction } = action;
   if (typeof fromFile !== "string" && typeof jsonInput !== "string") return directAction;
-  const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input",
-    file =
-      typeof fromFile === "string"
-        ? path.isAbsolute(fromFile)
-          ? fromFile
-          : path.join(command.rootDir, fromFile)
-        : null;
+  const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input";
   let packet: unknown;
   try {
-    packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput));
+    packet = JSON.parse(
+      typeof fromFile === "string"
+        ? readWorkspaceTextFile(command.rootDir, fromFile, "--from-file")
+        : String(jsonInput),
+    );
   } catch (error) {
     throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${cliErrorMessage(error)}`), {
       code: "invalid_field",
@@ -279,7 +274,6 @@ export async function fleetTaskRoute(
   // the edge path, so the center's closed action schema and writer see the same body as a local
   // invocation. `--body-file` is declared only for Decision propose/amend and the CLI has already
   // rejected other action kinds before this route is selected.
-  if (typeof bodyFile === "string") action.body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
   // Source files belong to the addressed edge; only decoded authored values cross TLS.
   if (typeof bodyFile === "string") action.body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
   if (typeof idsFile === "string")
