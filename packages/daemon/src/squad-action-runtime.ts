@@ -4,6 +4,7 @@ import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createEntityStore } from "@harness-anything/storage";
 import {
   parseSquadDeclarationV1,
+  resolveAgentHostAccess,
   type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -86,8 +87,11 @@ function listAgents(cell: RepoCellRuntimeContext): object {
         },
       };
     const { instructions: _instructions, ...row } = outcome.value;
+    const hostAccess = resolveAgentHostAccess(outcome.value.hostAccess);
     return {
       ...row,
+      hostAccess: hostAccess.hostAccess,
+      hostAccessSource: hostAccess.hostAccessSource,
       layer: "user" as const,
       source: `agents/${id}.json`,
     };
@@ -106,13 +110,17 @@ function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
       ["Run ha agent list and choose an existing Agent id."],
     );
   try {
+    const agent = readProjectedAgentDeclaration(row.value);
+    const hostAccess = resolveAgentHostAccess(agent.hostAccess);
     return {
       schema: "agent-inspection/v1",
       // The delete/install guards compare against the declaration's own revision
       // (currentVersion: the last upsert event; agent_retired does not move it), so the
       // inspect read must state that number, not the row's lifecycle-advanced revision.
       workspaceRevision: declarationRevision(row),
-      agent: readProjectedAgentDeclaration(row.value),
+      hostAccess: hostAccess.hostAccess,
+      hostAccessSource: hostAccess.hostAccessSource,
+      agent,
     };
   } catch (error) {
     // An installed declaration whose stored shape the current schema rejects is a reinstall need

@@ -100,7 +100,7 @@ export type AgentDiffField =
       readonly removed: readonly unknown[];
     }
   | {
-      readonly field: "name" | "role" | "preset" | "instance" | "permissionMode";
+      readonly field: "name" | "role" | "preset" | "instance" | "permissionMode" | "hostAccess";
       readonly kind: "changed";
       readonly from: unknown;
       readonly to: unknown;
@@ -347,7 +347,7 @@ function resolveVersion(ports: AgentVersionPorts, agentId: string, revision: num
 }
 
 /** Fields compared by value rather than by body: a change here is a scalar replacement. */
-const scalarDiffFields = ["name", "role", "preset", "instance", "permissionMode"] as const;
+const scalarDiffFields = ["name", "role", "preset", "instance", "permissionMode", "hostAccess"] as const;
 /** Fields compared as sets of whole entries. */
 const setDiffFields = ["skills", "runtimes", "prompts"] as const;
 

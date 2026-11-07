@@ -367,6 +367,8 @@ export {
   entityNonEmpty,
   entitySlug,
   parseAgentDeclarationV1,
+  resolveAgentHostAccess,
+  DEFAULT_AGENT_HOST_ACCESS,
   runtimeEffortValues,
   parseSquadDeclarationV1,
   validateAgentDeclarationV1,

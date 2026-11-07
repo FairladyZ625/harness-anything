@@ -7,6 +7,8 @@ test("renderEvidencePayload renders expected-version on agent and squad inspecti
   const agentInspection = {
     schema: "agent-inspection/v1",
     workspaceRevision: 188386,
+    hostAccess: "operator",
+    hostAccessSource: "default",
     agent: { id: "terra", name: "Terra" },
     status: "ready",
     watermark: 198646,
@@ -15,6 +17,8 @@ test("renderEvidencePayload renders expected-version on agent and squad inspecti
   const renderedAgent = renderEvidencePayload(agentInspection);
   assert.match(renderedAgent, /expected-version=188386/u);
   assert.match(renderedAgent, /schema=agent-inspection\/v1 {2}expected-version=188386 {2}workspaceRevision=188386/u);
+  assert.match(renderedAgent, /hostAccess=operator/u);
+  assert.match(renderedAgent, /hostAccessSource=default/u);
 
   const squadInspection = {
     schema: "squad-inspection/v1",

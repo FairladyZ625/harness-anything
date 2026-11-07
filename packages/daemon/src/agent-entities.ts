@@ -37,11 +37,13 @@ export {
 import {
   entitySlug,
   parseSquadDeclarationV1,
+  resolveAgentHostAccess,
   validateScheduleV1,
   validateAgentDeclarationV1,
   validateSquadDeclarationV1,
   type AgentDeclarationV1,
   type AgentEntityKind,
+  type AgentHostAccess,
   type AgentRole,
   type AgentRuntimeTargetV1,
   type SquadDeclarationV1,
@@ -59,6 +61,10 @@ export interface AgentEntityGuiAvailableRow {
   readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
+  /** Effective host access; an undeclared declaration resolves to the Kernel default. */
+  readonly hostAccess: AgentHostAccess;
+  /** Whether `hostAccess` came from the declaration or from the undeclared default. */
+  readonly hostAccessSource: "declared" | "default";
   readonly role: AgentRole;
   readonly layer: string;
   readonly retirement: AgentEntityGuiRetirement | null;
@@ -97,6 +103,10 @@ export interface AgentEntityGuiDetail {
   readonly preset: string | null;
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
+  /** Effective host access; an undeclared declaration resolves to the Kernel default. */
+  readonly hostAccess: AgentHostAccess;
+  /** Whether `hostAccess` came from the declaration or from the undeclared default. */
+  readonly hostAccessSource: "declared" | "default";
   /** The declaration's own entity revision — the delete/install expected-version fence. */
   readonly revision: number;
   readonly retirement: AgentEntityGuiRetirement | null;
@@ -221,6 +231,7 @@ export function readAgentEntityGuiProjection<
         runtimes: agent.runtimes,
         instance: agent.instance ?? null,
         permissionMode: agent.permissionMode ?? null,
+        ...resolveAgentHostAccess(agent.hostAccess),
         role: agent.role ?? "worker",
         instructions: agent.instructions,
         skills: agent.skills ?? [],
@@ -341,6 +352,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
     runtimes: agent.runtimes,
     instance: agent.instance ?? null,
     permissionMode: agent.permissionMode ?? null,
+    ...resolveAgentHostAccess(agent.hostAccess),
     role: agent.role ?? "worker",
     layer: "user",
     retirement: agentRetirement(agent),

@@ -2,7 +2,7 @@ import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Eye } from "@phosphor-icons/react";
-import type { AgentDeclarationV1, RuntimeEffort } from "@harness-anything/daemon/protocol";
+import type { AgentDeclarationV1, AgentHostAccess, RuntimeEffort } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import { agentRuntimeKindMatches, runtimeEffortValues } from "@harness-anything/daemon/protocol";
 import type {
@@ -40,6 +40,9 @@ export type AgentDraft = {
   // Optional declaration facets the editor does not render controls for still round-trip.
   readonly instance: string;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | "";
+  /** Effective host access; a default-sourced value stays omitted on save until the user picks one. */
+  readonly hostAccess: AgentHostAccess | null;
+  readonly hostAccessExplicit: boolean;
 };
 export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   name: detail.name,
@@ -55,6 +58,8 @@ export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   prompts: detail.prompts,
   instance: detail.instance ?? "",
   permissionMode: detail.permissionMode ?? "",
+  hostAccess: detail.hostAccess ?? null,
+  hostAccessExplicit: detail.hostAccessSource === "declared",
 });
 export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclarationV1 {
   return {
@@ -75,6 +80,7 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
     ...(draft.preset.trim() ? { preset: draft.preset.trim() } : {}),
     ...(draft.instance.trim() ? { instance: draft.instance.trim() } : {}),
     ...(draft.permissionMode ? { permissionMode: draft.permissionMode } : {}),
+    ...(draft.hostAccessExplicit && draft.hostAccess !== null ? { hostAccess: draft.hostAccess } : {}),
   } as AgentDeclarationV1;
 }
 export const agentDraftDirty = (detail: AgentEntityDetail, draft: AgentDraft): boolean =>
@@ -327,6 +333,43 @@ export function AgentCard({
                 ]}
               />
               <Hint>{t("agentRuntime.roleModelDecoupled")}</Hint>
+            </div>
+            {/* 宿主访问是派工提示里唯一的宿主边界来源(agent-role-prompts.ts);这里只选档位,
+                不复制规则原文。默认档位不写进声明,保存其他字段时保持省略。 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span data-testid="agent-host-access">
+                <SegCtl
+                  label={t("agentRuntime.hostAccess")}
+                  value={draft.hostAccess}
+                  onChange={(hostAccess) => patch({ hostAccess, hostAccessExplicit: true })}
+                  options={[
+                    {
+                      value: "isolated" as const,
+                      label: t("agentRuntime.hostAccessIsolated"),
+                      tip: t("agentRuntime.hostAccessIsolatedTip"),
+                      testId: "agent-host-access-isolated",
+                    },
+                    {
+                      value: "operator" as const,
+                      label: t("agentRuntime.hostAccessOperator"),
+                      tip: t("agentRuntime.hostAccessOperatorTip"),
+                      testId: "agent-host-access-operator",
+                    },
+                    {
+                      value: "bypass" as const,
+                      label: t("agentRuntime.hostAccessBypass"),
+                      tip: t("agentRuntime.hostAccessBypassTip"),
+                      testId: "agent-host-access-bypass",
+                    },
+                  ]}
+                />
+              </span>
+              {draft.hostAccessExplicit ? null : (
+                <StatusTag tone="neutral" label={t("agentRuntime.hostAccessDefault")} />
+              )}
+              <Hint>
+                {t(draft.hostAccessExplicit ? "agentRuntime.hostAccessHint" : "agentRuntime.hostAccessDefaultHint")}
+              </Hint>
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <span className="flex flex-wrap items-center gap-1.5 ui-meta text-text-muted">

@@ -159,13 +159,16 @@ test("Agent declaration rejects the retired provider fallback authority", () => 
   assert.match(validateAgentDeclarationV1({ ...agent, fallback: {} }).join("\n"), /fallback.*unknown/u);
 });
 
-test("Agent declaration hostAccess admits only isolated or operator", () => {
+test("Agent declaration hostAccess admits exactly isolated, operator, and bypass", () => {
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, hostAccess: "isolated" }), []);
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, hostAccess: "operator" }), []);
-  assert.match(
-    validateAgentDeclarationV1({ ...agent, hostAccess: "host" }).join("\n"),
-    /must be isolated or operator/u,
-  );
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, hostAccess: "bypass" }), []);
+  for (const hostAccess of ["host", "bypass-all", "", "OPERATOR"])
+    assert.match(
+      validateAgentDeclarationV1({ ...agent, hostAccess }).join("\n"),
+      /must be isolated, operator, or bypass/u,
+      hostAccess,
+    );
 });
 
 test("RuntimeSession explains its identity, task handoff, status vocabulary, and executes edge", () => {

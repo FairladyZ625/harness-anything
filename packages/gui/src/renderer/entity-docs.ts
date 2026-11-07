@@ -762,7 +762,7 @@ const agentDoc: EntityKindDoc = {
       "hostAccess",
       false,
       "enum",
-      "isolated(默认)/ operator:派工注入的宿主访问红线;operator 可用宿主已有工具与服务,二者都不得新建或启动 VM 与 Docker。",
+      "operator(默认)/ isolated / bypass:派工提示允许的宿主访问档位;具体边界由派工提示统一注入。",
     ),
     field("skills", false, "array", "技能引用:{id, path}。"),
     field("prompts", false, "array", "提示词引用。"),

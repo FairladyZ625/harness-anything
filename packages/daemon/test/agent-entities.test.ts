@@ -731,6 +731,8 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       [{ id: "terra", runtimes: [{ type: "codex", model: "gpt-5.6-terra" }], role: "worker", layer: "user" }],
     );
     assert.deepEqual(Object.keys(agentRows.agents[0]!).sort(), [
+      "hostAccess",
+      "hostAccessSource",
       "id",
       "instance",
       "layer",
@@ -770,6 +772,8 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
       instance: null,
       permissionMode: null,
+      hostAccess: "operator",
+      hostAccessSource: "default",
       role: "worker",
       instructions: "Review precisely.",
       skills: [{ id: "review", path: "skills/review" }],
@@ -820,6 +824,8 @@ test("the GUI read contract carries the reviewer role and stays closed to the Ke
         runtimes: [{ type: "codex", model: "gpt-5.6-terra", effort: "high" }],
         instance: null,
         permissionMode: null,
+        hostAccess: "operator",
+        hostAccessSource: "default",
         role: "reviewer",
         layer: "user",
         retirement: null,
@@ -829,6 +835,23 @@ test("the GUI read contract carries the reviewer role and stays closed to the Ke
     const detail = readAgentEntityGuiProjection({ kind: "agent-inspect", entityId: "voice-reviewer", projection });
     assert.equal(detail.agent.role, "reviewer");
     assert.deepEqual(validateAgentEntityDetail(detail), []);
+    for (const hostAccess of ["isolated", "operator", "bypass"] as const)
+      assert.deepEqual(
+        validateAgentEntityCatalog({
+          ...catalog,
+          agents: [{ ...catalog.agents[0]!, hostAccess, hostAccessSource: "declared" }],
+        }),
+        [],
+        hostAccess,
+      );
+    assert.match(
+      validateAgentEntityCatalog({ ...catalog, agents: [{ ...catalog.agents[0]!, hostAccess: "host" }] }).join("\n"),
+      /hostAccess must be isolated, operator, or bypass/u,
+    );
+    assert.match(
+      validateAgentEntityDetail({ ...detail, agent: { ...detail.agent, hostAccessSource: "guessed" } }).join("\n"),
+      /hostAccessSource must be declared or default/u,
+    );
     // Roles outside the Kernel AgentRole enum keep failing both read faces.
     assert.deepEqual(validateAgentEntityCatalog({ ...catalog, agents: [{ ...catalog.agents[0]!, role: "ceo" }] }), [
       "agent catalog row role must be worker, commander, or reviewer.",
@@ -914,6 +937,8 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
     runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
     instance: null,
     permissionMode: null,
+    hostAccess: "operator",
+    hostAccessSource: "default",
     role: "worker",
     layer: "user",
     retirement: null,
