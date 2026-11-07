@@ -26,6 +26,7 @@ import {
   readDispatchRulingFromWorker,
   readFileIfPresent,
   rulingReceiptText,
+  type RuntimeRulingArtifact,
 } from "./runtime-ruling.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
@@ -142,7 +143,7 @@ export async function publishExit(
     // One read of the worker's own ruling artifact feeds both the settlement classification and
     // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
     // from the projection.
-    const ruling = await runtimeRulingRequest(context, active);
+    const { ruling, reviewTargetWithdrawn } = await runtimeRulingRequest(context, active);
     let remoteReviewArtifacts: ReviewerReviewArtifacts | null = null;
     if (active.role === "reviewer" && active.task && context.input.remote?.readReviewerArtifacts) {
       try {
@@ -177,15 +178,24 @@ export async function publishExit(
       active.stalledAt !== undefined &&
       hasAcceptedExecutionSubmission(context, active);
     if (submittedStall) outcome = "succeeded";
+    const reviewId = `review-${active.dispatchId}`;
+    // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
+    // the event on the node that owns the projection so normal exit without registration cannot
+    // look complete. A remote edge uses its center-issued Review Action and replicated read port.
+    let reviewRegistered = await reviewerReviewRegistered(context, active, reviewId);
+    // An edge has no local projection: the center's admission refusal is its supersession witness.
+    // A reviewer whose own verdict moved the task out of review still settles on its registered review.
     const reviewSuperseded =
-      outcome !== "succeeded" && active.role === "reviewer" && active.task && context.input.projection
-        ? (() => {
-            const read = context.requiredRuntimeProjection(context.input).read(active.task.taskId);
-            return read?.snapshot
-              ? reviewCutSupersededExplanation(read.snapshot, active.task.executionId)
-              : { superseded: false };
-          })()
-        : { superseded: false };
+      reviewTargetWithdrawn !== null && !reviewRegistered
+        ? { superseded: true, reason: reviewTargetWithdrawn }
+        : outcome !== "succeeded" && active.role === "reviewer" && active.task && context.input.projection
+          ? (() => {
+              const read = context.requiredRuntimeProjection(context.input).read(active.task.taskId);
+              return read?.snapshot
+                ? reviewCutSupersededExplanation(read.snapshot, active.task.executionId)
+                : { superseded: false };
+            })()
+          : { superseded: false };
     const reviewerCommandEvidenceMissing =
       !cancelled &&
       !reviewSuperseded.superseded &&
@@ -193,12 +203,7 @@ export async function publishExit(
       active.role === "reviewer" &&
       active.permissionMode === "read-only" &&
       !active.localCommandSucceeded;
-    const reviewId = `review-${active.dispatchId}`;
     const providerAlreadyFailed = outcome === "failed";
-    // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
-    // the event on the node that owns the projection so normal exit without registration cannot
-    // look complete. A remote edge uses its center-issued Review Action and replicated read port.
-    let reviewRegistered = await reviewerReviewRegistered(context, active, reviewId);
     if (
       !cancelled &&
       ruling === null &&
@@ -920,8 +925,12 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
  * fallback below can only serve an artifact the worker itself published. An edge settles by the
  * same ordinary classification it always had.
  */
-async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
-  if (!active.task) return null;
+async function runtimeRulingRequest(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+): Promise<{ readonly ruling: RuntimeRulingArtifact | null; readonly reviewTargetWithdrawn: string | null }> {
+  const ruling = (value: RuntimeRulingArtifact | null) => ({ ruling: value, reviewTargetWithdrawn: null });
+  if (!active.task) return ruling(null);
   if (context.input.remote && typeof context.input.remote.taskContext === "function") {
     // The execution credential writes the escalation at the center. Pull the serving cut before
     // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
@@ -934,6 +943,20 @@ async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: Acti
         active.role === "reviewer" ? { executionId: active.task.executionId } : undefined,
       );
     } catch (error) {
+      // The center re-admits the review target on this read. A target that left review can no
+      // longer take this reviewer's verdict, so its settlement is final instead of retried forever.
+      if (
+        active.role === "reviewer" &&
+        ["review_admission_denied", "review_target_missing"].includes(runtimeErrorCode(error) ?? "")
+      ) {
+        consumeKnownError(error);
+        return {
+          ruling: null,
+          reviewTargetWithdrawn:
+            `Review target ${active.task.executionId} left review before reviewer settlement: ` +
+            String(scrubProviderValue(runtimeErrorMessage(error))).slice(0, 512),
+        };
+      }
       if (
         runtimeErrorCode(error) !== "execution_missing" ||
         active.role === "reviewer" ||
@@ -943,7 +966,7 @@ async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: Acti
       // A late ordinary edge callback can outlive the task execution that launched it. It no longer
       // has an active execution to block, so preserve its ordinary terminal outcome.
       consumeKnownError(error);
-      return null;
+      return { ruling: null, reviewTargetWithdrawn: null };
     }
     const packagePath = path
       .relative(context.input.rootDir, remoteTask.packageRoot)
@@ -951,43 +974,43 @@ async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: Acti
       .replace(/^harness\//u, "");
     // A freshly written ruling lives in the worker worktree until the next mirror pull. Check that
     // serving cwd first, then the mirrored package and finally the canonical root fallback.
-    return (
+    return ruling(
       readDispatchRulingFromWorker({
         cwd: active.cwd,
         rootDir: context.input.rootDir,
         packagePath,
         dispatchId: active.dispatchId,
       }) ??
-      readDispatchRulingFromWorker({
-        cwd: remoteTask.packageRoot,
-        rootDir: context.input.rootDir,
-        packagePath: "",
-        dispatchId: active.dispatchId,
-      }) ??
-      readDispatchRulingFromWorker({
-        cwd: context.input.rootDir,
-        rootDir: context.input.rootDir,
-        packagePath,
-        dispatchId: active.dispatchId,
-      })
+        readDispatchRulingFromWorker({
+          cwd: remoteTask.packageRoot,
+          rootDir: context.input.rootDir,
+          packagePath: "",
+          dispatchId: active.dispatchId,
+        }) ??
+        readDispatchRulingFromWorker({
+          cwd: context.input.rootDir,
+          rootDir: context.input.rootDir,
+          packagePath,
+          dispatchId: active.dispatchId,
+        }),
     );
   }
-  if (!context.input.projection) return null;
+  if (!context.input.projection) return ruling(null);
   const projection = context.requiredRuntimeProjection(context.input),
     packagePath = projection.read(active.task.taskId).packagePath;
-  if (typeof packagePath !== "string") return null;
-  return (
+  if (typeof packagePath !== "string") return ruling(null);
+  return ruling(
     readDispatchRulingFromWorker({
       cwd: active.cwd,
       rootDir: context.input.rootDir,
       packagePath,
       dispatchId: active.dispatchId,
     }) ??
-    readDispatchRuling(
-      (relative) => projection.readDocument(relative).document?.body ?? null,
-      packagePath,
-      active.dispatchId,
-    )
+      readDispatchRuling(
+        (relative) => projection.readDocument(relative).document?.body ?? null,
+        packagePath,
+        active.dispatchId,
+      ),
   );
 }
 

@@ -79,4 +79,22 @@ test("Task/v2 does not store a worktree binding: every reader derives it", () =>
     }),
     [{ code: "invalid_task", message: "review dispatch intent is invalid" }],
   );
+  // The writer omits every choice the dispatch did not make, so the minimal intent must be valid.
+  assert.deepEqual(
+    validateTaskV2({
+      ...task,
+      reviewDispatchIntent: { executionId: "execution-review-intent", reviewerId: "reviewer-one" },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    validateTaskV2({
+      ...task,
+      reviewDispatchIntent: { executionId: "execution-review-intent", reviewerId: "reviewer-one", nodeId: "n" },
+    }),
+    [{ code: "invalid_task", message: "review dispatch intent is invalid" }],
+  );
+  assert.deepEqual(validateTaskV2({ ...task, reviewDispatchIntent: { reviewerId: "reviewer-one" } }), [
+    { code: "invalid_task", message: "review dispatch intent is invalid" },
+  ]);
 });

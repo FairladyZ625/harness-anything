@@ -41,8 +41,8 @@
     "packages/daemon/src/runtime-spawn-settlement.ts#runtimeRulingRequest": {
       "task": "task_c42e93a6c384624aba591b9b8b",
       "decision": null,
-      "errors": "execution_missing on an ordinary late edge callback",
-      "reason": "An ordinary edge callback can arrive after its task execution has already settled and its lease is gone. In that state there is no active execution that a ruling could block, so settlement preserves the ordinary terminal result. Reviewer callbacks and the escalation-specific stop propagate execution_missing."
+      "errors": "execution_missing on an ordinary late edge callback; review_admission_denied or review_target_missing on an edge reviewer settlement",
+      "reason": "An ordinary edge callback can arrive after its task execution has already settled and its lease is gone. In that state there is no active execution that a ruling could block, so settlement preserves the ordinary terminal result. Reviewer callbacks and the escalation-specific stop propagate execution_missing. An edge reviewer's task-context read re-admits its review target at the center; when the task already left review (task_ac9b227bfdb707ca994490faa0) the refusal is not substituted with a result: it becomes the supersession reason, and settlement ends the runtime superseded with reasonCode review_cut_superseded unless the reviewer's own Review is registered. Every other error propagates."
     },
     "packages/storage/src/pglite/query-owner-worker.ts#startOwner": {
       "task": "task_b8a3cd12e10741592471c378a3",
