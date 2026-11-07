@@ -29,8 +29,9 @@ const PR_SECTIONS = Object.freeze([
 ]);
 
 // The review facts require a `# 中文` block with a Chinese verification heading. The renderer
-// emits that shape from the same closeout instead of a second authored template; a Chinese closeout
-// section supplies its own text, otherwise the block mirrors the English source.
+// emits that shape from the same closeout instead of a second authored template. The Chinese
+// closeout sections must carry the text: an English-only closeout is rejected rather than
+// publishing English prose under Chinese headings.
 const CHINESE_SECTIONS = Object.freeze([
   { title: "摘要", aliases: Object.freeze(["摘要", "概要"]), source: "Summary" },
   { title: "改动内容", aliases: Object.freeze(["改动内容", "改动"]), source: "What Changed" },
@@ -125,9 +126,7 @@ function authoredSources(closeout, profileId) {
     chinese = Object.fromEntries(
       CHINESE_SECTIONS.map(({ aliases, source }) => [source, findSection(sections, aliases)]),
     ),
-    sources = Object.fromEntries(
-      PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases) ?? chinese[title]]),
-    );
+    sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
   sources["What Changed"] ??= sources.Summary;
   if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
@@ -211,10 +210,18 @@ function chineseContent(content) {
 }
 
 /** Same closeout, second language block; no second template and no translated hand copy. */
-function chineseSection(closeout, sources, chinese) {
-  const blocks = CHINESE_SECTIONS.map(
-    ({ title, source }) => `## ${title}\n\n${chineseContent(chinese[source] ?? sources[source] ?? closeout)}`,
-  );
+function chineseSection(chinese) {
+  const required = CHINESE_SECTIONS.filter(({ source }) => source === "Summary" || source === "Verification"),
+    missing = required.filter(({ source }) => !chinese[source]?.trim()).map(({ title }) => `## ${title}`);
+  if (missing.length > 0)
+    throw new Error(
+      `closeout must include ${missing.join(" and ")} so the PR body carries Chinese summary and verification; ` +
+        "English prose is never published under Chinese headings",
+    );
+  const blocks = CHINESE_SECTIONS.flatMap(({ title, source }) => {
+    const content = chineseContent(chinese[source] ?? "");
+    return content.length > 0 ? [`## ${title}\n\n${content}`] : [];
+  });
   return `# 中文\n\n${blocks.join("\n\n")}`;
 }
 
@@ -290,7 +297,7 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
   rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest, decisionAuthority);
   const { start, end } = markerPair(rendered, "PR template"),
     published = `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
-  return `${published.replace(/\s+$/u, "")}\n\n${chineseSection(authored, sources, chinese)}\n`;
+  return `${published.replace(/\s+$/u, "")}\n\n${chineseSection(chinese)}\n`;
 }
 
 function parseArgs(argv) {

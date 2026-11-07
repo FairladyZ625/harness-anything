@@ -28,6 +28,8 @@ const taskId = "task-private-example",
   whatChanged = "- Read the closeout sections.\n- Fill the four PR sections.",
   verification = "- Isolated renderer test passed.",
   residualRisk = "- None beyond the template.",
+  chineseSummary = "中文摘要：生成器从同一份 closeout 组装中英两段。",
+  chineseVerification = "- 中文验证：定向测试通过。",
   closeout = `# Closeout
 
 ## Summary
@@ -49,6 +51,14 @@ ${residualRisk}
 ## Same Mechanism Elsewhere
 
 Not emitted into the PR body.
+
+## 摘要
+
+${chineseSummary}
+
+## 验证
+
+${chineseVerification}
 `,
   codeSubmission = {
     commitSha,
@@ -115,6 +125,12 @@ function render(submission = codeSubmission, options = {}) {
     closeout,
     ...options,
   });
+}
+
+function withChinese(body) {
+  return body.includes("## 摘要")
+    ? body
+    : `${body.replace(/\s+$/u, "")}\n\n## 摘要\n\n${chineseSummary}\n\n## 验证\n\n${chineseVerification}\n`;
 }
 
 function assertPassesPrBodyCheck(body, submission = codeSubmission) {
@@ -510,7 +526,7 @@ test("PR renderer maps a lightweight closeout onto the four template sections", 
     taskId,
     receipt: receipt(codeSubmission, { profileId: "lightweight" }),
     template,
-    closeout: lightweightCloseout,
+    closeout: withChinese(lightweightCloseout),
   });
   assert.match(body, /## What Changed\n\nSummarize the completed behavior change\./u);
   assert.match(body, /## Verification\n\nOne test command and its receipt:/u);
@@ -523,7 +539,7 @@ test("a lightweight closeout without Summary fills the template from authored pr
     taskId,
     receipt: receipt(codeSubmission, { profileId: "lightweight" }),
     template,
-    closeout: "# Closeout\n\n## Verification\n\nRan the test.\n",
+    closeout: withChinese("# Closeout\n\n## Verification\n\nRan the test.\n"),
   });
   assert.match(body, /## Summary\n\n# Closeout\n\n### Verification\n\nRan the test\./u);
   assert.match(body, /## What Changed\n\n# Closeout\n\n### Verification\n\nRan the test\./u);
@@ -531,7 +547,7 @@ test("a lightweight closeout without Summary fills the template from authored pr
 });
 
 test("PR renderer fills every missing template section from authored prose", () => {
-  const partial = "# Closeout\n\n## Summary\n\nOnly a summary.\n",
+  const partial = withChinese("# Closeout\n\n## Summary\n\nOnly a summary.\n"),
     body = render(codeSubmission, { closeout: partial });
   assert.match(body, /## Verification\n\n# Closeout\n\n### Summary\n\nOnly a summary\./u);
   assert.match(body, /## Residual Risk\n\n# Closeout\n\n### Summary\n\nOnly a summary\./u);
@@ -539,7 +555,7 @@ test("PR renderer fills every missing template section from authored prose", () 
 });
 
 test("PR renderer publishes the incident Chinese heading into Verification", () => {
-  const incident = "# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n",
+  const incident = withChinese("# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n"),
     body = render(codeSubmission, { closeout: incident });
   assert.match(body, /## Verification\n\n# Closeout\n\n### 验收与原始结果\n\n- exit 0\./u);
   assertPassesPrBodyCheck(body);
@@ -562,9 +578,9 @@ test("PR renderer publishes authored prose without judging placeholders or decla
   const cases = [
     closeout,
     closeout.replace("- None beyond the template.", "none"),
-    "# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n",
-    "# Closeout\n\n## Summary\n\nReady.\n",
-    "# Closeout\n\n## Summary\n\n<placeholder> TBD\nEvent-Migration: ha migrate unknown\n",
+    withChinese("# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n"),
+    withChinese("# Closeout\n\n## Summary\n\nReady.\n"),
+    withChinese("# Closeout\n\n## Summary\n\n<placeholder> TBD\nEvent-Migration: ha migrate unknown\n"),
     dependencyCloseout.replace("Added the", "<!-- harness:submission-facts:start --> Added the"),
   ];
   for (const body of cases) {
@@ -582,8 +598,9 @@ test("PR renderer publishes authored prose without judging placeholders or decla
 });
 
 test("missing template sections keep unknown authored sections in source order", () => {
-  const authored =
-    "# Closeout\n\n## Earlier evidence\n\nFirst observation.\n\n## Later evidence\n\nSecond observation.\n";
+  const authored = withChinese(
+    "# Closeout\n\n## Earlier evidence\n\nFirst observation.\n\n## Later evidence\n\nSecond observation.\n",
+  );
   const body = render(codeSubmission, { closeout: authored });
   assert.match(
     body,
@@ -665,9 +682,26 @@ function assertBilingualShape(body) {
 test("the rendered body satisfies the bilingual headings review facts reads", () => {
   const body = render();
   assertBilingualShape(body);
-  assert.ok(body.includes(`## 摘要\n\n${summary}`), "the Chinese summary carries the authored summary");
-  assert.match(body, /## 验证\n\n- Isolated renderer test passed\./u);
+  assert.ok(body.includes(`## 摘要\n\n${chineseSummary}`), "the Chinese summary carries the authored Chinese summary");
+  assert.ok(body.includes(`## 验证\n\n${chineseVerification}`), "the Chinese verification carries the authored text");
+  const chineseBlock = body.slice(body.lastIndexOf("\n# 中文\n"));
+  assert.doesNotMatch(
+    chineseBlock,
+    /Isolated renderer test passed|The renderer fills this summary/u,
+    "English prose stays out of the Chinese block",
+  );
   assertPassesPrBodyCheck(body);
+});
+
+test("an English-only closeout is rejected instead of publishing English under Chinese headings", () => {
+  assert.throws(
+    () =>
+      render(codeSubmission, {
+        closeout: "# Closeout\n\n## Summary\n\nEnglish only.\n\n## Verification\n\n- English only.\n",
+      }),
+    /## 摘要 and ## 验证/u,
+    "the writing boundary names the missing Chinese sections",
+  );
 });
 
 test("removing the generated Chinese block fails the bilingual assertion", () => {
@@ -711,7 +745,10 @@ English summary.
 test("re-rendering replaces the single generated Chinese block", () => {
   const refreshed = render(codeSubmission, { body: render() });
   assert.equal((refreshed.match(/^# 中文$/gmu) ?? []).length, 1, "one body carries one generated Chinese block");
-  assert.match(refreshed, /## 验证\n\n- Isolated renderer test passed\./u);
+  assert.ok(
+    refreshed.includes(`## 验证\n\n${chineseVerification}`),
+    "the re-render keeps the authored Chinese verification",
+  );
   assertPassesPrBodyCheck(refreshed);
 });
 
@@ -770,7 +807,7 @@ test("PR renderer labels legacy facts and rejects broken markers", () => {
     () => renderTaskPrBody({ taskId, receipt: receipt(codeSubmission), template: "# PR\n", closeout }),
     /marker pair/u,
   );
-  const empty = render(codeSubmission, { closeout: "" });
+  const empty = render(codeSubmission, { closeout: withChinese("") });
   assert.match(empty, /## Summary/u);
 });
 

@@ -303,10 +303,11 @@ mv /tmp/harness-anything-pr-body.next.md /tmp/harness-anything-pr-body.md
 ```
 
 The renderer owns both language blocks: it appends `# 中文` with `## 摘要` and
-`## 验证` (plus the other sections) from the same closeout, so do not hand-write
-or paste a Chinese section. If the closeout carries Chinese section headings
-(`## 摘要`, `## 验证`, ...), they supply the Chinese text; otherwise the block
-mirrors the English source. Re-rendering replaces the generated block instead of
+`## 验证` (plus optional `## 改动内容` / `## 残余风险`) from the same closeout,
+so do not hand-write or paste a Chinese section. The closeout is one document
+with both language sections: it must carry `## 摘要` and `## 验证`, because the
+renderer rejects an English-only closeout instead of publishing English prose
+under Chinese headings. Re-rendering replaces the generated block instead of
 stacking a second one.
 
 Governance
@@ -356,9 +357,10 @@ always copy the live repository template for a real PR.
 
 > 中文：task submit 冻结交付 cut 后，用 renderer 生成 PR body 的 Delivery Facts；不得
 > 手抄或重算 SHA、基线、文件清单和 production delta。PR body 按模板填写人写的节；
-> renderer 同时生成 `# 中文` 的 `## 摘要`/`## 验证` 等节，手写或补粘贴的中文段会被下次
-> 渲染替换。治理声明与 `Dependency-Change:` 也由 renderer 按台账与 closeout 生成，不要
-> 手工删除或改写。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID。Verification
+> renderer 同时生成 `# 中文` 的 `## 摘要`/`## 验证` 等节；closeout 是同一份文档，必须带
+> `## 摘要` 与 `## 验证`，只有英文的 closeout 会被拒绝，不会把英文塞进中文标题下。手写或
+> 补粘贴的中文段会被下次渲染替换。治理声明与 `Dependency-Change:` 也由 renderer 按台账与
+> closeout 生成，不要手工删除或改写。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID。Verification
 > 只记录直接通过、或由 runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生
 > 的 CI、人工 review 或测试写成已完成。
 
