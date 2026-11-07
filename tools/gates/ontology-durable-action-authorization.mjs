@@ -22,6 +22,8 @@ const portAnchors = [
   { file: "packages/kernel/src/ports/identity-provider-port.ts", name: "AuthorizationDecisionPort" },
 ];
 
+const decisionAnchor = { file: "packages/kernel/src/domain/receipt-frame.ts", name: "AuthorizationDecision" };
+
 /** The protocol authorities the trace reads: descriptors, the method table and kernel constants. */
 export async function loadAuthorizationInputs(rootDir) {
   const load = (file) => import(pathToFileURL(path.join(rootDir, file)).href);
@@ -87,10 +89,17 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     tracer = makeAuthorizationTracer(graph, {
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
+      decision: decisionAnchor,
       entries: transportEntries(graph),
       constants: inputs.constants,
       functions: inputs.functions,
     }),
+    // ActionDeclaration residency: a host- or runtime-local action is not decided at a canonical cut.
+    nonCanonical = new Set(
+      (inputs.constants.actionDeclarations ?? [])
+        .filter((declaration) => ["host-local", "runtime-local"].includes(declaration.residency?.scope))
+        .map((declaration) => declaration.kind),
+    ),
     durable = inputs.descriptors.filter((descriptor) => descriptor.commandClass !== "repo-read"),
     readMethods = new Set(
       inputs.descriptors.filter((descriptor) => descriptor.commandClass === "repo-read").map((entry) => entry.method),
@@ -126,6 +135,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       commandClass: descriptor.commandClass,
       fields: wireFields(descriptor, inputs.methods),
       localTransport: authority === "local-transport",
+      canonicalCut: !nonCanonical.has(kind),
     });
     const evidence = authority === "local-transport" ? trace.local : trace.authorized,
       violations = [...declarationViolations, ...trace.violations];

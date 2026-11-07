@@ -132,7 +132,18 @@ export function makeAuthorizationTracer(graph, anchors) {
       members.add(member);
       portMembers.set(key, members);
     }
-  const portCalls = new Map();
+  const portCalls = new Map(),
+    decisionCallbacks = new Map();
+
+  /** A callback whose own type receives the kernel AuthorizationDecision is the guarded effect. */
+  function decisionCallback(parameter) {
+    if (!decisionCallbacks.has(parameter))
+      decisionCallbacks.set(
+        parameter,
+        anchors.decision ? graph.takesInterface(parameter, anchors.decision.file, anchors.decision.name) : false,
+      );
+    return decisionCallbacks.get(parameter);
+  }
 
   function isPortCall(node) {
     if (portCalls.has(node)) return portCalls.get(node);
@@ -415,7 +426,70 @@ export function makeAuthorizationTracer(graph, anchors) {
       if (binding?.declaration) state.tainted.add(binding.declaration);
       const subject = call ? decisionSubject(call, env) : null;
       if (subject?.kind) report.decisionKinds.add(subject.kind);
+      if (call) checkCut(call, env, subject);
       state.decisionKind = subject;
+    }
+
+    // The kernel decision records the repository cut it was evaluated at (`evaluatedAtCut`). For a
+    // canonical action, a cut that folds to a constant under the route's own bindings is not the
+    // current cut: the decision would answer for a fixed revision, whatever the repository head is
+    // when the effect runs. Host- and runtime-local actions have no canonical cut to read.
+    const fixedCuts = new Set();
+    function checkCut(call, env, subject) {
+      if (!descriptor.canonicalCut || subject?.kind !== descriptor.kind) return;
+      const fixed = fixedCutOf(call, env, 0, new Set());
+      if (fixed && !fixedCuts.has(fixed)) {
+        fixedCuts.add(fixed);
+        report.violations.push(fixed);
+      }
+    }
+
+    function fixedCutOf(call, env, depth, seen) {
+      if (depth > 8) return null;
+      const callee = unwrap(call.expression);
+      if (ts.isPropertyAccessExpression(callee) && ["then", "catch", "finally"].includes(callee.name.text)) {
+        const receiver = unwrap(callee.expression);
+        return ts.isCallExpression(receiver) ? fixedCutOf(receiver, env, depth + 1, seen) : null;
+      }
+      if (ts.isPropertyAccessExpression(callee) && callee.getText() === "Object.freeze")
+        return cutIn(call.arguments[0], env, depth + 1, seen);
+      for (const value of evaluator.evaluate(callee, env)) {
+        if (!value.fn || !value.node.body || seen.has(value.node)) continue;
+        seen.add(value.node);
+        const inner = bindArguments(value, call.arguments, env),
+          returns = [];
+        if (ts.isBlock(value.node.body))
+          eachOwnNode(value.node.body, (node) => {
+            if (ts.isReturnStatement(node) && node.expression) returns.push(node.expression);
+          });
+        else returns.push(value.node.body);
+        for (const result of returns) {
+          const fixed = cutIn(result, inner, depth + 1, seen);
+          if (fixed) return fixed;
+        }
+      }
+      return null;
+    }
+
+    function cutIn(expression, env, depth, seen) {
+      const node = unwrap(expression);
+      if (!node || depth > 8) return null;
+      if (ts.isConditionalExpression(node))
+        return cutIn(node.whenTrue, env, depth + 1, seen) ?? cutIn(node.whenFalse, env, depth + 1, seen);
+      if (ts.isCallExpression(node)) return fixedCutOf(node, env, depth + 1, seen);
+      if (ts.isIdentifier(node)) {
+        const binding = graph.lookup(node.text, node);
+        return binding?.kind === "var" && binding.trail.length === 0 && binding.declaration.initializer
+          ? cutIn(binding.declaration.initializer, env, depth + 1, seen)
+          : null;
+      }
+      if (!ts.isObjectLiteralExpression(node)) return null;
+      const cut = propertyOf(node, "evaluatedAtCut");
+      if (!cut) return null;
+      const folded = evaluator.fold(cut, env);
+      return folded
+        ? `${where(cut)}: the ${descriptor.kind} decision is evaluated at the fixed cut ${JSON.stringify(folded.value)}`
+        : null;
     }
 
     function visit(expression, env, state) {
@@ -545,8 +619,10 @@ export function makeAuthorizationTracer(graph, anchors) {
             ...newState(),
             effect: state.effect,
           });
-          if (outcome.authorizedReturn) enforcedSubject = decisionSubject(node, env);
-          else allAuthorized = false;
+          if (outcome.authorizedReturn) {
+            enforcedSubject = decisionSubject(node, env);
+            checkCut(node, env, enforcedSubject);
+          } else allAuthorized = false;
           continue;
         }
         if (boundParameter?.kind === "param" && env.get(boundParameter.parameter)?.expression) {
@@ -604,7 +680,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       const group = `${frameKeys.get(env) ?? 0}`,
         frames = guardCalls.get(parameter) ?? new Map(),
         calls = frames.get(group) ?? { routed: routedFrame(env), calls: [] };
-      calls.calls.push({ authorized: state.authorized, at: where(call) });
+      calls.calls.push({ authorized: state.authorized, at: where(call), carried: false, parameter });
       frames.set(group, calls);
       guardCalls.set(parameter, frames);
       const next = bindArguments(value, call.arguments, env),
@@ -614,6 +690,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           (_parameter, index) => call.arguments[index] && derived(call.arguments[index], state.tainted),
         );
         if (carried.length > 0) {
+          calls.calls.at(-1).carried = true;
           if (!carried.some((candidate) => parameterUsed(candidate, value.node)))
             report.violations.push(`${where(value.node)}: the authorization decision does not reach the effect`);
           for (const candidate of carried) inner.tainted.add(candidate);
@@ -638,7 +715,10 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (derived(declaration.initializer, state.tainted)) {
             state.tainted.add(declaration);
             const call = producerCallIn(declaration.initializer, env);
-            if (call) state.decisionKind = decisionSubject(call, env);
+            if (call) {
+              state.decisionKind = decisionSubject(call, env);
+              checkCut(call, env, state.decisionKind);
+            }
           }
         }
       } else if (ts.isExpressionStatement(statement)) visit(statement.expression, env, state);
@@ -832,11 +912,17 @@ export function makeAuthorizationTracer(graph, anchors) {
       const env = new Map([[entry.parameters[0], { root: true }]]);
       walkFunction({ fn: true, node: entry, env: new Map() }, env, newState());
     }
+    // On the traced route every effect-callback call must follow the denial exit and receive the
+    // decision: an earlier call runs the effect before authorization, and a call without the
+    // decision leaves the effect independent of it.
     for (const frames of guardCalls.values())
       for (const { routed, calls } of frames.values()) {
-        if (!routed || !calls.some((call) => call.authorized)) continue;
-        for (const call of calls.filter((entry) => !entry.authorized))
-          report.violations.push(`${call.at}: the effect callback also runs without the authorization denial exit`);
+        if (!routed) continue;
+        for (const call of calls.filter((entry) => decisionCallback(entry.parameter)))
+          if (!call.authorized)
+            report.violations.push(`${call.at}: the effect callback runs before the authorization denial exit`);
+          else if (!call.carried)
+            report.violations.push(`${call.at}: the effect callback runs without the authorization decision`);
       }
     return report;
   }

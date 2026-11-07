@@ -122,7 +122,34 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
     memberSignature,
     interfaceMembers,
     carriesTransport,
+    takesInterface,
   };
+
+  /**
+   * Whether a parameter is a callback typed to receive the named kernel interface: the callee's
+   * own contract that the value it is handed reaches the callback.
+   */
+  function takesInterface(parameter, file, name) {
+    const source = program.getSourceFile(fs.realpathSync(path.join(anchorRoot, file))),
+      declaration = source?.statements.find(
+        (statement) => ts.isInterfaceDeclaration(statement) && statement.name.text === name,
+      );
+    if (!declaration) throw new Error(`${file}: interface ${name} is missing`);
+    const target = checker.getDeclaredTypeOfSymbol(checker.getSymbolAtLocation(declaration.name)),
+      type = checker.getNonNullableType(checker.getTypeAtLocation(parameter));
+    return (type.isUnion() ? type.types : [type]).some((part) =>
+      part.getCallSignatures().some((signature) =>
+        signature.parameters.some((symbol) => {
+          const accepted = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(symbol, parameter));
+          return (
+            !(accepted.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) &&
+            checker.isTypeAssignableTo(target, accepted) &&
+            checker.isTypeAssignableTo(accepted, target)
+          );
+        }),
+      ),
+    );
+  }
 
   /** Whether an argument is (or holds) an authentication context: a value with a transport discriminant. */
   function carriesTransport(node) {

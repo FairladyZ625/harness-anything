@@ -54,15 +54,19 @@ function rows(dir, only, descriptors = inputs.descriptors, options = {}) {
   return Object.fromEntries(result.rows.map((row) => [row.id, row]));
 }
 
-/** Normal green, mutated red, restored green, on the same copy. */
-function threeStage(t, ids, mutate) {
-  const dir = sourceCopy(t);
-  for (const id of ids) assert.ok(rows(dir, ids)[id].ok, `${id}: real sources must be green`);
+/** Normal green, mutated red (for the stated reason), restored green, on the same copy. */
+function threeStage(t, ids, mutate, { dir = sourceCopy(t), reason } = {}) {
+  const before = rows(dir, ids);
+  for (const id of ids) assert.ok(before[id].ok, `${id}: real sources must be green`);
   const restore = mutate(dir);
   const mutated = rows(dir, ids);
-  for (const id of ids) assert.equal(mutated[id].ok, false, `${id}: the mutation must turn the row red`);
+  for (const id of ids) {
+    assert.equal(mutated[id].ok, false, `${id}: the mutation must turn the row red`);
+    if (reason) assert.match(mutated[id].violations.join("; "), reason, `${id}: ${mutated[id].violations}`);
+  }
   restore();
-  for (const id of ids) assert.ok(rows(dir, ids)[id].ok, `${id}: restoring the source must return to green`);
+  const restored = rows(dir, ids);
+  for (const id of ids) assert.ok(restored[id].ok, `${id}: restoring the source must return to green`);
   return mutated;
 }
 
@@ -199,4 +203,136 @@ test("a kind-rewrite declaration must cite an indexed decision and owner task", 
     /owner task .* is not in the evidence index/,
   );
   assert.match(kindRewriteViolations({ ...valid, expires: "soon" }, "2026-11-07").join(), /not a YYYY-MM-DD date/);
+});
+
+// Each link of the queued route is its own failure class: the effect must run after the denial
+// exit, receive the decision, and the decision must be evaluated at the current canonical cut.
+test("an effect callback that runs before the authorization denial exit is red", (t) => {
+  threeStage(
+    t,
+    ["task-create"],
+    (dir) => {
+      const first = edit(
+          dir,
+          queuedRoute,
+          "if (durable) {\n          queuedDecision = await authorizeAtCurrentCut()!;",
+          "const alreadyExecuted = await execute(queuedDecision);\n        if (durable) {\n          queuedDecision = await authorizeAtCurrentCut()!;",
+        ),
+        second = edit(
+          dir,
+          queuedRoute,
+          "context.withHumanSummary(await execute(queuedDecision))",
+          "context.withHumanSummary(alreadyExecuted)",
+        );
+      return () => {
+        second();
+        first();
+      };
+    },
+    { reason: /effect callback runs before the authorization denial exit/ },
+  );
+});
+
+test("an effect callback called without the authorization decision is red", (t) => {
+  threeStage(t, ["task-create"], (dir) => edit(dir, queuedRoute, "await execute(queuedDecision)", "await execute()"), {
+    reason: /effect callback runs without the authorization decision/,
+  });
+});
+
+test("a canonical decision evaluated at a fixed revision instead of the current cut is red", (t) => {
+  threeStage(
+    t,
+    ["task-create", "task-push"],
+    (dir) =>
+      edit(
+        dir,
+        queuedRoute,
+        "const revision = context.store.readHead()?.revision ?? 0,\n          actionId",
+        "const revision = 0,\n          actionId",
+      ),
+    { reason: /decision is evaluated at the fixed cut "canonical:0"/ },
+  );
+});
+
+test("a durable action that skips the queued authorization is red", (t) => {
+  threeStage(
+    t,
+    ["task-create"],
+    (dir) => edit(dir, queuedRoute, "(durableActionKinds as readonly string[]).includes(action.kind)", "false"),
+    { reason: /effect callback runs before the authorization denial exit/ },
+  );
+});
+
+test("a prepared publication must run the real handler and hand it the decision", (t) => {
+  const dir = sourceCopy(t);
+  threeStage(
+    t,
+    ["task-push"],
+    (copy) =>
+      edit(
+        copy,
+        queuedRoute,
+        "readBeforeWriteQueue(context, action, binding)",
+        "unrelatedPreparation(context, action, binding)",
+      ),
+    { dir, reason: /the authorized effect does not resolve/ },
+  );
+  threeStage(
+    t,
+    ["task-push"],
+    (copy) =>
+      edit(
+        copy,
+        queuedRoute,
+        "publish(action, authorizationDecision ? { ...binding, authorizationDecision } : binding)",
+        "publish(action, binding)",
+      ),
+    { dir, reason: /the authorization decision does not reach the effect/ },
+  );
+});
+
+test("a same-named prepared handler in an unrelated file does not stand in for the real one", (t) => {
+  const dir = sourceCopy(t);
+  threeStage(
+    t,
+    ["task-push"],
+    (copy) => {
+      const restore = edit(
+          copy,
+          "packages/daemon/src/write-queue-external-reads.ts",
+          "export function readBeforeWriteQueue(",
+          "export function disconnectedPreparation(",
+        ),
+        unrelated = path.join(copy, "packages/daemon/src/unrelated-preparation.ts");
+      writeFileSync(unrelated, "export function readBeforeWriteQueue() {\n  return null;\n}\n");
+      return () => {
+        rmSync(unrelated);
+        restore();
+      };
+    },
+    { dir },
+  );
+});
+
+test("an equivalent prepared publication written as a function expression stays green", (t) => {
+  const dir = sourceCopy(t);
+  edit(
+    dir,
+    "packages/daemon/src/write-queue-external-reads.ts",
+    "return async (_action: RepoTaskAction, executionBinding: RepoCellBinding) => {",
+    "return async function (_action: RepoTaskAction, executionBinding: RepoCellBinding) {",
+  );
+  const traced = rows(dir, ["task-push"])["task-push"];
+  assert.ok(traced.ok, traced.violations.join("; "));
+});
+
+test("edge-join is red once its daemon-repo-register denial no longer exits", (t) => {
+  threeStage(t, ["edge-join"], (dir) =>
+    edit(
+      dir,
+      "packages/daemon/src/host-action-authorization.ts",
+      'if (decision.outcome === "denied")\n    throw Object.assign(',
+      'if (decision.outcome === "denied")\n    void Object.assign(',
+    ),
+  );
 });
