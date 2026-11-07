@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { parseFleetFrame, isFleetTaskAction } from "@harness-anything/daemon/internal/fleet/command-protocol";
+import { generatedTaskActionProtocolDeclarations } from "@harness-anything/preset/internal/preset-command-contract";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "../src/daemon/fleet-command-route.ts";
 
@@ -50,6 +51,18 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     );
   const command = (method: string, action: Record<string, unknown>, rootDir = root) =>
     ({ rootDir, method, action }) as never;
+  const stringFor = (regex?: string): string => {
+    if (!regex) return "probe";
+    const candidates = [
+      "Cprobe",
+      "probe",
+      "task/a/b",
+      `dec_${"a".repeat(24)}`,
+      `dispatch_${"a".repeat(24)}`,
+      "probe:source:summary",
+    ];
+    return candidates.find((candidate) => new RegExp(regex, "u").test(candidate)) ?? "probe";
+  };
 
   const actionForDescriptor = (descriptor: (typeof daemonProtocolCommands)[number]): Record<string, unknown> => {
     const actionKind = "actionKind" in descriptor ? descriptor.actionKind : descriptor.id,
@@ -80,14 +93,26 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       if (field === "dispatchId") return `dispatch_${"a".repeat(24)}`;
       if (field === "executionId") return `execution_${"a".repeat(24)}`;
       if (type === "number" || input.projection === "number") return 0;
-      if (type === "json-object") return {};
-      if (type === "json-object-array") return [];
-      if (type === "string-array" || input.kind === "repeated") return ["probe"];
+      if (type === "json-object" || input.projection === "json-object") return {};
+      if (type === "json-object-array" || input.projection === "json-object-array") return [];
+      if (type === "string-array" || input.kind === "repeated") return [stringFor(input.regex)];
+      if (input.regex) return stringFor(input.regex);
       if (input.kind === "boolean") return true;
-      return "probe";
+      return stringFor(payload?.regex);
     };
     const packetValue = (field: string): unknown => {
       const payload = payloadByField.get(field);
+      const input = inputs.find(
+        (candidate) =>
+          (candidate.field ??
+            candidate.name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase())) === field,
+      );
+      const generatedField = generatedTaskActionProtocolDeclarations
+        .find((candidate) => candidate.execution.ingress === canonical.id)
+        ?.input.fields.find((candidate) => candidate.field === field);
+      if (input?.jsonEnums?.[field]?.length) return input.jsonEnums[field][0];
+      if (generatedField?.enum?.length) return generatedField.enum[0];
+      if (generatedField?.regex) return stringFor(generatedField.regex);
       if (payload?.type === "number") return 0;
       if (payload?.type === "boolean") return true;
       if (payload?.type === "json-object") return {};
@@ -95,7 +120,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       if (payload?.type === "string-array") return [];
       if (["claims", "chosen", "evidenceChecked", "findings", "rejected", "resolutions", "responses"].includes(field))
         return [];
-      return "probe";
+      return stringFor(payload?.regex);
     };
     const encodedValue = (input: (typeof inputs)[number]): unknown => {
       const codec = typeof input.codec === "object" ? input.codec : undefined;
@@ -132,6 +157,29 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       }
     };
     for (const input of inputs) if (input.required) add(input);
+    const generated = generatedTaskActionProtocolDeclarations.find(
+      (candidate) => candidate.execution.ingress === canonical.id,
+    );
+    for (const field of generated?.input.fields ?? []) {
+      if (!field.required || Object.hasOwn(action, field.field)) continue;
+      if (field.enum?.length) action[field.field] = field.enum[0];
+      else if (field.type === "number") action[field.field] = 0;
+      else if (field.type === "boolean") action[field.field] = true;
+      else if (field.type === "string-array" || field.type === "fact-hold-array") action[field.field] = [];
+      else if (field.type === "json-object-array") action[field.field] = [];
+      else if (field.type === "json-object") action[field.field] = {};
+      else action[field.field] = stringFor(field.regex);
+    }
+    for (const field of payloadFields) {
+      if (!field.required || Object.hasOwn(action, field.field)) continue;
+      if (field.enum?.length) action[field.field] = field.enum[0];
+      else if (field.type === "number") action[field.field] = 0;
+      else if (field.type === "boolean") action[field.field] = true;
+      else if (field.type === "string-array" || field.type === "fact-hold-array") action[field.field] = ["task_one"];
+      else if (field.type === "json-object-array") action[field.field] = [{}];
+      else if (field.type === "json-object") action[field.field] = {};
+      else action[field.field] = field.field === "taskId" ? "task_one" : stringFor(field.regex);
+    }
     for (const group of "actionConstraints" in canonical ? (canonical.actionConstraints ?? []) : []) {
       const selected = group.some((field) => Object.hasOwn(action, field));
       if (!selected) {
@@ -142,7 +190,10 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     for (const token of "syntaxPath" in canonical ? canonical.syntaxPath : canonical.path) {
       const match = token.match(/^<([a-z][a-z0-9-]*)>$/u);
       if (!match) continue;
-      const field = match[1]!.replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
+      const field =
+        match[1] === "id" && canonical.path[0]
+          ? `${canonical.path[0]}Id`
+          : match[1]!.replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
       if (Object.hasOwn(action, field)) continue;
       action[field] =
         field === "taskId"
@@ -174,10 +225,10 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   registry("remote-edge");
   for (const action of [
     { kind: "agent-install", packageSource: "agent.json", expectedVersion: 0 },
-    { kind: "agent-delete", reason: "cleanup", expectedVersion: 0 },
-    { kind: "agent-retire", reason: "cleanup" },
+    { kind: "agent-delete", agentId: "agent_one", reason: "cleanup", expectedVersion: 0 },
+    { kind: "agent-retire", agentId: "agent_one", reason: "cleanup" },
     { kind: "squad-install", packageSource: "squad.json", expectedVersion: 0 },
-    { kind: "squad-delete", reason: "cleanup", expectedVersion: 0 },
+    { kind: "squad-delete", squadId: "squad_one", reason: "cleanup", expectedVersion: 0 },
   ]) {
     const { kind } = action;
     assert.deepEqual((await fleetTaskRoute(command("repo.task.run", action), env))?.action, action, kind);
@@ -249,11 +300,8 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     text: "nested cwd",
     evidence: [],
   });
-  const complete = await fleetTaskRoute(
-    command("repo.task.run", { kind: "task-complete", taskId: "task_one", consent: true }),
-    env,
-  );
-  assert.deepEqual(complete?.action, { kind: "task-complete", taskId: "task_one", consent: true });
+  const complete = await fleetTaskRoute(command("repo.task.run", { kind: "task-complete", taskId: "task_one" }), env);
+  assert.deepEqual(complete?.action, { kind: "task-complete", taskId: "task_one" });
   for (const action of [
     {
       kind: "fact-record",

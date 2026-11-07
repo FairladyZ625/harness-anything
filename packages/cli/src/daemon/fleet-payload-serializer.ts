@@ -82,6 +82,10 @@ type DeclaredInput = CliInputFacet & {
   readonly projection?: "number" | "fact-hold-array" | "json-object" | "json-object-array";
 };
 
+function declaredField(input: DeclaredInput): string {
+  return input.field ?? fieldName(input.name);
+}
+
 function validationFieldFromInput(input: DeclaredInput): EntityActionInputField | null {
   const codec = typeof input.codec === "object" ? input.codec : undefined;
   if (input.jsonAllowedFields || codec?.kind === "json-object") return null;
@@ -104,7 +108,7 @@ function validationFieldFromInput(input: DeclaredInput): EntityActionInputField 
     type: effectiveType,
     required: input.required,
     ...(input.enum ? { enum: input.enum } : {}),
-    ...(input.regex && type !== "number" ? { regex: input.regex } : {}),
+    ...(input.regex && type === "string" ? { regex: input.regex } : {}),
     ...(input.maxLength === undefined ? {} : { wire: { maxLength: input.maxLength } }),
     ...(input.wire
       ? { wire: { ...input.wire, ...(input.maxLength === undefined ? {} : { maxLength: input.maxLength }) } }
@@ -112,7 +116,93 @@ function validationFieldFromInput(input: DeclaredInput): EntityActionInputField 
   };
 }
 
-function validationFields(descriptor: ReturnType<typeof descriptorFor>): readonly EntityActionInputField[] {
+function addJsonAllowedFields(fields: Map<string, EntityActionInputField>, input: DeclaredInput, source: Action): void {
+  if (!Object.hasOwn(source, declaredField(input))) return;
+  for (const field of input.jsonAllowedFields ?? [])
+    if (!fields.has(field))
+      fields.set(field, {
+        field,
+        type: fields.get(field)?.type === "json-object-array" ? "json-object-array" : "string",
+        required: input.jsonFields?.includes(field) ?? false,
+        ...(input.jsonEnums?.[field] ? { enum: input.jsonEnums[field] } : {}),
+      });
+}
+
+function addPathFields(
+  fields: Map<string, EntityActionInputField>,
+  descriptor: ReturnType<typeof descriptorFor>,
+): void {
+  const positional =
+      "positional" in descriptor && typeof descriptor.positional === "string" ? descriptor.positional : null,
+    commandPath = "path" in descriptor ? descriptor.path : [],
+    syntaxPath = "syntaxPath" in descriptor ? descriptor.syntaxPath : commandPath;
+  if ("positionalFields" in descriptor && Array.isArray(descriptor.positionalFields))
+    for (const field of descriptor.positionalFields) fields.set(field, { field, type: "string", required: true });
+  else if (positional) fields.set(positional, { field: positional, type: "string", required: true });
+  for (const token of syntaxPath) {
+    const match = token.match(/^(\[)?<([a-z][a-z0-9-]*)>(\])?$/u);
+    if (!match) continue;
+    const name =
+      positional ?? (match[2] === "id" && commandPath[0] ? `${commandPath[0]}Id` : fieldName(`--${match[2]}`));
+    if (!fields.has(name)) fields.set(name, { field: name, type: "string", required: !match[1] });
+  }
+}
+
+function addDefaultFields(
+  fields: Map<string, EntityActionInputField>,
+  descriptor: ReturnType<typeof descriptorFor>,
+): void {
+  if (!("actionDefaults" in descriptor) || !descriptor.actionDefaults) return;
+  for (const [field, value] of Object.entries(descriptor.actionDefaults)) {
+    if (typeof value === "string") fields.set(field, { field, type: "string", required: false, enum: [value] });
+    else if (value === null) fields.set(field, { field, type: "string", required: false, wire: { nullable: true } });
+    else if (value !== undefined && typeof value === "object" && !Array.isArray(value))
+      fields.set(field, { field, type: "json-object", required: false });
+    else if (typeof value === "boolean") fields.set(field, { field, type: "boolean", required: false });
+  }
+}
+
+function inferredField(field: string, value: unknown): EntityActionInputField {
+  if (Array.isArray(value)) {
+    const item = value.find((candidate) => candidate !== undefined);
+    return {
+      field,
+      type: "string-array",
+      required: false,
+      ...(item !== undefined && typeof item !== "string" ? { type: "json-object-array" as const } : {}),
+    };
+  }
+  if (value !== null && typeof value === "object") return { field, type: "json-object", required: false };
+  if (typeof value === "boolean") return { field, type: "boolean", required: false };
+  if (typeof value === "number") return { field, type: "number", required: false };
+  return { field, type: "string", required: false };
+}
+
+function adaptFieldToValue(field: EntityActionInputField, value: unknown): EntityActionInputField {
+  if (!Array.isArray(value)) {
+    return value !== null && typeof value === "object" && field.type === "string"
+      ? { ...field, type: "json-object" }
+      : field;
+  }
+  const item = value.find((candidate) => candidate !== undefined);
+  if (field.type === "string" && (item === undefined || typeof item === "string"))
+    return { ...field, type: "string-array" };
+  if (
+    (field.type === "string" || field.type === "string-array") &&
+    item !== undefined &&
+    item !== null &&
+    typeof item === "object"
+  )
+    return { ...field, type: "json-object-array" };
+  if (field.type === "json-object-array" && (item === undefined || typeof item === "string"))
+    return { ...field, type: "string-array" };
+  return field;
+}
+
+function validationFields(
+  descriptor: ReturnType<typeof descriptorFor>,
+  source: Action,
+): readonly EntityActionInputField[] {
   const fields = new Map<string, EntityActionInputField>(),
     taskAction = generatedTaskActionProtocolDeclarations.find(
       (candidate) => candidate.execution.ingress === descriptor.id,
@@ -137,28 +227,13 @@ function validationFields(descriptor: ReturnType<typeof descriptorFor>): readonl
         required: false,
         ...(codec.maxBytes === undefined ? {} : { wire: { maxLength: codec.maxBytes } }),
       });
+    addJsonAllowedFields(fields, input, source);
   }
   if ("payloadFields" in descriptor)
     for (const field of descriptor.payloadFields as readonly EntityActionInputField[]) fields.set(field.field, field);
-  const positional =
-    "positional" in descriptor && typeof descriptor.positional === "string" ? descriptor.positional : null;
-  if ("positionalFields" in descriptor && Array.isArray(descriptor.positionalFields))
-    for (const field of descriptor.positionalFields) fields.set(field, { field, type: "string", required: true });
-  else if (positional) fields.set(positional, { field: positional, type: "string", required: true });
-  const commandPath = "path" in descriptor ? descriptor.path : [],
-    syntaxPath = "syntaxPath" in descriptor ? descriptor.syntaxPath : commandPath;
-  for (const token of syntaxPath) {
-    const match = token.match(/^<([a-z][a-z0-9-]*)>$/u);
-    if (!match) continue;
-    const name =
-      positional ?? (match[1] === "id" && commandPath[0] ? `${commandPath[0]}Id` : fieldName(`--${match[1]}`));
-    if (!fields.has(name)) fields.set(name, { field: name, type: "string", required: true });
-  }
-  return [...fields.values()];
-}
-
-function declaredField(input: DeclaredInput): string {
-  return input.field ?? fieldName(input.name);
+  addPathFields(fields, descriptor);
+  addDefaultFields(fields, descriptor);
+  return [...fields.values()].filter((field) => !field.wire?.omit);
 }
 
 function present(action: Action, field: string, input?: DeclaredInput): boolean {
@@ -245,13 +320,31 @@ export function serializeFleetAction(command: ThinCommand): Action {
             .filter((line) => line.length > 0 && !line.startsWith("#"))
         : text;
   }
-  const hasJsonObjectInput = inputsOf(descriptor).some((input) => {
-    const codec = typeof input.codec === "object" ? input.codec : undefined;
-    return Boolean(input.jsonAllowedFields || codec?.kind === "json-object");
-  });
-  if ("payloadFields" in descriptor && hasJsonObjectInput && !command.method.startsWith("repo.agentRuntime.")) {
-    const { kind: _kind, ...payload } = action;
-    const issue = fleetActionPayloadIssue(validationFields(descriptor), payload);
+  const isCenterFleetAction =
+    "admission" in descriptor &&
+    descriptor.method === "repo.task.run" &&
+    descriptor.admission["remote-edge"] === "via-center-forward" &&
+    descriptor.path[0] !== "schedule";
+  if (isCenterFleetAction) {
+    const omitted =
+      "payloadFields" in descriptor
+        ? (
+            descriptor.payloadFields as readonly {
+              readonly field: string;
+              readonly wire?: { readonly omit?: boolean };
+            }[]
+          )
+            .filter((field) => field.wire?.omit)
+            .map((field) => field.field)
+        : [];
+    const validationAction = omitted.length
+      ? Object.fromEntries(Object.entries(action).filter(([field]) => !omitted.includes(field)))
+      : action;
+    const { kind: _kind, ...payload } = validationAction,
+      fields = new Map(validationFields(descriptor, original).map((field) => [field.field, field] as const));
+    for (const [field, value] of Object.entries(payload))
+      fields.set(field, adaptFieldToValue(fields.get(field) ?? inferredField(field, value), value));
+    const issue = fleetActionPayloadIssue([...fields.values()], payload);
     if (issue) invalid(`${issue} does not match its Fleet declaration`);
   }
   return action;
