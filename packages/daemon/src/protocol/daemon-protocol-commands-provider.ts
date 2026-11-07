@@ -27,7 +27,7 @@ export const providerProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { pathKind: "cli-local", conflictsWith: ["--credential-ref"] },
+        { pathKind: "cli-local", pathReader: "cli-local", conflictsWith: ["--credential-ref"] },
       ),
       cliInput(
         "--credential-ref",
@@ -82,7 +82,7 @@ export const providerProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { pathKind: "cli-local", conflictsWith: ["--credential-ref"] },
+        { pathKind: "cli-local", pathReader: "cli-local", conflictsWith: ["--credential-ref"] },
       ),
       cliInput(
         "--credential-ref",

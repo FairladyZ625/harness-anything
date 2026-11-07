@@ -13,6 +13,16 @@
  *   2. Every write command with a document selection goes through the one doc action pipeline that
  *      refuses an unmatched selection. A new write command with `--path` that is not wired to that
  *      pipeline is named here instead of returning "applied" for zero candidates.
+ *
+ * The repository-relative invariant covers repository and ledger content. `cli-local` is the
+ * explicit exception category: it names a file on the machine running the CLI, never repository
+ * content. Credential-file inputs (`--password-file`, `--api-key-file`, `--credential-file`,
+ * certificates) are the adjudicated case (CEO, 2026-11-07, fact F-0B58827E): credentials must
+ * never be committed, so forcing a repository-relative path would push secrets into the repo and
+ * forward an unreadable path to the center. `task artifact add --source` is the other member of
+ * the category: the caller's local file whose bytes are copied into the ledger. The exemption is
+ * declared per input with `pathKind: "cli-local"` plus `pathReader: "cli-local"`; it is a
+ * category, not a per-command allowlist, and every input still states its coordinate.
  */
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,7 +38,11 @@ import { materializePromptFile } from "../packages/cli/src/cli-runtime-prompt-fi
 import { readRuntimeBatchFile } from "../packages/cli/src/cli-runtime-batch-input.ts";
 import { workspaceText } from "../packages/daemon/src/repo-cell-packets.ts";
 
-const PATH_KINDS = new Set(["ledger-document", "workspace-file", "cli-local", "host-path", "non-path"]);
+// CLI-host files: the one exempt coordinate. Credential material is the adjudicated case
+// (fact F-0B58827E) and `task artifact add --source` is the caller-local artifact source; neither
+// is repository content, so neither is normalized to a repository path.
+const CLI_LOCAL_PATH_KIND = "cli-local";
+const PATH_KINDS = new Set(["ledger-document", "workspace-file", CLI_LOCAL_PATH_KIND, "host-path", "non-path"]);
 const WORKSPACE_FILE_READERS = new Set(["workspace-text", "prompt-file", "runtime-batch"]);
 const WRITE_CLASSES = new Set(["repo-write", "arbiter", "admin"]);
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -68,6 +82,7 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
     nonPathInputs: 0,
     pathInputs: 0,
     workspaceFiles: 0,
+    cliLocalInputs: 0,
     ledgerDocuments: 0,
     zeroHitWriteCommands: 0,
     positionalPaths: 0,
@@ -274,6 +289,18 @@ function checkPathInput(command, label, input, counts, actionKind, root, known) 
         `${command.id} ${label}: workspace-file input must declare a shared pathReader ` +
           `(${[...WORKSPACE_FILE_READERS].join("|")}); a declaration without a reader is not checked`,
       ];
+  }
+  if (input.pathKind === CLI_LOCAL_PATH_KIND) {
+    counts.cliLocalInputs += 1;
+    // The exempt category still names its reader, so a new command cannot use `cli-local` as a
+    // silent free pass for repository content without saying which CLI-host boundary it owns.
+    if (input.pathReader !== CLI_LOCAL_PATH_KIND)
+      return [
+        `${command.id} ${label}: cli-local input must declare pathReader "${CLI_LOCAL_PATH_KIND}"; ` +
+          `the CLI-host exemption is a declared category (credential files, caller-local artifact ` +
+          `sources), not a default`,
+      ];
+    return [];
   }
   if (input.pathKind !== "ledger-document") return [];
   counts.ledgerDocuments += 1;

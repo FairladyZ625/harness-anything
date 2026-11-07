@@ -222,6 +222,43 @@ test("the gate actually evaluated document paths and zero-hit write commands, no
   assert.ok(Number(match[5]) > 0, "write document selections must reach the zero-hit pipeline probe");
 });
 
+test("a cli-local input without the CLI-host reader turns the gate red and is named", () => {
+  const result = run([
+    {
+      id: "gate-probe-bare-cli-local",
+      path: ["probe", "bare-cli-local"],
+      commandClass: "repo-read",
+      inputs: [
+        {
+          name: "--secret-file",
+          kind: "single",
+          required: false,
+          error: { code: "invalid_field" },
+          pathKind: "cli-local",
+        },
+      ],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /gate-probe-bare-cli-local --secret-file: cli-local input must declare pathReader "cli-local"/u,
+  );
+});
+
+test("the CLI-host exemption is a declared category, not an allowlist of commands", () => {
+  const declared = daemonProtocolCommands.flatMap((command) =>
+    [...(command.inputs ?? []), ...(command.positionalInputs ?? [])]
+      .filter((input) => input.pathKind === "cli-local")
+      .map((input) => ({ id: command.id, name: input.name, reader: input.pathReader })),
+  );
+  assert.ok(declared.length > 0, "the exemption category must not be empty");
+  for (const input of declared)
+    assert.equal(input.reader, "cli-local", `${input.id} ${input.name} must name the CLI-host reader`);
+  const result = checkCliPathContract();
+  assert.equal(result.counts.cliLocalInputs, declared.length);
+});
+
 test("the path input set is exactly the registry's declarations, never a flag-name heuristic", () => {
   const result = checkCliPathContract();
   assert.equal(result.ok, true, result.violations.join("\n"));
