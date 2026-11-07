@@ -24,6 +24,15 @@ test("permits provider internals, test fixtures, and neutral authorization contr
   );
 });
 
+test("permits future Keycloak provider packages and neutral admin client names", () => {
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/authorization-keycloak-enterprise/src/provider.ts\n+const realm = "main";\n+++ b/packages/gui/src/renderer/connection-data.ts\n+} from "./connection-admin-client.ts";\n+const path = "/admin/settings";`,
+    ),
+    [],
+  );
+});
+
 test("does not mistake removed lines for newly introduced coupling", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(

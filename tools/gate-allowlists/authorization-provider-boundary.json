@@ -9,7 +9,7 @@
       "reason": "Legacy provider-specific daemon implementation and RPC wiring; exact source rows are enumerated in the task audit artifact."
     },
     {
-      "scope": "packages/gui/src/** (65 audit lines)",
+      "scope": "packages/gui/src/** (62 audit lines)",
       "paths": ["packages/gui/src/**"],
       "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
       "expiresOn": "2026-12-07",

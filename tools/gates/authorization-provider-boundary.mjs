@@ -4,9 +4,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const SOURCE_ROOTS = ["packages/"];
-const PROVIDER_PACKAGES = ["packages/authorization-keycloak/", "packages/authorization-keycloak-gui/"];
+const PROVIDER_PACKAGE_PREFIX = "packages/authorization-keycloak";
 const EXEMPTED_TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|fixtures?)(?:\/|\.)|\.(?:test|spec)\.[cm]?[jt]sx?$/u;
-const PROVIDER_MARKER = /keycloak|admin-cli|realm_access|keycloak_unavailable|keycloak-user:|\/realms\/|\/admin\//iu;
+const PROVIDER_MARKER =
+  /keycloak|\badmin-cli\b|realm_access|keycloak_unavailable|keycloak-user:|\/realms\/|\/admin\/[^"'\s]+\/console\//iu;
 const REALM_FIELD = /(?:\.|\b)realm\s*(?::|=)/u;
 const WAIVER_PATH = "tools/gate-allowlists/authorization-provider-boundary.json";
 
@@ -26,7 +27,9 @@ export function findProviderBoundaryViolations(diffText) {
     }
     if (!line.startsWith("+") || line.startsWith("+++")) continue;
     if (!SOURCE_ROOTS.some((root) => file.startsWith(root))) continue;
-    if (PROVIDER_PACKAGES.some((root) => file.startsWith(root)) || EXEMPTED_TEST_PATH.test(file)) continue;
+    const isProviderPackage =
+      file.startsWith(`${PROVIDER_PACKAGE_PREFIX}/`) || file.startsWith(`${PROVIDER_PACKAGE_PREFIX}-`);
+    if (isProviderPackage || EXEMPTED_TEST_PATH.test(file)) continue;
     const reason = providerMarkerReason(line.slice(1));
     if (reason) errors.push(`${file}: ${reason}: ${line.slice(1).trim()}`);
   }
