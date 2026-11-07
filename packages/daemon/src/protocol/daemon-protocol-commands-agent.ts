@@ -1195,7 +1195,13 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Change the signed-in account password using a protected file or redirected stdin.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput(
+        "--password-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", field: "passwordFile" },
+      ),
       cliInput("--password-stdin", "boolean", false, { code: "invalid_field" }, { field: "passwordStdin" }),
     ],
     actionConstraints: [["passwordFile", "passwordStdin"]],
@@ -1208,8 +1214,14 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Reset an account password using a protected file or redirected stdin.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--person-id", "single", true, { code: "missing_field" }, { field: "personId" }),
-      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput("--person-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "personId" }),
+      cliInput(
+        "--password-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", field: "passwordFile" },
+      ),
       cliInput("--password-stdin", "boolean", false, { code: "invalid_field" }, { field: "passwordStdin" }),
     ],
     actionConstraints: [["passwordFile", "passwordStdin"]],
