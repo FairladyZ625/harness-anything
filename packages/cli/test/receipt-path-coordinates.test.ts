@@ -187,6 +187,21 @@ test("a rematerialization report prints workspace target paths in every list", (
   });
 });
 
+test("a task artifact receipt prints the workspace destination", () => {
+  withWorkspaceLedger((rootDir) => {
+    const translated = translateReceiptPathCoordinates(
+      {
+        ok: true,
+        destination: "tasks/task_a/artifacts/metrics.json",
+        source: "release-metrics.json",
+      },
+      rootDir,
+    );
+    assert.equal(translated.destination, "harness/tasks/task_a/artifacts/metrics.json");
+    assert.equal(translated.source, "release-metrics.json");
+  });
+});
+
 test("paths outside the ledger and document bodies keep their bytes", () => {
   withWorkspaceLedger((rootDir) => {
     const repoPath = "packages/cli/src/index.ts";

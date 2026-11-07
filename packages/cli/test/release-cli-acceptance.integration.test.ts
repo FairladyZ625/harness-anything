@@ -716,9 +716,11 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
       locatorKinds: ["repository-path"],
     };
     // Kind authoring is the same CLI surface an Agent uses on deli-ai-lab: one declaration file,
-    // read by the CLI and submitted through the center's own `vertical-kind-upsert` action.
-    const kindFile = path.join(parent, "release-runbook-kind.json");
-    writeFileSync(kindFile, `${JSON.stringify(kindDeclaration, null, 2)}\n`);
+    // read by the CLI and submitted through the center's own `vertical-kind-upsert` action. The
+    // declaration is workspace-relative like every other --from-file input; an outside path is
+    // rejected before the daemon sees it.
+    const kindFile = "release-runbook-kind.json";
+    writeFileSync(path.join(root, kindFile), `${JSON.stringify(kindDeclaration, null, 2)}\n`);
     const upserted = run(root, userRoot, [
       "vertical",
       "kind",
