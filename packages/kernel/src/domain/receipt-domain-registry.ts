@@ -244,6 +244,7 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "code",
     "origin",
     "evidence",
+    "workspacePathPrefix",
     "visibility",
     "proof",
     "detail",
