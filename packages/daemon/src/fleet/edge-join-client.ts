@@ -150,8 +150,8 @@ export async function joinFleetEdge(
       ...login,
       command: "edge-join",
       ...(link.transport ? { transport: link.transport } : {}),
-      ...(link.transport === "ssh-reverse" && authority.browserUrl
-        ? { browserApprovalUri: deviceApprovalUri(authority.browserUrl, authority.realm) }
+      ...(link.transport === "ssh-reverse" && authority.browserUrl && typeof login.verificationUri === "string"
+        ? { browserApprovalUri: login.verificationUri }
         : {}),
     };
   }
@@ -491,14 +491,6 @@ async function validateFleetOriginAddress(
       message: `Git could not reach the supplied address or find the center default branch ${defaultBranch}. Check the address and repository read access, then retry.`,
     };
   return null;
-}
-
-function deviceApprovalUri(browserUrl: string, realm: string): string {
-  const url = new URL(browserUrl);
-  url.pathname = `/realms/${encodeURIComponent(realm)}/device`;
-  url.search = "";
-  url.hash = "";
-  return url.toString();
 }
 
 async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
