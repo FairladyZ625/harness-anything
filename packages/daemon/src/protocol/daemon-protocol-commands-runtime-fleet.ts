@@ -104,6 +104,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       {
         codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 },
         pathKind: "workspace-file",
+        zeroHit: "not-a-selection",
         format: workspacePathFormat,
         conflictsWith: ["--mission", "--prompt"],
       },
@@ -305,6 +306,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         name: "<batch-file>",
         pathKind: "workspace-file",
         codec: { kind: "text-file", target: "declaration", maxBytes: Number.MAX_SAFE_INTEGER },
+        zeroHit: "refused",
       },
     ],
   }),
@@ -379,6 +381,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 },
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           conflictsWith: ["--prompt"],
         },
@@ -688,6 +691,7 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
       jsonAllowedFields: allowedFields,
       codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
       pathKind: "workspace-file",
+      zeroHit: "not-a-selection",
       format: workspacePathFormat,
       conflictsWith: ["--json-input"],
     },
@@ -800,6 +804,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 },
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
         },
       ),
@@ -956,6 +961,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 },
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
         },
       ),

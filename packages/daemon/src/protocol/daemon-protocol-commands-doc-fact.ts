@@ -332,6 +332,8 @@ export const docFactProtocolCommands = Object.freeze([
           codec: { kind: "line-list-file", target: "factIds", maxBytes: 64 * 1024 },
           field: "idsFile",
           pathKind: "workspace-file",
+          // An empty --ids-file settles as no_changes in archiveAllFacts; it never reports applied.
+          zeroHit: "no_changes",
           format: workspacePathFormat,
         },
       ),

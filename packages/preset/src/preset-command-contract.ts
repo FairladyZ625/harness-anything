@@ -22,6 +22,7 @@ export type {
   CliPositionalInputFacet,
   PathKind,
   PathReader,
+  ZeroHitPolicy,
   CommandAdmission,
   CommandAdmissionRoute,
   CommandTopology,
@@ -327,6 +328,7 @@ const taskCreateCliInputs = Object.freeze(
           : cli.name === "--from-file" || cli.name === "--plan-file"
             ? {
                 pathKind: "workspace-file" as const,
+                zeroHit: "not-a-selection" as const,
                 format: workspacePathFormat,
               }
             : { pathKind: "non-path" as const }),
