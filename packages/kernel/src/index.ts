@@ -242,7 +242,7 @@ export {
   slugifyTaskTitle,
   validateTaskIdSyntax,
 } from "./layout/index.ts";
-export type { HarnessLayoutOverrides } from "./layout/index.ts";
+export type { HarnessLayout, HarnessLayoutOverrides } from "./layout/index.ts";
 export * from "./ports/index.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
