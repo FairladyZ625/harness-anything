@@ -211,7 +211,7 @@ test("entity rematerialize renders relative graph links and is idempotent at one
       dirtyReport = JSON.parse(String(dirtyReceipt.evidence)) as RematerializeReport;
     assert.equal(dirtyReceipt.outcome, "pending", JSON.stringify(dirtyReceipt));
     assert.equal(dirtyReport.writeStatus, "not_needed");
-    assert.deepEqual(dirtyReport.targets[0]?.conflictPaths, [`harness/${decisionPath}`]);
+    assert.deepEqual(dirtyReport.targets[0]?.conflictPaths, [decisionPath]);
     assert.equal(reader.readHead()?.revision, dirtyHead, "a same-cut dirty conflict must not append an event");
     assert.match(readFileSync(file, "utf8"), /local dirty draft\n$/u);
     // A dirty path with real pending changes is excluded from the batch instead of clobbered.
@@ -233,7 +233,7 @@ test("entity rematerialize renders relative graph links and is idempotent at one
       staleReport = JSON.parse(String(staleReceipt.evidence)) as RematerializeReport;
     assert.equal(staleReceipt.outcome, "pending", JSON.stringify(staleReceipt));
     assert.equal(staleReport.changedCount, 0);
-    assert.deepEqual(staleReport.targets[0]?.conflictPaths, [`harness/${decisionPath}`]);
+    assert.deepEqual(staleReport.targets[0]?.conflictPaths, [decisionPath]);
     assert.equal(reader.readHead()?.revision, staleHead, "a dirty target must not enter the appended event");
     assert.equal(
       projection.readDocument(decisionPath).document!.blobSha256,

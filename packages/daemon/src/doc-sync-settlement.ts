@@ -16,8 +16,13 @@ import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts"
 import { localProseSource, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 import { formatShellCommand } from "./shell-command-text.ts";
 
-/** One output spelling: every path a receipt prints is relative to the caller's workspace root. */
-export function workspacePathOf(input: Pick<Input, "rootDir">): (document: string) => string {
+/**
+ * One output spelling for a CLI caller: every path its receipt prints is relative to the caller's
+ * workspace root. A daemon-internal caller keeps the authored key it indexed the projection with,
+ * so the canonical projection and the internal receipts never switch coordinates.
+ */
+export function workspacePathOf(input: Pick<Input, "rootDir" | "workspaceCoordinate">): (document: string) => string {
+  if (input.workspaceCoordinate !== true) return (document) => document;
   return (document) => documentWorkspacePath(input.rootDir, document);
 }
 

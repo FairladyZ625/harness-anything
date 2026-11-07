@@ -1420,10 +1420,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           auth,
         );
         assert.equal(published.outcome, "applied", JSON.stringify(published));
-        assert.equal(
-          published.destination,
-          `harness/tasks/task-runtime-artifact-runtime-artifact/artifacts/${ownDestination}`,
-        );
+        assert.equal(published.destination, `tasks/task-runtime-artifact-runtime-artifact/artifacts/${ownDestination}`);
         const rebuilt = await host.run(repoId, { kind: "projection-rebuild" }, auth);
         assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
         const reopened = await host.read(repoId, "repo.agentRuntime.overview", {}, auth),
