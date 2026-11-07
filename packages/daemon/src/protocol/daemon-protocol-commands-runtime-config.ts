@@ -467,7 +467,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { pathKind: "cli-local", conflictsWith: ["--api-key-stdin", "--credential-ref"] },
+        { pathKind: "cli-local", pathReader: "cli-local", conflictsWith: ["--api-key-stdin", "--credential-ref"] },
       ),
       cliInput(
         "--id",
@@ -685,7 +685,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { pathKind: "cli-local", conflictsWith: ["--api-key-stdin"] },
+        { pathKind: "cli-local", pathReader: "cli-local", conflictsWith: ["--api-key-stdin"] },
       ),
       cliInput(
         "--name",

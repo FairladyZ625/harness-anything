@@ -307,7 +307,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "missing_field" },
-        { conflictsWith: ["--run"], description: "Read artifact bytes from a local file", pathKind: "cli-local" },
+        {
+          conflictsWith: ["--run"],
+          description: "Read artifact bytes from a local file",
+          pathKind: "cli-local",
+          pathReader: "cli-local",
+        },
       ),
       cliInput(
         "--run",
