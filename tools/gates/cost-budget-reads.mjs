@@ -277,18 +277,30 @@ export async function measureReadCosts(
     measured[backend] = {};
     for (const dimension of dimensions) {
       const dimensionProbes = selected.filter((id) => readProbeAppliesTo(READ_PROBES[id], backend, dimension));
-      const groups = new Map();
+      const groups = new Map(),
+        sizes = new Map();
       for (const id of dimensionProbes) {
         const scales = readScalesForProbe(section, id, backend, dimension),
           key = JSON.stringify(scales);
         if (!groups.has(key)) groups.set(key, { scales, ids: [] });
         groups.get(key).ids.push(id);
+        // One fixture per measured size: a bounded pair can share the full pair's size
+        // (e.g. the 3400 middle scale), and rebuilding it would duplicate the whole seed.
+        for (const size of [scales.small, scales.large]) {
+          if (!sizes.has(size)) sizes.set(size, new Set());
+          sizes.get(size).add(id);
+        }
       }
+      const measuredAtSize = new Map();
+      for (const [size, ids] of sizes)
+        measuredAtSize.set(size, await measureReadScale(backend, dimension, size, { probeIds: [...ids] }));
       measured[backend][dimension] = {};
       for (const { scales, ids } of groups.values()) {
-        const small = await measureReadScale(backend, dimension, scales.small, { probeIds: ids }),
-          large = await measureReadScale(backend, dimension, scales.large, { probeIds: ids });
-        for (const id of ids) measured[backend][dimension][id] = { small: small[id], large: large[id] };
+        for (const id of ids)
+          measured[backend][dimension][id] = {
+            small: measuredAtSize.get(scales.small)[id],
+            large: measuredAtSize.get(scales.large)[id],
+          };
         console.log(JSON.stringify({ g38ScaleGroup: { backend, dimension, scales, probes: ids } }));
       }
       for (const [id, pair] of Object.entries(measured[backend][dimension]))
