@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   compileEntityDocumentRematerialization,
   DECISION_DOCUMENT_POLICY_ID,
+  documentWorkspacePrefix,
   factLiveness,
   FACT_DOCUMENT_POLICY_ID,
   parseEntityRef,
@@ -69,6 +70,7 @@ export function runEntityDocumentRematerialize(
     base = {
       opId,
       revision: existingOutcome?.lastRevision ?? headRevision,
+      workspacePathPrefix: documentWorkspacePrefix(cell.rootDir),
       evidence: JSON.stringify(evidenceBase),
       visibility: "center" as const,
       proof: {

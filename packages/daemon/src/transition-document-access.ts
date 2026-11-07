@@ -4,6 +4,7 @@ import {
   assessTransitionDocument,
   assertTransitionDocumentReady,
   completionContractGap,
+  documentWorkspacePrefix,
   normalizeRelativeDocumentPath,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
@@ -243,6 +244,7 @@ export function assertTaskTransitionDocumentReady(input: {
           : "No missing required sections were reported.";
       Object.assign(error, {
         documentPath: document.path,
+        workspacePathPrefix: documentWorkspacePrefix(input.rootDir),
         diskDiffers,
         missingSections: actionableMissing,
         projectedMissingSections: projectedMissing,
