@@ -195,6 +195,19 @@ test(
       },
     });
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const alternateInstalled = await fixture.centerRun({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "alternate-reviewer",
+        name: "Alternate fleet reviewer",
+        instructions: "Review the submitted cut as the explicitly selected reviewer.",
+        runtimes: [{ type: "codex" }],
+        instance: definition.instanceId,
+        role: "reviewer",
+      },
+    });
+    assert.equal(alternateInstalled.outcome, "applied", JSON.stringify(alternateInstalled));
     const settings = await fixture.centerRun({
       kind: "settings-update",
       roles: { defaultReviewer: "fleet-reviewer" },
@@ -298,10 +311,34 @@ test(
       .read()
       .events.filter((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === created.taskId);
     assert.equal(before.filter((event) => event.payload.role === "reviewer").length, 0);
+    const unavailable = await fixture.centerRun({
+      kind: "task-dispatch-review",
+      taskIds: [created.taskId],
+      agentId: "missing-reviewer",
+      runtimeInstanceId: definition.instanceId,
+      model: definition.model,
+      effort: "high",
+      fast: true,
+    });
+    assert.equal(unavailable.outcome, "op_rejected", JSON.stringify(unavailable));
+    assert.match(String(unavailable.rejectionExplanation), /not bundled or installed/u);
+    const missingModel = await fixture.centerRun({
+      kind: "task-dispatch-review",
+      taskIds: [created.taskId],
+      agentId: "alternate-reviewer",
+      runtimeInstanceId: definition.instanceId,
+      effort: "high",
+    });
+    assert.equal(missingModel.outcome, "op_rejected", JSON.stringify(missingModel));
+    assert.match(String(missingModel.rejectionExplanation), /pass --model <model>/u);
+    const defaultAfterUnavailable = (await readCandidates("node-one")).find(
+      (candidate) => candidate.taskId === created.taskId,
+    );
+    assert.equal(defaultAfterUnavailable?.payload.agentId, "fleet-reviewer");
     const explicit = await fixture.centerRun({
       kind: "task-dispatch-review",
       taskIds: [created.taskId],
-      agentId: "fleet-reviewer",
+      agentId: "alternate-reviewer",
       runtimeInstanceId: definition.instanceId,
       model: definition.model,
       effort: "high",
@@ -315,7 +352,7 @@ test(
     );
     const waiting = (await readCandidates("node-one")).find((candidate) => candidate.taskId === created.taskId);
     assert.equal(waiting?.kind, "review");
-    assert.equal(waiting?.payload.agentId, "fleet-reviewer");
+    assert.equal(waiting?.payload.agentId, "alternate-reviewer");
     assert.equal(waiting?.payload.runtimeInstanceId, definition.instanceId);
     assert.equal(waiting?.payload.model, definition.model);
     assert.equal(waiting?.payload.effort, "high");
@@ -325,6 +362,16 @@ test(
     await nodeOneLoop.trigger("duplicate-wake");
     assert.equal(launchesOne, 1);
     assert.equal(launchesTwo, 0);
+    const inFlightReroute = await fixture.centerRun({
+      kind: "task-dispatch-review",
+      taskIds: [created.taskId],
+      agentId: "fleet-reviewer",
+      runtimeInstanceId: definition.instanceId,
+      model: definition.model,
+    });
+    assert.equal(inFlightReroute.outcome, "op_rejected", JSON.stringify(inFlightReroute));
+    assert.match(String(inFlightReroute.rejectionExplanation), /already holds review dispatch/u);
+    assert.equal(launchesOne, 1, "an in-flight node review must reject a second explicit reviewer");
     const after = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
       .read()
       .events.filter((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === created.taskId);
@@ -333,7 +380,7 @@ test(
       (event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer",
     );
     assert.deepEqual(reviewer?.source, { kind: "node", nodeId: "node-one" });
-    assert.equal(reviewer?.payload.agentId, "fleet-reviewer");
+    assert.equal(reviewer?.payload.agentId, "alternate-reviewer");
     assert.equal(reviewer?.payload.instanceId, definition.instanceId);
     assert.equal(
       (reviewer?.payload.definitionSnapshot as { readonly model?: string } | undefined)?.model,

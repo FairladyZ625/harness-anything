@@ -96,24 +96,30 @@ export function nodeReviewDispatchCandidate(
       entityStore: createEntityStore(cell.store),
     });
   if (!resolved) return null;
+  const { declaration: agent, layer } = resolved,
+    intentModel = intent?.model;
+  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof intentModel !== "string")
+    return null;
   const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(input.taskId, execution, reviewerId));
   if (existing !== null || activeCutReviewDispatches(cell, input.taskId, execution).length > 0) return null;
+  const seatPrompt = selection.seat.source === "path" ? `\n${reviewPathSeatPrompt({ seat: selection.seat })}` : "";
   const payload = {
     agentId: resolved.declaration.id,
     role: "reviewer",
     taskId: input.taskId,
     executionId: execution.executionId,
     dispatchKey: key,
-    prompt: reviewDispatchPrompt({
-      taskId: input.taskId,
-      packagePath: read.packagePath,
-      dispatchId: ids.dispatchId,
-      execution,
-      gates: completionGateIds(snapshot.task.completionGateIds, execution.submission),
-      artifactPrefix: path.relative(cell.rootDir, resolveHarnessLayout(cell.rootDir).authoredRoot),
-      implementationNodeId: input.requiredNodeId,
-      reviewerNodeId: input.requiredNodeId,
-    }),
+    prompt:
+      reviewDispatchPrompt({
+        taskId: input.taskId,
+        packagePath: read.packagePath,
+        dispatchId: ids.dispatchId,
+        execution,
+        gates: completionGateIds(snapshot.task.completionGateIds, execution.submission),
+        artifactPrefix: path.relative(cell.rootDir, resolveHarnessLayout(cell.rootDir).authoredRoot),
+        implementationNodeId: input.requiredNodeId,
+        reviewerNodeId: input.requiredNodeId,
+      }) + seatPrompt,
     ...(intent?.runtimeInstanceId ? { runtimeInstanceId: intent.runtimeInstanceId } : {}),
     ...(intent?.model ? { model: intent.model } : {}),
     ...(intent?.effort ? { effort: intent.effort } : {}),
@@ -1032,35 +1038,6 @@ export async function dispatchTaskReview(
     const { seat } = selection,
       { reviewerId } = seat;
     const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
-    if (placement.kind === "node") {
-      const intent: TaskReviewDispatchIntentV1 = {
-        executionId: execution.executionId,
-        reviewerId,
-        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
-        ...(typeof action.model === "string" ? { model: action.model } : {}),
-        ...(typeof action.effort === "string" ? { effort: action.effort as TaskReviewDispatchIntentV1["effort"] } : {}),
-        ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
-      };
-      const intentReceipt = cell.taskSurfaceWrite(
-        {
-          kind: "task-amend",
-          taskId,
-          patches: [{ field: "reviewDispatchIntent", value: JSON.stringify(intent) }],
-        },
-        binding,
-      );
-      if (!["applied", "no_changes"].includes(String(intentReceipt.outcome))) {
-        fail(
-          `Task ${taskId} review intent could not be persisted on implementation node ${placement.nodeId}.`,
-          reviewerId,
-          execution.executionId,
-        );
-        continue;
-      }
-      steps.push({ taskId, executionId: execution.executionId, requiredNodeId: placement.nodeId, outcome: "pending" });
-      warnings.push(`Task ${taskId} review is pending on implementation node ${placement.nodeId}.`);
-      continue;
-    }
     if (placement.kind === "unresolved") {
       steps.push({
         taskId,
@@ -1157,6 +1134,35 @@ export async function dispatchTaskReview(
         instanceId: existing.payload.instanceId,
         outcome: "already_dispatched",
       });
+      continue;
+    }
+    if (placement.kind === "node") {
+      const intent: TaskReviewDispatchIntentV1 = {
+        executionId: execution.executionId,
+        reviewerId,
+        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+        ...(typeof action.model === "string" ? { model: action.model } : {}),
+        ...(typeof action.effort === "string" ? { effort: action.effort as TaskReviewDispatchIntentV1["effort"] } : {}),
+        ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
+      };
+      const intentReceipt = cell.taskSurfaceWrite(
+        {
+          kind: "task-amend",
+          taskId,
+          patches: [{ field: "reviewDispatchIntent", value: JSON.stringify(intent) }],
+        },
+        binding,
+      );
+      if (!["applied", "no_changes"].includes(String(intentReceipt.outcome))) {
+        fail(
+          `Task ${taskId} review intent could not be persisted on implementation node ${placement.nodeId}.`,
+          reviewerId,
+          execution.executionId,
+        );
+        continue;
+      }
+      steps.push({ taskId, executionId: execution.executionId, requiredNodeId: placement.nodeId, outcome: "pending" });
+      warnings.push(`Task ${taskId} review is pending on implementation node ${placement.nodeId}.`);
       continue;
     }
     const seatPrompt = seat.source === "path" ? reviewPathSeatPrompt({ seat }) : null,

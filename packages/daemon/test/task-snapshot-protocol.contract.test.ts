@@ -516,6 +516,39 @@ test("task snapshot protocol keeps the writer-validated execution arrangement wi
   }
 });
 
+test("task snapshot protocol keeps a writer-validated node review dispatch intent", () => {
+  const valid = {
+    ...row,
+    snapshot: {
+      ...row.snapshot,
+      task: {
+        ...gapTask,
+        reviewDispatchIntent: {
+          executionId: "execution-review-intent",
+          reviewerId: "alternate-reviewer",
+          runtimeInstanceId: "runtime-instance",
+          model: "review-model",
+          effort: "high",
+          fast: true,
+        },
+      },
+    },
+  };
+  assert.deepEqual(isolateDaemonTaskSnapshotRows([valid]), { rows: [valid], invalidRows: [] });
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [valid] }), []);
+  const malformed = {
+    ...valid,
+    snapshot: {
+      ...valid.snapshot,
+      task: {
+        ...valid.snapshot.task,
+        reviewDispatchIntent: { ...valid.snapshot.task.reviewDispatchIntent, fast: "true" },
+      },
+    },
+  };
+  assert.equal(isolateDaemonTaskSnapshotRows([malformed]).invalidRows[0]?.field, "rows[0].snapshot.task");
+});
+
 test("task snapshot protocol isolates a malformed presetSnapshotGap", () => {
   for (const [label, gap] of [
     ["wrong reason", { reason: "bytes-missing", sourceGeneration: 2, sourceRevision: 41344 }],
