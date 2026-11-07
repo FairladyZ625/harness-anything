@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   compileRelationCreatedEvent,
+  documentWorkspacePath,
   compileRelationDocumentWrite,
   deriveRelationId,
   sessionProvenance,
@@ -199,6 +200,9 @@ export function prepareTaskCreateAt(
       taskId: idempotent.taskId,
       taskStatus: idempotent.status as TaskCreateReceipt["taskStatus"],
       packagePath: idempotent.packagePath,
+      ...(idempotent.packagePath === null
+        ? {}
+        : { workspacePackagePath: documentWorkspacePath(cell.rootDir, idempotent.packagePath) }),
       summary: `reused task ${idempotent.taskId} for the supplied idempotency key${
         current.snapshot.task ? workReceiptLine(cell.projection, current.snapshot.task) : ""
       }`,
@@ -335,6 +339,7 @@ export function prepareTaskCreateAt(
       taskId,
       taskStatus: "planned" as const,
       packagePath: compiled.packagePath,
+      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath),
       generatedPaths: compiled.documents.map((document) => document.path),
       presetDigest: compiled.snapshot.digest,
       scaffoldDigest: compiled.scaffoldDigest,
@@ -361,6 +366,7 @@ export function prepareTaskCreateAt(
         worktreeVisible: false,
       },
       ...common,
+      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath),
       guidance: taskCreateGuidance(roots, {
         taskId,
         packagePath: compiled.packagePath,
@@ -471,6 +477,9 @@ export function preparedTaskCreateReceipt(
     visibility: "center",
     proof,
     ...fields,
+    ...(typeof fields.packagePath === "string"
+      ? { workspacePackagePath: documentWorkspacePath(cell.rootDir, fields.packagePath) }
+      : {}),
     guidance: taskCreateGuidance(roots, {
       taskId: fields.taskId,
       packagePath: compiled.packagePath,

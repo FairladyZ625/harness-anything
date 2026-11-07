@@ -100,7 +100,7 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
       closeoutPath = `${packagePath}/closeout.md`;
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     published(root, userRoot, daemonId, created);
-    writeFileSync(path.join(root, "harness", planPath), realizedTaskPlan("Executor null live"));
+    writeFileSync(path.join(root, planPath), realizedTaskPlan("Executor null live"));
     assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
     assert.equal(
       run(root, userRoot, daemonId, [
@@ -127,7 +127,7 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
     git(deliveryRoot, "commit", "--quiet", "-am", "executor null delivery");
     const closeoutBody = `# Closeout\n\n## Summary\n\nExecutor attribution recovered at ${git(deliveryRoot, "rev-parse", "HEAD")}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n`;
     for (const closeoutRoot of [root, deliveryRoot]) {
-      const file = path.join(closeoutRoot, "harness", closeoutPath);
+      const file = path.join(closeoutRoot, closeoutPath);
       mkdirSync(path.dirname(file), { recursive: true });
       writeFileSync(file, closeoutBody);
     }
@@ -148,7 +148,7 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
         resolutions: [],
       }),
     );
-    const reviewReportDir = path.join(root, "harness", packagePath, "artifacts", "reports");
+    const reviewReportDir = path.join(root, packagePath, "artifacts", "reports");
     mkdirSync(reviewReportDir, { recursive: true });
     writeFileSync(
       path.join(reviewReportDir, "executor-null-live.md"),

@@ -72,7 +72,64 @@ test("a new command that carries a document path outside the doc parser turns th
     },
   ]);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /gate-probe-bypass --path: ledger-document paths are translated by the doc parser/u);
+  assert.match(
+    result.stderr,
+    /gate-probe-bypass --path: ledger-document paths are translated by the doc action entry/u,
+  );
+});
+
+test("a doc-named read command outside the doc action entry turns the gate red and is named", () => {
+  const result = run([
+    {
+      id: "doc-new-read",
+      path: ["doc", "new-read"],
+      commandClass: "repo-read",
+      inputs: [pathInput({ pathKind: "ledger-document" })],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /doc-new-read --path: ledger-document paths are translated by the doc action entry/u);
+});
+
+test("a workspace-file input without a declared reader turns the gate red and is named", () => {
+  const result = run([
+    {
+      id: "probe-workspace-write",
+      path: ["probe", "workspace-write"],
+      commandClass: "repo-write",
+      inputs: [
+        {
+          name: "--from-file",
+          kind: "single",
+          required: true,
+          error: { code: "missing_field" },
+          pathKind: "workspace-file",
+        },
+      ],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /probe-workspace-write --from-file: workspace-file input must declare a shared pathReader/u,
+  );
+});
+
+test("an undeclared positional path token turns the gate red and is named", () => {
+  const result = run([
+    {
+      id: "probe-positional",
+      path: ["probe", "positional"],
+      syntaxPath: ["probe", "positional", "<input-file>"],
+      commandClass: "repo-read",
+      inputs: [],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /probe-positional <input-file>: positional path input must declare pathKind and pathReader/u,
+  );
 });
 
 test("a new write command with a document selection outside the zero-hit pipeline turns the gate red", () => {
@@ -97,6 +154,7 @@ test("the gate actually evaluated document paths and zero-hit write probes, not 
     );
   assert.ok(match, result.stdout);
   assert.ok(Number(match[1]) > 0 && Number(match[2]) > 0, "the registry and its path inputs must be evaluated");
+  assert.ok(Number(match[2]) >= 60, "flag and positional path inputs must both be evaluated");
   assert.ok(Number(match[3]) > 0, "document paths must be translated through the parser probe");
   assert.ok(Number(match[4]) > 0, "write document selections must reach the zero-hit pipeline probe");
 });

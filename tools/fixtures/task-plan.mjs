@@ -61,8 +61,10 @@ export function sizedTaskPlan(targetLength, title = "Sized edge plan") {
 }
 
 export async function realizeTaskPlanFixture(rootDir, packagePath, submit, title, appendix = "") {
+  // CLI receipts print the workspace spelling (`harness/tasks/...`); daemon actions hand the
+  // authored key (`tasks/...`). Accept both and resolve from the repository root.
   const planPath = `${packagePath}/task_plan.md`,
-    authoredPath = path.join(rootDir, "harness", planPath),
+    authoredPath = path.join(rootDir, packagePath.startsWith("harness/") ? "" : "harness", planPath),
     scaffold = readFileSync(authoredPath, "utf8"),
     currentTitle = scaffold.split(/\r?\n/u)[0].replace(/^#\s*/u, ""),
     // The scaffold is the readiness contract: a preset whose plan template names other sections
