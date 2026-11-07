@@ -388,7 +388,7 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       const plan = compiled.documents.find((document) => document.relativePath === "task_plan.md")!;
       assert.deepEqual(
         [...plan.body.matchAll(/^## .+$/gmu)].map((match) => match[0]),
-        ["## Brief", "## Context", "## Verification"],
+        ["## Brief", "## Context", "## Verification", "## Recurrence Gate"],
       );
       const closeout = compiled.documents.find((document) => document.relativePath === "closeout.md")!;
       assert.deepEqual(
@@ -695,7 +695,13 @@ test("fix plans must author a Recurrence Gate while other work kinds may omit it
       ),
       gateScaffold = transitionDocumentContract(template).scaffoldBySection["Recurrence Gate"]?.[0];
     assert.ok(gateScaffold, "the template carries a Recurrence Gate scaffold");
-    const descriptorReadiness = (taskId: string, plan: string, workKind: "fix" | "feat") => {
+    const descriptorReadiness = (
+      taskId: string,
+      plan: string,
+      workKind: "fix" | "feat",
+      profileId = "baseline",
+      riskTier?: "low",
+    ) => {
       const compiled = compileTaskPackage({
           ...common,
           taskId,
@@ -703,6 +709,8 @@ test("fix plans must author a Recurrence Gate while other work kinds may omit it
           presetId: "standard-task",
           workKind,
           plan,
+          profileId,
+          ...(riskTier === undefined ? {} : { riskTier }),
         }),
         contract = JSON.parse(
           compiled.documents.find(({ relativePath }) => relativePath === "task-contract.json")!.body,
@@ -745,6 +753,23 @@ test("fix plans must author a Recurrence Gate while other work kinds may omit it
       Object.keys(fixReadiness).slice(-1),
       ["Recurrence Gate"],
       "the conditional section is appended after the baseline anchors",
+    );
+    // The low-risk lightweight profile is a different plan template; a fix task must not bypass the
+    // gate by taking the short path.
+    assert.throws(
+      () => descriptorReadiness("task-fix-lightweight-missing", planWithoutGate, "fix", "lightweight", "low"),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && "code" in error && error.code === "plan_placeholder");
+        assert.match(error.message, /Recurrence Gate/u);
+        return true;
+      },
+      "the lightweight fix plan is gated too",
+    );
+    const lightweightFeat = descriptorReadiness("task-feat-lightweight", planWithoutGate, "feat", "lightweight", "low");
+    assert.equal(
+      Object.hasOwn(lightweightFeat, "Recurrence Gate"),
+      false,
+      "lightweight stays optional for other kinds",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
