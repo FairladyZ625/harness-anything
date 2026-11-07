@@ -520,6 +520,7 @@ export async function openRepoWriterCell(
     now,
     schedule,
     writeRuntime: recoveryWork.write,
+    writerEpochFence: () => input.defaultWriterEpochFence ?? null,
     ...(input.keycloakSession
       ? {
           localRecoveryBinding: async () =>

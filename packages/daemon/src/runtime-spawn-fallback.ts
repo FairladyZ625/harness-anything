@@ -13,6 +13,7 @@ import type {
   ActiveRuntime,
   RuntimeAttemptTerminal,
   RuntimeBinding,
+  RuntimeLeaseReleasePending,
   RuntimeSpawnerInput,
   TrustedScheduleRuntime,
 } from "./runtime-spawn-types.ts";
@@ -223,8 +224,12 @@ export async function settleFallbackAttempt(
   active: ActiveRuntime,
   outcome: RuntimeAttemptOutcome,
   terminal: RuntimeAttemptTerminal,
-): Promise<void> {
+): Promise<void | RuntimeLeaseReleasePending> {
   const { input } = context;
+  const settleTerminal = async (value: RuntimeAttemptTerminal): Promise<void | RuntimeLeaseReleasePending> => {
+    const result = await input.onAttemptTerminal?.(value);
+    return result?.outcome === "lease_unproven" ? result : undefined;
+  };
   const fallback = active.fallbackAttempt;
   // A delivered attempt is not a provider failure, whatever its tail looked like: an accepted
   // submission or registered review is work the provider did complete, so it keeps the success
@@ -251,8 +256,7 @@ export async function settleFallbackAttempt(
     input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
   }
   if (delivered || !isProviderFailureClassification(outcome.classification) || !fallback) {
-    await input.onAttemptTerminal?.(terminal);
-    return;
+    return settleTerminal(terminal);
   }
   const currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
     nextAttemptIndex = fallback.attemptIndex + 1,
@@ -293,16 +297,14 @@ export async function settleFallbackAttempt(
           `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +
           `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
         active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-        return;
+        return settleTerminal({ ...terminal, outcome: "failed", reason });
       }
       if (recoverAt === null) {
         const reason =
           `Provider fallback exhausted: every instance is permanently unavailable after ${String(nextAttemptIndex)} attempt(s). ` +
           `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
         active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-        return;
+        return settleTerminal({ ...terminal, outcome: "failed", reason });
       }
       active.stream.appendFallbackState(
         {
@@ -322,7 +324,8 @@ export async function settleFallbackAttempt(
       `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
     active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
     try {
-      await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
+      const settlement = await settleTerminal({ ...terminal, outcome: "failed", reason });
+      if (settlement) throw Object.assign(new Error(settlement.reason), { code: settlement.code });
     } catch (error) {
       const settlementReason = [
         "Provider fallback exhaustion could not settle terminal state: ",
@@ -357,8 +360,7 @@ export async function settleFallbackAttempt(
       `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +
       `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
     active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-    await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-    return;
+    return settleTerminal({ ...terminal, outcome: "failed", reason });
   }
   active.stream.appendFallbackState(
     {

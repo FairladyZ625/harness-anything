@@ -2,6 +2,7 @@ import { projectArtifactEntityState } from "./artifact-entity-state-projection.t
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
+import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
@@ -555,6 +556,17 @@ function applyEventProjection(
     return;
   }
   if (isAgentRuntimeEvent(event)) {
+    if (event.type === "runtime_dispatch_lifecycle_observed") {
+      projectDispatchLifecycleEvent(db, event.payload.lifecycle);
+      runSql(
+        db,
+        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+        event.opId,
+        event.workspaceRevision,
+        eventJson,
+      );
+      return;
+    }
     projectSquadRunEvent(db, event);
     const taskId = runtimeExecutionLinkForEvent(event)?.taskId ?? null;
     runSql(

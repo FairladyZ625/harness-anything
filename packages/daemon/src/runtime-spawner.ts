@@ -22,7 +22,6 @@ import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
   readDispatchStreamHeader,
-  readDispatchStreamSummary,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -38,7 +37,6 @@ import {
   adoptRuntimes,
   reclaimFailedLaunchTempDirectory,
   sweepSettledRuntimeTempDirectories,
-  assertRuntimeRecoveryReady,
   ownedByRuntimeSpawner,
 } from "./runtime-spawn-adoption.ts";
 import {
@@ -80,7 +78,11 @@ import { isStructuredSuccessResult, parseProviderFrame } from "./runtime-spawn-p
 import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-provider-stream.ts";
 import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+import {
+  publishActiveDispatchLifecycle,
+  publishDispatchLifecycle,
+  lifecycleAttemptGroupId,
+} from "./runtime-dispatch-lifecycle.ts";
 import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
@@ -556,17 +558,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
               // A session can arrive after the startup census. Its canonical node owner,
               // not absence from this node's process map, determines who must recover it.
-              let dispatchId: string | null | undefined;
-              if (!processes.has(session.runtimeSessionId)) {
-                const dispatch = input.remote
-                  ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
-                  : projection!.readRuntimeDispatch(session.runtimeSessionId);
-                dispatchId = dispatch?.payload.dispatchId ?? null;
-                const header = dispatchId ? readDispatchStreamHeader(input.rootDir, dispatchId) : null;
-                if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode, header)) continue;
-              }
-              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId, dispatchId, session.liveness))
-                continue;
+              const dispatch = input.remote
+                ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
+                : projection!.readRuntimeDispatch(session.runtimeSessionId);
+              const dispatchId = dispatch?.payload.dispatchId ?? null,
+                header = dispatchId ? readDispatchStreamHeader(input.rootDir, dispatchId) : null;
+              if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode, header)) continue;
               // During daemon restart the worker host can remain healthy while adoption has not
               // yet re-registered it in this spawner's process map. A canonical live observation
               // only clears that gap when the dispatch stream still proves its PID is alive;
@@ -574,34 +571,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               // them. A stream that proves the worker is already gone is different: run the same
               // adoption settlement used by daemon restart/cancel before deciding capacity, so a
               // reviewer whose conclusion is already registered cannot strand the instance.
-              const streamSummary =
-                  typeof dispatchId === "string" ? readDispatchStreamSummary(input.rootDir, dispatchId) : null,
-                processProvenDead = Boolean(
-                  streamSummary?.process &&
-                    (streamSummary.process.exited || !runtimePidIsAlive(streamSummary.process.pid)),
-                );
-              if (processProvenDead && session.liveness !== "live") {
-                const [recovery] = await Promise.allSettled([
-                  adoptRuntimes(extracted, undefined, { runtimeSessionId: session.runtimeSessionId }),
-                ]);
-                if (recovery.status === "rejected") throw recovery.reason;
-                const settledSession = input.remote
-                  ? await input.remote.readRuntimeSession(session.runtimeSessionId)
-                  : projection!.readRuntimeSession(session.runtimeSessionId);
-                if (settledSession?.outcome !== null && settledSession?.outcome !== undefined) continue;
-              }
-              const liveProcessAfterRestart =
-                session.liveness === "live" &&
-                Boolean(
-                  streamSummary?.process &&
-                    !streamSummary.process.exited &&
-                    runtimePidIsAlive(streamSummary.process.pid),
-                );
-              if (!processes.has(session.runtimeSessionId) && !liveProcessAfterRestart)
-                throw runtimeSpawnError(
-                  "runtime_recovery_pending",
-                  `Runtime ${session.runtimeSessionId} has unresolved capacity.`,
-                );
+              // Capacity and lifecycle ownership are decided by the canonical reducer. Local
+              // process/PID state is an observation for recovery, never an admission predicate.
             }
           const initialFallback =
               inheritedFallback ??
@@ -1250,6 +1221,31 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
     }
+    const lifecycle = input.remote
+      ? null
+      : await publishDispatchLifecycle(extracted, {
+          runtimeSessionId,
+          dispatchId: newDispatchId,
+          attemptGroupId: fallbackAttempt?.attemptGroupId ?? newDispatchId,
+          expectedGroupVersion: 0,
+          binding: activeBinding,
+          fields: {
+            type: "dispatch_admitted",
+            instanceId: definition.instanceId,
+            reservationId: newDispatchId,
+            capacityLimit: 64,
+            taskLease: taskBinding
+              ? {
+                  taskId: taskBinding.taskId,
+                  executionId: taskBinding.executionId,
+                  version: taskBinding.leaseVersion ?? 0,
+                }
+              : null,
+            workspaceRef: cwd,
+            runtimeSessionId,
+          },
+        });
+    const lifecycleVersion = lifecycle ? 1 : null;
     // Publish the canonical session before starting the provider. A provider can
     // immediately call back through the sealed daemon route; its task+dispatch
     // target must see a session projection before that first callback arrives.
@@ -1334,8 +1330,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,
       resumeProviderSessionId: providerSessionId ?? null,
+      lifecycleAttemptGroupId: lifecycleAttemptGroupId({
+        dispatchId: newDispatchId,
+        fallbackAttempt: fallbackAttempt ?? null,
+      }),
+      lifecycleVersion,
     });
     processes.set(runtimeSessionId, active);
+    input.schedule(async () => {
+      await publishActiveDispatchLifecycle(extracted, active, { type: "process_started" });
+    }, active.binding);
     input.recordLifecycle?.({
       event: "runtime_spawn",
       runtimeSessionId,

@@ -44,6 +44,8 @@ import { writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
+import { publishActiveDispatchLifecycle } from "./runtime-dispatch-lifecycle.ts";
+import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -669,7 +671,7 @@ export async function publishExit(
         : undefined;
     // Every sibling archives while the generation that authorized it is still held. The final
     // live sibling alone releases that generation, after all earlier siblings made their files visible.
-    await context
+    const leaseSettlement = await context
       .settleFallback(active, attemptOutcome, {
         runtimeSessionId: active.runtimeSessionId,
         dispatchId: active.dispatchId,
@@ -731,6 +733,29 @@ export async function publishExit(
           result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
           resultRef = `artifact:runtime-result/sha256/${sha256}`;
         }
+      });
+    if (leaseSettlement?.outcome === "lease_unproven")
+      throw Object.assign(new Error(leaseSettlement.reason), { code: leaseSettlement.code });
+    const stopProof =
+      processGroupPid === undefined
+        ? "launch_fenced_off"
+        : reconcileProcessGroup({
+              pid: processGroupPid,
+              pgid: processGroupPid,
+              dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
+            }) === "proven_stopped"
+          ? "proven_stopped"
+          : null;
+    if (stopProof !== null)
+      await publishActiveDispatchLifecycle(context, active, {
+        type: "process_stop_proven",
+        proof: stopProof,
+      });
+    const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
+    if (stopProof !== null && fallbackState !== "scheduled" && ruling === null)
+      await publishActiveDispatchLifecycle(context, active, {
+        type: "settlement_committed",
+        outcome: outcome === "succeeded" ? "succeeded" : reviewSuperseded.superseded ? "superseded" : "failed",
       });
     // settleFallback can still rewrite a successful terminal to failed/unknown. Re-read the final
     // outcome after that call; if the required evidence was never captured, keep the raw stream

@@ -41,6 +41,7 @@ import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts";
 import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
+import type { WriterEpochFenceDescriptor } from "@harness-anything/storage";
 
 export interface RuntimeProcess {
   readonly pid: number;
@@ -87,6 +88,8 @@ export type RuntimeBinding = {
   readonly authorizationDecision?: AuthorizationDecision;
   /** Retain the initiating session across asynchronous work; never persisted in a dispatch. */
   readonly retainAuthorization?: () => () => void;
+  readonly writerEpoch?: number;
+  readonly writerEpochFence?: WriterEpochFenceDescriptor;
 };
 
 export interface ReviewerReviewRecoveryInput {
@@ -236,6 +239,8 @@ export type ActiveRuntime = {
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;
+  readonly lifecycleAttemptGroupId: string | null;
+  lifecycleVersion: number | null;
   buffer: string;
   durableOutputCount: number;
   stdoutObserved: boolean;
@@ -452,6 +457,7 @@ export interface RuntimeSpawnerInput {
   ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
   /** Serialize prepared recovery mutations; external observation and authorization run before this port. */
   readonly writeRuntime?: <T>(work: () => T | Promise<T>, binding: RuntimeBinding) => Promise<T>;
+  readonly writerEpochFence?: () => WriterEpochFenceDescriptor | null;
   /** Cell-default local binding (writer fence + current operator session) for writes the cell owns
    *  but no request carries, such as first-discovery settlement of a migration-imported session. */
   readonly localRecoveryBinding?: () => Promise<RepoCellBinding>;

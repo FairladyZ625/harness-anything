@@ -183,12 +183,12 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
         node.expression.text === "runtimePidIsAlive" &&
         !insideProcessObservedPayload(node)
       )
-        add(judgmentContextNode(node), enclosingSymbol(node, source), "runtimePidIsAlive");
+        add(judgmentContextNode(node), enclosingSymbol(node), "runtimePidIsAlive");
       if (ts.isReturnStatement(node) && node.expression) {
         const text = node.expression.getText(source),
           fnText = enclosingFunction(node)?.getText(source) ?? text;
         if (/(?:process[_-]lost|processLost)/u.test(text) && /(?:terminal|outcome|closed)/iu.test(`${text} ${fnText}`))
-          add(node, enclosingSymbol(node, source), "process-lost-terminal-return");
+          add(node, enclosingSymbol(node), "process-lost-terminal-return");
       }
       ts.forEachChild(node, visit);
     };
@@ -276,7 +276,7 @@ function enclosingFunction(node) {
   return null;
 }
 
-function enclosingSymbol(node, source) {
+function enclosingSymbol(node) {
   let foundFunction = false;
   for (let current = node; current; current = current.parent) {
     if (!ts.isFunctionLike(current)) continue;

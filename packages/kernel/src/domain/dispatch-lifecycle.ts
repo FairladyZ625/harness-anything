@@ -148,7 +148,7 @@ export interface DispatchLifecycleView {
 }
 
 export interface DispatchLifecycleRead {
-  readonly status: "ready";
+  readonly status: "ready" | "pending";
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly rows: readonly DispatchLifecycleView[];
@@ -332,6 +332,7 @@ export function reduceDispatchLifecycle(
   switch (event.type) {
     case "group_imported":
       invalidTransition(event, previous.phase);
+      break;
     case "dispatch_admitted":
       if (previous.phase !== "waiting_backoff" || previous.successorDispatchId !== event.dispatchId)
         invalidTransition(event, previous.phase);
@@ -428,7 +429,7 @@ export function reduceDispatchLifecycle(
       phase = "closed";
       break;
     default:
-      return assertNever(event);
+      return unhandledDispatchEvent(event);
   }
 
   const attempts =
@@ -860,6 +861,6 @@ function invalidTransition(event: DispatchLifecycleEvent, phase: string): never 
   throw new DispatchLifecycleError("invalid_transition", `${event.type} cannot follow ${phase}`);
 }
 
-function assertNever(value: never): never {
+function unhandledDispatchEvent(value: never): never {
   throw new Error(`Unhandled dispatch lifecycle event: ${stableStringify(value)}`);
 }

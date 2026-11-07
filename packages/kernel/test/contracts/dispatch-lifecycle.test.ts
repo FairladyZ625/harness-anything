@@ -12,6 +12,7 @@ import {
   type DispatchLifecycleEvent,
   type DispatchLifecycleProjection,
 } from "../../src/domain/dispatch-lifecycle.ts";
+import { validateAgentRuntimePayload } from "../../src/domain/agent-runtime.ts";
 
 const fence = { ownerId: "node-a", epoch: 4 } as const;
 const event = (type: DispatchLifecycleEvent["type"], overrides: Record<string, unknown> = {}): DispatchLifecycleEvent =>
@@ -53,14 +54,24 @@ function runningProjection(): DispatchLifecycleProjection {
 test("dispatch lifecycle rejects illegal transitions and keeps capacity until stop proof", () => {
   const admitted = apply(emptyDispatchLifecycleProjection(), event("dispatch_admitted"), 1);
   assert.throws(
-    () => reduceDispatchLifecycle(admitted, event("settlement_committed", { expectedGroupVersion: 1 }), 2),
+    () =>
+      reduceDispatchLifecycle(
+        admitted,
+        event("settlement_committed", { expectedGroupVersion: 1, outcome: "succeeded" }),
+        2,
+      ),
     { name: "DispatchLifecycleError", code: "invalid_transition" },
   );
   const exited = apply(admitted, event("process_started", { expectedGroupVersion: 1, eventId: "start" }), 2),
     settling = apply(exited, event("process_exit", { expectedGroupVersion: 2, eventId: "exit" }), 3);
   assert.equal(settling.groups["group-a"]?.attempts[0]?.capacity, "held");
   assert.throws(
-    () => reduceDispatchLifecycle(settling, event("settlement_committed", { expectedGroupVersion: 3 }), 4),
+    () =>
+      reduceDispatchLifecycle(
+        settling,
+        event("settlement_committed", { expectedGroupVersion: 3, outcome: "succeeded" }),
+        4,
+      ),
     { name: "DispatchLifecycleError", code: "invalid_transition" },
   );
   const stopped = apply(
@@ -96,6 +107,24 @@ test("dispatch lifecycle event ids are idempotent and reject conflicting reuse",
         2,
       ),
     { name: "DispatchLifecycleError", code: "duplicate_event_conflict" },
+  );
+});
+
+test("runtime lifecycle observations bind the envelope session identity", () => {
+  const lifecycle = event("dispatch_admitted");
+  assert.deepEqual(
+    validateAgentRuntimePayload("runtime_dispatch_lifecycle_observed", {
+      runtimeSessionId: "runtime-other",
+      lifecycle,
+    }),
+    ["dispatch lifecycle observation is invalid"],
+  );
+  assert.deepEqual(
+    validateAgentRuntimePayload("runtime_dispatch_lifecycle_observed", {
+      runtimeSessionId: "runtime-a",
+      lifecycle,
+    }),
+    [],
   );
 });
 
@@ -402,6 +431,42 @@ test("an unverified migration fence quarantines the group and preserves active c
   assert.equal(awaiting.groups["unknown-fence-group"]?.phase, "awaiting_ruling");
   assert.deepEqual(awaiting.activeReservationsByInstance["instance-a"], []);
   assert.deepEqual(projection.activeReservationsByInstance["instance-a"], ["reservation-unknown"]);
+});
+
+test("an unverified terminal current attempt stays settling until stop proof", () => {
+  const terminalAttempt: DispatchLifecycleAttempt = {
+      dispatchId: "dispatch-terminal-current",
+      runtimeSessionId: "runtime-terminal-current",
+      instanceId: "instance-a",
+      phase: "settling",
+      process: "exited",
+      stopProof: "unproven",
+      capacity: "held",
+      reservationId: "reservation-terminal-current",
+      outcome: "failed",
+    },
+    batch = migrateUnclosedDispatchGroup({
+      lifecycleMigrationVersion: "v1",
+      group: {
+        repoId: "repo-a",
+        attemptGroupId: "terminal-current-group",
+        phase: "awaiting_ruling",
+        ownerFence: null,
+        attempts: [terminalAttempt],
+        currentDispatchId: terminalAttempt.dispatchId,
+        successorDispatchId: null,
+        notBeforeAt: null,
+        rulingId: "ruling-terminal",
+        fenceVerifiable: false,
+      },
+    }),
+    projection = apply(emptyDispatchLifecycleProjection(), batch.events[0]!, 1),
+    group = projection.groups["terminal-current-group"];
+  assert.equal(group?.phase, "settling");
+  assert.equal(group?.attempts[0]?.phase, "settling");
+  assert.equal(group?.attempts[0]?.stopProof, "unproven");
+  assert.equal(group?.attempts[0]?.capacity, "held");
+  assert.deepEqual(projection.activeReservationsByInstance["instance-a"], ["reservation-terminal-current"]);
 });
 
 test("a missing migrated fence can only be replaced by center verification", () => {

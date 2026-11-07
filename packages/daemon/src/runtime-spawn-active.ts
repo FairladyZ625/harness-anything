@@ -7,6 +7,7 @@ import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { openRuntimeWorkspaceMonitor } from "./runtime-workspace-monitor-thread.ts";
 import { createWorkspaceActivityQueue } from "./runtime-workspace-activity-queue.ts";
+import { publishActiveDispatchLifecycle } from "./runtime-dispatch-lifecycle.ts";
 
 type ActiveRuntimeBase = Omit<
   ActiveRuntime,
@@ -57,6 +58,8 @@ type ActiveRuntimeBase = Omit<
   | "compacted"
   | "rawUsage"
   | "fallbackAttempt"
+  | "lifecycleAttemptGroupId"
+  | "lifecycleVersion"
 > & {
   readonly lastProgressAtMs: number;
   readonly lastRealProgressAtMs?: number;
@@ -66,6 +69,8 @@ type ActiveRuntimeBase = Omit<
   readonly fallbackAttempt?: ActiveRuntime["fallbackAttempt"];
   readonly workspaceActivityCount?: number;
   readonly stalledAt?: string | null;
+  readonly lifecycleAttemptGroupId?: ActiveRuntime["lifecycleAttemptGroupId"];
+  readonly lifecycleVersion?: ActiveRuntime["lifecycleVersion"];
 };
 
 export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
@@ -82,6 +87,8 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     releaseAuthorization: base.binding.retainAuthorization?.(),
     stallTimeoutMs,
     fallbackAttempt: base.fallbackAttempt ?? null,
+    lifecycleAttemptGroupId: base.lifecycleAttemptGroupId ?? null,
+    lifecycleVersion: base.lifecycleVersion ?? null,
     buffer: "",
     durableOutputCount: 0,
     stdoutObserved: false,
@@ -378,6 +385,9 @@ export function attachActiveRuntime(
                 if (finalProgressAt !== null) await exitState.recordProgress?.(finalProgressAt);
                 if (lossReason && !active.observationError) active.lossReason = lossReason;
                 await context.consumeChunk(active, "", true);
+                await publishActiveDispatchLifecycle(context, active, {
+                  type: lossReason ? "process_lost" : "process_exit",
+                });
                 await context.publishExit(active, code);
               }, active.binding);
             },
@@ -386,6 +396,7 @@ export function attachActiveRuntime(
                 if (context.processes.get(runtimeSessionId) !== active) return;
                 retireObservationFault(context, active, error, true);
                 await context.consumeChunk(active, "", true);
+                await publishActiveDispatchLifecycle(context, active, { type: "process_lost" });
                 await context.publishExit(active, code);
               }, active.binding);
             },
