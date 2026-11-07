@@ -43,6 +43,27 @@ export function findProviderBoundaryViolations(diffText, waivedFingerprints = []
   return errors;
 }
 
+/**
+ * A fingerprint waives one exact legacy source line. Once that line is gone from every governed
+ * source file the waiver is stale: it permits nothing today and would silently re-admit the same
+ * line if it were ever written again, so the waiver has to be deleted with the line it covered.
+ */
+export function findStaleFingerprints(fingerprints, sourceFiles) {
+  const present = new Set();
+  for (const { file, text } of sourceFiles)
+    for (const sourceLine of String(text).split(/\r?\n/u)) present.add(providerLineFingerprint(file, sourceLine));
+  return fingerprints
+    .filter((fingerprint) => !present.has(fingerprint))
+    .map((fingerprint) => `${WAIVER_PATH}: line fingerprint ${fingerprint} matches no current source line; delete it`);
+}
+
+function governedSourceFiles(rootDir) {
+  return execFileSync("git", ["ls-files", "--", ...SOURCE_ROOTS], { cwd: rootDir, encoding: "utf8" })
+    .split("\n")
+    .filter((file) => file && !file.startsWith(PROVIDER_PACKAGE_PREFIX) && !EXEMPTED_TEST_PATH.test(file))
+    .map((file) => ({ file, text: readFileSync(path.join(rootDir, file), "utf8") }));
+}
+
 export function findExpiredWaivers(waivers, today) {
   return waivers.entries
     .filter((entry) => entry.expiresOn <= today)
@@ -56,8 +77,10 @@ export function checkAuthorizationProviderBoundary(rootDir) {
   });
   const allowlist = JSON.parse(readFileSync(path.join(rootDir, WAIVER_PATH), "utf8"));
   const today = new Date().toISOString().slice(0, 10);
+  const fingerprints = allowlist.entries.lineFingerprints ?? [];
   return [
-    ...findProviderBoundaryViolations(diff, allowlist.entries.lineFingerprints ?? []),
+    ...findProviderBoundaryViolations(diff, fingerprints),
+    ...(fingerprints.length ? findStaleFingerprints(fingerprints, governedSourceFiles(rootDir)) : []),
     ...findExpiredWaivers({ entries: allowlist.entries.providerWaivers }, today),
   ];
 }

@@ -1,6 +1,6 @@
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 
-/** Keycloak's pending response and interval drive polling; one deadline ends browser authorization. */
+/** The identity provider's pending response and interval drive polling; one deadline ends browser authorization. */
 export async function awaitDeviceLogin(
   begun: JsonObject,
   request: (params: JsonObject) => Promise<JsonObject>,
@@ -26,7 +26,7 @@ export async function awaitDeviceLogin(
           code: "oidc_device_expired",
           command: "bootstrap",
           rejectionExplanation: lastTransportError
-            ? `Device login expired; the last Keycloak request failed: ${lastTransportError}`
+            ? `Device login expired; the last identity provider request failed: ${lastTransportError}`
             : "Device login expired; start login again.",
         };
       const polled = await request({ operation: "login-poll" });
@@ -35,7 +35,7 @@ export async function awaitDeviceLogin(
         lastTransportError =
           typeof polled.rejectionExplanation === "string"
             ? polled.rejectionExplanation
-            : "The Keycloak device authorization request failed.";
+            : "The identity provider device authorization request failed.";
         continue;
       }
       receipt = polled;

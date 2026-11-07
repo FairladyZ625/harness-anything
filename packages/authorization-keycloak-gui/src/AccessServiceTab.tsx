@@ -502,7 +502,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
           <div className="flex flex-col gap-2">
             {!builtin ? (
               <p data-testid="access-lifetime-authority" className="text-text-muted ui-meta">
-                {t("accessControl.lifetime.authority", { url: data.authority.url, realm: data.authority.realm })}
+                {t("accessControl.lifetime.authority", { url: data.authority.url, realm: data.authority.name })}
               </p>
             ) : null}
             {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-lifetime-refusal" />}
@@ -578,9 +578,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     readonly submit: (input: {
       mode: "external";
       url: string;
-      realm: string;
-      clientId: string;
-      clientSecret: string;
+      settings: { realm: string; clientId: string; clientSecret: string };
     }) => Promise<void>;
   }) {
     const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -591,9 +589,11 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       void submit({
         mode: "external",
         url: String(data.get("url")),
-        realm: String(data.get("realm")),
-        clientId: String(data.get("clientId")),
-        clientSecret: String(data.get("clientSecret")),
+        settings: {
+          realm: String(data.get("realm")),
+          clientId: String(data.get("clientId")),
+          clientSecret: String(data.get("clientSecret")),
+        },
       });
     };
     return (

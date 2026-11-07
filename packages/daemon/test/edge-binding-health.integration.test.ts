@@ -181,6 +181,8 @@ test("edge binding health reads the selected login authority through fleet disco
   assert.equal(binding.source, "fleet-center");
   assert.equal(binding.realm, "node-one");
   assert.equal(binding.clientId, "harness-node-node-one");
+  // The provider, not the GUI, names where its administration console lives.
+  assert.equal(binding.consoleUrl, "https://center.example/admin/node-one/console/");
   assert.equal(JSON.stringify(binding).includes("secret"), false);
   assert.equal("clientSecret" in binding || "accessToken" in binding || "refreshToken" in binding, false);
   const providerConfig = JSON.parse(readFileSync(path.join(userRoot, "rbac", "config.json"), "utf8")) as {
@@ -263,6 +265,7 @@ test("local and center repository health still reads the daemon's managed RBAC b
     assert.equal(binding.ready, true);
     assert.equal(binding.url, url);
     assert.equal(binding.clientId, "local-client");
+    assert.equal(binding.consoleUrl, `${url}/admin/local-realm/console/`);
     assert.equal(binding.source, undefined);
   }
 });

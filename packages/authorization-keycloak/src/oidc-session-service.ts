@@ -23,7 +23,7 @@ import {
 } from "./oidc-session-helpers.ts";
 import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
 import type { KeycloakSessionHost } from "./session-host.ts";
-import { managedRbacListenerUrl, managedRbacSessionStore } from "./managed-rbac-service.ts";
+import { keycloakConsoleUrl, managedRbacListenerUrl, managedRbacSessionStore } from "./managed-rbac-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { verifyFleetHuman, verifyFleetReplica } from "./oidc-fleet-principal.ts";
 import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
@@ -482,6 +482,7 @@ export class OidcSessionService {
       ok: response.ok,
       ready: response.ok,
       url: authority.url,
+      consoleUrl: keycloakConsoleUrl(authority.browserUrl ?? authority.url, authority.realm),
       realm: authority.realm,
       clientId: authority.clientId,
       status: response.status,

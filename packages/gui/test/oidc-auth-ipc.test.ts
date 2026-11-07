@@ -20,6 +20,7 @@ import {
   OIDC_BOOTSTRAP_ADMIN_CHANNEL,
   OIDC_BINDING_STATUS_CHANNEL,
   OIDC_OPEN_CONSOLE_CHANNEL,
+  OIDC_CONFIGURE_CHANNEL,
 } from "@harness-anything/authorization-gui/oidc-auth-contract";
 
 test("a local repository keeps the original socket bootstrap status and a targeted administrator mutation is refused", async () => {
@@ -147,8 +148,7 @@ test("binding IPC forwards the selected edge and preserves center metadata and d
     mode: "external",
     ready: true,
     url: "https://center.example",
-    realm: "harness",
-    clientId: "harness-node-edge",
+    consoleUrl: "https://center.example/provider-console/",
   };
   let failed = false;
   const opened: string[] = [];
@@ -180,7 +180,7 @@ test("binding IPC forwards the selected edge and preserves center metadata and d
   binding.ready = false;
   assert.deepEqual(await read(), binding);
   await handlers.get(OIDC_OPEN_CONSOLE_CHANNEL)!(event, { repoId: "edge" });
-  assert.deepEqual(opened, ["https://center.example/admin/harness/console/"]);
+  assert.deepEqual(opened, ["https://center.example/provider-console/"]);
   failed = true;
   await assert.rejects(read(), { code: "oidc_listener_required" });
   await assert.rejects(handlers.get(OIDC_OPEN_CONSOLE_CHANNEL)!(event, { repoId: "edge" }), {
@@ -598,4 +598,37 @@ test("device approval resolves the current person's request and releases its emb
   assert.deepEqual(await result, { ok: true });
   assert.equal(trace.released, 1);
   assert.equal(sender.listenerCount("destroyed"), 0);
+});
+
+test("binding IPC carries the provider's own settings and opens only the console the provider names", async () => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+  const event = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  const calls: Record<string, unknown>[] = [];
+  const opened: string[] = [];
+  let health: Record<string, unknown> = { ok: true, ready: true, mode: "builtin", url: "builtin://local" };
+  registerOidcAuthIpc(
+    { handle: (channel, handler) => void handlers.set(channel, handler) },
+    { isTrustedWebContentsId: (id) => id === 7, rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" } },
+    {
+      daemonRequest: async (params) => {
+        calls.push(params);
+        return params.operation === "health" ? health : { ok: true };
+      },
+      openExternal: async (url) => void opened.push(url),
+    },
+  );
+  const configure = handlers.get(OIDC_CONFIGURE_CHANNEL)!;
+  await configure(event, { mode: "external", url: "https://idp.example", settings: { tenant: "t1", secret: "s" } });
+  assert.deepEqual(calls.at(-1), { tenant: "t1", secret: "s", mode: "external", url: "https://idp.example" });
+  // A setting can never choose another operation or target, and only text is carried.
+  for (const settings of [{ operation: "bootstrap-admin" }, { repoId: "other" }, { tenant: 1 }, ["x"], undefined])
+    await assert.rejects(configure(event, { mode: "external", url: "https://idp.example", settings }), /settings/u);
+  assert.equal(calls.length, 1);
+
+  // A provider without an administration console is refused instead of guessing a provider path.
+  const console = handlers.get(OIDC_OPEN_CONSOLE_CHANNEL)!;
+  await assert.rejects(console(event, {}), /no administration console/u);
+  health = { ...health, mode: "managed", consoleUrl: "https://idp.example/console/" };
+  await console(event, {});
+  assert.deepEqual(opened, ["https://idp.example/console/"]);
 });
