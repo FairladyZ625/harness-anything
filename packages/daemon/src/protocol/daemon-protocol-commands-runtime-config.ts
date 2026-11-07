@@ -63,12 +63,25 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "hosting-credential", "set", "<instance-id>"],
     positional: "instanceId",
+    positionalInputs: [{ name: "<instance-id>", pathKind: "non-path", pathReader: "none" }],
     summary: "Bind a GitHub or GitLab credential reference to an existing runtime instance for one repository.",
     method: "daemon.runtimeInstance.hostingCredential.set",
     inputs: [
-      cliInput("--repo-id", "single", true, { code: "missing_field" }),
-      cliInput("--provider", "single", true, { code: "invalid_field" }, { enum: ["github", "gitlab"] }),
-      cliInput("--ref", "single", true, { code: "invalid_field" }, { regex: credentialReferenceRegex }),
+      cliInput("--repo-id", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--provider",
+        "single",
+        true,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["github", "gitlab"] },
+      ),
+      cliInput(
+        "--ref",
+        "single",
+        true,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: credentialReferenceRegex },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -77,11 +90,18 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "hosting-credential", "unset", "<instance-id>"],
     positional: "instanceId",
+    positionalInputs: [{ name: "<instance-id>", pathKind: "non-path", pathReader: "none" }],
     summary: "Unbind a GitHub or GitLab credential reference from an existing runtime instance for one repository.",
     method: "daemon.runtimeInstance.hostingCredential.unset",
     inputs: [
-      cliInput("--repo-id", "single", true, { code: "missing_field" }),
-      cliInput("--provider", "single", true, { code: "invalid_field" }, { enum: ["github", "gitlab"] }),
+      cliInput("--repo-id", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--provider",
+        "single",
+        true,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["github", "gitlab"] },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -101,7 +121,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     syntaxPath: ["restore", "--drill", "<backup-directory>"],
     summary: "Verify and restore-drill a backup through its repository daemon.",
     method: "daemon.repo.restoreDrill",
-    inputs: [cliInput("--shadow-parent", "single", false, { code: "invalid_field" })],
+    inputs: [cliInput("--shadow-parent", "single", false, { code: "invalid_field" }, { pathKind: "non-path" })],
     positionalInputs: [{ name: "<backup-directory>", pathKind: "host-path", pathReader: "host" }],
   }),
   defineLedgerWriteCommand({
@@ -120,9 +140,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Register an initialized workspace with an explicit service mode.",
     method: "daemon.repo.register",
     inputs: [
-      cliInput("--repo-id", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--repo-id",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--root",
         "single",
@@ -139,17 +165,35 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: daemonRepoModeWords },
+        { pathKind: "non-path", enum: daemonRepoModeWords },
       ),
-      cliInput("--endpoint", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--connection", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--display-name", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--endpoint",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--connection",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--display-name",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -159,38 +203,64 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Update one machine-local repository registration.",
     method: "daemon.repo.update",
     inputs: [
-      cliInput("--repo-id", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--root", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--display-name", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--repo-id",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--root",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--display-name",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--mode",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          enum: daemonRepoModeWords,
-        },
+        { pathKind: "non-path", enum: daemonRepoModeWords },
       ),
-      cliInput("--connection", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--endpoint", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--connection",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--endpoint",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--state",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          enum: ["enabled", "disabled"],
-        },
+        { pathKind: "non-path", enum: ["enabled", "disabled"] },
       ),
     ],
   }),
@@ -211,9 +281,9 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Unbind a repository and remove derived state, or back up and remove all Harness data.",
     method: "daemon.repo.purge",
     inputs: [
-      cliInput("--scope", "single", true, { code: "missing_field" }, { enum: ["cache", "all"] }),
+      cliInput("--scope", "single", true, { code: "missing_field" }, { pathKind: "non-path", enum: ["cache", "all"] }),
       cliInput("--backup", "single", false, { code: "invalid_field" }, { pathKind: "host-path", pathReader: "host" }),
-      cliInput("--confirm", "single", false, { code: "invalid_field" }),
+      cliInput("--confirm", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineHostAdminCommand({
@@ -223,15 +293,33 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Add a remote daemon endpoint connection.",
     method: "daemon.connection.register",
     inputs: [
-      cliInput("--connection", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--display-name", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--endpoint", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--connection",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--display-name",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--endpoint",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -241,23 +329,39 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Update a remote daemon endpoint connection.",
     method: "daemon.connection.update",
     inputs: [
-      cliInput("--connection", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--display-name", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--endpoint", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--connection",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--display-name",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--endpoint",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--state",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          enum: ["enabled", "disabled"],
-        },
+        { pathKind: "non-path", enum: ["enabled", "disabled"] },
       ),
     ],
   }),
@@ -268,9 +372,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Disable a remote daemon endpoint connection.",
     method: "daemon.connection.unregister",
     inputs: [
-      cliInput("--connection", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--connection",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -280,9 +390,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Probe a remote daemon endpoint and list its repositories.",
     method: "daemon.connection.probe",
     inputs: [
-      cliInput("--endpoint", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--endpoint",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -334,13 +450,14 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Edge-Resident-H1",
     path: ["daemon", "auto-claim", "<operation>"],
     positional: "operation",
+    positionalInputs: [{ name: "<operation>", pathKind: "non-path", pathReader: "none" }],
     summary: "Read or update the local node auto-claim policy and wake the resident daemon.",
     method: "daemon.nodeAutoClaim.configure",
     inputs: [
-      cliInput("--agent", "repeated", false, { code: "invalid_field" }),
-      cliInput("--allow-person", "repeated", false, { code: "invalid_field" }),
-      cliInput("--allow-team", "repeated", false, { code: "invalid_field" }),
-      cliInput("--max-concurrent", "single", false, { code: "invalid_field" }),
+      cliInput("--agent", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--allow-person", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--allow-team", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--max-concurrent", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineHostAdminCommand({
@@ -371,11 +488,17 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" },
+        { pathKind: "non-path", regex: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" },
       ),
-      cliInput("--name", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--name",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--kind",
         "single",
@@ -383,20 +506,44 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {},
+        { pathKind: "non-path" },
       ),
-      cliInput("--installation", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--provider", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--model", "repeated", true, {
-        code: "missing_field",
-      }),
-      cliInput("--default-model", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--installation",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--provider",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--model",
+        "repeated",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--default-model",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--permission-mode",
         "single",
@@ -404,7 +551,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_permission",
         },
-        { enum: ["bypass", "workspace-write", "read-only"] },
+        { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
       ),
       cliInput(
         "--isolation",
@@ -413,32 +560,62 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_isolation",
         },
-        { enum: ["enforced", "operator-environment"] },
+        { pathKind: "non-path", enum: ["enforced", "operator-environment"] },
       ),
-      cliInput("--effort", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--effort",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),
-      cliInput("--base-url", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--base-url",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--allow-insecure-http", "boolean", false, {
         code: "invalid_field",
       }),
-      cliInput("--wire-api", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--wire-api",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--requires-openai-auth", "boolean", false, {
         code: "invalid_field",
       }),
-      cliInput("--http-header", "repeated", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--credential-header", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--http-header",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--credential-header",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--auth",
         "single",
@@ -446,7 +623,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["subscription", "api-key"] },
+        { pathKind: "non-path", enum: ["subscription", "api-key"] },
       ),
       cliInput(
         "--credential-ref",
@@ -455,7 +632,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: credentialReferenceRegex },
+        { pathKind: "non-path", regex: credentialReferenceRegex },
       ),
     ],
   }),
@@ -482,6 +659,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "show", "<instance-id>"],
     positional: "instanceId",
+    positionalInputs: [{ name: "<instance-id>", pathKind: "non-path", pathReader: "none" }],
     summary:
       "Show one redacted machine-local runtime instance; use --probe to check provider authentication readiness.",
     method: "daemon.runtimeInstance.show",
@@ -496,6 +674,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "delete", "<instance-id>"],
     positional: "instanceId",
+    positionalInputs: [{ name: "<instance-id>", pathKind: "non-path", pathReader: "none" }],
     summary: "Delete one runtime instance and any instance-managed state.",
     method: "daemon.runtimeInstance.delete",
     inputs: [],
@@ -505,6 +684,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "update", "<instance-id>"],
     positional: "instanceId",
+    positionalInputs: [{ name: "<instance-id>", pathKind: "non-path", pathReader: "none" }],
     summary: [
       "Update a runtime instance's installation, metadata, models, permissions, isolation, ",
       "reasoning effort, enabled state, or API key via --api-key-stdin/--api-key-file.",
@@ -519,24 +699,60 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         { pathKind: "cli-local", conflictsWith: ["--api-key-stdin"] },
       ),
-      cliInput("--name", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--installation", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--model", "repeated", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--default-model", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--base-url", "single", false, {
-        code: "invalid_base_url",
-      }),
-      cliInput("--effort", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--name",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--installation",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--model",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--default-model",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--base-url",
+        "single",
+        false,
+        {
+          code: "invalid_base_url",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--effort",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),
@@ -547,7 +763,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_permission",
         },
-        { enum: ["bypass", "workspace-write", "read-only"] },
+        { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
       ),
       cliInput(
         "--isolation",
@@ -556,7 +772,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_isolation",
         },
-        { enum: ["enforced", "operator-environment"] },
+        { pathKind: "non-path", enum: ["enforced", "operator-environment"] },
       ),
       cliInput("--enable", "boolean", false, {
         code: "invalid_field",
@@ -574,12 +790,19 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S3",
     path: ["runtime", "instance", "login", "<instance-id>"],
     positional: "instanceId",
+    positionalInputs: [{ name: "<instance-id>", pathKind: "non-path", pathReader: "none" }],
     summary: "Bridge your terminal to provider-native sign-in when supported by the runtime kind.",
     method: "repo.runtimeInstance.auth.login",
     inputs: [
-      cliInput("--idempotency-key", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--idempotency-key",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineLedgerWriteCommand({
@@ -587,12 +810,19 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S3",
     path: ["runtime", "instance", "logout", "<instance-id>"],
     positional: "instanceId",
+    positionalInputs: [{ name: "<instance-id>", pathKind: "non-path", pathReader: "none" }],
     summary: "Remove provider credentials through provider-native sign-out when supported by the runtime kind.",
     method: "repo.runtimeInstance.auth.logout",
     inputs: [
-      cliInput("--idempotency-key", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--idempotency-key",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
 ] as const);

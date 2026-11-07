@@ -82,7 +82,10 @@ function statusSummary(scan: DocCandidateScan, workspacePath: (document: string)
     ...(blocked.length
       ? [
           "blocked:",
-          ...blocked.map((row) => `${workspacePath(row.path)}\t${row.state}\t${row.reason ?? "candidate is blocked"}`),
+          ...blocked.map(
+            (row) =>
+              `${workspacePath(row.path)}\t${row.state}\t${workspaceReason(row.reason ?? "candidate is blocked", workspacePath)}`,
+          ),
         ]
       : []),
     ...retireNextLines(
@@ -93,6 +96,13 @@ function statusSummary(scan: DocCandidateScan, workspacePath: (document: string)
     `eligible: ${eligible}`,
     `inapplicable: ${inapplicable}`,
   ].join("\n");
+}
+
+// A blocked reason can quote the authored key that failed the projection (`tasks/<dir>`). The row
+// beside it is rendered in workspace coordinates, so the reason must use the same spelling or the
+// user reads two names for one path and cannot paste the displayed one back into --path.
+function workspaceReason(reason: string, workspacePath: (document: string) => string): string {
+  return reason.replace(/(?<![\w/])tasks\/[^\s;,]+/gu, (document) => workspacePath(document));
 }
 
 export function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail {

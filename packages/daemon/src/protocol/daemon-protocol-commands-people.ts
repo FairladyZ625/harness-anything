@@ -22,7 +22,7 @@ const peopleWriteTopology = {
     },
   },
   textInput = (name: string, required: boolean) =>
-    cliInput(name, "single", required, { code: "invalid_field" }, { minLength: 1 }),
+    cliInput(name, "single", required, { code: "invalid_field" }, { pathKind: "non-path", minLength: 1 }),
   packetInputs = (requiredFields: readonly string[], allowedFields: readonly string[]) => [
     cliInput(
       "--from-file",
@@ -44,6 +44,7 @@ const peopleWriteTopology = {
       false,
       { code: "invalid_field" },
       {
+        pathKind: "non-path",
         jsonFields: requiredFields,
         jsonAllowedFields: allowedFields,
         format: "<json|@->",
@@ -59,10 +60,7 @@ const peopleWriteTopology = {
       {
         code: "missing_field",
       },
-      {
-        regex: "^det_[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-        conflictsWith: ["--from-file"],
-      },
+      { pathKind: "non-path", regex: "^det_[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$", conflictsWith: ["--from-file"] },
     ),
   idempotencyInput = () => textInput("--idempotency-key", false);
 
@@ -84,7 +82,7 @@ export const peopleProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$", conflictsWith: ["--from-file"] },
+        { pathKind: "non-path", regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$", conflictsWith: ["--from-file"] },
       ),
       cliInput(
         "--action",
@@ -94,6 +92,7 @@ export const peopleProtocolCommands = Object.freeze([
           code: "missing_field",
         },
         {
+          pathKind: "non-path",
           regex: "^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$",
           minItems: 1,
           unique: true,
@@ -107,7 +106,7 @@ export const peopleProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { minLength: 1, conflictsWith: ["--from-file"] },
+        { pathKind: "non-path", minLength: 1, conflictsWith: ["--from-file"] },
       ),
       idempotencyInput(),
     ],
