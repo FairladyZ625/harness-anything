@@ -514,7 +514,6 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     "gateChecks",
     "next",
     "changedPaths",
-    "workspacePathPrefix",
     "steps",
     "stoppedAt",
     "path",
@@ -557,8 +556,6 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // runtime-steer locks its target (dispatch leaf, task binding, steer version) into the
     // receipt so a compare-and-steer caller can chain its next expectation (#4372).
     "steerTarget",
-    // A fenced task-dispatch recovery returns its recovery receipt through the same spawn.
-    "recovery",
   ];
 
 const runtimeHandoffCheckpointFields = [
