@@ -61,13 +61,15 @@ export interface KeycloakLegacyRoleMigrationReceipt {
   readonly actor: "system";
   readonly authority: "keycloak";
   readonly phase: "settled";
-  readonly outcome: "applied";
+  readonly outcome: "applied" | "failed";
   readonly source: "legacy-access-admin-role";
   readonly legacyRole: "access-admin";
-  readonly personId: string;
+  readonly personId?: string;
   readonly userId: string;
   readonly groupId: "admin";
   readonly resource: "@fleet";
+  readonly grantOutcome: "written" | "already_present" | "skipped";
+  readonly failureCode?: "missing_harness_person_id";
   readonly recordedAt: string;
 }
 
@@ -338,10 +340,7 @@ export class KeycloakPolicyAdapter
     await this.#migrateLegacyAccessAdminRole(adminAccessToken);
   }
 
-  /**
-   * Expand-then-contract migration for centers upgraded from the pre-policy-admin release.
-   * Delete the legacy role after 2027-02-01, once all supported centers have crossed this window.
-   */
+  /** Expand-then-contract migration for centers upgraded from the pre-policy-admin release. */
   async #migrateLegacyAccessAdminRole(adminAccessToken: string): Promise<void> {
     const rolePath = "/roles/access-admin";
     const role = await this.#request(adminAccessToken, rolePath, {}, true);
@@ -351,15 +350,36 @@ export class KeycloakPolicyAdapter
       current = grants.find((grant) => grant.groupId === "admin" && grant.resource === "@fleet"),
       holders = new Set(current?.userIds ?? []),
       scopes = effectivePolicyGroupScopes(this.#baseGroups(), "admin");
+    let unresolvedUsers = false;
     for (const legacyUser of migratedUsers) {
       const user = await this.#json<{
           readonly id?: string;
           readonly attributes?: Readonly<Record<string, readonly string[]>>;
         }>(adminAccessToken, `/users/${encodeURIComponent(legacyUser.id)}`),
         personId = user.attributes?.[personAttribute]?.[0];
-      if (typeof personId !== "string" || personId.length === 0)
-        throw new Error(`Legacy access-admin user ${legacyUser.id} has no Harness person id.`);
-      if (!holders.has(legacyUser.id)) {
+      if (typeof personId !== "string" || personId.length === 0) {
+        unresolvedUsers = true;
+        await this.#config.onLegacyRoleMigration?.({
+          schema: "harness-access-receipt/v1",
+          operationId: `legacy-access-admin-migration:${legacyUser.id}`,
+          operation: "legacy-role-migration",
+          actor: "system",
+          authority: "keycloak",
+          phase: "settled",
+          outcome: "failed",
+          source: "legacy-access-admin-role",
+          legacyRole: "access-admin",
+          userId: legacyUser.id,
+          groupId: "admin",
+          resource: "@fleet",
+          grantOutcome: "skipped",
+          failureCode: "missing_harness_person_id",
+          recordedAt: new Date().toISOString(),
+        });
+        continue;
+      }
+      const alreadyGranted = holders.has(legacyUser.id);
+      if (!alreadyGranted) {
         await this.writeGrant(
           adminAccessToken,
           { groupId: "admin", resource: "@fleet", userIds: [...holders, legacyUser.id] },
@@ -381,10 +401,12 @@ export class KeycloakPolicyAdapter
         userId: legacyUser.id,
         groupId: "admin",
         resource: "@fleet",
+        grantOutcome: alreadyGranted ? "already_present" : "written",
         recordedAt: new Date().toISOString(),
       });
     }
-    await this.#request(adminAccessToken, rolePath, { method: "DELETE" });
+    // After 2027-02-01, remove this migration branch; successful migrations delete the role here.
+    if (!unresolvedUsers) await this.#request(adminAccessToken, rolePath, { method: "DELETE" });
   }
 
   /** Base groups come from ActionDeclaration; custom groups are the client roles carrying the group marker. */
@@ -985,8 +1007,7 @@ export class KeycloakPolicyAdapter
   async #pages<T>(token: string, path: string, query = ""): Promise<T[]> {
     const items: T[] = [];
     for (let first = 0; ; first += 100) {
-      const response = await this.#request(token, `${path}?first=${first}&max=100${query ? `&${query}` : ""}`);
-      const page = (await response.json()) as T[];
+      const page = await this.#json<T[]>(token, `${path}?first=${first}&max=100${query ? `&${query}` : ""}`);
       items.push(...page);
       if (page.length < 100) return items;
     }
