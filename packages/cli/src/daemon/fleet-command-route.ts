@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import {
@@ -37,7 +38,7 @@ export async function fleetScheduleRoute(
     viewRoot: config.viewRoot,
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
-    action: { kind: "fleet-schedule", payload: resolvedAction },
+    action: { kind: "fleet-schedule", payload: action },
   };
 }
 

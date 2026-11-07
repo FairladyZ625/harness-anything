@@ -338,16 +338,6 @@ export async function runCommandThroughDaemon(
       autostart,
       request: requestLocalDaemonJsonRpcForTarget,
     });
-  const fleetDoc = await fleetDocRoute(command, env);
-  if (fleetDoc)
-    return requestFleetRoute({
-      command,
-      env,
-      method: fleetDoc.method,
-      payload: fleetDoc.payload as JsonObject,
-      autostart,
-      request: requestLocalDaemonJsonRpcForTarget,
-    });
   // Local daemon paths still consume file arguments here. Remote-edge commands have already
   // crossed the declaration-driven serializer above, so the center never receives a local path.
   command = materializeArtifactSource(

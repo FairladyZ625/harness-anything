@@ -92,3 +92,12 @@ test("line-list declarations become content arrays and missing packet fields fai
     (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
   );
 });
+
+test("ordinary required declarations fail before a Fleet action is emitted", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-required-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.throws(
+    () => serializeFleetAction(command(root, { kind: "task-progress-append", taskId: "task-one" })),
+    (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
+  );
+});

@@ -68,26 +68,47 @@ function inputsOf(descriptor: ReturnType<typeof descriptorFor>): readonly CliInp
   return ("inputs" in descriptor ? descriptor.inputs : []) as readonly CliInputFacet[];
 }
 
+type DeclaredInput = CliInputFacet & { readonly field?: string };
+
+function declaredField(input: DeclaredInput): string {
+  return input.field ?? fieldName(input.name);
+}
+
+function present(action: Action, field: string, input?: DeclaredInput): boolean {
+  if (!Object.hasOwn(action, field) || action[field] === undefined) return false;
+  return input?.kind === "repeated" && Array.isArray(action[field]) ? action[field].length > 0 : true;
+}
+
 function validateInputs(descriptor: ReturnType<typeof descriptorFor>, original: Action): void {
-  for (const input of inputsOf(descriptor)) {
-    const field = (input as CliInputFacet & { readonly field?: string }).field ?? fieldName(input.name);
-    if (!Object.hasOwn(original, field)) continue;
+  const inputs = inputsOf(descriptor) as readonly DeclaredInput[],
+    inputForName = (name: string) => inputs.find((candidate) => candidate.name === name),
+    fieldForName = (name: string) => declaredField(inputForName(name) ?? ({ name } as DeclaredInput));
+  for (const input of inputs) {
+    const field = declaredField(input),
+      isPresent = present(original, field, input),
+      requiredWhen = input.requiredWhen,
+      conditionMatches = requiredWhen ? requiredWhen.values.includes(String(original[requiredWhen.field])) : false;
+    if (input.required && !isPresent) invalid(`${input.name} is required`);
+    if (requiredWhen && conditionMatches && !isPresent) invalid(`${input.name} is required`);
+    if (input.allowedWhen && isPresent && !input.allowedWhen.values.includes(String(original[input.allowedWhen.field])))
+      invalid(`${input.name} is not allowed for ${input.allowedWhen.field}`);
+    if (!isPresent) continue;
     for (const conflict of input.conflictsWith ?? []) {
-      const conflictInput = inputsOf(descriptor).find((candidate) => candidate.name === conflict);
-      const conflictField =
-        (conflictInput as (CliInputFacet & { readonly field?: string }) | undefined)?.field ?? fieldName(conflict);
-      if (conflictField !== field && Object.hasOwn(original, conflictField))
+      const conflictField = fieldForName(conflict);
+      if (conflictField !== field && present(original, conflictField, inputForName(conflict)))
         invalid(`${input.name} conflicts with ${conflict}`);
     }
-    const hasInput = (name: string) => {
-      const requiredInput = inputsOf(descriptor).find((candidate) => candidate.name === name);
-      const requiredField =
-        (requiredInput as (CliInputFacet & { readonly field?: string }) | undefined)?.field ?? fieldName(name);
-      return Object.hasOwn(original, requiredField);
-    };
+    const hasInput = (name: string) => present(original, fieldForName(name), inputForName(name));
     for (const required of input.requires ?? []) if (!hasInput(required)) invalid(`${input.name} requires ${required}`);
     if (input.requiresAny?.length && !input.requiresAny.some((required) => hasInput(required)))
       invalid(`${input.name} requires one of ${input.requiresAny.join(", ")}`);
+  }
+  const constraints = ("actionConstraints" in descriptor ? descriptor.actionConstraints : []) as
+    | readonly (readonly string[])[]
+    | undefined;
+  for (const group of constraints ?? []) {
+    const selected = group.filter((field) => present(original, field, inputForName(field)));
+    if (selected.length !== 1) invalid(`exactly one of ${group.join(", ")} is required`);
   }
 }
 

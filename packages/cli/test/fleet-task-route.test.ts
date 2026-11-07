@@ -51,6 +51,93 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   const command = (method: string, action: Record<string, unknown>, rootDir = root) =>
     ({ rootDir, method, action }) as never;
 
+  const actionForDescriptor = (descriptor: (typeof daemonProtocolCommands)[number]): Record<string, unknown> => {
+    const actionKind = "actionKind" in descriptor ? descriptor.actionKind : descriptor.id,
+      canonical =
+        daemonProtocolCommands.find(
+          (candidate) => ("actionKind" in candidate ? candidate.actionKind : candidate.id) === actionKind,
+        ) ?? descriptor;
+    const action: Record<string, unknown> = {
+        kind: actionKind,
+      },
+      inputs = "inputs" in canonical ? canonical.inputs : [],
+      payloadFields = "payloadFields" in canonical ? canonical.payloadFields : [],
+      inputByField = new Map(
+        inputs.map((input) => [
+          input.field ?? input.name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase()),
+          input,
+        ]),
+      ),
+      payloadByField = new Map(payloadFields.map((field) => [field.field, field]));
+    const valueFor = (input: (typeof inputs)[number]): unknown => {
+      const field =
+          input.field ?? input.name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase()),
+        payload = payloadByField.get(field),
+        type = payload?.type;
+      if (input.enum?.length) return input.enum[0];
+      if (type === "number" || input.projection === "number") return 0;
+      if (type === "json-object") return {};
+      if (type === "json-object-array") return [];
+      if (type === "string-array" || input.kind === "repeated") return ["probe"];
+      if (input.kind === "boolean") return true;
+      return "probe";
+    };
+    const packetValue = (field: string): unknown => {
+      const payload = payloadByField.get(field);
+      if (payload?.type === "number") return 0;
+      if (payload?.type === "boolean") return true;
+      if (payload?.type === "json-object") return {};
+      if (payload?.type === "json-object-array") return [];
+      if (payload?.type === "string-array") return [];
+      if (["claims", "chosen", "evidenceChecked", "findings", "rejected", "resolutions", "responses"].includes(field))
+        return [];
+      return "probe";
+    };
+    const encodedValue = (input: (typeof inputs)[number]): unknown => {
+      const codec = typeof input.codec === "object" ? input.codec : undefined;
+      if (!codec) return valueFor(input);
+      const packet = Object.fromEntries((input.jsonFields ?? []).map((field) => [field, packetValue(field)]));
+      if (codec.kind === "json-object") {
+        const raw = JSON.stringify(packet);
+        if (codec.source === "file") {
+          const file = `fleet-payload-${actionKind}-${input.name.slice(2).replace(/[^a-z0-9]+/giu, "-")}.json`;
+          writeFileSync(path.join(root, file), `${raw}\n`);
+          return file;
+        }
+        return raw;
+      }
+      const file = `fleet-payload-${actionKind}-${input.name.slice(2).replace(/[^a-z0-9]+/giu, "-")}.txt`;
+      writeFileSync(path.join(root, file), "probe\n");
+      return file;
+    };
+    const add = (input: (typeof inputs)[number]): void => {
+      const field =
+        input.field ?? input.name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
+      if (Object.hasOwn(action, field)) return;
+      action[field] = encodedValue(input);
+      for (const required of input.requires ?? []) {
+        const dependency = inputs.find((candidate) => candidate.name === required);
+        if (dependency) add(dependency);
+      }
+      for (const required of input.requiresAny ?? []) {
+        const dependency = inputs.find((candidate) => candidate.name === required);
+        if (dependency) {
+          add(dependency);
+          break;
+        }
+      }
+    };
+    for (const input of inputs) if (input.required) add(input);
+    for (const group of "actionConstraints" in canonical ? (canonical.actionConstraints ?? []) : []) {
+      const selected = group.some((field) => Object.hasOwn(action, field));
+      if (!selected) {
+        const input = inputByField.get(group[0]);
+        if (input) add(input);
+      }
+    }
+    return action;
+  };
+
   registry("local");
   assert.equal(
     await fleetTaskRoute(command("repo.task.run", { kind: "task-start", taskId: "task_one" }), env),
@@ -65,8 +152,14 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     "a remote-edge registration for another root cannot authorize this workspace",
   );
   registry("remote-edge");
-  for (const kind of ["agent-install", "agent-delete", "agent-retire", "squad-install", "squad-delete"]) {
-    const action = { kind, expectedVersion: 0 };
+  for (const action of [
+    { kind: "agent-install", packageSource: "agent.json", expectedVersion: 0 },
+    { kind: "agent-delete", reason: "cleanup", expectedVersion: 0 },
+    { kind: "agent-retire", reason: "cleanup" },
+    { kind: "squad-install", packageSource: "squad.json", expectedVersion: 0 },
+    { kind: "squad-delete", reason: "cleanup", expectedVersion: 0 },
+  ]) {
+    const { kind } = action;
     assert.deepEqual((await fleetTaskRoute(command("repo.task.run", action), env))?.action, action, kind);
   }
   for (const kind of ["schedule-list", "schedule-show", "schedule-runs"]) {
@@ -142,7 +235,13 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   );
   assert.deepEqual(complete?.action, { kind: "task-complete", taskId: "task_one", consent: true });
   for (const action of [
-    { kind: "fact-record", taskId: "task_one", statement: "observed", source: "test", confidence: "high" },
+    {
+      kind: "fact-record",
+      taskId: "task_one",
+      statement: "observed",
+      evidenceSource: "test",
+      confidence: "high",
+    },
     { kind: "task-declare-executor", taskId: "task_one", reason: "repair" },
   ])
     assert.deepEqual((await fleetTaskRoute(command("repo.task.run", action), env))?.action, action);
@@ -335,8 +434,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   const missing: string[] = [],
     unexpected: string[] = [];
   for (const descriptor of daemonProtocolCommands) {
-    const kind = "actionKind" in descriptor ? descriptor.actionKind : descriptor.id;
-    const entry = command(descriptor.method, { kind });
+    const entry = command(descriptor.method, actionForDescriptor(descriptor));
     const routed =
       (await fleetScheduleRoute(entry, env)) ??
       (await fleetRuntimeRoute(entry, env)) ??

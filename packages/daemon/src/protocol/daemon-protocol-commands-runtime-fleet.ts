@@ -131,7 +131,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       inputs:
         operation === "claim"
           ? [
-              cliInput("--instance", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
+              cliInput(
+                "--instance",
+                "single",
+                true,
+                { code: "missing_field" },
+                { field: "runtimeInstanceId", wire: { omit: true } },
+              ),
               cliInput("--prompt", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
               cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "dispatchKey" }),
             ]

@@ -330,9 +330,15 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Register one controlled Fact domain type through an audited Fact event.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { field: "evidenceSource" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
