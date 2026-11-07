@@ -43,7 +43,7 @@ test("HTML research documents are eligible, submit as opaque text, and become cl
     assert.equal(dryRun.outcome, "pending", JSON.stringify(dryRun));
     assert.deepEqual(
       rows(dryRun.evidence).map((row) => [row.path, row.state, row.mediaType]),
-      [[logical, "eligible", "text/html"]],
+      [[`harness/${logical}`, "eligible", "text/html"]],
     );
     const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
@@ -63,7 +63,7 @@ test("HTML research documents are eligible, submit as opaque text, and become cl
     const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
     assert.deepEqual(
       rows(status.evidence).map((row) => [row.path, row.state]),
-      [[logical, "clean"]],
+      [[`harness/${logical}`, "clean"]],
     );
   } finally {
     await cell.close();
@@ -92,11 +92,11 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     assert.deepEqual(
       statusRows.map((row) => [row.path, row.state]),
       [
-        ["context/a.md", "eligible"],
-        ["context/b.md", "eligible"],
-        ["context/ignored.json", "eligible"],
-        ["tasks/task-one/artifacts/data.json", "blocked"],
-        ["tasks/task-one/progress.md", "blocked"],
+        ["harness/context/a.md", "eligible"],
+        ["harness/context/b.md", "eligible"],
+        ["harness/context/ignored.json", "eligible"],
+        ["harness/tasks/task-one/artifacts/data.json", "blocked"],
+        ["harness/tasks/task-one/progress.md", "blocked"],
       ],
     );
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
@@ -303,7 +303,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       rows(status.evidence)
         .filter((row) => row.state !== "clean")
         .map((row) => row.path),
-      [prose, secondLog, firstLog],
+      [`harness/${prose}`, `harness/${secondLog}`, `harness/${firstLog}`],
       "unsupported JSONL remains visible with a reason without loading its bytes",
     );
     write(rootDir, "events/segments/manifest.json", "{}\n");
@@ -337,7 +337,10 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
     for (const logical of [firstLog, secondLog]) {
       const selected = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
         row = rows(selected.evidence)[0];
-      assert.deepEqual([row?.path, row?.state, row?.size], [logical, "eligible", Buffer.byteLength(jsonl)]);
+      assert.deepEqual(
+        [row?.path, row?.state, row?.size],
+        [`harness/${logical}`, "eligible", Buffer.byteLength(jsonl)],
+      );
       assert.equal(row?.reason, null);
     }
     write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
@@ -383,12 +386,12 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
     assert.deepEqual(
       rows(status.evidence).map((row) => [row.path, row.state, row.mediaType]),
       [
-        ["context/binary.pdf", "inapplicable", null],
-        ["context/data.json", "eligible", "application/json"],
-        ["context/notes.md", "eligible", "text/markdown"],
-        ["context/oversized.md", "blocked", "text/markdown"],
-        ["context/script.py", "eligible", "text/x-harness-opaque"],
-        ["context/table.tsv", "eligible", "text/x-harness-opaque"],
+        ["harness/context/binary.pdf", "inapplicable", null],
+        ["harness/context/data.json", "eligible", "application/json"],
+        ["harness/context/notes.md", "eligible", "text/markdown"],
+        ["harness/context/oversized.md", "blocked", "text/markdown"],
+        ["harness/context/script.py", "eligible", "text/x-harness-opaque"],
+        ["harness/context/table.tsv", "eligible", "text/x-harness-opaque"],
       ],
       JSON.stringify(rows(status.evidence)),
     );
@@ -435,7 +438,7 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
       rows(clean.evidence)
         .filter((row) => row.state === "eligible" || row.state === "blocked")
         .map((row) => [row.path, row.state]),
-      [["context/oversized.md", "blocked"]],
+      [["harness/context/oversized.md", "blocked"]],
       "committed candidates turn clean; the oversized residual stays blocked",
     );
   } finally {
@@ -495,7 +498,10 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     await waitForWorktree(cell, authored);
     assert.match(String((authored as Record<string, unknown>).summary), /applied count: 1/u);
 
-    const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
+    const repoRelative = await cell.run(
+      { kind: "doc-submit", paths: ["harness/context/selected.md"], pathCoordinate: "workspace" },
+      binding,
+    );
     assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
     assert.equal(repoRelative.acceptance, null);
     assert.equal(repoRelative.proof, undefined);
@@ -533,7 +539,10 @@ test("repo-relative doc-sync selection works when the authored root is its own l
     await waitForWorktree(cell, authored);
     // The ledger authored prefix is empty here, so the repo-relative form carries the
     // product-visible harness/ segment; it must resolve to the same authored document.
-    const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
+    const repoRelative = await cell.run(
+      { kind: "doc-submit", paths: ["harness/context/selected.md"], pathCoordinate: "workspace" },
+      binding,
+    );
     assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
   } finally {
     await cell.close();
@@ -570,12 +579,13 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
     assert.equal(status.outcome, "applied", JSON.stringify(status));
     const scanned = rows(status.evidence);
     assert.equal(scanned.length > 0, true);
+    const workspacePackagePath = `harness/${packagePath}`;
     assert.equal(
-      scanned.every((row) => row.path.startsWith(`${packagePath}/`)),
+      scanned.every((row) => row.path.startsWith(`${workspacePackagePath}/`)),
       true,
     );
     assert.equal(
-      scanned.some((row) => row.path === `${packagePath}/notes.md`),
+      scanned.some((row) => row.path === `${workspacePackagePath}/notes.md`),
       true,
     );
     const submitted = await cell.run({ kind: "doc-submit", taskId: "task-scope" }, binding);
@@ -808,7 +818,7 @@ test("doc retire refuses a document the canonical projection never claimed, even
     const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
     assert.deepEqual(
       rows(status.evidence).map((row) => [row.path, row.state]),
-      [[logical, "clean"]],
+      [[`harness/${logical}`, "clean"]],
     );
     assert.deepEqual(status.detail?.deletions, []);
 
@@ -1092,7 +1102,7 @@ test("the SQLite worktree follower preserves a caller edit and recovers from its
     assert.equal(named.outcome, "applied", JSON.stringify(named));
     assert.deepEqual(
       materializeReport(named.evidence).settlements.map((row) => row.path),
-      ["context/notes.md"],
+      ["harness/context/notes.md"],
     );
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), canonical);
     rmSync(path.join(rootDir, "harness", logical));
