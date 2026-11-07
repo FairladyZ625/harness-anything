@@ -1,0 +1,70 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "entries": {
+    "providerWaivers": [
+      {
+        "scope": "packages/daemon/src/** (278 audit lines)",
+        "paths": ["packages/daemon/src/**"],
+        "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
+        "expiresOn": "2026-12-07",
+        "reason": "Legacy provider-specific daemon implementation and RPC wiring; exact source rows are enumerated in the task audit artifact."
+      },
+      {
+        "scope": "packages/gui/src/** (62 audit lines)",
+        "paths": ["packages/gui/src/**"],
+        "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
+        "expiresOn": "2026-12-07",
+        "reason": "Legacy provider-specific GUI IPC, presentation and copy; exact source rows are enumerated in the task audit artifact."
+      },
+      {
+        "scope": "packages/authorization-gui/src/** (5 audit lines)",
+        "paths": ["packages/authorization-gui/src/**"],
+        "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
+        "expiresOn": "2026-12-07",
+        "reason": "Legacy provider-specific public GUI contracts; exact source rows are enumerated in the task audit artifact."
+      },
+      {
+        "scope": "packages/cli/src/** (4 audit lines)",
+        "paths": ["packages/cli/src/**"],
+        "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
+        "expiresOn": "2026-12-07",
+        "reason": "Legacy provider-specific CLI login errors and polling copy; exact source rows are enumerated in the task audit artifact."
+      },
+      {
+        "scope": "packages/authorization-builtin/src/** (16 authority/plugin source lines)",
+        "paths": ["packages/authorization-builtin/src/**"],
+        "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
+        "expiresOn": "2026-12-07",
+        "reason": "Builtin session/config exports still carry realm/clientId fields and collaboration guidance names Keycloak; migrate the authority contract and documentation under the shared remediation task."
+      }
+    ],
+    "lineFingerprints": [
+      "0b0dbf16c70651c3345b41ef154af47f1cc04eb00e932c9458a61a94a5c078a5",
+      "1d754180bc27666b4fccc616d082db0ea21ce53ae9264032cfcc0f51d501d2a4",
+      "1eeaf7e3a570f6ea30eeea208ecd710008acd0583330216a177b29ef3ebc3690",
+      "25b16deb7efc4f1fc8da39c05876f8fbb0806048b4efc8b4f53d809105b5cccf",
+      "3be4ed0f1055f3ea40a54a95d3f985a97d1ed2067717be4250f146188a844f15",
+      "3e1f5ddd30279a8c09ab147642b9785cd4ef7b0e5fe762c8ca1a858207396dc0",
+      "427e5cf3bf6b09b5d67f2cffc19ec5216656a7e86ec47f0ab90e51c4222c3944",
+      "469c3d77743a091900d9c7f338c856937913f4e5ba3a2525c3f540c44e605081",
+      "52b14346d03cdc1189e87f209e941ffe718a65b48d732a43865e062e8f5b0786",
+      "548c02979c142eeac0d3b84053514c0d25c9fe543827ea55d0c7cd54f9851884",
+      "6d6baba3c9b54dd6df3c6de436c472c28537a5e86eee1c6a6efe11a61361c950",
+      "700fe6f78ac89e068ec0a4436865ea5db312c954a9f26ca70731798133d5b265",
+      "903e361c7e03f636185b4411a5105009400f1b617cc3726a32848e43f0fc76d7",
+      "94c650358cd8e32296c962e021e400d4853a284591d424b7c828ebd8f8391cce",
+      "ab188a7f12fd23f27a2dfa10454e6c18423723d7e716e94a6f9296737697f7f5",
+      "af324aa3019b67e2c3f5c2e2e89825cea2bb3928cbab907029de4f1fe110617d",
+      "af687d80678ac2254dbc0d6e29c6d218300e0638476d2d685b1ef55a43b27a59",
+      "b50303a99340b4955a473b8d7b9e1556471f9c22609b744c2dc9fd63731a8449",
+      "b8a4e147fc63f7355c55fc5fa0a4f96f3fc88c6f6acb93a2f826b369cc96846d",
+      "beaff9ec4207abbcde070461a52a24f64e82f0fd756e21bbcb67a2791139c532",
+      "d67bd08889ae617fb6caa5d77660a3302e7697642a85835193cfa52fe762a223",
+      "da3a82cf4cf617d7aabfb6c42f973e924a1f90d275320e98519326d80804a983",
+      "dc9c7eb3c4aaab65108acf219732e92ae8dc61f175a6b52b2e685e0de699a336",
+      "e81293fe0840a500d051bab9f076cc8c3f73cc1cdaf36ecabd7a78041db1ba6a",
+      "eb91b576e26218a37912fa63850b39e557dfe9ba1b5b54cae9f31eb1e1a1bbd3",
+      "ebbc0d8aefee6d940949c184842265441a85e7209a44813e9ffb238438f2b5f2"
+    ]
+  }
+}

@@ -60,6 +60,7 @@
     "harness:check-format": "node tools/check-format.mjs",
     "harness:check-poll-spin-boundary": "node tools/check-poll-spin-boundary.mjs",
     "harness:check-fallback-boundaries": "node tools/check-fallback-boundaries.mjs",
+    "harness:check-authorization-provider-boundary": "node tools/gates/authorization-provider-boundary.mjs --check",
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
     "harness:check-self-repo-path-literals": "node tools/check-self-repo-path-literals.mjs",
     "harness:check-integrity-single-source": "node tools/check-integrity-single-source.mjs",

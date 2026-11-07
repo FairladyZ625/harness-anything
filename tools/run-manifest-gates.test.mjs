@@ -345,6 +345,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-docs-release-map": "README.md",
     "check-gate-surface": ".github/branch-protection.md",
     "check-gate-manifest-invariants": "tools/gate-manifest.json",
+    "authorization-provider-boundary": "tools/gates/authorization-provider-boundary.mjs",
     "check-template-command-surface": "packages/cli/src/cli/thin-command.ts",
     "check-locale-content": "packages/cli/src/cli/thin-command.ts",
     "check-catalog-schema": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
