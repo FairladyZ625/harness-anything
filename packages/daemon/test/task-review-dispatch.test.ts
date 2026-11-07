@@ -358,6 +358,13 @@ test("node rework candidate waits for the submitting worker to settle", () => {
       rootDir: "/tmp/repo-node-rework-settle",
       projection: {
         read: () => ({ snapshot, packagePath: "tasks/node-rework-settle" }),
+        readTaskIndex: () => ({
+          status: "ready",
+          rows: [{ taskId: snapshot.task.taskId, packagePath: "tasks/node-rework-settle" }],
+          watermark: 1,
+          sourceRevision: 1,
+          warnings: [],
+        }),
         readLeaseIntervals: () => [
           {
             executionId,

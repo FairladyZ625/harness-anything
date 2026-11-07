@@ -21,7 +21,7 @@ export async function appendRecoveryQueryFixtures(
         eventId: `${id}-${type}`,
         opId: `${id}-${type}`,
         workspaceRevision: revision(),
-        occurredAt: suffix === "c" ? "2025-11-05T00:00:00.000999Z" : "2025-11-05T00:00:00Z",
+        occurredAt: "2025-11-05T00:00:00.000Z",
         actor: { principal: { personId: "query-fixture" }, executor: null },
         source: { kind: "node", nodeId },
       } as AgentRuntimeEventV1;
@@ -110,7 +110,7 @@ export function assertRecoveryQueryContract(queries: TaskProjectionQueries): voi
     ["recovery-query-a", "recovery-query-c"],
   );
   // Live sessions stay in the activity window even after an outcome was observed; exited ones
-  // enter only through their observation time. Equal instants with different precision compare equal.
+  // enter only through their observation time. Bounds with a different precision compare as instants.
   assert.deepEqual(ids({ executionOwnerNodeId: "node-query-a", activitySince: "2026-01-01T00:00:00Z" }), [
     "recovery-query-a",
     "recovery-query-c",
