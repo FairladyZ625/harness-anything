@@ -789,8 +789,19 @@ export function readTaskRelationPage(
     where: string[] = [],
     values: (string | number)[] = [];
   if (query.entity !== undefined) {
-    where.push("(source_ref = ? OR target_ref = ?)");
-    values.push(query.entity, query.entity);
+    // The entity's own edges plus its sub-refs (`decision/<id>/<claim>`). Range compares on the
+    // `entity/` prefix keep the source/target indexes driving the read; LIKE would not.
+    where.push(
+      "(source_ref = ? OR target_ref = ? OR (source_ref >= ? AND source_ref < ?) OR (target_ref >= ? AND target_ref < ?))",
+    );
+    values.push(
+      query.entity,
+      query.entity,
+      `${query.entity}/`,
+      `${query.entity}0`,
+      `${query.entity}/`,
+      `${query.entity}0`,
+    );
   }
   if (query.source !== undefined) {
     where.push("source_ref = ?");

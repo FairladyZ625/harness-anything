@@ -677,6 +677,55 @@ test("relation page rows carry their own updated_at with no event_index rows bes
   });
 });
 
+test("entity pages cover the entity's sub-refs without widening to other entities", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    createTaskRelationProjectionTable(db);
+    const insert = db.prepare(
+      "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, row_json, workspace_revision, updated_at, freshness, current_target_version) VALUES (?, ?, ?, 'relates', 'active', ?, ?, 1, '2026-10-06T00:00:00.000Z', 'current', NULL)",
+    );
+    for (const [id, source, target] of [
+      ["rel-own", "decision/dec_focus", "task/t1"],
+      ["rel-claim", "decision/dec_focus/CH1", "fact/F-1"],
+      ["rel-incoming-claim", "task/t2", "decision/dec_focus/C2"],
+      ["rel-sibling", "decision/dec_other/CH1", "fact/F-2"],
+      ["rel-foreign", "task/t3", "fact/F-3"],
+    ])
+      insert.run(
+        id,
+        source,
+        target,
+        source.startsWith("decision/") ? source.split("/").slice(0, 2).join("/") : source,
+        JSON.stringify({
+          direction: "directed",
+          strength: "strong",
+          origin: "declared",
+          rationale: "fixture",
+          sourcePath: "fixture",
+          recordIndex: 0,
+        }),
+      );
+    const ids = (query: TaskRelationQuery) => readTaskRelationPage(db, query).rows.map((row) => row.relationId);
+    assert.deepEqual(ids({ entity: "decision/dec_focus" }), ["rel-claim", "rel-incoming-claim", "rel-own"]);
+    // Pagination still terminates: one row per page and the last page's cursor is consumed.
+    const first = readTaskRelationPage(db, { entity: "decision/dec_focus", limit: 2 });
+    assert.equal(first.page?.nextCursor === null, false);
+    const second = readTaskRelationPage(db, {
+      entity: "decision/dec_focus",
+      limit: 2,
+      cursor: first.page!.nextCursor!,
+    });
+    assert.deepEqual(
+      second.rows.map((row) => row.relationId),
+      ["rel-own"],
+    );
+    assert.equal(second.page?.nextCursor, null);
+  } finally {
+    db.close();
+  }
+});
+
 test("relation neighborhood fails closed at the depth boundary", () => {
   const db = new DatabaseSync(":memory:");
   try {
@@ -1016,9 +1065,22 @@ test("a relation read with a fixed endpoint searches only that endpoint's edges,
         statements.length = 0;
         const rows = readTaskRelationPage(db, query).rows.map((row) => `${row.sourceRef}>${row.targetRef}`),
           sql = statements.find((statement) => statement.includes("FROM relation_edge"))!,
-          values = [query.entity, query.entity, query.source, query.target, query.relationType, query.state].filter(
-            (value) => value !== undefined,
-          ),
+          values = [
+            ...(query.entity === undefined
+              ? []
+              : [
+                  query.entity,
+                  query.entity,
+                  `${query.entity}/`,
+                  `${query.entity}0`,
+                  `${query.entity}/`,
+                  `${query.entity}0`,
+                ]),
+            ...(query.source === undefined ? [] : [query.source]),
+            ...(query.target === undefined ? [] : [query.target]),
+            ...(query.relationType === undefined ? [] : [query.relationType]),
+            ...(query.state === undefined ? [] : [query.state]),
+          ],
           plan = (original.call(db, `EXPLAIN QUERY PLAN ${sql}`).all(...values) as { detail: string }[])
             .map(({ detail }) => detail)
             .filter(
@@ -1038,8 +1100,11 @@ test("a relation read with a fixed endpoint searches only that endpoint's edges,
     for (const detail of [...small.plan, ...large.plan])
       assert.match(
         detail,
-        /^SEARCH \w+ USING (?:COVERING )?INDEX \w+ \((?:source_ref|target_ref)=\?\)$/u,
-        JSON.stringify(query),
+        // An endpoint read drives the source/target index. The entity selector adds a prefix
+        // range for the entity's sub-refs (`decision/<id>/<claim>`), so equality and range
+        // predicates are both accepted — what must not happen is a scan keyed on type/state.
+        /^SEARCH \w+ USING (?:COVERING )?INDEX \w+ \((?:source_ref|target_ref)[=<>]/u,
+        JSON.stringify(query) + " " + detail,
       );
   }
   assert.deepEqual(

@@ -42,6 +42,20 @@ export function validateRelationNeighborhoodPayload(value: JsonObject): string[]
   return statusError ? [statusError] : [];
 }
 
+/** One indexed page of relations incident to `entity` (plus its sub-refs). No `hops`: the
+ * depth budget belongs to the neighborhood selector and must not be implied by a page read. */
+function validateRelationEntityPagePayload(value: JsonObject): string[] {
+  const unknown = unknownFieldViolation(value, ["entity", "status", "limit", "cursor"]);
+  if (unknown) return [`repo.triadic.relationGraph.payload contains an ${unknown}`];
+  if (typeof value.entity !== "string" || value.entity.length === 0)
+    return ["repo.triadic.relationGraph.payload.entity is invalid"];
+  return validateDaemonQueryPayload("repo.triadic.relationGraph", {
+    ...(value.status === undefined ? {} : { status: value.status }),
+    ...(value.limit === undefined ? {} : { limit: value.limit }),
+    ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
+  });
+}
+
 // Workspace-summary read result validator lives with the other per-facet repo read validators
 // so the offline-maintenance and thin-transport import closures keep their exact membership.
 export function validateDaemonWorkspaceSummary(value: unknown): readonly string[] {
@@ -349,13 +363,22 @@ export function validateDaemonQueryPayload(
 ): string[] {
   if (value === undefined) return [];
   if (!isJsonObject(value)) return ["query payload must be an object"];
-  if (method === "repo.triadic.relationGraph" && (value.entity !== undefined || value.hops !== undefined))
+  if (method === "repo.triadic.relationGraph" && value.hops !== undefined)
     return validateRelationNeighborhoodPayload(value);
+  if (method === "repo.triadic.relationGraph" && value.entity !== undefined)
+    return validateRelationEntityPagePayload(value);
   if (
     method === "repo.triadic.relationGraph" &&
     [value.facet, value.relationType, value.state, value.direction].some((field) => field !== undefined)
   )
     return validateRelationFacetPayload(value);
+  if (method === "repo.triadic.relationGraph") {
+    // The legacy page branch is the only relation shape that could not name its fields through a
+    // facet selector. Keep it closed here so the preload can delegate wholesale: every relation
+    // selector is then admitted by this one validator, never by a second hand-copied field list.
+    const unknown = unknownFieldViolation(value, ["status", "updatedAfter", "updatedBefore", "limit", "cursor"]);
+    if (unknown) return [`repo.triadic.relationGraph.payload contains an ${unknown}`];
+  }
   const errors: string[] = [],
     status = value.status,
     changedAfterRevision = value.changedAfterRevision,

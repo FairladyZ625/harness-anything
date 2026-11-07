@@ -190,6 +190,11 @@ export interface TaskProjectionListQuery {
 
 export interface TaskRelationQuery {
   readonly direction?: EntityRelationRecord["direction"];
+  /**
+   * Relations incident to this ref on either side. Refs below it belong to the same focus:
+   * `decision/<id>` also selects `decision/<id>/<claim>`, because a decision's claims are part
+   * of the decision and its detail surface must not miss their evidence edges.
+   */
   readonly entity?: string;
   readonly source?: string;
   readonly target?: string;

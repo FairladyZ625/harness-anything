@@ -1,5 +1,5 @@
 import { ArrowSquareOut, LinkSimple } from "@phosphor-icons/react";
-import { useTriadicProjectionQuery } from "../../triadic-data.ts";
+import { useEntityRelationGraphQuery } from "../../triadic-data.ts";
 import type { TaskRow } from "../../model/types.ts";
 import { normalizeTaskId } from "../../model/triadic.ts";
 import { t } from "../../i18n/index.tsx";
@@ -31,7 +31,8 @@ export function TaskRelationsTab({
   readonly onNavigateEntity?: (ref: string) => void;
   readonly onOpenSession: (runtimeSessionId: string) => void;
 }) {
-  const graph = useTriadicProjectionQuery(task.projectId, { decisionsEnabled: false });
+  // 本页签只渲染这个 task 自己的边:按焦点实体读,不再为一个页签挂完整关系图。
+  const graph = useEntityRelationGraphQuery(task.projectId, `task/${task.taskId}`);
   const relations = graph.relations;
   const taskRef = `task/${task.taskId}`;
   const outEdges = relations.filter((edge) => edge.from === taskRef || normalizeTaskId(edge.from) === task.taskId);

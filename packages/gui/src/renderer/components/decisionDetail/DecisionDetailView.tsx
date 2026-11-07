@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useEntityRelationGraphQuery } from "../../triadic-data.ts";
 import { ArrowLeft, CaretRight, WarningCircle } from "@phosphor-icons/react";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../badges.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
@@ -370,4 +371,13 @@ export function DecisionDetailView({
       </main>
     </div>
   );
+}
+
+/**
+ * 路由容器:`decisionDetail` 页的关系只读从这条决策自己的关系页(含 claim 子 ref)来,
+ * 不再拿 App 的全量 relations。展示组件保持纯 props,便于单测。
+ */
+export function DecisionDetailRoute(props: Omit<Parameters<typeof DecisionDetailView>[0], "relations">) {
+  const entity = useEntityRelationGraphQuery(props.repoId, props.decisionId ? `decision/${props.decisionId}` : null);
+  return <DecisionDetailView {...props} relations={entity.relations} />;
 }

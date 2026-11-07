@@ -6,6 +6,7 @@ import { FactInspector } from "../components/FactInspector";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { IdText } from "../components/IdText.tsx";
+import { useEntityRelationGraphQuery, useTriadicProjectionQuery } from "../triadic-data.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -32,6 +33,10 @@ export function FactDetailView({
   relations,
   factAnchors,
   coverageRows,
+  inspectorRelations = relations,
+  inspectorFacts = facts,
+  inspectorCoverageRows = coverageRows,
+  inspectorFactAnchors = factAnchors,
   loading,
   onNavigateEntity,
   onNavigateDecision,
@@ -41,12 +46,18 @@ export function FactDetailView({
   /** 会话归属仓:透传给邻域画布(egoSession 按 repoId 隔离)。 */
   repoId: string;
   factRef: string | null;
+  /** 邻域画布输入:切片 B 之前仍是完整关系图(fact 详情要保留 ±2 跳可见行为)。 */
   facts: FactRef[];
   tasks: readonly TaskRow[];
   decisions: DecisionRow[];
   relations: RelationEdge[];
   factAnchors: ReadonlyArray<FactAnchorRow>;
   coverageRows: ReadonlyArray<RelationCoverageRow>;
+  /** 详情栏输入:只读焦点 fact 的实体关系页,不再依赖上面那份完整图。 */
+  inspectorRelations?: RelationEdge[];
+  inspectorFacts?: FactRef[];
+  inspectorCoverageRows?: ReadonlyArray<RelationCoverageRow>;
+  inspectorFactAnchors?: ReadonlyArray<FactAnchorRow>;
   loading: boolean;
   onNavigateEntity?: (ref: string) => void;
   onNavigateDecision?: (decisionId: string) => void;
@@ -55,26 +66,26 @@ export function FactDetailView({
 }) {
   const anchor = factRef?.replace(/^fact\//, "") ?? null;
   const fact = useMemo(
-    () => (factRef ? (facts.find((f) => f.anchor === factRef || f.anchor === anchor) ?? null) : null),
-    [facts, factRef, anchor],
+    () => (factRef ? (inspectorFacts.find((f) => f.anchor === factRef || f.anchor === anchor) ?? null) : null),
+    [inspectorFacts, factRef, anchor],
   );
   // anchor-only fact(有锚点、正文未投影)仍是图上一等节点 —— 邻域照常铺开。
-  const inProjection = fact !== null || (factRef ? factAnchors.some((a) => a.factRef === factRef) : false);
+  const inProjection = fact !== null || (factRef ? inspectorFactAnchors.some((a) => a.factRef === factRef) : false);
 
   return (
     <div data-testid="fact-detail-view" className="flex h-full min-h-0 flex-1">
       {inProjection ? (
         <FactInspector
           factRef={factRef!}
-          facts={facts}
+          facts={inspectorFacts}
           tasks={tasks}
           decisions={decisions}
-          relations={relations}
+          relations={inspectorRelations}
           side="right"
           onNavigateDecision={onNavigateDecision}
           onNavigateTask={onNavigateTask}
           onFocusGraph={onFocusGraph}
-          coverageRows={coverageRows}
+          coverageRows={inspectorCoverageRows}
         />
       ) : (
         <DetailPendingColumn loading={loading} refLabel={factRef ?? "—"} />
@@ -90,6 +101,58 @@ export function FactDetailView({
         onNavigateEntity={onNavigateEntity}
       />
     </div>
+  );
+}
+
+/**
+ * 路由容器:`factDetail` 页的取数只在这里发生——按焦点 fact 读它自己的关系页
+ * (含子 ref),并把同一份读面里的 facts/factAnchors/coverageRows 交给展示组件。
+ * App 不再为这个视图挂全量关系图;展示组件保持纯 props,便于单测。
+ */
+export function FactDetailRoute({
+  repoId,
+  factRef,
+  tasks,
+  decisions,
+  onNavigateEntity,
+  onNavigateDecision,
+  onNavigateTask,
+  onFocusGraph,
+}: Pick<
+  Parameters<typeof FactDetailView>[0],
+  | "repoId"
+  | "factRef"
+  | "tasks"
+  | "decisions"
+  | "onNavigateEntity"
+  | "onNavigateDecision"
+  | "onNavigateTask"
+  | "onFocusGraph"
+>) {
+  // 详情栏:焦点 fact 的实体关系页。邻域画布:切片 B 之前保留完整图输入,
+  // 否则 EgoNeighborhood 的 ±2 跳预算只能在一环边上展开(评审 F-1)。
+  const inspector = useEntityRelationGraphQuery(repoId, factRef);
+  const canvas = useTriadicProjectionQuery(repoId, { decisionsEnabled: false });
+  return (
+    <FactDetailView
+      repoId={repoId}
+      factRef={factRef}
+      facts={canvas.facts}
+      tasks={tasks}
+      decisions={decisions}
+      relations={canvas.relations}
+      factAnchors={canvas.factAnchors}
+      coverageRows={canvas.coverageRows}
+      inspectorFacts={inspector.facts}
+      inspectorRelations={inspector.relations}
+      inspectorCoverageRows={inspector.coverageRows}
+      inspectorFactAnchors={inspector.factAnchors}
+      loading={canvas.isPending}
+      onNavigateEntity={onNavigateEntity}
+      onNavigateDecision={onNavigateDecision}
+      onNavigateTask={onNavigateTask}
+      onFocusGraph={onFocusGraph}
+    />
   );
 }
 

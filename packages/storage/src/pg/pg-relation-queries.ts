@@ -190,8 +190,14 @@ export async function readVersionedRelationsInTransaction(
     where.push(`source_ref = ANY($${values.length}::text[])`);
   }
   if (query.entity !== undefined) {
-    values.push(query.entity);
-    where.push(`(source_ref=$${values.length} OR target_ref=$${values.length})`);
+    // Own edges plus sub-refs (`decision/<id>/<claim>`), matching the SQLite range predicate.
+    values.push(query.entity, `${query.entity}/`, `${query.entity}0`);
+    const entity = values.length - 2,
+      lower = values.length - 1,
+      upper = values.length;
+    where.push(
+      `(source_ref=$${entity} OR target_ref=$${entity} OR (source_ref COLLATE "C" >= $${lower} AND source_ref COLLATE "C" < $${upper}) OR (target_ref COLLATE "C" >= $${lower} AND target_ref COLLATE "C" < $${upper}))`,
+    );
   }
   for (const [value, expression, comparison] of [
     [query.relationId, "relation_id", "="],

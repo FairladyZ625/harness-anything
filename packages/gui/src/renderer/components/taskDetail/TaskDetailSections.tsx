@@ -8,7 +8,7 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client
 import { harnessClient } from "../../api-client.ts";
 import { readAllTaskDispatches } from "../../task-dispatch-client.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
-import { buildTriadicRendererData, useCompleteRelationGraphQuery, triadicQueryKeys } from "../../triadic-data.ts";
+import { useEntityRelationGraphQuery, useEntityRelationGraphsQuery, triadicQueryKeys } from "../../triadic-data.ts";
 import { useFactArchiveVisibility } from "../../fact-archive-preferences.tsx";
 import { dayKeyOf, formatDayKeyLabel, formatTime } from "../../model/time.ts";
 import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
@@ -396,16 +396,6 @@ function DispatchChain({
   );
 }
 
-const EMPTY_DECISION_LIST = { ok: true, decisions: [], warnings: [] } as const;
-const emptyGraph = {
-  ok: true as const,
-  edges: [],
-  coverageRows: [],
-  factAnchors: [],
-  facts: [],
-  warnings: [],
-};
-
 // W5:全局「事实分诊」列表页撤销,triage 信号并入本页签——同一关系投影上现算
 // (buildFactTriage 纯前端派生,不新增读面),带信号的 fact 排前、severity 降序,
 // 分诊队列的排序语义在 task 邻域内保留。
@@ -415,52 +405,54 @@ const emptyGraph = {
 export function TaskEvidenceTab({
   task,
   tasks = [],
-  relations = [],
   onNavigateEntity,
 }: {
   readonly task: TaskRow;
   readonly tasks?: readonly TaskRow[];
-  readonly relations?: readonly RelationEdge[];
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
-  const graph = useCompleteRelationGraphQuery(task.projectId, true);
+  // 证据页签只需要「本任务 produces 的 fact」及其入边/coverage 做 triage。分两轮有界读:
+  // 先按 task 实体拿 produces 边与 fact 行,再对每个 owned fact 按实体拿它的入边
+  // (refuted-by / supersedes-fact / evidenced-by)与 coverage;不再排空全仓 relations。
+  const taskGraph = useEntityRelationGraphQuery(task.projectId, `task/${task.taskId}`);
+  const ownedFactRefs = useMemo(
+    () => [
+      ...new Set(activeProducesFactRefs(taskGraph.relations, `task/${task.taskId}`).map((edge) => edge.targetRef)),
+    ],
+    [taskGraph.relations, task.taskId],
+  );
+  const ownedFactSet = useMemo(() => new Set(ownedFactRefs), [ownedFactRefs]);
+  const evidenceGraph = useEntityRelationGraphsQuery(task.projectId, ownedFactRefs);
   const decisionRows = useQuery({
     queryKey: triadicQueryKeys.decisions(task.projectId),
     queryFn: () => harnessClient.getDecisions({ repoId: task.projectId }),
     staleTime: 10_000,
   });
   const decisions = decisionRows.data?.decisions ?? [];
-  // 三元读一次、统一过 current 收口:owned 产出边、事实行与 triage 输入共用同一份投影,
-  // 不再各自消费原始边切面。
-  const projected = useMemo(
-    () => buildTriadicRendererData({ graph: graph.data ?? emptyGraph, decisions: EMPTY_DECISION_LIST }),
-    [graph.data],
-  );
-  const ownedFactRefs = useMemo(
-    () => new Set(activeProducesFactRefs(projected.relations, `task/${task.taskId}`).map((edge) => edge.targetRef)),
-    [projected.relations, task.taskId],
-  );
   // 已归档 Fact 默认退出证据列表(dec_62CAE6CA,与图/切面同一开关);开关放行时
   // 行内带「已归档」标记,不冒充活证据。
   const { showArchivedFacts } = useFactArchiveVisibility();
   const facts = useMemo(
     () =>
-      (graph.data?.facts ?? []).filter(
-        (fact) => ownedFactRefs.has(fact.ref) && (showArchivedFacts || fact.archived !== true),
+      evidenceGraph.graph.facts.filter(
+        (fact) => ownedFactSet.has(fact.ref) && (showArchivedFacts || fact.archived !== true),
       ),
-    [graph.data, ownedFactRefs, showArchivedFacts],
+    [evidenceGraph.graph.facts, ownedFactSet, showArchivedFacts],
   );
   const triageByAnchor = useMemo(
     () =>
       new Map(
-        buildFactTriage(projected.facts, projected.relations, projected.coverageRows, projected.factAnchors)
-          .filter((item) =>
-            ownedFactRefs.has(item.fact.anchor.startsWith("fact/") ? item.fact.anchor : `fact/${item.fact.anchor}`),
-          )
-          .map((item) => [item.fact.anchor, item]),
+        buildFactTriage(
+          evidenceGraph.facts.filter((fact) => ownedFactSet.has(fact.anchor)),
+          evidenceGraph.relations,
+          evidenceGraph.coverageRows,
+          evidenceGraph.factAnchors,
+        ).map((item) => [item.fact.anchor, item]),
       ),
-    [ownedFactRefs, projected],
+    [evidenceGraph, ownedFactSet],
   );
+  const pending = taskGraph.isPending || (ownedFactRefs.length > 0 && evidenceGraph.isPending);
+  const error = taskGraph.error ?? evidenceGraph.error;
   const orderedFacts = useMemo(() => {
     const anchorOf = (fact: RelationFactRow) => fact.ref;
     const byAnchor = new Map(facts.map((fact) => [anchorOf(fact), fact]));
@@ -488,13 +480,13 @@ export function TaskEvidenceTab({
           ) : undefined
         }
       >
-        {graph.isPending ? (
+        {pending ? (
           <div className="mt-5">
             <Pending text="正在读取 facts…" />
           </div>
-        ) : graph.isError ? (
+        ) : error !== null ? (
           <div className="mt-5">
-            <ReadError text={`Facts 读取失败：${graph.error.message}`} />
+            <ReadError text={`Facts 读取失败：${error.message}`} />
           </div>
         ) : facts.length === 0 ? (
           <div className="mt-5">
@@ -507,7 +499,7 @@ export function TaskEvidenceTab({
                 key={fact.factId}
                 fact={fact}
                 item={item}
-                relations={relations}
+                relations={evidenceGraph.relations}
                 decisions={decisions}
                 tasks={tasks}
                 onNavigateEntity={onNavigateEntity}

@@ -114,6 +114,24 @@ test("preload exposes only the approved API methods", () => {
     () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", facet: "edges", limit: 0 }),
     /query facets are invalid/u,
   );
+  // Slice A: the entity page selector travels through the same daemon validator — no hand-copied
+  // field table in preload. `entity` with a page window is valid; `hops` stays neighborhood-only.
+  assert.equal(
+    assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "decision/dec_1", limit: 500 }),
+    true,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "decision/dec_1", facet: "edges" }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "" }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", entity: "decision/dec_1", hops: {} }),
+    /query facets are invalid/u,
+  );
   assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a" }), true);
   assert.equal(
     assertPreloadPayload("getTaskDispatches", {
@@ -170,7 +188,7 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(
     () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", changedAfterRevision: 42 }),
-    /not allowed/u,
+    /query facets are invalid/u,
   );
   assert.throws(
     () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", updatedBefore: "not-a-date" }),

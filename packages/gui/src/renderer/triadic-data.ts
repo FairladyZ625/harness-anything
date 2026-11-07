@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import type {
   DecisionFullRow,
   DecisionProjectionRow,
@@ -21,9 +21,10 @@ import { activeProducesFactRefs } from "./model/triadic.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 
 /**
- * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
- * 只有这些视图挂载时才读完整投影;
+ * 读完整决策行集合的视图。总览只读决策摘要;这些视图需要完整的决策行(池/详情/事实
+ * 详情里的决策标题),所以只有它们挂载时才读完整决策投影;
  * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
+ * 注意:读完整决策行 ≠ 读完整关系图——后者由 FULL_RELATION_GRAPH_VIEWS 单独声明。
  */
 export const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
   "workspace",
@@ -35,19 +36,33 @@ export const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
 ]);
 
 /**
+ * 渲染完整关系图的视图(领地/总池/工作页/失真预警)。只有这些视图挂载时才排空全量
+ * relations;详情面(factDetail / decisionDetail)改为按焦点实体读(切片 A),不再在这里。
+ * 阴性对照:关系图的领地视图仍走完整图读,不受详情面收窄影响。
+ */
+export const FULL_RELATION_GRAPH_VIEWS: ReadonlySet<ViewId> = new Set([
+  "workspace",
+  "graph",
+  "decisionPool",
+  "freshness",
+]);
+
+/**
  * 读面分层的键空间(fact F-D5605ABF 的消费者清单 + 2026-08-29 CEO 裁决):
  *   - `decisionSummary` — 根级常驻 chrome(⌘K 决策条目、任务详情的决策标题)
  *     读的窄面;
  *   - `activeEdges` — 任务↔任务/决策↔决策边的窄面,只在预览抽屉、任务详情或会话页
  *     挂载时读;
  *   - `facts` — ⌘K 面板与关系图左栏共用的事实条目,面板打开或左栏有搜索输入时才读;
- *   - `graph` / `decisions` — 完整投影,只有渲染它的视图挂载时读。
+ *   - `graph` / `decisions` — 完整投影,只有渲染它的视图挂载时读;
+ *   - `entity` — 详情面的按焦点实体有界页(含子 ref),只有该详情面挂载时读。
  * 全部共享 `["triadic", repoId]` 前缀,`invalidateLedgerDependents` 一次失效覆盖所有
  * 切面;未挂载的切面只标记 stale,不会被重取(react-query v5 默认 `refetchType:"active"`)。
  */
 export const triadicQueryKeys = {
   all: (repoId: string) => ["triadic", repoId] as const,
   graph: (repoId: string) => ["triadic", repoId, "relation-graph"] as const,
+  entity: (repoId: string, entity: string) => ["triadic", repoId, "relation-graph", "entity", entity] as const,
   activeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "edgeset"] as const,
   facts: (repoId: string) => ["triadic", repoId, "relation-graph", "facts"] as const,
   runtimeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "runtime-edges"] as const,
@@ -215,43 +230,73 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
 }
 
 /**
- * Read the complete relation set before classifying graph membership.
+ * Read every page of one relation read before classifying graph membership.
  * A failed page rejects the whole read; partial edges cannot prove isolation.
  * 排空策略在 cursorStep 唯一实现(daemon 协议导出,gui 壳 drainCursorPages 与 agenda
  * 同族):沿服务端游标读到末页;重复游标异常抛错,不发布部分边集。
  */
-export async function readCompleteRelationGraph(
-  read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
-): Promise<RelationGraphSuccess> {
-  const pages = await drainCursorPages((facets) => read({ limit: 500, ...facets }), "relation graph");
-  const first = pages[0];
+function mergeRelationGraphs(graphs: readonly RelationGraphSuccess[]): RelationGraphSuccess {
+  const first = graphs[0];
   const unique = <T>(rows: readonly T[], key: (row: T) => string): T[] => [
     ...new Map(rows.map((row) => [key(row), row])).values(),
   ];
   return {
     ...first,
     edges: unique(
-      pages.flatMap((page) => page.edges),
+      graphs.flatMap((graph) => graph.edges),
       (row) => row.relationId,
     ),
     facts: unique(
-      pages.flatMap((page) => page.facts),
+      graphs.flatMap((graph) => graph.facts),
       (row) => row.ref,
     ),
     coverageRows: unique(
-      pages.flatMap((page) => page.coverageRows),
+      graphs.flatMap((graph) => graph.coverageRows),
       (row) => row.claimRef,
     ),
     factAnchors: unique(
-      pages.flatMap((page) => page.factAnchors),
+      graphs.flatMap((graph) => graph.factAnchors),
       (row) => JSON.stringify(row),
     ),
     warnings: unique(
-      pages.flatMap((page) => page.warnings),
+      graphs.flatMap((graph) => graph.warnings),
       (row) => JSON.stringify(row),
     ),
+  };
+}
+
+async function drainRelationGraph(
+  read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
+  label: string,
+): Promise<RelationGraphSuccess> {
+  const pages = await drainCursorPages((facets) => read({ limit: 500, ...facets }), label);
+  const first = pages[0];
+  return {
+    ...mergeRelationGraphs(pages),
     ...(first.page ? { page: { ...first.page, nextCursor: null } } : {}),
   };
+}
+
+export async function readCompleteRelationGraph(
+  read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
+): Promise<RelationGraphSuccess> {
+  return drainRelationGraph(read, "relation graph");
+}
+
+/**
+ * One entity's bounded relation read: the focus's own edges plus its sub-refs. Draining keeps
+ * the detail surfaces equivalent to the set they used to filter out of the complete graph,
+ * while the read is bounded by that entity's incident edges instead of the repository total.
+ */
+export async function readEntityRelationGraph(
+  entity: string,
+  read: (payload: {
+    readonly entity: string;
+    readonly limit: number;
+    readonly cursor?: string;
+  }) => Promise<RelationGraphSuccess>,
+): Promise<RelationGraphSuccess> {
+  return drainRelationGraph((facets) => read({ entity, ...facets }), `relation graph entity ${entity}`);
 }
 
 /**
@@ -268,6 +313,57 @@ export function useCompleteRelationGraphQuery(repoId: string, enabled: boolean) 
     enabled,
     staleTime: COMPLETE_GRAPH_STALE_MS,
   });
+}
+
+/**
+ * 详情面的唯一关系读:只读焦点实体(含其子 ref)所触的边,排空该实体的游标页。
+ * 与完整图的区别只在 selector:分类/推导仍消费同一份 renderer 形状,详情面不再
+ * 依赖 App 的全量 relations。`entity` 为 null 时不发请求(空引用/未选中)。
+ */
+export function useEntityRelationGraphQuery(repoId: string | null, entity: string | null, enabled = true) {
+  const active = repoId !== null && entity !== null && enabled;
+  const query = useQuery({
+    queryKey: triadicQueryKeys.entity(repoId ?? "unselected", entity ?? "unselected"),
+    queryFn: () =>
+      readEntityRelationGraph(entity!, (payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
+    enabled: active,
+    staleTime: COMPLETE_GRAPH_STALE_MS,
+  });
+  const data = useMemo(() => buildRelationGraphRendererData(query.data ?? emptyRelationGraph), [query.data]);
+  return {
+    ...data,
+    isPending: active && query.isPending,
+    isError: query.isError,
+    error: query.error,
+  };
+}
+
+/**
+ * 一组焦点实体的关系页读,合并成同一份 renderer 形状。任务证据页签用它把
+ * 「本任务 produces 的 fact」逐个按实体读(而不是排空全仓 relations),每个实体的
+ * 读仍然只覆盖它自己的入边/出边;同名 key 与单实体读共享缓存。
+ */
+export function useEntityRelationGraphsQuery(repoId: string | null, entities: readonly string[], enabled = true) {
+  const active = repoId !== null && enabled && entities.length > 0;
+  const queries = useQueries({
+    queries: entities.map((entity) => ({
+      queryKey: triadicQueryKeys.entity(repoId ?? "unselected", entity),
+      queryFn: () =>
+        readEntityRelationGraph(entity, (payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
+      enabled: active,
+      staleTime: COMPLETE_GRAPH_STALE_MS,
+    })),
+  });
+  const data = useMemo(() => mergeRelationGraphs(queries.map((query) => query.data ?? emptyRelationGraph)), [queries]);
+  const rendered = useMemo(() => buildRelationGraphRendererData(data), [data]);
+  return {
+    ...rendered,
+    /** Raw merged read for consumers that render the daemon fact rows (TaskEvidenceTab). */
+    graph: data,
+    isPending: active && queries.some((query) => query.isPending),
+    isError: queries.some((query) => query.isError),
+    error: queries.find((query) => query.error)?.error ?? null,
+  };
 }
 
 /**
@@ -364,24 +460,19 @@ export interface TriadicRendererData {
   readonly warnings: unknown[];
 }
 
-/**
- * Converts the public GUI bridge DTOs into the renderer's triadic model.
- * Keeping this pure makes the complete ledger -> bridge -> renderer path
- * testable without adding a second read path beside the daemon service.
- */
-export function buildTriadicRendererData(input: {
-  readonly graph: RelationGraphSuccess;
-  readonly decisions: DecisionListSuccess;
-}): TriadicRendererData {
+/** The graph half of the triadic model; shared by the complete and per-entity reads so both
+ * consume the same current-edge closure and fact shape. */
+function buildRelationGraphRendererData(
+  graph: RelationGraphSuccess,
+): Omit<TriadicRendererData, "decisions" | "warnings"> & { readonly warnings: readonly unknown[] } {
   // current 收口只有 adaptRelationRows 一处;产出边(068 旧自查)与决策→fact 边
   // (057 旧自查)都消费它过滤后的结果,不再各自复查状态词。
-  const relations = adaptRelationRows(input.graph.edges),
+  const relations = adaptRelationRows(graph.edges),
     producedBy = new Map(
       activeProducesFactRefs(relations).map((row) => [row.targetRef, row.sourceRef.slice("task/".length)] as const),
     );
   return {
-    decisions: adaptDecisionRows(input.decisions.decisions, relations, input.graph.coverageRows),
-    facts: input.graph.facts.map((row) => ({
+    facts: graph.facts.map((row) => ({
       anchor: `fact/${row.factId}`,
       ...(producedBy.get(row.ref) ? { taskId: producedBy.get(row.ref) } : {}),
       category: row.memoryClass === "semantic" ? "lesson" : row.memoryClass === "procedural" ? "progress" : "finding",
@@ -394,9 +485,26 @@ export function buildTriadicRendererData(input: {
       archived: row.archived,
     })),
     relations,
-    coverageRows: input.graph.coverageRows,
-    factAnchors: input.graph.factAnchors,
-    warnings: [...input.graph.warnings, ...input.decisions.warnings],
+    coverageRows: graph.coverageRows,
+    factAnchors: graph.factAnchors,
+    warnings: graph.warnings,
+  };
+}
+
+/**
+ * Converts the public GUI bridge DTOs into the renderer's triadic model.
+ * Keeping this pure makes the complete ledger -> bridge -> renderer path
+ * testable without adding a second read path beside the daemon service.
+ */
+export function buildTriadicRendererData(input: {
+  readonly graph: RelationGraphSuccess;
+  readonly decisions: DecisionListSuccess;
+}): TriadicRendererData {
+  const graphData = buildRelationGraphRendererData(input.graph);
+  return {
+    decisions: adaptDecisionRows(input.decisions.decisions, graphData.relations, input.graph.coverageRows),
+    ...graphData,
+    warnings: [...graphData.warnings, ...input.decisions.warnings],
   };
 }
 

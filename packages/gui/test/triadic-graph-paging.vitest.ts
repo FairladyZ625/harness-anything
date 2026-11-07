@@ -2,7 +2,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import type { RelationGraphSuccess } from "../src/renderer/api-client.ts";
-import { readCompleteRelationGraph } from "../src/renderer/triadic-data.ts";
+import { readCompleteRelationGraph, readEntityRelationGraph } from "../src/renderer/triadic-data.ts";
 import { assertPreloadPayload } from "../src/preload/allowlist.ts";
 import {
   parseDaemonRpcParams,
@@ -166,6 +166,23 @@ describe("关系图按界限读取", () => {
     });
     expect(reads).toBe(1);
     expect(graph.edges.map((row) => row.relationId)).toEqual(["r1"]);
+  });
+
+  it("按实体读把 entity 带在每一页上,并排空该实体的游标", async () => {
+    const calls: { readonly entity: string; readonly limit: number; readonly cursor?: string }[] = [];
+    const graph = await readEntityRelationGraph("decision/dec_1", async (payload) => {
+      calls.push(payload);
+      return calls.length === 1
+        ? page({ edges: [edge("r1")], facts: [fact("fact/F-1")] }, "entity-next")
+        : page({ edges: [edge("r2")], facts: [fact("fact/F-1")] }, null, "entity-next");
+    });
+    expect(calls).toEqual([
+      { entity: "decision/dec_1", limit: 500 },
+      { entity: "decision/dec_1", limit: 500, cursor: "entity-next" },
+    ]);
+    expect(graph.edges.map((row) => row.relationId)).toEqual(["r1", "r2"]);
+    expect(graph.facts.map((row) => row.ref)).toEqual(["fact/F-1"]);
+    expect(graph.page?.nextCursor).toBeNull();
   });
 });
 
