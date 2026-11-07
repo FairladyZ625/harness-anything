@@ -3,7 +3,8 @@
 // daemon's transport entry to its effect. A row passes when an AuthorizationPort decision for the
 // descriptor's own action kind exits on denial before the effect and nothing on the route runs the
 // effect without it; a host command without such a decision must declare where its authority comes
-// from (`hostAuthority`), and that declaration is checked against the route, not trusted. A route
+// from (`hostAuthority`: the local transport, the operator's own process, or the acting person's
+// own signed-in session), and that declaration is checked against the route, not trusted. A route
 // that authorizes another kind than it declares (`kindRewrite`) is traced against that kind and holds
 // only while its source decision and owner task are in the public evidence index and it has not expired.
 import { availableParallelism } from "node:os";
@@ -23,6 +24,9 @@ const portAnchors = [
 ];
 
 const decisionAnchor = { file: "packages/kernel/src/domain/receipt-frame.ts", name: "AuthorizationDecision" };
+const sessionAnchors = [
+  { file: "packages/kernel/src/ports/identity-session-port.ts", name: "IdentitySessionPort", member: "requireSession" },
+];
 
 /** The protocol authorities the trace reads: descriptors, the method table and kernel constants. */
 export async function loadAuthorizationInputs(rootDir) {
@@ -90,6 +94,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       ports: portAnchors,
       authorityModule: "@harness-anything/kernel",
       decision: decisionAnchor,
+      sessions: sessionAnchors,
       entries: transportEntries(graph),
       constants: inputs.constants,
       functions: inputs.functions,
@@ -135,9 +140,11 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       commandClass: descriptor.commandClass,
       fields: wireFields(descriptor, inputs.methods),
       localTransport: authority === "local-transport",
+      ownSession: authority === "own-session",
       canonicalCut: !nonCanonical.has(kind),
     });
-    const evidence = authority === "local-transport" ? trace.local : trace.authorized,
+    const evidence =
+        authority === "local-transport" ? trace.local : authority === "own-session" ? trace.session : trace.authorized,
       violations = [...declarationViolations, ...trace.violations];
     return {
       index,

@@ -423,8 +423,8 @@ export const accessAdminOperations = Object.freeze([
   "session-lifetime",
   "session-lifetime-set",
   "credential-support",
-  "password-change",
-  "password-reset",
+  "access-password-change",
+  "access-password-reset",
 ] as const);
 
 // The daemon method table is the single source for RPC validation and contract derivation.

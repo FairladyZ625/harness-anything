@@ -146,6 +146,48 @@ test("a local-process command must send the daemon only a read", (t) => {
   assert.equal(rows(dir, ["daemon-start"], writing)["daemon-start"].ok, false);
 });
 
+const accessAdmin = "packages/daemon/src/access-admin-service.ts";
+
+test("an own-session route is red once the account it changes no longer comes from the session", (t) => {
+  // The person named by the request, not the signed-in person, would receive the new password.
+  const changed = threeStage(t, ["access-password-change"], (dir) =>
+    edit(
+      dir,
+      accessAdmin,
+      "return this.#writePasswordCredential(request, actor, false);",
+      'return this.#writePasswordCredential(request, text(request.personId, "personId"), false);',
+    ),
+  );
+  assert.deepEqual(changed["access-password-change"].evidence, []);
+  // The session requirement replaced by request data: the identity is whatever the caller claims.
+  threeStage(t, ["access-password-change"], (dir) =>
+    edit(
+      dir,
+      accessAdmin,
+      "? this.#oidc.requireSession(request.rootDir)",
+      '? Promise.resolve({ personId: text(request.personId, "personId"), accessToken: "" })',
+    ),
+  );
+});
+
+test("an own-session route through a differently named session helper stays green", (t) => {
+  const dir = sourceCopy(t);
+  const file = path.join(dir, accessAdmin),
+    text = readFileSync(file, "utf8");
+  assert.equal(text.split("? this.#oidc.requireSession(request.rootDir)").length, 2);
+  writeFileSync(
+    file,
+    text
+      .replace("? this.#oidc.requireSession(request.rootDir)", "? this.#signedInAccount(request.rootDir)")
+      .replace(
+        "  close(): Promise<void> {",
+        "  #signedInAccount(target?: string) {\n    return this.#oidc.requireSession(target);\n  }\n\n  close(): Promise<void> {",
+      ),
+  );
+  const traced = rows(dir, ["access-password-change"])["access-password-change"];
+  assert.ok(traced.ok, traced.violations.join("; "));
+});
+
 test("an AuthorizationPort decision for another action does not authorize this one", (t) => {
   // The permission-request route evaluates its own policy action; folding the request onto
   // another action's spelling must not borrow that decision.

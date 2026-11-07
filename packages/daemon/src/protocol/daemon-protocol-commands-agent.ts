@@ -772,8 +772,8 @@ export const agentProtocolCommands = Object.freeze([
             "session-lifetime",
             "session-lifetime-set",
             "credential-support",
-            "password-change",
-            "password-reset",
+            "access-password-change",
+            "access-password-reset",
             "listener",
             "listener-set",
             "team-list",
@@ -892,7 +892,8 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "access-password-change",
-    actionKind: "access-manage",
+    // The route requires the signed-in session and writes only that person's password.
+    hostAuthority: "own-session",
     phase: "W3",
     path: ["access", "password", "change"],
     summary: "Change the signed-in account password using a protected file or redirected stdin.",

@@ -135,6 +135,41 @@ export function makeAuthorizationTracer(graph, anchors) {
   const portCalls = new Map(),
     decisionCallbacks = new Map();
 
+  // The kernel session member that answers only for a signed-in person and throws otherwise: the
+  // authority of a command that acts on the acting person alone (`own-session`).
+  const sessionMembers = new Map();
+  for (const { file, name, member } of anchors.sessions ?? []) {
+    const declaration = graph.interfaceMembers(file, name).get(member);
+    if (!declaration) throw new Error(`${file}: ${name}.${member} is missing`);
+    sessionMembers.set(member, new Set([...(sessionMembers.get(member) ?? []), declaration]));
+  }
+  const sessionCalls = new Map(),
+    sessionReturns = new Map();
+
+  /** A function every return of which is the kernel session member's answer, however it is named. */
+  function returnsSession(fn, depth) {
+    if (!fn.body || depth > 3) return false;
+    if (sessionReturns.has(fn)) return sessionReturns.get(fn);
+    sessionReturns.set(fn, false);
+    const results = [];
+    if (ts.isBlock(fn.body))
+      eachOwnNode(fn.body, (node) => {
+        if (ts.isReturnStatement(node)) results.push(unwrap(node.expression));
+      });
+    else results.push(unwrap(fn.body));
+    const answer =
+      results.length > 0 &&
+      results.every(
+        (result) =>
+          result &&
+          ts.isCallExpression(result) &&
+          (isSessionCall(result) ||
+            resolvedFunctions(unwrap(result.expression)).some((inner) => returnsSession(inner, depth + 1))),
+      );
+    sessionReturns.set(fn, answer);
+    return answer;
+  }
+
   /** A callback whose own type receives the kernel AuthorizationDecision is the guarded effect. */
   function decisionCallback(parameter) {
     if (!decisionCallbacks.has(parameter))
@@ -145,11 +180,11 @@ export function makeAuthorizationTracer(graph, anchors) {
     return decisionCallbacks.get(parameter);
   }
 
-  function isPortCall(node) {
-    if (portCalls.has(node)) return portCalls.get(node);
+  function callsMember(node, memberMap, cache) {
+    if (cache.has(node)) return cache.get(node);
     const callee = unwrap(node.expression),
       key = ts.isPropertyAccessExpression(callee) ? callee.name.text : null,
-      members = key === null ? undefined : portMembers.get(key),
+      members = key === null ? undefined : memberMap.get(key),
       signatures = members ? graph.memberSignature(callee) : null,
       port = Boolean(
         signatures &&
@@ -157,9 +192,11 @@ export function makeAuthorizationTracer(graph, anchors) {
             (declaration) => members.has(declaration) || graph.implementsMember(declaration, key, members),
           ),
       );
-    portCalls.set(node, port);
+    cache.set(node, port);
     return port;
   }
+  const isPortCall = (node) => callsMember(node, portMembers, portCalls);
+  const isSessionCall = (node) => callsMember(node, sessionMembers, sessionCalls);
 
   function declaredIn(tainted, identifier) {
     const binding = graph.lookup(identifier.text, identifier);
@@ -353,7 +390,14 @@ export function makeAuthorizationTracer(graph, anchors) {
         functions: anchors.functions,
       },
       evaluator = makeEvaluator(graph, facts),
-      report = { authorized: [], local: [], violations: [], unresolved: [], decisionKinds: new Set() },
+      report = {
+        authorized: [],
+        local: [],
+        session: [],
+        violations: [],
+        unresolved: [],
+        decisionKinds: new Set(),
+      },
       memo = new Map(),
       frameKeys = new WeakMap(),
       frameIds = new Map(),
@@ -367,10 +411,16 @@ export function makeAuthorizationTracer(graph, anchors) {
       local: false,
       consumed: false,
       tainted: new Set(),
+      sessioned: new Set(),
       refusals: new Set(),
       decisionKind: null,
     });
-    const clone = (state) => ({ ...state, tainted: new Set(state.tainted), refusals: new Set(state.refusals) });
+    const clone = (state) => ({
+      ...state,
+      tainted: new Set(state.tainted),
+      sessioned: new Set(state.sessioned),
+      refusals: new Set(state.refusals),
+    });
     // Calls whose result is non-null exactly when the request is not local (a refusal value).
     const refusalCalls = new WeakSet();
     const join = (left, right) => {
@@ -384,6 +434,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         // Spent on some path: what is still pending after the meeting point is the unspent rest.
         consumed: live.some((state) => state.consumed),
         tainted: new Set([...left.tainted, ...right.tainted]),
+        sessioned: new Set([...left.sessioned, ...right.sessioned]),
         refusals: new Set([...left.refusals].filter((declaration) => right.refusals.has(declaration))),
         decisionKind: live.every((state) => sameSubject(state.decisionKind, live[0].decisionKind))
           ? live[0].decisionKind
@@ -578,6 +629,38 @@ export function makeAuthorizationTracer(graph, anchors) {
         : null;
     }
 
+    // A value is the acting person's own session when it comes from the kernel session member on
+    // this path: its result, a field of it, or a choice whose every live side is one of those.
+    function sessionDerived(expression, env, state) {
+      const node = unwrap(expression);
+      if (!node) return false;
+      if (ts.isIdentifier(node)) {
+        const binding = graph.lookup(node.text, node);
+        return Boolean(binding?.declaration && state.sessioned.has(binding.declaration));
+      }
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
+        return sessionDerived(node.expression, env, state);
+      if (ts.isConditionalExpression(node)) {
+        const folded = evaluator.fold(node.condition, env);
+        return folded
+          ? sessionDerived(folded.value ? node.whenTrue : node.whenFalse, env, state)
+          : sessionDerived(node.whenTrue, env, state) && sessionDerived(node.whenFalse, env, state);
+      }
+      return (
+        ts.isCallExpression(node) &&
+        (isSessionCall(node) ||
+          evaluator.evaluate(unwrap(node.expression), env).some((value) => value.fn && returnsSession(value.node, 0)))
+      );
+    }
+
+    function ownSessionEffect(call, env, state) {
+      const session = call.arguments.map((argument) => sessionDerived(argument, env, state));
+      return (
+        session.some(Boolean) &&
+        call.arguments.some((argument, index) => !session[index] && carriesRoute(argument, env))
+      );
+    }
+
     function visit(expression, env, state) {
       const node = unwrap(expression);
       if (!node || isFunctionNode(node) || !state.alive) return;
@@ -671,6 +754,17 @@ export function makeAuthorizationTracer(graph, anchors) {
       const functions = values.filter((value) => value.fn);
       if (state.authorized && node.arguments.some((argument) => spends(argument, state.tainted, 0)))
         state.consumed = true;
+      // A declared own-session route hands the effect the request and, as a separate input, the
+      // signed-in person it acts for: the identity comes from the session, not from the request.
+      if (
+        descriptor.ownSession &&
+        functions.length > 0 &&
+        !state.sessionReported &&
+        ownSessionEffect(node, env, state)
+      ) {
+        state.sessionReported = true;
+        report.session.push(`${where(node)}: the signed-in person's own session flows into the effect`);
+      }
       // A declared local-transport route continues past its transport guard into resolved code.
       if (descriptor.localTransport && state.local && functions.length > 0 && !state.localReported) {
         state.localReported = true;
@@ -806,6 +900,8 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (!declaration.initializer) continue;
           visit(declaration.initializer, env, state);
           if (refusalCalls.has(unwrap(declaration.initializer))) state.refusals.add(declaration);
+          if (descriptor.ownSession && sessionDerived(declaration.initializer, env, state))
+            state.sessioned.add(declaration);
           if (derived(declaration.initializer, state.tainted)) {
             state.tainted.add(declaration);
             const call = producerCallIn(declaration.initializer, env);
@@ -953,7 +1049,7 @@ export function makeAuthorizationTracer(graph, anchors) {
     }
 
     function signature(value, env, state) {
-      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.local ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
+      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
     }
 
     function internFrame(env, value) {

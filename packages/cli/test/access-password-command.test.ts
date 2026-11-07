@@ -19,21 +19,21 @@ test("access password commands accept only a file path or redirected stdin refer
   if (fromFile.ok)
     assert.deepEqual(fromFile.command.action, {
       kind: "access-password-change",
-      operation: "password-change",
+      operation: "access-password-change",
       passwordFile: path.resolve("/workspace", "secrets/new-password.txt"),
     });
   assert.equal(fromStdin.ok, true, JSON.stringify(fromStdin));
   if (fromStdin.ok)
     assert.deepEqual(fromStdin.command.action, {
       kind: "access-password-change",
-      operation: "password-change",
+      operation: "access-password-change",
       passwordStdin: true,
     });
   assert.equal(reset.ok, true, JSON.stringify(reset));
   if (reset.ok)
     assert.deepEqual(reset.command.action, {
       kind: "access-password-reset",
-      operation: "password-reset",
+      operation: "access-password-reset",
       personId: "person-target",
       passwordFile: path.resolve("/workspace", "reset.txt"),
     });
