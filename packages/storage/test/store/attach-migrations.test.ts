@@ -293,8 +293,14 @@ test("dispatch lifecycle attach imports unfinished legacy groups with all attemp
   assert.equal(imported.phase, "settling");
   assert.equal(imported.ownerFenceVerified, false);
   assert.equal(imported.attempts.length, 2);
-  assert.equal(imported.attempts[0].phase, "closed");
-  assert.equal(imported.attempts[0].capacity, "released");
+  assert.equal(imported.attempts[0].phase, "settling");
+  assert.equal(imported.attempts[0].stopProof, "unproven");
+  assert.equal(imported.attempts[0].capacity, "held");
+  assert.deepEqual(imported.attempts[0].taskLease, {
+    taskId: "task-legacy",
+    executionId: "execution-legacy",
+    version: 7,
+  });
   assert.equal(imported.attempts[1].phase, "starting");
   assert.equal(imported.attempts[1].capacity, "held");
   assert.deepEqual(imported.attempts[1].taskLease, {
@@ -306,6 +312,52 @@ test("dispatch lifecycle attach imports unfinished legacy groups with all attemp
   const second = applyAttachMigrations({ store, now: () => "2026-11-08T00:00:01.000Z" });
   assert.deepEqual(second.applied, []);
   assert.equal(events.filter((event) => event.type === "runtime_dispatch_lifecycle_observed").length, 1);
+});
+
+test("dispatch lifecycle migration releases a historical attempt only with an exit observation", () => {
+  const request = (revision: number, dispatchId: string, sessionId: string, attemptIndex: number) =>
+      ({
+        ...envelope(
+          "agent-runtime-event/v1",
+          {
+            dispatchId,
+            runtimeSessionId: sessionId,
+            instanceId: "instance-legacy",
+            installationId: "installation-legacy",
+            kindId: "codex",
+            dispatchKey: `legacy-${dispatchId}`,
+            definitionSnapshotRef: "artifact:runtime-definition/legacy",
+            definitionSnapshot: {},
+            attemptGroupId: "group-with-exit",
+            attemptIndex,
+            taskId: "task-legacy",
+            executionId: "execution-legacy",
+            leaseVersion: 7,
+            cwd: "/repo/workspace",
+          },
+          `legacy-exit-request-${revision}`,
+          revision,
+        ),
+        type: "runtime_dispatch_requested",
+      }) as unknown as PersistedCanonicalEventV1,
+    exited = {
+      ...envelope("agent-runtime-event/v1", { runtimeSessionId: "session-exited" }, "legacy-exited", 2),
+      type: "runtime_session_exited",
+    } as unknown as PersistedCanonicalEventV1,
+    { store, events } = canonicalDispatchFakeStore([
+      request(1, "dispatch-exited", "session-exited", 0),
+      exited,
+      request(3, "dispatch-current", "session-current", 1),
+    ]);
+
+  applyAttachMigrations({ store, now: () => "2026-11-08T00:00:00.000Z" });
+  const lifecycle = events.find((event) => event.type === "runtime_dispatch_lifecycle_observed");
+  assert.ok(lifecycle);
+  const imported = (lifecycle.payload as { readonly lifecycle: { readonly group: Record<string, unknown> } }).lifecycle
+    .group as { readonly attempts: readonly Record<string, unknown>[] };
+  assert.equal(imported.attempts[0]?.phase, "closed");
+  assert.equal(imported.attempts[0]?.stopProof, "proven_stopped");
+  assert.equal(imported.attempts[0]?.capacity, "released");
 });
 
 test("dispatch lifecycle migration uses the indexed candidate cut instead of scanning queryEvents", () => {
