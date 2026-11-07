@@ -10,6 +10,7 @@ import {
   judgeCompletionEvidence,
   type CompletionEvidenceJudgment,
   deriveTaskRoot,
+  documentWorkspacePath,
   hasCloseoutEvidence,
   isTaskEvent,
   repositorySettings,
@@ -253,6 +254,7 @@ export function taskShowFromProjection(
           }
         : null,
       packagePath: read.packagePath,
+      ...(read.packagePath === null ? {} : { workspacePackagePath: documentWorkspacePath(rootDir, read.packagePath) }),
       workspace,
       // Settings `worktree.setup` is what runs in the worktree; what already succeeded there is readable only on
       // the node that holds the checkout, so without one here it is null (unknown), not guessed.

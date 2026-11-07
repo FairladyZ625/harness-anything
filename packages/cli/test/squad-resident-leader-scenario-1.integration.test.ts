@@ -122,7 +122,7 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
     ]),
     residentPackage = String(residentTask.packagePath);
   published(root, env, residentTask);
-  writeFileSync(path.join(root, "harness", residentPackage, "task_plan.md"), realizedPlan("Resident Squad"));
+  writeFileSync(path.join(root, residentPackage, "task_plan.md"), realizedPlan("Resident Squad"));
   run(root, env, ["doc", "sync", "--submit", "--path", `${residentPackage}/task_plan.md`]);
   mkdirSync(path.join(root, "squadwork"));
 
@@ -224,7 +224,7 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
 
   run(root, env, ["daemon", "stop"]);
   const synthesisBody = "# Squad synthesis\n\nWorker receipts verified.\n",
-    synthesisPath = `${residentPackage}/artifacts/reports/${String(started.squadRunId)}.md`,
+    synthesisPath = `${residentPackage.replace(/^harness\//u, "")}/artifacts/reports/${String(started.squadRunId)}.md`,
     synthesisEvent = makeTaskEventStore({ repoId: "squad-resident", rootDir: root })
       .read()
       .events.findLast(
@@ -381,7 +381,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     const created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", title]),
       packagePath = String(created.packagePath);
     published(root, env, created);
-    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan(title));
+    writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan(title));
     run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
   }
 
@@ -613,7 +613,7 @@ test(
     assert.equal(placeholderPlan.status, 1, JSON.stringify(placeholderPlan));
     assert.equal(placeholderPlan.receipt.code, "plan_placeholder");
     const apiPackage = String(apiTask.packagePath);
-    writeFileSync(path.join(root, "harness", apiPackage, "task_plan.md"), realizedPlan("Squad API run"));
+    writeFileSync(path.join(root, apiPackage, "task_plan.md"), realizedPlan("Squad API run"));
     run(root, env, ["doc", "sync", "--submit", "--path", `${apiPackage}/task_plan.md`]);
     const started = run(root, env, [
       "squad",

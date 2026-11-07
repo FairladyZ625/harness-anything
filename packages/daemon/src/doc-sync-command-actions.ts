@@ -4,6 +4,7 @@ import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kern
 import { ledgerGitPath, localGitWorktreeSettlement, findCanonicalLedgerGitLayout } from "@harness-anything/storage";
 import {
   classifyRawArtifactPath,
+  resolveWorkspaceDocumentPath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
@@ -23,7 +24,7 @@ import {
   type WriteSource,
 } from "@harness-anything/kernel";
 import { nodeIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
-import { intentFromScan, normalizeSelectedDocPath, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
+import { intentFromScan, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import { claimBytes, directPaths } from "./doc-sync-details.ts";
 import {
@@ -48,6 +49,7 @@ import {
   noOp,
   scanDetail,
   scanRejectionSummary,
+  workspacePathOf,
   scannerSettlement,
   scopeRequiredRejection,
 } from "./doc-sync-settlement.ts";
@@ -77,6 +79,11 @@ export type Input = {
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly authoredCandidateInventory?: AuthoredCandidateInventoryV1;
   readonly runtimeArchive?: RuntimeArchiveWriteScope;
+  /**
+   * The caller typed workspace-relative paths at the CLI boundary. Only then may a receipt print
+   * the workspace spelling; daemon-internal callers keep the ledger's canonical authored keys.
+   */
+  readonly workspaceCoordinate?: boolean;
 };
 
 export type DocSettlementReceipt = WriteReceipt & {
@@ -118,10 +125,25 @@ function requireOwnTaskDocSelection(input: Input): void {
   }
   const paths = selectedDocPaths(action);
   if (paths === null) return;
-  requireExecutionDocumentSelection(principal, paths, (value) => {
-    const logicalPath = normalizeSelectedDocPath(input.rootDir, value);
-    return { path: logicalPath, taskId: input.projection.taskIdForDocumentPath(logicalPath) };
-  });
+  // A task's declared surfaces are workspace-relative grants written next to the plan; path
+  // selections arrive here already translated to the authored key.
+  requireExecutionDocumentSelection(
+    {
+      ...principal,
+      surfaces: (principal.surfaces ?? []).map((surface) => authoredSurface(input.rootDir, surface)),
+    },
+    paths,
+    (value) => {
+      const logicalPath = documentPath(value);
+      return { path: logicalPath, taskId: input.projection.taskIdForDocumentPath(logicalPath) };
+    },
+  );
+}
+
+/** The workspace spelling of a declared surface grant, translated to the authored key. */
+export function authoredSurface(rootDir: string, surface: string): string {
+  const prefix = path.relative(rootDir, resolveHarnessLayout(rootDir).authoredRoot).split(path.sep).join("/");
+  return prefix && surface.startsWith(`${prefix}/`) ? surface.slice(prefix.length + 1) : surface;
 }
 
 /**
@@ -158,16 +180,44 @@ function singleSelectedTask(input: Input): string | null {
   if (!Array.isArray(action.paths) || action.paths.length === 0) return null;
   const owners = new Set(
     action.paths.map((value) =>
-      typeof value === "string"
-        ? input.projection.taskIdForDocumentPath(normalizeSelectedDocPath(input.rootDir, value))
-        : null,
+      typeof value === "string" ? input.projection.taskIdForDocumentPath(documentPath(value)) : null,
     ),
   );
   const [only] = owners;
   return owners.size === 1 && only !== null ? only : null;
 }
 
-export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
+/**
+ * CLI-typed document paths are workspace-relative and carry an explicit coordinate marker. Translate
+ * them once here and drop the marker before any doc action reads the action; daemon-internal callers
+ * pass authored keys without the marker and keep their canonical coordinate.
+ */
+function withWorkspaceDocumentPaths(input: Input): Input {
+  const action = input.action;
+  if (action.pathCoordinate !== "workspace") return input;
+  const { pathCoordinate: _pathCoordinate, ...authoredAction } = action,
+    toAuthored = (value: string): string => {
+      const resolved = resolveWorkspaceDocumentPath(input.rootDir, value);
+      if (!resolved.ok) throw docSyncError("invalid_field", resolved.reason);
+      return resolved.documentPath;
+    };
+  if (Array.isArray(authoredAction.paths) && authoredAction.paths.every((value) => typeof value === "string"))
+    return {
+      ...input,
+      workspaceCoordinate: true,
+      action: { ...authoredAction, paths: (authoredAction.paths as readonly string[]).map(toAuthored) },
+    };
+  if (typeof authoredAction.path === "string")
+    return {
+      ...input,
+      workspaceCoordinate: true,
+      action: { ...authoredAction, path: toAuthored(authoredAction.path) },
+    };
+  return { ...input, workspaceCoordinate: true, action: authoredAction };
+}
+
+export function runDocAction(rawInput: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
+  const input = withWorkspaceDocumentPaths(rawInput);
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
@@ -222,7 +272,10 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
           "skipped:",
           ...scan.rows
             .filter((row) => row.state === "conflict")
-            .map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`),
+            .map(
+              (row) =>
+                `${workspacePathOf(input)(row.path)}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`,
+            ),
         ].join("\n"),
       };
     }
@@ -234,14 +287,14 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
         "base_blob_changed",
         scanDetail(input, scan, "base_blob_changed"),
       ),
-      { summary: scanRejectionSummary("base_blob_changed", scan) },
+      { summary: scanRejectionSummary("base_blob_changed", scan, workspacePathOf(input)) },
     );
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
     const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")
       ? Object.assign(rejectDocSyncAction(scanCommandId(input, scan), code ?? "preview_blocked", blocked), {
-          summary: scanRejectionSummary(code ?? "preview_blocked", scan),
+          summary: scanRejectionSummary(code ?? "preview_blocked", scan, workspacePathOf(input)),
         })
       : acceptWorktreeBases(scanInput, scan, noOp(input, scan));
   }
@@ -393,11 +446,7 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
   const reason = requiredDocSyncText(input.action.reason, "reason").trim();
   let targets: ReturnType<typeof documentPath>[];
   try {
-    // Same spelling rule as doc status/sync selections: a repo-relative harness/… path and the
-    // ledger-prefixed form both name the same canonical document.
-    targets = (rawPaths as readonly string[]).map((item) =>
-      documentPath(normalizeSelectedDocPath(input.rootDir, requiredDocSyncText(item, "path"))),
-    );
+    targets = (rawPaths as readonly string[]).map((item) => documentPath(requiredDocSyncText(item, "path")));
   } catch {
     throw docSyncError("invalid_command", "doc retire requires valid doc-sync paths");
   }
@@ -458,8 +507,18 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     throw docSyncError("invalid_command", "task artifact add requires exactly one of source or content");
   if (inline !== undefined && Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "inline task artifact exceeds the command frame limit");
-  if (inline !== undefined)
-    return publishTaskArtifactBytes(input, taskArtifactTarget(input, taskId, destinationValue), Buffer.from(inline));
+  if (inline !== undefined) {
+    const receipt = publishTaskArtifactBytes(
+      input,
+      taskArtifactTarget(input, taskId, destinationValue),
+      Buffer.from(inline),
+    );
+    // The source branch below already prints the workspace spelling; the inline content branch must
+    // print the same coordinate, or the same command returns two different path shapes.
+    return (receipt.outcome === "applied" || receipt.outcome === "pending") && typeof receipt.destination === "string"
+      ? { ...receipt, destination: workspacePathOf(input)(receipt.destination) }
+      : receipt;
+  }
   const source = artifactSource(input, requiredDocSyncText(sourceValue, "source")),
     target = taskArtifactTarget(input, taskId, destinationValue, source.absolute);
   // Size is settled from the file, not from a buffer: a source past the blob contract is refused
@@ -471,7 +530,11 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     );
   const receipt = publishTaskArtifactBytes(input, target, readFileSync(source.absolute));
   return receipt.outcome === "applied" || receipt.outcome === "pending"
-    ? { ...receipt, source: source.relative, destination: target.destination }
+    ? {
+        ...receipt,
+        source: source.relative,
+        destination: workspacePathOf(input)(target.destination),
+      }
     : receipt;
 }
 
@@ -568,7 +631,7 @@ function publishTaskArtifactBytes(
   if (projectedEdit || (tracked && gitModified(ledgerRootDir, gitTarget)))
     throw docSyncError(
       "artifact_tracked_edit",
-      `destination is a tracked edit; use ha doc sync --submit --path ${destination}`,
+      `destination is a tracked edit; use ha doc sync --submit --path ${workspacePathOf(input)(destination)}`,
     );
   if (tracked || (existsSync(authoredTarget) && !sameUntrackedSource) || projected.document !== null) {
     const sha = sha256Bytes(content),
@@ -590,7 +653,7 @@ function publishTaskArtifactBytes(
     throw docSyncError(
       "artifact_collision",
       `artifact destination already exists: ${destination}; the published copy ${authored} is the source of truth. ` +
-        `Edit it in place, then update it with ha doc sync --submit --path ${destination}`,
+        `Edit it in place, then update it with ha doc sync --submit --path ${workspacePathOf(input)(destination)}`,
     );
   }
   if (projected.watermark !== projected.sourceRevision)

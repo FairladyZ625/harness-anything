@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import {
@@ -8,6 +7,7 @@ import {
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 
 export async function fleetScheduleRoute(
   command: ThinCommand,
@@ -208,7 +208,7 @@ export async function fleetTaskRoute(
         code: "invalid_field",
       });
     try {
-      action.plan = readFileSync(path.isAbsolute(planFile) ? planFile : path.join(command.rootDir, planFile), "utf8");
+      action.plan = readWorkspaceTextFile(command.rootDir, planFile, "--plan-file");
     } catch (error) {
       throw Object.assign(
         new Error(`--plan-file ${planFile} could not be read on this edge: ${cliErrorMessage(error)}`),
@@ -219,9 +219,9 @@ export async function fleetTaskRoute(
     }
   }
   // Source files belong to the addressed edge; only decoded authored values cross TLS.
-  if (typeof bodyFile === "string") action.body = readFileSync(path.resolve(command.rootDir, bodyFile), "utf8");
+  if (typeof bodyFile === "string") action.body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
   if (typeof idsFile === "string")
-    action.factIds = readFileSync(path.resolve(command.rootDir, idsFile), "utf8")
+    action.factIds = readWorkspaceTextFile(command.rootDir, idsFile, "--ids-file")
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith("#"));
@@ -242,16 +242,14 @@ export async function fleetTaskRoute(
     action,
   };
   if (typeof fromFile === "string" || typeof jsonInput === "string") {
-    const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input",
-      file =
-        typeof fromFile === "string"
-          ? path.isAbsolute(fromFile)
-            ? fromFile
-            : path.join(command.rootDir, fromFile)
-          : null;
+    const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input";
     let packet: unknown;
     try {
-      packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput));
+      packet = JSON.parse(
+        typeof fromFile === "string"
+          ? readWorkspaceTextFile(command.rootDir, fromFile, "--from-file")
+          : String(jsonInput),
+      );
     } catch (error) {
       throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${cliErrorMessage(error)}`), {
         code: "invalid_field",

@@ -66,8 +66,8 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
   };
 
   assert.equal(probe.cwd, worktree, "the worker process runs in its task worktree");
-  assert.equal(probe.packageRoot, path.join(worktree, "harness", task.packagePath));
-  assert.equal(probe.plan, readFileSync(path.join(root, "harness", task.packagePath, "task_plan.md"), "utf8"));
+  assert.equal(probe.packageRoot, path.join(worktree, task.packagePath));
+  assert.equal(probe.plan, readFileSync(path.join(root, task.packagePath, "task_plan.md"), "utf8"));
   assert.equal(probe.shown.status, 0, probe.shown.stdout + probe.shown.stderr);
   assert.ok(probe.shown.stdout.includes(task.taskId), probe.shown.stdout);
   assert.match(probe.prompt, new RegExp(`^Worker repository root: ${escapeRegExp(worktree)}$`, "mu"));
@@ -85,7 +85,7 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
   );
   // Static entry files may retain canonical ledger references for owner guidance. Runtime path consumers receive
   // worker-local paths above; the only ledger content materialized in the checkout is this task's package.
-  assert.equal(existsSync(path.join(worktree, "harness", task.packagePath, "task_plan.md")), true);
+  assert.equal(existsSync(path.join(worktree, task.packagePath, "task_plan.md")), true);
   // The link is invisible to git in the worktree, and nothing was written into the canonical checkout's source.
   assert.equal(git(worktree, "status", "--short"), "");
   assert.equal(git(root, "diff", "--name-only"), "");

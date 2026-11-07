@@ -24,6 +24,7 @@ import {
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { materializeArtifactSource } from "../cli-artifact-source.ts";
 import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetDocRoute, fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
@@ -518,8 +519,9 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
 
 function materializeTaskPrBody(command: ThinCommand): ThinCommand {
   if (command.action.kind !== "task-push" || typeof command.action.bodyFile !== "string") return command;
-  const { bodyFile, ...action } = command.action;
-  return { ...command, action: { ...action, body: readFileSync(path.resolve(command.rootDir, bodyFile), "utf8") } };
+  const { bodyFile, ...action } = command.action,
+    body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
+  return { ...command, action: { ...action, body } };
 }
 
 function materializeScheduleMission(command: ThinCommand): ThinCommand {
@@ -528,14 +530,9 @@ function materializeScheduleMission(command: ThinCommand): ThinCommand {
     typeof command.action.missionFile !== "string"
   )
     return command;
-  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
-    relative = path.relative(command.rootDir, missionPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
-      code: "invalid_field",
-    });
-  const { missionFile: _missionFile, ...action } = command.action;
-  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
+  const { missionFile, ...action } = command.action,
+    mission = readWorkspaceTextFile(command.rootDir, missionFile, "--mission-file");
+  return { ...command, action: { ...action, mission } };
 }
 
 async function settleRepoWarming(

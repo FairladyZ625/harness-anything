@@ -52,6 +52,7 @@ const settingsWriteTopology = {
       false,
       { code: "invalid_field" },
       {
+        pathKind: "non-path",
         field: input.field,
         description: input.description,
         effect: input.effect,
@@ -114,11 +115,17 @@ const settingsWriteTopology = {
           {
             code: "invalid_field",
           },
-          { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" as const },
+          { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" as const },
         ),
-        cliInput("--idempotency-key", "single", false, {
-          code: "invalid_field",
-        }),
+        cliInput(
+          "--idempotency-key",
+          "single",
+          false,
+          {
+            code: "invalid_field",
+          },
+          { pathKind: "non-path" },
+        ),
       ],
       inputGroups: settingsInputGroups,
       ...settingsWriteTopology,

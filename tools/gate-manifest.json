@@ -61,6 +61,7 @@
         "check-cli-structure",
         "check-cli-help-contract",
         "check-cli-error-codes",
+        "check-cli-path-contract",
         "check-error-classification",
         "check-entity-doc-contract",
         "check-format",
@@ -115,6 +116,7 @@
         "check-cli-structure",
         "check-cli-help-contract",
         "check-cli-error-codes",
+        "check-cli-path-contract",
         "check-error-classification",
         "check-entity-doc-contract",
         "check-format",
@@ -1425,6 +1427,71 @@
       },
       "deterministic": true,
       "positiveControl": { "status": "covered", "evidence": ["tools/check-format.test.mjs"] }
+    },
+    {
+      "id": "check-cli-path-contract",
+      "command": "npm run harness:check-cli-path-contract",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "packages/cli/src/**",
+        "packages/daemon/src/**",
+        "packages/kernel/src/layout/**",
+        "packages/preset/src/**",
+        "tools/check-cli-path-contract.mjs",
+        "tools/gates/test/cli-path-contract.test.mjs"
+      ],
+      "authoritySource": [
+        "decision/dec_ABECABC8044E25C24591AE4216#CH1",
+        "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+        "packages/cli/src/cli/thin-command-doc.ts"
+      ],
+      "consumerScope": [
+        "every registered CLI path input and its coordinate",
+        "every write command that accepts a document selection"
+      ],
+      "githubContext": {
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "adrOrDecisionRequired": true,
+        "notes": "The gate derives its command list from the registry; there is no allowlist to keep green."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-path-contract.mjs",
+          "package.json:scripts.harness:check-cli-path-contract",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-path-contract"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["boundaries"]
+        },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/cli-path-contract.test.mjs"]
+      }
     },
     {
       "id": "check-cli-structure",

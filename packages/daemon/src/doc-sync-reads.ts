@@ -11,6 +11,7 @@ import {
   canonicalEventCut,
   classifyRawArtifactPath,
   documentPath,
+  documentWorkspacePath,
   RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
   resolveDocRoute,
@@ -323,7 +324,12 @@ export function readAction(input: Input): WriteReceipt {
 }
 
 export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1): DocSettlementReceipt {
-  const retirement = event.payload.retirementReason === undefined ? null : event.payload.changes,
+  // Only a CLI-typed selection prints the workspace spelling; an internal read keeps the authored key.
+  const workspacePath =
+      input.workspaceCoordinate === true
+        ? (document: string) => documentWorkspacePath(input.rootDir, document)
+        : (document: string) => document,
+    retirement = event.payload.retirementReason === undefined ? null : event.payload.changes,
     reads = event.payload.changes.map((change) => input.projection.readDocument(change.path)),
     canonicalVisible = reads.every((read, index) => {
       const candidate = event.payload.changes[index]!.candidate;
@@ -345,7 +351,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
     baseLedgerSha: event.payload.baseLedgerSha,
     currentLedgerSha: current,
     paths: event.payload.changes.map((change, index) => ({
-      path: change.path,
+      path: workspacePath(change.path),
       baseBlobSha256: change.baseBlobSha256,
       currentBlobSha256: reads[index]?.document?.blobSha256 ?? null,
       candidateBlobSha256: change.candidate?.sha256 ?? null,
@@ -357,7 +363,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
       retirement === null
         ? []
         : retirement.map((change) => ({
-            path: change.path,
+            path: workspacePath(change.path),
             baseBlobSha256: change.baseBlobSha256!,
             source: "intent" as const,
           })),
@@ -368,7 +374,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
         : {
             schema: "doc-retirement-receipt/v1",
             retirements: retirement.map((change) => ({
-              path: change.path,
+              path: workspacePath(change.path),
               baseBlobSha256: change.baseBlobSha256!,
             })),
             reason: event.payload.retirementReason,

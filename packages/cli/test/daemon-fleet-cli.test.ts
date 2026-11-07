@@ -74,7 +74,7 @@ test(
       assert.equal(created.outcome, "applied");
       published(fixture, "center", created);
       const planPath = `${String(created.packagePath)}/task_plan.md`;
-      writeFileSync(path.join(fixture.repo, "harness", planPath), realizedTaskPlan("Fleet"));
+      writeFileSync(path.join(fixture.repo, planPath), realizedTaskPlan("Fleet"));
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
       assert.equal(
         run(fixture, "center", ["task", "start", "task-fleet", "--execution-id", "exec-fleet"]).outcome,
@@ -373,7 +373,7 @@ test(
       assert.equal(edgeCreated.outcome, "applied", JSON.stringify(edgeCreated));
       published(fixture, "center", edgeCreated);
       assert.equal(
-        readFileSync(path.join(fixture.repo, "harness", String(edgeCreated.packagePath), "task_plan.md"), "utf8"),
+        readFileSync(path.join(fixture.repo, String(edgeCreated.packagePath), "task_plan.md"), "utf8"),
         edgePlan,
         "the edge-authored 950-character plan body lands at the center byte-for-byte",
       );
@@ -452,7 +452,7 @@ test(
       const created = run(fixture, "center", ["task", "create", "--id", "task-fleet", "--admin", "--title", "Fleet"]);
       published(fixture, "center", created);
       const planPath = `${String(created.packagePath)}/task_plan.md`;
-      writeFileSync(path.join(fixture.repo, "harness", planPath), realizedTaskPlan("Fleet"));
+      writeFileSync(path.join(fixture.repo, planPath), realizedTaskPlan("Fleet"));
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
       const center = run(fixture, "center", [
           "daemon",
@@ -575,7 +575,7 @@ test(
       // What the operator is told to do differs with the cause: a grant, not another credential.
       assert.match(String(ungranted.receipt.rejectionExplanation), /grant the node's owner/u);
       assert.doesNotMatch(String(ungranted.receipt.rejectionExplanation), /credential/u);
-      assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", planPath)), false, "nothing was mirrored");
+      assert.equal(existsSync(path.join(fixture.edgeRepo, planPath)), false, "nothing was mirrored");
 
       // 4. With repository-read granted the same command completes the first sync, no center restart in between.
       await realm.control({
@@ -622,8 +622,8 @@ test(
       assert.equal(first.status, 0, JSON.stringify(first.receipt));
       assert.equal(first.receipt.viewId, "edge-one");
       assert.equal(
-        readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
-        readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
+        readFileSync(path.join(fixture.edgeRepo, planPath), "utf8"),
+        readFileSync(path.join(fixture.repo, planPath), "utf8"),
         "the first sync materializes the center ledger in the clean workspace",
       );
       // Mirroring is reading: the one repository-read grant admits both the sync and the reads.

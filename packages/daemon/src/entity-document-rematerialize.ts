@@ -115,7 +115,13 @@ export function runEntityDocumentRematerialize(
       changedCount: updates.length,
       unchangedCount: targets.reduce((count, target) => count + target.unchangedPaths.length, 0),
       conflictCount: targets.reduce((count, target) => count + target.conflictPaths.length, 0),
-      targets: targets.map(({ updates: _updates, ...target }) => target),
+      targets: targets.map(({ updates: _updates, ...target }) => ({
+        ...target,
+        paths: target.paths,
+        changedPaths: target.changedPaths,
+        unchangedPaths: target.unchangedPaths,
+        conflictPaths: target.conflictPaths,
+      })),
     };
   if (updates.length === 0)
     return {

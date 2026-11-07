@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -187,7 +186,7 @@ function declarationFrom(
   let text = inline;
   if (fromFile !== undefined) {
     try {
-      text = readFileSync(path.resolve(rootDir, fromFile), "utf8");
+      text = readWorkspaceTextFile(rootDir, fromFile, "--from-file");
     } catch (error) {
       return {
         failure: rejected(
