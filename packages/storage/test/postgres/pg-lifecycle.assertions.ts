@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import type { TaskProjection } from "@harness-anything/kernel";
+import type { AgentRuntimeEventV1, DispatchLifecycleEvent } from "@harness-anything/kernel";
+import { canonicalEventWritePlan } from "@harness-anything/kernel";
 import { closeoutReadiness } from "@harness-anything/kernel/internal/domain/closeout-readiness.ts";
 import { taskBoardPlacement } from "@harness-anything/kernel/internal/domain/task-board-projection.ts";
 import { compileCompletionGateWitness } from "@harness-anything/kernel/internal/domain/completion-gate-publication.ts";
@@ -102,4 +104,124 @@ export async function assertLifecycleParity(
     closeoutReadiness: closeoutReadiness(value).readiness,
   });
   assert.deepEqual(taskBoardPlacement(boardInput(snapshot)), taskBoardPlacement(boardInput(oracle)));
+}
+
+export async function appendDispatchLifecycleFixtures(
+  append: (bundle: CanonicalWriteBundle) => Promise<void>,
+  revision: () => number,
+  repoId: string,
+): Promise<void> {
+  const actor = event.actor,
+    fence = { ownerId: "node-lifecycle", epoch: 7 } as const,
+    lifecycle = (
+      type: DispatchLifecycleEvent["type"],
+      overrides: Record<string, unknown> = {},
+    ): DispatchLifecycleEvent =>
+      ({
+        schema: "dispatch-lifecycle-event/v1",
+        source: "center",
+        eventId: `storage-lifecycle-${String(overrides.eventId ?? type)}`,
+        repoId,
+        attemptGroupId: "storage-lifecycle-group",
+        dispatchId: "storage-lifecycle-dispatch",
+        expectedGroupVersion: 0,
+        ownerFence: fence,
+        type,
+        ...(type === "dispatch_admitted"
+          ? {
+              instanceId: "storage-lifecycle-instance",
+              runtimeSessionId: "storage-lifecycle-session",
+              reservationId: "storage-lifecycle-reservation",
+              capacityLimit: 2,
+            }
+          : {}),
+        ...overrides,
+      }) as DispatchLifecycleEvent,
+    appendObservation = async (lifecycleEvent: DispatchLifecycleEvent, eventId: string): Promise<void> => {
+      const value: AgentRuntimeEventV1 = {
+        schema: "agent-runtime-event/v1",
+        eventId,
+        workspaceRevision: revision(),
+        opId: eventId,
+        type: "runtime_dispatch_lifecycle_observed",
+        actor,
+        source: "local",
+        occurredAt: "2026-11-08T00:00:00.000Z",
+        payload: { runtimeSessionId: "storage-lifecycle-session", lifecycle: lifecycleEvent },
+      };
+      await append({ event: value, plan: canonicalEventWritePlan(value, "agent-runtime/v1", eventId), blobs: [] });
+    };
+  await appendObservation(lifecycle("dispatch_admitted"), "storage-lifecycle-admitted");
+  await appendObservation(
+    lifecycle("process_started", { eventId: "started", expectedGroupVersion: 1 }),
+    "storage-lifecycle-started",
+  );
+  await appendObservation(
+    lifecycle("process_exit", { eventId: "exit", expectedGroupVersion: 2 }),
+    "storage-lifecycle-exit",
+  );
+  await appendObservation(
+    lifecycle("process_stop_proven", {
+      eventId: "stopped",
+      expectedGroupVersion: 3,
+      proof: "proven_stopped",
+    }),
+    "storage-lifecycle-stopped",
+  );
+  await appendObservation(
+    lifecycle("settlement_committed", {
+      eventId: "closed",
+      expectedGroupVersion: 4,
+      outcome: "succeeded",
+    }),
+    "storage-lifecycle-closed",
+  );
+  await appendObservation(
+    lifecycle("dispatch_admitted", {
+      eventId: "active-admitted",
+      attemptGroupId: "storage-lifecycle-active-group",
+      dispatchId: "storage-lifecycle-active-dispatch",
+      runtimeSessionId: "storage-lifecycle-active-session",
+      reservationId: "storage-lifecycle-active-reservation",
+      instanceId: "storage-lifecycle-active-instance",
+    }),
+    "storage-lifecycle-active-admitted",
+  );
+}
+
+export async function assertDispatchLifecycleParity(
+  source: PgTaskProjectionSource,
+  sqlite: TaskProjection,
+): Promise<void> {
+  const group = await source.readDispatchLifecycle({ by: "group", attemptGroupId: "storage-lifecycle-group" });
+  assert.equal(group.status, "ready");
+  assert.deepEqual(group, sqlite.readDispatchLifecycle!({ by: "group", attemptGroupId: "storage-lifecycle-group" }));
+  assert.deepEqual(
+    await source.readDispatchLifecycle({ by: "dispatch", dispatchIds: ["storage-lifecycle-dispatch"] }),
+    sqlite.readDispatchLifecycle!({ by: "dispatch", dispatchIds: ["storage-lifecycle-dispatch"] }),
+  );
+  assert.deepEqual(
+    await source.readDispatchLifecycle({ by: "session", runtimeSessionId: "storage-lifecycle-active-session" }),
+    sqlite.readDispatchLifecycle!({ by: "session", runtimeSessionId: "storage-lifecycle-active-session" }),
+  );
+  const page = await source.readDispatchLifecycle({ by: "active", limit: 1 });
+  assert.deepEqual(page, sqlite.readDispatchLifecycle!({ by: "active", limit: 1 }));
+  assert.equal(page.rows[0]?.dispatchId, "storage-lifecycle-active-dispatch");
+}
+
+export function assertDispatchLifecycleParitySync(source: TaskProjection, sqlite: TaskProjection): void {
+  const group = source.readDispatchLifecycle!({ by: "group", attemptGroupId: "storage-lifecycle-group" });
+  assert.equal(group.status, "ready");
+  assert.deepEqual(group, sqlite.readDispatchLifecycle!({ by: "group", attemptGroupId: "storage-lifecycle-group" }));
+  assert.deepEqual(
+    source.readDispatchLifecycle!({ by: "dispatch", dispatchIds: ["storage-lifecycle-dispatch"] }),
+    sqlite.readDispatchLifecycle!({ by: "dispatch", dispatchIds: ["storage-lifecycle-dispatch"] }),
+  );
+  assert.deepEqual(
+    source.readDispatchLifecycle!({ by: "session", runtimeSessionId: "storage-lifecycle-active-session" }),
+    sqlite.readDispatchLifecycle!({ by: "session", runtimeSessionId: "storage-lifecycle-active-session" }),
+  );
+  const page = source.readDispatchLifecycle!({ by: "active", limit: 1 });
+  assert.deepEqual(page, sqlite.readDispatchLifecycle!({ by: "active", limit: 1 }));
+  assert.equal(page.rows[0]?.dispatchId, "storage-lifecycle-active-dispatch");
 }

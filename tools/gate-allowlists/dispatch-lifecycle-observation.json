@@ -74,18 +74,6 @@
       "symbol": "drain",
       "kind": "runtimePidIsAlive",
       "fingerprint": "95b0837fe9fc98de814b119e10f4b9e0449263f1ca5e4d636771af60fe145b43"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "runtimePidIsAlive",
-      "fingerprint": "3f50d3a92b539f027d5fe6d18b33e84eed534aab9b89e970ae54f97cf7da744f"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "runtimePidIsAlive",
-      "fingerprint": "edefeb998dc2946dea9787474a923777356998d441de8fd9917802890d1604fa"
     }
   ]
 }

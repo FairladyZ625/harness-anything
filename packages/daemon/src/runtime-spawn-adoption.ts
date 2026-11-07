@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, MIGRATION_IMPORT_SOURCE, sameWriteSource } from "@harness-anything/kernel";
+import {
+  DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+  MIGRATION_IMPORT_SOURCE,
+  migrateUnclosedDispatchGroup,
+  sameWriteSource,
+  type DispatchLifecycleAttempt,
+  type DispatchLifecycleGroup,
+  type DispatchGroupPhase,
+} from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -51,6 +59,7 @@ export async function adoptRuntimes(
   onProgress?: (completed: number) => void,
   options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
+  await migrateLegacyDispatchGroups(context);
   // Canonical settlement can precede a crash before the local archive rename. Recover
   // unsettled sessions plus live streams, never the repository's archived session history.
   // A node scopes its scan to dispatches whose canonical source names it, so another node's
@@ -166,6 +175,110 @@ export async function adoptRuntimes(
       return entry.promise;
     });
   return Promise.all(attempts);
+}
+
+/** Import legacy dispatch streams once at center startup before recovery/admission reads capacity. */
+async function migrateLegacyDispatchGroups(context: RuntimeSpawnerContext): Promise<void> {
+  if (context.input.remote) return;
+  const projection = context.requiredRuntimeProjection(context.input),
+    readLifecycle = projection.readDispatchLifecycle,
+    descriptor = context.input.writerEpochFence?.() ?? null;
+  if (!readLifecycle || !descriptor) return;
+  const groups = new Map<string, DispatchStreamHeader[]>();
+  for (const header of readDispatchStreamHeaders(context.input.rootDir, true)) {
+    if (header.executionOwner && header.executionOwner !== "local") continue;
+    const groupId = header.fallbackAttempt?.attemptGroupId ?? header.dispatchId;
+    (groups.get(groupId) ?? (groups.set(groupId, []), groups.get(groupId)!)).push(header);
+  }
+  for (const [attemptGroupId, headers] of groups) {
+    const existing = readLifecycle({ by: "group", attemptGroupId });
+    if (existing.rows.length > 0) continue;
+    const ordered = [...headers].sort(
+        (left, right) =>
+          (left.fallbackAttempt?.attemptIndex ?? 0) - (right.fallbackAttempt?.attemptIndex ?? 0) ||
+          left.dispatchId.localeCompare(right.dispatchId),
+      ),
+      summaries = ordered.map((header) => readDispatchStreamSummary(context.input.rootDir, header.dispatchId)),
+      attempts: DispatchLifecycleAttempt[] = ordered.map((header, index) => {
+        const summary = summaries[index],
+          terminal = summary?.terminalOutcome,
+          process = summary?.process,
+          closed = terminal !== null && terminal !== undefined,
+          current = index === ordered.length - 1,
+          // Legacy terminal summaries establish an attempt result, not process-tree stop proof.
+          // The current attempt stays recoverable only through the fenced center settlement path.
+          phase = current ? "settling" : closed ? "closed" : "settling",
+          stopProof = current ? "unproven" : closed ? "proven_stopped" : "unproven",
+          capacity = current ? "held" : closed ? "released" : "held";
+        return {
+          dispatchId: header.dispatchId,
+          runtimeSessionId: header.runtimeSessionId,
+          instanceId: header.instanceId,
+          phase,
+          process: closed ? (process?.exited ? "exited" : "lost") : process && !process.exited ? "alive" : "lost",
+          stopProof,
+          capacity,
+          reservationId: header.dispatchId,
+          outcome: closed ? terminal!.payload.outcome : null,
+          taskLease:
+            header.taskId && header.executionId
+              ? { taskId: header.taskId, executionId: header.executionId, version: header.leaseVersion ?? 0 }
+              : null,
+          workspaceRef: header.cwd ?? null,
+        };
+      }),
+      current = attempts.at(-1)!,
+      latest = summaries.at(-1),
+      fallback = latest?.fallbackState === "scheduled" ? latest.fallbackSchedule : null,
+      hasUnclosedAttempt = attempts.some((attempt) => attempt.phase !== "closed"),
+      hasUnclosedGroup =
+        hasUnclosedAttempt ||
+        fallback !== null ||
+        latest?.terminalOutcome?.payload.attempt?.classification === "awaiting_ruling";
+    if (!hasUnclosedGroup) continue;
+    const phase: Exclude<DispatchGroupPhase, "closed"> = "settling",
+      group: DispatchLifecycleGroup = {
+        repoId: context.input.repoId,
+        attemptGroupId,
+        phase,
+        ownerFence: null,
+        ownerFenceVerified: false,
+        version: 1,
+        currentDispatchId: current.dispatchId,
+        successorDispatchId: latest?.nextDispatchId ?? null,
+        notBeforeAt: fallback?.notBeforeAt ?? null,
+        rulingId: null,
+        attempts,
+      };
+    const batch = migrateUnclosedDispatchGroup({
+      lifecycleMigrationVersion: "dispatch-lifecycle/v1",
+      group: {
+        repoId: group.repoId,
+        attemptGroupId: group.attemptGroupId,
+        phase,
+        ownerFence: null,
+        attempts: group.attempts,
+        currentDispatchId: group.currentDispatchId,
+        successorDispatchId: group.successorDispatchId,
+        notBeforeAt: group.notBeforeAt,
+        rulingId: group.rulingId,
+        fenceVerifiable: false,
+      },
+    });
+    const localSource = "local" as const,
+      binding = {
+        actor: headers[0]!.binding?.actor ?? { principal: { personId: descriptor.holderId }, executor: null },
+        source: localSource,
+        writerEpochFence: descriptor,
+      };
+    for (const event of batch.events)
+      await context.publishRuntimeEvent(
+        "runtime_dispatch_lifecycle_observed",
+        { runtimeSessionId: current.runtimeSessionId, lifecycle: event },
+        event.eventId,
+        binding,
+      );
+  }
 }
 
 /** Admission never waits while holding the writer: an unresolved owner cannot look idle. */
@@ -385,6 +498,8 @@ async function restoreRuntime(
     fallbackAttempt: stream.header.fallbackAttempt ?? null,
     resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
     providerSessionId: stream.providerSessionId,
+    lifecycleAttemptGroupId: null,
+    lifecycleVersion: null,
   });
   context.processes.set(active.runtimeSessionId, active);
   const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);

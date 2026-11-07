@@ -56,6 +56,17 @@ import { isEntityEvent, isEntityDeclarationEvent } from "@harness-anything/kerne
 import { requireEntityStoreKindContract } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import { interpretEntityValue } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
 import { interpretReplayDeclaration } from "../projection/entity-declaration-replay.ts";
+import {
+  DispatchLifecycleError,
+  emptyDispatchLifecycleProjection,
+  reduceDispatchLifecycle,
+  type DispatchLifecycleEvent,
+  type DispatchLifecycleGroup,
+  type DispatchLifecycleProjection,
+} from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { deletePgProjectionValue, getPgProjectionValue } from "./pg-projection-values.ts";
 
 export interface PgProjectionScope {
   readonly tenantId: string;
@@ -150,6 +161,8 @@ async function materializeProjectionEvent(
   } else if (isEntityEvent(event)) {
     await storeEntityEvent(client, scope, event, tables, input.readContentBlob);
   }
+  if (isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_lifecycle_observed")
+    await projectPgDispatchLifecycle(client, scope, event.payload.lifecycle, revision);
   await storeEmbeddedRelations(client, scope, event, tables);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
   const searchOwners = new Set<string>();
@@ -164,6 +177,125 @@ async function materializeProjectionEvent(
   tables.add("ha_projection_values");
   await updateProjectionMeta(client, scope, revision, input.sourceHeadRevision ?? input.sourceRevision ?? revision);
   return { revision, taskId, snapshot, tables: [...tables].sort() };
+}
+
+async function projectPgDispatchLifecycle(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  event: DispatchLifecycleEvent,
+  revision: number,
+): Promise<void> {
+  const fingerprint = stableStringify(event),
+    priorFingerprint = await getPgProjectionValue<string>(client, scope, "dispatch-lifecycle-event", event.eventId);
+  if (priorFingerprint !== null) {
+    if (priorFingerprint !== fingerprint)
+      throw new DispatchLifecycleError("duplicate_event_conflict", `event ${event.eventId} changed after acceptance`);
+    return;
+  }
+  const previous = await getPgProjectionValue<DispatchLifecycleGroup>(
+      client,
+      scope,
+      "dispatch-lifecycle-group",
+      event.attemptGroupId,
+    ),
+    instanceId = event.type === "dispatch_admitted" ? event.instanceId : null,
+    reservationProjection = emptyDispatchLifecycleProjection(),
+    activeReservationsByInstance: Record<string, string[]> = {};
+  if (instanceId !== null) {
+    const rows = await client.query<{ entity_id: string }>(
+      `SELECT entity_id FROM ha_projection_values
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+         AND model='dispatch-lifecycle-reservation' AND owner_id=$4
+         AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, instanceId, [...(scope.readers ?? [])]],
+    );
+    activeReservationsByInstance[instanceId] = rows.rows.map(({ entity_id }) => entity_id);
+  }
+  if (previous)
+    for (const attempt of previous.attempts)
+      if (attempt.capacity !== "released")
+        (activeReservationsByInstance[attempt.instanceId] ??= []).push(attempt.reservationId);
+  const projection: DispatchLifecycleProjection = {
+    ...reservationProjection,
+    ...(previous
+      ? {
+          groups: { [previous.attemptGroupId]: previous },
+          groupByDispatchId: Object.fromEntries(
+            previous.attempts.map(({ dispatchId }) => [dispatchId, previous.attemptGroupId]),
+          ),
+          groupBySessionId: Object.fromEntries(
+            previous.attempts.map(({ runtimeSessionId }) => [runtimeSessionId, previous.attemptGroupId]),
+          ),
+          activeGroupIds: previous.phase === "closed" ? [] : [previous.attemptGroupId],
+          activeReservationsByInstance,
+        }
+      : { activeReservationsByInstance }),
+  };
+  const receipt = reduceDispatchLifecycle(projection, event, revision);
+  if (!receipt.accepted) return;
+  const group = receipt.group;
+  await putPgProjectionValue(client, scope, "dispatch-lifecycle-group", group.attemptGroupId, "", revision, group);
+  await putPgProjectionValue(client, scope, "dispatch-lifecycle-event", event.eventId, "", revision, fingerprint);
+  for (const attempt of group.attempts) {
+    await putPgProjectionValue(
+      client,
+      scope,
+      "dispatch-lifecycle-dispatch",
+      attempt.dispatchId,
+      "",
+      revision,
+      group.attemptGroupId,
+    );
+    await putPgProjectionValue(
+      client,
+      scope,
+      "dispatch-lifecycle-session",
+      attempt.runtimeSessionId,
+      "",
+      revision,
+      group.attemptGroupId,
+    );
+    if (attempt.capacity === "released")
+      await deletePgProjectionValue(
+        client,
+        scope,
+        "dispatch-lifecycle-reservation",
+        attempt.reservationId,
+        attempt.instanceId,
+      );
+    else
+      await putPgProjectionValue(
+        client,
+        scope,
+        "dispatch-lifecycle-reservation",
+        attempt.reservationId,
+        attempt.instanceId,
+        revision,
+        { attemptGroupId: group.attemptGroupId, dispatchId: attempt.dispatchId },
+      );
+  }
+  const currentAttempt = group.attempts.at(-1);
+  const previousInstance = previous?.attempts.at(-1)?.instanceId;
+  if (previousInstance && previousInstance !== currentAttempt?.instanceId)
+    await deletePgProjectionValue(client, scope, "dispatch-lifecycle-active", group.attemptGroupId, previousInstance);
+  if (group.phase === "closed" || !currentAttempt)
+    await deletePgProjectionValue(
+      client,
+      scope,
+      "dispatch-lifecycle-active",
+      group.attemptGroupId,
+      currentAttempt?.instanceId ?? previousInstance ?? "",
+    );
+  else
+    await putPgProjectionValue(
+      client,
+      scope,
+      "dispatch-lifecycle-active",
+      group.attemptGroupId,
+      currentAttempt.instanceId,
+      revision,
+      group,
+    );
 }
 
 /** A2's append hook calls this with the committed batch while still inside the ledger transaction. */

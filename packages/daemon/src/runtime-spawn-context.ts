@@ -13,7 +13,12 @@ import type { readDispatchStream } from "./dispatch-stream.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeAttemptOutcome } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
-import type { ActiveRuntime, RuntimeBinding, RuntimeAttemptTerminal } from "./runtime-spawn-types.ts";
+import type {
+  ActiveRuntime,
+  RuntimeBinding,
+  RuntimeAttemptTerminal,
+  RuntimeLeaseReleasePending,
+} from "./runtime-spawn-types.ts";
 import type { launchExitNotification } from "./runtime-spawn-process.ts";
 import type { requiredRuntimeProjection, requiredRuntimeStore } from "./runtime-spawn-process.ts";
 import type { runtimeSpawnError } from "./runtime-spawn-errors.ts";
@@ -98,7 +103,7 @@ export interface RuntimeSpawnerContext {
     active: ActiveRuntime,
     outcome: RuntimeAttemptOutcome,
     terminal: RuntimeAttemptTerminal,
-  ) => Promise<void>;
+  ) => Promise<void | RuntimeLeaseReleasePending>;
   readonly reconcileFallback: (stream: ReturnType<typeof readDispatchStream>) => void;
 }
 

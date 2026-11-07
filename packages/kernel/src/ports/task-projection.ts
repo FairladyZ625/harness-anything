@@ -15,6 +15,7 @@ import type { FactEventV1 } from "../domain/fact-event.ts";
 import type { LeaseV1 } from "../domain/execution.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
+import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "../domain/dispatch-lifecycle.ts";
 import type {
   ArtifactTimelineQuery,
   ArtifactTimelineRead,
@@ -359,6 +360,8 @@ export interface TaskProjection {
   readonly readSettingsEvent: () => SettingsEventV1 | null;
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
+  /** Canonical dispatch lifecycle read port; implementations return the reducer's single projection. */
+  readonly readDispatchLifecycle?: (query: DispatchLifecycleQuery) => DispatchLifecycleRead;
   readonly admitFact: (event: FactEventV1) => void;
   readonly readFact: (factId: string) => FactProjectionRead;
   readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;

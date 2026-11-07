@@ -7,6 +7,7 @@ import {
 } from "./event-summary-read-index.ts";
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
+import { DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS task_snapshot (
@@ -33,6 +34,7 @@ export const TASK_INDEX_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
 
 export const REPOSITORY_READ_TABLES_SQL = `
+    ${DISPATCH_LIFECYCLE_TABLES_SQL}
     CREATE TABLE IF NOT EXISTS artifact_entity_state (
       entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, state_json TEXT NOT NULL,
       PRIMARY KEY(entity_kind, entity_id)

@@ -17,6 +17,7 @@ import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.ts";
 import { timestamp } from "./timestamp.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { isDispatchLifecycleEvent, type DispatchLifecycleEvent } from "./dispatch-lifecycle.ts";
 
 export class RuntimeSessionAdoptionStaleError extends Error {
   override name = "RuntimeSessionAdoptionStaleError";
@@ -40,6 +41,7 @@ export const agentRuntimeEventTypes = [
   "runtime_session_exited",
   "runtime_session_outcome_observed",
   "runtime_dispatch_outcome_unknown",
+  "runtime_dispatch_lifecycle_observed",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
 ] as const;
@@ -466,6 +468,10 @@ interface RuntimePayloads {
   };
   readonly runtime_handoff_revoked: { readonly dispatchId: string; readonly runtimeSessionId: string };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
+  readonly runtime_dispatch_lifecycle_observed: {
+    readonly runtimeSessionId: string;
+    readonly lifecycle: DispatchLifecycleEvent;
+  };
 }
 export interface RuntimeDispatchMetrics {
   readonly inputTokens: number;
@@ -528,6 +534,7 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
   runtime_handoff_exported: ["dispatchId", "runtimeSessionId", "taskId", "executionId", "commit", "sha256"],
   runtime_handoff_revoked: ["dispatchId", "runtimeSessionId"],
   runtime_dispatch_outcome_unknown: ["dispatchId", "runtimeSessionId"],
+  runtime_dispatch_lifecycle_observed: ["runtimeSessionId", "lifecycle"],
 };
 export function validateAgentRuntimePayload(type: AgentRuntimeEventType, value: unknown): readonly string[] {
   return validateAgentRuntimePayloadFields(type, value, false);
@@ -560,6 +567,14 @@ function validateAgentRuntimePayloadFields(
     value.idempotencyKey !== undefined
   )
     return ["agent runtime payload fields are incomplete or unknown"];
+  if (
+    type === "runtime_dispatch_lifecycle_observed" &&
+    (!isRecord(value) ||
+      !isDispatchLifecycleEvent(value.lifecycle) ||
+      (lifecycleRuntimeSessionId(value.lifecycle) !== null &&
+        lifecycleRuntimeSessionId(value.lifecycle) !== value.runtimeSessionId))
+  )
+    return ["dispatch lifecycle observation is invalid"];
   const requiredFields = historicalDispatchKey
     ? payloadFields[type].filter((field) => field !== "dispatchKey")
     : payloadFields[type];
@@ -715,6 +730,13 @@ function validateAgentRuntimePayloadFields(
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];
+}
+
+function lifecycleRuntimeSessionId(event: DispatchLifecycleEvent): string | null {
+  if (event.type === "dispatch_admitted") return event.runtimeSessionId;
+  if (event.type === "group_imported")
+    return event.group.attempts.find((attempt) => attempt.dispatchId === event.dispatchId)?.runtimeSessionId ?? null;
+  return null;
 }
 
 function validRuntimeDispatchMetrics(value: unknown): value is RuntimeDispatchMetrics {
@@ -884,6 +906,7 @@ export function reduceRuntimeSession(
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||
     event.type === "runtime_handoff_revoked" ||
+    event.type === "runtime_dispatch_lifecycle_observed" ||
     event.type === "runtime_installation_observed"
   )
     return current;

@@ -29,6 +29,10 @@ import { assertRelationQueryParity } from "../postgres/pg-relation-query-parity.
 import { assertValueQueryParity } from "../postgres/pg-value-query-parity.fixture.ts";
 import { appendRecoveryQueryFixtures, assertRecoveryQueryContract } from "../runtime-recovery-query.assertions.ts";
 import { runtimeProviderEvents } from "../runtime-provider-bytes.assertions.ts";
+import {
+  appendDispatchLifecycleFixtures,
+  assertDispatchLifecycleParitySync,
+} from "../postgres/pg-lifecycle.assertions.ts";
 
 pgliteIntegrationSuite("complete synchronous query parity", () => {
   test("PGlite and SQLite run the same query contracts as PostgreSQL", async () => {
@@ -65,6 +69,7 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
         await appendTaskEventQueryFixtures(append, () => revision);
         await appendGraphQueryFixtures(append, () => revision);
         await appendRecoveryQueryFixtures(append, () => revision);
+        await appendDispatchLifecycleFixtures(append, () => revision, repoId);
         // Legal provider ids may contain NUL. The fleet summary projection must read them on both
         // backends; a jsonb cast or a whole-event narrow projection would reject the event.
         let providerRevision = (embedded.readHead()?.revision ?? 0) + 1;
@@ -108,6 +113,7 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
                 queries.readEventSummaries(0, 3, { taskIds }),
                 projection.readEventSummaries(0, 3, { taskIds }),
               );
+            assertDispatchLifecycleParitySync(queries, projection);
             const fleetSummary = queries.readEventSummaries(0, 100, "fleet");
             assert.ok(
               fleetSummary.events.some((event) => event.eventId.startsWith("provider-")),

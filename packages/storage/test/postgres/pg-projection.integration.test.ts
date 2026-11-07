@@ -71,7 +71,12 @@ import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projecti
 import { createEntityStore } from "../../src/store/entity-store.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
-import { appendGatedLifecycleFixture, assertLifecycleParity } from "./pg-lifecycle.assertions.ts";
+import {
+  appendDispatchLifecycleFixtures,
+  appendGatedLifecycleFixture,
+  assertDispatchLifecycleParity,
+  assertLifecycleParity,
+} from "./pg-lifecycle.assertions.ts";
 import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
 import { bundle, event, initRepo } from "../store/task-event-store.fixtures.ts";
 import {
@@ -657,6 +662,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     await appendTaskEventQueryFixtures(appendCanonical, () => expectedRevision);
     await appendGraphQueryFixtures(appendCanonical, () => expectedRevision);
     await appendRecoveryQueryFixtures(appendCanonical, () => expectedRevision);
+    await appendDispatchLifecycleFixtures(appendCanonical, () => expectedRevision, repoId);
     const leaseCases = await appendLeaseReplayFixtures(appendCanonical, () => expectedRevision);
     let releasedLeases: readonly import("@harness-anything/kernel").LeaseV1[] = [];
     const entities = createPgEntityStore({ pool: runtimePool, scope: projectionScope });
@@ -858,6 +864,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         });
       await assertLifecycleParity(source, sqliteProjection, "task-parity");
       await assertLifecycleParity(source, sqliteProjection, "task-gated-parity");
+      await assertDispatchLifecycleParity(source, sqliteProjection);
       assert.equal((await source.readSnapshot("task-gated-parity"))!.gateWitnesses.length, 1);
       const unrestrictedSource = createPgTaskProjectionSource({
         pool: runtimePool,

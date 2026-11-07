@@ -25,6 +25,7 @@ export const runtimeSessionActionIds = Object.freeze([
   "runtime_session_cancelled",
   "runtime_session_exited",
   "runtime_session_outcome_observed",
+  "runtime_dispatch_lifecycle_observed",
 ] as const satisfies readonly AgentRuntimeEventType[]);
 
 export type RuntimeSessionActionId = (typeof runtimeSessionActionIds)[number];
@@ -93,6 +94,7 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("attempt", "json-object", false),
     field("resultBody", "string", false),
   ]),
+  runtime_dispatch_lifecycle_observed: Object.freeze([runtimeSessionId, field("lifecycle", "json-object")]),
 });
 
 const criteria = Object.freeze([
@@ -250,7 +252,7 @@ function compileRuntimeSessionAction(
   let noChanges = false;
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
-    noChanges = reduceRuntimeSession(current, event) === current;
+    noChanges = id === "runtime_dispatch_lifecycle_observed" ? false : reduceRuntimeSession(current, event) === current;
   } catch (error) {
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);
