@@ -63,6 +63,97 @@ test("sync reads complete paginated collections and does not recreate existing e
   );
 });
 
+test("realm synchronization migrates legacy access-admin holders to fleet admin once and audits each holder", async () => {
+  const keycloak = fakeKeycloak();
+  keycloak.account("legacy-admin");
+  keycloak.account("already-admin");
+  const migratedUser = [...keycloak.users.values()].find(
+      (user) => user.attributes.harness_person_id?.[0] === "legacy-admin",
+    )!,
+    alreadyGrantedUser = [...keycloak.users.values()].find(
+      (user) => user.attributes.harness_person_id?.[0] === "already-admin",
+    )!,
+    receipts: unknown[] = [],
+    adapter = new KeycloakPolicyAdapter(
+      { ...config, onLegacyRoleMigration: (receipt) => void receipts.push(receipt) },
+      keycloak.fetch,
+    );
+  keycloak.realmRoles.set("access-admin", {
+    id: "legacy-role",
+    name: "access-admin",
+    members: new Set([migratedUser.id, alreadyGrantedUser.id]),
+  });
+  await adapter.syncBasePolicy("admin-token");
+  const alreadyGrantedUserId = alreadyGrantedUser.id;
+  await adapter.writeGrant(
+    "admin-token",
+    { groupId: "admin", resource: "@fleet", userIds: [alreadyGrantedUserId] },
+    effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+  );
+  keycloak.writes.length = 0;
+  await adapter.syncLoginClients("admin-token");
+  assert.equal(keycloak.realmRoles.has("access-admin"), false);
+  assert.deepEqual(
+    (await adapter.readGrants("admin-token")).find((grant) => grant.groupId === "admin" && grant.resource === "@fleet"),
+    { groupId: "admin", resource: "@fleet", userIds: [alreadyGrantedUserId, migratedUser.id].sort() },
+  );
+  assert.equal(
+    (
+      await adapter.authorize({
+        userAccessToken: "token-legacy-admin",
+        action: "access-manage",
+        resource: { kind: "fleet" },
+      })
+    ).outcome,
+    "allowed",
+  );
+  assert.deepEqual(
+    (receipts as { readonly personId: string; readonly source: string }[]).map(({ personId, source }) => [
+      personId,
+      source,
+    ]),
+    [
+      ["legacy-admin", "legacy-access-admin-role"],
+      ["already-admin", "legacy-access-admin-role"],
+    ],
+  );
+  const writesAfterMigration = keycloak.writes.filter((write) => write.includes("/policy/user"));
+  await adapter.syncLoginClients("admin-token");
+  assert.deepEqual(
+    keycloak.writes.filter((write) => write.includes("/policy/user")),
+    writesAfterMigration,
+    "a second sync has no legacy role and performs no second grant write",
+  );
+});
+
+test("realm synchronization does not grant or remove anything when no legacy role exists", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
+  keycloak.account("ordinary-user");
+  await adapter.syncBasePolicy("admin-token");
+  keycloak.writes.length = 0;
+  await adapter.syncLoginClients("admin-token");
+  assert.equal(
+    (await adapter.readGrants("admin-token")).some((grant) => grant.resource === "@fleet"),
+    false,
+  );
+  assert.equal(keycloak.realmRoles.has("access-admin"), false);
+  assert.equal(
+    keycloak.writes.some((write) => write.includes("/policy/user")),
+    false,
+  );
+  assert.equal(
+    (
+      await adapter.authorize({
+        userAccessToken: "token-ordinary-user",
+        action: "access-manage",
+        resource: { kind: "fleet" },
+      })
+    ).outcome,
+    "denied",
+  );
+});
+
 test("sync re-expands stored grants to the currently declared actions of their group", async () => {
   const keycloak = fakeKeycloak(),
     adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);

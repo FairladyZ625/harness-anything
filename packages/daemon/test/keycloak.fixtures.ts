@@ -330,6 +330,10 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     if (route.startsWith("/roles/")) {
       const role = realmRoles.get(route.split("/")[2]!);
       if (!role) return json({ error: "Could not find role" }, 404);
+      if (method === "DELETE") {
+        realmRoles.delete(role.name);
+        return new Response(null, { status: 204 });
+      }
       return json(route.endsWith("/users") ? [...role.members].map((member) => ({ id: member })) : role);
     }
     if (route === `${server}/scope`) {

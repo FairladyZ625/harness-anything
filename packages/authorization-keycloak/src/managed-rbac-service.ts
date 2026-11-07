@@ -20,7 +20,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { ManagedRbacHost } from "./managed-host.ts";
 import type { ManagedRbacRequest, ManagedRbacListener, CertificateMode } from "@harness-anything/kernel";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter, type KeycloakLegacyRoleMigrationReceipt } from "./keycloak-policy-adapter.ts";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 import { transientTransportFailure } from "./oidc-session-helpers.ts";
 import {
@@ -81,6 +81,7 @@ export interface ManagedRbacPorts {
   readonly arch: string;
   /** Accepted repository declarations projected to Policy scopes; [] when no repo host is wired. */
   readonly readArtifactActionScopes: () => Promise<readonly string[]>;
+  readonly auditLegacyRoleMigration?: (receipt: KeycloakLegacyRoleMigrationReceipt) => void | Promise<void>;
 }
 
 export interface ManagedPostgresBinaries {
@@ -750,7 +751,12 @@ export class ManagedRbacService {
     if (typeof payload.access_token !== "string" || !payload.access_token)
       throw managedRbacError("rbac_policy_sync_failed", "Keycloak center token response omitted access_token.");
     const adapter = new KeycloakPolicyAdapter(
-      { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
+      {
+        url: config.url,
+        realm: config.realm,
+        resourceServerClientId: config.clientId,
+        onLegacyRoleMigration: (receipt) => this.#ports.auditLegacyRoleMigration?.(receipt),
+      },
       this.#ports.fetch,
     );
     await adapter.syncBasePolicy(payload.access_token, await this.#ports.readArtifactActionScopes());

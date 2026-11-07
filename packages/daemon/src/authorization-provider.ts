@@ -83,12 +83,18 @@ export function createIdentitySession(userRoot: string, ports: Partial<OidcSessi
 import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/authorization-keycloak";
 import { runProcessText, runProcessTextAsync, runProcessExitAsync } from "./process-port.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
+import { managedRbacReceiptJournal } from "./access-admin-state.ts";
 export function createIdentityManagement(userRoot: string, ports: Partial<ManagedRbacPorts> = {}) {
   const mode = readProviderMode(userRoot);
+  const journal = managedRbacReceiptJournal(userRoot);
   const managed = new ManagedRbacService(
     userRoot,
     { runProcessText, runProcessTextAsync, runProcessExitAsync, mapListenerBindError, validateCertificateNames },
-    { readArtifactActionScopes: readArtifactActionScopes(userRoot), ...ports },
+    {
+      readArtifactActionScopes: readArtifactActionScopes(userRoot),
+      auditLegacyRoleMigration: (receipt) => journal.append(JSON.stringify(receipt)),
+      ...ports,
+    },
   );
   return mode === "builtin" ? new BuiltinIdentityManagement(userRoot, managed) : managed;
 }

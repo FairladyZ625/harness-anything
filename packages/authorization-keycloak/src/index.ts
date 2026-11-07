@@ -6,6 +6,7 @@ export {
   type KeycloakPolicyAdapterConfig,
   type KeycloakPolicyGroup,
   type KeycloakPolicySyncReceipt,
+  type KeycloakLegacyRoleMigrationReceipt,
 } from "./keycloak-policy-adapter.ts";
 export { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 

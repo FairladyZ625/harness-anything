@@ -27,6 +27,8 @@ export interface KeycloakPolicyAdapterConfig {
   readonly url: string;
   readonly realm: string;
   readonly resourceServerClientId: string;
+  /** Audit hook for the one-time legacy realm-role migration. */
+  readonly onLegacyRoleMigration?: (receipt: KeycloakLegacyRoleMigrationReceipt) => void | Promise<void>;
 }
 
 export interface KeycloakPolicySyncReceipt {
@@ -50,6 +52,23 @@ export interface KeycloakGrant {
   readonly groupId: string;
   readonly resource: string;
   readonly userIds: readonly string[];
+}
+
+export interface KeycloakLegacyRoleMigrationReceipt {
+  readonly schema: "harness-access-receipt/v1";
+  readonly operationId: string;
+  readonly operation: "legacy-role-migration";
+  readonly actor: "system";
+  readonly authority: "keycloak";
+  readonly phase: "settled";
+  readonly outcome: "applied";
+  readonly source: "legacy-access-admin-role";
+  readonly legacyRole: "access-admin";
+  readonly personId: string;
+  readonly userId: string;
+  readonly groupId: "admin";
+  readonly resource: "@fleet";
+  readonly recordedAt: string;
 }
 
 /** One fleet node: a confidential Keycloak client whose single owner attribute names the person it acts for. */
@@ -316,6 +335,56 @@ export class KeycloakPolicyAdapter
         }),
       });
     }
+    await this.#migrateLegacyAccessAdminRole(adminAccessToken);
+  }
+
+  /**
+   * Expand-then-contract migration for centers upgraded from the pre-policy-admin release.
+   * Delete the legacy role after 2027-02-01, once all supported centers have crossed this window.
+   */
+  async #migrateLegacyAccessAdminRole(adminAccessToken: string): Promise<void> {
+    const rolePath = "/roles/access-admin";
+    const role = await this.#request(adminAccessToken, rolePath, {}, true);
+    if (role.status === 404) return;
+    const migratedUsers = await this.#pages<{ readonly id: string }>(adminAccessToken, `${rolePath}/users`);
+    const grants = await this.readGrants(adminAccessToken),
+      current = grants.find((grant) => grant.groupId === "admin" && grant.resource === "@fleet"),
+      holders = new Set(current?.userIds ?? []),
+      scopes = effectivePolicyGroupScopes(this.#baseGroups(), "admin");
+    for (const legacyUser of migratedUsers) {
+      const user = await this.#json<{
+          readonly id?: string;
+          readonly attributes?: Readonly<Record<string, readonly string[]>>;
+        }>(adminAccessToken, `/users/${encodeURIComponent(legacyUser.id)}`),
+        personId = user.attributes?.[personAttribute]?.[0];
+      if (typeof personId !== "string" || personId.length === 0)
+        throw new Error(`Legacy access-admin user ${legacyUser.id} has no Harness person id.`);
+      if (!holders.has(legacyUser.id)) {
+        await this.writeGrant(
+          adminAccessToken,
+          { groupId: "admin", resource: "@fleet", userIds: [...holders, legacyUser.id] },
+          scopes,
+        );
+        holders.add(legacyUser.id);
+      }
+      await this.#config.onLegacyRoleMigration?.({
+        schema: "harness-access-receipt/v1",
+        operationId: `legacy-access-admin-migration:${legacyUser.id}`,
+        operation: "legacy-role-migration",
+        actor: "system",
+        authority: "keycloak",
+        phase: "settled",
+        outcome: "applied",
+        source: "legacy-access-admin-role",
+        legacyRole: "access-admin",
+        personId,
+        userId: legacyUser.id,
+        groupId: "admin",
+        resource: "@fleet",
+        recordedAt: new Date().toISOString(),
+      });
+    }
+    await this.#request(adminAccessToken, rolePath, { method: "DELETE" });
   }
 
   /** Base groups come from ActionDeclaration; custom groups are the client roles carrying the group marker. */
@@ -916,7 +985,8 @@ export class KeycloakPolicyAdapter
   async #pages<T>(token: string, path: string, query = ""): Promise<T[]> {
     const items: T[] = [];
     for (let first = 0; ; first += 100) {
-      const page = await this.#json<T[]>(token, `${path}?first=${first}&max=100${query ? `&${query}` : ""}`);
+      const response = await this.#request(token, `${path}?first=${first}&max=100${query ? `&${query}` : ""}`);
+      const page = (await response.json()) as T[];
       items.push(...page);
       if (page.length < 100) return items;
     }
@@ -952,7 +1022,7 @@ export class KeycloakPolicyAdapter
     return (await response.json()) as T;
   }
 
-  async #request(token: string, path: string, init: RequestInit = {}): Promise<Response> {
+  async #request(token: string, path: string, init: RequestInit = {}, allowNotFound = false): Promise<Response> {
     const send = (accessToken: string) =>
       this.#fetch(this.#adminUrl(path), {
         ...init,
@@ -968,7 +1038,7 @@ export class KeycloakPolicyAdapter
       this.#refreshedAdminAccessToken = await this.#refreshAdminAccessToken(token);
       response = await send(this.#refreshedAdminAccessToken);
     }
-    if (!response.ok)
+    if (!response.ok && !(allowNotFound && response.status === 404))
       throw Object.assign(new Error(`Keycloak Admin REST ${path} returned HTTP ${response.status}.`), {
         code: "keycloak_admin_rejected",
         status: response.status,
