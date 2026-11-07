@@ -330,6 +330,33 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       String(run(fixture.alpha, fixture.userRoot, ["decision", "validate", decision.decisionId]).evidence),
     ) as { rows: readonly { readonly path: string }[] };
     assert.equal(decisionValidation.rows[0]?.path, `harness/${decisionPath}`);
+    const rematerializePreview = run(fixture.alpha, fixture.userRoot, [
+      "decision",
+      "rematerialize",
+      "--id",
+      decision.decisionId,
+      "--dry-run",
+    ]);
+    assert.equal(rematerializePreview.outcome, "pending", JSON.stringify(rematerializePreview));
+    const rematerializeReport = JSON.parse(String(rematerializePreview.evidence)) as {
+      mode: string;
+      targets: readonly {
+        entityRef: string;
+        paths: readonly string[];
+        changedPaths: readonly string[];
+        unchangedPaths: readonly string[];
+        conflictPaths: readonly string[];
+      }[];
+    };
+    assert.equal(rematerializeReport.mode, "preview");
+    assert.equal(rematerializeReport.targets[0]?.entityRef, `decision/${decision.decisionId}`);
+    for (const path of rematerializeReport.targets.flatMap((target) => [
+      ...target.paths,
+      ...target.changedPaths,
+      ...target.unchangedPaths,
+      ...target.conflictPaths,
+    ]))
+      assert.match(path, /^harness\/decisions\//u, `rematerialize receipt path ${path}`);
     const beforeAccepted = ledgerReaders.open(fixture.alpha, "alpha").readHead()!.revision;
     const acceptedDecision = run(fixture.alpha, fixture.userRoot, [
       "decision",
@@ -389,9 +416,24 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       true,
     );
     assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
+    const started = run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    // The caller reads the workspace spelling in both the path list and the semicolon evidence.
+    assert.deepEqual(
+      [...(started.changedPaths as readonly string[])].sort(),
+      [`${String(alpha.packagePath)}/INDEX.md`, `${String(alpha.packagePath)}/executions/exec-doc.md`].sort(),
+    );
     assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]).outcome,
-      "applied",
+      started.evidence,
+      "event-object:" +
+        `${String(started.opId)};files:harness/tasks/task-alpha-alpha/INDEX.md,` +
+        "harness/tasks/task-alpha-alpha/executions/exec-doc.md",
+    );
+    // The event store keeps the authored key the projection indexes by.
+    const startedEvent = ledgerReaders.open(fixture.alpha, "alpha").readEvent(String(started.opId));
+    assert.deepEqual(
+      [...(startedEvent?.payload.documentClaims?.map((claim) => claim.path) ?? [])].sort(),
+      ["tasks/task-alpha-alpha/INDEX.md", "tasks/task-alpha-alpha/executions/exec-doc.md"].sort(),
     );
     const progress = run(fixture.alpha, fixture.userRoot, [
       "task",
