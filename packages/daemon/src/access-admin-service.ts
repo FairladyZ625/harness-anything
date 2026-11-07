@@ -178,7 +178,7 @@ export class AccessAdminService {
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
       credentialRead = request.operation === "credential-support",
-      ownPasswordChange = request.operation === "password-change",
+      ownPasswordChange = request.operation === "access-password-change",
       actorSession = await (ownDevices ||
       publicRequest ||
       credentialRead ||
@@ -257,9 +257,9 @@ export class AccessAdminService {
         return this.#mutate(request, actor, (session) => this.#planSessionLifetime(session, request));
       case "credential-support":
         return this.#credentialCapabilities(actorSession.accessToken);
-      case "password-change":
+      case "access-password-change":
         return this.#writePasswordCredential(request, actor, false);
-      case "password-reset":
+      case "access-password-reset":
         return this.#writePasswordCredential(request, actor, true);
       default:
         throw coded("access_operation_unknown", `Unknown access administration operation ${request.operation}.`);

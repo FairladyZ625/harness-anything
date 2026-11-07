@@ -11,6 +11,12 @@ import {
 export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   id: "agent-run",
   phase: "Runtime-B",
+  kindRewrite: {
+    authorizedKind: "runtime-run",
+    sourceDecision: "dec_2BF45FF7E52020380F5F35CE2D/CH6",
+    ownerTask: "task_0db67484d039c6f44bb815ba7c",
+    expires: "2026-12-07",
+  },
   path: ["agent", "run", "<id>"],
   summary: [
     "Dispatch task-bound work or resume its dispatch with the same Agent identity and working directory. ",
@@ -157,6 +163,12 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   defineRuntimeLocalWriteCommand({
     id: "runtime-batch",
     phase: "Runtime-B",
+    kindRewrite: {
+      authorizedKind: "runtime-run",
+      sourceDecision: "dec_2BF45FF7E52020380F5F35CE2D/CH6",
+      ownerTask: "task_0db67484d039c6f44bb815ba7c",
+      expires: "2026-12-07",
+    },
     path: ["runtime", "batch", "<batch-file>"],
     summary: [
       "Run a runtime-batch/v1 declaration through bounded concurrent runtime ",
@@ -279,6 +291,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-stop",
+    hostAuthority: "local-transport",
     phase: "W3",
     path: ["daemon", "stop"],
     summary: "Stop the resident daemon.",
@@ -337,6 +350,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-fleet-edge-sync",
+    hostAuthority: "local-transport",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "edge", "sync"],
     summary: "Mirror the fleet center ledger into the registered workspace harness over verified TLS.",

@@ -497,7 +497,7 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
     }
     return { ...params, clientSecret } as JsonObject;
   }
-  if (["password-change", "password-reset"].includes(String(params.operation))) {
+  if (["access-password-change", "access-password-reset"].includes(String(params.operation))) {
     return { ...params, password: readPasswordInput(passwordFile, passwordStdin) } as JsonObject;
   }
   if (params.operation !== "bootstrap-admin") return params as JsonObject;

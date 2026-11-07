@@ -224,8 +224,8 @@ test("access password CLI sends file and stdin contents only in transient local 
     assert.deepEqual(
       requests.filter(({ method }) => method === "daemon.rbac.manage").map(({ params }) => params),
       [
-        { operation: "password-change", password: filePassword },
-        { operation: "password-reset", personId: "person-target", password: stdinPassword },
+        { operation: "access-password-change", password: filePassword },
+        { operation: "access-password-reset", personId: "person-target", password: stdinPassword },
       ],
     );
     for (const { output, argv } of [fromFile, fromStdin]) {

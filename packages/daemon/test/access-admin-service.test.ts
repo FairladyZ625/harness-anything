@@ -25,17 +25,20 @@ test("password changes use the signed-in subject; other-account reset requires a
     changeOwn: true,
     resetOthers: true,
   });
-  assert.deepEqual(await run({ operation: "password-change", password: "changed-own-password" }), {
+  assert.deepEqual(await run({ operation: "access-password-change", password: "changed-own-password" }), {
     ok: true,
     changed: true,
   });
   assert.equal(keycloak.authenticatePassword("person-admin", "initial-password"), false);
   assert.equal(keycloak.authenticatePassword("person-admin", "changed-own-password"), true);
-  assert.deepEqual(await run({ operation: "password-reset", personId: "person-target", password: "reset-target" }), {
-    ok: true,
-    changed: true,
-    personId: "person-target",
-  });
+  assert.deepEqual(
+    await run({ operation: "access-password-reset", personId: "person-target", password: "reset-target" }),
+    {
+      ok: true,
+      changed: true,
+      personId: "person-target",
+    },
+  );
   assert.equal(keycloak.authenticatePassword("person-target", "initial-password"), false);
   assert.equal(keycloak.authenticatePassword("person-target", "reset-target"), true);
   assert.deepEqual(journal(), []);
@@ -48,7 +51,7 @@ test("password changes use the signed-in subject; other-account reset requires a
     resetOthers: false,
   });
   await assert.rejects(
-    run({ operation: "password-reset", personId: "person-target", password: "unauthorized-reset" }),
+    run({ operation: "access-password-reset", personId: "person-target", password: "unauthorized-reset" }),
     { code: "authorization_denied" },
   );
   assert.equal(keycloak.authenticatePassword("person-target", "reset-target"), true);

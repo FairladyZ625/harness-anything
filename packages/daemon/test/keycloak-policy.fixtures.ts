@@ -32,6 +32,9 @@ const realm = await serveKeycloak(),
   people = new Map<string, { token: string; groups: Set<BasePolicyGroupId> }>();
 after(() => realm.close());
 
+/** The served realm behind the business-suite policy, for a test that must observe or pace its answers. */
+export const policyTestRealm = realm;
+
 export function provisionPolicyTestRepository(repoId: string): void {
   if (repositories.has(repoId)) return;
   repositories.add(repoId);

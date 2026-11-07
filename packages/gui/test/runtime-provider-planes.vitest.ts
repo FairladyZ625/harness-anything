@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { openRuntimeInstanceStore } from "@harness-anything/daemon/client";
+import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import {
   applyRuntimeAuthMode,
   applyRuntimeKind,
@@ -628,5 +629,93 @@ describe("squad org chart geometry", () => {
     expect(wide.width).toBe(650);
     expect(wide.startX).toBe(100);
     expect(wide.startX + 3 * wide.slotWidth).toBe(wide.width - 100);
+  });
+});
+
+describe("runtime capability flows declaration -> install -> daemon state -> GUI form", () => {
+  const installations = {
+    codex: { installationId: "codex-install", kindId: "codex" as const, providerId: "openai", model: "gpt-5.6-sol" },
+    claude: {
+      installationId: "claude-install",
+      kindId: "claude" as const,
+      providerId: "anthropic",
+      model: "claude-opus",
+    },
+  };
+  it.each(["codex", "claude"] as const)(
+    "installs a %s instance and edits it with the declared capabilities",
+    async (kind) => {
+      const userRoot = mkdtempSync(path.join(tmpdir(), `ha-runtime-capability-${kind}-`)),
+        installation = installations[kind],
+        declaration = runtimeKindForId(kind),
+        detected = {
+          ...installation,
+          executablePath: `/opt/runtime-test/${kind}`,
+          version: "1.0.0",
+          observedAt: "2026-11-07T00:00:00.000Z",
+          models: [installation.model],
+          defaultModel: installation.model,
+        };
+      try {
+        const store = openRuntimeInstanceStore({ userRoot, discover: () => [detected] }),
+          unavailable = async () => ({});
+        vi.stubGlobal("window", {
+          harness: {
+            listRuntimeInstances: unavailable,
+            showRuntimeInstance: async (payload: { readonly instanceId: string }) =>
+              store.command({ kind: "runtime-instance-show", ...payload } as never),
+            createRuntimeInstance: async (payload: Record<string, unknown>) =>
+              store.command({ kind: "runtime-instance-create", ...payload } as never),
+            updateRuntimeInstance: unavailable,
+            deleteRuntimeInstance: unavailable,
+            signInRuntimeInstance: unavailable,
+            signOutRuntimeInstance: unavailable,
+          },
+        });
+        // Install: the create form is shaped by the declaration of the chosen kind.
+        const created = applyRuntimeKind(
+          { ...form, instanceId: `${kind}-capability`, name: `${kind} capability`, ...installation, model: "" },
+          kind,
+          { permissionMode: "bypass", isolation: declaration.isolation.states[0]! },
+        );
+        expect(
+          (
+            await runtimeInstanceClient.create(
+              buildRuntimeInstanceCreatePayload(created, installation.installationId, detected),
+            )
+          ).ok,
+        ).toBe(true);
+        // Daemon state: what the store reports back is what the GUI consumes.
+        const instance = (await runtimeInstanceClient.show(created.instanceId)).instance as Parameters<
+          typeof runtimeInstanceEditForm
+        >[0];
+        expect(declaration.auth.modes).toContain(instance.authMode);
+        expect(declaration.isolation.states).toContain(instance.isolationState);
+        // GUI form: every editable capability follows the declaration under the installed state.
+        const edit = runtimeInstanceEditForm(instance);
+        expect(edit.effortEditable).toBe(declaration.gui.effort !== "none");
+        expect(edit.fastEditable).toBe("fast" in declaration.configuration.fields);
+        expect(edit.baseUrlEditable).toBe(
+          baseUrlAvailability(declaration.auth.endpoints.baseUrl, instance.authMode) !== "none",
+        );
+        expect(edit.apiKeyEditable).toBe(instance.authMode === "api-key" && declaration.auth.modes.includes("api-key"));
+        // Negative control: the provider name is not a capability input; only the declaration is.
+        const renamedProvider = runtimeInstanceEditForm({
+          ...instance,
+          providerId: kind === "codex" ? "anthropic" : "openai",
+        });
+        expect(renamedProvider).toEqual(edit);
+      } finally {
+        vi.unstubAllGlobals();
+        rmSync(userRoot, { recursive: true, force: true });
+      }
+    },
+  );
+  it("gives the two installed shapes different declared capabilities", () => {
+    const codex = runtimeProviderPlane("codex"),
+      claude = runtimeProviderPlane("claude");
+    expect(codex.authShape).toBe(runtimeKindForId("codex").auth.shape);
+    expect(claude.authShape).toBe(runtimeKindForId("claude").auth.shape);
+    expect(codex.authShape).not.toBe(claude.authShape);
   });
 });
