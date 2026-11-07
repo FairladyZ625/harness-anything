@@ -85,9 +85,6 @@ export function diagnosticForError(error: unknown): ReceiptDiagnostic | undefine
     return {
       kind: "missing-sections",
       documentPath: error.documentPath,
-      ...("workspacePathPrefix" in error && typeof error.workspacePathPrefix === "string"
-        ? { workspacePathPrefix: error.workspacePathPrefix }
-        : {}),
       diskDiffers: error.diskDiffers,
       missingSections: error.missingSections as Extract<
         ReceiptDiagnostic,

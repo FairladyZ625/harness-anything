@@ -4,7 +4,7 @@ import {
   assessTransitionDocument,
   assertTransitionDocumentReady,
   completionContractGap,
-  documentWorkspacePrefix,
+  documentWorkspacePath,
   normalizeRelativeDocumentPath,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
@@ -53,10 +53,8 @@ export function transitionDocumentReadinessContract(input: {
 }): MarkdownDocumentContract | null {
   const embedded = embeddedReadinessContract(input.descriptor.readiness);
   if (embedded) return embedded;
-  const catalog = catalogReadinessSource(input.contract, input.descriptor);
-  // A package materialized before descriptors carried the frozen contract is judged only by the
-  // catalog's baseline anchors. A conditional section declared later never backfills an old plan.
-  return catalog === null ? null : transitionDocumentContract(catalog.body, catalog.requiredAnchors);
+  const catalogBody = catalogScaffoldBody(input.contract, input.descriptor);
+  return catalogBody === null ? null : transitionDocumentContract(catalogBody);
 }
 
 function embeddedReadinessContract(value: unknown): MarkdownDocumentContract | null {
@@ -75,10 +73,7 @@ const renamedTemplateRefs: Readonly<Record<string, string>> = Object.freeze({
   "template://planning/milestone-task-plan@1": "template://planning/work-task-plan@1",
 });
 
-function catalogReadinessSource(
-  contract: unknown,
-  descriptor: TransitionDocumentDescriptor,
-): { readonly body: string; readonly requiredAnchors: readonly string[] } | null {
+function catalogScaffoldBody(contract: unknown, descriptor: TransitionDocumentDescriptor): string | null {
   const cited = descriptor.templateRef;
   if (typeof cited !== "string" || !cited) return null;
   const templateRef = Object.hasOwn(renamedTemplateRefs, cited) ? renamedTemplateRefs[cited] : cited,
@@ -92,12 +87,10 @@ function catalogReadinessSource(
   if (assets === null || typeof locale !== "string") return null;
   const document = assets.catalog.documents.find((item) => `template://${item.id}@${item.version}` === templateRef),
     variant = document?.locales.find((item) => item.locale === locale) ?? document?.locales[0];
-  if (!document || !variant) return null;
+  if (!variant) return null;
   const target = safeTemplatePath(assets.root, variant.bodyPath, templateRef),
     stat = existsSync(target) ? lstatSync(target) : undefined;
-  return stat?.isFile() && !stat.isSymbolicLink()
-    ? { body: readFileSync(target, "utf8"), requiredAnchors: document.requiredAnchors }
-    : null;
+  return stat?.isFile() && !stat.isSymbolicLink() ? readFileSync(target, "utf8") : null;
 }
 
 let bundledCatalog: CatalogSource | null | undefined;
@@ -243,8 +236,7 @@ export function assertTaskTransitionDocumentReady(input: {
             `${actionableMissing.length === 1 ? " is" : "s are"} incomplete.`
           : "No missing required sections were reported.";
       Object.assign(error, {
-        documentPath: document.path,
-        workspacePathPrefix: documentWorkspacePrefix(input.rootDir),
+        documentPath: documentWorkspacePath(input.rootDir, document.path),
         diskDiffers,
         missingSections: actionableMissing,
         projectedMissingSections: projectedMissing,

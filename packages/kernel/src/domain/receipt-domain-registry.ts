@@ -26,8 +26,6 @@ export type ReceiptDiagnostic =
   | {
       readonly kind: "missing-sections";
       readonly documentPath: string;
-      /** The authored root's workspace spelling, present when the diagnostic crosses the CLI boundary. */
-      readonly workspacePathPrefix?: string;
       readonly diskDiffers: boolean;
       readonly missingSections: readonly {
         readonly section: string;
@@ -244,7 +242,6 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "code",
     "origin",
     "evidence",
-    "workspacePathPrefix",
     "visibility",
     "proof",
     "detail",
@@ -556,7 +553,7 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
   if (value.kind === "failure") return exact(value, ["kind", "code"]) && isNonEmptyString(value.code);
   return (
     value.kind === "missing-sections" &&
-    exact(value, ["kind", "documentPath", "workspacePathPrefix", "diskDiffers", "missingSections"]) &&
+    exact(value, ["kind", "documentPath", "diskDiffers", "missingSections"]) &&
     isNonEmptyString(value.documentPath) &&
     typeof value.diskDiffers === "boolean" &&
     Array.isArray(value.missingSections) &&

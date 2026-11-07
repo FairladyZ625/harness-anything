@@ -87,8 +87,7 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
     assert.equal(placeholder.code, "plan_placeholder");
     assert.deepEqual(placeholder.diagnostic, {
       kind: "missing-sections",
-      documentPath: planPath,
-      workspacePathPrefix: "harness",
+      documentPath: `harness/${planPath}`,
       diskDiffers: true,
       missingSections: [{ section: "Constraints", reason: "empty" }],
     });
