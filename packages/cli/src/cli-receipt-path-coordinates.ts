@@ -82,11 +82,12 @@ function packagePathPair(value: Record<string, unknown>): PackagePathPair | null
 
 function rewritePath(value: string, pairs: readonly PackagePathPair[]): string {
   let rewritten = value;
-  for (const { canonical, workspace } of pairs) {
+  for (const [index, { canonical, workspace }] of pairs.entries()) {
     if (!rewritten.includes(canonical)) continue;
     // Protect the already-workspace spelling first: it contains the canonical spelling as a
     // substring (`harness/tasks/x` contains `tasks/x`), and a blind replace would double the prefix.
-    const protectedWorkspace = `\u0000${workspace}\u0000`;
+    // The marker is index-based, not the path itself, so the canonical replace cannot touch it.
+    const protectedWorkspace = `\u0000${index}\u0000`;
     rewritten = rewritten.split(workspace).join(protectedWorkspace);
     rewritten = rewritten.split(canonical).join(workspace);
     rewritten = rewritten.split(protectedWorkspace).join(workspace);
