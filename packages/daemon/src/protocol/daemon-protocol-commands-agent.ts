@@ -765,6 +765,9 @@ export const agentProtocolCommands = Object.freeze([
             "logout",
             "session-lifetime",
             "session-lifetime-set",
+            "credential-support",
+            "password-change",
+            "password-reset",
             "listener",
             "listener-set",
             "team-list",
@@ -880,6 +883,33 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--force", "boolean", false, { code: "invalid_field" }),
       cliInput("--operation-id", "single", false, { code: "invalid_field" }, { field: "operationId" }),
     ],
+  }),
+  defineHostAdminCommand({
+    id: "access-password-change",
+    actionKind: "access-manage",
+    phase: "W3",
+    path: ["access", "password", "change"],
+    summary: "Change the signed-in account password using a protected file or redirected stdin.",
+    method: "daemon.rbac.manage",
+    inputs: [
+      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput("--password-stdin", "boolean", false, { code: "invalid_field" }, { field: "passwordStdin" }),
+    ],
+    actionConstraints: [["passwordFile", "passwordStdin"]],
+  }),
+  defineHostAdminCommand({
+    id: "access-password-reset",
+    actionKind: "access-manage",
+    phase: "W3",
+    path: ["access", "password", "reset"],
+    summary: "Reset an account password using a protected file or redirected stdin.",
+    method: "daemon.rbac.manage",
+    inputs: [
+      cliInput("--person-id", "single", true, { code: "missing_field" }, { field: "personId" }),
+      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput("--password-stdin", "boolean", false, { code: "invalid_field" }, { field: "passwordStdin" }),
+    ],
+    actionConstraints: [["passwordFile", "passwordStdin"]],
   }),
   // dec_F01770FD0DCF72683B7C4C7A47/CH4: request lifecycle actions are explicit host-admin
   // descriptors even though they share the closed daemon.rbac.manage transport.

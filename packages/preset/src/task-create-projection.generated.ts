@@ -260,6 +260,7 @@ export const taskCreateDescriptorProjection = {
         },
         { field: "createMode", type: "string", required: false, enum: ["migration", "import", "admin"] },
         { field: "plan", type: "string", required: false },
+        { field: "requirePlan", type: "boolean", required: false },
         { field: "commandType", type: "string", required: false, enum: ["CreateReplayTask"] },
       ],
       exactlyOneOf: [],

@@ -153,6 +153,98 @@ test("bootstrap CLI sends the password file contents only in transient local RPC
   }
 });
 
+test("access password CLI sends file and stdin contents only in transient local RPC params", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-access-password-rpc-")),
+    userRoot = path.join(root, "user"),
+    endpoint = localUserDaemonEndpoint(userRoot, "default"),
+    passwordFile = path.join(root, "password"),
+    filePassword = "test-only file password",
+    stdinPassword = "test-only stdin password",
+    requests: Array<{ method: string; params: Record<string, unknown> }> = [],
+    server = createServer((socket) => {
+      const lines = createInterface({ input: socket });
+      lines.on("line", (line) => {
+        const request = JSON.parse(line) as { id: number; method: string; params: Record<string, unknown> };
+        requests.push(request);
+        socket.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            result:
+              request.method === "protocol.hello"
+                ? fixtureDaemonHello()
+                : { ok: true, command: request.params.operation, changed: true },
+          })}\n`,
+        );
+      });
+      socket.on("close", () => lines.close());
+    });
+
+  const run = async (
+    args: string[],
+    input: string | undefined,
+  ): Promise<{ readonly output: string; readonly argv: string[] }> => {
+    const argv = [path.resolve("packages/cli/src/index.ts"), "--root", root, "--json", ...args],
+      child = spawn(process.execPath, argv, {
+        env: { ...process.env, HOME: path.join(root, "home"), HARNESS_DAEMON_USER_ROOT: userRoot },
+        stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      });
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += String(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += String(chunk);
+    });
+    if (input !== undefined) child.stdin?.end(input);
+    try {
+      const [status] = await once(child, "close", { signal: AbortSignal.timeout(10_000) });
+      assert.equal(status, 0, output);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, "close", { signal: AbortSignal.timeout(5_000) });
+        child.kill("SIGKILL");
+        await closed;
+      }
+    }
+    return { output, argv };
+  };
+
+  try {
+    mkdirSync(path.dirname(endpoint), { recursive: true });
+    writeFileSync(passwordFile, `${filePassword}\n`, { mode: 0o600 });
+    server.listen(endpoint);
+    await once(server, "listening");
+    const fromFile = await run(["access", "password", "change", "--password-file", passwordFile], undefined),
+      fromStdin = await run(
+        ["access", "password", "reset", "--person-id", "person-target", "--password-stdin"],
+        `${stdinPassword}\n`,
+      );
+
+    assert.deepEqual(
+      requests.filter(({ method }) => method === "daemon.rbac.manage").map(({ params }) => params),
+      [
+        { operation: "password-change", password: filePassword },
+        { operation: "password-reset", personId: "person-target", password: stdinPassword },
+      ],
+    );
+    for (const { output, argv } of [fromFile, fromStdin]) {
+      assert.equal(argv.includes(filePassword), false);
+      assert.equal(argv.includes(stdinPassword), false);
+      assert.equal(output.includes(filePassword), false);
+      assert.equal(output.includes(stdinPassword), false);
+      assert.equal(output.includes(passwordFile), false);
+    }
+  } finally {
+    if (server.listening) {
+      const closed = once(server, "close", { signal: AbortSignal.timeout(5_000) });
+      server.close();
+      await closed;
+    }
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
 for (const memberDevice of [false, true])
   test(`bootstrap CLI preserves the daemon-issued ${memberDevice ? "member device" : "invitation"} link as a string`, async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-edge-bootstrap-rpc-")),

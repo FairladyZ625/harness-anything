@@ -657,7 +657,7 @@ jobs:
       fail-fast: false
       matrix:
         backend: [sqlite, pglite]
-        dimension: [task-history, runtime-sessions, dispatches, task-outputs, relations, event-bytes, source-events]
+        dimension: [task-history, runtime-sessions, dispatches, task-outputs, relations, relation-visibility, event-bytes, source-events]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

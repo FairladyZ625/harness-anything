@@ -145,7 +145,7 @@ describe("IdentityAccessView", () => {
     setActiveLocale("en-US");
     await render(auth());
     expect(container.textContent).toContain("Identity & access");
-    expect(container.textContent).toContain("Sign in with Keycloak");
+    expect(container.textContent).toContain("Sign in");
     expect(container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
   });
 
@@ -258,7 +258,7 @@ describe("IdentityAccessView", () => {
     await act(async () => undefined);
     const selected = container.querySelector('[role="tab"][aria-selected="true"]');
     expect(selected?.textContent).toContain("服务与会话");
-    expect(container.querySelector('[data-testid="access-current-provider"]')?.textContent).toContain("Keycloak");
+    expect(container.querySelector('[data-testid="access-current-provider"]')?.textContent).toContain("外部身份服务");
     const header = container.querySelector<HTMLButtonElement>('[data-testid="account-header-sign-in"]')!;
     expect(header).not.toBeNull();
     await act(async () => header.click());
@@ -376,14 +376,14 @@ describe("IdentityAccessView", () => {
     expect(container.textContent).toContain("身份服务暂时不可用");
     expect(container.textContent).not.toContain("尚未登录");
     expect(container.querySelector('[data-testid="account-header-sign-in"]')).toBeNull();
-    expect(container.querySelector('[data-testid="access-current-provider"]')?.textContent).toContain("Keycloak");
+    expect(container.querySelector('[data-testid="access-current-provider"]')?.textContent).toContain("外部身份服务");
   });
 });
 
-it("classifies a binding mode as builtin, Keycloak, or unknown", () => {
+it("classifies a binding mode as builtin, external, or unknown", () => {
   expect(identityProviderOf("builtin")).toBe("builtin");
-  expect(identityProviderOf("managed")).toBe("keycloak");
-  expect(identityProviderOf("external")).toBe("keycloak");
+  expect(identityProviderOf("managed")).toBe("external");
+  expect(identityProviderOf("external")).toBe("external");
   expect(identityProviderOf(undefined)).toBe("unknown");
   expect(identityProviderOf("unexpected")).toBe("unknown");
 });

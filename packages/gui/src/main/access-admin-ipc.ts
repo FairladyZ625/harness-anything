@@ -11,7 +11,7 @@ interface Registrar {
   ) => void;
 }
 
-type Field = "text" | "names" | "seconds" | "optional-text";
+type Field = "text" | "names" | "seconds" | "optional-text" | "secret";
 
 /** The fields each operation carries to the daemon. Anything else the renderer sends is refused. */
 const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>> = {
@@ -36,6 +36,9 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "permission-request-withdraw": { requestId: "text", requestVersion: "seconds" },
   "receipt-list": {},
   "session-lifetime": {},
+  "credential-support": {},
+  "password-change": { password: "secret" },
+  "password-reset": { personId: "text", password: "secret" },
   "group-create": { groupId: "text", displayName: "text", scopes: "names", composites: "names" },
   "group-update": {
     groupId: "text",
@@ -70,7 +73,7 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "edge-join-revoke": { joinId: "text" },
 };
 
-/** Operations that change Keycloak; the main process names each one so a lost receipt can be reconciled. */
+/** Operations with access receipts; credential writes deliberately remain outside this journal. */
 const writes: ReadonlySet<string> = new Set([
   "device-rename",
   "device-pause",
@@ -93,7 +96,7 @@ const writes: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Access administration for the renderer. The daemon holds the Keycloak credentials and decides who
+ * Access administration for the renderer. The daemon holds provider credentials and decides who
  * may administer; this handler only carries a typed request to it and its answer back, refusals included.
  */
 export function registerAccessAdminIpc(
@@ -141,9 +144,11 @@ export function accessAdminParams(input: unknown, operationId: () => string): Js
           ? typeof value === "string" && value.trim() !== ""
           : field === "optional-text"
             ? value === undefined || (typeof value === "string" && value.trim() !== "")
-            : field === "names"
-              ? Array.isArray(value) && value.every((item) => typeof item === "string")
-              : Number.isInteger(value);
+            : field === "secret"
+              ? typeof value === "string" && value.length > 0
+              : field === "names"
+                ? Array.isArray(value) && value.every((item) => typeof item === "string")
+                : Number.isInteger(value);
     if (!valid) throw new Error(`Access administration ${operation} requires ${name}.`);
     if (value === undefined) continue;
     if (name === "decision" && value !== "approve" && value !== "reject") throw new Error("Choose approve or reject.");

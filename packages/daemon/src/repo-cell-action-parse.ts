@@ -141,9 +141,16 @@ export function decisionProposalAction(
     typeof action.body === "string"
   )
     return action;
+  const directPacketFields = direct
+    ? Object.keys(action).filter(
+        (field) => field !== "kind" && field !== "body" && field !== "bodyFile" && action[field] !== undefined,
+      )
+    : [];
   if (
-    Object.keys(action).some((field) => !allowed.includes(field)) ||
-    fromFile === jsonInput ||
+    (direct
+      ? directPacketFields.some((field) => !decisionProposalFields.includes(field as never))
+      : Object.keys(action).some((field) => !allowed.includes(field))) ||
+    (fromFile === jsonInput && !direct) ||
     (action.body !== undefined && typeof action.body !== "string") ||
     (action.bodyFile !== undefined && typeof action.bodyFile !== "string") ||
     (typeof action.body === "string" && typeof action.bodyFile === "string")
@@ -152,7 +159,12 @@ export function decisionProposalAction(
       "invalid_command",
       "Decision propose requires one structured packet and at most one body source.",
     );
-  const source = readPacketSource(rootDir, action),
+  // Fleet frames carry the decoded packet as direct action fields (the edge already resolved
+  // --from-file/--body-file). Rebuild the packet source so a missing optional field defaults here
+  // instead of turning the legal subset into an input-shape error.
+  const source = direct
+      ? JSON.stringify(Object.fromEntries(directPacketFields.map((field) => [field, action[field]])))
+      : readPacketSource(rootDir, action),
     parsed = tryParseJsonObject(source),
     defaults = {
       ...(parsed && !Object.hasOwn(parsed, "vertical") ? { vertical: settings().defaultVertical } : {}),

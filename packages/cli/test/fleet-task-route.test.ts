@@ -233,6 +233,49 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     null,
   );
 
+  // The edge resolves both sources before crossing TLS: the packet fields plus the body text are
+  // what the center receives, with no from-file or body-file path it could misread as local.
+  const decisionPacket = {
+      title: "Edge decision",
+      question: "Can the edge submit the same Decision packet as the center?",
+      riskTier: "low",
+      urgency: "medium",
+      decisionClass: "ordinary",
+      chosen: [{ id: "CH1", text: "Forward the decoded packet." }],
+      rejected: [{ id: "RJ1", text: "Require the center's file path.", whyNot: "The edge owns that file." }],
+      claims: [],
+    },
+    decisionBody = "# Edge decision\n\nRecorded from the edge node.\n";
+  writeFileSync(path.join(root, "decision.json"), `${JSON.stringify(decisionPacket)}\n`);
+  writeFileSync(path.join(root, "decision-body.md"), decisionBody);
+  const decisionRoute = await fleetTaskRoute(
+    command("repo.task.run", {
+      kind: "decision-propose",
+      fromFile: "decision.json",
+      bodyFile: "decision-body.md",
+    }),
+    env,
+  );
+  assert.deepEqual(decisionRoute?.action, { ...decisionPacket, kind: "decision-propose", body: decisionBody });
+  const decisionWithoutBody = await fleetTaskRoute(
+    command("repo.task.run", { kind: "decision-propose", fromFile: "decision.json" }),
+    env,
+  );
+  assert.deepEqual(decisionWithoutBody?.action, { ...decisionPacket, kind: "decision-propose" });
+  const decisionFromJsonInput = await fleetTaskRoute(
+    command("repo.task.run", {
+      kind: "decision-propose",
+      jsonInput: JSON.stringify(decisionPacket),
+      body: decisionBody,
+    }),
+    env,
+  );
+  assert.deepEqual(decisionFromJsonInput?.action, {
+    ...decisionPacket,
+    kind: "decision-propose",
+    body: decisionBody,
+  });
+
   const runtime = await fleetRuntimeRoute(
     command("repo.agentRuntime.spawn", {
       kind: "runtime-run",
@@ -365,6 +408,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     );
   }
   writeFileSync(path.join(root, "body.md"), "# Authored on the edge\n" + "Long prose. ".repeat(80));
+  writeFileSync(path.join(root, "work-plan.md"), "# Edge work\n\n## Mission\n\nCreate the work from the edge.\n");
   writeFileSync(path.join(root, "ids.txt"), "# edge-local batch\nF-0000EDGE\n");
   writeFileSync(
     path.join(root, "decision-review.json"),
@@ -379,6 +423,26 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     }),
   );
   for (const argv of [
+    [
+      "work",
+      "create",
+      "--title",
+      "Edge work",
+      "--decision",
+      "dec_51BE0FEB9A078031D052101951",
+      "--kind",
+      "feat",
+      "--risk-tier",
+      "medium",
+      "--urgency",
+      "high",
+      "--slug",
+      "edge-work",
+      "--plan-file",
+      "work-plan.md",
+      "--locale",
+      "zh-CN",
+    ],
     ["fact", "reclassify", "F-0000EDGE", "--type", "closeout", "--rationale", "Verified."],
     ["fact", "archive", "--ids-file", "ids.txt", "--reason", "Finished."],
     ["fact", "unarchive", "F-0000EDGE", "--reason", "Restore."],

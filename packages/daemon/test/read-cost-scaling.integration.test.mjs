@@ -6,6 +6,7 @@ import {
   READ_MARGINS,
   READ_DIMENSIONS,
   READ_SCALES,
+  readProbeAppliesTo,
   evaluateReadMeasurements,
 } from "../../../tools/gates/cost-budget-reads.mjs";
 import { READ_PROBES, measureReadScale } from "./fixtures/g38-read-cost.mjs";
@@ -49,8 +50,9 @@ if (process.env.FLEET_STRESS_G38_LEGACY_BENCH === "1") {
         } else {
           for (const dimension of dimensions) {
             const probeIds = Object.keys(READ_PROBES).filter((id) =>
-              READ_PROBES[id].sourceAudit ? dimension === "source-events" : dimension !== "source-events",
+              readProbeAppliesTo(READ_PROBES[id], backend, dimension),
             );
+            if (probeIds.length === 0) continue;
             const result = await measureReadScale(backend, dimension, 2, { probeIds });
             for (const [id, value] of Object.entries(result)) {
               assert.ok(Number.isSafeInteger(value.resultSize), `${id} result size`);

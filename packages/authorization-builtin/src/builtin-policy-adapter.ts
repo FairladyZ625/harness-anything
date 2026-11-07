@@ -51,6 +51,7 @@ export class BuiltinPolicyAdapter
     AuthorizationNodeCredentialPort,
     AuthorizationDecisionPort
 {
+  readonly credentialCapabilities = Object.freeze({ changeOwn: true, resetOthers: false });
   readonly policyRef = "builtin-policy@1";
   readonly authority = "builtin";
   readonly deniedReasonCode = "builtin_denied";
@@ -220,6 +221,22 @@ export class BuiltinPolicyAdapter
     this.#assertCenter(token);
     const owner = readState(this.#root).owner;
     return owner?.personId === personId ? owner.userId : undefined;
+  }
+  async writePasswordCredential(token: string, personId: string, password: string): Promise<void> {
+    this.#assertCenter(token);
+    if (password.length === 0)
+      throw Object.assign(new Error("A password cannot be empty."), { code: "password_invalid" });
+    const state = readState(this.#root),
+      owner = state.owner;
+    if (!owner || owner.personId !== personId)
+      throw Object.assign(new Error(`No built-in account carries Harness person ${personId}.`), {
+        code: "access_person_unknown",
+      });
+    const next = hashSecret(password);
+    await this.#write(token, (current) => ({
+      ...current,
+      owner: { ...owner, passwordSalt: next.salt, passwordHash: next.hash },
+    }));
   }
   async readPersonTeams(token: string, personId: string): Promise<readonly string[]> {
     this.#assertCenter(token);

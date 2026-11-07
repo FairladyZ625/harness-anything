@@ -69,7 +69,7 @@ function identitySubtitle(identity: IdentitySnapshot): string {
   if (identity.provider === "unknown") return "";
   if (identity.provider === "builtin")
     return t(identity.authenticated ? "identityAccess.localIdentity" : "identityAccess.localSignIn");
-  return t(identity.authenticated ? "identityAccess.keycloakIdentity" : "identityAccess.signIn");
+  return t(identity.authenticated ? "identityAccess.currentIdentity" : "identityAccess.signIn");
 }
 
 function identityName(identity: IdentitySnapshot): string {
