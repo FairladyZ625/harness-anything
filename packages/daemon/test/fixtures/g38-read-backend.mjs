@@ -9,6 +9,13 @@ import { initRepo } from "../../../storage/test/store/task-event-store.fixtures.
 import { seedReadLedger, READ_HISTORY_BATCH_SIZE } from "./g38-read-ledger.mjs";
 import { installReadProbe, resetReadProbe, snapshotReadProbe } from "./g38-read-probe.mjs";
 
+// The wait below covers fixture construction, including the 34k-output seed, not a query:
+// the 34k seed alone builds in ~49s locally. CI steps for this shard succeeded at
+// 101–134s and failed at ~145s with this wait as the reported error; 120s was too close
+// to the observed build time. 240s is a 3.4x allowance and stays under the workflow's
+// 5-minute step timeout, which remains the outer hang guard.
+const FIXTURE_WAIT_TIMEOUT_MS = 240_000;
+
 export async function openReadBackend(backend, dimension, size, { lowVisibility = false, allVisible = false } = {}) {
   // Install before opening any measured connection, including canonical point readers.
   installReadProbe();
@@ -77,7 +84,8 @@ export async function openReadBackend(backend, dimension, size, { lowVisibility 
     });
   worker.on("error", () => {}); // wait() reports the terminal error to the synchronous caller.
   const wait = () => {
-    if (Atomics.wait(state, 0, 0, 120_000) === "timed-out") throw new Error("G38 PGlite fixture timed out");
+    if (Atomics.wait(state, 0, 0, FIXTURE_WAIT_TIMEOUT_MS) === "timed-out")
+      throw new Error(`G38 PGlite fixture timed out after ${FIXTURE_WAIT_TIMEOUT_MS / 1000}s`);
     const response = receiveMessageOnPort(port1)?.message;
     if (!response) throw new Error("G38 PGlite fixture returned no response");
     if (response.error) throw Object.assign(new Error(response.error.message), response.error);
