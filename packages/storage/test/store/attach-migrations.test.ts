@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { applyAttachMigrations, attachMigrationRegistry } from "../../src/store/attach-migrations.ts";
 import { historicalReadConclusions as publicHistoricalReadConclusions } from "@harness-anything/kernel";
+import {
+  rebuildDispatchLifecycle,
+  type DispatchLifecycleEvent,
+} from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { retiredPersistedSchemaFields } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import {
   normalizeHistoricalEvent,
@@ -314,7 +318,7 @@ test("dispatch lifecycle attach imports unfinished legacy groups with all attemp
   assert.equal(events.filter((event) => event.type === "runtime_dispatch_lifecycle_observed").length, 1);
 });
 
-test("dispatch lifecycle migration releases a historical attempt only with an exit observation", () => {
+test("dispatch lifecycle migration retains a historical attempt after exit observation without stop proof", () => {
   const request = (revision: number, dispatchId: string, sessionId: string, attemptIndex: number) =>
       ({
         ...envelope(
@@ -355,9 +359,84 @@ test("dispatch lifecycle migration releases a historical attempt only with an ex
   assert.ok(lifecycle);
   const imported = (lifecycle.payload as { readonly lifecycle: { readonly group: Record<string, unknown> } }).lifecycle
     .group as { readonly attempts: readonly Record<string, unknown>[] };
-  assert.equal(imported.attempts[0]?.phase, "closed");
-  assert.equal(imported.attempts[0]?.stopProof, "proven_stopped");
-  assert.equal(imported.attempts[0]?.capacity, "released");
+  assert.equal(imported.phase, "settling");
+  assert.equal(imported.attempts[0]?.phase, "settling");
+  assert.equal(imported.attempts[0]?.process, "exited");
+  assert.equal(imported.attempts[0]?.stopProof, "unproven");
+  assert.equal(imported.attempts[0]?.capacity, "held");
+  assert.deepEqual(imported.attempts[0]?.taskLease, {
+    taskId: "task-legacy",
+    executionId: "execution-legacy",
+    version: 7,
+  });
+});
+
+test("dispatch lifecycle migration settles a current-only exited attempt and cold rebuild retains its reservation", () => {
+  const request = {
+      ...envelope(
+        "agent-runtime-event/v1",
+        {
+          dispatchId: "dispatch-current-exited",
+          runtimeSessionId: "session-current-exited",
+          instanceId: "instance-legacy",
+          installationId: "installation-legacy",
+          kindId: "codex",
+          dispatchKey: "legacy-dispatch-current-exited",
+          definitionSnapshotRef: "artifact:runtime-definition/legacy",
+          definitionSnapshot: {},
+          attemptGroupId: "group-current-exited",
+          attemptIndex: 0,
+          taskId: "task-legacy",
+          executionId: "execution-legacy",
+          leaseVersion: 7,
+          cwd: "/repo/workspace",
+        },
+        "legacy-current-exited-request",
+        1,
+      ),
+      type: "runtime_dispatch_requested",
+    } as unknown as PersistedCanonicalEventV1,
+    started = {
+      ...envelope(
+        "agent-runtime-event/v1",
+        { runtimeSessionId: "session-current-exited" },
+        "legacy-current-started",
+        2,
+      ),
+      type: "runtime_session_started",
+    } as unknown as PersistedCanonicalEventV1,
+    exited = {
+      ...envelope("agent-runtime-event/v1", { runtimeSessionId: "session-current-exited" }, "legacy-current-exit", 3),
+      type: "runtime_session_exited",
+    } as unknown as PersistedCanonicalEventV1,
+    { store, events } = canonicalDispatchFakeStore([request, started, exited]);
+
+  applyAttachMigrations({ store, now: () => "2026-11-08T00:00:00.000Z" });
+  const lifecycle = events.find((event) => event.type === "runtime_dispatch_lifecycle_observed");
+  assert.ok(lifecycle);
+  const imported = (lifecycle.payload as { readonly lifecycle: { readonly group: Record<string, unknown> } }).lifecycle
+    .group as { readonly phase: string; readonly attempts: readonly Record<string, unknown>[] };
+  assert.equal(imported.phase, "settling");
+  assert.equal(imported.attempts[0]?.phase, "settling");
+  assert.equal(imported.attempts[0]?.process, "exited");
+  assert.equal(imported.attempts[0]?.stopProof, "unproven");
+  assert.equal(imported.attempts[0]?.capacity, "held");
+  assert.deepEqual(imported.attempts[0]?.taskLease, {
+    taskId: "task-legacy",
+    executionId: "execution-legacy",
+    version: 7,
+  });
+
+  const lifecycleEvent = (lifecycle.payload as { readonly lifecycle: DispatchLifecycleEvent }).lifecycle,
+    rebuilt = rebuildDispatchLifecycle([lifecycleEvent]),
+    rebuiltGroup = rebuilt.groups["group-current-exited"],
+    rebuiltAttempt = rebuiltGroup?.attempts[0];
+  assert.equal(rebuiltGroup?.phase, "settling");
+  assert.equal(rebuiltAttempt?.phase, "settling");
+  assert.equal(rebuiltAttempt?.process, "exited");
+  assert.equal(rebuiltAttempt?.stopProof, "unproven");
+  assert.equal(rebuiltAttempt?.capacity, "held");
+  assert.deepEqual(rebuilt.activeReservationsByInstance["instance-legacy"], ["dispatch-current-exited"]);
 });
 
 test("dispatch lifecycle migration uses the indexed candidate cut instead of scanning queryEvents", () => {
