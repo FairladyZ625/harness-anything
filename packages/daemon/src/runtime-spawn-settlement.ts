@@ -892,7 +892,7 @@ function unsubmittedDeliveryRecovery(
   );
 }
 
-/** An undelivered stop names the task it left unsubmitted and hands back the reopen entry, so the
+/** An undelivered stop names the task it left unsubmitted and hands back the recovery entry, so the
  * receipt reads as "exited without delivering" plus the way to continue rather than a success shape
  * the owner must discover is hollow (dec_614F7BBB18C8687E7EFC72173D CH1). Reviewers re-dispatch
  * through review dispatches and squad turns through their coordinator, so only direct task exits. */
@@ -903,7 +903,9 @@ function unsubmittedExitGuidance(
   if (outcome !== "stopped" || !active.task || active.role === "reviewer" || active.squadId !== null) return null;
   return (
     `Task ${active.task.taskId} is not submitted: the worker exited without a submitted delivery. ` +
-    `Reopen the execution to re-dispatch with: ha task start ${active.task.taskId}`
+    `Recover the stopped worker with: ha agent run ${active.agent?.id ?? "<agent-id>"} --task ${active.task.taskId} ` +
+    `--recover-dispatch ${active.dispatchId} --execution-id ${active.task.executionId} ` +
+    "--expected-version <revision> --idempotency-key <key>"
   );
 }
 

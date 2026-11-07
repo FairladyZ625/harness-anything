@@ -79,6 +79,31 @@ function refuse(code: string, message: string, current: Readonly<Record<string, 
   });
 }
 
+type DispatchEvent = NonNullable<ReturnType<TaskProjection["readRuntimeDispatchById"]>>["event"];
+
+/** Whether a dispatch still runs, and whether it reached a settled verdict a recovery may replace. */
+function sourceVerdict(
+  input: Pick<Parameters<typeof admitTaskDispatch>[0], "projection" | "rootDir" | "ownsLiveProcess">,
+  source: DispatchEvent,
+) {
+  const row = readTaskDispatchRow(input.projection, source, { rootDir: input.rootDir }),
+    liveness = input.projection.readRuntimeSession(source.payload.runtimeSessionId)?.liveness ?? null,
+    live =
+      liveness === "live" ||
+      input.ownsLiveProcess(source.payload.runtimeSessionId) ||
+      readRuntimeSessionActivityEvidence(input.rootDir, source.payload.dispatchId)?.workerHostAlive === true;
+  return {
+    row,
+    liveness,
+    live,
+    recoverable:
+      !live &&
+      row.outcome !== null &&
+      RECOVERABLE_SOURCE_STATUSES.has(row.status) &&
+      taskDispatchRowSettled(row, [row.dispatchId]),
+  };
+}
+
 export type TaskDispatchAdmission =
   | { readonly kind: "spawn"; readonly payload: JsonObject; readonly recovery: JsonObject | null }
   | { readonly kind: "replay"; readonly receipt: JsonObject };
@@ -117,7 +142,11 @@ export function admitTaskDispatch(input: {
         (candidate) => candidate.state === "active" && candidate.iteration === snapshot.task?.iteration,
       ),
       prior = execution ? implementationDispatches(input.projection, taskId, execution.executionId).at(-1) : undefined;
-    if (!execution || !prior) return { kind: "spawn", payload, recovery: null };
+    // A prior dispatch that is still running (or whose end is not yet settled) keeps the
+    // execution lease; the spawn's own lease admission reports that conflict. The fence is the
+    // only way to replace a worker that has stopped.
+    if (!execution || !prior || !sourceVerdict(input, prior).recoverable)
+      return { kind: "spawn", payload, recovery: null };
     refuse(
       "dispatch_recovery_fence_required",
       `Execution ${execution.executionId} of task ${taskId} already has implementation dispatch ` +
@@ -222,30 +251,21 @@ export function admitTaskDispatch(input: {
         sourceExecutionId: source?.payload.executionId ?? null,
       },
     );
-  const sourceRow = readTaskDispatchRow(input.projection, source, { rootDir: input.rootDir }),
-    session = input.projection.readRuntimeSession(source.payload.runtimeSessionId),
+  const verdict = sourceVerdict(input, source),
     sourceState = {
       ...current,
       sourceDispatchId: source.payload.dispatchId,
-      sourceStatus: sourceRow.status,
-      sourceOutcome: sourceRow.outcome,
-      sourceLiveness: session?.liveness ?? null,
+      sourceStatus: verdict.row.status,
+      sourceOutcome: verdict.row.outcome,
+      sourceLiveness: verdict.liveness,
     };
-  if (
-    session?.liveness === "live" ||
-    input.ownsLiveProcess(source.payload.runtimeSessionId) ||
-    readRuntimeSessionActivityEvidence(input.rootDir, source.payload.dispatchId)?.workerHostAlive === true
-  )
+  if (verdict.live)
     refuse(
       "dispatch_recovery_source_live",
       `Dispatch ${source.payload.dispatchId} still has a live runtime; cancel it before recovering.`,
       sourceState,
     );
-  if (
-    sourceRow.outcome === null ||
-    !RECOVERABLE_SOURCE_STATUSES.has(sourceRow.status) ||
-    !taskDispatchRowSettled(sourceRow, [sourceRow.dispatchId])
-  )
+  if (!verdict.recoverable)
     refuse(
       "dispatch_recovery_source_unsettled",
       `Dispatch ${source.payload.dispatchId} has no settled stopped/blocked/failed/cancelled verdict.`,
