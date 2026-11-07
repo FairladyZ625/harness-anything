@@ -927,3 +927,106 @@ test("import boundary keeps SQL and database drivers inside storage", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("import boundary names the value edges of a production-shaped Registry runtime cycle", () => {
+  const root = makeFixtureRoot();
+  try {
+    const domain = path.join(root, "packages/kernel/src/domain");
+    mkdirSync(domain, { recursive: true });
+    const registry = path.join(domain, "entity-kind-registry.ts"),
+      schedule = path.join(domain, "schedule-action-contract.ts"),
+      transition = path.join(domain, "schedule-transition.ts");
+    // Normal composition: Registry -> Schedule action -> transition, with the transition reading
+    // the registry's kind only as a type.
+    writeFileSync(
+      registry,
+      'import { scheduleActions } from "./schedule-action-contract.ts";\nexport const entityKindRegistry = { schedule: scheduleActions };\nexport type EntityKind = keyof typeof entityKindRegistry;\n',
+      "utf8",
+    );
+    writeFileSync(
+      schedule,
+      'import { scheduleTransition } from "./schedule-transition.ts";\nexport const scheduleActions = [scheduleTransition("claim")];\n',
+      "utf8",
+    );
+    writeFileSync(
+      transition,
+      'import type { EntityKind } from "./entity-kind-registry.ts";\nexport const scheduleTransition = (event: string): { event: string; kind: EntityKind } => ({ event, kind: "schedule" });\n',
+      "utf8",
+    );
+    const composed = runChecker(root);
+    assert.equal(composed.status, 0, composed.stderr);
+
+    // Mutation: the transition reads the registry at runtime, closing Registry -> action -> event -> Registry.
+    writeFileSync(
+      transition,
+      'import { entityKindRegistry } from "./entity-kind-registry.ts";\nexport const scheduleTransition = (event: string) => ({ event, kinds: Object.keys(entityKindRegistry) });\n',
+      "utf8",
+    );
+    const cycle = runChecker(root);
+    assert.notEqual(cycle.status, 0);
+    assert.match(cycle.stderr, /runtime import cycle \(3 files\)/u);
+    assert.match(
+      cycle.stderr,
+      /packages\/kernel\/src\/domain\/schedule-transition\.ts -> packages\/kernel\/src\/domain\/entity-kind-registry\.ts \[import: entityKindRegistry\]/u,
+    );
+
+    // Restore the type-only edge: green again.
+    writeFileSync(
+      transition,
+      'import type { EntityKind } from "./entity-kind-registry.ts";\nexport const scheduleTransition = (event: string): { event: string; kind: EntityKind } => ({ event, kind: "schedule" });\n',
+      "utf8",
+    );
+    const restored = runChecker(root);
+    assert.equal(restored.status, 0, restored.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary rejects domain value edges into the schema and Effect runtime", () => {
+  const root = makeFixtureRoot();
+  try {
+    const domain = path.join(root, "packages/kernel/src/domain"),
+      schemas = path.join(root, "packages/kernel/src/schemas");
+    mkdirSync(domain, { recursive: true });
+    mkdirSync(schemas, { recursive: true });
+    writeFileSync(
+      path.join(schemas, "registry.ts"),
+      'import { Schema } from "effect";\nexport const TaskFrontmatterSchema = Schema.Struct({ id: Schema.String });\nexport type TaskFrontmatter = typeof TaskFrontmatterSchema.Type;\n',
+      "utf8",
+    );
+    const contract = path.join(domain, "entity-field-contracts.ts");
+    const typeOnly =
+      'import type { TaskFrontmatter } from "../schemas/registry.ts";\nimport type { Schema } from "effect";\nexport const fieldNames = (row: TaskFrontmatter, _schema?: Schema.Schema<unknown>) => Object.keys(row);\n';
+    writeFileSync(contract, typeOnly, "utf8");
+    const clean = runChecker(root);
+    assert.equal(clean.status, 0, clean.stderr);
+
+    writeFileSync(
+      contract,
+      'import { TaskFrontmatterSchema } from "../schemas/registry.ts";\nexport const fieldNames = () => Object.keys(TaskFrontmatterSchema.fields);\n',
+      "utf8",
+    );
+    const schemaEdge = runChecker(root);
+    assert.notEqual(schemaEdge.status, 0);
+    assert.match(
+      schemaEdge.stderr,
+      /domain layer value-imports schema runtime packages\/kernel\/src\/schemas\/registry\.ts \[import: TaskFrontmatterSchema\]/u,
+    );
+
+    writeFileSync(
+      contract,
+      'import { Schema } from "effect";\nexport const decodeName = Schema.decodeUnknownSync(Schema.String);\n',
+      "utf8",
+    );
+    const effectEdge = runChecker(root);
+    assert.notEqual(effectEdge.status, 0);
+    assert.match(effectEdge.stderr, /domain layer value-imports Effect runtime effect \[Schema\]/u);
+
+    writeFileSync(contract, typeOnly, "utf8");
+    const restored = runChecker(root);
+    assert.equal(restored.status, 0, restored.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
