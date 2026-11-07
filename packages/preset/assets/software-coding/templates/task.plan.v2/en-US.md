@@ -41,3 +41,11 @@ State this task's evidence granularity and the conditions under which a reviewer
 ## Verification
 
 Write every acceptance item as "command + expected result"; raise an unachievable criterion before work starts instead of waiting for review. Name the specific test files this task's surface requires and paste real runner output; the repository's current rules own the full gate matrix and CI. List any review and human acceptance conditions this task additionally requires.
+
+## Recurrence Gate
+
+Required for `--kind fix` tasks; other kinds may delete this section. Answer every line; do not leave it empty or keep these four prompt lines:
+① Criterion: which class of code or plan wording would let this defect recur (name the mechanism, not this symptom).
+② Gate: extend an existing gate first; name the gate and its file. The current gate list is `tools/gate-manifest.json`.
+③ Positive control: an input sample or minimal command the gate rejects, plus the expected rejection result.
+④ If no gate is possible, state the reason and the substitute verification (for example a behavior contract test), and which failure that substitute covers.

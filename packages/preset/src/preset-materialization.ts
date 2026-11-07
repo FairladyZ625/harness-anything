@@ -58,6 +58,7 @@ export function materializeSelections(entries: readonly ResolverScaffoldSelectio
         mediaType: item.project.mediaType,
         locale: "project",
         requiredAnchors,
+        requiredAnchorsByWorkKind: {},
       };
     }
     const planned = plannedBySlot.get(item.selection.slot);
@@ -69,6 +70,7 @@ export function materializeSelections(entries: readonly ResolverScaffoldSelectio
       mediaType: catalogMediaType(item.source!, item.selection.templateRef, planned.locale),
       locale: planned.locale,
       requiredAnchors: planned.requiredAnchors,
+      requiredAnchorsByWorkKind: planned.requiredAnchorsByWorkKind,
     };
   });
 }

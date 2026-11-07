@@ -62,7 +62,12 @@ const planTemplate = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.plan.lightweight/en-US.md", import.meta.url),
     "utf8",
   ),
-  planContract = transitionDocumentContract(planTemplate),
+  // The catalog declares the Recurrence Gate only for fix tasks, so the baseline contract here is
+  // the same narrowed set a feat/docs plan receives.
+  planContract = transitionDocumentContract(
+    planTemplate,
+    planHeadings.map((section) => `## ${section}`),
+  ),
   legacyPlanContract = transitionDocumentContract(legacyPlanTemplate),
   lightweightPlanContract = transitionDocumentContract(lightweightPlanTemplate),
   plan = (body: string) => assessTransitionDocument("task.plan", body, planContract),
@@ -141,6 +146,17 @@ test("a frozen 13-section contract still judges the old section list", () => {
     ["Entry Conditions", "Dependencies", "Checkpoint", "Implementation Plan"],
   );
   assert.equal(plan(realizedPlan()).ready, true);
+});
+
+test("a catalog anchor list narrows the contract to the declared sections", () => {
+  const baseline = planHeadings.map((section) => `## ${section}`),
+    narrowed = transitionDocumentContract(planTemplate, baseline),
+    withGate = transitionDocumentContract(planTemplate, [...baseline, "## Recurrence Gate"]);
+  assert.deepEqual(narrowed.requiredSections, planHeadings);
+  assert.equal(Object.hasOwn(narrowed.scaffoldBySection, "Recurrence Gate"), false);
+  assert.deepEqual(withGate.requiredSections, [...planHeadings, "Recurrence Gate"]);
+  assert.ok(withGate.scaffoldBySection["Recurrence Gate"]!.length > 0);
+  assert.throws(() => transitionDocumentContract(planTemplate, ["## Not A Section"]), /not a section/u);
 });
 
 test("task plan accepts explanatory suffixes on every required heading", () => {

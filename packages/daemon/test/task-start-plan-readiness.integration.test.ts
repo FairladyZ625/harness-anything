@@ -77,3 +77,100 @@ test("task start reports every incomplete plan section, empty and scaffold alike
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("a fix task without an authored Recurrence Gate is refused at create and admitted once filled", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fix-recurrence-gate-")),
+    template = readFileSync(
+      new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
+      "utf8",
+    ),
+    gateScaffold = transitionDocumentContract(template).scaffoldBySection["Recurrence Gate"]?.[0];
+  assert.ok(gateScaffold);
+  initRepo(rootDir);
+  const cell = await openBootstrappedRepoCell({
+      repoId: workspaceId("fix-recurrence-gate"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "fix-recurrence-gate",
+    }),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
+    create = (taskId: string, workKind: "fix" | "feat", plan: string) =>
+      cell.run({ kind: "task-create", taskId, title: taskId, workKind, plan }, binding);
+  try {
+    const missing = await create("task-fix-gate-missing", "fix", realizedTaskPlan("Fix gate missing"));
+    assert.equal(missing.outcome, "op_rejected");
+    assert.equal(missing.code, "plan_placeholder");
+    assert.match(JSON.stringify((missing as { readonly diagnostic?: unknown }).diagnostic), /Recurrence Gate/u);
+
+    const scaffolded = await create(
+      "task-fix-gate-scaffold",
+      "fix",
+      realizedTaskPlan("Fix gate scaffold", `## Recurrence Gate\n\n${gateScaffold}`),
+    );
+    assert.equal(scaffolded.outcome, "op_rejected");
+    assert.equal(scaffolded.code, "plan_placeholder");
+    assert.match(JSON.stringify((scaffolded as { readonly diagnostic?: unknown }).diagnostic), /Recurrence Gate/u);
+
+    const feat = await create("task-feat-gate-optional", "feat", realizedTaskPlan("Feat gate optional"));
+    assert.equal(feat.outcome, "applied", JSON.stringify(feat));
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-start", taskId: "task-feat-gate-optional", executionId: "execution-feat" },
+          binding,
+        )
+      ).outcome,
+      "applied",
+      "a non-fix plan stays admissible without the gate",
+    );
+
+    const filled = await create(
+      "task-fix-gate-filled",
+      "fix",
+      realizedTaskPlan(
+        "Fix gate filled",
+        "## Recurrence Gate\n\nCriterion: a fix plan can omit its gate.\nGate: task-plan readiness.\nPositive control: a plan without this section is refused.",
+      ),
+    );
+    assert.equal(filled.outcome, "applied", JSON.stringify(filled));
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: "task-fix-gate-filled", executionId: "execution-fix" }, binding))
+        .outcome,
+      "applied",
+      "an authored gate admits the fix task",
+    );
+
+    // --risk-tier low would normally auto-select the lightweight three-section plan, which has no
+    // Recurrence Gate. A fix must stay on the gated baseline template, so the same gateless plan
+    // that a feat may submit is refused for a low-risk fix.
+    const lowRiskFix = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task-fix-low-risk-missing",
+        title: "Low-risk fix missing gate",
+        workKind: "fix",
+        riskTier: "low",
+        plan: realizedTaskPlan("Low-risk fix missing gate"),
+      },
+      binding,
+    );
+    assert.equal(lowRiskFix.outcome, "op_rejected");
+    assert.equal(lowRiskFix.code, "plan_placeholder");
+    assert.match(JSON.stringify((lowRiskFix as { readonly diagnostic?: unknown }).diagnostic), /Recurrence Gate/u);
+
+    const lowRiskFeat = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task-feat-low-risk-optional",
+        title: "Low-risk feat optional gate",
+        workKind: "feat",
+        riskTier: "low",
+        plan: realizedTaskPlan("Low-risk feat optional gate"),
+      },
+      binding,
+    );
+    assert.equal(lowRiskFeat.outcome, "applied", JSON.stringify(lowRiskFeat));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

@@ -252,6 +252,9 @@ export function prepareTaskCreateAt(
     if (
       canonicalAction.riskTier === "low" &&
       canonicalAction.profileId === undefined &&
+      // The lightweight plan template is deliberately three sections, so it cannot carry the
+      // Recurrence Gate a fix task owes. Keep low-risk fixes on the baseline profile.
+      canonicalAction.workKind !== "fix" &&
       baseCompiled.lightweightPresetIds.includes(baseCompiled.snapshot.identity.id) &&
       baseCompiled.snapshot.profile.id !== "lightweight"
     )

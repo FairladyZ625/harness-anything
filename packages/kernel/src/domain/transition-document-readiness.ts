@@ -55,8 +55,20 @@ export type MarkdownDocumentContract = {
  * Derives a document's readiness contract from the scaffold it was materialized from: every `## `
  * heading is a required section, and each non-empty scaffold line inside a section is a scaffold
  * phrase. The template is the single source — the kernel keeps no section list of its own.
+ *
+ * `requiredAnchors` narrows that set to the sections a catalog declared for this document (for
+ * example, a section only fix tasks must fill). The anchors stay data: this function never knows
+ * which work kind it is serving.
  */
-export function transitionDocumentContract(scaffoldBody: string): MarkdownDocumentContract {
+export function transitionDocumentContract(
+  scaffoldBody: string,
+  requiredAnchors?: readonly string[],
+): MarkdownDocumentContract {
+  const derived = transitionDocumentSections(scaffoldBody);
+  return requiredAnchors === undefined ? derived : narrowTransitionDocumentContract(derived, requiredAnchors);
+}
+
+function transitionDocumentSections(scaffoldBody: string): MarkdownDocumentContract {
   const requiredSections: string[] = [],
     scaffoldBySection: Record<string, readonly string[]> = {};
   let heading: string | null = null,
@@ -89,6 +101,30 @@ export function transitionDocumentContract(scaffoldBody: string): MarkdownDocume
   }
   retain();
   return Object.freeze({ requiredSections: Object.freeze(requiredSections), scaffoldBySection });
+}
+
+/** Keep only the declared sections, in declaration order, and fail closed on an undeclared anchor. */
+function narrowTransitionDocumentContract(
+  contract: MarkdownDocumentContract,
+  requiredAnchors: readonly string[],
+): MarkdownDocumentContract {
+  const headingBySection = new Map(contract.requiredSections.map((heading) => [normalizeHeading(heading), heading])),
+    requiredSections = requiredAnchors.map((anchor) => {
+      const declared = /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(anchor)?.[1] ?? anchor,
+        heading = headingBySection.get(normalizeHeading(declared));
+      if (heading === undefined)
+        throw transitionDocumentAccessLikeError(
+          "scaffold_unavailable",
+          `Required anchor ${anchor} is not a section of the materialized scaffold.`,
+        );
+      return heading;
+    });
+  return Object.freeze({
+    requiredSections: Object.freeze(requiredSections),
+    scaffoldBySection: Object.freeze(
+      Object.fromEntries(requiredSections.map((heading) => [heading, contract.scaffoldBySection[heading] ?? []])),
+    ),
+  });
 }
 
 const placeholderCodes: Readonly<Record<TransitionDocumentKind, TransitionDocumentPlaceholderCode>> = {

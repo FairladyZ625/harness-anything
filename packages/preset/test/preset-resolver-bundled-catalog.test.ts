@@ -18,7 +18,7 @@ test("every bundled catalog body exists and contains its required anchors", () =
   for (const document of source.catalog.documents)
     for (const locale of document.locales) {
       const body = readFileSync(path.join(source.root, locale.bodyPath), "utf8");
-      for (const anchor of document.requiredAnchors)
+      for (const anchor of [...document.requiredAnchors, ...workKindAnchors(locale)])
         assert.equal(body.includes(anchor), true, `${document.id}:${locale.locale}:${anchor}`);
     }
 });
@@ -35,24 +35,35 @@ test("every section a readiness contract would require is declared as a required
       readonly documents: readonly {
         readonly id: string;
         readonly requiredAnchors: readonly string[];
-        readonly locales: readonly { readonly locale: string; readonly bodyPath: string }[];
+        readonly locales: readonly {
+          readonly locale: string;
+          readonly bodyPath: string;
+          readonly requiredAnchorsByWorkKind?: Readonly<Record<string, readonly string[]>>;
+        }[];
       }[];
     };
     for (const document of catalog.documents)
       for (const locale of document.locales) {
-        const body = readFileSync(path.join(path.dirname(catalogFile), locale.bodyPath), "utf8");
+        const body = readFileSync(path.join(path.dirname(catalogFile), locale.bodyPath), "utf8"),
+          declared = new Set([...document.requiredAnchors, ...workKindAnchors(locale)]);
         // The transition gate derives required sections from the scaffold body itself; the
-        // catalog's declared anchors must cover exactly that set or readers of the declaration
-        // will under-require what dispatch and completion will reject.
+        // catalog's declared anchors (baseline plus conditional) must cover exactly that set or
+        // readers of the declaration will under-require what dispatch and completion will reject.
         for (const section of transitionDocumentContract(body).requiredSections)
           assert.equal(
-            document.requiredAnchors.includes(`## ${section}`),
+            declared.has(`## ${section}`),
             true,
-            `${document.id}:${locale.locale}:## ${section} missing from ${path.relative(defaultAssets, catalogFile)} requiredAnchors`,
+            `${document.id}:${locale.locale}:## ${section} missing from ${path.relative(defaultAssets, catalogFile)} anchors`,
           );
       }
   }
 });
+
+function workKindAnchors(locale: {
+  readonly requiredAnchorsByWorkKind?: Readonly<Record<string, readonly string[]>>;
+}): readonly string[] {
+  return Object.values(locale.requiredAnchorsByWorkKind ?? {}).flat();
+}
 
 test("bundled closeout reviewer is machine-independent and leaves instance model selection open", () => {
   const reviewer = readBundledAgentDeclaration("closeout-reviewer");
@@ -239,6 +250,19 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         assert.match(plan, new RegExp(`^## ${section}$`, "mu"), `${locale}:${section}:body`);
         assert.equal(template?.requiredAnchors.includes(`## ${section}`), true, `${locale}:${section}:contract`);
       }
+      const gateHeading = locale === "zh-CN" ? "防再犯门" : "Recurrence Gate",
+        declaredByWorkKind = resolved.documents.find(({ slot }) => slot === "task.plan")?.requiredAnchorsByWorkKind;
+      assert.match(plan, new RegExp(`^## ${gateHeading}$`, "mu"), `${locale}:recurrence-gate-body`);
+      assert.equal(
+        template?.requiredAnchors.includes(`## ${gateHeading}`),
+        false,
+        `${locale}:recurrence-gate-is-not-a-baseline-requirement`,
+      );
+      assert.equal(
+        declaredByWorkKind?.fix?.includes(`## ${gateHeading}`),
+        true,
+        `${locale}:recurrence-gate-is-declared-for-fix`,
+      );
       for (const section of removedSections)
         assert.doesNotMatch(plan, new RegExp(`^## ${section}$`, "mu"), `${locale}:${section}:removed`);
       assert.match(
