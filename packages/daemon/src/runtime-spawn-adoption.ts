@@ -27,7 +27,6 @@ import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import { IMPORTED_RUNTIME_TERMINAL_BODY, importedRuntimeTerminalResult } from "./runtime-imported-settlement.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
-import { runtimeOwnershipHeld } from "./runtime-spawn-ownership.ts";
 
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
@@ -88,10 +87,6 @@ export async function adoptRuntimes(
           .then(async () => {
             // The launch may not have written its stream header yet either.
             if (context.ownsModelSlot?.(runtimeSessionId)) return "ready" as const;
-            // A sibling runtime context may have published this session while this context's
-            // recovery scan was still reading the replica. Its in-process ownership fence is
-            // stronger than the PID probe, including the window before a stream header exists.
-            if (runtimeOwnershipHeld(context.input, runtimeSessionId)) return "ready" as const;
             // Keep each point lookup inside its own recovery so a stalled edge read does not
             // hold up siblings. The live directory bounds these extra canonical session reads.
             const session =

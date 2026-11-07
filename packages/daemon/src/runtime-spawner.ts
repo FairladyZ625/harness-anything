@@ -33,7 +33,6 @@ import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes, enforceRuntimeSpendCap, steerRuntime } from "./runtime-spawn-control.ts";
-import { claimRuntimeOwnership, releaseRuntimeOwnership } from "./runtime-spawn-ownership.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import {
   adoptRuntimes,
@@ -522,13 +521,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reviewerBinding: Boolean(reviewerBinding),
       }),
       fallbackMission = dispatchPromptTemplate(mission, newDispatchId);
-    let modelSlotHeld = false,
-      runtimeOwnership: symbol | null = null;
+    let modelSlotHeld = false;
     const releaseModelSlot = (): void => {
-      if (runtimeOwnership !== null) {
-        releaseRuntimeOwnership(input, runtimeSessionId, runtimeOwnership);
-        runtimeOwnership = null;
-      }
       if (!modelSlotHeld) return;
       modelSlotHeld = false;
       modelSlotQueue.release(runtimeSessionId);
@@ -1239,15 +1233,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchId: newDispatchId,
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
-    }
-    runtimeOwnership = claimRuntimeOwnership(input, runtimeSessionId);
-    if (runtimeOwnership === null) {
-      const error = runtimeSpawnError(
-        "runtime_recovery_pending",
-        `Runtime ${runtimeSessionId} is already owned by another runtime context.`,
-      );
-      await cleanupFailedLaunch(error);
-      throw error;
     }
     // Publish the canonical session before starting the provider. A provider can
     // immediately call back through the sealed daemon route; its task+dispatch

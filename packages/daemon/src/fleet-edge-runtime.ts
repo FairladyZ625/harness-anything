@@ -1025,12 +1025,11 @@ export function openFleetEdgeRuntime(input: {
     readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
   });
   // Replica admission is shared; independent runtime recovery never owns the request barrier.
-  let ready: Promise<void> | null = null,
-    initialRecovery: Promise<void> | null = null;
+  let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
-        initialRecovery = spawner.adopt().then(
+        void spawner.adopt().then(
           () => {
             // The queue owns and reports maintenance failures. Returning its promise
             // would create an unobserved second rejection in this detached continuation.
@@ -1134,14 +1133,6 @@ export function openFleetEdgeRuntime(input: {
         await preflightRuntimeWorkspace();
       }
       await ensureReady();
-      // A new runtime's first recovery scan must finish before it creates a dispatch stream;
-      // otherwise adoption can mistake that just-started process for one lost at restart.
-      if (
-        method === "repo.agentRuntime.spawn" ||
-        (method === "repo.agentRuntime.handoff" && action.operation === "claim") ||
-        (method === "repo.schedule.run" && action.kind === "schedule-run-now")
-      )
-        await initialRecovery;
       await squad.flushPublications();
       if (method === "repo.squad.control") return squad.run(action);
       if (method === "repo.schedule.run") return runSchedule(action);

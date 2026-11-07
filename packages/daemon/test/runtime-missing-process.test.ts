@@ -20,7 +20,6 @@ import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
 import { cancelRuntime, steerRuntime } from "../src/runtime-spawn-control.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { ModelSlotQueue } from "../src/runtime/model-slot-queue.ts";
-import { claimRuntimeOwnership, releaseRuntimeOwnership } from "../src/runtime-spawn-ownership.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
@@ -227,46 +226,6 @@ test("recovery adoption preserves a runtime already owned by this daemon", async
     await adoptRuntimes(context as never);
     assert.equal(processes.get(runtimeSessionId), owned);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("recovery adoption leaves a session owned by another runtime context alone", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cross-context-runtime-ownership-")),
-    dispatchId = "dispatch_cccccccccccccccccccccccc",
-    runtimeSessionId = "runtime_cccccccccccccccccccccccc",
-    input = { rootDir, repoId: "cross-context-runtime-ownership" };
-  let owner: symbol | null = null;
-  try {
-    owner = claimRuntimeOwnership(input, runtimeSessionId);
-    assert.ok(owner);
-    let settled = false;
-    const context = {
-      input,
-      requiredRuntimeProjection: () => ({
-        readRuntimeSession(id: string) {
-          return (
-            this.readRuntimeSessions().find(
-              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
-            ) ?? null
-          );
-        },
-        readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
-      }),
-      processes: new Map(),
-      exiting: new Set<string>(),
-      reconcileFallback: () => undefined,
-      consumeLine: async () => undefined,
-      publishExit: async () => {
-        settled = true;
-      },
-    };
-    const [recovery] = await adoptRuntimes(context as never);
-    assert.equal(recovery?.outcome, "ready");
-    assert.equal(settled, false);
-  } finally {
-    if (owner) releaseRuntimeOwnership(input, runtimeSessionId, owner);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
