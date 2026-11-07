@@ -214,6 +214,12 @@ export interface CanonicalEventStore {
   readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;
   readonly readEventById?: (eventId: string) => CanonicalEventV1 | null;
   readonly queryEvents?: (query: CanonicalEventQuery) => readonly CanonicalEventV1[];
+  /**
+   * Indexed legacy runtime facts used by the dispatch lifecycle attach migration. The
+   * implementation must return only candidate unfinished groups and their facts; it must not
+   * materialize the complete canonical event history.
+   */
+  readonly readDispatchLifecycleMigrationEvents?: () => readonly CanonicalEventV1[] | undefined;
   readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
   readonly readCommandOutcome: (opId: string) => CanonicalCommandOutcome | null;
   readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };

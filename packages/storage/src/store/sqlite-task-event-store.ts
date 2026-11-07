@@ -1,5 +1,8 @@
+import { DatabaseSync } from "node:sqlite";
 import { type EventHead } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { isTaskEvent, ledgerCommitSha } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
 import { isSettingsEvent } from "@harness-anything/kernel/internal/domain/settings-event.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -115,6 +118,75 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   const head = (): EventHead | null => sqlite.headIdentity();
   const cut = () => canonicalLedgerCut(options.repoId, head());
   const readContent = (sha256: string) => sqlite.readContentObject(sha256);
+  const readDispatchLifecycleMigrationEvents = (): readonly CanonicalEventV1[] | undefined => {
+    const projectionPath = resolveHarnessLayout(input).taskProjectionPath;
+    if (!localRuntimeStateFileSystem.exists(projectionPath)) return undefined;
+    const db = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      const projectionHead = Number(
+        db.prepare("SELECT COALESCE(watermark, 0) AS revision FROM projection_meta WHERE singleton = 1").get()
+          ?.revision ?? -1,
+      );
+      // A stale or partially built cache cannot prove which groups are unfinished. Returning no
+      // candidates would silently lose old groups, so let the attach caller use its canonical
+      // fallback unless this cache is a complete cut.
+      if (projectionHead !== sqlite.revision()) return undefined;
+      const candidateSessions = db
+        .prepare(
+          "SELECT runtime_session_id FROM runtime_session WHERE " +
+            "json_extract(value_json, '$.outcome') IS NULL OR " +
+            "json_extract(value_json, '$.outcome.attempt.fallbackState') = 'scheduled' OR " +
+            "json_extract(value_json, '$.outcome.attempt.classification') = 'awaiting_ruling'",
+        )
+        .all()
+        .map((row) => String(row.runtime_session_id));
+      if (candidateSessions.length === 0) return [];
+      const groupIds = db
+        .prepare(
+          "SELECT DISTINCT COALESCE(json_extract(event_json, '$.payload.attemptGroupId'), " +
+            "json_extract(event_json, '$.payload.dispatchId')) AS attempt_group_id " +
+            "FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' " +
+            "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' " +
+            `AND json_extract(event_json, '$.payload.runtimeSessionId') IN (${candidateSessions.map(() => "?").join(",")})`,
+        )
+        .all(...candidateSessions)
+        .map((row) => row.attempt_group_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0);
+      if (groupIds.length === 0) return [];
+      const events = new Map<number, CanonicalEventV1>();
+      for (const groupId of groupIds) {
+        const rows = db
+          .prepare(
+            "SELECT workspace_revision, event_json FROM event_index WHERE " +
+              "json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND " +
+              "json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND " +
+              "COALESCE(json_extract(event_json, '$.payload.attemptGroupId'), " +
+              "json_extract(event_json, '$.payload.dispatchId')) = ? ORDER BY workspace_revision",
+          )
+          .all(groupId);
+        for (const row of rows) events.set(Number(row.workspace_revision), JSON.parse(String(row.event_json)));
+      }
+      const requests = [...events.values()];
+      const sessionIds = requests
+        .map((event) => (event.type === "runtime_dispatch_requested" ? event.payload.runtimeSessionId : null))
+        .filter((value): value is string => typeof value === "string");
+      for (const sessionId of sessionIds) {
+        const rows = db
+          .prepare(
+            "SELECT workspace_revision, event_json FROM event_index WHERE " +
+              "json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND " +
+              "json_extract(event_json, '$.payload.runtimeSessionId') = ? AND " +
+              "json_extract(event_json, '$.type') IN ('runtime_session_started', 'runtime_session_exited', 'runtime_session_outcome_observed') " +
+              "ORDER BY workspace_revision",
+          )
+          .all(sessionId);
+        for (const row of rows) events.set(Number(row.workspace_revision), JSON.parse(String(row.event_json)));
+      }
+      return [...events.entries()].sort(([left], [right]) => left - right).map(([, event]) => event);
+    } finally {
+      db.close();
+    }
+  };
   const acceptedWorktree = new Map<string, { fingerprint: string; preserve: boolean }>(),
     // Each target a settlement left alone, with the bytes it would have settled there.
     worktreeConflicts = new Map<string, string>();
@@ -456,6 +528,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readEventById: sqlite.eventById,
     readEventAtRevision: sqlite.eventAtRevision,
     queryEvents: sqlite.queryEvents,
+    readDispatchLifecycleMigrationEvents,
     readEntityDeclarations: sqlite.readEntityDeclarations,
     readTaskEvent: (opId) => {
       const event = sqlite.event(opId);

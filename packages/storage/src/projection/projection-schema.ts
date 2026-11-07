@@ -20,6 +20,10 @@
 // drops the retired code/doc witness field from persisted task snapshots, and replays task snapshots
 // and preset-snapshot profiles without the retired code/doc closeout override key.
 //
+// Dispatch lifecycle tables are additive and are created on every projection open. Historical
+// runtime records arrive through the attach migration event, so existing task cache rows remain
+// usable and do not require a destructive schema discard at repository scale.
+//
 // Version 38's cleaner only reaches caches a *replay* rewrites, so a cache written before it keeps
 // its retired-key rows. That is repaired at the read boundary (`withoutRetiredSnapshotFields`), not
 // by a schema bump: forcing those caches through a full replay is not survivable at canonical scale.

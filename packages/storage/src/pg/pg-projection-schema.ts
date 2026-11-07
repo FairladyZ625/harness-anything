@@ -52,6 +52,8 @@ export const PG_PROJECTION_AUDIT_TABLES = Object.freeze(
 );
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
+// Dispatch lifecycle rows are additive projection state; historical import events are replayed
+// through the canonical stream without invalidating the existing projection generation.
 export const PG_PROJECTION_SCHEMA_VERSION = 5;
 
 /** Rebuildable cache generations are admitted before either reads or incremental writes. */
