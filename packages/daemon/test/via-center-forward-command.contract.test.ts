@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { getExecutableEntityAction } from "@harness-anything/kernel";
+import { INITIAL_SETTINGS_V1, getExecutableEntityAction } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import {
   fleetRuntimeRoute,
@@ -15,6 +15,8 @@ import {
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
 import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol-rpc-validation.ts";
+import { decisionProposalAction, taskCreateAction } from "../src/repo-cell-action-parse.ts";
+import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { readAgentEntityDeclarationSource } from "../src/agent-entities.ts";
 
 type Command = (typeof daemonProtocolCommands)[number];
@@ -61,10 +63,11 @@ const kindDeclaration = {
 
 function packetValue(field: string): unknown {
   if (field === "chosen") return [{ id: "CH1", text: "Probe choice" }];
+  if (field === "rejected")
+    return [{ id: "RJ1", text: "Require an edge path.", whyNot: "Paths stay on their owner node." }];
   if (field === "responses")
     return [{ reviewId: "review-one", findingId: "G1", disposition: "adopt", rationale: "Addressed." }];
-  if (["rejected", "claims", "findings", "evidenceChecked", "resolutions", "fulfillments", "relations"].includes(field))
-    return [];
+  if (["claims", "findings", "evidenceChecked", "resolutions", "fulfillments", "relations"].includes(field)) return [];
   if (field === "appliesTo") return { modules: [], productLines: [] };
   if (field === "reviewIds") return ["review-one"];
   if (field === "reviewContentDigest") return digest;
@@ -513,6 +516,16 @@ function assertDirectActionFields(
   }
 }
 
+function assertRepoCellActionParsers(root: string, command: Command, action: Record<string, unknown>): void {
+  let resolved: RepoTaskAction | undefined;
+  if (action.kind === "task-create") resolved = taskCreateAction(root, action as RepoTaskAction);
+  if (action.kind === "decision-propose")
+    resolved = decisionProposalAction(root, action as RepoTaskAction, () => INITIAL_SETTINGS_V1);
+  if (!resolved) return;
+  for (const [field, value] of Object.entries(action))
+    assert.deepEqual(resolved[field], value, `${command.id} repo-cell action parser changed field ${field}`);
+}
+
 test("each remote-edge via-center-forward declaration reaches its matching fleet wire parser", async (t) => {
   const { root, env } = setupRoot(t),
     commands = daemonProtocolCommands.filter((command) => command.admission["remote-edge"] === "via-center-forward"),
@@ -600,6 +613,7 @@ test("each remote-edge via-center-forward declaration reaches its matching fleet
             `${descriptor.id} action changed during Fleet serialization`,
           );
           assertDirectActionFields(descriptor, command.action as Record<string, unknown>, action);
+          assertRepoCellActionParsers(root, descriptor, (frame as { action: Record<string, unknown> }).action);
           for (const source of sourceInputs(descriptor)) {
             if (scenario.packetInput !== source.name) continue;
             for (const [field, value] of Object.entries(packetFor(descriptor, source)))
