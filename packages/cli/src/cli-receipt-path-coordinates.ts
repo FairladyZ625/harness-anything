@@ -31,7 +31,7 @@ type PackagePathPair = { readonly canonical: string; readonly workspace: string 
 // Receipt fields whose values are ledger document keys in the daemon's authored coordinate. This is
 // receipt shape, not a command list: every producer that names these fields gets the same boundary
 // translation, including a lifecycle or rematerialization receipt added later.
-const DOCUMENT_PATH_FIELDS = ["changedPaths", "paths", "unchangedPaths", "conflictPaths"] as const;
+const DOCUMENT_PATH_FIELDS = ["changedPaths", "destination", "paths", "unchangedPaths", "conflictPaths"] as const;
 const LIFECYCLE_FILES_EVIDENCE = /^(?<head>event-object:[^;]*);files:(?<files>.*)$/su;
 // Top-level names under the authored root are what makes a relative string a ledger key rather than
 // a repository path (`packages/cli/...`) or a host path. Read once per authored root.
