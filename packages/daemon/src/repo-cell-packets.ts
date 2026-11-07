@@ -310,6 +310,15 @@ export function lifecycleReceipt(
     submittedCommit =
       event.type === "execution_submitted" ? (event.payload.execution.submission?.commitSha ?? null) : null,
     next = [
+      ...(nextCommand
+        ? [
+            {
+              command: nextCommand,
+            },
+          ]
+        : []),
+      // Publish last: it is the recovery lane next to the completion step this receipt already
+      // named, not a replacement for the review/merge evidence the task's own lifecycle requires.
       ...(submittedCommit === null
         ? []
         : [
@@ -318,13 +327,6 @@ export function lifecycleReceipt(
               reason: "publish this submitted cut; an existing PR body's submission-facts block refreshes from it",
             },
           ]),
-      ...(nextCommand
-        ? [
-            {
-              command: nextCommand,
-            },
-          ]
-        : []),
       ...(movedWorkRoot !== null
         ? [{ command: `ha work show ${movedWorkRoot}`, reason: "the task's work after the move" }]
         : []),

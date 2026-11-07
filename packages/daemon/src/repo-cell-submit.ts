@@ -706,9 +706,11 @@ async function submittedCutReview(
 }
 
 /**
- * Submit reuses the one PR-body update path when an open PR already exists: an amended cut must
- * replace the old submission-facts block, not wait for a later push. A cut with no PR, no hosting
- * provider, or no daemon-held credential keeps the receipt's `ha task push` command as its lane.
+ * Post-freeze, best-effort PR-body refresh. The cut is already recorded when this runs, and it
+ * reuses the one update-only publication path: no push, create, or other hosting mutation. No
+ * open PR, no hosting provider, or no daemon-held credential is a complete no-op. A real hosting
+ * failure becomes a receipt warning with the `ha task push` recovery lane; it never changes the
+ * submit outcome.
  */
 export async function refreshSubmittedPullRequest(
   cell: RepoCellOperationalContext,
@@ -850,9 +852,12 @@ export async function submitTask(
     const submitted = (await cell.service.read(taskId)).snapshot.executions.find(
         (execution) => execution.executionId === executionId,
       )?.submission,
-      refreshWarning = submitted ? await refreshSubmittedPullRequest(cell, taskId, submitted, binding) : null,
       executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
+    // The cut is already frozen. Refresh is a best-effort follow-up: no open PR, no hosting, or a
+    // failed call leaves the submit receipt's outcome and steps untouched; only a named warning
+    // and the `ha task push` recovery lane remain.
+    const refreshWarning = submitted ? await refreshSubmittedPullRequest(cell, taskId, submitted, binding) : null;
     const warnings = [...(receipt.warnings ?? []), ...review.warnings, ...(refreshWarning ? [refreshWarning] : [])];
     return {
       ...receipt,
@@ -968,9 +973,10 @@ export async function submitTask(
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
+  const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
+    review = await submittedCutReview(cell, taskId, action, binding, receipt);
+  // Same post-freeze, best-effort refresh as the carried-document path.
   const refreshWarning = await refreshSubmittedPullRequest(cell, taskId, submission, binding),
-    executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
-    review = await submittedCutReview(cell, taskId, action, binding, receipt),
     warnings = [...anchorDriftWarnings, ...review.warnings, ...(refreshWarning ? [refreshWarning] : [])];
   return {
     ...receipt,

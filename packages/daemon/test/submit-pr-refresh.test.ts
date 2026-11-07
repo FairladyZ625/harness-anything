@@ -89,8 +89,10 @@ test("the submit refresh port patches an existing PR body from the new frozen cu
 });
 
 test("the submit refresh port leaves a missing PR and a missing credential to the push command", async (context) => {
-  const noPr = fixture(context);
+  const noPr = fixture(context),
+    methods: string[] = [];
   context.mock.method(globalThis, "fetch", async (_url: string | URL, options: RequestInit = {}) => {
+    methods.push(options.method ?? "GET");
     if ((options.method ?? "GET") === "GET" && !String(_url).includes("/pulls"))
       return Response.json({ default_branch: "main" });
     return Response.json([]);
@@ -98,6 +100,11 @@ test("the submit refresh port leaves a missing PR and a missing credential to th
   assert.equal(
     await refreshSubmittedPullRequest(noPr.cell as never, taskId, submission(second), noPr.binding as never),
     null,
+  );
+  assert.deepEqual(
+    [...new Set(methods)],
+    ["GET"],
+    "with no open PR the refresh performs reads only and never creates or updates a PR",
   );
 
   const noCredential = fixture(context, false);
@@ -116,4 +123,14 @@ test("the submit refresh port leaves a missing PR and a missing credential to th
     null,
   );
   assert.equal(calls, 0, "without a daemon-held credential the submit port does not call hosting");
+});
+
+test("a hosting failure returns a retry warning instead of escaping the submit path", async (context) => {
+  const { cell, binding } = fixture(context);
+  context.mock.method(globalThis, "fetch", async () => {
+    throw new Error("network unavailable");
+  });
+  const warning = await refreshSubmittedPullRequest(cell as never, taskId, submission(second), binding as never);
+  assert.match(String(warning), /PR body refresh failed: network unavailable/u);
+  assert.match(String(warning), new RegExp(`Retry: ha task push ${taskId}`, "u"));
 });
