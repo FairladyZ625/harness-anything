@@ -209,7 +209,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     method: "daemon.repo.purge",
     inputs: [
       cliInput("--scope", "single", true, { code: "missing_field" }, { enum: ["cache", "all"] }),
-      cliInput("--backup", "single", false, { code: "invalid_field" }),
+      cliInput("--backup", "single", false, { code: "invalid_field" }, { pathKind: "host-path", pathReader: "host" }),
       cliInput("--confirm", "single", false, { code: "invalid_field" }),
     ],
   }),

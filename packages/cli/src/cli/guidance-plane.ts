@@ -455,8 +455,8 @@ function renderMissingSections(args: GuidanceArgs): string {
     "Required-section diagnostics:",
     ...(rows.length ? rows : ["- no missing required sections were reported"]),
     args.diskDiffers === true
-      ? `The on-disk harness/${path} differs; complete it, then run ${sync} and retry.`
-      : `Edit harness/${path}, then run ${sync} and retry.`,
+      ? `The on-disk ${path} differs; complete it, then run ${sync} and retry.`
+      : `Edit ${path}, then run ${sync} and retry.`,
   ].join("\n");
 }
 

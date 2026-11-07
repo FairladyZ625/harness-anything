@@ -612,7 +612,7 @@ function publishTaskArtifactBytes(
   if (projectedEdit || (tracked && gitModified(ledgerRootDir, gitTarget)))
     throw docSyncError(
       "artifact_tracked_edit",
-      `destination is a tracked edit; use ha doc sync --submit --path ${destination}`,
+      `destination is a tracked edit; use ha doc sync --submit --path ${documentWorkspacePath(input.rootDir, destination)}`,
     );
   if (tracked || (existsSync(authoredTarget) && !sameUntrackedSource) || projected.document !== null) {
     const sha = sha256Bytes(content),
@@ -634,7 +634,7 @@ function publishTaskArtifactBytes(
     throw docSyncError(
       "artifact_collision",
       `artifact destination already exists: ${destination}; the published copy ${authored} is the source of truth. ` +
-        `Edit it in place, then update it with ha doc sync --submit --path ${destination}`,
+        `Edit it in place, then update it with ha doc sync --submit --path ${documentWorkspacePath(input.rootDir, destination)}`,
     );
   }
   if (projected.watermark !== projected.sourceRevision)
