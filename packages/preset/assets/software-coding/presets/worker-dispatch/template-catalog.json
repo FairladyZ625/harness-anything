@@ -75,8 +75,7 @@
             "## Context",
             "## Verification"
           ],
-          "bodyPath": "templates/task.plan.lightweight/zh-CN.md",
-          "requiredAnchorsByWorkKind": { "fix": ["## 防再犯门"] }
+          "bodyPath": "templates/task.plan.lightweight/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -85,8 +84,7 @@
             "## Context",
             "## Verification"
           ],
-          "bodyPath": "templates/task.plan.lightweight/en-US.md",
-          "requiredAnchorsByWorkKind": { "fix": ["## Recurrence Gate"] }
+          "bodyPath": "templates/task.plan.lightweight/en-US.md"
         }
       ]
     },
