@@ -18,8 +18,8 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Request the center to execute one declared completion source; no caller-supplied result is accepted.",
     method: "repo.task.witness.run",
     inputs: [
-      cliInput("--execution-id", "single", true, { code: "missing_field" }),
-      cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
+      cliInput("--execution-id", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--gate", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "gateId" }),
     ],
   }),
   ...["claim", "settle", "revoke", "rerun"].map((operation) =>
@@ -36,10 +36,22 @@ export const taskSurfaceProtocolCommands = Object.freeze([
           : `The task owner may ${operation} the current gate run with an explicit reason.`,
       method: "repo.task.run",
       inputs: [
-        cliInput("--execution-id", "single", true, { code: "missing_field" }),
-        cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
-        cliInput("--run-id", "single", operation === "revoke" || operation === "rerun", { code: "missing_field" }),
-        cliInput("--reason", "single", operation === "revoke" || operation === "rerun", { code: "missing_field" }),
+        cliInput("--execution-id", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+        cliInput("--gate", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "gateId" }),
+        cliInput(
+          "--run-id",
+          "single",
+          operation === "revoke" || operation === "rerun",
+          { code: "missing_field" },
+          { pathKind: "non-path" },
+        ),
+        cliInput(
+          "--reason",
+          "single",
+          operation === "revoke" || operation === "rerun",
+          { code: "missing_field" },
+          { pathKind: "non-path" },
+        ),
       ],
     }),
   ),
@@ -78,7 +90,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { requiredWhen: { field: "forceTakeover", values: ["true"] } },
+        { pathKind: "non-path", requiredWhen: { field: "forceTakeover", values: ["true"] } },
       ),
       cliInput(
         "--force-takeover",
@@ -102,9 +114,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "executor=null; dispatched workers bind before launch.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--execution-id", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--execution-id",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--agent",
         "single",
@@ -112,11 +130,17 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+        { pathKind: "non-path", regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
       ),
-      cliInput("--reason", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -129,12 +153,24 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "annotated history is never rewritten.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--execution-id", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--note", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--execution-id",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--note",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--kind",
         "single",
@@ -142,7 +178,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["correction", "superseded-by"], field: "annotationKind" },
+        { field: "annotationKind", pathKind: "non-path", enum: ["correction", "superseded-by"] },
       ),
     ],
   }),
@@ -157,7 +193,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "fail of an allowOverride gate with --mode override --rationale. Runtime executors cannot attest.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
+      cliInput("--gate", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "gateId" }),
       cliInput(
         "--result",
         "single",
@@ -165,7 +201,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { enum: ["pass", "fail"] },
+        { pathKind: "non-path", enum: ["pass", "fail"] },
       ),
       cliInput(
         "--mode",
@@ -174,14 +210,26 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["approve", "override"] },
+        { pathKind: "non-path", enum: ["approve", "override"] },
       ),
-      cliInput("--note", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--rationale", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--note",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--rationale",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -199,7 +247,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[A-Za-z][A-Za-z0-9]*:.+$", field: "patches" },
+        { pathKind: "non-path", regex: "^[A-Za-z][A-Za-z0-9]*:.+$", field: "patches" },
       ),
     ],
   }),
@@ -233,18 +281,30 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Backfill Task contracts, or explicitly migrate one inactive Task to an existing preset.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--to-preset", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--to-preset",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),
       cliInput("--apply", "boolean", false, {
         code: "invalid_field",
       }),
-      cliInput("--task", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--task",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -262,29 +322,51 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "taskIds" },
+        { field: "taskIds", pathKind: "non-path" },
       ),
       cliInput(
         "--filter",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          regex: "^state:(?:planned|active|blocked|in_review|done|cancelled)$",
-        },
+        { pathKind: "non-path", regex: "^state:(?:planned|active|blocked|in_review|done|cancelled)$" },
       ),
-      cliInput("--before", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--reason", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--archived-by", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--archive-field", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--before",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--archived-by",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--archive-field",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -295,9 +377,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Archive old work and preserve an explicit replacement lineage.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--title", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--title",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--slug",
         "single",
@@ -305,20 +393,44 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$" },
+        { pathKind: "non-path", regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$" },
       ),
-      cliInput("--by", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--confirm", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--reason", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--deleted-by", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--by",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--confirm",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--reason",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--deleted-by",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--allow-open-findings", "boolean", false, {
         code: "invalid_field",
       }),
@@ -338,7 +450,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "follow the same task_amended event. A plan with unsubmitted local changes is refused until " +
       "ha doc sync submits them.",
     method: "repo.task.run",
-    inputs: [cliInput("--title", "single", true, { code: "missing_field" }, { format: titleFocusFormat })],
+    inputs: [
+      cliInput(
+        "--title",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", format: titleFocusFormat },
+      ),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "task-move",
@@ -354,7 +474,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "unaffected. Refused when the new parent does not exist or when the move would make the " +
       "parent chain cyclic (including moving a task under itself or its own descendant).",
     method: "repo.task.run",
-    inputs: [cliInput("--parent", "single", true, { code: "missing_field" }, { field: "parentTaskId" })],
+    inputs: [
+      cliInput("--parent", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "parentTaskId" }),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "task-delete",
@@ -378,7 +500,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { format: "<task-id>", field: "taskId" },
+        { field: "taskId", pathKind: "non-path", format: "<task-id>" },
       ),
       cliInput(
         "--hard",
@@ -387,17 +509,35 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { format: "<task-id>", field: "taskId" },
+        { field: "taskId", pathKind: "non-path", format: "<task-id>" },
       ),
-      cliInput("--confirm", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--reason", "single", false, {
-        code: "missing_field",
-      }),
-      cliInput("--deleted-by", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--confirm",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--reason",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--deleted-by",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -408,9 +548,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Reopen a nonterminal archived or tombstoned Task package.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--reason", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -422,9 +568,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Lint the legacy review contract without approving completion.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--reviewer", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--reviewer",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -443,7 +595,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { projection: "number", regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$", wire: { minimum: 1 } },
+        {
+          pathKind: "non-path",
+          projection: "number",
+          regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$",
+          wire: { minimum: 1 },
+        },
       ),
     ],
   }),
@@ -473,13 +630,17 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {
-          enum: taskStatusWords,
-        },
+        { pathKind: "non-path", enum: taskStatusWords },
       ),
-      cliInput("--search", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--search",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--kind",
         "single",
@@ -487,10 +648,22 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "workKind", enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
+        { pathKind: "non-path", field: "workKind", enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
       ),
-      cliInput("--risk-tier", "single", false, { code: "invalid_field" }, { enum: ["low", "medium", "high"] }),
-      cliInput("--urgency", "single", false, { code: "invalid_field" }, { enum: ["low", "medium", "high"] }),
+      cliInput(
+        "--risk-tier",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["low", "medium", "high"] },
+      ),
+      cliInput(
+        "--urgency",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["low", "medium", "high"] },
+      ),
       cliInput(
         "--parent",
         "single",
@@ -498,7 +671,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "parentTaskId" },
+        { pathKind: "non-path", field: "parentTaskId" },
       ),
       cliInput(
         "--depth",
@@ -507,7 +680,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^(?:[1-9][0-9]*|all)$" },
+        { pathKind: "non-path", regex: "^(?:[1-9][0-9]*|all)$" },
       ),
       cliInput(
         "--updated-after",
@@ -516,9 +689,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {
-          regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
-        },
+        { pathKind: "non-path", regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
       ),
       cliInput(
         "--updated-before",
@@ -527,9 +698,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {
-          regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
-        },
+        { pathKind: "non-path", regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
       ),
       cliInput(
         "--limit",
@@ -538,11 +707,22 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { projection: "number", regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$", wire: { minimum: 1 } },
+        {
+          pathKind: "non-path",
+          projection: "number",
+          regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$",
+          wire: { minimum: 1 },
+        },
       ),
-      cliInput("--cursor", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--cursor",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -553,8 +733,8 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "List writable canonical relation triples, optionally filtered by endpoint kind.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--source-kind", "single", false, { code: "invalid_field" }),
-      cliInput("--target-kind", "single", false, { code: "invalid_field" }),
+      cliInput("--source-kind", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--target-kind", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -564,9 +744,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Query first-class Relation aggregates from the canonical versioned projection.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--entity", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--entity",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       // --source/--target and the --source-ref/--target-ref spellings from `relation relate` feed
       // the same query fields; declaring them as mutually exclusive pairs keeps both spellings legal.
       cliInput(
@@ -585,7 +771,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "source", conflictsWith: ["--source"] },
+        { pathKind: "non-path", field: "source", conflictsWith: ["--source"] },
       ),
       cliInput(
         "--target",
@@ -603,11 +789,17 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "target", conflictsWith: ["--target"] },
+        { pathKind: "non-path", field: "target", conflictsWith: ["--target"] },
       ),
-      cliInput("--type", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--type",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--state",
         "single",
@@ -615,7 +807,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: relationStateWords },
+        { pathKind: "non-path", enum: relationStateWords },
       ),
       cliInput(
         "--freshness",
@@ -624,7 +816,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: relationFreshnessWords },
+        { pathKind: "non-path", enum: relationFreshnessWords },
       ),
       cliInput(
         "--updated-after",
@@ -633,9 +825,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {
-          regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
-        },
+        { pathKind: "non-path", regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
       ),
       cliInput(
         "--updated-before",
@@ -644,9 +834,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {
-          regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
-        },
+        { pathKind: "non-path", regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
       ),
       cliInput(
         "--limit",
@@ -655,11 +843,17 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
       ),
-      cliInput("--cursor", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--cursor",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -680,7 +874,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^(?:[1-9]|1[0-6])$" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|1[0-6])$" },
       ),
       cliInput("--include-archived", "boolean", false, {
         code: "invalid_field",

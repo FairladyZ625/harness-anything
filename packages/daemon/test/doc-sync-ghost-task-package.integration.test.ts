@@ -47,13 +47,18 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
       real = `${packagePath}/artifacts/report.md`;
     write(rootDir, ghost, "# Ghosted copy\n\nwritten into a guessed directory name\n");
     write(rootDir, real, "# Real artifact\n");
-    const statusRows = scanRows(await cell.run({ kind: "doc-status", paths: [] }, binding));
-    const ghostRow = statusRows.find((row) => row.path === ghost),
-      realRow = statusRows.find((row) => row.path === real);
+    const status = await cell.run({ kind: "doc-status", paths: [] }, binding),
+      statusRows = scanRows(status);
+    // The caller-facing scan rows use the workspace spelling, so the row can be pasted into --path.
+    const ghostRow = statusRows.find((row) => row.path === `harness/${ghost}`),
+      realRow = statusRows.find((row) => row.path === `harness/${real}`);
     assert.deepEqual([ghostRow?.state, realRow?.state], ["blocked", "eligible"]);
     assert.match(ghostRow?.reason ?? "", /tasks\/task-ghost-wrong-slug is not the package path of any projected task/u);
     assert.match(ghostRow?.reason ?? "", /move the file into its owning task's artifacts\/ subtree/u);
     assert.equal(ghostRow?.mediaType, "text/markdown");
+    // The row and its reason must use one coordinate: the displayed path pastes back into --path.
+    assert.match(status.summary ?? "", /harness\/tasks\/task-ghost-wrong-slug is not the package path/u);
+    assert.doesNotMatch(status.summary ?? "", /\ttasks\/task-ghost-wrong-slug/u);
     // Batch tolerance: the eligible sibling in the registered package publishes in
     // the same submit that reports the blocked ghost — no whole-batch rejection.
     const submitted = (await cell.run({ kind: "doc-submit", paths: [ghost, real] }, binding)) as {
@@ -135,16 +140,16 @@ test("the --task channel keeps its package-prefix enumeration and admits its own
     write(rootDir, "context/unrelated.md", "# Unrelated\n");
     const scopedRows = scanRows(await cell.run({ kind: "doc-status", taskId: "task-scoped" }, binding));
     assert.equal(
-      scopedRows.every((row) => row.path.startsWith(`${packagePath}/`)),
+      scopedRows.every((row) => row.path.startsWith(`harness/${packagePath}/`)),
       true,
       `--task enumeration must stay scoped to the package prefix: ${JSON.stringify(scopedRows.map((row) => row.path))}`,
     );
     assert.deepEqual(
-      scopedRows.filter((row) => row.path === `${packagePath}/artifacts/report.md`).map((row) => row.state),
+      scopedRows.filter((row) => row.path === `harness/${packagePath}/artifacts/report.md`).map((row) => row.state),
       ["eligible"],
     );
     assert.equal(
-      scopedRows.some((row) => row.path === "context/unrelated.md"),
+      scopedRows.some((row) => row.path === "harness/context/unrelated.md"),
       false,
     );
     const submitted = await cell.run({ kind: "doc-submit", taskId: "task-scoped" }, binding);
