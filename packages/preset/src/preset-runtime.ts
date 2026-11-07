@@ -368,6 +368,7 @@ export function createRuntime(options: PresetResolverOptions): {
         mediaType: item.mediaType,
         owner: item.owner,
         requiredAnchors: item.requiredAnchors,
+        requiredAnchorsByWorkKind: item.requiredAnchorsByWorkKind,
         templateRef: item.selection.templateRef,
       })),
       scripts: request.purpose === "task-create" ? presetPackageScripts(leaf.files) : [],

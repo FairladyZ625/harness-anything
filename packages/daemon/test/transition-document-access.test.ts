@@ -66,7 +66,10 @@ test("transition-document readiness reports scaffold and empty sections as struc
       },
     ] as const;
 
-  const contract = transitionDocumentContract(template);
+  const contract = transitionDocumentContract(
+    template,
+    planHeadings.map((section) => `## ${section}`),
+  );
   for (const fixture of cases) {
     const missing = assessTransitionDocument("task.plan", fixture.body, contract).missingSections;
     assert.equal(missing.length, fixture.expectedEntries, fixture.name);
@@ -98,11 +101,21 @@ test("readiness contract resolves from the descriptor-embedded map, then the bun
   });
   // A malformed embedded map is not a contract; resolution falls back to the bundled catalog the
   // descriptor's templateRef names, as for packages materialized before descriptors carried it.
+  // The fallback uses the catalog's baseline anchors, so a conditional section added later cannot
+  // backfill an already-published plan.
   const fromCatalog = transitionDocumentReadinessContract({
     contract: { locale: "en-US" },
     descriptor: { slot: "task.plan", path: "task_plan.md", templateRef, readiness: { Brief: "not-an-array" } },
   });
-  assert.deepEqual(fromCatalog, transitionDocumentContract(template));
+  assert.equal(transitionDocumentContract(template).requiredSections.includes("Recurrence Gate"), true);
+  assert.deepEqual(
+    fromCatalog,
+    transitionDocumentContract(
+      template,
+      planHeadings.map((section) => `## ${section}`),
+    ),
+  );
+  assert.equal(fromCatalog?.requiredSections.includes("Recurrence Gate"), false);
   assert.equal(
     transitionDocumentReadinessContract({
       contract: { locale: "en-US" },
@@ -146,7 +159,11 @@ function realizedPlan(): string {
 }
 
 /** One task package whose plan contract and body are otherwise ready. */
-function admissionProjection(task: Readonly<Record<string, unknown>>, planBody = realizedPlan()): TaskProjection {
+function admissionProjection(
+  task: Readonly<Record<string, unknown>>,
+  planBody = realizedPlan(),
+  requiredAnchors?: readonly string[],
+): TaskProjection {
   const template = readFileSync(
       new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
       "utf8",
@@ -156,7 +173,10 @@ function admissionProjection(task: Readonly<Record<string, unknown>>, planBody =
         {
           slot: "task.plan",
           path: "task_plan.md",
-          readiness: transitionDocumentContract(template).scaffoldBySection,
+          readiness: transitionDocumentContract(
+            template,
+            requiredAnchors ?? planHeadings.map((section) => `## ${section}`),
+          ).scaffoldBySection,
         },
       ],
     });
@@ -219,6 +239,78 @@ test("start admission still reads the plan of a task with a usable contract", ()
       currentNode: "implementation",
       presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
       metadata: { presetId: "standard-task" },
+    }),
+    taskId: "task-1",
+    slot: "task.plan",
+    transition: "task.start",
+  });
+  assert.equal(document.body, realizedPlan());
+});
+
+const fixPlanAnchors = [...planHeadings, "Recurrence Gate"].map((section) => `## ${section}`);
+
+test("fix admission refuses a plan whose Recurrence Gate is missing or left as scaffold", () => {
+  const template = readFileSync(
+      new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
+      "utf8",
+    ),
+    gateScaffold = transitionDocumentContract(template).scaffoldBySection["Recurrence Gate"]?.[0],
+    task = {
+      taskId: "task-1",
+      taskClass: "standard",
+      status: "planned",
+      currentNode: "implementation",
+      presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
+      metadata: { presetId: "standard-task", workKind: "fix" },
+    } as const;
+  assert.ok(gateScaffold, "the template carries a Recurrence Gate scaffold");
+  const cases = [
+    ["missing", realizedPlan(), { section: "Recurrence Gate", reason: "empty" }],
+    [
+      "scaffold",
+      `${realizedPlan()}\n\n## Recurrence Gate\n\n${gateScaffold}\n`,
+      { section: "Recurrence Gate", reason: "scaffold", retainedScaffold: gateScaffold.slice(0, 60) },
+    ],
+  ] as const;
+  for (const [name, body, expected] of cases)
+    assert.throws(
+      () =>
+        assertTaskTransitionDocumentReady({
+          rootDir: "/tmp",
+          projection: admissionProjection(task, body, fixPlanAnchors),
+          taskId: "task-1",
+          slot: "task.plan",
+          transition: "task.start",
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && "code" in error, name);
+        assert.equal((error as { readonly code?: unknown }).code, "plan_placeholder", name);
+        assert.deepEqual((error as { readonly missingSections?: unknown }).missingSections, [expected], name);
+        return true;
+      },
+      name,
+    );
+  const filled = `${realizedPlan()}\n\n## Recurrence Gate\n\nCriterion: a fix plan can omit its gate.\nGate: task-plan readiness.\nPositive control: a plan without this section is refused.\n`,
+    document = assertTaskTransitionDocumentReady({
+      rootDir: "/tmp",
+      projection: admissionProjection(task, filled, fixPlanAnchors),
+      taskId: "task-1",
+      slot: "task.plan",
+      transition: "task.start",
+    });
+  assert.equal(document.body, filled);
+});
+
+test("non-fix admission keeps the Recurrence Gate optional", () => {
+  const document = assertTaskTransitionDocumentReady({
+    rootDir: "/tmp",
+    projection: admissionProjection({
+      taskId: "task-1",
+      taskClass: "standard",
+      status: "planned",
+      currentNode: "implementation",
+      presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
+      metadata: { presetId: "standard-task", workKind: "feat" },
     }),
     taskId: "task-1",
     slot: "task.plan",

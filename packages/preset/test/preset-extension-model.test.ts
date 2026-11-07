@@ -97,6 +97,45 @@ test("template catalog validation fails closed on locale structure drift", async
   );
 });
 
+test("a catalog-declared conditional anchor must exist in the selected locale body", async () => {
+  const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl)),
+    document = catalog.documents[0]!,
+    drifted: TemplateCatalog = {
+      ...catalog,
+      documents: [
+        {
+          ...document,
+          locales: document.locales.map((variant) =>
+            variant.locale === "en-US"
+              ? { ...variant, requiredAnchorsByWorkKind: { fix: ["## Recurrence Gate"] } }
+              : variant,
+          ),
+        },
+      ],
+    },
+    result = planTemplateMaterialization({
+      catalog: drifted,
+      locale: "en-US",
+      resolveBody: () => "## Goal\n\n## Steps\n\n## Gates\n",
+      selections: [
+        {
+          slot: document.slot,
+          templateRef: `template://${document.id}@${document.version}`,
+          materializeAs: document.materializeAs,
+          localePolicy: { prefer: "project", fallback: "en-US" },
+        },
+      ],
+    });
+  assert.equal(result.ok, false);
+  assert.equal(
+    result.issues.some(
+      (issue) => issue.code === "missing_required_anchor" && issue.message.includes("## Recurrence Gate"),
+    ),
+    true,
+    JSON.stringify(result.issues),
+  );
+});
+
 test("template materialization resolves and validates only the selected locale body", async () => {
   const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl)),
     selected = catalog.documents[0]!,

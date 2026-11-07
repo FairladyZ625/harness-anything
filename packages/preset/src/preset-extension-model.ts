@@ -54,6 +54,8 @@ export interface MaterializedTemplatePlan {
   readonly locale: "zh-CN" | "en-US";
   readonly fallbackUsed: boolean;
   readonly requiredAnchors: ReadonlyArray<string>;
+  /** Anchors this locale only requires for the named work kinds; empty when unconditional. */
+  readonly requiredAnchorsByWorkKind: Readonly<Record<string, ReadonlyArray<string>>>;
   readonly body: string;
 }
 
@@ -131,7 +133,7 @@ export function validateTemplateCatalogBodies(
     for (const [localeIndex, locale] of document.locales.entries()) {
       const body = resolveBody({ document, locale, documentIndex, localeIndex });
       if (body === undefined) continue;
-      for (const anchor of document.requiredAnchors)
+      for (const anchor of [...document.requiredAnchors, ...workKindAnchors(locale)])
         if (!body.includes(anchor))
           issues.push(
             extensionIssue(
@@ -362,7 +364,7 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
       );
       continue;
     }
-    for (const anchor of document.requiredAnchors)
+    for (const anchor of [...document.requiredAnchors, ...workKindAnchors(selected)])
       if (!body.includes(anchor))
         issues.push(
           extensionIssue(
@@ -380,6 +382,7 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
       locale: selected.locale,
       fallbackUsed: selected.locale !== request.locale,
       requiredAnchors: document.requiredAnchors,
+      requiredAnchorsByWorkKind: selected.requiredAnchorsByWorkKind ?? {},
       body,
     });
   }
@@ -395,6 +398,11 @@ function memoizeBodyResolver(resolver: TemplateBodyResolver | undefined): Templa
     if (!cache.has(cacheKey)) cache.set(cacheKey, resolver(input));
     return cache.get(cacheKey);
   };
+}
+
+/** Every conditional anchor a locale declares, regardless of which work kind selects it. */
+function workKindAnchors(locale: TemplateCatalog["documents"][number]["locales"][number]): readonly string[] {
+  return Object.values(locale.requiredAnchorsByWorkKind ?? {}).flat();
 }
 
 function formatTemplateRef(id: string, version: string): string {
@@ -446,7 +454,7 @@ function validateTemplateCatalogShape(input: unknown, path: string, issues: Exte
           validateObjectKeys(
             locale,
             `${documentPath}.locales[${localeIndex}]`,
-            ["locale", "anchors", "bodyPath"],
+            ["locale", "anchors", "bodyPath", "requiredAnchorsByWorkKind"],
             issues,
           );
         }

@@ -55,7 +55,14 @@
                   "type": "array",
                   "items": { "type": "string" }
                 },
-                "bodyPath": { "type": "string" }
+                "bodyPath": { "type": "string" },
+                "requiredAnchorsByWorkKind": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  }
+                }
               }
             }
           }
