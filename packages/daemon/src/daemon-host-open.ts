@@ -1,7 +1,13 @@
 import { createFleetMemberDeviceLink, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
+import { runFleetEdgeTask } from "./fleet-edge-task.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
-import type { FleetDeviceLoginNotice, IdentityManagementPort, IdentitySessionPort } from "@harness-anything/kernel";
+import type {
+  FleetDeviceLoginNotice,
+  IdentityManagementPort,
+  IdentitySessionPort,
+  TaskReviewDispatchFailureV1,
+} from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
@@ -351,14 +357,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             ? execution.source.nodeId
             : `local:${input.daemonId}`,
         executionPrincipal: execution,
+        keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
         writerEpoch: auth.writerEpoch,
         withWriterEpochFence: auth.withWriterEpochFence,
         writerEpochFence: auth.writerEpochFence,
-        ...(cell.status().mode === "remote-edge"
-          ? {}
-          : {
-              keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
-            }),
       };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     }
@@ -535,9 +537,65 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           ),
           { code: typeof receipt.code === "string" ? receipt.code : "node_auto_dispatch_failed" },
         );
-      await runtime.awaitCanonicalRuntimeSessions({ runtimeSessionIds: [runtimeSessionId], mode: "all" }, signal);
+      return {
+        completion: runtime
+          .awaitCanonicalRuntimeSessions({ runtimeSessionIds: [runtimeSessionId], mode: "all" }, signal)
+          .then(() => undefined),
+      };
+    },
+    onFailure: async (candidate, error) => {
+      if (candidate.kind !== "review") return;
+      const rawCode = runtimeErrorCode(error),
+        failure = {
+          executionId: candidate.executionId,
+          dispatchKey: candidate.dispatchKey,
+          code: rawCode && /^[a-z][a-z0-9_]{0,79}$/u.test(rawCode) ? rawCode : "node_auto_dispatch_failed",
+          message:
+            `Node ${candidate.requiredNodeId} could not start the automatic reviewer. ` +
+            `Ask the task owner to retry with ha task dispatch-review ${candidate.taskId}.`,
+          failedAt: now(),
+        };
+      await writeNodeReviewDispatchFailure(candidate, failure);
+    },
+    onSuccess: async (candidate) => {
+      if (candidate.kind === "review") await writeNodeReviewDispatchFailure(candidate, null);
     },
   });
+  async function writeNodeReviewDispatchFailure(
+    candidate: NodeAutoDispatchCandidate,
+    failure: TaskReviewDispatchFailureV1 | null,
+  ): Promise<void> {
+    const repo = autoClaimRepos().find((value) => value.repoId === candidate.repoId);
+    if (!repo) throw new Error(`auto-dispatch repository ${candidate.repoId} is unavailable`);
+    const edge = readFleetEdgeConfig(repo.rootDir);
+    if (!edge || edge.repoId !== repo.repoId || edge.nodeId !== candidate.requiredNodeId)
+      throw new Error(`auto-dispatch node ${candidate.requiredNodeId} is unavailable`);
+    const owner = await hostBinding(repo.rootDir, { transportKind: "unix-socket" }),
+      session = owner.keycloakAuthorization?.session,
+      accessToken = session?.currentAccessToken ? await session.currentAccessToken() : session?.accessToken;
+    if (!accessToken) throw new Error("The edge owner must sign in before recording review-dispatch state.");
+    const receipt = await runFleetEdgeTask(
+      {
+        payload: {
+          ...edge,
+          caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
+          viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
+          principalId: owner.actor.principal.personId,
+          action: {
+            kind: "task-amend",
+            taskId: candidate.taskId,
+            patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+          },
+        },
+      },
+      async () => accessToken,
+      "domain",
+    );
+    if (!["applied", "no_changes"].includes(String(receipt.outcome)))
+      throw Object.assign(new Error(`The center rejected review-dispatch state for task ${candidate.taskId}.`), {
+        code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
+      });
+  }
   function edgeRuntimeFor(request: FleetEdgeRuntimeRequest["payload"]): ReturnType<typeof openFleetEdgeRuntime> {
     const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
       runtime =

@@ -315,6 +315,7 @@ export function task(value: unknown): boolean {
       "reviewReturnBudget",
       "reviewer",
       "reviewDispatchIntent",
+      "reviewDispatchFailure",
       "closeoutOverrides",
       "archiveOnComplete",
       "presetSnapshotGap",
@@ -370,6 +371,16 @@ export function task(value: unknown): boolean {
       (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0)) &&
     (value.reviewer === undefined || typeof value.reviewer === "string") &&
     (value.reviewDispatchIntent === undefined || reviewDispatchIntent(value.reviewDispatchIntent)) &&
+    (value.reviewDispatchFailure === undefined ||
+      (exactRecord(value.reviewDispatchFailure, ["executionId", "dispatchKey", "code", "message", "failedAt"]) &&
+        [
+          value.reviewDispatchFailure.executionId,
+          value.reviewDispatchFailure.dispatchKey,
+          value.reviewDispatchFailure.code,
+          value.reviewDispatchFailure.message,
+          value.reviewDispatchFailure.failedAt,
+        ].every(nonEmpty) &&
+        Number.isFinite(Date.parse(String(value.reviewDispatchFailure.failedAt))))) &&
     (value.closeoutOverrides === undefined || closeoutOverridesEnvelope(value.closeoutOverrides)) &&
     (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
   );

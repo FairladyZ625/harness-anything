@@ -6,6 +6,7 @@ import { code as hostErrorCode } from "../src/daemon-host-errors.ts";
 import { isKeycloakTransportFailure } from "../src/keycloak-transport-failure.ts";
 import { rpcServerErrorCode } from "../src/protocol/json-rpc-dispatch-support.ts";
 import { evaluateKeycloakPerson, evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
+import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 
 const url = "http://127.0.0.1:1";
 
@@ -141,6 +142,64 @@ test("a cold center token before execution-credential verification is a retryabl
     true,
     "a raw fetch rejection is recognized by the shared classifier",
   );
+});
+
+test("missing user authorization context names the repo-cell binding boundary", async () => {
+  const decision = await evaluateRepoCellAction({
+    action: { kind: "task-create", title: "Missing authorization context" },
+    binding: {
+      actor: { principal: { personId: "person-missing-context" }, executor: null },
+      source: { kind: "node", nodeId: "edge-one" },
+    },
+    actionId: "missing-context-action",
+    repoId: "repo-missing-context",
+    revision: 9,
+    now: "2026-11-07T00:00:00.000Z",
+  });
+
+  assert.equal(decision.outcome, "denied");
+  assert.deepEqual(decision.reasonCodes, ["authorization_context_missing"]);
+  assert.match(decision.nextActions.join(" "), /RepoCellBinding\.keycloakAuthorization/u);
+  assert.match(decision.nextActions.join(" "), /daemon host binding and Fleet writer handoff/u);
+  assert.ok(decision.bindingsUsed.some((binding) => binding.scope === "task-create"));
+});
+
+test("a valid identity without a policy grant still receives the grant remediation", async () => {
+  const keycloak = fakeKeycloak(),
+    provider = new KeycloakPolicyAdapter(
+      { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
+      keycloak.fetch,
+    ),
+    personId = "person-without-grant",
+    accessToken = keycloak.account(personId);
+  await provider.syncBasePolicy("center-token");
+  const decision = await evaluateRepoCellAction({
+    action: { kind: "task-create", title: "Denied by policy" },
+    binding: {
+      actor: { principal: { personId }, executor: null },
+      source: "local",
+      keycloakAuthorization: {
+        session: {
+          provider,
+          personId,
+          accessToken,
+          url: keycloakUrl,
+          realm: keycloakRealm,
+          clientId: "harness-center",
+        },
+      },
+    },
+    actionId: "policy-denial-action",
+    repoId: "repo-without-grant",
+    revision: 10,
+    now: "2026-11-07T00:00:00.000Z",
+    fetchPort: keycloak.fetch,
+  });
+
+  assert.equal(decision.outcome, "denied");
+  assert.deepEqual(decision.reasonCodes, ["keycloak_denied"]);
+  assert.match(decision.nextActions.join(" "), /Request policy group .* from an access administrator/u);
+  assert.match(decision.nextActions.join(" "), /ha bootstrap --operation grant/u);
 });
 
 test("a Keycloak Admin write transport failure keeps its non-retryable daemon_error code", () => {

@@ -157,6 +157,8 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly reviewer?: string;
   /** Explicit review-dispatch choices waiting for the implementation node to come online. */
   readonly reviewDispatchIntent?: TaskReviewDispatchIntentV1;
+  /** Last edge-owned automatic review dispatch failure for the current submitted execution. */
+  readonly reviewDispatchFailure?: TaskReviewDispatchFailureV1;
   readonly closeoutOverrides?: CloseoutOverridesV1;
   /** Set from the preset profile; a successful completion archives the package. */
   readonly archiveOnComplete?: boolean;
@@ -176,6 +178,13 @@ export interface TaskReviewDispatchIntentV1 {
   readonly model?: string;
   readonly effort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   readonly fast?: boolean;
+}
+export interface TaskReviewDispatchFailureV1 {
+  readonly executionId: string;
+  readonly dispatchKey: string;
+  readonly code: string;
+  readonly message: string;
+  readonly failedAt: string;
 }
 export interface ContractValidationIssue {
   readonly code: string;
@@ -215,6 +224,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "reviewReturnBudget",
       "reviewer",
       "reviewDispatchIntent",
+      "reviewDispatchFailure",
       "closeoutOverrides",
       "archiveOnComplete",
       "assignment",
@@ -323,6 +333,26 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       (intent.fast !== undefined && typeof intent.fast !== "boolean")
     )
       issues.push({ code: "invalid_task", message: "review dispatch intent is invalid" });
+  }
+  if (value.reviewDispatchFailure !== undefined) {
+    const failure = value.reviewDispatchFailure;
+    if (
+      !isRecord(failure) ||
+      !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(failure, [
+        "executionId",
+        "dispatchKey",
+        "code",
+        "message",
+        "failedAt",
+      ]) ||
+      !isNonEmptyString(failure.executionId) ||
+      !isNonEmptyString(failure.dispatchKey) ||
+      !isNonEmptyString(failure.code) ||
+      !isNonEmptyString(failure.message) ||
+      !isNonEmptyString(failure.failedAt) ||
+      !Number.isFinite(Date.parse(String(failure.failedAt)))
+    )
+      issues.push({ code: "invalid_task", message: "review dispatch failure is invalid" });
   }
   if (value.closeoutOverrides !== undefined && !isValidCloseoutOverrides(value.closeoutOverrides))
     issues.push({

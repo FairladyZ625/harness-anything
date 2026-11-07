@@ -6,6 +6,8 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { readFleetOperationalClient } from "../src/fleet/peer.ts";
+import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { fleetFixture, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
@@ -143,8 +145,85 @@ test(
       readAccessToken,
     );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const readCandidates = async (signal: AbortSignal) =>
+      parseNodeAutoDispatchSnapshot(
+        await readFleetOperationalClient({
+          hostname: channel.host,
+          port: center.port,
+          ca: f.cert,
+          nodeId,
+          credential: channel.credential,
+          repoId,
+          readAccessToken,
+          method: "repo.tasks.autoDispatchCandidates",
+          payload: {},
+          connectionSignal: signal,
+        }),
+      ).candidates;
+    const failedCandidate = (candidate: import("../src/node-auto-dispatch.ts").NodeAutoDispatchCandidate) => ({
+      executionId: candidate.executionId,
+      dispatchKey: candidate.dispatchKey,
+      code: "runtime_spawn_failed",
+      message: `Node ${nodeId} could not start the automatic reviewer. Ask the task owner to retry with ha task dispatch-review ${taskId}.`,
+      failedAt: new Date().toISOString(),
+    });
+    const persistFailure = async (failure: ReturnType<typeof failedCandidate> | null) => {
+      const receipt = await runFleetEdgeTask(
+        {
+          payload: {
+            ...channel,
+            caPath: f.certFile,
+            principalId: "person-owner",
+            workspaceRoot: edgeRoot,
+            action: {
+              kind: "task-amend",
+              taskId,
+              patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+            },
+          },
+        },
+        readAccessToken,
+        "domain",
+      );
+      assert.ok(["applied", "no_changes"].includes(String(receipt.outcome)), JSON.stringify(receipt));
+    };
+    const failedLoop = openNodeAutoDispatchLoop({
+      read: readCandidates,
+      spawn: async () => {
+        throw Object.assign(new Error("runtime spawn rejected"), { code: "runtime_spawn_failed" });
+      },
+      onFailure: async (candidate, error) => {
+        assert.equal((error as { readonly code?: string }).code, "runtime_spawn_failed");
+        await persistFailure(failedCandidate(candidate));
+      },
+    });
+    await assert.rejects(failedLoop.trigger("edge-submit"), /runtime spawn rejected/u);
+    await failedLoop.close();
+    const recorded = await f.host.run(repoId, { kind: "task-show", taskId }, f.auth);
+    assert.equal(recorded.outcome, "applied", JSON.stringify(recorded));
+    const recordedTask = JSON.parse(String(recorded.evidence)) as {
+      readonly task?: { readonly reviewDispatchFailure?: { readonly code?: string } };
+    };
+    assert.equal(recordedTask.task?.reviewDispatchFailure?.code, "runtime_spawn_failed");
+    assert.equal(
+      (await readCandidates(new AbortController().signal)).some((candidate) => candidate.taskId === taskId),
+      false,
+      "a durable failure suppresses an automatic retry until the owner explicitly retries",
+    );
+    const retry = await f.host.run(repoId, { kind: "task-dispatch-review", taskIds: [taskId] }, f.auth);
+    assert.equal(retry.outcome, "pending", JSON.stringify(retry));
+    const autoDispatchLoop = openNodeAutoDispatchLoop({
+      read: readCandidates,
+      spawn: async (candidate, signal) => {
+        assert.equal(candidate.requiredNodeId, nodeId);
+        const receipt = await runtime.run("repo.agentRuntime.spawn", candidate.payload, signal);
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      },
+      onSuccess: () => persistFailure(null),
+    });
+    t.after(() => autoDispatchLoop.close());
+    await autoDispatchLoop.trigger("edge-submit");
     const reader = makeTaskEventReader({ repoId, rootDir: f.repo });
-    t.after(() => reader.close());
     const events = reader.read().events,
       accepted = events.find((event) => event.type === "execution_submitted" && event.taskId === taskId),
       review = events.find(
@@ -155,5 +234,10 @@ test(
       );
     assert.ok(accepted, "the center accepts the worker submission first");
     assert.ok(review, `automatic reviewer dispatch must follow edge submit: ${JSON.stringify(submitted)}`);
+    const recovered = await f.host.run(repoId, { kind: "task-show", taskId }, f.auth);
+    const recoveredTask = JSON.parse(String(recovered.evidence)) as {
+      readonly task?: { readonly reviewDispatchFailure?: unknown };
+    };
+    assert.equal(recoveredTask.task?.reviewDispatchFailure, undefined, "a successful retry clears the durable failure");
   },
 );

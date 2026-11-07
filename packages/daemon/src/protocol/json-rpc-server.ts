@@ -259,6 +259,7 @@ export function createJsonRpcProtocolServer(options: {
       invokingCommand = params.invokingCommand ?? null;
       executionCredential = params.executionCredential;
       Reflect.deleteProperty(options.authContext, "executionPrincipal");
+      Reflect.deleteProperty(options.authContext, "executionCredential");
       const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
       handshaken = true;
       return reply(method, {
@@ -295,7 +296,11 @@ export function createJsonRpcProtocolServer(options: {
             code: "authentication_required",
           });
         const principal = await options.executionPrincipal(executionCredential, method, params as JsonObject);
-        Object.assign(options.authContext, { executionPrincipal: principal, oidcPrincipal: undefined });
+        Object.assign(options.authContext, {
+          executionPrincipal: principal,
+          executionCredential,
+          oidcPrincipal: undefined,
+        });
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }

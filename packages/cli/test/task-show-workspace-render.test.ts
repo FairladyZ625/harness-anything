@@ -62,6 +62,34 @@ test("task show states the expected-version optimistic-concurrency commands rese
   );
 });
 
+test("task show exposes automatic review dispatch failure and its retry command", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    outcome: "applied",
+    summary: "task-show: applied",
+    evidence: JSON.stringify({
+      task: {
+        status: "in_review",
+        currentNode: "review",
+        completionGateIds: [],
+        reviewDispatchFailure: {
+          executionId: "execution-edge-1",
+          dispatchKey: "review-key-1",
+          code: "runtime_spawn_failed",
+          message:
+            "Node edge-one could not start the automatic reviewer. Ask the task owner to retry with ha task dispatch-review task-one.",
+          failedAt: "2026-11-07T00:00:00.000Z",
+        },
+      },
+    }),
+  });
+  assert.match(
+    rendered.text,
+    /^review dispatch failed: runtime_spawn_failed; Node edge-one could not start the automatic reviewer\. Ask the task owner to retry with ha task dispatch-review task-one\.$/mu,
+  );
+});
+
 test("task show labels the delivery baseline as the start-frozen comparison cut, not the delivery head", () => {
   const sha = "4".repeat(40),
     rendered = renderCliReceipt({

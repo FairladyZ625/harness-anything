@@ -91,7 +91,12 @@ function taskMutationWithStopResult(
       amendPatches.length > 0 &&
       amendPatches.every((raw) => {
         const field = raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>).field : null;
-        return field === "reviewer" || field === "pinned" || field === "reviewDispatchIntent";
+        return (
+          field === "reviewer" ||
+          field === "pinned" ||
+          field === "reviewDispatchIntent" ||
+          field === "reviewDispatchFailure"
+        );
       });
   if (action.kind === "task-release") {
     if (!activeLease)
@@ -298,12 +303,25 @@ function taskMutationWithStopResult(
         if (!intent || typeof intent !== "object" || Array.isArray(intent))
           throw cell.cellCodedError("invalid_amend", "reviewDispatchIntent must be a JSON object.");
         changed = { ...changed, reviewDispatchIntent: intent as TaskV2["reviewDispatchIntent"] };
+      } else if (field === "reviewDispatchFailure") {
+        let failure: unknown;
+        try {
+          failure = JSON.parse(value);
+        } catch {
+          throw cell.cellCodedError("invalid_amend", "reviewDispatchFailure must be a JSON object or null.");
+        }
+        if (failure === null) {
+          const { reviewDispatchFailure: _cleared, ...withoutFailure } = changed;
+          changed = withoutFailure;
+        } else if (failure && typeof failure === "object" && !Array.isArray(failure))
+          changed = { ...changed, reviewDispatchFailure: failure as TaskV2["reviewDispatchFailure"] };
+        else throw cell.cellCodedError("invalid_amend", "reviewDispatchFailure must be a JSON object or null.");
       } else
         throw cell.cellCodedError(
           "invalid_amend",
           [
             "Amend title, parentTaskId, workKind, urgency, surfaces, ",
-            "taskClass, reviewer (agent id), reviewDispatchIntent (internal), or pinned (true/false); use task contract ",
+            "taskClass, reviewer (agent id), reviewDispatchIntent/reviewDispatchFailure (internal), or pinned (true/false); use task contract ",
             "migrate for contract shape changes.",
           ].join(""),
         );
