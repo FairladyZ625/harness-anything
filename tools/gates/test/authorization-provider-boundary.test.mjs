@@ -19,6 +19,18 @@ test("rejects newly added Keycloak symbols and realm contract fields in consumer
   );
 });
 
+test("rejects quoted object and JSON realm fields in consumers", () => {
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/application/src/auth.ts\n+const contract = { "realm": "local" };\n+const legacy = { 'realm': 'main' };`,
+    ),
+    [
+      'packages/application/src/auth.ts: provider-specific realm field: const contract = { "realm": "local" };',
+      "packages/application/src/auth.ts: provider-specific realm field: const legacy = { 'realm': 'main' };",
+    ],
+  );
+});
+
 test("rejects provider-specific role, client credentials, and admin REST paths", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(

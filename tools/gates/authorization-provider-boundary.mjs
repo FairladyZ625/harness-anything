@@ -9,7 +9,7 @@ const PROVIDER_PACKAGE_PREFIX = "packages/authorization-keycloak";
 const EXEMPTED_TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|fixtures?)(?:\/|\.)|\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const PROVIDER_MARKER =
   /keycloak|\badmin-cli\b|realm_access|keycloak_unavailable|keycloak-user:|\/realms\/|\/admin\/(?:[^"'\s]+\/console\/|serverinfo\b)|\brealm[_-]?role\b|\bclient(?:id|secret)\b/iu;
-const REALM_FIELD = /(?:\.|\b)realm\s*(?::|=)/u;
+const REALM_FIELD = /(?:["']realm["']|(?:\.|\b)realm)\s*(?::|=)/u;
 const WAIVER_PATH = "tools/gate-allowlists/authorization-provider-boundary.json";
 
 export function providerMarkerReason(line) {
