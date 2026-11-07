@@ -115,7 +115,6 @@ export async function replayTraffic({
     observeCursors = new Map(),
     observeBootstraps = new Map(),
     observePolls = { history: 0, follow: 0 },
-    slowObserveBootstrap = new Set(),
     pending = new Set(),
     accumulator = requestAccumulator();
   const started = performance.now();
@@ -179,11 +178,6 @@ export async function replayTraffic({
       }
       const result =
         row.method === "protocol.hello" ? session.helloResult : await client.request(row.method, params, timeoutMs);
-      if (managedObserve && result.liveCursor && !slowObserveBootstrap.has(row.node)) {
-        // Negative control: the first history reply lands after the second observe is issued.
-        slowObserveBootstrap.add(row.node);
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
-      }
       if (managedObserve && result.liveCursor) observeCursors.set(row.node, result.liveCursor);
       ok = result.ok !== false && !["op_rejected", "indeterminate"].includes(result.outcome);
       code = ok ? null : (result.code ?? result.error?.code ?? result.outcome ?? "request_failed");
