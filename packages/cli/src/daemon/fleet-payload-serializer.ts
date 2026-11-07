@@ -5,7 +5,10 @@ import {
   type EntityActionInputField,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-fleet-validation";
 import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import type { CliInputFacet } from "@harness-anything/preset/internal/preset-command-contract";
+import {
+  generatedTaskActionProtocolDeclarations,
+  type CliInputFacet,
+} from "@harness-anything/preset/internal/preset-command-contract";
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
@@ -74,19 +77,49 @@ function inputsOf(descriptor: ReturnType<typeof descriptorFor>): readonly CliInp
 
 function validationFields(descriptor: ReturnType<typeof descriptorFor>): readonly EntityActionInputField[] {
   const fields = new Map<string, EntityActionInputField>();
+  const taskAction = generatedTaskActionProtocolDeclarations.find(
+    (candidate) => candidate.execution.ingress === descriptor.id,
+  );
+  for (const field of taskAction?.input.fields ?? []) {
+    if (field.cli?.codec) continue;
+    fields.set(field.field, {
+      field: field.field,
+      type: field.type,
+      required: field.required,
+      ...(field.enum ? { enum: field.enum } : {}),
+      ...(field.regex ? { regex: field.regex } : {}),
+    });
+  }
   for (const input of inputsOf(descriptor) as readonly DeclaredInput[]) {
     const field = declaredField(input),
       codec = typeof input.codec === "object" ? input.codec : undefined;
+    if (input.jsonAllowedFields || codec?.kind === "json-object") continue;
+    const type =
+      input.projection === "json-object"
+        ? "json-object"
+        : input.projection === "json-object-array"
+          ? "json-object-array"
+          : input.projection === "fact-hold-array"
+            ? "fact-hold-array"
+            : input.projection === "number"
+              ? "number"
+              : input.kind === "boolean"
+                ? "boolean"
+                : input.kind === "repeated"
+                  ? "string-array"
+                  : "string";
     fields.set(field, {
       field,
-      type: codec?.kind === "line-list-file" ? "string-array" : input.kind === "boolean" ? "boolean" : "string",
+      type: codec?.kind === "line-list-file" ? "string-array" : type,
       required: input.required,
+      ...(input.enum ? { enum: input.enum } : {}),
+      ...(input.regex && type !== "number" ? { regex: input.regex } : {}),
       ...(input.maxLength === undefined ? {} : { wire: { maxLength: input.maxLength } }),
       ...(input.wire
         ? { wire: { ...input.wire, ...(input.maxLength === undefined ? {} : { maxLength: input.maxLength }) } }
         : {}),
     });
-    if (codec && "target" in codec) {
+    if (codec && !fields.has(codec.target)) {
       fields.set(codec.target, {
         field: codec.target,
         type: codec.kind === "line-list-file" ? "string-array" : "string",
@@ -97,6 +130,20 @@ function validationFields(descriptor: ReturnType<typeof descriptorFor>): readonl
   }
   if ("payloadFields" in descriptor)
     for (const field of descriptor.payloadFields as readonly EntityActionInputField[]) fields.set(field.field, field);
+  const positional =
+    "positional" in descriptor && typeof descriptor.positional === "string" ? descriptor.positional : null;
+  if ("positionalFields" in descriptor && Array.isArray(descriptor.positionalFields))
+    for (const field of descriptor.positionalFields) fields.set(field, { field, type: "string", required: true });
+  else if (positional) fields.set(positional, { field: positional, type: "string", required: true });
+  const commandPath = "path" in descriptor ? descriptor.path : [],
+    syntaxPath = "syntaxPath" in descriptor ? descriptor.syntaxPath : commandPath;
+  for (const token of syntaxPath) {
+    const match = token.match(/^<([a-z][a-z0-9-]*)>$/u);
+    if (!match) continue;
+    const name =
+      positional ?? (match[1] === "id" && commandPath[0] ? `${commandPath[0]}Id` : fieldName(`--${match[1]}`));
+    if (!fields.has(name)) fields.set(name, { field: name, type: "string", required: true });
+  }
   return [...fields.values()];
 }
 
@@ -104,6 +151,7 @@ type DeclaredInput = CliInputFacet & {
   readonly field?: string;
   readonly maxLength?: number;
   readonly wire?: EntityActionInputField["wire"];
+  readonly projection?: "number" | "fact-hold-array" | "json-object" | "json-object-array";
 };
 
 function declaredField(input: DeclaredInput): string {

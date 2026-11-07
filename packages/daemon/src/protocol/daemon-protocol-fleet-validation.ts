@@ -6,6 +6,16 @@ export const FLEET_ACTION_PAGE_ROWS = 128;
 
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+const patternCache = new Map<string, RegExp>();
+
+function patternMatches(pattern: string, value: string): boolean {
+  let compiled = patternCache.get(pattern);
+  if (compiled === undefined) {
+    compiled = new RegExp(pattern, "u");
+    patternCache.set(pattern, compiled);
+  }
+  return compiled.test(value);
+}
 
 function fieldIssue(field: EntityActionInputField, value: unknown, path: string, maximum: number): string | null {
   if (field.wire?.nullable && value === null) return null;
@@ -42,7 +52,7 @@ function fieldIssue(field: EntityActionInputField, value: unknown, path: string,
   const values = field.wire?.enum ?? field.enum;
   if (values && !values.includes(value)) return path;
   const pattern = field.wire?.pattern ?? field.regex;
-  if (pattern && !new RegExp(pattern, "u").test(value)) return path;
+  if (pattern && !patternMatches(pattern, value)) return path;
   return null;
 }
 
