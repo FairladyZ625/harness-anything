@@ -5,7 +5,7 @@ import {
 import type { SquadDispatchContext } from "@harness-anything/kernel";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
 import {
@@ -131,6 +131,7 @@ import {
 } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { providerErrorLimit } from "./runtime-spawn-limits.ts";
+import { runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
@@ -361,9 +362,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reviewerBinding && taskId !== null
           ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
           : null,
-      hash = createHash("sha256").update(`${input.repoId}\0${dispatchKey}`).digest("hex"),
-      newDispatchId = `dispatch_${hash.slice(0, 24)}`,
-      runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
+      { dispatchId: newDispatchId, runtimeSessionId } = runtimeDispatchIdentity(input.repoId, dispatchKey),
       dispatchOpId = randomUUID(),
       installationOpId = randomUUID(),
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
@@ -1503,6 +1502,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
       return adoptRuntimes(extracted, onProgress);
     },
+    /** Whether this spawner still owns a launched process for the runtime session. */
+    ownsLiveProcess: (runtimeSessionId: string) => processes.has(runtimeSessionId),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {

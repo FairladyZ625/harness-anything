@@ -253,6 +253,7 @@ export function openDecisionPointExecutor(input: {
             leaseOccupied: snapshot?.lease != null,
             resumable: Boolean(dispatch?.resume),
             agentId: dispatch?.agentId ?? null,
+            executionId: dispatch?.executionId || null,
             roundsUsed: incident?.fields?.roundsUsed ?? dispatchRead.dispatches.length,
             budget: incident?.fields?.continuationBudget ?? { used: 0, limit: 0 },
             // A continuation inherits the worktree; with no measured HEAD there is no known base
@@ -274,7 +275,11 @@ export function openDecisionPointExecutor(input: {
               budget: recordBudget,
             }),
           escalate = (guard: string, next = `ha task dispatches ${task.taskId}`) =>
-            apply("needs_attention", incidentGuardPlan({ taskId: task.taskId, guard, evidence, next }), null),
+            apply(
+              "needs_attention",
+              incidentGuardPlan({ taskId: task.taskId, dispatchId, guard, evidence, next }),
+              null,
+            ),
           /** The provider is an accelerator, never the only route to a disposition: when it cannot
            * answer, the preference list picks the option and the same gate decides whether it is
            * admissible. The receipt keeps the provider failure in its reason. */

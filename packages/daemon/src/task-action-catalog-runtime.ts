@@ -105,6 +105,37 @@ export async function runTaskActionCatalogRuntime(
       heldLeaseForExecutionActor(current.snapshot, activeLease.executionId, binding.actor) &&
       JSON.stringify(activeLease.source) === JSON.stringify(binding.source)
     ) {
+      // The caller's own preconditions are checked before the held lease is reported as reused:
+      // `no_changes` must mean "already in the state you named", never "a lease exists".
+      if (contract && expectedRevision !== current.snapshot.revision)
+        return revisionRejection(cell, action, binding, current.snapshot, contract);
+      if (contract && typeof action.executionId === "string" && action.executionId !== activeLease.executionId)
+        return taskActionRejection(
+          cell,
+          action,
+          binding,
+          current.snapshot,
+          contract,
+          [criterionEvaluation(evaluations, START_CRITERION)],
+          cell.failed(
+            cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
+            cell.cellCodedError(
+              "invalid_transition",
+              `Task ${taskId} lease is held for execution ${activeLease.executionId}, not ${action.executionId}.`,
+              {
+                kind: "validation",
+                entity: `task ${taskId}`,
+                field: "executionId",
+                actual: `held execution=${activeLease.executionId} revision=${String(current.snapshot.revision)}`,
+                expectation:
+                  `Re-read the task and retry with --execution-id ${activeLease.executionId} ` +
+                  `--expected-version ${String(current.snapshot.revision)}`,
+              },
+            ),
+            contract,
+            action,
+          ),
+        );
       const revision = current.snapshot.revision;
       return {
         outcome: "no_changes",
@@ -207,17 +238,8 @@ export async function runTaskActionCatalogRuntime(
       ...normalized,
       workspaceRevision: current.snapshot.revision + 1,
     } as TaskLifecycleCommand).length > 0
-  ) {
-    const criterion = contract.criteria.find(({ ref }) => ref === REVISION_CRITERION);
-    if (!criterion)
-      throw new Error(`Task Action ${contract.id} does not declare its existing revisionIssues predicate.`);
-    return taskActionRejection(cell, action, binding, current.snapshot, contract, [
-      {
-        criterionRef: criterion.ref,
-        nextActions: [`${criterion.explain} Then retry with --expected-version ${String(current.snapshot.revision)}.`],
-      },
-    ]);
-  }
+  )
+    return revisionRejection(cell, action, binding, current.snapshot, contract);
   if (lifecycle?.coordination === "reserve") {
     const commandFields = normalized as unknown as Readonly<Record<string, unknown>>,
       executionId = commandFields[lifecycle.targetIdField];
@@ -353,6 +375,23 @@ export async function runTaskActionCatalogRuntime(
       proof: result.proof,
     };
   return cell.rejected(command.opId, result.code ?? "publication_unknown");
+}
+
+function revisionRejection(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  snapshot: Snapshot,
+  contract: EntityActionContract,
+): WriteReceipt {
+  const criterion = contract.criteria.find(({ ref }) => ref === REVISION_CRITERION);
+  if (!criterion) throw new Error(`Task Action ${contract.id} does not declare its existing revisionIssues predicate.`);
+  return taskActionRejection(cell, action, binding, snapshot, contract, [
+    {
+      criterionRef: criterion.ref,
+      nextActions: [`${criterion.explain} Then retry with --expected-version ${String(snapshot.revision)}.`],
+    },
+  ]);
 }
 
 function submitActionRejection(
