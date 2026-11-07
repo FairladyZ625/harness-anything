@@ -728,6 +728,23 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
       roots: [{ taskId: "task_DERIVED", reason: "derived", directChildCount: 3 }],
     };
     assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
+    // Contrast 5 — an invalid required value is refused even when the row carries every required
+    // key plus an arbitrary fifth field: validity is the field contract, never the key count.
+    const [producedRoot] = withRoots.roots;
+    assert.ok(producedRoot);
+    for (const invalid of [
+      { ...producedRoot, threshold: 0 },
+      { ...producedRoot, directChildCount: -1 },
+      { ...producedRoot, reason: "inferred" },
+      { ...producedRoot, taskId: "" },
+    ]) {
+      const padded = { ...invalid, diagnostic: { deferred: 1 } };
+      assert.equal(Object.keys(padded).length, Object.keys(producedRoot).length + 1);
+      assert.throws(
+        () => parseDaemonGuiReadResult("repo.tasks.wip", { ...withRoots, roots: [padded] }),
+        /task WIP snapshot/u,
+      );
+    }
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
