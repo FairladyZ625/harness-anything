@@ -9,7 +9,7 @@ import {
   kindRewriteViolations,
   loadAuthorizationInputs,
 } from "../ontology-durable-action-authorization.mjs";
-import { runGit } from "./helpers.mjs";
+import { replaceSourceOnce, runGit } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const tracedPackages = ["daemon", "authorization-keycloak", "application"];
@@ -40,10 +40,22 @@ function sourceCopy(t) {
 function edit(dir, file, from, to) {
   const target = path.join(dir, file),
     text = readFileSync(target, "utf8");
-  assert.equal(text.split(from).length, 2, `${file}: the mutated text must occur exactly once`);
-  writeFileSync(target, text.replace(from, to));
+  writeFileSync(target, replaceSourceOnce(text, from, to, file));
   return () => writeFileSync(target, text);
 }
+
+test("source mutation fragments match LF and CRLF checkouts alike", () => {
+  const lf = "alpha\nbeta\ngamma\n",
+    crlf = lf.replaceAll("\n", "\r\n");
+  assert.equal(replaceSourceOnce(lf, "alpha\nbeta", "alpha\nX\nY", "sample.ts"), "alpha\nX\nY\ngamma\n");
+  assert.equal(replaceSourceOnce(crlf, "alpha\nbeta", "alpha\nX\nY", "sample.ts"), "alpha\r\nX\r\nY\r\ngamma\r\n");
+  // A fragment authored with CRLF matches an LF checkout too, and a single-line fragment adopts the file's EOL.
+  assert.equal(replaceSourceOnce(lf, "alpha\r\nbeta", "alpha\nZ", "sample.ts"), "alpha\nZ\ngamma\n");
+  assert.equal(replaceSourceOnce(crlf, "beta", "Z\nW", "sample.ts"), "alpha\r\nZ\r\nW\r\ngamma\r\n");
+  // The exactly-once requirement is not weakened: zero and multiple matches still fail.
+  assert.throws(() => replaceSourceOnce(crlf, "missing", "x", "sample.ts"), /exactly once/u);
+  assert.throws(() => replaceSourceOnce("repeat\r\nrepeat\r\n", "repeat", "x", "sample.ts"), /exactly once/u);
+});
 
 function rows(dir, only, descriptors = inputs.descriptors, options = {}) {
   const result = auditDurableActionAuthorization(
