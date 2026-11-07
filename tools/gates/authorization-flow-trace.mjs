@@ -93,9 +93,31 @@ export function makeAuthorizationTracer(graph, anchors) {
       .filter((value) => value.fn)
       .map((value) => value.node);
 
+  // The AuthorizationPort members as the kernel declares them; a same-named method on any other
+  // type (a host, a replication source) is not a policy decision.
+  const portMembers = new Map();
+  for (const { file, name } of anchors.ports)
+    for (const [key, member] of graph.interfaceMembers(file, name)) {
+      const members = portMembers.get(key) ?? new Set();
+      members.add(member);
+      portMembers.set(key, members);
+    }
+  const portCalls = new Map();
+
   function isPortCall(node) {
-    const callee = unwrap(node.expression);
-    return ts.isPropertyAccessExpression(callee) && anchors.portMembers.has(callee.name.text);
+    if (portCalls.has(node)) return portCalls.get(node);
+    const callee = unwrap(node.expression),
+      key = ts.isPropertyAccessExpression(callee) ? callee.name.text : null,
+      members = key === null ? undefined : portMembers.get(key),
+      signatures = members ? graph.memberSignature(callee) : null,
+      port = Boolean(
+        signatures &&
+          [...signatures].some(
+            (declaration) => members.has(declaration) || graph.implementsMember(declaration, key, members),
+          ),
+      );
+    portCalls.set(node, port);
+    return port;
   }
 
   function declaredIn(tainted, identifier) {
@@ -535,7 +557,7 @@ export function makeAuthorizationTracer(graph, anchors) {
             report.violations.push(`${where(value.node)}: the authorization decision does not reach the effect`);
           for (const candidate of carried) inner.tainted.add(candidate);
           inner.effect = true;
-          if (state.decisionKind?.routed)
+          if (state.decisionKind?.routed && state.decisionKind.kind === descriptor.kind)
             report.authorized.push(
               `${where(value.node)}: ${label(state.decisionKind)} decision flows into the effect callback`,
             );

@@ -116,7 +116,20 @@ export function buildFlowGraph(rootDir) {
     fileOf,
     implementsMember,
     memberSignature,
+    interfaceMembers,
   };
+
+  /** The member declarations of an interface in a kernel authority file, keyed by member name. */
+  function interfaceMembers(file, name) {
+    const source = program.getSourceFile(path.join(rootDir, file)),
+      declaration = source?.statements.find(
+        (statement) => ts.isInterfaceDeclaration(statement) && statement.name.text === name,
+      );
+    if (!declaration) throw new Error(`${file}: interface ${name} is missing`);
+    return new Map(
+      declaration.members.filter((member) => member.name).map((member) => [memberName(member.name), member]),
+    );
+  }
 
   function fileOf(node) {
     const source = node.getSourceFile();
