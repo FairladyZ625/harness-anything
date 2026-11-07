@@ -72,3 +72,50 @@ test("runtime steer still takes --prompt directly and rejects ambiguous prompt s
   assert.equal(both.code, "invalid_field");
   assert.match(both.nextAction, /mutually exclusive/u);
 });
+
+test("runtime steer carries compare-and-steer expectations to the daemon (#4372)", () => {
+  const parsed = parseThinCommand([
+    "runtime",
+    "steer",
+    "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+    "--prompt",
+    "only if unchanged",
+    "--expect-task",
+    "task_x",
+    "--expect-execution",
+    "execution_x",
+    "--expect-dispatch",
+    "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+    "--expect-version",
+    "2",
+  ]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (!parsed.ok) throw new Error(parsed.nextAction);
+  assert.deepEqual(parsed.command.action.expected, {
+    taskId: "task_x",
+    executionId: "execution_x",
+    dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+    version: 2,
+  });
+  const taskless = parseThinCommand(["runtime", "steer", "runtime_s", "--prompt", "x", "--expect-taskless"]);
+  assert.equal(taskless.ok, true, JSON.stringify(taskless));
+  if (!taskless.ok) throw new Error(taskless.nextAction);
+  assert.deepEqual(taskless.command.action.expected, { taskless: true });
+  const legacy = parseThinCommand(["runtime", "steer", "runtime_s", "--prompt", "x"]);
+  assert.equal(legacy.ok, true, JSON.stringify(legacy));
+  if (!legacy.ok) throw new Error(legacy.nextAction);
+  assert.equal("expected" in legacy.command.action, false, "no expectation keeps the previous call shape");
+  const badVersion = parseThinCommand(["runtime", "steer", "runtime_s", "--prompt", "x", "--expect-version", "-1"]);
+  assert.equal(badVersion.ok, false);
+  const contradiction = parseThinCommand([
+    "runtime",
+    "steer",
+    "runtime_s",
+    "--prompt",
+    "x",
+    "--expect-taskless",
+    "--expect-task",
+    "task_x",
+  ]);
+  assert.equal(contradiction.ok, false);
+});

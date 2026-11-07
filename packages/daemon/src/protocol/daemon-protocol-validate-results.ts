@@ -551,6 +551,9 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // runtime-spawn figures which instance serves the dispatch and which rule decided it; the GUI
     // is a named ingress onto that same spawn, so its envelope accepts the receipt's selection.
     "runtimeSelection",
+    // runtime-steer locks its target (dispatch leaf, task binding, steer version) into the
+    // receipt so a compare-and-steer caller can chain its next expectation (#4372).
+    "steerTarget",
   ];
 
 const runtimeHandoffCheckpointFields = [

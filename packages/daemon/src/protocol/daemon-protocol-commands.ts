@@ -770,7 +770,7 @@ export const daemonProtocolMethods = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }),
+      payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string", expected: "json?" }),
     }),
   },
   {

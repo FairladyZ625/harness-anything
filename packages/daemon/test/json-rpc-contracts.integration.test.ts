@@ -403,6 +403,10 @@ test("runtime steer is a GUI action with a real consumer (W3-T1 AgentSteering) a
   assert.equal(call({ prompt: "Missing selector." }).ok, false);
   assert.equal(call({ dispatchId: "dispatch-a", runtimeSessionId: "runtime-a", prompt: "Both selectors." }).ok, false);
   assert.equal(call({ dispatchId: "dispatch-a", prompt: "" }).ok, false);
+  // #4372 compare-and-steer: the expectation rides the same method; the daemon validates its fields.
+  assert.equal(call({ dispatchId: "dispatch-a", prompt: "Steer.", expected: { dispatchId: "dispatch-a" } }).ok, true);
+  assert.equal(call({ dispatchId: "dispatch-a", prompt: "Steer.", expected: "dispatch-a" }).ok, false);
+  assert.equal(call({ dispatchId: "dispatch-a", prompt: "Steer.", expectedLeaf: "dispatch-a" }).ok, false);
 });
 // prettier-ignore
 
