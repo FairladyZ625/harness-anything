@@ -46,12 +46,18 @@ import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 
 // A runtime can lose its local process entry while terminal settlement is still
-// publishing the center-side documents. A concurrent recovery then gets a new
-// ActiveRuntime for the same session. Share the archive promise by session so
-// that both settlement paths observe one canonical document write; replaying the
-// same op with a newly rendered dispatch document would otherwise be rejected as
-// an op_conflict.
-const runtimeArchivePromises = new WeakMap<RuntimeSpawnerContext, Map<string, Promise<void>>>();
+// publishing the center-side documents. A concurrent recovery can then get both a
+// new ActiveRuntime and a new RuntimeSpawnerContext (for example after an edge
+// workspace migration). Share the archive promise by repository and session so
+// every settlement path observes one canonical document write; replaying the same
+// op with a newly rendered dispatch document would otherwise be rejected as an
+// op_conflict. Successful entries live for the daemon process lifetime because a
+// late recovery can arrive after the first archive promise has resolved.
+const runtimeArchivePromises = new Map<string, Promise<void>>();
+
+function runtimeArchivePromiseKey(context: RuntimeSpawnerContext, active: ActiveRuntime): string {
+  return `${context.input.repoId}:${active.runtimeSessionId}`;
+}
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -567,12 +573,11 @@ export async function publishExit(
           }
         : null;
     if (archive) {
+      const archiveKey = runtimeArchivePromiseKey(context, active);
       let archivePromise: Promise<void> | undefined;
       try {
-        archivePromise = runtimeArchivePromises.get(context)?.get(active.runtimeSessionId);
+        archivePromise = runtimeArchivePromises.get(archiveKey);
         if (!archivePromise) {
-          const archives = runtimeArchivePromises.get(context) ?? new Map<string, Promise<void>>();
-          runtimeArchivePromises.set(context, archives);
           archivePromise = (async () => {
             const archiveBinding = context.input.remote
               ? terminalBinding
@@ -601,13 +606,13 @@ export async function publishExit(
                 }${"detail" in archived && archived.detail ? ` ${JSON.stringify(archived.detail)}` : ""}`,
               );
           })();
-          archives.set(active.runtimeSessionId, archivePromise);
+          runtimeArchivePromises.set(archiveKey, archivePromise);
         }
         await archivePromise;
         archivePublished = true;
       } catch (error) {
-        if (archivePromise && runtimeArchivePromises.get(context)?.get(active.runtimeSessionId) === archivePromise)
-          runtimeArchivePromises.get(context)!.delete(active.runtimeSessionId);
+        if (archivePromise && runtimeArchivePromises.get(archiveKey) === archivePromise)
+          runtimeArchivePromises.delete(archiveKey);
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
         // A required task report is part of the success cut. Keep the terminal
