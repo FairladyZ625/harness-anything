@@ -1019,7 +1019,7 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--url", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--realm", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--client-secret-stdin", "boolean", false, { code: "invalid_field" }, { field: "clientSecretStdin" }),
-      cliInput("--client-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "clientId" }),
+      cliInput("--client-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput(
         "--backup-dir",
         "single",

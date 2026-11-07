@@ -46,7 +46,7 @@ export function runtimeArchiveMissionRef(
 }
 
 export function artifactSource(
-  input: Pick<Input, "rootDir" | "projection">,
+  input: Pick<Input, "rootDir" | "projection" | "workspaceCoordinate">,
   value: string,
 ): { readonly absolute: string; readonly relative: string } {
   const root = realpathSync.native(input.rootDir),
@@ -88,7 +88,9 @@ export function artifactSource(
   if (insideAuthoredRoot && authoredRelative.startsWith("tasks/"))
     throw docSyncError(
       "artifact_source_in_task_package",
-      `source is inside a task package; use ha doc sync --submit --path ${documentWorkspacePath(input.rootDir, authoredRelative)}`,
+      `source is inside a task package; use ha doc sync --submit --path ${
+        input.workspaceCoordinate === true ? documentWorkspacePath(input.rootDir, authoredRelative) : authoredRelative
+      }`,
     );
   return { absolute, relative };
 }
