@@ -12,32 +12,31 @@
  * because `task show` nests the same package under `task.packagePath`, progress claims and execution
  * artifacts, and because its human `summary` is rendered from that nested payload.
  *
- * Lifecycle and rematerialization receipts name ledger documents without a package pair. They get the
- * same boundary rule from the authored root's own top-level names, so the daemon keeps the authored
- * key it indexes by and the caller reads the workspace spelling it can paste back into `--path`.
+ * Lifecycle and rematerialization receipts name ledger documents without a package pair. The daemon
+ * adds the authored root's spelling (`workspacePathPrefix`) to those receipts; this boundary prefixes
+ * the document fields with it and drops the transport marker. The thin CLI must not import the kernel
+ * layout module, so the prefix is data the receipt carries, not a layout lookup performed here.
  */
-import { existsSync, readdirSync } from "node:fs";
-import path from "node:path";
-import { documentWorkspacePath, resolveHarnessLayout, type HarnessLayout } from "@harness-anything/kernel";
-
 type Receipt = Readonly<Record<string, unknown>>;
 type PackagePathPair = { readonly canonical: string; readonly workspace: string };
 
 // Receipt fields whose values are ledger document keys in the daemon's authored coordinate. This is
 // receipt shape, not a command list: every producer that names these fields gets the same boundary
 // translation, including a lifecycle or rematerialization receipt added later.
-const DOCUMENT_PATH_FIELDS = ["changedPaths", "destination", "paths", "unchangedPaths", "conflictPaths"] as const;
+const DOCUMENT_PATH_FIELDS = [
+  "changedPaths",
+  "destination",
+  "documentPath",
+  "paths",
+  "unchangedPaths",
+  "conflictPaths",
+] as const;
 const LIFECYCLE_FILES_EVIDENCE = /^(?<head>event-object:[^;]*);files:(?<files>.*)$/su;
-// Top-level names under the authored root are what makes a relative string a ledger key rather than
-// a repository path (`packages/cli/...`) or a host path. Read once per authored root.
-const authoredTopLevelCache = new Map<string, readonly string[]>();
+const WORKSPACE_PATH_PREFIX = "workspacePathPrefix";
 
-export function translateReceiptPathCoordinates(receipt: Receipt, rootDir?: string): Receipt {
-  // A rejected receipt still carries the transition diagnostic the caller must act on, so the
-  // diagnostic path is translated before the success-only package rewrite below.
-  const diagnosed = rootDir === undefined ? receipt : rewriteDiagnosticDocumentPath(receipt, rootDir);
-  if (diagnosed.ok !== true) return diagnosed;
-  const scoped = rootDir === undefined ? diagnosed : translateDocumentCoordinates(diagnosed, rootDir);
+export function translateReceiptPathCoordinates(receipt: Receipt): Receipt {
+  const scoped = translateDocumentCoordinates(receipt);
+  if (scoped.ok !== true) return scoped;
   const evidence = scoped.evidence;
   let payload: unknown;
   if (typeof evidence === "string" && evidence.startsWith("{") && evidence.includes('"workspacePackagePath"')) {
@@ -57,20 +56,28 @@ export function translateReceiptPathCoordinates(receipt: Receipt, rootDir?: stri
 }
 
 /**
- * Lifecycle and rematerialization receipts name ledger documents without a `packagePath` pair, so
- * the package swap above cannot see them. The same boundary rule applies: the daemon keeps the
- * authored key it indexes by, and the caller reads the workspace spelling it can paste back in.
+ * Lifecycle and rematerialization receipts carry the authored root's workspace spelling. The daemon
+ * keeps the authored key it indexes by; this boundary prefixes the document fields and removes the
+ * marker so it never becomes part of the caller's contract.
  */
-function translateDocumentCoordinates(receipt: Receipt, rootDir: string): Receipt {
-  const layout = resolveHarnessLayout(rootDir),
-    topLevel = authoredTopLevelNames(layout),
-    translate = (document: string): string =>
-      isAuthoredDocumentPath(document, rootDir, layout, topLevel)
-        ? documentWorkspacePath(rootDir, document, layout)
-        : document,
-    translated = rewriteDocumentPathFields(receipt, translate) as Receipt,
-    evidence = translateEvidence(receipt.evidence, translate);
-  return evidence === receipt.evidence ? translated : { ...translated, evidence };
+function translateDocumentCoordinates(receipt: Receipt): Receipt {
+  const diagnostic = receipt.diagnostic,
+    prefix = receipt[WORKSPACE_PATH_PREFIX] ?? (isRecord(diagnostic) ? diagnostic[WORKSPACE_PATH_PREFIX] : undefined);
+  if (typeof prefix !== "string" || prefix === "") return receipt;
+  const { [WORKSPACE_PATH_PREFIX]: _prefix, diagnostic: _diagnostic, ...rest } = receipt,
+    translate = (document: string): string => workspaceDocument(prefix, document),
+    translated = rewriteDocumentPathFields(rest, translate) as Record<string, unknown>,
+    evidence = translateEvidence(rest.evidence, translate);
+  if (isRecord(diagnostic)) {
+    const { [WORKSPACE_PATH_PREFIX]: _diagnosticPrefix, ...documentPathDiagnostic } = diagnostic;
+    translated.diagnostic = rewriteDocumentPathFields(documentPathDiagnostic, translate);
+  }
+  return evidence === rest.evidence ? translated : { ...translated, evidence };
+}
+
+function workspaceDocument(prefix: string, document: string): string {
+  if (document === "" || document.startsWith("/") || document === ".." || document.startsWith("../")) return document;
+  return document === prefix || document.startsWith(`${prefix}/`) ? document : `${prefix}/${document}`;
 }
 
 function rewriteDocumentPathFields(value: unknown, translate: (document: string) => string): unknown {
@@ -115,41 +122,6 @@ function rematerializationReport(evidence: string): Record<string, unknown> | nu
     throw new Error("rematerialization evidence is not valid JSON", { cause: error });
   }
   return isRecord(parsed) && Array.isArray(parsed.targets) && typeof parsed.writeStatus === "string" ? parsed : null;
-}
-
-function authoredTopLevelNames(layout: HarnessLayout): readonly string[] {
-  const cached = authoredTopLevelCache.get(layout.authoredRoot);
-  if (cached !== undefined) return cached;
-  const names = existsSync(layout.authoredRoot) ? readdirSync(layout.authoredRoot) : [],
-    topLevel = layout.configPath === undefined ? names : [...names, path.basename(layout.configPath)];
-  authoredTopLevelCache.set(layout.authoredRoot, topLevel);
-  return topLevel;
-}
-
-function isAuthoredDocumentPath(
-  value: string,
-  rootDir: string,
-  layout: HarnessLayout,
-  topLevel: readonly string[],
-): boolean {
-  if (value === "" || path.isAbsolute(value) || value === ".." || value.startsWith("../")) return false;
-  const workspacePrefix = path.relative(rootDir, layout.authoredRoot).split(path.sep).join("/");
-  // Already the workspace spelling (or the workspace root is the ledger root and the two agree).
-  if (workspacePrefix === "" || value === workspacePrefix || value.startsWith(`${workspacePrefix}/`)) return false;
-  return topLevel.includes(value.split("/")[0]!);
-}
-
-/**
- * A transition-readiness diagnostic is rendered by the daemon from the authored key it projected.
- * The CLI boundary prints the same path the caller can paste back into a --path flag.
- */
-function rewriteDiagnosticDocumentPath(receipt: Receipt, rootDir: string): Receipt {
-  const diagnostic = receipt.diagnostic;
-  if (!isRecord(diagnostic) || typeof diagnostic.documentPath !== "string") return receipt;
-  return {
-    ...receipt,
-    diagnostic: { ...diagnostic, documentPath: documentWorkspacePath(rootDir, diagnostic.documentPath) },
-  };
 }
 
 function collectPackagePathPairs(value: unknown, pairs: PackagePathPair[] = []): PackagePathPair[] {

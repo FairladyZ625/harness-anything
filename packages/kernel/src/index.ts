@@ -240,6 +240,7 @@ export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {
   DEFAULT_HARNESS_LOCAL_ROOT,
   documentWorkspacePath,
+  documentWorkspacePrefix,
   normalizeRelativeDocumentPath,
   readFrontmatter,
   readScalar,

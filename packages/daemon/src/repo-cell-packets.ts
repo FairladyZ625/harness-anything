@@ -3,6 +3,7 @@ import { makeTaskEventStore } from "@harness-anything/storage";
 import {
   approvedReviewHistoryForExecution,
   consentedApprovedReviewForExecution,
+  documentWorkspacePrefix,
   getExecutableEntityAction,
   reviewDigest,
   taskCompletionAction,
@@ -332,6 +333,7 @@ export function lifecycleReceipt(
         : []),
     ],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
+    workspacePathPrefix = documentWorkspacePrefix(cell.rootDir),
     waiver = reviewWaiverLine(snapshot.task, execution),
     summary =
       event.type === "execution_annotated"
@@ -364,6 +366,7 @@ export function lifecycleReceipt(
     gateChecks: checks,
     next,
     changedPaths,
+    workspacePathPrefix,
     eventId: event.eventId,
     ...publication,
     worktreeVisible: true,

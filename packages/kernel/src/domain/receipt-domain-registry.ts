@@ -26,6 +26,8 @@ export type ReceiptDiagnostic =
   | {
       readonly kind: "missing-sections";
       readonly documentPath: string;
+      /** The authored root's workspace spelling, present when the diagnostic crosses the CLI boundary. */
+      readonly workspacePathPrefix?: string;
       readonly diskDiffers: boolean;
       readonly missingSections: readonly {
         readonly section: string;
