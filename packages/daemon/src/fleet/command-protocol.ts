@@ -85,6 +85,7 @@ export type FleetFrameV1 =
           readonly repoId: string;
           readonly harnessYaml: string;
           readonly originUrl: string | null;
+          readonly originAddress?: string | null;
           readonly originPushUrls: readonly string[];
           readonly defaultBranch: string | null;
           readonly defaultBranchCommit: string | null;
@@ -136,6 +137,8 @@ export type FleetFrameV1 =
         actionAllowed: boolean | null;
         /** Git facts used by an edge before it materializes a task worktree. */
         originUrl: string | null;
+        /** Copyable center origin for edge join guidance; credentials are scrubbed. */
+        originAddress?: string | null;
         originPushUrls: readonly string[];
         defaultBranch: string | null;
         defaultBranchCommit: string | null;
@@ -791,14 +794,19 @@ const schemas: Readonly<Record<string, Check>> = {
     personId: id,
     credential: text,
     repositories: array(
-      shape({
-        repoId: id,
-        harnessYaml: bodyText,
-        originUrl: nullable(text),
-        originPushUrls: array(text, 16),
-        defaultBranch: nullable(text),
-        defaultBranchCommit: nullable(gitCommitSha),
-      }),
+      (value) =>
+        optionalShape(
+          {
+            repoId: id,
+            harnessYaml: bodyText,
+            originUrl: nullable(text),
+            originAddress: nullable(text),
+            originPushUrls: array(text, 16),
+            defaultBranch: nullable(text),
+            defaultBranchCommit: nullable(gitCommitSha),
+          },
+          ["repoId", "harnessYaml", "originUrl", "originPushUrls", "defaultBranch", "defaultBranchCommit"],
+        )(value),
       64,
     ),
   }),
@@ -840,19 +848,36 @@ const schemas: Readonly<Record<string, Check>> = {
     },
     ["schema", "messageId", "repoId"],
   ),
-  "fleet.repo.metadata.result/v1": shape({
-    ...reply,
-    personId: id,
-    actionAllowed: nullable(boolean),
-    repoId: id,
-    baseLedgerSha: ledgerCut,
-    writerEpoch: uint,
-    replicationSequence: uint,
-    originUrl: nullable(text),
-    originPushUrls: array(text, 16),
-    defaultBranch: nullable(text),
-    defaultBranchCommit: nullable(gitCommitSha),
-  }),
+  "fleet.repo.metadata.result/v1": optionalShape(
+    {
+      ...reply,
+      personId: id,
+      actionAllowed: nullable(boolean),
+      repoId: id,
+      baseLedgerSha: ledgerCut,
+      writerEpoch: uint,
+      replicationSequence: uint,
+      originUrl: nullable(text),
+      originAddress: nullable(text),
+      originPushUrls: array(text, 16),
+      defaultBranch: nullable(text),
+      defaultBranchCommit: nullable(gitCommitSha),
+    },
+    [
+      "schema",
+      "messageId",
+      "personId",
+      "actionAllowed",
+      "repoId",
+      "baseLedgerSha",
+      "writerEpoch",
+      "replicationSequence",
+      "originUrl",
+      "originPushUrls",
+      "defaultBranch",
+      "defaultBranchCommit",
+    ],
+  ),
   "fleet.receipt.get/v1": shape({ ...common, repoId: id, opId: id }),
   "fleet.receipt.result/v1": shape({ ...reply, opId: id, receipt: record }),
   "fleet.upload.begin/v1": shape({ ...common, repoId: id, opId: id, content: blob }),

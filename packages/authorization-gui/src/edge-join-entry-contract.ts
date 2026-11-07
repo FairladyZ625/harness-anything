@@ -10,6 +10,7 @@ export interface EdgeJoinDeviceLogin {
   readonly interval: number;
   readonly expiresAt: number;
   readonly transport?: "ssh-reverse";
+  readonly browserApprovalUri?: string;
 }
 
 export interface EdgeJoinRepositoryOutcome {
@@ -17,6 +18,9 @@ export interface EdgeJoinRepositoryOutcome {
   readonly ok: boolean;
   readonly code?: string;
   readonly error?: string;
+  readonly needsOrigin?: boolean;
+  readonly defaultBranch?: string;
+  readonly centerOrigin?: string;
 }
 
 /** The settled join receipt: one row per invited repository. Carries no credential. */
@@ -47,7 +51,7 @@ export interface EdgeJoinRejection {
 }
 
 export type EdgeJoinEntryRequest =
-  | { readonly kind: "join"; readonly link: string }
+  | { readonly kind: "join"; readonly link: string; readonly originUrls?: Readonly<Record<string, string>> }
   | { readonly kind: "poll" }
   | { readonly kind: "progress" }
   | { readonly kind: "open-login" };
@@ -57,7 +61,10 @@ export type EdgeJoinEntryReply =
   | EdgeJoinRejection;
 
 export interface EdgeJoinEntryApi {
-  readonly begin: (input: { readonly link: string }) => Promise<unknown>;
+  readonly begin: (input: {
+    readonly link: string;
+    readonly originUrls?: Readonly<Record<string, string>>;
+  }) => Promise<unknown>;
   readonly poll: () => Promise<unknown>;
   readonly progress: () => Promise<unknown>;
   /** Opens the login page of the device sign-in this daemon started; takes no renderer-supplied URL. */

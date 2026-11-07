@@ -104,6 +104,7 @@ async function mountView(
   options: {
     readonly repos?: readonly SystemRepoRow[];
     readonly connections?: unknown;
+    readonly onJoinCenter?: () => void;
     readonly probeResult?: unknown;
     /** `null` models a machine with no login listener certificate configured yet. */
     readonly listener?: CenterListenerSettings["listener"];
@@ -283,7 +284,7 @@ async function mountView(
           repos: options.repos ?? [localRepo, proxyRepo],
           activeRepoId: "local-repo",
           onOpenProject: () => undefined,
-          onJoinCenter: () => undefined,
+          onJoinCenter: options.onJoinCenter ?? (() => undefined),
         }),
       ),
     );
@@ -438,6 +439,15 @@ describe("repositories and connections page", () => {
     // Reached without ever selecting the center node: the entry is the destination itself.
     expect(container.querySelector('[data-testid="center-connection-panel"]')).toBeNull();
     expect(bridge.centerSettings.listener).toHaveBeenCalled();
+  });
+
+  it("keeps Join a center visible beside the member invitation entry", async () => {
+    const onJoinCenter = vi.fn(),
+      { container } = await mountView({ onJoinCenter });
+    expect(container.querySelector('[data-testid="edge-join-entry-open"]')?.textContent).toContain("Join a center");
+    expect(container.querySelector('[data-testid="invite-entry-open"]')?.textContent).toContain("Invite a member");
+    await click(container, "edge-join-entry-open");
+    expect(onJoinCenter).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the invite entry visible and explains the missing login certificate instead of hiding the form", async () => {

@@ -52,6 +52,7 @@ export function EdgeJoinWizard({
   const [transportNotice, setTransportNotice] = useState(false);
   const [rows, setRows] = useState<readonly ProgressRow[]>([]);
   const [receipt, setReceipt] = useState<EdgeJoinJoined | null>(null);
+  const [originUrls, setOriginUrls] = useState<Readonly<Record<string, string>>>({});
   const [failure, setFailure] = useState<EdgeJoinFailureView | null>(null);
   const [failureDetail, setFailureDetail] = useState<string | null>(null);
   const runRef = useRef(0);
@@ -71,6 +72,7 @@ export function EdgeJoinWizard({
     setTransportNotice(false);
     setRows([]);
     setReceipt(null);
+    setOriginUrls({});
     setFailure(null);
     setFailureDetail(null);
     setLink(initialLink ?? "");
@@ -135,14 +137,14 @@ export function EdgeJoinWizard({
     }, 1_000);
   };
 
-  const runJoin = async (run: number, value: string) => {
+  const runJoin = async (run: number, value: string, origins?: Readonly<Record<string, string>>) => {
     setPhase("joining");
     setBusy(true);
     setRows([]);
     startProgressPoll(run);
     // A refused IPC call is reported like a daemon refusal; the promise form keeps the failure
     // path explicit rather than a try/catch that could swallow it.
-    const outcome = await beginEdgeJoin(value).catch((error: unknown) => {
+    const outcome = await beginEdgeJoin(value, origins).catch((error: unknown) => {
       const code =
         typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
           ? error.code
@@ -212,6 +214,19 @@ export function EdgeJoinWizard({
     await runJoin(run, value);
   };
 
+  const validateOrigin = async () => {
+    const required = receipt?.repositories.filter((row) => row.needsOrigin) ?? [],
+      origins = Object.fromEntries(
+        required.flatMap((row) => {
+          const address = originUrls[row.repoId]?.trim();
+          return address ? [[row.repoId, address]] : [];
+        }),
+      );
+    if (required.length === 0 || Object.keys(origins).length !== required.length) return;
+    const run = ++runRef.current;
+    await runJoin(run, linkRef.current, origins);
+  };
+
   const backToPaste = () => {
     runRef.current += 1;
     stopProgressPoll();
@@ -254,6 +269,18 @@ export function EdgeJoinWizard({
           </div>
         ) : phase === "done" ? (
           <div className="flex flex-wrap justify-end gap-2">
+            {(receipt?.repositories.some((row) => row.needsOrigin) ?? false) ? (
+              <Button
+                testId="edge-join-origin-validate"
+                disabled={
+                  busy ||
+                  (receipt?.repositories.some((row) => row.needsOrigin && !originUrls[row.repoId]?.trim()) ?? false)
+                }
+                onClick={() => void validateOrigin()}
+              >
+                {busy ? t("views.edgeJoin.originChecking") : t("views.edgeJoin.originContinue")}
+              </Button>
+            ) : null}
             <Button testId="edge-join-done" onClick={onClose}>
               {t("views.edgeJoin.doneAction")}
             </Button>
@@ -304,15 +331,33 @@ export function EdgeJoinWizard({
             ) : null}
             <div className="flex flex-col gap-2 rounded border border-border bg-surface-raised p-3">
               <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
-                {t("views.edgeJoin.deviceUrlLabel")}
+                {device.browserApprovalUri
+                  ? t("views.edgeJoin.deviceCenterUrlLabel")
+                  : t("views.edgeJoin.deviceUrlLabel")}
               </span>
-              <span data-testid="edge-join-login-uri" className="break-all font-mono ui-meta text-text">
-                {device.verificationUri}
-              </span>
-              <Button testId="edge-join-open-login" onClick={() => void openEdgeJoinLogin().catch(() => undefined)}>
-                <Globe className="mr-1 inline size-3" />
-                {t("views.edgeJoin.deviceOpenBrowser")}
-              </Button>
+              {device.browserApprovalUri ? (
+                <>
+                  <span data-testid="edge-join-browser-approval-uri" className="break-all font-mono ui-meta text-text">
+                    {device.browserApprovalUri}
+                  </span>
+                  <CopyContextButton
+                    buildText={() => device.browserApprovalUri!}
+                    label={t("views.edgeJoin.deviceCopyAddress")}
+                    title={t("views.edgeJoin.deviceCopyAddress")}
+                    testId="edge-join-copy-browser-approval-uri"
+                  />
+                </>
+              ) : (
+                <>
+                  <span data-testid="edge-join-login-uri" className="break-all font-mono ui-meta text-text">
+                    {device.verificationUri}
+                  </span>
+                  <Button testId="edge-join-open-login" onClick={() => void openEdgeJoinLogin().catch(() => undefined)}>
+                    <Globe className="mr-1 inline size-3" />
+                    {t("views.edgeJoin.deviceOpenBrowser")}
+                  </Button>
+                </>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-3 rounded border border-border bg-surface-raised p-3">
               <span className="flex flex-col gap-1">
@@ -354,6 +399,36 @@ export function EdgeJoinWizard({
             <p className="ui-body font-medium">{t("views.edgeJoin.doneTitle")}</p>
             {receipt.ok ? null : <p className="ui-meta text-status-blocked">{t("views.edgeJoin.donePartial")}</p>}
             <RepositoryRows rows={rows} placeholder={false} />
+            {receipt.repositories
+              .filter((row) => row.needsOrigin)
+              .map((row) => (
+                <section key={row.repoId} className="flex flex-col gap-2 rounded border border-border p-3">
+                  <p className="ui-meta text-text-muted">
+                    <span className="font-mono text-text">{row.repoId}</span>
+                    {row.defaultBranch ? ` · ${t("views.edgeJoin.originCenterBranch")}: ${row.defaultBranch}` : ""}
+                  </p>
+                  {row.centerOrigin ? (
+                    <p className="flex flex-col gap-1 ui-micro text-text-muted">
+                      <span>{t("views.edgeJoin.originCenterAddress")}</span>
+                      <span className="break-all font-mono text-text">{row.centerOrigin}</span>
+                    </p>
+                  ) : null}
+                  {row.error ? <p className="break-all ui-micro text-status-blocked">{row.error}</p> : null}
+                  <label className="flex flex-col gap-1 ui-meta text-text">
+                    {t("views.edgeJoin.originAddressLabel")}
+                    <input
+                      data-testid={`edge-join-origin-input-${row.repoId}`}
+                      aria-label={`${t("views.edgeJoin.originAddressLabel")} ${row.repoId}`}
+                      spellCheck={false}
+                      className="w-full rounded border border-border bg-surface-raised px-2 py-1.5 font-mono ui-meta text-text"
+                      value={originUrls[row.repoId] ?? ""}
+                      onChange={(event) =>
+                        setOriginUrls((current) => ({ ...current, [row.repoId]: event.target.value }))
+                      }
+                    />
+                  </label>
+                </section>
+              ))}
             {failureRows.length > 0 ? (
               <ul data-testid="edge-join-failed-repos" className="flex flex-col gap-1">
                 {failureRows.map((row) => (

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,25 +10,7 @@ import test from "node:test";
 import { createEdgeJoinProgressTap, joinFleetEdge, type EdgeJoinClientPorts } from "../src/fleet/edge-join-client.ts";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
-import { normalizeFleetGitRemote } from "../src/fleet-edge-git-preflight.ts";
-
-function initEdgeCheckout(root: string, gitignore = "harness/\n"): void {
-  mkdirSync(root, { recursive: true });
-  execFileSync("git", ["init", "-q", "-b", "main", root]);
-  writeFileSync(path.join(root, ".gitignore"), gitignore);
-  execFileSync("git", ["-C", root, "add", ".gitignore"]);
-  execFileSync("git", [
-    "-C",
-    root,
-    "-c",
-    "user.name=Edge Test",
-    "-c",
-    "user.email=edge@example.invalid",
-    "commit",
-    "-qm",
-    "edge checkout",
-  ]);
-}
+import { normalizeFleetGitRemote, readFleetCenterGitMetadata } from "../src/fleet-edge-git-preflight.ts";
 
 test("one invitation creates and syncs an independent workspace for every repository", async (t) => {
   const temp = mkdtempSync(path.join(tmpdir(), "ha-edge-join-client-")),
@@ -133,12 +115,10 @@ test("one invitation creates and syncs an independent workspace for every reposi
       availableBytes: () => 10 * 1024 * 1024 * 1024,
       onProgress: (event) => progress.push(event),
     },
-    workspaceRoot = path.join(temp, "workspace");
-  for (const repoId of ["repo-a", "repo-b"]) {
-    const root = path.join(workspaceRoot, repoId);
-    initEdgeCheckout(root, "harness/\nfleet-edge.json\nfleet-center-ca.pem\n");
-  }
-  const result = await joinFleetEdge({ link: encodeEdgeJoinLink(invite.link), workspaceRoot }, ports);
+    result = await joinFleetEdge(
+      { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "workspace") },
+      ports,
+    );
 
   assert.deepEqual(result.repoIds, ["repo-a", "repo-b"]);
   assert.deepEqual(probes, ["center", "login"], "both external addresses are checked before session or join use");
@@ -169,44 +149,30 @@ test("one invitation creates and syncs an independent workspace for every reposi
     assert.equal(path.basename(workspaceRoot), repoId);
     assert.equal(existsSync(path.join(workspaceRoot, "fleet-center-ca.pem")), true);
     assert.equal(existsSync(path.join(workspaceRoot, "harness", "harness.yaml")), true);
-    assert.equal(
-      existsSync(path.join(workspaceRoot, ".git")),
-      true,
-      "edge admission uses the supplied project checkout without creating a second repository",
-    );
     assert.equal(syncs[index]?.nodeId, "edge-node");
     assert.equal(syncs[index]?.credential, "machine-credential");
   }
   assert.equal(JSON.stringify(result).includes("machine-credential"), false);
 
-  const existingWorkspace = path.join(temp, "existing-checkout"),
-    existingRepo = path.join(existingWorkspace, "repo-a");
-  initEdgeCheckout(existingRepo, "harness/\nfleet-edge.json\nfleet-center-ca.pem\n");
-  execFileSync("git", ["-C", existingRepo, "config", "user.name", "Edge Test"]);
-  execFileSync("git", ["-C", existingRepo, "config", "user.email", "edge@example.invalid"]);
-  writeFileSync(path.join(existingRepo, "README.md"), "existing checkout\n");
-  execFileSync("git", ["-C", existingRepo, "add", ".gitignore", "README.md"]);
-  execFileSync("git", ["-C", existingRepo, "commit", "-qm", "existing checkout"]);
-  const existingHead = execFileSync("git", ["-C", existingRepo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  await joinFleetEdge({ link: encodeEdgeJoinLink(invite.link), workspaceRoot: existingWorkspace }, ports);
-  assert.equal(
-    execFileSync("git", ["-C", existingRepo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
-    existingHead,
-    "edge join must leave an existing checkout's history unchanged",
-  );
-  assert.equal(
-    execFileSync("git", ["-C", existingRepo, "status", "--porcelain"], { encoding: "utf8" }).trim(),
-    "",
-    "the ignored edge layout and connection files must not dirty the checkout",
-  );
-
   const mismatchWorkspace = path.join(temp, "mismatched-origin"),
     mismatchRepository = path.join(mismatchWorkspace, "repo-a"),
     wrongOrigin = path.join(temp, "wrong-origin.git"),
     centerOrigin = path.join(temp, "center-origin.git");
-  initEdgeCheckout(mismatchRepository);
+  mkdirSync(mismatchWorkspace, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "main", mismatchRepository]);
   execFileSync("git", ["-C", mismatchRepository, "remote", "add", "origin", wrongOrigin]);
-  const mismatchProgressStart = progress.length;
+  execFileSync("git", [
+    "-C",
+    mismatchRepository,
+    "-c",
+    "user.name=Edge Test",
+    "-c",
+    "user.email=edge@example.invalid",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "initial",
+  ]);
   let mismatchRegistered = false;
   const mismatch = await joinFleetEdge(
     { link: encodeEdgeJoinLink(invite.link), workspaceRoot: mismatchWorkspace },
@@ -235,13 +201,14 @@ test("one invitation creates and syncs an independent workspace for every reposi
       sync: async () => assert.fail("a mismatched origin must stop before sync"),
     },
   );
-  assert.equal(mismatch.ok, false);
-  assert.equal((mismatch.repositories as Array<{ code?: string }>)[0]?.code, "edge_origin_mismatch");
-  assert.equal(mismatchRegistered, false, "a mismatched workspace must not register with the edge daemon");
+  assert.equal(mismatch.ok, true, "an admitted join returns a receipt even when its first sync fails");
+  assert.equal(mismatch.state, "partial");
+  assert.equal((mismatch.repositories as Array<{ code?: string }>)[0]?.code, "edge_default_branch_unverifiable");
+  assert.equal(mismatchRegistered, true, "a prepared workspace is registered before the first sync preflight");
   assert.deepEqual(
-    progress.slice(mismatchProgressStart).map(({ repository }) => `${repository.repoId}:${repository.phase}`),
-    ["repo-a:workspace", "repo-a:failed"],
-    "a mismatched workspace reports the preflight failure before registration",
+    progress.slice(8).map(({ repository }) => `${repository.repoId}:${repository.phase}`),
+    ["repo-a:workspace", "repo-a:register", "repo-a:failed"],
+    "a failed preflight leaves the prepared workspace registered for repair",
   );
 
   let loginAuthority: Record<string, unknown> | undefined, loginTarget: string | undefined;
@@ -313,20 +280,15 @@ test("one invitation creates and syncs an independent workspace for every reposi
   assert.ok(progress.every(({ joinId }) => joinId === invite.record.joinId));
 
   const explicitQuota = 4 * 1024 * 1024 * 1024;
-  const explicitWorkspace = path.join(temp, "explicit");
-  initEdgeCheckout(path.join(explicitWorkspace, "repo-a"));
   await joinFleetEdge(
-    { link: encodeEdgeJoinLink(invite.link), workspaceRoot: explicitWorkspace, quotaBytes: explicitQuota },
+    { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "explicit"), quotaBytes: explicitQuota },
     ports,
   );
   assert.equal(syncs.at(-1)?.quotaBytes, explicitQuota, "an explicit quota is passed through unchanged");
 
-  const tooSmallWorkspace = path.join(temp, "too-small"),
-    tooSmallRepo = path.join(tooSmallWorkspace, "repo-a");
-  initEdgeCheckout(tooSmallRepo);
   await assert.rejects(
     joinFleetEdge(
-      { link: encodeEdgeJoinLink(invite.link), workspaceRoot: tooSmallWorkspace, quotaBytes: 1024 },
+      { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "too-small"), quotaBytes: 1024 },
       {
         ...ports,
         sync: async () => {
@@ -340,11 +302,8 @@ test("one invitation creates and syncs an independent workspace for every reposi
       return true;
     },
   );
-  const memberWorkspace = path.join(temp, "member-device"),
-    memberRepo = path.join(memberWorkspace, "repo-a");
-  initEdgeCheckout(memberRepo);
   await joinFleetEdge(
-    { link: encodeEdgeJoinLink({ ...invite.link, token: undefined }), workspaceRoot: memberWorkspace },
+    { link: encodeEdgeJoinLink({ ...invite.link, token: undefined }), workspaceRoot: path.join(temp, "member-device") },
     {
       ...ports,
       join: async (input) => {
@@ -357,24 +316,219 @@ test("one invitation creates and syncs an independent workspace for every reposi
       },
     },
   );
+});
 
-  const noGitWorkspace = path.join(temp, "missing-checkout"),
-    noGit = await joinFleetEdge({ link: encodeEdgeJoinLink(invite.link), workspaceRoot: noGitWorkspace }, ports);
-  assert.equal(noGit.ok, false);
-  assert.equal((noGit.repositories as Array<{ code?: string }>)[0]?.code, "edge_checkout_required");
-  assert.equal(existsSync(path.join(noGitWorkspace, "repo-a", ".git")), false);
-  assert.equal(existsSync(path.join(noGitWorkspace, "repo-a", "harness", "harness.yaml")), false);
+test("SSH-reverse sign-in exposes the center browser's Keycloak device page separately from its gateway", async () => {
+  const invite = createEdgeJoinStore().create({
+      centerOrigin: "https://127.0.0.1:8443",
+      transport: "ssh-reverse",
+      centerServername: "center.example",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [],
+      spkiSha256: "a".repeat(64),
+      loginUrl: "https://127.0.0.1:9443",
+      loginServername: "login-gateway.local",
+      loginBrowserUrl: "https://macbook-pro-company.local:8443",
+      loginRealm: "harness",
+      loginClientId: "edge-client",
+      createdBy: "person-admin",
+      ttlMs: 60_000,
+    }),
+    result = await joinFleetEdge(
+      { link: encodeEdgeJoinLink(invite.link) },
+      {
+        probeCenter: async () => undefined,
+        probeLogin: async () => undefined,
+        session: async () => undefined,
+        beginLogin: async (authority) => ({
+          ok: true,
+          pending: true,
+          verificationUri: "https://127.0.0.1:9443/realms/harness/device",
+          userCode: "ABCD-EFGH",
+          interval: 5,
+          expiresAt: Date.now() + 60_000,
+          authorityBrowserUrl: authority.browserUrl,
+        }),
+        register: async () => assert.fail("login approval must precede registration"),
+        sync: async () => assert.fail("login approval must precede sync"),
+        join: async () => assert.fail("login approval must precede admission"),
+      },
+    );
+  assert.equal(result.transport, "ssh-reverse");
+  assert.equal(result.verificationUri, "https://127.0.0.1:9443/realms/harness/device");
+  assert.equal(result.browserApprovalUri, "https://macbook-pro-company.local:8443/realms/harness/device");
+});
 
-  const unignoredWorkspace = path.join(temp, "unignored-layout"),
-    unignoredRepo = path.join(unignoredWorkspace, "repo-a");
-  initEdgeCheckout(unignoredRepo, "fleet-edge.json\n");
-  const unignored = await joinFleetEdge(
-    { link: encodeEdgeJoinLink(invite.link), workspaceRoot: unignoredWorkspace },
-    ports,
+test("missing origin offers an ls-remote checked address and clones the center head before registration", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-join-origin-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const certFile = path.join(root, "center.pem"),
+    centerRoot = path.join(root, "center"),
+    origin = path.join(root, "origin.git"),
+    alternateOrigin = path.join(root, "origin-alias.git"),
+    workspaceRoot = path.join(root, "workspaces"),
+    workspace = path.join(workspaceRoot, "repo-a"),
+    git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" }).trim();
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      path.join(root, "center.key"),
+      "-out",
+      certFile,
+      "-subj",
+      "/CN=center.example",
+      "-days",
+      "1",
+    ],
+    { stdio: "ignore" },
   );
-  assert.equal((unignored.repositories as Array<{ code?: string }>)[0]?.code, "edge_layout_not_ignored");
-  assert.equal(existsSync(path.join(unignoredRepo, "harness", "harness.yaml")), false);
-  assert.equal(execFileSync("git", ["-C", unignoredRepo, "status", "--porcelain"], { encoding: "utf8" }).trim(), "");
+  mkdirSync(centerRoot, { recursive: true });
+  git("-C", centerRoot, "init", "-q", "-b", "main");
+  mkdirSync(path.join(centerRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(centerRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\nname: Center\n");
+  git("-C", centerRoot, "add", "harness/harness.yaml");
+  git(
+    "-C",
+    centerRoot,
+    "-c",
+    "user.name=Center",
+    "-c",
+    "user.email=center@example.invalid",
+    "commit",
+    "-qm",
+    "center base",
+  );
+  git("clone", "--bare", "-q", centerRoot, origin);
+  git("--git-dir", origin, "symbolic-ref", "HEAD", "refs/heads/main");
+  git("-C", centerRoot, "remote", "add", "origin", origin);
+  git("-C", centerRoot, "fetch", "-q", "origin");
+  git("-C", centerRoot, "remote", "set-head", "origin", "main");
+  symlinkSync(origin, alternateOrigin, "dir");
+  let admissionConsumed = false;
+  const centerGit = await readFleetCenterGitMetadata(centerRoot),
+    cert = readFileSync(certFile),
+    invite = createEdgeJoinStore().create({
+      centerOrigin: "https://center.example:8443",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [],
+      spkiSha256: "a".repeat(64),
+      loginUrl: "https://login.example",
+      loginRealm: "harness",
+      loginClientId: "edge-client",
+      loginCertificate: cert.toString("utf8"),
+      createdBy: "person-admin",
+      ttlMs: 60_000,
+    }),
+    admitted = {
+      schema: "fleet.edge.join.result/v1",
+      messageId: "join-result",
+      inReplyTo: "join-request",
+      joinId: invite.record.joinId,
+      nodeId: "edge-node",
+      personId: "person-edge",
+      credential: "machine-credential",
+      repositories: [
+        {
+          repoId: "repo-a",
+          harnessYaml: "schema: harness-anything/v1\nname: Center\n",
+          ...centerGit,
+        },
+      ],
+      certificate: cert.toString("base64"),
+    },
+    order: string[] = [],
+    admissionEvents: string[] = [],
+    ports: EdgeJoinClientPorts = {
+      probeCenter: async () => undefined,
+      probeLogin: async () => undefined,
+      session: async () => ({
+        accessToken: "person-access-token",
+        authority: { url: "https://login.example", realm: "harness", certificate: cert.toString("utf8") },
+      }),
+      beginLogin: async () => assert.fail("the matching session must be reused"),
+      register: async () => {
+        order.push("register");
+      },
+      sync: async () => {
+        order.push("sync");
+        return { ok: true };
+      },
+      join: async (input) => {
+        if (!admissionConsumed) {
+          admissionConsumed = true;
+          admissionEvents.push("admit");
+          return admitted;
+        }
+        if (!input.recovery) {
+          admissionEvents.push("already-consumed");
+          throw Object.assign(new Error("The edge join invitation was already consumed."), {
+            code: "already_consumed",
+          });
+        }
+        admissionEvents.push("recover");
+        assert.equal(input.recovery.nodeId, "edge-node");
+        assert.equal(input.recovery.credential, undefined, "missing-origin attempts do not persist credentials");
+        return admitted;
+      },
+      status: async () => {
+        admissionEvents.push("status");
+        return { joinId: invite.record.joinId, state: "consumed", nodeId: "edge-node" };
+      },
+      homeDir: root,
+      availableBytes: () => 10 * 1024 * 1024 * 1024,
+    },
+    request = { link: encodeEdgeJoinLink(invite.link), workspaceRoot };
+
+  const missing = await joinFleetEdge(request, ports),
+    missingRow = (missing.repositories as Array<Record<string, unknown>>)[0]!;
+  assert.equal(missingRow.code, "edge_origin_missing");
+  assert.equal(missingRow.needsOrigin, true);
+  assert.equal(missingRow.defaultBranch, "main");
+  assert.equal(missingRow.centerOrigin, centerGit.originAddress);
+  assert.equal(existsSync(path.join(workspace, ".git")), false, "the incomplete workspace stays empty for clone");
+  assert.deepEqual(order, [], "an unconfigured workspace is not registered or synced");
+
+  const unreachable = await joinFleetEdge(
+      { ...request, originUrls: { "repo-a": path.join(root, "unreachable.git") } },
+      ports,
+    ),
+    unreachableRow = (unreachable.repositories as Array<Record<string, unknown>>)[0]!;
+  assert.equal(unreachableRow.code, "edge_origin_unreachable");
+  assert.equal(unreachableRow.needsOrigin, true);
+  assert.equal(existsSync(path.join(workspace, ".git")), false, "failed ls-remote does not create a checkout");
+
+  const unsupported = await joinFleetEdge({ ...request, originUrls: { "repo-a": "ext::sh -c id" } }, ports),
+    unsupportedRow = (unsupported.repositories as Array<Record<string, unknown>>)[0]!;
+  assert.equal(unsupportedRow.code, "edge_origin_invalid");
+  assert.equal(existsSync(path.join(workspace, ".git")), false, "unsupported Git helpers are refused before execution");
+
+  const joined = await joinFleetEdge({ ...request, originUrls: { "repo-a": alternateOrigin } }, ports);
+  assert.deepEqual(admissionEvents, [
+    "admit",
+    "already-consumed",
+    "status",
+    "recover",
+    "already-consumed",
+    "status",
+    "recover",
+    "already-consumed",
+    "status",
+    "recover",
+  ]);
+  assert.equal(joined.state, "synced");
+  assert.deepEqual(order, ["register", "sync"], "registration precedes the first sync");
+  assert.equal(git("-C", workspace, "remote", "get-url", "origin"), alternateOrigin);
+  assert.equal(git("-C", workspace, "log", "-1", "--format=%s"), "center base");
+  assert.doesNotMatch(git("-C", workspace, "log", "--format=%s"), /Harness edge workspace/u);
+  assert.equal(existsSync(path.join(workspace, "harness", "harness.yaml")), true);
 });
 
 test("ssh-reverse writes the login authority before the first sync", async (t) => {
@@ -417,7 +571,6 @@ test("ssh-reverse writes the login authority before the first sync", async (t) =
       ttlMs: 60_000,
     }),
     workspaceRoot = path.join(root, "workspace");
-  initEdgeCheckout(path.join(workspaceRoot, "repo-a"));
   let configAtSync: ReturnType<typeof readFleetEdgeConfig>;
   const result = await joinFleetEdge(
     { link: encodeEdgeJoinLink(invite.link), workspaceRoot },

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,15 +29,21 @@ function commit(rootDir: string, message: string): void {
   );
 }
 
-test("edge Git preflight rejects a missing or mismatched origin and allows the matching origin", async () => {
+test("edge Git preflight verifies center history instead of requiring matching remote URLs", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-git-preflight-")),
     center = path.join(root, "center"),
     edge = path.join(root, "edge"),
     origin = path.join(root, "origin.git"),
-    wrong = path.join(root, "wrong.git");
+    wrong = path.join(root, "wrong.git"),
+    wrongSource = path.join(root, "wrong-source"),
+    alternateOrigin = path.join(root, "origin-alias.git");
   try {
     git(root, "init", "--bare", "-q", origin);
-    git(root, "init", "--bare", "-q", wrong);
+    git(root, "init", "-b", "main", "-q", wrongSource);
+    commit(wrongSource, "unrelated repository");
+    git(root, "clone", "--bare", "-q", wrongSource, wrong);
+    git(wrong, "symbolic-ref", "HEAD", "refs/heads/main");
+    symlinkSync(origin, alternateOrigin, "dir");
     git(root, "init", "-b", "main", "-q", center);
     git(center, "remote", "add", "origin", origin);
     commit(center, "initial");
@@ -58,53 +64,52 @@ test("edge Git preflight rejects a missing or mismatched origin and allows the m
     );
     git(edge, "remote", "set-url", "--push", "origin", origin);
     await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
-    git(edge, "config", "--unset-all", "remote.origin.pushurl");
-    const secondPush = path.join(root, "second-push.git");
-    git(center, "config", "--add", "remote.origin.pushurl", origin);
-    git(center, "config", "--add", "remote.origin.pushurl", secondPush);
-    const multipleCenterPushUrls = await readFleetCenterGitMetadata(center);
-    git(edge, "config", "--add", "remote.origin.pushurl", origin);
-    git(edge, "config", "--add", "remote.origin.pushurl", secondPush);
-    await assertFleetEdgeRepositoryGit({
-      rootDir: edge,
-      center: multipleCenterPushUrls,
-      operation: "runtime dispatch",
-    });
-    git(edge, "config", "--add", "remote.origin.pushurl", wrong);
-    await assert.rejects(
-      assertFleetEdgeRepositoryGit({
-        rootDir: edge,
-        center: multipleCenterPushUrls,
-        operation: "runtime dispatch",
-      }),
-      { code: "edge_push_url_mismatch" },
-    );
-    git(edge, "config", "--unset-all", "remote.origin.pushurl");
-    git(center, "config", "--unset-all", "remote.origin.pushurl");
-    await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
 
-    git(edge, "config", `url.${wrong}.pushInsteadOf`, origin);
+    git(edge, "remote", "set-url", "--push", "origin", "ext::sh -c id");
     await assert.rejects(
       assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
       { code: "edge_push_url_mismatch" },
     );
-    git(edge, "config", `--unset-all`, `url.${wrong}.pushInsteadOf`);
+    git(edge, "remote", "set-url", "--push", "origin", origin);
+
+    git(edge, "remote", "set-url", "origin", alternateOrigin);
+    git(edge, "remote", "set-url", "--push", "origin", alternateOrigin);
+    await assertFleetEdgeRepositoryGit({
+      rootDir: edge,
+      center: centerGit,
+      operation: "runtime dispatch",
+    });
 
     git(edge, "remote", "set-url", "origin", wrong);
     await assert.rejects(
       assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
       (error: unknown) => {
         assert.equal((error as FleetEdgeGitPreflightError).code, "edge_origin_mismatch");
-        assert.match(String(error), /will not change remotes automatically/u);
+        assert.match(String(error), /default branch history/u);
         return true;
       },
     );
-    git(edge, "remote", "set-url", "origin", origin);
-    await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
+    assert.equal(git(edge, "remote", "get-url", "origin"), wrong, "preflight never rewrites an existing origin");
     git(edge, "remote", "remove", "origin");
     await assert.rejects(assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "edge sync" }), {
       code: "edge_origin_missing",
     });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("center Git metadata exposes a copyable origin without URL credentials", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-git-origin-display-")),
+    center = path.join(root, "center");
+  try {
+    git(root, "init", "-q", "-b", "main", center);
+    commit(center, "initial");
+    git(center, "remote", "add", "origin", "https://build-user:fake-token@example.invalid/team/repo.git");
+    const metadata = await readFleetCenterGitMetadata(center);
+    assert.equal(metadata.originAddress, "https://example.invalid/team/repo.git");
+    assert.equal(JSON.stringify(metadata).includes("fake-token"), false);
+    assert.equal(metadata.originUrl, "git-remote://example.invalid/team/repo");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

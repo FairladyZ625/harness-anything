@@ -71,21 +71,33 @@ export function RepositoriesAndConnectionsView({
 
   return (
     <div data-testid="repositories-connections-view" className="flex flex-col gap-3">
-      <section
-        data-testid="invite-entry"
-        className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 ${
-          inviteSelected ? "border-border-strong bg-surface-raised" : "border-border bg-surface"
-        }`}
-      >
-        <UserPlus weight="duotone" className="size-5 shrink-0 text-text-muted" />
-        <div className="min-w-0 flex-1">
-          <h2 className="ui-body font-semibold">{t("views.repositories.inviteEntryTitle")}</h2>
-          <p className="mt-0.5 ui-meta text-text-muted">{t("views.repositories.inviteEntrySummary")}</p>
-        </div>
-        <Button variant={inviteSelected ? "ghost" : "primary"} testId="invite-entry-open" onClick={openInvite}>
-          {t("views.repositories.inviteEntryAction")}
-        </Button>
-      </section>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <section
+          data-testid="invite-entry"
+          className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 ${
+            inviteSelected ? "border-border-strong bg-surface-raised" : "border-border bg-surface"
+          }`}
+        >
+          <UserPlus weight="duotone" className="size-5 shrink-0 text-text-muted" />
+          <div className="min-w-0 flex-1">
+            <h2 className="ui-body font-semibold">{t("views.repositories.inviteEntryTitle")}</h2>
+            <p className="mt-0.5 ui-meta text-text-muted">{t("views.repositories.inviteEntrySummary")}</p>
+          </div>
+          <Button variant={inviteSelected ? "ghost" : "primary"} testId="invite-entry-open" onClick={openInvite}>
+            {t("views.repositories.inviteEntryAction")}
+          </Button>
+        </section>
+        <section className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface p-3">
+          <Sailboat weight="duotone" className="size-5 shrink-0 text-text-muted" />
+          <div className="min-w-0 flex-1">
+            <h2 className="ui-body font-semibold">{t("views.repositories.joinCenterAction")}</h2>
+            <p className="mt-0.5 ui-meta text-text-muted">{t("views.repositories.edgeJoinEntrySummary")}</p>
+          </div>
+          <Button variant="plain" testId="edge-join-entry-open" onClick={onJoinCenter}>
+            {t("views.repositories.joinCenterAction")}
+          </Button>
+        </section>
+      </div>
 
       <div className="grid gap-3 lg:grid-cols-[15rem_minmax(0,1fr)]">
         {/* 15rem 是应用顶栏 + 设置页头 + 页顶入口 + 页内边距的呼吸位;它只把树封顶到首屏内,

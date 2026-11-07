@@ -156,7 +156,10 @@ describe("edge join wizard", () => {
   });
 
   it("explains that SSH invitations use the center's browser-accessible device page", async () => {
-    installBridge({ begin: vi.fn(async () => ({ ...DEVICE, transport: "ssh-reverse" as const })) });
+    const browserApprovalUri = "https://macbook-pro-company.local:8443/realms/harness/device";
+    installBridge({
+      begin: vi.fn(async () => ({ ...DEVICE, transport: "ssh-reverse" as const, browserApprovalUri })),
+    });
     const { container } = await mount();
     await act(async () => setInputValue(byTestId(container, "edge-join-link-input") as HTMLInputElement, LINK));
     await settle(1);
@@ -165,6 +168,50 @@ describe("edge join wizard", () => {
 
     expect(byTestId(container, "edge-join-ssh-browser-handoff")?.textContent).toContain("any device");
     expect(byTestId(container, "edge-join-ssh-browser-handoff")?.textContent).toContain("center computer");
+    expect(byTestId(container, "edge-join-browser-approval-uri")?.textContent).toBe(browserApprovalUri);
+  });
+
+  it("validates a reachable Git address and retries the first sync for a workspace without origin", async () => {
+    const centerOrigin = "ssh://git.center.example/company/repo.git",
+      partial = {
+        ok: true as const,
+        joinId: "join-1",
+        state: "partial" as const,
+        repoIds: ["repo-a"],
+        repositories: [
+          {
+            repoId: "repo-a",
+            ok: false,
+            code: "edge_origin_missing",
+            needsOrigin: true,
+            defaultBranch: "main",
+            defaultBranchCommit: "a".repeat(40),
+            centerOrigin,
+          },
+        ],
+      },
+      begin = vi.fn().mockResolvedValueOnce(partial).mockResolvedValueOnce(JOINED),
+      bridge = installBridge({ begin });
+    const { container } = await mount();
+    await act(async () => setInputValue(byTestId(container, "edge-join-link-input") as HTMLInputElement, LINK));
+    await settle(1);
+    await click(container, "edge-join-start");
+    await settle();
+
+    const origin = byTestId(container, "edge-join-origin-input-repo-a") as HTMLInputElement;
+    expect(origin).not.toBeNull();
+    expect(container.textContent).toContain("Center branch: main");
+    expect(container.textContent).toContain(centerOrigin);
+    await act(async () => setInputValue(origin, "ssh://edge-access.example/group/repo.git"));
+    await click(container, "edge-join-origin-validate");
+    await settle();
+
+    expect(bridge.begin).toHaveBeenNthCalledWith(1, { link: LINK });
+    expect(bridge.begin).toHaveBeenNthCalledWith(2, {
+      link: LINK,
+      originUrls: { "repo-a": "ssh://edge-access.example/group/repo.git" },
+    });
+    expect(byTestId(container, "edge-join-repositories")?.textContent).toContain("Synced");
   });
 
   it("polls after approval, calls the join again, and hands the synced repositories up", async () => {

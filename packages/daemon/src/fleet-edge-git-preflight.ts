@@ -3,6 +3,8 @@ import { runProcessExitAsync } from "./process-port.ts";
 
 export interface FleetRepositoryGitMetadata {
   readonly originUrl: string | null;
+  /** Copyable center origin for join guidance; credentials are removed before it crosses the wire. */
+  readonly originAddress?: string | null;
   readonly originPushUrls: readonly string[];
   readonly defaultBranch: string | null;
   readonly defaultBranchCommit: string | null;
@@ -64,6 +66,38 @@ export function normalizeFleetGitRemote(value: string, rootDir?: string): string
   }
 }
 
+export function isSupportedFleetGitRemote(value: string): boolean {
+  const raw = value.trim();
+  if (!raw || raw.length > 2_048 || /[\0\r\n]/u.test(raw) || raw.includes("::")) return false;
+  if (path.isAbsolute(raw)) return true;
+  const scp = raw.includes("://") ? null : /^(?:[^@/\s]+@)?([^:/\s]+):(.+)$/u.exec(raw);
+  if (scp) return true;
+  try {
+    const url = new URL(raw);
+    return (
+      ["file:", "git:", "http:", "https:", "ssh:"].includes(url.protocol) &&
+      (url.protocol === "file:" || url.hostname !== "")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function fleetGitRemoteAddressForDisplay(value: string): string | null {
+  const raw = value.trim();
+  if (!isSupportedFleetGitRemote(raw)) return null;
+  if (path.isAbsolute(raw)) return raw;
+  if (!raw.includes("://")) {
+    const scp = /^(?:([^@/:\s]+)(?::[^@/\s]*)?@)?([^:/\s]+):(.+)$/u.exec(raw);
+    if (scp) return `${scp[1] ? `${scp[1]}@` : ""}${scp[2]}:${scp[3]}`;
+    return raw;
+  }
+  const url = new URL(raw);
+  url.password = "";
+  if (url.protocol !== "ssh:") url.username = "";
+  return url.toString();
+}
+
 function normalizeRemotePath(value: string): string {
   const path = value.replace(/^\/+|\/+$/gu, "").replace(/\.git$/u, "");
   return `/${path}`;
@@ -107,6 +141,7 @@ export async function readFleetCenterGitMetadata(rootDir: string, enabled = true
     if (!defaultBranchCommit) throw new Error(`default branch ${defaultBranch} has no readable commit`);
     return {
       originUrl: normalizeFleetGitRemote(origin, rootDir),
+      originAddress: fleetGitRemoteAddressForDisplay(origin),
       originPushUrls: pushUrls,
       defaultBranch,
       defaultBranchCommit,
@@ -193,16 +228,10 @@ export async function fleetEdgeRepositoryGitFailure(
       "edge_origin_missing",
       `Cannot start ${operation}: ${input.rootDir} has no Git origin remote. Add origin pointing to the center repository, then retry; Harness will not change remotes automatically.`,
     );
-  if (local.originUrl !== center.originUrl)
-    return new FleetEdgeGitPreflightError(
-      "edge_origin_mismatch",
-      `Cannot start ${operation}: the edge origin does not match the center repository origin. Set it with ` +
-        `git -C ${input.rootDir} remote set-url origin <center-origin>, then retry; Harness will not change remotes automatically.`,
-    );
-  if (local.originPushUrls.length === 0 || !sameUrls(local.originPushUrls, center.originPushUrls))
+  if (local.originPushUrls.length === 0)
     return new FleetEdgeGitPreflightError(
       "edge_push_url_mismatch",
-      `Cannot start ${operation}: the edge's effective origin push URL${local.originPushUrls.length === 1 ? "" : "s"} do not match the center's publish destination. Run git -C ${input.rootDir} remote set-url --push origin <center-push-url>, then retry; Harness will not change remotes automatically.`,
+      `Cannot start ${operation}: the edge origin has no effective push destination. Configure one, then retry; Harness will not change remotes automatically.`,
     );
   if (!center.defaultBranch || !center.defaultBranchCommit)
     return new FleetEdgeGitPreflightError(
@@ -213,6 +242,12 @@ export async function fleetEdgeRepositoryGitFailure(
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_mismatch",
       `Cannot start ${operation}: the edge default branch is ${local.defaultBranch ?? "unknown"}, while the center uses ${center.defaultBranch}. Check out the center default branch and retry.`,
+    );
+  const configuredOrigin = await gitText(input.rootDir, ["remote", "get-url", "origin"]);
+  if (!configuredOrigin || !isSupportedFleetGitRemote(configuredOrigin))
+    return new FleetEdgeGitPreflightError(
+      "edge_origin_mismatch",
+      `Cannot start ${operation}: the edge origin uses an unsupported Git transport. Point origin at a repository with the center history, then retry; Harness will not change remotes automatically.`,
     );
   const fetched = await runProcessExitAsync(
     "git",
@@ -235,6 +270,64 @@ export async function fleetEdgeRepositoryGitFailure(
       "edge_default_branch_unverifiable",
       `Cannot start ${operation}: the edge could not fetch ${center.defaultBranch} from the matching origin. Run git -C ${input.rootDir} fetch origin ${center.defaultBranch}, then retry.`,
     );
+  const remoteHead = await gitText(
+      input.rootDir,
+      ["rev-parse", "--verify", `refs/remotes/origin/${center.defaultBranch}^{commit}`],
+      true,
+    ),
+    originContainsCenter = remoteHead
+      ? await runProcessExitAsync(
+          "git",
+          ["merge-base", "--is-ancestor", center.defaultBranchCommit, remoteHead],
+          input.rootDir,
+          nonInteractiveGitEnv,
+          undefined,
+          undefined,
+          { timeoutMs: gitTimeoutMs },
+        ).catch(() => null)
+      : null;
+  if (!originContainsCenter || originContainsCenter.exitCode !== 0)
+    return new FleetEdgeGitPreflightError(
+      "edge_origin_mismatch",
+      `Cannot start ${operation}: the edge origin's ${center.defaultBranch} default branch history does not contain the center head ${center.defaultBranchCommit}. Point origin at a repository with that history, then retry; Harness will not change remotes automatically.`,
+    );
+  const pushTargets = await gitText(input.rootDir, ["remote", "get-url", "--push", "--all", "origin"]);
+  for (const target of (pushTargets ?? "").split(/\r?\n/u).filter(Boolean)) {
+    if (!isSupportedFleetGitRemote(target))
+      return new FleetEdgeGitPreflightError(
+        "edge_push_url_mismatch",
+        `Cannot start ${operation}: an edge origin push destination uses an unsupported Git transport. Configure an HTTPS, SSH, Git, or local repository address, then retry.`,
+      );
+    const fetchedTarget = await runProcessExitAsync(
+      "git",
+      ["fetch", "--quiet", "--no-tags", target, `+refs/heads/${center.defaultBranch}`],
+      input.rootDir,
+      nonInteractiveGitEnv,
+      undefined,
+      undefined,
+      { timeoutMs: gitFetchTimeoutMs },
+    ).catch(() => null);
+    const targetHead =
+      fetchedTarget?.exitCode === 0
+        ? await gitText(input.rootDir, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"], true)
+        : null;
+    const targetContainsCenter = targetHead
+      ? await runProcessExitAsync(
+          "git",
+          ["merge-base", "--is-ancestor", center.defaultBranchCommit, targetHead],
+          input.rootDir,
+          nonInteractiveGitEnv,
+          undefined,
+          undefined,
+          { timeoutMs: gitTimeoutMs },
+        ).catch(() => null)
+      : null;
+    if (!targetContainsCenter || targetContainsCenter.exitCode !== 0)
+      return new FleetEdgeGitPreflightError(
+        "edge_push_url_mismatch",
+        `Cannot start ${operation}: an edge origin push destination does not contain the center ${center.defaultBranch} history. Point the push destination at the same repository history, then retry; Harness will not change remotes automatically.`,
+      );
+  }
   if (!local.defaultBranchCommit)
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_unavailable",
@@ -251,8 +344,8 @@ export async function fleetEdgeRepositoryGitFailure(
   ).catch(() => null);
   if (!relation || relation.exitCode !== 0)
     return new FleetEdgeGitPreflightError(
-      "edge_default_branch_unverifiable",
-      `Cannot start ${operation}: the edge does not contain the center default branch head ${center.defaultBranchCommit}. Fetch ${center.defaultBranch} from the matching origin, then retry.`,
+      "edge_origin_mismatch",
+      `Cannot start ${operation}: the edge origin's ${center.defaultBranch} history does not contain the center default branch head ${center.defaultBranchCommit}. Point origin at a repository with that history, then retry; Harness will not change remotes automatically.`,
     );
   const [localOnly, centerOnly] = relation.stdout.trim().split(/\s+/u).map(Number);
   if (localOnly > 0 && centerOnly > 0)
@@ -266,12 +359,6 @@ export async function fleetEdgeRepositoryGitFailure(
       `Cannot start ${operation}: the edge default branch is behind the center ${center.defaultBranch} by ${centerOnly} commit${centerOnly === 1 ? "" : "s"}. Run git -C ${input.rootDir} fetch origin ${center.defaultBranch} && git -C ${input.rootDir} merge --ff-only origin/${center.defaultBranch}, then retry.`,
     );
   return null;
-}
-
-function sameUrls(left: readonly string[], right: readonly string[]): boolean {
-  const a = [...left].sort(),
-    b = [...right].sort();
-  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 export async function assertFleetEdgeRepositoryGit(input: FleetEdgeGitPreflightInput): Promise<void> {
