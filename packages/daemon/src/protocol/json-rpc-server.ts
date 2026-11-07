@@ -1226,6 +1226,9 @@ function sessionIndependentFleetRuntimeRead(method: string, params: JsonObject):
 function sessionIndependentFleetReplicaRead(method: string, params: JsonObject): boolean {
   if (method !== "daemon.fleet.task.run" || !isJsonObject(params.payload) || !isJsonObject(params.payload.action))
     return false;
+  // Runtime and schedule envelopes are handled by their dedicated Fleet ports; they are not
+  // repository action descriptors and must not be passed to commandDescriptorForAction.
+  if (["fleet-runtime", "fleet-schedule"].includes(String(params.payload.action.kind))) return false;
   // Let the server-selected edge read bind once with replicaRead enabled, so refresh rejection stays on this request.
   return commandDescriptorForAction(String(params.payload.action.kind)).admission["remote-edge"] === "edge-replica";
 }
