@@ -5,9 +5,11 @@
  * Two invariants, both evaluated against the command registry itself so a new command is covered
  * without editing this file:
  *
- *   1. Every registered path input declares the coordinate it is read in. Document paths are
- *      relative to the workspace root and the doc parser translates them to the ledger's authored
- *      key, so a flag that bypasses that parser is named here.
+ *   1. Every value-taking input in the registry declares the coordinate it is read in:
+ *      `ledger-document` / `workspace-file` / `cli-local` / `host-path` / `non-path`. The
+ *      declaration is mandatory rather than inferred from the flag name, so a new command cannot
+ *      hide a path behind an ordinary-looking flag such as `--input` or `--candidate`. A field
+ *      that is not a path states that explicitly instead of being absent.
  *   2. Every write command with a document selection goes through the one doc action pipeline that
  *      refuses an unmatched selection. A new write command with `--path` that is not wired to that
  *      pipeline is named here instead of returning "applied" for zero candidates.
@@ -39,8 +41,9 @@ const WORKSPACE_FILE_READER_FILES = new Set([
   "cli-runtime-prompt-file.ts",
   "cli-runtime-batch-input.ts",
 ]);
-// The registry is the only list: a path flag is a path flag because of what it is named, not
-// because a command was added to a maintenance list here.
+// The registry is the only list. A path input is a path input because its declaration says so,
+// never because of what the flag is named: the gate requires a coordinate on every value-taking
+// input, so a name this file has never seen still has to make the choice explicit.
 const isPathTokenName = (name) =>
   name === "path" ||
   name === "source" ||
@@ -50,15 +53,6 @@ const isPathTokenName = (name) =>
   name === "target" ||
   name === "backup" ||
   /(?:^|-)(?:file|dir|directory|root)$/u.test(name);
-const isPathInputName = (name) =>
-  name === "--path" ||
-  name === "--source" ||
-  name === "--destination" ||
-  name === "--cwd" ||
-  name === "--root" ||
-  name === "--target" ||
-  name === "--backup" ||
-  /-(?:file|dir|directory|root)$/u.test(name);
 const isPositionalPathInputName = (token) => {
   const name = token.replace(/^\[/u, "").replace(/\]$/u, "").replace(/^</u, "").replace(/>$/u, "");
   return name !== token && isPathTokenName(name);
@@ -70,6 +64,8 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
   const known = new Set(daemonProtocolCommands.map((command) => command.id));
   const counts = {
     commands: commands.length,
+    valueInputs: 0,
+    nonPathInputs: 0,
     pathInputs: 0,
     workspaceFiles: 0,
     ledgerDocuments: 0,
@@ -80,17 +76,51 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
   for (const command of commands) {
     const actionKind = actionKindOf(command);
     for (const input of command.inputs ?? []) {
-      if (!isPathInputName(input.name)) continue;
+      // A boolean carries no value, so it cannot name a path. Every other input is a string token
+      // and must state its coordinate; absence is the defect this gate exists to find.
+      if (input.kind === "boolean") continue;
+      counts.valueInputs += 1;
+      if (!PATH_KINDS.has(input.pathKind)) {
+        violations.push(
+          `${command.id} ${input.name}: value input must declare pathKind ` +
+            `(${[...PATH_KINDS].join("|")}); an undeclared field cannot be proved non-path`,
+        );
+        continue;
+      }
+      if (input.pathKind === "non-path") {
+        counts.nonPathInputs += 1;
+        continue;
+      }
       counts.pathInputs += 1;
       violations.push(...checkPathInput(command, input.name, input, counts, actionKind, root, known));
     }
-    // Positional path tokens are registry syntax too (`runtime batch <batch-file>`), so they must
-    // carry the same coordinate declaration as flags instead of being invisible to the gate.
+    // A scalar `<id>` positional is an executable input too: the parser writes it into an action
+    // field, so the command must say whether that field names a path. Otherwise `positional:
+    // "inputPath"` would be a path input the gate never sees.
+    const declaredPositionals = command.positionalInputs ?? [];
+    if (command.positional) {
+      const declared = declaredPositionals[0];
+      if (!declared) {
+        violations.push(
+          `${command.id} ${command.positional}: positional input must declare pathKind and pathReader, ` +
+            `or the gate cannot see which coordinate it is read in`,
+        );
+      } else {
+        counts.valueInputs += 1;
+        if (declared.pathKind === "non-path") counts.nonPathInputs += 1;
+        else {
+          counts.pathInputs += 1;
+          counts.positionalPaths += 1;
+        }
+        violations.push(...checkPathInput(command, declared.name, declared, counts, actionKind, root, known));
+      }
+    }
+    // Positional path tokens are registry syntax too (`runtime batch <batch-file>`), so a new file
+    // positional cannot be green by omission. Tokens that are pure help text (an `<id>` with no
+    // scalar positional field) are not executable and are skipped.
     for (const token of command.syntaxPath ?? command.path ?? []) {
-      if (!isPositionalPathInputName(token)) continue;
-      counts.pathInputs += 1;
-      counts.positionalPaths += 1;
-      const declared = (command.positionalInputs ?? []).find((input) => input.name === token);
+      if (command.positional || !isPositionalPathInputName(token)) continue;
+      const declared = declaredPositionals.find((input) => input.name === token);
       if (!declared) {
         violations.push(
           `${command.id} ${token}: positional path input must declare pathKind and pathReader, ` +
@@ -98,6 +128,9 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
         );
         continue;
       }
+      counts.valueInputs += 1;
+      counts.pathInputs += 1;
+      counts.positionalPaths += 1;
       violations.push(...checkPathInput(command, token, declared, counts, actionKind, root, known));
     }
   }
@@ -183,11 +216,13 @@ export function findRawWorkspaceFileReads(source, fields) {
 
 function declaredWorkspaceFileFields(commands) {
   const fields = new Set();
+  // The action field (`candidatePath`) is what a handler passes to a reader; the flag spelling
+  // (`--candidate`) can differ, and matching it would flag unrelated locals that share a word.
+  const fieldName = (input) => (typeof input.field === "string" ? input.field : camelName(input.name));
   for (const command of commands) {
-    for (const input of command.inputs ?? [])
-      if (input.pathKind === "workspace-file") fields.add(camelName(input.name));
+    for (const input of command.inputs ?? []) if (input.pathKind === "workspace-file") fields.add(fieldName(input));
     for (const input of command.positionalInputs ?? [])
-      if (input.pathKind === "workspace-file") fields.add(camelName(input.name));
+      if (input.pathKind === "workspace-file") fields.add(fieldName(input));
   }
   return [...fields];
 }
@@ -228,8 +263,9 @@ function cliSourceFiles(root) {
 function checkPathInput(command, label, input, counts, actionKind, root, known) {
   if (!PATH_KINDS.has(input.pathKind))
     return [
-      `${command.id} ${label}: path input must declare pathKind (ledger-document|workspace-file|cli-local); ` +
-        `declare whether it names repository content or a host location, or rename the flag`,
+      `${command.id} ${label}: path input must declare pathKind ` +
+        `(${[...PATH_KINDS].join("|")}); declare whether it names repository content or a host location, ` +
+        `or mark it non-path`,
     ];
   if (input.pathKind === "workspace-file") {
     counts.workspaceFiles += 1;
@@ -322,8 +358,9 @@ function main(argv) {
     return 1;
   }
   console.log(
-    `cli-path-contract: ok (${result.counts.commands} commands, ${result.counts.pathInputs} path inputs, ` +
-      `${result.counts.ledgerDocuments} document paths, ${result.counts.zeroHitWriteCommands} zero-hit write commands)`,
+    `cli-path-contract: ok (${result.counts.commands} commands, ${result.counts.valueInputs} typed value inputs, ` +
+      `${result.counts.pathInputs} path inputs, ${result.counts.ledgerDocuments} document paths, ` +
+      `${result.counts.zeroHitWriteCommands} zero-hit write commands)`,
   );
   return 0;
 }

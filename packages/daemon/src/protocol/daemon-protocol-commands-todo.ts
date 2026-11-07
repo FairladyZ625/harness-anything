@@ -15,10 +15,13 @@ export const todoProtocolCommands = todoActionDefinitions.map(({ id, read, summa
     method: read ? "repo.task.read" : "repo.task.run",
     repositoryRead: read,
     positional: id === "list" ? undefined : id === "add" ? "text" : "todoId",
+    positionalInputs:
+      id === "list" ? [] : [{ name: id === "add" ? "<text>" : "<todo-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: (fields as readonly EntityActionInputField[]).flatMap((field) =>
       field.cli
         ? [
             cliInput(field.cli.name, field.cli.kind, field.required, field.cli.error, {
+              pathKind: "non-path",
               field: field.field,
               ...(field.cli.projection ? { projection: field.cli.projection } : {}),
             }),
