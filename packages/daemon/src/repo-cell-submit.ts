@@ -35,6 +35,9 @@ import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktre
 import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
+import { detectHostingProvider } from "./hosting-provider.ts";
+import { updateTaskPullRequestBody } from "./runtime-task-publication.ts";
+import { scrubProviderValue } from "./dispatch-stream.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -702,6 +705,43 @@ async function submittedCutReview(
   return dispatched ? { steps: [dispatched.step], warnings: dispatched.warnings } : { steps: [], warnings: [] };
 }
 
+/**
+ * Post-freeze, best-effort PR-body refresh. The cut is already recorded when this runs, and it
+ * reuses the one update-only publication path: no push, create, or other hosting mutation. No
+ * open PR, no hosting provider, or no daemon-held credential is a complete no-op. A real hosting
+ * failure becomes a receipt warning with the `ha task push` recovery lane; it never changes the
+ * submit outcome.
+ */
+export async function refreshSubmittedPullRequest(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  submission: SubmissionV1,
+  binding: RepoCellBinding,
+): Promise<string | null> {
+  if (submission.commitSha === null) return null;
+  try {
+    const hosting = await detectHostingProvider(cell.rootDir, undefined, true);
+    if (!hosting) return null;
+    const instanceId = binding.executionPrincipal
+      ? cell.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
+      : undefined;
+    if (typeof instanceId !== "string") return null;
+    const env = await cell.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind, cell.input.repoId);
+    if (!env) return null;
+    await updateTaskPullRequestBody({
+      hosting,
+      branch: taskId,
+      taskTitle: cell.projection.read(taskId).snapshot.task?.title ?? taskId,
+      submission,
+      env,
+    });
+    return null;
+  } catch (error) {
+    const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+    return `PR body refresh failed: ${detail} Retry: ha task push ${taskId}.`;
+  }
+}
+
 export async function submitTask(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -809,9 +849,16 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
+    const submitted = (await cell.service.read(taskId)).snapshot.executions.find(
+        (execution) => execution.executionId === executionId,
+      )?.submission,
+      executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
-    const warnings = [...(receipt.warnings ?? []), ...review.warnings];
+    // The cut is already frozen. Refresh is a best-effort follow-up: no open PR, no hosting, or a
+    // failed call leaves the submit receipt's outcome and steps untouched; only a named warning
+    // and the `ha task push` recovery lane remain.
+    const refreshWarning = submitted ? await refreshSubmittedPullRequest(cell, taskId, submitted, binding) : null;
+    const warnings = [...(receipt.warnings ?? []), ...review.warnings, ...(refreshWarning ? [refreshWarning] : [])];
     return {
       ...receipt,
       ...(warnings.length ? { warnings } : {}),
@@ -927,8 +974,10 @@ export async function submitTask(
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
   const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
-    review = await submittedCutReview(cell, taskId, action, binding, receipt),
-    warnings = [...anchorDriftWarnings, ...review.warnings];
+    review = await submittedCutReview(cell, taskId, action, binding, receipt);
+  // Same post-freeze, best-effort refresh as the carried-document path.
+  const refreshWarning = await refreshSubmittedPullRequest(cell, taskId, submission, binding),
+    warnings = [...anchorDriftWarnings, ...review.warnings, ...(refreshWarning ? [refreshWarning] : [])];
   return {
     ...receipt,
     ...(submission.riskTierAssessment ? { riskTierAssessment: submission.riskTierAssessment } : {}),

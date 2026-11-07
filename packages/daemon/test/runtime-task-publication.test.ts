@@ -5,7 +5,7 @@ import path from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import type { SubmissionV1, TaskProjection } from "@harness-anything/kernel";
-import { publishTaskWorkerBranch } from "../src/runtime-task-publication.ts";
+import { publishTaskWorkerBranch, updateTaskPullRequestBody } from "../src/runtime-task-publication.ts";
 import {
   deliveryProjection,
   workerSettlementRuntime,
@@ -170,6 +170,49 @@ test("a reworked push refreshes the machine delivery facts and keeps authored pr
   assert.doesNotMatch(String(requests[1]!.body?.body), /Production delta: \+71\/-30/u);
   assert.match(String(requests[1]!.body?.body), /Authored summary stays\./u);
   assert.match(String(requests[1]!.body?.body), /Authored tail stays\./u);
+});
+
+test("submit's update-only path refreshes an existing PR body and never creates one", async (context) => {
+  const first = "1".repeat(40),
+    second = "2".repeat(40),
+    requests: { method: string; body: Record<string, unknown> | null }[] = [];
+  let existing: Record<string, unknown> | undefined = {
+    number: 42,
+    html_url: "https://github.com/acme/repo/pull/42",
+    body: factsBody(first, 71, 30),
+  };
+  context.mock.method(globalThis, "fetch", async (_url: string | URL, options: RequestInit = {}) => {
+    const method = options.method ?? "GET";
+    if (method === "GET" && !String(_url).includes("/pulls")) return Response.json({ default_branch: "main" });
+    if (method === "GET") return Response.json(existing ? [existing] : []);
+    const body = JSON.parse(String(options.body)) as Record<string, unknown>;
+    requests.push({ method, body });
+    if (method === "PATCH") existing = { ...existing, ...body };
+    return Response.json(existing);
+  });
+  const input = {
+    hosting: { kind: "github" as const, host: "github.com", repository: "acme/repo" },
+    branch: fixtureTaskId,
+    taskTitle: "Delivered task",
+    submission: frozenFacts(second, 322, 56),
+    env: { GH_TOKEN: "daemon-only-fixture" },
+  };
+  assert.equal(await updateTaskPullRequestBody(input), String(existing.html_url));
+  assert.equal(requests.length, 1, "an existing PR is patched, not recreated");
+  assert.equal(requests[0]!.method, "PATCH");
+  assert.match(
+    String(requests[0]!.body?.body),
+    new RegExp(`Delivery commit: \x60${second}\x60`, "u"),
+    "the update-only path writes the newly frozen commit",
+  );
+  assert.doesNotMatch(String(requests[0]!.body?.body), new RegExp(first, "u"));
+  assert.match(String(requests[0]!.body?.body), /Authored summary stays\./u);
+  assert.match(String(requests[0]!.body?.body), /Authored tail stays\./u);
+
+  existing = undefined;
+  requests.length = 0;
+  assert.equal(await updateTaskPullRequestBody({ ...input, branch: "task-without-open-pr" }), null);
+  assert.deepEqual(requests, [], "a missing PR is left for the later ha task push create path");
 });
 
 test("settlement default uses frozen prose and preserves repository-authored bodies on repeat", async (context) => {

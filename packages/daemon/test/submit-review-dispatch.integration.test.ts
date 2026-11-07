@@ -165,7 +165,7 @@ test("a low-risk submit freezes no dispatch and never launches a reviewer", { ti
     assert.deepEqual(
       next.map((entry) => entry.command),
       [`ha task complete ${taskId}`],
-      "a low-risk submit must name the one remaining step to done",
+      "an artifact-only low-risk submit names the one remaining step to done and has no branch to publish",
     );
     assert.equal(f.launches.length, 0, "low-risk submissions must not dispatch at submit");
     assert.equal(
