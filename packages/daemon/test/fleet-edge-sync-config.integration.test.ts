@@ -4,18 +4,29 @@
 // rewrites the file and restarts the stream on the new settings.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createServer as createHttpsServer } from "node:https";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { readReplicaHealth } from "../src/fleet/replica-health.ts";
+import { waitForFleetReplicaReady } from "../src/fleet/replica-sync.ts";
 
 test(
   "a successful edge sync persists its connection and starts the resident stream",
   { timeout: 180_000 },
   async (t) => {
-    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+    let publishedAuthority: { readonly url: string; readonly realm: string; readonly clientId: string } | null = null;
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true);
+    publishedAuthority = {
+      url: f.owners.url,
+      realm: "tenant-realm",
+      clientId: "harness-node-node-one",
+    };
     assert.equal(
       (await f.command("center-node", { kind: "task-create", taskId: "synced-0", title: "Synced 0" })).outcome,
       "applied",
@@ -41,12 +52,17 @@ test(
     const first = await edgeSync(connection);
     assert.equal(first.ok, true, JSON.stringify(first));
     assert.equal(first.outcome, "applied");
-    assert.deepEqual(readFleetEdgeConfig(e.edgeRoot), connection);
+    const persistedFirst = readFleetEdgeConfig(e.edgeRoot)!;
+    const { loginUrl: _loginUrl, loginRealm: _loginRealm, ...persistedFirstConnection } = persistedFirst;
+    assert.deepEqual(persistedFirstConnection, connection);
+    assert.equal(persistedFirst.loginUrl, publishedAuthority.url);
+    assert.equal(persistedFirst.loginRealm, publishedAuthority.realm);
     assert.equal(statSync(configFile).mode & 0o777, 0o600, "the file carries the machine credential");
 
     writeFleetEdgeConfig(e.edgeRoot, {
       ...connection,
       loginUrl: f.owners.url,
+      loginRealm: "harness",
       loginBrowserUrl: f.owners.url,
     });
     f.owners.keycloak.interactiveSession(
@@ -67,14 +83,16 @@ test(
     assert.equal(second.ok, true, JSON.stringify(second));
     const persisted = readFleetEdgeConfig(e.edgeRoot)!;
     const {
-      loginUrl: _loginUrl,
-      loginServername: _loginServername,
-      loginBrowserUrl: _loginBrowserUrl,
-      loginCertificate: _loginCertificate,
+      loginUrl: _changedLoginUrl,
+      loginRealm: _changedLoginRealm,
+      loginServername: _changedLoginServername,
+      loginBrowserUrl: _changedLoginBrowserUrl,
+      loginCertificate: _changedLoginCertificate,
       ...persistedConnection
     } = persisted;
     assert.deepEqual(persistedConnection, changed);
     assert.equal(persisted?.loginUrl, f.owners.url);
+    assert.equal(persisted?.loginRealm, "harness");
     assert.equal(persisted?.loginBrowserUrl, f.owners.url);
     const listed = await e.command({ kind: "task-list" });
     const rows = listed.rows as Array<{ readonly taskId?: string }>;
@@ -84,6 +102,145 @@ test(
         .filter((taskId) => taskId?.startsWith("synced-"))
         .sort(),
       ["synced-0", "synced-1"],
+    );
+  },
+);
+
+test(
+  "an existing edge config missing loginRealm is repaired from center OIDC discovery",
+  { timeout: 180_000 },
+  async (t) => {
+    let publishedAuthority: { readonly url: string; readonly realm: string; readonly clientId: string } | null = null;
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, () => publishedAuthority, true),
+      e = await fleetEdgeHostFixture(t, f),
+      current = readFleetEdgeConfig(e.edgeRoot)!;
+    publishedAuthority = {
+      url: "https://login.example",
+      realm: "tenant-realm",
+      clientId: "harness-node-node-one",
+    };
+    writeFleetEdgeConfig(e.edgeRoot, { ...current, loginUrl: f.owners.url });
+    const { waitTimeoutMs: _wait, loginUrl: _loginUrl, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
+    const response = await e.rpc.handle({
+      jsonrpc: "2.0",
+      id: 201,
+      method: "daemon.fleet.edge.sync",
+      params: { payload: { ...connection, workspaceRoot: e.edgeRoot, timeoutMs: 30_000 } },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+    assert.equal((response.result as Record<string, unknown>).ok, true, JSON.stringify(response.result));
+    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginUrl, publishedAuthority.url);
+    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.loginRealm, publishedAuthority.realm);
+  },
+);
+
+test(
+  "an unattended edge with a legacy config obtains a machine token through its resident replica stream",
+  { timeout: 180_000 },
+  async (t) => {
+    let publishedAuthority: {
+      readonly url: string;
+      readonly realm: string;
+      readonly clientId: string;
+      readonly certificate: string;
+    } | null = null;
+    const f = await fleetNodeClaimFixture(
+      t,
+      undefined,
+      undefined,
+      undefined,
+      () => publishedAuthority,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      { replicaAdmission: true },
+    );
+    let loginUrl = "";
+    const loginServer = createHttpsServer(
+      { key: readFileSync(path.join(f.root, "tls.key")), cert: readFileSync(path.join(f.root, "tls.crt")) },
+      (request, response) => {
+        void (async () => {
+          let raw = "";
+          for await (const chunk of request) raw += String(chunk);
+          const answer = await f.owners.keycloak.fetch(`${loginUrl}${request.url}`, {
+            method: request.method,
+            headers: request.headers as Record<string, string>,
+            ...(raw === "" ? {} : { body: new URLSearchParams(raw) }),
+          });
+          response.statusCode = answer.status;
+          response.setHeader("content-type", "application/json");
+          response.end(Buffer.from(await answer.arrayBuffer()));
+        })().catch(() => {
+          response.statusCode = 500;
+          response.end("{}");
+        });
+      },
+    );
+    loginServer.listen(0, "127.0.0.1");
+    await once(loginServer, "listening");
+    const loginAddress = loginServer.address();
+    assert.ok(loginAddress && typeof loginAddress !== "string");
+    loginUrl = `https://localhost:${loginAddress.port}`;
+    const certificate = readFileSync(path.join(f.root, "tls.crt"), "utf8");
+    t.after(
+      () =>
+        new Promise<void>((resolve) => {
+          loginServer.closeAllConnections();
+          loginServer.close(() => resolve());
+        }),
+    );
+    publishedAuthority = {
+      url: loginUrl,
+      realm: "harness",
+      clientId: "harness-node-node-one",
+      certificate,
+    };
+    let machineTokenExchanges = 0;
+    const keycloakFetch = f.owners.keycloak.fetch;
+    f.owners.keycloak.fetch = (async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith("/protocol/openid-connect/token")) {
+        const form = init?.body as URLSearchParams;
+        if (form.get("grant_type") === "client_credentials" && form.get("client_id") === "harness-node-node-one")
+          machineTokenExchanges += 1;
+      }
+      return keycloakFetch(input, init);
+    }) as typeof fetch;
+
+    const edge = await fleetEdgeHostFixture(t, f, {
+      humanSession: false,
+      beforeOpen: (edgeRoot) => {
+        const config = readFleetEdgeConfig(edgeRoot)!;
+        writeFleetEdgeConfig(edgeRoot, { ...config, loginUrl: "https://old-login.example" });
+      },
+    });
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, undefined, "the persisted config predates loginRealm");
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, "https://old-login.example");
+    const ready = await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" });
+    assert.equal(
+      ready,
+      true,
+      JSON.stringify(readReplicaHealth(path.join(edge.viewRoot, "repos", "lease-repo", "views", "node-one"))),
+    );
+    const generation = readReplicaGeneration(path.join(edge.viewRoot, "repos", "lease-repo", "views", "node-one"));
+    assert.equal(generation?.metadata.readerProfile?.personId, "person-one");
+    assert.ok(machineTokenExchanges > 0, "the production edge host exchanged its node secret without a human session");
+
+    const { schema: _schema, waitTimeoutMs: _waitTimeoutMs, ...connection } = edge.config,
+      sync = await edge.rpc.handle({
+        jsonrpc: "2.0",
+        id: 301,
+        method: "daemon.fleet.edge.sync",
+        params: { payload: { ...connection, workspaceRoot: edge.edgeRoot, timeoutMs: 30_000 } },
+      });
+    assert.ok(sync && !Array.isArray(sync) && "result" in sync, JSON.stringify(sync));
+    assert.equal((sync.result as Record<string, unknown>).ok, true, JSON.stringify(sync.result));
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginUrl, loginUrl);
+    assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.loginRealm, "harness");
+    assert.equal(
+      await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: "node-one" }),
+      true,
+      "the resident stream remains ready after the legacy authority repair",
     );
   },
 );

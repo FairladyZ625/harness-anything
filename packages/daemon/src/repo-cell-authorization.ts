@@ -219,7 +219,11 @@ export async function evaluateKeycloakPerson(input: {
 }): Promise<KeycloakPersonEvaluation> {
   try {
     const { session, center } = input.credential;
-    if (session?.personId !== input.personId) {
+    const replicaPrincipal = input.credential.fleetReplicaPrincipal;
+    if (
+      session?.personId !== input.personId &&
+      (replicaPrincipal?.personId !== input.personId || replicaPrincipal.expiresAt <= Date.now())
+    ) {
       const provider = session?.provider;
       return {
         outcome: "denied",
@@ -245,7 +249,14 @@ export async function evaluateKeycloakPerson(input: {
           ? currentCenter.provider.withFetchPort(fetchPort)
           : currentCenter.provider
         : undefined;
-    if (currentCenter) {
+    if (replicaPrincipal && !currentCenter)
+      return {
+        outcome: "denied",
+        reasonCode: "authentication_required",
+        policyRef: provider.policyRef,
+        authority: provider.authority,
+      };
+    if (currentCenter && session) {
       const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
         valid = await decisionProvider.validateUserAccessToken(userToken, input.personId);
       if (!valid)
@@ -257,6 +268,13 @@ export async function evaluateKeycloakPerson(input: {
         };
     }
     if (!currentCenter) {
+      if (!session)
+        return {
+          outcome: "denied",
+          reasonCode: "authentication_required",
+          policyRef: provider.policyRef,
+          authority: provider.authority,
+        };
       const result = await decisionProvider.authorize({
         userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
         action: input.action,

@@ -33,6 +33,8 @@ export interface FleetCenterOptions {
   readonly key: string | Buffer;
   readonly cert: string | Buffer;
   readonly replicaDiskQuotaBytes?: number;
+  /** Maximum simultaneous base-backup archive builds across every repository in this center. */
+  readonly replicationBaseBackupConcurrency?: number;
   /** Number of replication log commits retained for incremental receivers. */
   readonly replicationRetentionWindowCommits?: number;
   /** An idle replication stream sends `replica.progress` this often, so a dead peer is noticed. */
@@ -73,6 +75,8 @@ export interface FleetCenterOptions {
   readonly revokeDeviceSessions?: (nodeId: string) => Promise<void>;
   readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
+  /** Authenticates a registered node service account for the replication admission path only. */
+  readonly verifyReplica?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext | null>;
   readonly buildDraining?: () => boolean;
   readonly onDeliverySettled?: () => void;
   readonly onError?: (entry: {

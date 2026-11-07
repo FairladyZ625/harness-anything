@@ -4,8 +4,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { verifyFleetHuman } from "@harness-anything/authorization-keycloak/oidc-fleet-principal";
+import { verifyFleetHuman, verifyFleetReplica } from "@harness-anything/authorization-keycloak/oidc-fleet-principal";
 import { createIdentitySession } from "../src/authorization-provider.ts";
+import { serveKeycloak } from "./keycloak.fixtures.ts";
 
 const claims = {
   active: true,
@@ -61,6 +62,129 @@ test("center online introspection binds the verified person signed in on this de
   await assert.rejects(verify({}, { serviceAccountClientId: "node-service" }), { code: "human_confirmation_required" });
   await assert.rejects(verify({}, { enabled: false }), { code: "human_confirmation_required" });
   await assert.rejects(verify({}, {}, true), /Keycloak unavailable/u);
+});
+
+function replicaVerifier(
+  overrides: {
+    readonly claims?: Record<string, unknown>;
+    readonly user?: Record<string, unknown>;
+    readonly node?: { readonly personId: string; readonly state: string; readonly revocation: string };
+    readonly now?: number;
+  } = {},
+) {
+  const now = overrides.now ?? Date.now();
+  return verifyFleetReplica({
+    auth: {
+      transportKind: "fleet-tls",
+      humanAccessToken: "replica-token",
+      nodePrincipal: { nodeId: "a", personId: "person-a" },
+    },
+    url: "http://127.0.0.1:1",
+    issuerUrl: "https://center.test",
+    realm: "harness",
+    clientId: "harness-center",
+    clientSecret: "center-secret",
+    adminAccessToken: "admin-token",
+    now,
+    readNode: async () => overrides.node ?? { personId: "person-a", state: "active", revocation: "complete" },
+    fetch: (async (input) => {
+      if (String(input).endsWith("/introspect"))
+        return Response.json({
+          active: true,
+          exp: Math.floor(now / 1_000) + 300,
+          iss: "https://center.test/realms/harness",
+          azp: "harness-node-a",
+          aud: ["harness-center"],
+          sub: "service-account-a",
+          ...overrides.claims,
+        });
+      if (String(input).includes("/clients?clientId="))
+        return Response.json([
+          {
+            id: "client-a",
+            clientId: "harness-node-a",
+            enabled: true,
+            serviceAccountsEnabled: true,
+            fullScopeAllowed: false,
+          },
+        ]);
+      return Response.json({
+        id: "service-account-a",
+        enabled: true,
+        ...overrides.user,
+      });
+    }) as typeof fetch,
+  });
+}
+
+test("a node service-account token establishes only its registered owner's replica identity", async () => {
+  const now = Date.now(),
+    result = await replicaVerifier({ now });
+  assert.deepEqual(
+    {
+      nodeId: result.fleetReplicaPrincipal?.nodeId,
+      personId: result.fleetReplicaPrincipal?.personId,
+      expiresAtIsCurrent: (result.fleetReplicaPrincipal?.expiresAt ?? 0) > now,
+    },
+    { nodeId: "a", personId: "person-a", expiresAtIsCurrent: true },
+  );
+  assert.equal(result.oidcPrincipal, undefined, "machine authentication must not create a human session");
+
+  for (const options of [
+    { claims: { active: false } },
+    { claims: { exp: Math.floor(now / 1_000) } },
+    { claims: { iss: "https://elsewhere.test/realms/harness" } },
+    { claims: { aud: ["other-server"] } },
+    { claims: { azp: "harness-node-b" } },
+    { user: { id: "another-service-account" } },
+    { user: { enabled: false } },
+    { node: { personId: "person-b", state: "active", revocation: "complete" } },
+    { node: { personId: "person-a", state: "removed", revocation: "complete" } },
+    { node: { personId: "person-a", state: "active", revocation: "pending" } },
+  ])
+    await assert.rejects(replicaVerifier({ ...options, now }), { code: "fleet_replica_credential_rejected" });
+
+  const noSession = await verifyFleetReplica({
+    auth: { transportKind: "fleet-tls", nodePrincipal: { nodeId: "a", personId: "person-a" } },
+    url: "http://127.0.0.1:1",
+    issuerUrl: "https://center.test",
+    realm: "harness",
+    clientId: "harness-center",
+    clientSecret: "center-secret",
+    adminAccessToken: "admin-token",
+    now,
+    readNode: async () => ({ personId: "person-a", state: "active", revocation: "complete" }),
+    fetch: fetch,
+  });
+  assert.equal(noSession, null, "the replica verifier never creates a principal without a token");
+});
+
+test("a human device-login token falls through to the existing human replica admission", async () => {
+  const human = await replicaVerifier({
+    claims: {
+      sub: "user-a",
+      harness_person_id: "person-a",
+    },
+  });
+  assert.equal(human, null, "machine verification must not reject a valid human device token");
+});
+
+test("OidcSessionService binds a machine token through the fake Keycloak authority", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replica-bind-")),
+    served = await serveKeycloak();
+  t.after(async () => {
+    await served.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  served.bind(root);
+  served.keycloak.account("person-a");
+  served.keycloak.node("a", "person-a");
+  const result = await createIdentitySession(root, { fetch: served.keycloak.fetch }).bindReplica!({
+    transportKind: "fleet-tls",
+    nodePrincipal: { nodeId: "a", personId: "person-a" },
+    humanAccessToken: "node-token-harness-node-a",
+  });
+  assert.equal(result?.fleetReplicaPrincipal?.personId, "person-a");
 });
 
 test("the center's local session never supplies a missing edge human credential", async (t) => {

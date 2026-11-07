@@ -221,6 +221,7 @@ export async function joinFleetEdge(
       nodeId: admitted.nodeId,
       credential: admitted.credential,
       loginUrl: authority.url,
+      loginRealm: authority.realm,
       ...(authority.servername ? { loginServername: authority.servername } : {}),
       ...(authority.browserUrl ? { loginBrowserUrl: authority.browserUrl } : {}),
       ...(authority.certificate ? { loginCertificate: authority.certificate } : {}),

@@ -37,4 +37,10 @@ export interface IdentityAuthenticationContext {
   readonly humanAccessToken?: string;
   /** Center-selected clients for invitation-bound sessions; never accepted from a fleet payload. */
   readonly fleetExpectedAzps?: readonly { readonly clientId: string; readonly personId?: string }[];
+  /** Server-verified owner identity used only by the Fleet replica admission path. */
+  readonly fleetReplicaPrincipal?: {
+    readonly nodeId: string;
+    readonly personId: string;
+    readonly expiresAt: number;
+  };
 }

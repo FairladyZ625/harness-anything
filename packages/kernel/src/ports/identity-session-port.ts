@@ -47,6 +47,8 @@ export interface IdentitySessionPort {
     loginTarget?: string,
     replicaRead?: boolean,
   ): Promise<T & IdentityAuthenticationContext>;
+  /** Identifies a registered node service account for replication; returns null for human sessions. */
+  bindReplica?<T extends IdentityAuthenticationContext>(auth: T): Promise<(T & IdentityAuthenticationContext) | null>;
   /** Public metadata comes from the center; an edge never writes a second Keycloak configuration. */
   discovery(nodeId: string): OidcLoginAuthority | null;
   /** Global administration follows the person's @fleet access-manage policy, never realm roles. */

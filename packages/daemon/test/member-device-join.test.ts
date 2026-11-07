@@ -74,6 +74,10 @@ test("the same member adds two independent nodes; repeated or competing joins ne
   await assert.rejects(admit(first.joinId), { code: "already_consumed" });
   assert.equal(f.keycloak.nodeClients.size, nodesBefore + 2);
   assert.equal(joinedSecond.personId, "alice");
+  const machineClient = f.keycloak.nodeClients.get(`harness-node-${joinedSecond.nodeId}`)!;
+  assert.equal(machineClient.serviceAccountsEnabled, true);
+  assert.equal(machineClient.fullScopeAllowed, false);
+  assert.equal(machineClient.attributes["access.token.lifespan"], "300");
   assert.equal(JSON.stringify(f.journal()).includes(joinedSecond.credential), false);
 });
 

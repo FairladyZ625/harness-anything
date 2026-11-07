@@ -244,6 +244,31 @@ test("replica reason remains center-observed when no failure text exists", () =>
   });
 });
 
+test("queued first backups expose their queue position and measured wait in the fleet status row", () => {
+  const node = buildFleetOverview(
+    input({
+      replicas: [
+        replica("cc90-ubuntu", {
+          activity: {
+            phase: "backup_queued",
+            since: "2026-11-07T00:00:00.000Z",
+            lastProgressAt: "2026-11-07T00:00:00.000Z",
+            bytesSent: null,
+            totalBytes: null,
+            queuePosition: 17,
+            estimatedWaitMs: 42_000,
+          },
+        }),
+      ],
+    }),
+  ).nodes.find((row) => row.nodeId === "cc90-ubuntu")!;
+  assert.equal(node.watch.kind, "value");
+  if (node.watch.kind === "value") {
+    assert.match(node.watch.text, /queuePosition=17/u);
+    assert.match(node.watch.text, /estimatedWait=42000ms/u);
+  }
+});
+
 test("events are attributed by the task's current lease, executor session join, else the center", () => {
   const result = buildFleetOverview(
     input({

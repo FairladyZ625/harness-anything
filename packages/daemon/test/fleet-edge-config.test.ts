@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { resolveFleetReplicaAuthority } from "../src/fleet/replica-token.ts";
 
 const valid = {
   schema: "fleet-edge-config/v1",
@@ -12,6 +13,8 @@ const valid = {
   host: "center",
   port: 7443,
   caPath: "/data/shared/fleet/fleet.crt",
+  loginUrl: "https://login.example",
+  loginRealm: "tenant-realm",
   nodeId: "edge-1",
   credential: "issued-at-registration",
   viewRoot: "/data/view",
@@ -46,4 +49,22 @@ test("a fleet-edge config marks the workspace and carries the machine credential
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a legacy edge config accepts the center's authenticated OIDC authority", () => {
+  const authority = resolveFleetReplicaAuthority(
+    {
+      nodeId: "edge-legacy",
+      loginUrl: "https://old-login.example",
+      loginRealm: undefined,
+      loginCertificate: undefined,
+      loginServername: undefined,
+    },
+    { url: "https://login.example", realm: "tenant-realm", clientId: "harness-node-edge-legacy" },
+  );
+  assert.deepEqual(authority, {
+    url: "https://login.example",
+    realm: "tenant-realm",
+    clientId: "harness-node-edge-legacy",
+  });
 });

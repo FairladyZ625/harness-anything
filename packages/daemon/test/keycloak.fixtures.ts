@@ -30,6 +30,8 @@ type NodeClient = {
   attributes: Record<string, string>;
   secret: string;
   enabled?: boolean;
+  serviceAccountsEnabled?: boolean;
+  fullScopeAllowed?: boolean;
 };
 
 /**
@@ -39,7 +41,8 @@ type NodeClient = {
  */
 export function fakeKeycloak(issuer = keycloakIssuer) {
   let sequence = 0,
-    realmIssuer = issuer;
+    realmIssuer = issuer,
+    nodeTokensExpired = false;
   const id = (prefix: string) => `${prefix}-${++sequence}`,
     scopes = new Map<string, Named>(),
     roles = new Map<string, Role>(),
@@ -118,14 +121,30 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     if (url.pathname.endsWith("/protocol/openid-connect/token/introspect")) {
       const form = init?.body as URLSearchParams;
       const clientId = form.get("client_id") ?? "";
-      if (clientId.startsWith("harness-node-")) {
-        const client = nodeClients.get(clientId),
-          ok = client?.secret === form.get("client_secret") && client?.enabled !== false;
-        nodeLogins.push({ clientId, ok });
-        return json({ active: false }, ok ? 200 : 401);
+      const token = form.get("token") ?? "",
+        tokenNodeClientId = token.startsWith("node-token-") ? token.slice("node-token-".length) : null,
+        machineClientId = clientId.startsWith("harness-node-") ? clientId : tokenNodeClientId;
+      if (machineClientId !== null) {
+        const client = nodeClients.get(machineClientId),
+          ok =
+            client !== undefined &&
+            client.enabled !== false &&
+            (clientId.startsWith("harness-node-")
+              ? client.secret === form.get("client_secret")
+              : token === `node-token-${machineClientId}`);
+        nodeLogins.push({ clientId: machineClientId, ok });
+        return ok && !nodeTokensExpired
+          ? json({
+              active: true,
+              exp: Math.floor(Date.now() / 1000) + 300,
+              iss: `${realmIssuer}`,
+              azp: machineClientId,
+              aud: ["harness-center"],
+              sub: `service-account-${machineClientId}`,
+            })
+          : json({ active: false }, ok ? 200 : 401);
       }
-      const token = (init?.body as URLSearchParams).get("token") ?? "",
-        session = interactiveSessions.get(token);
+      const session = interactiveSessions.get(token);
       return json(
         session && nodeClients.get(`harness-node-${session.nodeId}`)?.enabled !== false
           ? {
@@ -148,9 +167,13 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         if (!clientId.startsWith("harness-node-") && !clientId.startsWith("harness-execution-"))
           return json({ access_token: "center-token" });
         const client = nodeClients.get(clientId),
-          ok = client?.secret === form.get("client_secret") && client?.enabled !== false;
+          ok =
+            client?.secret === form.get("client_secret") &&
+            client.enabled !== false &&
+            client.serviceAccountsEnabled === true &&
+            client.fullScopeAllowed === false;
         nodeLogins.push({ clientId, ok });
-        if (ok) return json({ access_token: `node-token-${clientId}` });
+        if (ok) return json({ access_token: `node-token-${clientId}`, expires_in: 300 });
         // Keycloak 26.7.3 names the two refusals differently; both are HTTP 401.
         return json({ error: client ? "unauthorized_client" : "invalid_client" }, 401);
       }
@@ -226,6 +249,8 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         client = {
           id: id("node-client"),
           enabled: body!.enabled !== false,
+          serviceAccountsEnabled: body!.serviceAccountsEnabled === true,
+          fullScopeAllowed: body!.fullScopeAllowed === true,
           clientId,
           attributes: { ...serverClientAttributes(), ...(body!.attributes as Record<string, string>) },
           // Keycloak 26 stores the secret a caller supplies with a new client (F-2CBA6A96).
@@ -249,6 +274,12 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     }
     const nodeClient = [...nodeClients.values()].find((client) => route.startsWith(`/clients/${client.id}`));
     if (nodeClient) {
+      if (route.endsWith("/service-account-user") && method === "GET")
+        return json({
+          id: `service-account-${nodeClient.clientId}`,
+          username: `service-account-${nodeClient.clientId}`,
+          enabled: nodeClient.enabled !== false,
+        });
       if (method === "DELETE") {
         nodeClients.delete(nodeClient.clientId);
         return new Response(null, { status: 204 });
@@ -257,6 +288,9 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       // Admin client PUT replaces its secret in the same update as the device metadata.
       if (typeof body!.secret === "string") nodeClient.secret = body!.secret;
       if (typeof body!.enabled === "boolean") nodeClient.enabled = body!.enabled;
+      if (typeof body!.serviceAccountsEnabled === "boolean")
+        nodeClient.serviceAccountsEnabled = body!.serviceAccountsEnabled;
+      if (typeof body!.fullScopeAllowed === "boolean") nodeClient.fullScopeAllowed = body!.fullScopeAllowed;
       nodeClient.attributes = { ...nodeClient.attributes, ...(body!.attributes as Record<string, string>) };
       return new Response(null, { status: 204 });
     }
@@ -295,6 +329,13 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       return new Response(null, { status: 204 });
     }
     if (/^\/users\/[^/]+$/u.test(route) && method === "GET") {
+      if (tail.startsWith("service-account-")) {
+        const clientId = tail.slice("service-account-".length),
+          client = nodeClients.get(clientId);
+        return client
+          ? json({ id: tail, enabled: client.enabled !== false, serviceAccountClientId: clientId })
+          : json({}, 404);
+      }
       const user = users.get(tail);
       return user ? json({ ...user, enabled: true }) : json({}, 404);
     }
@@ -419,6 +460,9 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     nodeClients,
     /** Every machine-credential check Keycloak was asked to make, in order. */
     nodeLogins,
+    expireNodeTokens(): void {
+      nodeTokensExpired = true;
+    },
     /** Grants `personId` the named actions on one resource, the way a stored grant materializes. */
     permit(personId: string, resourceName: string, actions: readonly string[]): void {
       const user = [...users.values()].find((item) => item.attributes.harness_person_id?.[0] === personId);
@@ -464,6 +508,9 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
           clientId,
           attributes: serverClientAttributes(),
           secret: `secret-${nodeId}`,
+          enabled: true,
+          serviceAccountsEnabled: true,
+          fullScopeAllowed: false,
         };
       client.attributes = {
         ...client.attributes,

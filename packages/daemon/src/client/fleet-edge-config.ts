@@ -16,6 +16,7 @@ export interface FleetEdgeConfig {
   readonly caPath: string;
   readonly servername?: string;
   readonly loginUrl?: string;
+  readonly loginRealm?: string;
   readonly loginServername?: string;
   readonly loginBrowserUrl?: string;
   readonly loginCertificate?: string;
@@ -82,6 +83,7 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     caPath: text("caPath")!,
     ...(text("servername") ? { servername: text("servername") } : {}),
     ...(text("loginUrl") ? { loginUrl: text("loginUrl") } : {}),
+    ...(text("loginRealm") ? { loginRealm: text("loginRealm") } : {}),
     ...(text("loginServername") ? { loginServername: text("loginServername") } : {}),
     ...(text("loginBrowserUrl") ? { loginBrowserUrl: text("loginBrowserUrl") } : {}),
     ...(text("loginCertificate") ? { loginCertificate: text("loginCertificate") } : {}),

@@ -68,6 +68,8 @@ export interface RepoCellBinding {
    * is present, its realm must also authorize that same person.
    */
   readonly keycloakAuthorization?: {
+    /** Center-created proof that a machine token was bound to this node and owner for replica reads. */
+    readonly fleetReplicaPrincipal?: { readonly nodeId: string; readonly personId: string; readonly expiresAt: number };
     readonly session?: {
       readonly provider: import("@harness-anything/kernel").AuthorizationDecisionPort &
         Pick<

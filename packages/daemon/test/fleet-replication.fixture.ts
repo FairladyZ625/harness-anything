@@ -35,6 +35,7 @@ import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { requestFleetReplicaToken } from "../src/fleet/replica-token.ts";
 
 export const replicationNodes = ["edge-one", "edge-two", "edge-three"] as const;
 export type ReplicationNodeId = (typeof replicationNodes)[number];
@@ -72,6 +73,7 @@ export async function fleetReplicationFixture(
     readonly replicationKeepaliveMs?: number;
     readonly now?: () => string;
     readonly storage?: DaemonStorageConfig;
+    readonly replicaAdmission?: boolean;
   } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-repl-")),
@@ -195,6 +197,18 @@ export async function fleetReplicationFixture(
     track: (close: () => void) => {
       trackedClosers.push(close);
     },
+    machineAccessToken: (nodeId: string) =>
+      requestFleetReplicaToken(
+        {
+          url: "https://keycloak.fixture",
+          realm: "harness",
+          nodeId,
+          credential: `secret-${nodeId}`,
+          ca: cert.toString(),
+        },
+        owners.keycloak.fetch,
+      ),
+    expireMachineTokens: () => owners.keycloak.expireNodeTokens(),
     /** Opens (or re-opens after a close) the fleet TLS center for this host. */
     openCenter: async (): Promise<FleetTlsCenter> => {
       const opened = await listenFleetTls({
@@ -216,6 +230,12 @@ export async function fleetReplicationFixture(
           (replicationNodes as readonly string[]).includes(nodeId) && credential === `secret-${nodeId}`,
         nodeOwner: owners.nodeOwner,
         verifyHuman: owners.verifyHuman,
+        ...(options.replicaAdmission === false
+          ? {}
+          : {
+              verifyReplica: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
+                createIdentitySession(userRoot, { fetch: owners.keycloak.fetch }).bindReplica!(auth),
+            }),
         revokeDeviceSessions: (nodeId: string) => createIdentitySession(userRoot).revokeDeviceSessions(nodeId),
         onError: (entry) => transportErrors.push({ nodeId: entry.nodeId, error: entry.error }),
       });

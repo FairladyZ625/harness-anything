@@ -52,6 +52,7 @@ export interface FleetCenterAdmissionRequest {
     | "nodeOwner"
     | "loginAuthority"
     | "verifyHuman"
+    | "verifyReplica"
     | "createMemberEdgeJoin"
     | "edgeJoinStatus"
     | "deviceLoginNotice"
@@ -180,6 +181,13 @@ export async function startFleetCenterAdmission(
   }
 }
 export interface FleetEdgeSyncRequest {
+  /** Center-published OIDC metadata used to repair an older edge config missing loginRealm. */
+  readonly loginAuthority?: {
+    readonly url: string;
+    readonly realm: string;
+    readonly clientId: string;
+    readonly certificate?: string;
+  } | null;
   readonly payload: {
     readonly host: string;
     readonly port: number;
@@ -250,7 +258,7 @@ export async function syncFleetEdgeMirror(
   });
   // The admitted connection becomes the workspace's fleet-edge.json, which the resident stream follows
   // (started or restarted by onAdmitted); sync then waits on that stream.
-  persistEdgeConnection(request);
+  persistEdgeConnection(request, input.loginAuthority ?? head.loginAuthority);
   onAdmitted?.();
   const viewDir = path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId),
     replicaReady = await waitForFleetReplicaReady(request);
@@ -307,8 +315,16 @@ export async function syncFleetEdgeMirror(
 }
 
 /** Keeps the operator's freshness tuning from an existing fleet-edge.json; an invalid one fails the sync. */
-function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
+function persistEdgeConnection(
+  request: FleetEdgeSyncRequest["payload"],
+  loginAuthority?: FleetEdgeSyncRequest["loginAuthority"],
+): void {
   const previous = readFleetEdgeConfig(request.workspaceRoot);
+  const loginUrl =
+      previous?.loginRealm === undefined && loginAuthority?.realm
+        ? loginAuthority.url
+        : (previous?.loginUrl ?? loginAuthority?.url),
+    loginRealm = previous?.loginRealm ?? loginAuthority?.realm;
   writeFleetEdgeConfig(request.workspaceRoot, {
     repoId: request.repoId,
     host: request.host,
@@ -317,10 +333,15 @@ function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
     ...(request.servername ? { servername: request.servername } : {}),
     nodeId: request.nodeId,
     credential: request.credential,
-    ...(previous?.loginUrl ? { loginUrl: previous.loginUrl } : {}),
+    ...(loginUrl ? { loginUrl } : {}),
+    ...(loginRealm ? { loginRealm } : {}),
     ...(previous?.loginServername ? { loginServername: previous.loginServername } : {}),
     ...(previous?.loginBrowserUrl ? { loginBrowserUrl: previous.loginBrowserUrl } : {}),
-    ...(previous?.loginCertificate ? { loginCertificate: previous.loginCertificate } : {}),
+    ...(previous?.loginCertificate
+      ? { loginCertificate: previous.loginCertificate }
+      : loginAuthority?.certificate
+        ? { loginCertificate: loginAuthority.certificate }
+        : {}),
     viewRoot: request.viewRoot,
     quotaBytes: request.quotaBytes,
     ...(previous?.waitTimeoutMs !== undefined ? { waitTimeoutMs: previous.waitTimeoutMs } : {}),

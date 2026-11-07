@@ -10,6 +10,7 @@ import {
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { randomUUID } from "node:crypto";
@@ -37,6 +38,7 @@ export async function fleetNodeClaimFixture(
   > = {},
   seedRepository?: (rootDir: string) => Promise<void>,
   revokeDeviceSessions?: Parameters<typeof listenFleetTls>[0]["revokeDeviceSessions"],
+  replicaOptions: { readonly replicaAdmission?: boolean } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -108,6 +110,12 @@ export async function fleetNodeClaimFixture(
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
       nodeOwner: owners.nodeOwner,
       verifyHuman: verifyHuman ?? owners.verifyHuman,
+      ...(replicaOptions.replicaAdmission
+        ? {
+            verifyReplica: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
+              createIdentitySession(userRoot, { fetch: owners.keycloak.fetch }).bindReplica!(auth),
+          }
+        : {}),
       ...(loginAuthority ? { loginAuthority } : {}),
       ...(revokeDeviceSessions ? { revokeDeviceSessions } : {}),
       ...extra,

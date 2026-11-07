@@ -36,7 +36,7 @@ import {
 } from "@harness-anything/kernel";
 import { squadObservationEventOpId } from "../squad-observation.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
-import { readFileWindow, syncDirectory, syncFile } from "@harness-anything/storage";
+import { readFileWindow, syncDirectory, syncFile, type BaseBackupArchive } from "@harness-anything/storage";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -68,6 +68,7 @@ import { createNodeRetirementAdmission } from "./node-retirement.ts";
 import { createNodeSessionStatus } from "./node-session-status.ts";
 import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
+import { createBaseBackupQueue } from "./basebackup-queue.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
@@ -83,6 +84,25 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
     };
     const timer = setTimeout(done, ms);
     signal.addEventListener("abort", done, { once: true });
+  });
+}
+function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
   });
 }
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
@@ -185,6 +205,42 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       throw new FleetFault("authorization_denied", "The request user may not read this repository.");
     return principal;
   };
+  const replicaAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+    nodeAdmission.assertOpen(node.nodeId);
+    if (!options.verifyReplica) return repoAdmission(node);
+    const personId = await options.nodeOwner(node.nodeId);
+    if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
+    let machine: DaemonAuthenticationContext | null;
+    try {
+      machine = await options.verifyReplica({
+        transportKind: "fleet-tls",
+        nodePrincipal: { nodeId: node.nodeId, personId },
+        humanAccessToken: node.accessToken,
+      });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "daemon_error")
+        throw new FleetFault(
+          "keycloak_unavailable",
+          "The identity authority could not verify the replica credential.",
+          true,
+        );
+      throw error;
+    }
+    if (!machine) return repoAdmission(node);
+    const principal = machine.fleetReplicaPrincipal;
+    if (
+      !principal ||
+      principal.nodeId !== node.nodeId ||
+      principal.personId !== personId ||
+      principal.expiresAt <= Date.now()
+    )
+      throw new FleetFault("fleet_replica_credential_rejected", "The Fleet replica credential was rejected.");
+    nodeAdmission.assertOpen(node.nodeId);
+    const decision = await options.host.authorize(node.repoId, "repository-read", machine);
+    if (decision.outcome !== "allowed")
+      throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
+    return machine;
+  };
   const extracted = {
     get state() {
       return state;
@@ -286,27 +342,60 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return value.outcome === "applied" || (value.event !== null && value.event !== undefined);
     };
   const projectionReady = new Map<string, Promise<void>>();
-  const backupQueues = new Map<string, Promise<void>>();
+  const backupBuildQueue = createBaseBackupQueue(options.replicationBaseBackupConcurrency ?? 2);
   type CachedBackup = {
-    readonly archive: Promise<import("@harness-anything/storage").BaseBackupArchive>;
+    readonly archive: Promise<BaseBackupArchive>;
     readonly directory: string;
+    readonly controller: AbortController;
+    readonly queueListeners: Map<
+      string,
+      (status: import("./basebackup-queue.ts").BaseBackupQueueStatus | null) => void
+    >;
     users: number;
-    readonly releaseQueue: () => void;
+    building: boolean;
+    retired: boolean;
+    queueStatus: import("./basebackup-queue.ts").BaseBackupQueueStatus | null;
+    releaseRetention: () => void;
   };
   const backupCache = new Map<string, CachedBackup>();
   // Each backup owns a directory under replication-backups; none outlives the process that built it.
   const backupsRoot = path.join(options.stateRoot, "replication-backups");
   rmSync(backupsRoot, { recursive: true, force: true });
   const retireBackup = (repoId: string, cached: CachedBackup): void => {
+    if (cached.retired) return;
+    cached.retired = true;
     if (backupCache.get(repoId) === cached) backupCache.delete(repoId);
-    cached.releaseQueue();
-    rmSync(cached.directory, { recursive: true, force: true });
+    if (cached.building) cached.controller.abort();
+    const cleanup = () => {
+      cached.releaseRetention();
+      rmSync(cached.directory, { recursive: true, force: true });
+    };
+    if (cached.building) void cached.archive.then(cleanup, cleanup);
+    else cleanup();
   };
   // Concurrent edges share one archive. It is deleted with its last user: kept longer, its retention pin
   // would hold the log back and a later edge could get a start already past the retention window.
-  const releaseBackupUser = (repoId: string, cached: CachedBackup): void => {
-    cached.users -= 1;
+  const releaseBackupUser = (repoId: string, cached: CachedBackup, nodeId: string): void => {
+    cached.queueListeners.delete(nodeId);
+    if (cached.users > 0) cached.users -= 1;
     if (cached.users === 0) retireBackup(repoId, cached);
+  };
+  const listenForBackupQueue = (cached: CachedBackup, nodeId: string, repoId: string): void => {
+    cached.queueListeners.set(nodeId, (status) =>
+      replicaStatus.recordActivity(
+        { nodeId, repoId },
+        status ? "backup_queued" : "building_backup",
+        status ?? undefined,
+      ),
+    );
+    if (cached.queueStatus) cached.queueListeners.get(nodeId)!(cached.queueStatus);
+  };
+  const reportBackupQueue = (
+    cached: CachedBackup,
+    status: import("./basebackup-queue.ts").BaseBackupQueueStatus | null,
+  ): void => {
+    cached.queueStatus = status;
+    for (const listener of cached.queueListeners.values()) listener(status);
   };
   const onReplicationStart = async (
     nodeId: string,
@@ -416,46 +505,98 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         if (cached) {
           replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
           cached.users += 1;
-          return {
-            ...(await cached.archive),
-            metadata: { ...(await cached.archive).metadata, readerProfile },
-            release: async () => releaseBackupUser(frame.repoId, cached),
-          };
+          listenForBackupQueue(cached, nodeId, frame.repoId);
+          try {
+            const archive = await awaitWithSignal(cached.archive, backupSignal);
+            let released = false;
+            return {
+              ...archive,
+              metadata: { ...archive.metadata, readerProfile },
+              release: async () => {
+                if (released) return;
+                released = true;
+                releaseBackupUser(frame.repoId, cached, nodeId);
+              },
+            };
+          } catch (error) {
+            releaseBackupUser(frame.repoId, cached, nodeId);
+            throw error;
+          }
         }
-        const previous = backupQueues.get(frame.repoId) ?? Promise.resolve();
-        let release!: () => void;
-        const turn = new Promise<void>((resolve) => (release = resolve));
-        backupQueues.set(
-          frame.repoId,
-          previous.then(() => turn),
-        );
-        replicaStatus.recordActivity(replicaKeyForNode, "backup_queued");
-        await previous;
-        if (!backupSignal.aborted) replicaStatus.recordActivity(replicaKeyForNode, "building_backup");
-        // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
-        const unpin = retention.pin(store.replicationPosition());
-        const directory = path.join(backupsRoot, randomUUID());
-        const started = store.startBackup(directory, path.join(layout.localRoot, "cache", "task.sqlite"), backupSignal);
-        const archivePromise = started.then((pinned) => pinned.complete).then((archive) => archive);
-        const cachedArchive: CachedBackup = {
-          archive: archivePromise,
-          directory,
-          users: 1,
-          releaseQueue: () => {
-            unpin();
-            release();
-          },
-        };
+        let resolveArchive!: (archive: BaseBackupArchive) => void, rejectArchive!: (error: unknown) => void;
+        const archive = new Promise<BaseBackupArchive>((resolve, reject) => {
+            resolveArchive = resolve;
+            rejectArchive = reject;
+          }),
+          directory = path.join(backupsRoot, randomUUID()),
+          cachedArchive: CachedBackup = {
+            archive,
+            directory,
+            controller: new AbortController(),
+            queueListeners: new Map(),
+            users: 1,
+            building: true,
+            retired: false,
+            queueStatus: null,
+            releaseRetention: () => undefined,
+          };
+        listenForBackupQueue(cachedArchive, nodeId, frame.repoId);
+        // Publish the in-flight archive before queue admission or any other await, so same-repo
+        // first-time edges become users of this entry instead of scheduling a second build.
         backupCache.set(frame.repoId, cachedArchive);
+        let releaseSlot: ((completed?: boolean) => void) | undefined,
+          completed = false;
+        void (async () => {
+          const buildSignal = AbortSignal.any([closing.signal, cachedArchive.controller.signal]);
+          releaseSlot = await backupBuildQueue.acquire(buildSignal, (status) =>
+            reportBackupQueue(cachedArchive, status),
+          );
+          buildSignal.throwIfAborted();
+          reportBackupQueue(cachedArchive, null);
+          // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
+          const unpin = retention.pin(store.replicationPosition());
+          let retained = true;
+          cachedArchive.releaseRetention = () => {
+            if (!retained) return;
+            retained = false;
+            unpin();
+          };
+          const started = await store.startBackup(
+            directory,
+            path.join(layout.localRoot, "cache", "task.sqlite"),
+            buildSignal,
+          );
+          return started.complete;
+        })()
+          .then(
+            (built) => {
+              completed = true;
+              resolveArchive(built);
+            },
+            (error: unknown) => {
+              rejectArchive(error);
+              retireBackup(frame.repoId, cachedArchive);
+            },
+          )
+          .finally(() => {
+            cachedArchive.building = false;
+            releaseSlot?.(completed);
+            if (cachedArchive.users === 0) retireBackup(frame.repoId, cachedArchive);
+          });
         try {
-          const archive = await archivePromise;
+          const built = await awaitWithSignal(cachedArchive.archive, backupSignal);
+          let released = false;
           return {
-            ...archive,
-            metadata: { ...archive.metadata, readerProfile },
-            release: async () => releaseBackupUser(frame.repoId, cachedArchive),
+            ...built,
+            metadata: { ...built.metadata, readerProfile },
+            release: async () => {
+              if (released) return;
+              released = true;
+              releaseBackupUser(frame.repoId, cachedArchive, nodeId);
+            },
           };
         } catch (error) {
-          retireBackup(frame.repoId, cachedArchive);
+          releaseBackupUser(frame.repoId, cachedArchive, nodeId);
           throw error;
         }
       },
@@ -551,9 +692,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId, accessToken);
     // The request user's repository-read authority admits this node's replica (CH1).
-    const principal = await repoAdmission(a),
+    const principal = await replicaAdmission(a),
       replica = options.host.replica(a.repoId);
-    return { a, replica, readerProfile: { personId: principal.oidcPrincipal!.personId, nodeId } };
+    return {
+      a,
+      replica,
+      readerProfile: {
+        personId: principal.fleetReplicaPrincipal?.personId ?? principal.oidcPrincipal!.personId,
+        nodeId,
+      },
+    };
   };
   const handle = async (
     nodeId: string,
@@ -1459,6 +1607,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (closed) return;
       closed = true;
       closing.abort();
+      const backupsClosed = backupBuildQueue.close();
       // `server.close` only resolves once every accepted socket is gone, and an edge keeps replica
       // sessions open between pulls, so none of them ends on its own. Cut every socket this listener
       // accepted — not just the hello-registered ones — or a peer that never reached its hello holds
@@ -1468,7 +1617,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       );
       for (const socket of connections) socket.destroy();
       sessions.clear();
-      await drained;
+      await Promise.all([drained, backupsClosed]);
       try {
         for (const [repoId, owned] of ownedEpochs) {
           const current = writerEpoch.current(repoId);

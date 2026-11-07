@@ -339,7 +339,7 @@ export async function rawPeer(
   ca: Buffer,
   nodeId: string,
   credential: string,
-  connection: { readonly host?: string; readonly buildCommit?: string } = {},
+  connection: { readonly host?: string; readonly buildCommit?: string; readonly accessToken?: string } = {},
 ) {
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
       const candidate = connect({ host: connection.host ?? "127.0.0.1", port, ca, servername: "localhost" }, () =>
@@ -373,7 +373,7 @@ export async function rawPeer(
       frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
     write = (frame: unknown) => socket.write(`${JSON.stringify(frame)}\n`),
     request = async (frame: FleetFrameV1) => {
-      socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${nodeId}` }));
+      socket.write(serializeFleetFrame({ ...frame, accessToken: connection.accessToken ?? `device-token-${nodeId}` }));
       return next();
     },
     raw = async (frame: unknown) => {
@@ -381,7 +381,7 @@ export async function rawPeer(
       return next();
     },
     split = async (frame: FleetFrameV1, marker: string) => {
-      splitWrite(socket, { ...frame, accessToken: `device-token-${nodeId}` }, marker);
+      splitWrite(socket, { ...frame, accessToken: connection.accessToken ?? `device-token-${nodeId}` }, marker);
       return next();
     };
   const hello = await request({

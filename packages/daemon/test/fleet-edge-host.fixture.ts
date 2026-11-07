@@ -37,6 +37,7 @@ export async function fleetEdgeHostFixture(
     readonly runtimeDiscover?: Parameters<typeof openDaemonHost>[0]["runtimeDiscover"];
     readonly viewRoot?: string;
     readonly personId?: string;
+    readonly humanSession?: boolean;
     readonly nodeId?: string;
     readonly registerBeforeOpen?: boolean;
     readonly credential?: string;
@@ -132,7 +133,7 @@ export async function fleetEdgeHostFixture(
         authority: sessionAuthority,
       }),
     );
-  signIn(options.personId ?? "person-one");
+  if (options.humanSession !== false) signIn(options.personId ?? "person-one");
   const config = {
     schema: "fleet-edge-config/v1",
     repoId: options.repoId ?? "lease-repo",
@@ -208,7 +209,15 @@ export async function fleetEdgeHostFixture(
   /** One CLI edge task command, as `ha task ...` sends it to the local daemon. */
   const command = async (action: Record<string, unknown>): Promise<Record<string, unknown>> => {
     id += 1;
-    const { schema: _schema, ...payload } = config;
+    const {
+      schema: _schema,
+      loginUrl: _loginUrl,
+      loginRealm: _loginRealm,
+      loginServername: _loginServername,
+      loginBrowserUrl: _loginBrowserUrl,
+      loginCertificate: _loginCertificate,
+      ...payload
+    } = config;
     const response = await rpc.handle({
       jsonrpc: "2.0",
       id,
