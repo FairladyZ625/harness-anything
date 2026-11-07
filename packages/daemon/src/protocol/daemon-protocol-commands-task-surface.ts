@@ -587,7 +587,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { conflictsWith: ["--target-ref"] },
+        { conflictsWith: ["--target-ref"], pathKind: "non-path" },
       ),
       cliInput(
         "--target-ref",

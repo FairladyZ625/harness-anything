@@ -423,7 +423,11 @@ export function scanDocCandidates(input: {
   }
 }
 
-export function validateSelectedDocPaths(selected: readonly string[], scan: DocCandidateScan): void {
+export function validateSelectedDocPaths(
+  selected: readonly string[],
+  scan: DocCandidateScan,
+  workspacePath: (document: string) => string = (document) => document,
+): void {
   if (selected.length === 0) return;
   const missing = scan.rows
     .filter((row) => row.state === "clean" && row.baseBlobSha256 === null && row.candidateBlobSha256 === null)
@@ -431,7 +435,8 @@ export function validateSelectedDocPaths(selected: readonly string[], scan: DocC
       ...row,
       reason: "selected doc-sync path does not match an authored candidate",
     }));
-  if (missing[0]) throw docSyncError("document_not_found", blockedCandidateNextAction(missing[0]));
+  if (missing[0])
+    throw docSyncError("document_not_found", blockedCandidateNextAction(missing[0], undefined, workspacePath));
 }
 
 export function intentFromScan(

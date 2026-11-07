@@ -199,9 +199,15 @@ export const agentProtocolCommands = Object.freeze([
         "single",
         true,
         { code: "missing_field" },
-        { field: "sourceLocation", pathKind: "host-path" },
+        { field: "sourceLocation", pathKind: "workspace-file", pathReader: "workspace-text" },
       ),
-      cliInput("--target", "single", true, { code: "missing_field" }, { field: "targetLocation" }),
+      cliInput(
+        "--target",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "targetLocation", pathKind: "workspace-file", pathReader: "workspace-text" },
+      ),
       cliInput("--run-id", "single", true, { code: "missing_field" }, { field: "runId" }),
       cliInput(
         "--export-directory",
