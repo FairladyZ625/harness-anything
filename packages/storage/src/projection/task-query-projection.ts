@@ -191,7 +191,35 @@ export function readTaskIndexRows(
     where.push("task_snapshot.updated_at <= ?");
     values.push(query.updatedBefore);
   }
-  if (query.activePackagesOnly) where.push(`COALESCE(${field("$.task.packageDisposition")}, 'active') = 'active'`);
+  // package_disposition is a generated column with the active-package partial indexes. Reading
+  // the JSON expression here defeats those indexes and walks archived history on every work/agenda
+  // read, even though the predicate has the same meaning.
+  if (query.activePackagesOnly) where.push("task_snapshot.package_disposition = 'active'");
+  if (query.scopeRootTaskId !== undefined) {
+    // Match the PostgreSQL reader: a scope contains the selected root, all descendants and its
+    // existing ancestors. The parent expression is indexed, so unrelated historical tasks are
+    // never materialized before the caller assembles the bounded scope.
+    const parent = field("$.task.metadata.parentTaskId");
+    where.push(`task_snapshot.task_id IN (
+      WITH RECURSIVE descendants(task_id) AS (
+        SELECT task_id FROM task_snapshot WHERE task_id = ?
+        UNION
+        SELECT child.task_id FROM task_snapshot AS child JOIN descendants AS parent_rows
+          ON ${parent.replaceAll("task_snapshot", "child")} = parent_rows.task_id
+      ), ancestors(task_id, parent_id) AS (
+        SELECT task_id, ${parent} FROM task_snapshot WHERE task_id = ?
+        UNION
+        SELECT parent_rows.task_id, ${parent.replaceAll("task_snapshot", "parent_rows")}
+        FROM task_snapshot AS parent_rows JOIN ancestors AS child_rows
+          ON parent_rows.task_id = child_rows.parent_id
+        WHERE child_rows.parent_id IS NOT NULL
+      )
+      SELECT task_id FROM descendants
+      UNION
+      SELECT task_id FROM ancestors
+    )`);
+    values.push(query.scopeRootTaskId, query.scopeRootTaskId);
+  }
   if (query.taskIds !== undefined) {
     where.push("task_snapshot.task_id IN (SELECT value FROM json_each(?))");
     values.push(JSON.stringify(query.taskIds));
