@@ -61,6 +61,15 @@ function session(
     ...evidence,
   };
 }
+function taskMetadata(this: TaskProjection, query: { readonly taskIds?: readonly string[] } = {}) {
+  return {
+    rows: (query.taskIds ?? []).flatMap((id) => {
+      const read = this.read(id);
+      return read.snapshot.task ? [{ ...read.snapshot.task, packagePath: read.packagePath }] : [];
+    }),
+  };
+}
+
 function fixture(
   current = session("live", null),
   options: {
@@ -92,6 +101,7 @@ function fixture(
   const events = options.successor ? [event, options.successor] : [event];
   const projection = {
     readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+    readTaskIndex: taskMetadata,
     read: () => ({
       watermark: 1,
       sourceRevision: 1,
@@ -913,6 +923,7 @@ test("member dispatch reads page an executor's newest rows with window groups an
       ],
     };
   const projection = {
+    readTaskIndex: taskMetadata,
     read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
     readDocument: () => ({ document: null }),
     readRuntimeSessionEvents: () => [],
@@ -1009,6 +1020,7 @@ test("a member page window group falls back to the session's newest dispatch, no
   const older = dispatchEvent("dispatch_member_old", "task-a", "2026-08-23T00:00:00.000Z"),
     newer = dispatchEvent("dispatch_member_new", "task-b", "2026-08-24T00:00:00.000Z"),
     projection = {
+      readTaskIndex: taskMetadata,
       read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
       readDocument: () => ({ document: null }),
       readRuntimeSessionEvents: () => [],
@@ -1141,6 +1153,7 @@ test("cut review settlement selects reviewer dispatches of one submission digest
         const event = events.find((candidate) => candidate.payload.dispatchId === id);
         return event ? { event } : null;
       },
+      readTaskIndex: taskMetadata,
       read: () => ({ snapshot: { task: { taskId } } }),
       readRuntimeDispatchesBySession: () => [],
       readRuntimeDispatchesByAttemptGroup: () => [],

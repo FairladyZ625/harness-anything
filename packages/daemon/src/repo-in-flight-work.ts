@@ -7,8 +7,7 @@ export function readRepoInFlightWork(input: {
   readonly repoId: string;
   readonly queueDepth: number;
 }): readonly RepoInFlightWork[] {
-  const runtime = input.projection.readRuntimeSessions().flatMap((session) => {
-      if (session.liveness === "exited") return [];
+  const runtime = input.projection.readRuntimeSessions({ nonExitedOnly: true }).flatMap((session) => {
       const binding = session.taskBindings.at(-1);
       return [
         {
@@ -19,7 +18,7 @@ export function readRepoInFlightWork(input: {
         },
       ];
     }),
-    leases = input.projection.list().rows.flatMap((row) => {
+    leases = input.projection.list({ leaseOnly: true, decisionRelationsOnly: true }).rows.flatMap((row) => {
       const lease = row.snapshot.lease;
       if (!lease || lease.phase === "released") return [];
       const executor = lease.actor.executor,

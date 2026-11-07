@@ -59,6 +59,16 @@ export async function measureTaskDispatchAdmission(rootDir, size) {
           warnings: [],
           catchUp: { maxItems: 0, reducedItems: 0, storeTransactions: 0 },
         }),
+      readTaskIndex: ({ taskIds } = {}) =>
+        keyed({
+          status: "ready",
+          rows: taskIds?.includes(taskId)
+            ? [{ taskId, title: "Dispatch recovery cost", packagePath: `tasks/${taskId}`, status: "active" }]
+            : [],
+          watermark: snapshot.revision,
+          sourceRevision: snapshot.revision,
+          warnings: [],
+        }),
       readDocument: () => keyed({ document: null }),
       readRuntimeDispatchesByTaskExecution: () => keyed(rows),
       readRuntimeDispatchById: (dispatchId) => keyed(byId.has(dispatchId) ? { event: byId.get(dispatchId) } : null),

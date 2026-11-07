@@ -16,30 +16,47 @@ import { readTaskRelationPage } from "./task-query-projection.ts";
  * judged in the domain; every other task and every decision is counted by group. */
 export function readWorkspaceSummaryRows(db: DatabaseSync): WorkspaceSummary {
   const activePackageTasks = emptyWorkspaceTaskCounts();
-  let lastChangedAt: string | null = null;
-  for (const row of queryRows<
-    { readonly status: string | null; readonly count: number; readonly last_changed_at: string } & ProjectionSqlRow
-  >(
+  for (const row of queryRows<{ readonly status: string | null; readonly count: number } & ProjectionSqlRow>(
     db,
-    "SELECT status, COUNT(*) AS count, MAX(updated_at) AS last_changed_at FROM task_snapshot WHERE package_disposition = 'active' GROUP BY status",
+    "SELECT status, count FROM workspace_task_census",
   )) {
     activePackageTasks[row.status !== null && isDomainStatus(row.status) ? row.status : "unknown"] += row.count;
-    if (lastChangedAt === null || row.last_changed_at > lastChangedAt) lastChangedAt = row.last_changed_at;
   }
+  const lastChangedAt =
+    queryRows<{ readonly updated_at: string }>(
+      db,
+      "SELECT updated_at FROM task_snapshot WHERE package_disposition='active' ORDER BY updated_at DESC LIMIT 1",
+    )[0]?.updated_at ?? null;
 
   const blockingRelations: Array<ReturnType<typeof readTaskRelationPage>["rows"][number]> = [];
-  for (const relationType of ["depends-on", "awaits"] as const) {
-    let relationCursor: string | undefined;
-    do {
-      const page = readTaskRelationPage(db, {
-        relationType,
-        limit: 500,
-        ...(relationCursor ? { cursor: relationCursor } : {}),
-      });
-      blockingRelations.push(...page.rows);
-      relationCursor = page.page?.nextCursor ?? undefined;
-    } while (relationCursor !== undefined);
-  }
+  // Only a current task whose status can change to blocked can change the census. Start
+  // there and follow its dependency component; disconnected historical edges contribute nothing.
+  const sources = new Set(
+    queryRows<{ readonly task_id: string }>(
+      db,
+      `SELECT task_id FROM task_snapshot INDEXED BY task_snapshot_active_package
+    WHERE package_disposition='active' AND status IN ('planned','active') AND (
+      EXISTS (SELECT 1 FROM relation_edge WHERE source_ref='task/' || task_snapshot.task_id AND relation_type IN ('depends-on','awaits') AND state='active')
+      OR EXISTS (SELECT 1 FROM task_relation WHERE source_ref='task/' || task_snapshot.task_id AND relation_type IN ('depends-on','awaits') AND state='active')
+    )`,
+    ).map(({ task_id }) => `task/${task_id}`),
+  );
+  for (const source of sources)
+    for (const relationType of ["depends-on", "awaits"] as const) {
+      let relationCursor: string | undefined;
+      do {
+        const page = readTaskRelationPage(db, {
+          relationType,
+          source,
+          state: "active",
+          limit: 500,
+          ...(relationCursor ? { cursor: relationCursor } : {}),
+        });
+        blockingRelations.push(...page.rows);
+        for (const edge of page.rows) if (/^task\/[^/]+$/u.test(edge.targetRef)) sources.add(edge.targetRef);
+        relationCursor = page.page?.nextCursor ?? undefined;
+      } while (relationCursor !== undefined);
+    }
   const endpointIds = [
     ...new Set(
       blockingRelations.flatMap(({ sourceRef, targetRef }) =>

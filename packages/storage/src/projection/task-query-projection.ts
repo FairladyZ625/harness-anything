@@ -5,7 +5,7 @@ import { publicRuntimeSession } from "@harness-anything/kernel/internal/domain/r
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { TaskProgressEventV1 } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
-import { findRelationCycleWitnesses } from "@harness-anything/kernel/internal/domain/relation-cycle.ts";
+import { readRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
 import { validateTaskV2, type TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
 import type { TaskIndexProjectionRow } from "@harness-anything/kernel";
 import type {
@@ -158,6 +158,7 @@ export function readTaskIndexRows(
   db: DatabaseSync,
   query: TaskProjectionListQuery = {},
 ): { readonly rows: readonly TaskIndexProjectionRow[]; readonly page: ProjectionPage | null } {
+  if (query.scopeRootTaskId !== undefined) return readTaskScopeRows(db, query);
   const values: (string | number | null)[] = [],
     where: string[] = [],
     field = (jsonPath: string) => `json_extract(task_snapshot.snapshot_json, '${jsonPath}')`;
@@ -191,7 +192,10 @@ export function readTaskIndexRows(
     where.push("task_snapshot.updated_at <= ?");
     values.push(query.updatedBefore);
   }
-  if (query.activePackagesOnly) where.push(`COALESCE(${field("$.task.packageDisposition")}, 'active') = 'active'`);
+  // package_disposition is a generated column with the active-package partial indexes. Reading
+  // the JSON expression here defeats those indexes and walks archived history on every work/agenda
+  // read, even though the predicate has the same meaning.
+  if (query.activePackagesOnly) where.push("task_snapshot.package_disposition = 'active'");
   if (query.taskIds !== undefined) {
     where.push("task_snapshot.task_id IN (SELECT value FROM json_each(?))");
     values.push(JSON.stringify(query.taskIds));
@@ -271,6 +275,52 @@ export function readTaskIndexRows(
             nextCursor: rows.length > limit && last ? encodePageCursor([last.taskId]) : null,
           },
   };
+}
+
+function readTaskScopeRows(
+  db: DatabaseSync,
+  query: TaskProjectionListQuery,
+): { readonly rows: readonly TaskIndexProjectionRow[]; readonly page: ProjectionPage | null } {
+  const { scopeRootTaskId, ...unscopedQuery } = query,
+    members = new Map<string, TaskIndexProjectionRow>(),
+    root = readTaskIndexRows(db, {
+      taskIds: [scopeRootTaskId!],
+      ...(query.presentationStatus === undefined ? {} : { presentationStatus: query.presentationStatus }),
+    }).rows[0];
+  if (!root) return readTaskIndexRows(db, { ...unscopedQuery, taskIds: [] });
+
+  // Page through the existing parent index. This keeps the walk proportional to the selected
+  // scope; a recursive join makes SQLite scan the full parent expression index at every level.
+  members.set(root.taskId, root);
+  const pending = [root.taskId];
+  for (let index = 0; index < pending.length; index += 1) {
+    const parentTaskId = pending[index]!;
+    for (const child of readTaskIndexRows(db, {
+      parentTaskId,
+      ...(query.presentationStatus === undefined ? {} : { presentationStatus: query.presentationStatus }),
+    }).rows) {
+      if (members.has(child.taskId)) continue;
+      members.set(child.taskId, child);
+      pending.push(child.taskId);
+    }
+  }
+
+  const ancestors = new Set(members.keys());
+  for (let parentTaskId = root.parentTaskId; parentTaskId !== null && !ancestors.has(parentTaskId); ) {
+    const parent = readTaskIndexRows(db, {
+      taskIds: [parentTaskId],
+      ...(query.presentationStatus === undefined ? {} : { presentationStatus: query.presentationStatus }),
+    }).rows[0];
+    if (!parent) break;
+    ancestors.add(parent.taskId);
+    members.set(parent.taskId, parent);
+    parentTaskId = parent.parentTaskId;
+  }
+
+  const memberIds = [...members.keys()],
+    selectedIds =
+      query.taskIds === undefined ? memberIds : memberIds.filter((taskId) => query.taskIds!.includes(taskId));
+  return readTaskIndexRows(db, { ...unscopedQuery, taskIds: selectedIds });
 }
 
 /** Derive display-only creation time from the first canonical event for a task.
@@ -889,14 +939,7 @@ export function readTaskRelationPage(
  * and doctor, never from a write or hot read path.
  */
 export function auditRelationCycles(db: DatabaseSync): RelationCycleAudit {
-  const rows = readTaskRelationPage(db, {}).rows;
-  return {
-    scannedEdges: rows.length,
-    issues: findRelationCycleWitnesses(rows).map((witness) => ({
-      code: "relation_cycle_detected",
-      ...witness,
-    })),
-  };
+  return readRelationCycleAudit(db);
 }
 
 /** Task relation rows with the freshness stored on relation_edge at their last write cut. */

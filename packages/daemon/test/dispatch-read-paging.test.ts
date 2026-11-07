@@ -1,7 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentRuntimeEventV1, RuntimeSession, TaskProjectionQueries } from "@harness-anything/kernel";
+import type {
+  AgentRuntimeEventV1,
+  RuntimeSession,
+  TaskProjectionQueries,
+  TaskProjection,
+} from "@harness-anything/kernel";
 import { readAllTaskDispatchPages, readTaskDispatches } from "../src/dispatch-read.ts";
 import { FLEET_FRAME_BYTES } from "../src/fleet/command-protocol.ts";
 import { encodeFleetFrames } from "../src/fleet/command-transfer.ts";
@@ -20,6 +25,14 @@ function largeDispatchProjection(count = 500, reason = "派工原因 / long/path
     },
   })) as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>[];
   const projection = {
+    readTaskIndex(this: TaskProjection, query: { readonly taskIds?: readonly string[] } = {}) {
+      return {
+        rows: (query.taskIds ?? []).flatMap((id) => {
+          const read = this.read(id);
+          return read.snapshot.task ? [{ ...read.snapshot.task, packagePath: read.packagePath }] : [];
+        }),
+      };
+    },
     read: () => ({ packagePath: "tasks/task-one", snapshot: { task: { taskId: "task-one", title: "Task one" } } }),
     readTaskRuntimeBatch: () => ({
       status: "ready",

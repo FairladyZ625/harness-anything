@@ -319,7 +319,9 @@ export function readTaskWipSnapshot(cell: TaskQueryCell) {
 }
 
 function occupyingWipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnapshotEntryV1[] {
-  const rows = taskWipOccupyingStatuses.flatMap((status) => cell.projection.list({ status }).rows),
+  const rows = taskWipOccupyingStatuses.flatMap(
+      (status) => cell.projection.list({ status, decisionRelationsOnly: true }).rows,
+    ),
     childCounts = cell.projection.readTaskChildCounts(rows.map((row) => row.taskId));
   return rows.map((row) => ({
     taskId: row.taskId,

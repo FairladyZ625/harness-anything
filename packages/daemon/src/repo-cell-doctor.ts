@@ -105,7 +105,7 @@ function submittedRoundExecutions(cell: RepoCellOperationalContext): {
   readonly executor: string | null;
 }[] {
   const tasks = (["submitted", "in_review", "active"] as const).flatMap(
-    (status) => cell.projection.list({ status, activePackagesOnly: true }).rows,
+    (status) => cell.projection.list({ status, activePackagesOnly: true, decisionRelationsOnly: true }).rows,
   );
   return tasks.flatMap((row) => {
     const task = row.snapshot.task;
@@ -279,7 +279,7 @@ function executorAttributionOwed(
 function orphanLeaseCheck(cell: RepoCellOperationalContext): DoctorCheck {
   const now = cell.now(),
     items = (["planned", ...taskWipOccupyingStatuses] as const)
-      .flatMap((status) => cell.projection.list({ status, activePackagesOnly: true }).rows)
+      .flatMap((status) => cell.projection.list({ status, activePackagesOnly: true, decisionRelationsOnly: true }).rows)
       .flatMap((row) => {
         const lease = cell.projection.currentLease(row.taskId, now);
         return lease !== null && lease.phase === "orphaned"

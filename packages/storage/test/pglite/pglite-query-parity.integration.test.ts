@@ -103,6 +103,11 @@ pgliteIntegrationSuite("complete synchronous query parity", () => {
             assertValueQueryParity(queries, projection);
             assertCompleteQueryParity(queries, projection);
             assertRecoveryQueryContract(queries);
+            for (const taskIds of [[], ["missing"], ["task-parity"], ["task-parity", "task-graph-a"]])
+              assert.deepEqual(
+                queries.readEventSummaries(0, 3, { taskIds }),
+                projection.readEventSummaries(0, 3, { taskIds }),
+              );
             const fleetSummary = queries.readEventSummaries(0, 100, "fleet");
             assert.ok(
               fleetSummary.events.some((event) => event.eventId.startsWith("provider-")),

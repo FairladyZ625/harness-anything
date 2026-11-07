@@ -79,7 +79,10 @@ export function listProjection(
       query.pinnedFirst !== true &&
       query.activePackagesOnly !== true &&
       query.taskIds === undefined &&
-      query.presentationStatus !== true
+      query.presentationStatus !== true &&
+      query.scopeRootTaskId === undefined &&
+      query.leaseOnly !== true &&
+      query.decisionRelationsOnly !== true
     ) {
       const rows = queryPreparedRows<{
           readonly task_id: string;
@@ -135,7 +138,7 @@ export function readTaskListAtCut(
       at,
       // Aggregate reads that ask for lifecycle status never render decision lineage beyond
       // `derives`; every other list read keeps the full snapshot relation set.
-      query.presentationStatus === false,
+      query.presentationStatus === false || query.decisionRelationsOnly === true,
     );
   return {
     status: cut.status,

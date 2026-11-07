@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
+import { runtimeSessionInActivityWindow } from "@harness-anything/kernel";
 import {
   serializeAgentRuntimeSessionGroups,
   validateAgentRuntimeSessionGroups,
@@ -350,7 +351,10 @@ const dispatches: readonly TaskDispatchRow[] = [
 ];
 
 function projectionFixture(): TaskProjection {
-  const selected = () => sessions;
+  const selected: TaskProjection["readRuntimeSessions"] = (query) =>
+    sessions.filter(
+      (session) => query?.activitySince === undefined || runtimeSessionInActivityWindow(session, query.activitySince),
+    );
   return {
     readCut: () => ({ status: "ready", watermark: 40, sourceRevision: 40 }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 40, sourceRevision: 40 }),

@@ -115,6 +115,20 @@ function centerProjection(
         },
       },
     }),
+    readTaskIndex: () => ({
+      status: "ready",
+      rows: [
+        {
+          taskId,
+          title: "edge dispatch",
+          packagePath: taskPackagePath,
+          ...(options.taskStatus === undefined ? {} : { status: options.taskStatus }),
+        },
+      ],
+      watermark: 1,
+      sourceRevision: 1,
+      warnings: [],
+    }),
     readTaskRuntimeBatch: () => ({
       status: "ready",
       taskIds: [taskId],

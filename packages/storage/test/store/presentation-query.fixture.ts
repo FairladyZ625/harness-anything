@@ -13,9 +13,13 @@ export function presentationQueryFixture(
 ) {
   const db = new DatabaseSync(":memory:");
   db.exec(
-    "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, updated_at TEXT, snapshot_json TEXT); CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT)",
+    "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, updated_at TEXT, snapshot_json TEXT, " +
+      "package_disposition TEXT NOT NULL GENERATED ALWAYS AS (COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active')) STORED); " +
+      "CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT)",
   );
-  const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, ?)");
+  const insert = db.prepare(
+    "INSERT INTO task_snapshot (task_id, status, updated_at, snapshot_json) VALUES (?, ?, ?, ?)",
+  );
   for (const row of rows)
     insert.run(
       row.taskId,

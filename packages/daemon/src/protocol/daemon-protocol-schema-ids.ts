@@ -392,6 +392,7 @@ export const daemonTaskQueryPayloadShape = shape({
   cursor: "string?",
   statusSource: optionalEnum(["raw"]),
   leaseOnly: "boolean?",
+  activePackagesOnly: "boolean?",
 });
 
 /** The token consumption reads' window range vocabulary. The words live here (wire truth,
