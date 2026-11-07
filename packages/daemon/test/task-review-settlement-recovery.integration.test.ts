@@ -1,12 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { submissionDigest } from "@harness-anything/kernel";
-import { readDispatchStream, reopenDispatchStream } from "../src/dispatch-stream.ts";
+import { submissionDigest, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
-import { executionId, fixture, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
+import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 
 for (const registeredByWorker of [true, false]) {
   test(
@@ -24,6 +26,11 @@ for (const registeredByWorker of [true, false]) {
         await f.submit();
         const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
         assert.ok(dispatch?.type === "runtime_dispatch_requested");
+        assert.equal(
+          path.resolve(f.launches[0]!.cwd),
+          path.resolve(f.root, "harness", f.packagePath),
+          "a task-package reviewer without a detached worktree runs in its canonical package",
+        );
         const { dispatchId, runtimeSessionId } = dispatch.payload,
           reviewId = `review-${dispatchId}`,
           packet = `${f.packagePath}/artifacts/reports/${dispatchId}.json`,
@@ -159,10 +166,59 @@ test(
   },
 );
 
-test("consent settles a failed reviewer fallback predecessor when no successor row was projected", async () => {
+test("consent settles a failed reviewer predecessor whose canonical successor belongs to another cut", async () => {
   const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     closeoutProfile: "standard",
+    providerRoundBackoffBaseSeconds: 300,
+  });
+  try {
+    await f.install();
+    await f.submit();
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const { dispatchId, runtimeSessionId } = dispatch.payload,
+      reviewId = `review-${dispatchId}`;
+    assert.equal((await f.review(runtimeSessionId, reviewId)).outcome, "applied");
+
+    f.failPending();
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "failed");
+    const terminal = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    assert.ok(terminal?.type === "runtime_session_outcome_observed");
+    assert.equal(terminal.payload.attempt?.classification, "provider_quota");
+
+    const submitted = f.events().find((event) => event.type === "execution_submitted");
+    assert.ok(submitted?.type === "execution_submitted" && submitted.payload.execution.submission);
+    const otherCutDigest = submissionDigest({
+      ...submitted.payload.execution.submission,
+      commitSha: "f".repeat(40),
+    });
+    assert.notEqual(otherCutDigest, dispatch.payload.reviewTarget?.digest);
+    const successor = await appendCanonicalReviewSuccessor(f, dispatch, otherCutDigest, "other-cut");
+
+    const rows = (await f.cell().read("repo.task.dispatches", { taskId })).dispatches,
+      predecessor = rows.find((row) => row.dispatchId === dispatchId);
+    assert.equal(predecessor?.fallbackState, "dispatched");
+    assert.equal(predecessor?.nextDispatchId, successor.dispatchId);
+    assert.ok(rows.some((row) => row.dispatchId === successor.dispatchId));
+
+    const consented = await f.consent(reviewId);
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+  } finally {
+    await f.close();
+  }
+});
+
+test("consent still waits for a queued reviewer fallback successor in the same cut", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    closeoutProfile: "standard",
+    providerRoundBackoffBaseSeconds: 300,
   });
   try {
     await f.install();
@@ -171,32 +227,57 @@ test("consent settles a failed reviewer fallback predecessor when no successor r
     assert.ok(dispatch?.type === "runtime_dispatch_requested");
     const { dispatchId, runtimeSessionId } = dispatch.payload,
       reviewId = `review-${dispatchId}`,
-      stream = readDispatchStream(f.root, dispatchId);
-    assert.ok(stream, "review dispatch stream must exist");
+      digest = dispatch.payload.reviewTarget?.digest;
+    assert.ok(digest);
     assert.equal((await f.review(runtimeSessionId, reviewId)).outcome, "applied");
-    const unsettled = await f.consent(reviewId);
-    assert.equal(unsettled.code, "review_dispatch_unsettled", JSON.stringify(unsettled));
 
-    // This is the persisted shape left when the predecessor linked a continuation before it
-    // published a successor dispatch row, then the fallback launch failed.
-    reopenDispatchStream(f.root, stream.header).appendFallbackState(
-      {
-        state: "dispatched",
-        nextDispatchId: "dispatch_000000000000000000000000",
-        nextRuntimeSessionId: "runtime_000000000000000000000000",
-      },
-      new Date().toISOString(),
-    );
+    f.failPending();
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "failed");
+    const successor = await appendCanonicalReviewSuccessor(f, dispatch, digest, "same-cut"),
+      rows = (await f.cell().read("repo.task.dispatches", { taskId })).dispatches,
+      successorRow = rows.find((row) => row.dispatchId === successor.dispatchId);
+    assert.equal(successorRow?.status, "unknown", "a projected dispatch without a session is still queued");
     assert.equal(
-      await f.settleReview(dispatchId, runtimeSessionId, "Provider process disconnected.", null, 1),
-      "failed",
+      (await f.consent(reviewId)).code,
+      "review_dispatch_unsettled",
+      "a real same-cut successor remains part of the consent gate",
     );
-    const consented = await f.consent(reviewId);
-    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
   } finally {
     await f.close();
   }
 });
+
+async function appendCanonicalReviewSuccessor(
+  f: Awaited<ReturnType<typeof fixture>>,
+  predecessor: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>,
+  digest: `sha256:${string}`,
+  label: string,
+): Promise<{ readonly dispatchId: string }> {
+  const dispatchKey = `task-review-consent-successor:${label}`,
+    identity = createHash("sha256")
+      .update(`${workspaceId("completion-review")}\0${dispatchKey}`)
+      .digest("hex"),
+    payload = {
+      ...predecessor.payload,
+      dispatchId: `dispatch_${identity.slice(0, 24)}`,
+      runtimeSessionId: `runtime_${identity.slice(24, 48)}`,
+      dispatchKey,
+      attemptGroupId: predecessor.payload.attemptGroupId ?? predecessor.payload.dispatchId,
+      attemptIndex: (predecessor.payload.attemptIndex ?? 0) + 1,
+      reviewTarget: { ...predecessor.payload.reviewTarget!, digest },
+    },
+    receipt = await f.cell().runtimeIngress(
+      {
+        kind: "event",
+        type: "runtime_dispatch_requested",
+        opId: `op-review-successor-${label}`,
+        payload,
+      },
+      owner,
+    );
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  return { dispatchId: payload.dispatchId };
+}
 
 test(
   "settlement cannot take reviewer identity from an artifact's self-reported actor",

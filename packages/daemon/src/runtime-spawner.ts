@@ -435,10 +435,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
-    // Reviewers inspect the detached immutable checkout. The task package boundary is derived
-    // inside that checkout by resolveRuntimeMission; applying the canonical package root here
-    // would override the prepared review worktree and leave cleanup pointed at the wrong cwd.
-    const taskPackageRoot = reviewerBinding ? null : dispatchTaskPackageRoot(input, taskId, remoteTask),
+    // A detached review checkout owns its package boundary. Artifact-only tasks have no checkout,
+    // so their reviewer must retain the canonical task package cwd.
+    const reviewerHasWorktree =
+        reviewerBinding && (remoteTask ? remoteTask.worktree !== null : preparedWorktree !== null),
+      taskPackageRoot = reviewerHasWorktree ? null : dispatchTaskPackageRoot(input, taskId, remoteTask),
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,
