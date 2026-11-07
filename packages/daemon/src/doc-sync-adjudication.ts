@@ -18,7 +18,7 @@ import { scanDocCandidates, type DocCandidateScan, validateSelectedDocPaths } fr
 import type { Input } from "./doc-sync-command-actions.ts";
 import { detail, directPaths } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields } from "./doc-sync-files.ts";
-import { admissionRejection } from "./doc-sync-settlement.ts";
+import { admissionRejection, workspacePathOf } from "./doc-sync-settlement.ts";
 
 // Pure adjudication of one doc write intent against the current canonical
 // state: projection readiness, canonical task admission, and the domain
@@ -204,7 +204,7 @@ export function scannerRead(input: Input): DocCandidateScan {
     ...(executionId === null ? {} : { executionId }),
     ...(input.authoredCandidateInventory ? { inventory: input.authoredCandidateInventory } : {}),
   });
-  if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
+  if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan, workspacePathOf(input));
   return scan;
 }
 
@@ -240,7 +240,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     ...(executionId === null ? {} : { executionId }),
     ...(input.authoredCandidateInventory ? { inventory: input.authoredCandidateInventory } : {}),
   });
-  if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
+  if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan, workspacePathOf(input));
   return scan;
 }
 

@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   consumeKnownError,
   documentPath,
+  documentWorkspacePath,
   resolveHarnessLayout,
   runtimeArchiveText,
   type DocSyncReceiptDetail,
@@ -87,7 +88,7 @@ export function artifactSource(
   if (insideAuthoredRoot && authoredRelative.startsWith("tasks/"))
     throw docSyncError(
       "artifact_source_in_task_package",
-      `source is inside a task package; use ha doc sync --submit --path ${authoredRelative}`,
+      `source is inside a task package; use ha doc sync --submit --path ${documentWorkspacePath(input.rootDir, authoredRelative)}`,
     );
   return { absolute, relative };
 }

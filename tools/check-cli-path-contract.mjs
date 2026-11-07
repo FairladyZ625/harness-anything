@@ -47,6 +47,8 @@ const isPathTokenName = (name) =>
   name === "destination" ||
   name === "cwd" ||
   name === "root" ||
+  name === "target" ||
+  name === "backup" ||
   /(?:^|-)(?:file|dir|directory|root)$/u.test(name);
 const isPathInputName = (name) =>
   name === "--path" ||
@@ -54,6 +56,8 @@ const isPathInputName = (name) =>
   name === "--destination" ||
   name === "--cwd" ||
   name === "--root" ||
+  name === "--target" ||
+  name === "--backup" ||
   /-(?:file|dir|directory|root)$/u.test(name);
 const isPositionalPathInputName = (token) => {
   const name = token.replace(/^\[/u, "").replace(/\]$/u, "").replace(/^</u, "").replace(/>$/u, "");
@@ -69,7 +73,7 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
     pathInputs: 0,
     workspaceFiles: 0,
     ledgerDocuments: 0,
-    zeroHitProbes: 0,
+    zeroHitWriteCommands: 0,
     positionalPaths: 0,
   };
 
@@ -246,7 +250,7 @@ function checkPathInput(command, label, input, counts, actionKind, root, known) 
   if (input.pathReader !== undefined && input.pathReader !== "doc-action")
     violations.push(`${command.id} ${label}: ledger-document input declares the wrong pathReader`);
   if (WRITE_CLASSES.has(command.commandClass)) {
-    counts.zeroHitProbes += 1;
+    counts.zeroHitWriteCommands += 1;
     if (!isDocAction(actionKind))
       violations.push(
         `${command.id}: write command with a document path is not routed through the doc action pipeline; ` +
@@ -319,7 +323,7 @@ function main(argv) {
   }
   console.log(
     `cli-path-contract: ok (${result.counts.commands} commands, ${result.counts.pathInputs} path inputs, ` +
-      `${result.counts.ledgerDocuments} document paths, ${result.counts.zeroHitProbes} zero-hit write probes)`,
+      `${result.counts.ledgerDocuments} document paths, ${result.counts.zeroHitWriteCommands} zero-hit write commands)`,
   );
   return 0;
 }

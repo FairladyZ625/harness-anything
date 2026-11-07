@@ -467,12 +467,12 @@ test("failure guidance renders structured missing-section, validator, and worksp
       code: "plan_placeholder",
       diagnostic: {
         kind: "missing-sections",
-        documentPath: "tasks/task-a/task_plan.md",
+        documentPath: "harness/tasks/task-a/task_plan.md",
         diskDiffers: false,
         missingSections: [{ section: "Goal", reason: "scaffold", retainedScaffold: "Describe the result." }],
       },
     }).hint,
-    /Goal: still contains scaffold text.*ha doc sync --submit --path tasks\/task-a\/task_plan\.md/su,
+    /Goal: still contains scaffold text.*ha doc sync --submit --path harness\/tasks\/task-a\/task_plan\.md/su,
   );
   assert.equal(
     humanError({
