@@ -1213,25 +1213,30 @@ test("thin parser exposes task push as a task-bound daemon action", () => {
   assert.equal(parseThinCommand(["task", "push", "task-1", "--main"]).ok, false);
 });
 
-test("task push parses caller-local body files without reading them", (context) => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-push-body-"));
+test("task push parses workspace-relative body files without reading them", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-push-body-")),
+    other = path.join(root, "other");
   context.after(() => rmSync(root, { recursive: true, force: true }));
-  const file = path.join(root, "body.md"),
+  mkdirSync(other, { recursive: true });
+  const file = path.join(other, "body.md"),
     body = "# Repo convention\n\nLiteral `$()` and Unicode 交付.\n";
   writeFileSync(file, body);
-  const parsed = parseThinCommand(["task", "push", "task-1", "--body-file", file]);
-  assert.equal(parsed.ok, true, JSON.stringify(parsed));
-  if (parsed.ok) {
-    assert.equal(parsed.command.action.bodyFile, file);
-    assert.equal(parsed.command.action.body, undefined);
+  const relative = parseThinCommand(["--root", other, "task", "push", "task-1", "--body-file", "body.md"], root);
+  assert.equal(relative.ok, true, JSON.stringify(relative));
+  if (relative.ok) {
+    assert.equal(relative.command.action.bodyFile, file, "--root, not cwd, owns the body-file coordinate");
+    assert.equal(relative.command.action.body, undefined);
   }
-  assert.equal(parseThinCommand(["task", "push", "task-1", "--body-file", path.join(root, "missing")]).ok, true);
-  const targeted = parseThinCommand(
-    ["--root", path.join(root, "other"), "task", "push", "task-1", "--body-file", "body.md"],
-    root,
-  );
-  assert.equal(targeted.ok, true);
-  if (targeted.ok) assert.equal(targeted.command.action.bodyFile, file);
+  const absolute = parseThinCommand(["--root", other, "task", "push", "task-1", "--body-file", file], root);
+  assert.equal(absolute.ok, true, JSON.stringify(absolute));
+  if (absolute.ok) assert.equal(absolute.command.action.bodyFile, file);
+  const missing = parseThinCommand(["--root", other, "task", "push", "task-1", "--body-file", "missing.md"], root);
+  assert.equal(missing.ok, true, "a missing file is not read at parse time");
+  for (const outside of ["../outside.md", "/etc/hosts"]) {
+    const rejected = parseThinCommand(["--root", other, "task", "push", "task-1", "--body-file", outside], root);
+    assert.equal(rejected.ok, false, `${outside} must be refused`);
+    if (!rejected.ok) assert.equal(rejected.code, "invalid_field");
+  }
 });
 
 test("thin parser validates only the selected command descriptor", () => {
