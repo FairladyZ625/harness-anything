@@ -1420,7 +1420,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           auth,
         );
         assert.equal(published.outcome, "applied", JSON.stringify(published));
-        assert.equal(published.destination, `tasks/task-runtime-artifact-runtime-artifact/artifacts/${ownDestination}`);
+        assert.equal(
+          published.destination,
+          `harness/tasks/task-runtime-artifact-runtime-artifact/artifacts/${ownDestination}`,
+        );
         const rebuilt = await host.run(repoId, { kind: "projection-rebuild" }, auth);
         assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
         const reopened = await host.read(repoId, "repo.agentRuntime.overview", {}, auth),
@@ -1460,7 +1463,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             assert.equal(denied.code, "lease_conflict", JSON.stringify(denied));
             assert.equal(readFileSync(syncedTarget, "utf8"), "# Runtime doc sync artifact\n");
             const cliRetirement = await spawnCli(
-              ["--root", workerRoot, "--json", "doc", "retire", "--path", syncedPath, "--reason", reason],
+              ["--root", workerRoot, "--json", "doc", "retire", "--path", `harness/${syncedPath}`, "--reason", reason],
               {
                 ...process.env,
                 HARNESS_DAEMON_USER_ROOT: userRoot,
