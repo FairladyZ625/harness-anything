@@ -124,7 +124,7 @@
       "packages/daemon/src/conn-log.ts#writeLine",
       "packages/daemon/src/contained-path.ts#resolveContainedPath",
       "packages/daemon/src/daemon-host-open.ts#attach",
-      "packages/daemon/src/daemon-host-open.ts#readAccessToken",
+      "packages/daemon/src/fleet/replica-token.ts#createFleetReplicaAccessTokenReader",
       "packages/daemon/src/daemon-host-open.ts#spawn",
       "packages/daemon/src/daemon-host-recovery.ts#attachInitial",
       "packages/daemon/src/daemon-host-recovery.ts#attemptHostRecovery",

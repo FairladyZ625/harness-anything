@@ -61,8 +61,7 @@ export function createFleetReplicaAccessTokenReader(input: {
     const loginAuthority = replicaLoginAuthority;
     if (!loginAuthority) return undefined;
     return requestFleetReplicaToken({
-      url: loginAuthority.url,
-      realm: loginAuthority.realm,
+      ...loginAuthority,
       nodeId: input.config.nodeId,
       credential: input.config.credential,
       ca: loginAuthority.certificate ?? input.config.loginCertificate ?? systemCaCertificates(),
