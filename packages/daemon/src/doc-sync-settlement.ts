@@ -23,7 +23,9 @@ import { formatShellCommand } from "./shell-command-text.ts";
  */
 export function workspacePathOf(input: Pick<Input, "rootDir" | "workspaceCoordinate">): (document: string) => string {
   if (input.workspaceCoordinate !== true) return (document) => document;
-  return (document) => documentWorkspacePath(input.rootDir, document);
+  // Resolve the layout once per receipt, not once per path row: the scanner lists many rows.
+  const layout = resolveHarnessLayout(input.rootDir);
+  return (document) => documentWorkspacePath(input.rootDir, document, layout);
 }
 
 const toWorkspace = workspacePathOf;

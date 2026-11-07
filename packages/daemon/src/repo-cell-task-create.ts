@@ -202,7 +202,7 @@ export function prepareTaskCreateAt(
       packagePath: idempotent.packagePath,
       ...(idempotent.packagePath === null
         ? {}
-        : { workspacePackagePath: documentWorkspacePath(cell.rootDir, idempotent.packagePath) }),
+        : { workspacePackagePath: documentWorkspacePath(cell.rootDir, idempotent.packagePath, cell.layout) }),
       summary: `reused task ${idempotent.taskId} for the supplied idempotency key${
         current.snapshot.task ? workReceiptLine(cell.projection, current.snapshot.task) : ""
       }`,
@@ -342,7 +342,7 @@ export function prepareTaskCreateAt(
       taskId,
       taskStatus: "planned" as const,
       packagePath: compiled.packagePath,
-      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath),
+      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath, cell.layout),
       generatedPaths: compiled.documents.map((document) => document.path),
       presetDigest: compiled.snapshot.digest,
       scaffoldDigest: compiled.scaffoldDigest,
@@ -369,7 +369,7 @@ export function prepareTaskCreateAt(
         worktreeVisible: false,
       },
       ...common,
-      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath),
+      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath, cell.layout),
       guidance: taskCreateGuidance(roots, {
         taskId,
         packagePath: compiled.packagePath,
@@ -481,7 +481,7 @@ export function preparedTaskCreateReceipt(
     proof,
     ...fields,
     ...(typeof fields.packagePath === "string"
-      ? { workspacePackagePath: documentWorkspacePath(cell.rootDir, fields.packagePath) }
+      ? { workspacePackagePath: documentWorkspacePath(cell.rootDir, fields.packagePath, cell.layout) }
       : {}),
     guidance: taskCreateGuidance(roots, {
       taskId: fields.taskId,

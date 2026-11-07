@@ -12,12 +12,17 @@
  * because `task show` nests the same package under `task.packagePath`, progress claims and execution
  * artifacts, and because its human `summary` is rendered from that nested payload.
  */
+import { documentWorkspacePath } from "@harness-anything/kernel";
+
 type Receipt = Readonly<Record<string, unknown>>;
 type PackagePathPair = { readonly canonical: string; readonly workspace: string };
 
-export function translateReceiptPathCoordinates(receipt: Receipt): Receipt {
-  if (receipt.ok !== true) return receipt;
-  const evidence = receipt.evidence;
+export function translateReceiptPathCoordinates(receipt: Receipt, rootDir?: string): Receipt {
+  // A rejected receipt still carries the transition diagnostic the caller must act on, so the
+  // diagnostic path is translated before the success-only package rewrite below.
+  const diagnosed = rootDir === undefined ? receipt : rewriteDiagnosticDocumentPath(receipt, rootDir);
+  if (diagnosed.ok !== true) return diagnosed;
+  const evidence = diagnosed.evidence;
   let payload: unknown;
   if (typeof evidence === "string" && evidence.startsWith("{") && evidence.includes('"workspacePackagePath"')) {
     try {
@@ -28,11 +33,27 @@ export function translateReceiptPathCoordinates(receipt: Receipt): Receipt {
       throw new Error("CLI receipt evidence is not valid JSON", { cause: error });
     }
   }
-  const pairs = mergePairs(collectPackagePathPairs(receipt), isRecord(payload) ? collectPackagePathPairs(payload) : []),
-    translated = rewritePackagePaths(receipt, pairs) as Receipt;
+  const pairs = mergePairs(
+      collectPackagePathPairs(diagnosed),
+      isRecord(payload) ? collectPackagePathPairs(payload) : [],
+    ),
+    translated = rewritePackagePaths(diagnosed, pairs) as Receipt;
   return isRecord(payload)
     ? { ...translated, evidence: JSON.stringify(rewritePackagePaths(payload, pairs)) }
     : translated;
+}
+
+/**
+ * A transition-readiness diagnostic is rendered by the daemon from the authored key it projected.
+ * The CLI boundary prints the same path the caller can paste back into a --path flag.
+ */
+function rewriteDiagnosticDocumentPath(receipt: Receipt, rootDir: string): Receipt {
+  const diagnostic = receipt.diagnostic;
+  if (!isRecord(diagnostic) || typeof diagnostic.documentPath !== "string") return receipt;
+  return {
+    ...receipt,
+    diagnostic: { ...diagnostic, documentPath: documentWorkspacePath(rootDir, diagnostic.documentPath) },
+  };
 }
 
 function collectPackagePathPairs(value: unknown, pairs: PackagePathPair[] = []): PackagePathPair[] {

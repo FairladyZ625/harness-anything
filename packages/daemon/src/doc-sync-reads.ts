@@ -325,10 +325,11 @@ export function readAction(input: Input): WriteReceipt {
 
 export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1): DocSettlementReceipt {
   // Only a CLI-typed selection prints the workspace spelling; an internal read keeps the authored key.
-  const workspacePath =
-      input.workspaceCoordinate === true
-        ? (document: string) => documentWorkspacePath(input.rootDir, document)
-        : (document: string) => document,
+  const layout = input.workspaceCoordinate === true ? resolveHarnessLayout(input.rootDir) : null,
+    workspacePath =
+      layout === null
+        ? (document: string) => document
+        : (document: string) => documentWorkspacePath(input.rootDir, document, layout),
     retirement = event.payload.retirementReason === undefined ? null : event.payload.changes,
     reads = event.payload.changes.map((change) => input.projection.readDocument(change.path)),
     canonicalVisible = reads.every((read, index) => {
