@@ -1,7 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
@@ -37,25 +36,37 @@ test(
     const withBody = await edge.command({
       kind: "decision-propose",
       ...requiredPacket,
-      body: realizedDecisionBody(requiredPacket.title),
+      body:
+        `# ${requiredPacket.title}\n\n## 背景\n\nThe edge owns the packet file.\n\n` +
+        "## 权衡\n\nForwarding the decoded packet keeps one writer.\n\n## 结论\n\nSubmit from the edge.\n",
     });
     assert.equal(withBody.outcome, "applied", JSON.stringify(withBody));
     assert.deepEqual(evidence(withBody).defaultedFields, defaulted);
 
+    const decisionId = String(evidence(withBody).decisionId);
+    const shown = await f.host.run("lease-repo", { kind: "decision-show", decisionId }, localAuthFixture());
+    assert.equal(
+      (evidence(shown).decision as Record<string, unknown>).title,
+      requiredPacket.title,
+      "the center read projects the edge proposal",
+    );
+
+    // A missing body is a content refusal on both nodes, never the frame-shape invalid_command.
+    const centerWithoutBody = await f.host.run(
+      "lease-repo",
+      {
+        kind: "decision-propose",
+        jsonInput: JSON.stringify({ ...requiredPacket, title: "Center decision without prose" }),
+      },
+      localAuthFixture(),
+    );
     const withoutBody = await edge.command({
       kind: "decision-propose",
       ...requiredPacket,
       title: "Edge decision without prose",
     });
-    assert.equal(withoutBody.outcome, "applied", JSON.stringify(withoutBody));
-    assert.deepEqual(evidence(withoutBody).defaultedFields, defaulted);
-    const decisionId = String(evidence(withoutBody).decisionId);
-    assert.match(decisionId, /^dec_/u);
-    const shown = await f.host.run("lease-repo", { kind: "decision-show", decisionId }, localAuthFixture());
-    assert.equal(
-      (evidence(shown).decision as Record<string, unknown>).title,
-      "Edge decision without prose",
-      "the center read projects the edge proposal",
-    );
+    assert.equal(withoutBody.outcome, centerWithoutBody.outcome);
+    assert.equal(withoutBody.code, centerWithoutBody.code);
+    assert.notEqual(withoutBody.code, "invalid_command");
   },
 );

@@ -138,6 +138,9 @@ const createInput = input([
   wire(cli("admin", "boolean", false, "--admin", "boolean"), { omit: true }),
   wire(field("createMode", "string", false, ["migration", "import", "admin"]), { omit: true }),
   wire(field("plan", "string"), { maxLength: 32 * 1024 }),
+  // Work-create fixes this marker on the action; the center decides whether to require an authored
+  // plan. It travels on the fleet frame like every other action field and never enters --from-file.
+  field("requirePlan", "boolean", false),
 ]);
 
 const taskConcurrency = (
