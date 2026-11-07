@@ -33,6 +33,7 @@ const peopleWriteTopology = {
         jsonFields: requiredFields,
         jsonAllowedFields: allowedFields,
         pathKind: "workspace-file",
+        pathReader: "workspace-text",
         format: workspacePathFormat,
         conflictsWith: ["--json-input"],
       },

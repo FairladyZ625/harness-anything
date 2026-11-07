@@ -179,7 +179,7 @@ test("ha explain reports submit availability for the same actor that can submit"
       `## Summary\n\nSubmit actor fixture at ${deliveryCommit}.\n\n## Verification\n\nCLI integration.\n\n` +
       "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared actor binding.\n";
     for (const closeoutRoot of [root, path.join(root, ".worktrees", taskId)]) {
-      const closeoutPath = path.join(closeoutRoot, "harness", packagePath, "closeout.md");
+      const closeoutPath = path.join(closeoutRoot, packagePath, "closeout.md");
       mkdirSync(path.dirname(closeoutPath), { recursive: true });
       writeFileSync(closeoutPath, closeoutBody);
     }

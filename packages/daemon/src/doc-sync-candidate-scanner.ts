@@ -467,7 +467,10 @@ export function intentFromScan(
     claims: eligible.map((row) => row.bytes!),
   };
 }
-export function publicScan(scan: DocCandidateScan): {
+export function publicScan(
+  scan: DocCandidateScan,
+  workspacePath: (document: string) => string = (document) => document,
+): {
   readonly baseLedgerSha: LedgerCutIdentity;
   readonly rows: readonly DocCandidateRow[];
 } {
@@ -481,7 +484,7 @@ export function publicScan(scan: DocCandidateScan): {
         regionId: _regionId,
         classification: _classification,
         ...row
-      }) => row,
+      }) => ({ ...row, path: workspacePath(row.path) }),
     ),
   };
 }

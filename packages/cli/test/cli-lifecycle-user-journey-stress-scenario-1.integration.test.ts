@@ -92,7 +92,7 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
         workerEnvironment,
       ),
       packagePath = String(created.packagePath),
-      packageRoot = path.join(fixture.root, "harness", packagePath),
+      packageRoot = path.join(fixture.root, packagePath),
       closeoutPath = path.join(packageRoot, "closeout.md");
     await published(fixture, created, workerEnvironment);
     writeFileSync(path.join(packageRoot, "task_plan.md"), realizedTaskPlan("CLI changes requested recovery"));
@@ -308,7 +308,7 @@ test("CLI accepted receipt and daemon restart recover an in-flight task", async 
     assert.deepEqual(receipt.wait, { state: "satisfied", unsatisfied: [] });
     assert.equal((receipt.git as { readonly state?: string }).state, "verified");
     const packagePath = String(created.packagePath),
-      packageRoot = path.join(fixture.root, "harness", packagePath),
+      packageRoot = path.join(fixture.root, packagePath),
       planPath = path.join(packageRoot, "task_plan.md"),
       closeoutPath = path.join(packageRoot, "closeout.md");
     writeFileSync(planPath, realizedTaskPlan("CLI daemon restart recovery"));
@@ -370,7 +370,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
     assert.ok(existsSync(path.join(fixture.root, ".git", "refs", "heads", branch)), branch);
     writeFileSync(refLock, "");
     const pending = await expectApplied(fixture, createArgs(pendingTaskId, "CLI Git pending acceptance"), environment),
-      pendingPackageRoot = path.join(fixture.root, "harness", String(pending.packagePath));
+      pendingPackageRoot = path.join(fixture.root, String(pending.packagePath));
     assert.equal(pending.status, "accepted_durable", JSON.stringify(pending));
     assert.equal(facetState(pending, "git"), "pending", JSON.stringify(pending));
     assert.equal(existsSync(path.join(pendingPackageRoot, "INDEX.md")), false, pendingPackageRoot);
@@ -415,7 +415,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
     );
     assert.deepEqual(resettled.wait, { state: "satisfied", unsatisfied: [] }, JSON.stringify(resettled));
     assert.equal(facetState(resettled, "git"), "verified", JSON.stringify(resettled));
-    const packageIndex = packagePathFor(`harness/${String(pending.packagePath)}`, "INDEX.md");
+    const packageIndex = packagePathFor(String(pending.packagePath), "INDEX.md");
     assert.ok(existsSync(path.join(pendingPackageRoot, "INDEX.md")), pendingPackageRoot);
     assert.equal(git(fixture.root, "ls-tree", "--name-only", "HEAD", packageIndex), packageIndex);
     const healthy = await runResult(fixture, ["daemon", "status"], actorEnvironment(fixture, 0, null));
@@ -447,7 +447,7 @@ test("a locally edited task plan blocks a CLI retitle until doc sync submits the
     await startClient(fixture);
     const created = await expectApplied(fixture, createArgs(taskId, title), environment),
       packagePath = String(created.packagePath),
-      packageRoot = path.join(fixture.root, "harness", packagePath),
+      packageRoot = path.join(fixture.root, packagePath),
       planPath = path.join(packageRoot, "task_plan.md"),
       planLogical = packagePathFor(packagePath, "task_plan.md");
     await published(fixture, created, environment);
@@ -516,7 +516,7 @@ test("a restored task plan preserves local prose that CLI discard-local and reso
     await startClient(fixture);
     const created = await expectApplied(fixture, createArgs(taskId, title), environment),
       packagePath = String(created.packagePath),
-      planPath = path.join(fixture.root, "harness", packagePath, "task_plan.md"),
+      planPath = path.join(fixture.root, packagePath, "task_plan.md"),
       planLogical = packagePathFor(packagePath, "task_plan.md"),
       conflictRoot = path.join(fixture.root, ".harness/conflicts/doc-sync");
     await published(fixture, created, environment);

@@ -169,7 +169,7 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
     "10000",
   ]);
   const packagePath = String(created.packagePath),
-    planPath = path.join(source.root, "harness", packagePath, "task_plan.md");
+    planPath = path.join(source.root, packagePath, "task_plan.md");
   writeFileSync(planPath, "# Plan\n\nCenter restore probe plan body.\n");
   const published = applied(source, [
     "--root",
@@ -211,7 +211,7 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
   );
   assert.equal(
     readFileSync(planPath, "utf8"),
-    readFileSync(path.join(center.root, "harness", packagePath, "task_plan.md"), "utf8"),
+    readFileSync(path.join(center.root, packagePath, "task_plan.md"), "utf8"),
     "published document bytes must survive the restore",
   );
 

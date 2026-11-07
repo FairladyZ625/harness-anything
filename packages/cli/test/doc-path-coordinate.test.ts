@@ -32,16 +32,24 @@ test("every doc --path command passes the workspace spelling through to the acti
     const parsed = parseThinCommand(args, root);
     assert.equal(parsed.ok, true, `${args.join(" ")} must parse`);
     if (!parsed.ok) continue;
-    const action = parsed.command.action as { readonly paths?: readonly string[]; readonly path?: string };
+    const action = parsed.command.action as {
+      readonly paths?: readonly string[];
+      readonly path?: string;
+      readonly pathCoordinate?: string;
+    };
     assert.deepEqual(
       action.paths ?? [action.path],
       [`harness/${document}`],
       `${args.join(" ")} must carry the caller's spelling`,
     );
+    assert.equal(action.pathCoordinate, "workspace", `${args.join(" ")} must mark the CLI coordinate`);
   }
 });
 
-test("both nested repository-root spellings reach the action unchanged", (t) => {
+// The parser is coordinate-agnostic on purpose: the daemon action entry owns the one translation,
+// and only the marker decides that a value is CLI-typed. Whether the spelling is legal is the
+// resolver's judgment (`workspace-document-path.test.ts`), not the parser's.
+test("the parser hands every caller spelling through untouched and marks the coordinate", (t) => {
   const { root, ledgerRoot } = fixture(t);
   for (const [base, value] of [
     [root, `harness/${document}`],
@@ -50,6 +58,13 @@ test("both nested repository-root spellings reach the action unchanged", (t) => 
   ] as const) {
     const parsed = parseThinCommand(["doc", "show", "--path", value], base);
     assert.equal(parsed.ok, true, `${value} from ${base} must parse`);
-    if (parsed.ok) assert.equal((parsed.command.action as { path?: string }).path, value);
+    if (parsed.ok)
+      assert.deepEqual(
+        {
+          path: (parsed.command.action as { path?: string }).path,
+          pathCoordinate: (parsed.command.action as { pathCoordinate?: string }).pathCoordinate,
+        },
+        { path: value, pathCoordinate: "workspace" },
+      );
   }
 });

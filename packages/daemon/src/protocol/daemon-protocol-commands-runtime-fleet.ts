@@ -40,7 +40,12 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       "single",
       false,
       { code: "invalid_field" },
-      { pathKind: "workspace-file", format: workspacePathFormat, conflictsWith: ["--mission", "--prompt"] },
+      {
+        pathKind: "workspace-file",
+        pathReader: "prompt-file",
+        format: workspacePathFormat,
+        conflictsWith: ["--mission", "--prompt"],
+      },
     ),
     cliInput("--mission", "single", false, { code: "invalid_field" }, { conflictsWith: ["--prompt", "--prompt-file"] }),
     cliInput("--model", "single", false, { code: "invalid_field" }),
@@ -176,6 +181,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     ].join(""),
     method: "repo.agentRuntime.batch",
     inputs: [],
+    positionalInputs: [{ name: "<batch-file>", pathKind: "workspace-file", pathReader: "runtime-batch" }],
   }),
   defineRepoReadCommand({
     id: "runtime-status",
@@ -233,7 +239,12 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "missing_field" },
-        { pathKind: "workspace-file", format: workspacePathFormat, conflictsWith: ["--prompt"] },
+        {
+          pathKind: "workspace-file",
+          pathReader: "prompt-file",
+          format: workspacePathFormat,
+          conflictsWith: ["--prompt"],
+        },
       ),
       // Compare-and-steer (#4372): each stated expectation must still hold when the daemon appends.
       cliInput(
@@ -464,6 +475,7 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
       jsonFields: requiredFields,
       jsonAllowedFields: allowedFields,
       pathKind: "workspace-file",
+      pathReader: "workspace-text",
       format: workspacePathFormat,
       conflictsWith: ["--json-input"],
     },
@@ -528,7 +540,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { pathKind: "workspace-file", format: workspacePathFormat },
+        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
       ),
       cliInput(
         "--effort",
@@ -641,7 +653,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { pathKind: "workspace-file", format: workspacePathFormat },
+        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
       ),
       cliInput(
         "--effort",

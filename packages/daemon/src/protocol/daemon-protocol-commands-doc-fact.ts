@@ -280,7 +280,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { pathKind: "workspace-file", format: workspacePathFormat },
+        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
