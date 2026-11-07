@@ -64,6 +64,7 @@ export async function appendRecoveryQueryFixtures(
       providerSessionId: suffix === "b" ? "provider-query-b" : "provider-query-shared",
       transcriptRef: `artifact:runtime-transcript/${id}`,
     });
+    if (suffix === "b") await put("runtime_session_exited", { runtimeSessionId: id });
     if (suffix === "c")
       await put("runtime_session_outcome_observed", {
         runtimeSessionId: id,
@@ -91,6 +92,33 @@ export function assertRecoveryQueryContract(queries: TaskProjectionQueries): voi
   ]);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", executionOwnerNodeId: "node-query-b" }), []);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", unsettledOnly: true }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-b", nonExitedOnly: true }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", nonExitedOnly: true }), ["recovery-query-c"]);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-a", nonExitedOnly: true }), [
+    "recovery-query-a",
+    "recovery-query-c",
+  ]);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-b", nonExitedOnly: true }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-a", observedAfter: "2025-11-05T00:00:00.001Z" }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-c", observedBefore: "2025-11-04T23:59:59.999Z" }), []);
+  assert.deepEqual(
+    ids({
+      executionOwnerNodeId: "node-query-a",
+      observedAfter: "2025-11-05T00:00:00.000Z",
+      observedBefore: "2025-11-05T00:00:00Z",
+    }),
+    ["recovery-query-a", "recovery-query-c"],
+  );
+  // Live sessions stay in the activity window even after an outcome was observed; exited ones
+  // enter only through their observation time. Bounds with a different precision compare as instants.
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-a", activitySince: "2026-01-01T00:00:00Z" }), [
+    "recovery-query-a",
+    "recovery-query-c",
+  ]);
+  assert.deepEqual(ids({ executionOwnerNodeId: "node-query-b", activitySince: "2026-01-01T00:00:00Z" }), []);
+  assert.deepEqual(ids({ runtimeSessionId: "recovery-query-b", activitySince: "2025-11-05T00:00:00.000Z" }), [
+    "recovery-query-b",
+  ]);
   assert.deepEqual(ids({ runtimeSessionId: "recovery-query-a", unsettledOnly: true }), ["recovery-query-a"]);
   assert.deepEqual(ids({ providerSessionId: "provider-query-shared" }), ["recovery-query-a", "recovery-query-c"]);
   assert.deepEqual(ids({ providerSessionId: "provider-query-shared", unsettledOnly: true }), ["recovery-query-a"]);

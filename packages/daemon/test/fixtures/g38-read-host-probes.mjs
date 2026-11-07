@@ -104,7 +104,7 @@ export const HOST_READ_PROBES = {
         binding: runtime.nodeBinding,
         settings: runtime.settings.read(),
         now: now(),
-        page: (cursor) => runtime.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }),
+        page: (query) => runtime.read("repo.tasks.list", query),
         readTask: async (taskId) => (await runtime.read("repo.tasks.runtimeContext.read", { taskId })).snapshot.task,
         readAssignments: async () =>
           (

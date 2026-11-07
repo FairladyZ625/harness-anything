@@ -283,6 +283,24 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             where.push(`parent_task_id = $${values.length}`);
           }
         }
+        if (query.scopeRootTaskId !== undefined) {
+          await assertPgTaskParentIndexReady(client, options.scope);
+          values.push(query.scopeRootTaskId);
+          const root = `$${values.length}`,
+            visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+              AND (cardinality($4::text[])=0 OR readers && $4::text[])`;
+          where.push(`task_id IN (
+            WITH RECURSIVE descendants(task_id) AS (
+              SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
+              UNION SELECT child.task_id FROM ha_task_snapshots child JOIN descendants parent
+                ON child.parent_task_id=parent.task_id WHERE ${visible}
+            ), ancestors(task_id,parent_id) AS (
+              SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=${root}
+              UNION SELECT parent.task_id,parent.parent_task_id FROM ha_task_snapshots parent
+                JOIN ancestors child ON parent.task_id=child.parent_id WHERE ${visible}
+            ) SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors
+          )`);
+        }
         for (const [key, value] of [
           ["workKind", query.workKind],
           ["riskTier", query.riskTier],
@@ -350,7 +368,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             options.scope,
             result.rows.map((row) => row.snapshot),
             now(),
-            query.presentationStatus === false,
+            query.presentationStatus === false || query.decisionRelationsOnly === true,
           ),
           rows = (limit === null ? result.rows : result.rows.slice(0, limit)).map((row, index) => ({
             taskId: row.task_id,

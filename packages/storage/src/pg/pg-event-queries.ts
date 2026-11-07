@@ -242,6 +242,26 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
         )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
+        if (typeof fields === "object") {
+          const selected: CanonicalEventSummary[] = [];
+          for (const taskId of new Set(fields.taskIds)) {
+            const rows = await readEventRowsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              "canonical_task_id = $6 AND revision > $7 AND revision <= $8",
+              [taskId, afterRevision, cut.watermark],
+              "DESC",
+              limit + 1,
+            );
+            selected.push(
+              ...rows.map(({ event_json }) => canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1)),
+            );
+          }
+          selected.sort((left, right) => right.workspaceRevision - left.workspaceRevision);
+          return { ...cut, events: selected.slice(0, limit).reverse(), hasMore: selected.length > limit };
+        }
         if (fields === "fleet") {
           // The fleet overview renders only a bounded header. `summary_json` is the fleet summary
           // computed in JS at write time (and backfilled for old rows): parsing a whole event with

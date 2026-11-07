@@ -150,7 +150,7 @@ export function createDaemonHostRepositoryApi(
           binding,
           settings: settings.settings,
           now: context.now(),
-          page: (cursor) => cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
+          page: (query) => cell.read("repo.tasks.list", query, binding),
           readTask: async (taskId) =>
             (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
           readAssignments: async () => assignments.map(({ relation }) => relation),
@@ -1074,7 +1074,7 @@ export function createDaemonHostRepositoryApi(
           binding,
           now: new Date().toISOString(),
           settings: (await cell.read("repo.settings.read", {}, binding)).settings,
-          page: (cursor) => cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
+          page: (query) => cell.read("repo.tasks.list", query, binding),
           readTask: async (taskId) =>
             (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
           readAssignments: async () =>

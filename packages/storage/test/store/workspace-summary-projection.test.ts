@@ -20,10 +20,11 @@ import {
 } from "../../src/projection/relation-freshness-maintenance.ts";
 import { createTaskRelationProjectionTable, readTaskRelationPage } from "../../src/projection/task-query-projection.ts";
 import { readWorkspaceSummaryRows } from "../../src/projection/workspace-summary-projection.ts";
+import { ensureWorkspaceTaskCensus } from "../../src/projection/workspace-task-census.ts";
 
 // A projection holding only the tables the workspace census reads. Every statement is recorded with
 // the rows it returned, the same count G1's sqlRowsRead takes.
-function ledger() {
+function ledger(initializeCensus = true) {
   const db = new DatabaseSync(":memory:"),
     reads = { rows: 0 },
     prepare = db.prepare.bind(db);
@@ -42,9 +43,9 @@ function ledger() {
       "PRIMARY KEY(entity_kind, task_id, entity_id))",
   );
   createFactProjectionTables(db);
-  // Each write settles the stored relation freshness the way the projection's event application does.
   createRelationFreshnessMaintenance(db);
   const settle = () => void refreshDirtyRelationFreshness(db);
+  if (initializeCensus) ensureWorkspaceTaskCensus(db);
   db.prepare = ((sql: string) => {
     const statement = prepare(sql),
       all = statement.all.bind(statement),
@@ -118,7 +119,7 @@ function ledger() {
           direction: "directed",
           strength: "strong",
           origin: "authored",
-          rationale: rationale,
+          rationale,
           sourcePath: "",
           recordIndex: 0,
         }),
@@ -133,7 +134,6 @@ function ledger() {
           "VALUES (?, ?, ?, 'title', 'question', 'high', 'medium', 'census', 'default', 'ordinary', '{}', '{}', NULL, " +
           "'2026-09-28T00:00:00.000Z', NULL, ?)",
       ).run(decisionId, decisionIdSortKey(decisionId), state, revision);
-      settle();
     },
   };
 }
@@ -283,6 +283,37 @@ test("last change is the maximum active-package timestamp, or null for an empty 
       .prepare("UPDATE task_snapshot SET updated_at = ? WHERE task_id = ?")
       .run("2026-10-02T00:00:00.000Z", "archived");
     assert.equal(readWorkspaceSummaryRows(fixture.db).tasks.lastChangedAt, "2026-10-01T00:00:00.000Z");
+  } finally {
+    fixture.db.close();
+  }
+});
+
+test("workspace census expands old rows and follows previous-writer status, archive, delete and rollback writes", () => {
+  const fixture = ledger(false);
+  try {
+    seedCensus(fixture);
+    ensureWorkspaceTaskCensus(fixture.db);
+    const check = () => assert.deepEqual(readWorkspaceSummaryRows(fixture.db), rowByRowCensus(fixture.db));
+    check();
+    fixture.db.exec(
+      "UPDATE task_snapshot SET status='done', updated_at='2026-11-06T00:00:00Z' WHERE task_id='a-planned-waits-on-active'",
+    );
+    check();
+    fixture.db.exec(
+      "UPDATE task_snapshot SET snapshot_json=json_set(snapshot_json, '$.task.packageDisposition', 'archived') WHERE task_id='c-done'",
+    );
+    check();
+    fixture.db.exec(
+      "UPDATE task_snapshot SET snapshot_json=json_set(snapshot_json, '$.task.packageDisposition', 'active') WHERE task_id='c-done'",
+    );
+    check();
+    fixture.db.exec("BEGIN; UPDATE task_snapshot SET status='cancelled'; ROLLBACK");
+    check();
+    fixture.db.exec("DELETE FROM task_snapshot WHERE task_id='a-planned-waits-on-active'");
+    check();
+    // Opening the already-expanded cache does not recount or install duplicate triggers.
+    ensureWorkspaceTaskCensus(fixture.db);
+    check();
   } finally {
     fixture.db.close();
   }

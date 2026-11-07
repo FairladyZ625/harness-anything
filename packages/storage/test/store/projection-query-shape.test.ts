@@ -1028,6 +1028,52 @@ function workDerivationSnapshot(
   });
 }
 
+test("scoped task indexes include only the root, its descendants and its ancestor chain", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`
+      CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
+        status TEXT, updated_at TEXT NOT NULL DEFAULT '');
+      CREATE INDEX task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
+      CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT);
+    `);
+    const insert = db.prepare(
+      "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status) VALUES (?, ?, ?, ?)",
+    );
+    for (const [index, [taskId, parentTaskId]] of [
+      ["ancestor", null],
+      ["scope", "ancestor"],
+      ["child", "scope"],
+      ["leaf", "child"],
+      ["sibling", "ancestor"],
+      ["unrelated", null],
+    ].entries())
+      insert.run(taskId, index + 1, workDerivationSnapshot(taskId, "planned", "standard", parentTaskId), "planned");
+    for (let index = 0; index < 2000; index += 1) {
+      const taskId = `history-${String(index).padStart(4, "0")}`;
+      insert.run(taskId, 100 + index, workDerivationSnapshot(taskId, "done", "standard", null), "done");
+    }
+
+    assert.deepEqual(
+      readTaskIndexRows(db, { scopeRootTaskId: "scope" }).rows.map(({ taskId }) => taskId),
+      ["ancestor", "child", "leaf", "scope"],
+    );
+    const first = readTaskIndexRows(db, { scopeRootTaskId: "scope", limit: 2 });
+    assert.deepEqual(
+      first.rows.map(({ taskId }) => taskId),
+      ["ancestor", "child"],
+    );
+    assert.ok(first.page?.nextCursor);
+    const second = readTaskIndexRows(db, { scopeRootTaskId: "scope", limit: 2, cursor: first.page.nextCursor });
+    assert.deepEqual(
+      second.rows.map(({ taskId }) => taskId),
+      ["leaf", "scope"],
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("work derivation uses complete raw subtrees, including archived and nested work members", () => {
   const db = new DatabaseSync(":memory:");
   try {

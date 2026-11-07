@@ -36,6 +36,8 @@ function taskIndexContract(queries: IndexQueries) {
     empty: queries.readTaskIndex({ taskIds: [] }),
     point: queries.readTaskIndex({ taskIds: ["task-parity", "missing"] }),
     filtered: queries.readTaskIndex({ taskIds: ["task-parity", "missing"], presentationStatus: true }),
+    scope: queries.readTaskIndex({ scopeRootTaskId: "task-parity", presentationStatus: true }),
+    absentScope: queries.readTaskIndex({ scopeRootTaskId: "missing" }),
     statuses: queries.readTaskStatuses(),
     someStatuses: queries.readTaskStatuses(["task-parity", "missing"]),
     children: queries.readTaskChildCounts(queries.readTaskIdsForTaskContractMigration()),

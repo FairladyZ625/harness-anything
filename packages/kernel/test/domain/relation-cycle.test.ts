@@ -128,3 +128,25 @@ test("projection audit reports type-local active directed cycle witnesses", () =
     },
   ]);
 });
+
+test("full audits visit outgoing adjacency once per node at both component scales", (t) => {
+  const measured = [];
+  for (const size of [200, 2000]) {
+    let sourceReads = 0;
+    const edges = Array.from({ length: size }, (_, index) => {
+      const from = `task/${String(index).padStart(5, "0")}`;
+      return {
+        ...edge(`edge-${index}`, from, `task/${String(index + 1).padStart(5, "0")}`, "depends-on"),
+        get sourceRef() {
+          sourceReads += 1;
+          return from;
+        },
+      };
+    });
+    assert.deepEqual(findRelationCycleWitnesses(edges), []);
+    measured.push({ size, sourceReads });
+  }
+  t.diagnostic(JSON.stringify({ fullAuditAdjacency: measured }));
+  for (const { size, sourceReads } of measured)
+    assert.ok(sourceReads < size * 32, `${size} edges read source adjacency ${sourceReads} times`);
+});

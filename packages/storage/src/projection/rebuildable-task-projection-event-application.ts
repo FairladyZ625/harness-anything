@@ -12,6 +12,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
+import { refreshRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
 import { parse as parseYaml } from "yaml";
 import { canonicalizeWriteValue, isRecord } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import {
@@ -1002,6 +1003,7 @@ export function reduceBatch(
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
     const reducedItems = drainDeferred(db, limit, readBlob, true);
+    refreshRelationCycleAudit(db);
     const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
       /* @gate-identity check-bypass-write-boundary/bypass-write-001 */ db.prepare(sql),
     ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
@@ -1092,6 +1094,7 @@ export function catchUpRound(
           head?.eventDigest ?? null,
         );
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
+      refreshRelationCycleAudit(db);
       return batch.events.length;
     }
     if (batch !== null) {
@@ -1105,7 +1108,9 @@ export function catchUpRound(
         );
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
     }
-    return drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
+    const reduced = drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
+    refreshRelationCycleAudit(db);
+    return reduced;
   });
   return {
     sourceRevision,

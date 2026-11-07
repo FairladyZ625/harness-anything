@@ -17,6 +17,22 @@ import { withTempStoreAsync } from "./helpers.ts";
 
 const previousProjectionSchemaVersion = 13;
 
+test("ordinary projection mount installs the workspace census before summary reads", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const { eventStore } = tasklessFactLedger(rootDir, "workspace-census-mount", "F-CE5E0001");
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    try {
+      assert.deepEqual(projection.readWorkspaceSummary().summary.tasks, {
+        lastChangedAt: null,
+        total: 0,
+        byStatus: { planned: 0, active: 0, submitted: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0 },
+      });
+    } finally {
+      projection.close();
+    }
+  });
+});
+
 test("a projection schema bump discards pre-first-class Fact DDL before replay", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     const { projectionPath, eventStore } = tasklessFactLedger(rootDir, "automatic-ddl-rebuild", "F-ABE050B5");
@@ -89,6 +105,13 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
     original.close();
     const stale = new DatabaseSync(projectionPath);
     stale.exec(`DROP INDEX lease_cas_execution;
+      DROP INDEX task_snapshot_active_status;
+      DROP INDEX task_snapshot_active_package;
+      DROP INDEX task_snapshot_active_latest;
+      DROP TRIGGER workspace_census_insert;
+      DROP TRIGGER workspace_census_delete;
+      DROP TRIGGER workspace_census_update_remove;
+      DROP TRIGGER workspace_census_update_add;
       DROP INDEX legacy_block;
       DROP INDEX plain_block;
       DROP INDEX decision_state_legacy_page;
