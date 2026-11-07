@@ -11,6 +11,12 @@ import {
 export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   id: "agent-run",
   phase: "Runtime-B",
+  kindRewrite: {
+    authorizedKind: "runtime-run",
+    sourceDecision: "dec_2BF45FF7E52020380F5F35CE2D/CH6",
+    ownerTask: "task_0db67484d039c6f44bb815ba7c",
+    expires: "2026-12-07",
+  },
   path: ["agent", "run", "<id>"],
   summary: [
     "Dispatch task-bound work or resume its dispatch with the same Agent identity and working directory. ",
@@ -157,6 +163,12 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   defineRuntimeLocalWriteCommand({
     id: "runtime-batch",
     phase: "Runtime-B",
+    kindRewrite: {
+      authorizedKind: "runtime-run",
+      sourceDecision: "dec_2BF45FF7E52020380F5F35CE2D/CH6",
+      ownerTask: "task_0db67484d039c6f44bb815ba7c",
+      expires: "2026-12-07",
+    },
     path: ["runtime", "batch", "<batch-file>"],
     summary: [
       "Run a runtime-batch/v1 declaration through bounded concurrent runtime ",

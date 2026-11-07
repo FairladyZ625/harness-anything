@@ -4,7 +4,11 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, syml
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { auditDurableActionAuthorization, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
+import {
+  auditDurableActionAuthorization,
+  kindRewriteViolations,
+  loadAuthorizationInputs,
+} from "../ontology-durable-action-authorization.mjs";
 import { runGit } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -41,8 +45,12 @@ function edit(dir, file, from, to) {
   return () => writeFileSync(target, text);
 }
 
-function rows(dir, only, descriptors = inputs.descriptors) {
-  const result = auditDurableActionAuthorization(repoRoot, { ...inputs, descriptors }, { sourceRoot: dir, only });
+function rows(dir, only, descriptors = inputs.descriptors, options = {}) {
+  const result = auditDurableActionAuthorization(
+    repoRoot,
+    { ...inputs, descriptors },
+    { sourceRoot: dir, only, ...options },
+  );
   return Object.fromEntries(result.rows.map((row) => [row.id, row]));
 }
 
@@ -145,4 +153,50 @@ test("an AuthorizationPort decision for another action does not authorize this o
       'action: "permission-request-create",',
     ),
   );
+});
+
+const rewriteRows = ["agent-run", "runtime-batch", "edge-join"];
+
+test("a kind-rewrite route is traced against the kind it actually authorizes", (t) => {
+  // dec_2BF45FF7E52020380F5F35CE2D/CH6: agent-run and runtime-batch are authorized as runtime-run.
+  // Removing that decision's denial exit turns both red even though the declaration still stands.
+  const today = { today: "2026-11-07" };
+  const dir = sourceCopy(t);
+  for (const id of rewriteRows) assert.ok(rows(dir, rewriteRows, undefined, today)[id].ok, `${id}: green`);
+  const restore = edit(
+    dir,
+    "packages/daemon/src/repo-cell-authorization.ts",
+    'if (authorizationDecision.outcome === "denied")\n    throw cellCodedError(\n      "authorization_denied",\n      authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,',
+    'if (authorizationDecision.outcome === "denied")\n    void cellCodedError(\n      "authorization_denied",\n      authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,',
+  );
+  const mutated = rows(dir, ["agent-run", "runtime-batch"], undefined, today);
+  assert.equal(mutated["agent-run"].ok, false);
+  assert.equal(mutated["runtime-batch"].ok, false);
+  restore();
+  const restored = rows(dir, rewriteRows, undefined, today);
+  for (const id of rewriteRows) assert.ok(restored[id].ok, `${id}: restored green`);
+});
+
+test("a kind-rewrite declaration turns red after its expiry date", () => {
+  const before = rows(repoRoot, rewriteRows, undefined, { today: "2026-12-07" }),
+    after = rows(repoRoot, rewriteRows, undefined, { today: "2026-12-08" });
+  for (const id of rewriteRows) {
+    assert.ok(before[id].ok, `${id}: green through its expiry day`);
+    assert.equal(after[id].ok, false, `${id}: red the day after expiry`);
+    assert.match(after[id].violations.join("; "), /kindRewrite expired on 2026-12-07/);
+  }
+});
+
+test("a kind-rewrite declaration must cite an indexed decision and owner task", () => {
+  const valid = inputs.descriptors.find((descriptor) => descriptor.id === "agent-run").kindRewrite;
+  assert.deepEqual(kindRewriteViolations(valid, "2026-11-07"), []);
+  assert.match(
+    kindRewriteViolations({ ...valid, sourceDecision: "dec_00000000000000000000000000/CH1" }, "2026-11-07").join(),
+    /source decision .* is not in the evidence index/,
+  );
+  assert.match(
+    kindRewriteViolations({ ...valid, ownerTask: "task_00000000000000000000000000" }, "2026-11-07").join(),
+    /owner task .* is not in the evidence index/,
+  );
+  assert.match(kindRewriteViolations({ ...valid, expires: "soon" }, "2026-11-07").join(), /not a YYYY-MM-DD date/);
 });

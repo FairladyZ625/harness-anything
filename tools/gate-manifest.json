@@ -4273,7 +4273,7 @@
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f3-actor-role-policy-是真实切片但不是单一授权模型"
       ],
       "consumerScope": [
-        "daemon durable command descriptors and GUI action descriptors, including their hostAuthority declarations",
+        "daemon durable command descriptors and GUI action descriptors, including their hostAuthority and kindRewrite declarations",
         "ingress-to-effect control/data flow from the daemon transport entry to AuthorizationPort decisions and denial exits",
         "WriteReceipt authorizationDecision contract"
       ],
@@ -4286,7 +4286,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Every non-read descriptor is traced and tabulated; a host command without an AuthorizationPort decision passes only through its declared hostAuthority, which the gate checks against the route. No exemption list exists."
+        "notes": "Every non-read descriptor is traced and tabulated; a host command without an AuthorizationPort decision passes only through its declared hostAuthority, which the gate checks against the route. A kindRewrite declaration is traced against its authorizedKind and must cite a source decision and owner task present in tools/gates/evidence-index.mjs with an unexpired date. No exemption list exists."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,

@@ -217,6 +217,17 @@ type CliCommandDeclaration = {
    * process and sends the daemon nothing but a read.
    */
   readonly hostAuthority?: "local-transport" | "local-process";
+  /**
+   * A command whose route authorizes another action kind than the one it declares. The difference
+   * is legal only under a cited source decision, an owner task that designs it away and an expiry
+   * date; the durable-authorization gate traces `authorizedKind` and turns red once `expires` passes.
+   */
+  readonly kindRewrite?: {
+    readonly authorizedKind: string;
+    readonly sourceDecision: string;
+    readonly ownerTask: string;
+    readonly expires: string;
+  };
 };
 const defineTopologyCommand =
   (topology: CommandTopology) =>

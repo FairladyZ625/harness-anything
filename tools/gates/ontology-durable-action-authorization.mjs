@@ -3,7 +3,9 @@
 // daemon's transport entry to its effect. A row passes when an AuthorizationPort decision for the
 // descriptor's own action kind exits on denial before the effect and nothing on the route runs the
 // effect without it; a host command without such a decision must declare where its authority comes
-// from (`hostAuthority`), and that declaration is checked against the route, not trusted.
+// from (`hostAuthority`), and that declaration is checked against the route, not trusted. A route
+// that authorizes another kind than it declares (`kindRewrite`) is traced against that kind and holds
+// only while its source decision and owner task are in the public evidence index and it has not expired.
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +13,7 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 import ts from "typescript";
 import { buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
+import { EVIDENCE_INDEX } from "./evidence-index.mjs";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
 
 const receiptPath = "packages/kernel/src/domain/receipt-domain-registry.ts";
@@ -60,7 +63,25 @@ function transportEntries(graph) {
   return entries;
 }
 
+/** Why a kind-rewrite declaration cannot stand; empty when it cites indexed evidence and is unexpired. */
+export function kindRewriteViolations(rewrite, today, index = EVIDENCE_INDEX) {
+  const violations = [],
+    decision = String(rewrite.sourceDecision ?? "").split("/")[0];
+  if (typeof rewrite.authorizedKind !== "string" || rewrite.authorizedKind === "")
+    violations.push("kindRewrite names no authorizedKind");
+  if (!index.decisions.includes(decision))
+    violations.push(`kindRewrite source decision ${rewrite.sourceDecision} is not in the evidence index`);
+  if (!index.tasks.includes(rewrite.ownerTask))
+    violations.push(`kindRewrite owner task ${rewrite.ownerTask} is not in the evidence index`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rewrite.expires ?? "") || Number.isNaN(Date.parse(rewrite.expires)))
+    violations.push(`kindRewrite expiry ${rewrite.expires} is not a YYYY-MM-DD date`);
+  else if (today > rewrite.expires)
+    violations.push(`kindRewrite expired on ${rewrite.expires} (${rewrite.sourceDecision}, ${rewrite.ownerTask})`);
+  return violations;
+}
+
 export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
+  const today = options.today ?? new Date().toISOString().slice(0, 10);
   const sourceRoot = options.sourceRoot ?? rootDir,
     graph = buildFlowGraph(sourceRoot, { anchorRoot: rootDir }),
     tracer = makeAuthorizationTracer(graph, {
@@ -82,8 +103,10 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
           (!options.shard || index % options.shard.count === options.shard.index),
       );
   const rows = selected.map(({ descriptor, index }) => {
-    const kind = descriptor.actionKind ?? descriptor.id,
-      authority = descriptor.hostAuthority ?? "authorization-port";
+    const rewrite = descriptor.kindRewrite,
+      kind = rewrite?.authorizedKind ?? descriptor.actionKind ?? descriptor.id,
+      authority = descriptor.hostAuthority ?? (rewrite ? "kind-rewrite" : "authorization-port"),
+      declarationViolations = rewrite ? kindRewriteViolations(rewrite, today) : [];
     if (authority === "local-process")
       return {
         index,
@@ -104,16 +127,17 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       fields: wireFields(descriptor, inputs.methods),
       localTransport: authority === "local-transport",
     });
-    const evidence = authority === "local-transport" ? trace.local : trace.authorized;
+    const evidence = authority === "local-transport" ? trace.local : trace.authorized,
+      violations = [...declarationViolations, ...trace.violations];
     return {
       index,
       id: descriptor.id,
       kind,
       method: descriptor.method,
       authority,
-      ok: evidence.length > 0 && trace.violations.length === 0,
+      ok: evidence.length > 0 && violations.length === 0,
       evidence,
-      violations: trace.violations,
+      violations,
     };
   });
   const receipt = receiptAuthorizationContract(rootDir);

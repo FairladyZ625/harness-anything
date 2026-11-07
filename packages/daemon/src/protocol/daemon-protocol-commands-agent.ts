@@ -721,6 +721,12 @@ export const agentProtocolCommands = Object.freeze([
     method: "daemon.rbac.manage",
     // One operation of the managed RBAC surface, like login; it declares no Action of its own.
     actionKind: "rbac-bootstrap",
+    kindRewrite: {
+      authorizedKind: "daemon-repo-register",
+      sourceDecision: "dec_2BF45FF7E52020380F5F35CE2D/CH6",
+      ownerTask: "task_0db67484d039c6f44bb815ba7c",
+      expires: "2026-12-07",
+    },
     inputs: [
       cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot" }),
       cliInput(
