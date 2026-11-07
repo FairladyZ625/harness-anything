@@ -24,6 +24,7 @@ import {
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { materializeArtifactSource } from "../cli-artifact-source.ts";
 import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import {
   fleetRuntimeRoute,
@@ -515,8 +516,9 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
 
 function materializeTaskPrBody(command: ThinCommand): ThinCommand {
   if (command.action.kind !== "task-push" || typeof command.action.bodyFile !== "string") return command;
-  const { bodyFile, ...action } = command.action;
-  return { ...command, action: { ...action, body: readFileSync(path.resolve(command.rootDir, bodyFile), "utf8") } };
+  const { bodyFile, ...action } = command.action,
+    body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
+  return { ...command, action: { ...action, body } };
 }
 
 async function settleRepoWarming(

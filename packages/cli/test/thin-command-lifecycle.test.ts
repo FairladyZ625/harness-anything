@@ -740,32 +740,39 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   assert.equal(submit.ok, true);
   assert.equal(allSubmit.ok, true);
   assert.equal(taskSubmit.ok, true);
-  if (status.ok) assert.deepEqual(status.command.action, { kind: "doc-status", paths: [] });
+  if (status.ok)
+    assert.deepEqual(status.command.action, { kind: "doc-status", paths: [], pathCoordinate: "workspace" });
   if (selectedStatus.ok)
     assert.deepEqual(selectedStatus.command.action, {
       kind: "doc-status",
+      pathCoordinate: "workspace",
       paths: ["context/a.md", "context/b.md"],
     });
   if (dryRun.ok)
     assert.deepEqual(dryRun.command.action, {
       kind: "doc-dry-run",
+      pathCoordinate: "workspace",
       paths: ["context/a.md", "context/b.md"],
     });
-  if (materialize.ok) assert.deepEqual(materialize.command.action, { kind: "doc-materialize", paths: [] });
+  if (materialize.ok)
+    assert.deepEqual(materialize.command.action, { kind: "doc-materialize", paths: [], pathCoordinate: "workspace" });
   if (selectedMaterialize.ok)
     assert.deepEqual(selectedMaterialize.command.action, {
       kind: "doc-materialize",
+      pathCoordinate: "workspace",
       paths: ["context/a.md"],
     });
   if (allMaterialize.ok)
     assert.deepEqual(allMaterialize.command.action, {
       kind: "doc-materialize",
+      pathCoordinate: "workspace",
       paths: [],
       all: true,
     });
   if (show.ok)
     assert.deepEqual(show.command.action, {
       kind: "doc-show",
+      pathCoordinate: "workspace",
       path: "tasks/task-1/INDEX.md",
     });
   const rawShow = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md", "--raw"]);
@@ -773,12 +780,14 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   if (rawShow.ok)
     assert.deepEqual(rawShow.command.action, {
       kind: "doc-show",
+      pathCoordinate: "workspace",
       path: "tasks/task-1/INDEX.md",
       raw: true,
     });
   if (retire.ok)
     assert.deepEqual(retire.command.action, {
       kind: "doc-retire",
+      pathCoordinate: "workspace",
       paths: ["context/old.md"],
       reason: "superseded scratch",
     });
@@ -786,25 +795,29 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   if (retireBatch.ok)
     assert.deepEqual(retireBatch.command.action, {
       kind: "doc-retire",
+      pathCoordinate: "workspace",
       paths: ["context/old-a.md", "context/old-b.md"],
       reason: "superseded scratch",
     });
   if (submit.ok) {
     assert.deepEqual(submit.command.action, {
       kind: "doc-submit",
+      pathCoordinate: "workspace",
       paths: ["context/a.md", "context/b.md"],
     });
-    assert.deepEqual(Object.keys(submit.command.action).sort(), ["kind", "paths"]);
+    assert.deepEqual(Object.keys(submit.command.action).sort(), ["kind", "pathCoordinate", "paths"]);
   }
   if (allSubmit.ok)
     assert.deepEqual(allSubmit.command.action, {
       kind: "doc-submit",
+      pathCoordinate: "workspace",
       paths: [],
       all: true,
     });
   if (taskSubmit.ok)
     assert.deepEqual(taskSubmit.command.action, {
       kind: "doc-submit",
+      pathCoordinate: "workspace",
       taskId: "task-1",
     });
   assert.equal(
@@ -1429,6 +1442,7 @@ test("doc show accepts bounded version-pinned byte ranges", () => {
   if (parsed.ok)
     assert.deepEqual(parsed.command.action, {
       kind: "doc-show",
+      pathCoordinate: "workspace",
       path: "tasks/work/task_plan.md",
       raw: true,
       offset: 65536,

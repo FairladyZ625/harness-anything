@@ -329,7 +329,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
     );
     assert.deepEqual(
       rows(status.evidence).map((row) => [row.path, row.state]),
-      [[`${packagePath}/artifacts/reports/leased.md`, "eligible"]],
+      [[`harness/${packagePath}/artifacts/reports/leased.md`, "eligible"]],
       JSON.stringify(status.evidence),
     );
     const prefixedStatus = await cell.run(

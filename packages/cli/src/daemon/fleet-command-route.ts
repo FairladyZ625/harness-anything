@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import {
@@ -8,6 +7,7 @@ import {
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { serializeFleetAction } from "./fleet-payload-serializer.ts";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 
 export async function fleetScheduleRoute(
   command: ThinCommand,
