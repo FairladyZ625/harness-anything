@@ -224,3 +224,17 @@ export function parseResumeDispatch(
     "repo.agentRuntime.spawn",
   );
 }
+
+/** `ha agent run --recover-dispatch`: the compare values of the fenced recovery and the caller key. */
+export function agentRunRecovery(one: ReadonlyMap<string, string>): Record<string, unknown> {
+  const dispatchId = one.get("--recover-dispatch");
+  if (!dispatchId) return {};
+  return {
+    recovery: {
+      dispatchId,
+      executionId: one.get("--execution-id"),
+      expectedVersion: Number(one.get("--expected-version")),
+    },
+    dispatchKey: one.get("--idempotency-key"),
+  };
+}

@@ -42,6 +42,8 @@ import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
 import { captureDispatchForensics, dispatchForensicsRequired } from "./runtime-dispatch-evidence.ts";
 import { writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
+import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
+export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -892,7 +894,7 @@ function unsubmittedDeliveryRecovery(
   );
 }
 
-/** An undelivered stop names the task it left unsubmitted and hands back the reopen entry, so the
+/** An undelivered stop names the task it left unsubmitted and hands back the recovery entry, so the
  * receipt reads as "exited without delivering" plus the way to continue rather than a success shape
  * the owner must discover is hollow (dec_614F7BBB18C8687E7EFC72173D CH1). Reviewers re-dispatch
  * through review dispatches and squad turns through their coordinator, so only direct task exits. */
@@ -903,7 +905,9 @@ function unsubmittedExitGuidance(
   if (outcome !== "stopped" || !active.task || active.role === "reviewer" || active.squadId !== null) return null;
   return (
     `Task ${active.task.taskId} is not submitted: the worker exited without a submitted delivery. ` +
-    `Reopen the execution to re-dispatch with: ha task start ${active.task.taskId}`
+    `Recover the stopped worker with: ha agent run ${active.agent?.id ?? "<agent-id>"} --task ${active.task.taskId} ` +
+    `--recover-dispatch ${active.dispatchId} --execution-id ${active.task.executionId} ` +
+    "--expected-version <revision> --idempotency-key <key>"
   );
 }
 
@@ -1281,33 +1285,7 @@ export function applied(
   runtimeSessionId: string,
   dispatchId: string,
 ) {
-  const revision = event.workspaceRevision,
-    canonicalVisible = publication.cut.opId === event.opId && publication.cut.revision === revision,
-    base = {
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "runtime-spawn",
-      opId: event.opId,
-      runtimeSessionId,
-      dispatchId,
-      revision,
-      evidence: `event-object:${event.opId}`,
-      visibility: "center" as const,
-      proof: {
-        committedRevision: revision,
-        appliedCut: publication.cut.revision,
-        durable: canonicalVisible,
-        canonicalVisible,
-        worktreeVisible: null,
-      },
-    };
-  return canonicalVisible
-    ? { ...base, outcome: "applied" as const }
-    : {
-        ...base,
-        outcome: "pending" as const,
-        guidance: [{ kind: "retry-receipt", args: { opId: event.opId } }],
-      };
+  return runtimeSpawnReceipt(event, publication, runtimeSessionId, dispatchId);
 }
 
 export function controlReceipt(

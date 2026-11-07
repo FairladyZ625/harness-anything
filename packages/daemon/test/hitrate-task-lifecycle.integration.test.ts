@@ -122,10 +122,7 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
     const events = () => makeTaskEventReader({ repoId, rootDir }).read().events,
       startedEvents = events().length,
-      repeated = (await cell.run(
-        { kind: "task-start", taskId, executionId: "ignored-new-execution" },
-        holder,
-      )) as Record<string, unknown>;
+      repeated = (await cell.run({ kind: "task-start", taskId, executionId }, holder)) as Record<string, unknown>;
     assert.equal(repeated.outcome, "no_changes", JSON.stringify(repeated));
     assert.equal(repeated.acceptance, null);
     assert.equal(repeated.executionId, executionId);

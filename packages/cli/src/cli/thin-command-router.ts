@@ -9,7 +9,7 @@ import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
 import { parseProvider } from "./thin-command-provider.ts";
-import { parseRuntime } from "./thin-command-runtime.ts";
+import { agentRunRecovery, parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
 import { parseEntityAssignment, parseRoutedSpecial } from "./thin-command-router-special.ts";
 import { parseVerticalKindRouted } from "./thin-command-vertical-kind.ts";
@@ -434,12 +434,12 @@ function parseAgentRun(
       agentId,
       ...(f.booleans.has("--claim-next") ? { claimNext: true } : {}),
       ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
+      ...agentRunRecovery(f.one),
       ...(f.booleans.has("--enable-handoff") ? { handoffEnabled: true } : {}),
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),
       ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
       ...(prompt ? { prompt } : {}),
-      ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(missionName ? { missionName } : {}),
       ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),

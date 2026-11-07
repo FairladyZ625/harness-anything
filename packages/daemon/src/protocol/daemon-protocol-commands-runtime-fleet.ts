@@ -36,6 +36,47 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     ),
     cliInput("--task", "single", false, { code: "missing_field" }),
     cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }),
+    cliInput(
+      "--recover-dispatch",
+      "single",
+      false,
+      { code: "invalid_field" },
+      {
+        description:
+          "replace this stopped implementation dispatch of the task in one atomic compare-and-dispatch; " +
+          "required whenever the task's active execution already has an implementation dispatch",
+        requires: ["--task", "--execution-id", "--expected-version", "--idempotency-key"],
+        conflictsWith: ["--resume-dispatch", "--claim-next", "--dry-run"],
+      },
+    ),
+    cliInput(
+      "--execution-id",
+      "single",
+      false,
+      { code: "invalid_field" },
+      { description: "the task execution the recovered dispatch ran", requires: ["--recover-dispatch"] },
+    ),
+    cliInput(
+      "--expected-version",
+      "single",
+      false,
+      { code: "invalid_field" },
+      {
+        description: "the task revision the recovery was decided on",
+        regex: "^[0-9]+$",
+        requires: ["--recover-dispatch"],
+      },
+    ),
+    cliInput(
+      "--idempotency-key",
+      "single",
+      false,
+      { code: "invalid_field" },
+      {
+        description: "caller key; replaying the same recovery returns the dispatch it already produced",
+        requires: ["--recover-dispatch"],
+      },
+    ),
     cliInput("--enable-handoff", "boolean", false, { code: "invalid_field" }),
     cliInput("--instance", "single", false, { code: "invalid_field" }),
     cliInput("--cwd", "single", false, { code: "invalid_field" }),

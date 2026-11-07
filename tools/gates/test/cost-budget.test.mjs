@@ -25,6 +25,7 @@ import {
   measureTaskAmendPatches,
   assertTaskReviewDispatchMeasurement,
   measureTaskWitnessGates,
+  COLLECTION_SCALES,
   COLLECTION_PROBES,
 } from "../../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
 import {
@@ -482,6 +483,21 @@ test("document counts, event body bytes, and a paged single-owner relation colle
     const measured = { probe: { small: await run(process.cwd(), 100), large: await run(process.cwd(), 2000) } };
     assert.deepEqual(evaluateCollectionCosts(measured).errors, []);
   }
+});
+
+test("runtime-run dispatch admission measures both declared execution scales", async () => {
+  const probe = COLLECTION_PROBES["runtime-run:execution-dispatches"];
+  assert.ok(probe, "runtime-run execution dispatch probe must remain registered");
+  const measured = {
+    small: await probe.run(process.cwd(), COLLECTION_SCALES.small),
+    large: await probe.run(process.cwd(), COLLECTION_SCALES.large),
+  };
+  assert.deepEqual([measured.small.size, measured.large.size], [100, 2000]);
+  assert.deepEqual(
+    [measured.small.counts.dispatchRowsExamined, measured.large.counts.dispatchRowsExamined],
+    [100, 2000],
+  );
+  assert.deepEqual(evaluateCollectionCosts({ "runtime-run:execution-dispatches": measured }).errors, []);
 });
 
 test("collection cost rejects zero baselines growing positive, mismatched metrics and invalid scales", () => {
