@@ -34,10 +34,7 @@ test("submitted contract migration continues through the CLI without losing hist
   );
   published(fixture.root, fixture.userRoot, created);
   const packagePath = String(created.packagePath);
-  writeFileSync(
-    path.join(fixture.root, "harness", packagePath, "task_plan.md"),
-    realizedTaskPlan("Contract lifecycle"),
-  );
+  writeFileSync(path.join(fixture.root, packagePath, "task_plan.md"), realizedTaskPlan("Contract lifecycle"));
   assert.equal(cli("doc", "sync", "--submit", "--task", taskId).outcome, "applied");
   assert.equal(cli("task", "start", taskId, "--execution-id", "execution-original").outcome, "applied");
   const deliveryRoot = path.join(fixture.root, ".worktrees", taskId);
@@ -46,7 +43,7 @@ test("submitted contract migration continues through the CLI without losing hist
   git(deliveryRoot, "commit", "--quiet", "-m", "fix: contract lifecycle fixture");
   const sha = git(deliveryRoot, "rev-parse", "HEAD");
   writeFileSync(
-    path.join(fixture.root, "harness", packagePath, "closeout.md"),
+    path.join(fixture.root, packagePath, "closeout.md"),
     `# Closeout\n\n## Summary\n\nImplemented contract lifecycle at ${sha}.\n\n## Verification\n\nCLI lifecycle assertions passed.\n\n## Residual Risk\n\nNone observed.\n\n## Same Mechanism Elsewhere\n\nIteration changes retain historical executions.\n`,
   );
   assert.equal(cli("task", "submit", taskId, "--execution-id", "execution-original").outcome, "applied");
@@ -73,7 +70,7 @@ test("submitted contract migration continues through the CLI without losing hist
   assert.equal(started.outcome, "applied", JSON.stringify(started));
   assert.equal(show().task.status, "active");
   writeFileSync(
-    path.join(fixture.root, "harness", packagePath, "artifacts", "iteration-two.md"),
+    path.join(fixture.root, packagePath, "artifacts", "iteration-two.md"),
     "# Contract migration deliverable\n\nThe new contract has a deliverable.\n",
   );
   assert.equal(cli("doc", "sync", "--submit", "--task", taskId).outcome, "applied");

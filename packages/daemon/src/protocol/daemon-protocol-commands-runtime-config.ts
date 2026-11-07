@@ -93,6 +93,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Back up the registered repository through its daemon writer queue.",
     method: "daemon.repo.backup",
     inputs: [],
+    positionalInputs: [{ name: "<absolute-directory>", pathKind: "host-path", pathReader: "host" }],
   }),
   defineHostAdminCommand({
     id: "ledger-restore-drill",
@@ -102,6 +103,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     summary: "Verify and restore-drill a backup through its repository daemon.",
     method: "daemon.repo.restoreDrill",
     inputs: [cliInput("--shadow-parent", "single", false, { code: "invalid_field" })],
+    positionalInputs: [{ name: "<backup-directory>", pathKind: "host-path", pathReader: "host" }],
   }),
   defineLedgerWriteCommand({
     id: "daemon-projection-rebuild",

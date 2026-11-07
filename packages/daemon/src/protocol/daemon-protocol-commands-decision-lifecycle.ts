@@ -163,6 +163,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonAllowedFields: decisionProposalJsonFields,
           jsonDefaultFields: decisionProposalDefaultJsonFields,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 }, pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           conflictsWith: ["--json-input"],
         },
@@ -206,6 +207,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           requiresAny: ["--from-file", "--json-input"],
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           conflictsWith: ["--body"],
           wire: { omit: true },
@@ -383,6 +385,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: [
@@ -440,6 +443,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["responses"],
@@ -469,6 +473,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
@@ -571,7 +576,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { codec: { kind: "markdown-file", target: "body", maxBytes: 32 * 1024 }, pathKind: "workspace-file", format: workspacePathFormat, wire: { omit: true } },
+        { codec: { kind: "markdown-file", target: "body", maxBytes: 32 * 1024 }, pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat, wire: { omit: true } },
       ),
       cliInput(
         "--consent-by",

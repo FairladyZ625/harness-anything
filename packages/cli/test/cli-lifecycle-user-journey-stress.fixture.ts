@@ -96,7 +96,7 @@ async function runChain(
       workerEnvironment,
     ),
     packagePath = String(created.packagePath),
-    packageRoot = path.join(fixture.root, "harness", packagePath),
+    packageRoot = path.join(fixture.root, packagePath),
     planPath = path.join(packageRoot, "task_plan.md"),
     closeoutPath = path.join(packageRoot, "closeout.md"),
     artifactPath = path.join(packageRoot, "artifacts", "chain.txt");

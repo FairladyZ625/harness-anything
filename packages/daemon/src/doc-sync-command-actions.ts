@@ -8,6 +8,7 @@ import {
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
+  documentWorkspacePath,
   isDocEvent,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
@@ -183,21 +184,27 @@ function singleSelectedTask(input: Input): string | null {
 }
 
 /**
- * Every document path a caller types is relative to a repository root that contains the ledger;
- * translate it once here, before any doc action reads it. Keeping this at the action entry means a
- * new doc command inherits the boundary instead of having to remember it.
+ * CLI-typed document paths are workspace-relative and carry an explicit coordinate marker. Translate
+ * them once here and drop the marker before any doc action reads the action; daemon-internal callers
+ * pass authored keys without the marker and keep their canonical coordinate.
  */
 function withWorkspaceDocumentPaths(input: Input): Input {
-  const action = input.action,
+  const action = input.action;
+  if (action.pathCoordinate !== "workspace") return input;
+  const { pathCoordinate: _pathCoordinate, ...authoredAction } = action,
     toAuthored = (value: string): string => {
       const resolved = resolveWorkspaceDocumentPath(input.rootDir, value);
       if (!resolved.ok) throw docSyncError("invalid_field", resolved.reason);
       return resolved.documentPath;
     };
-  if (Array.isArray(action.paths) && action.paths.every((value) => typeof value === "string"))
-    return { ...input, action: { ...action, paths: (action.paths as readonly string[]).map(toAuthored) } };
-  if (typeof action.path === "string") return { ...input, action: { ...action, path: toAuthored(action.path) } };
-  return input;
+  if (Array.isArray(authoredAction.paths) && authoredAction.paths.every((value) => typeof value === "string"))
+    return {
+      ...input,
+      action: { ...authoredAction, paths: (authoredAction.paths as readonly string[]).map(toAuthored) },
+    };
+  if (typeof authoredAction.path === "string")
+    return { ...input, action: { ...authoredAction, path: toAuthored(authoredAction.path) } };
+  return { ...input, action: authoredAction };
 }
 
 export function runDocAction(rawInput: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
@@ -504,7 +511,11 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     );
   const receipt = publishTaskArtifactBytes(input, target, readFileSync(source.absolute));
   return receipt.outcome === "applied" || receipt.outcome === "pending"
-    ? { ...receipt, source: source.relative, destination: target.destination }
+    ? {
+        ...receipt,
+        source: source.relative,
+        destination: documentWorkspacePath(input.rootDir, target.destination),
+      }
     : receipt;
 }
 

@@ -30,12 +30,11 @@ test("a document path is workspace-relative and translates to the authored key",
   });
 });
 
-test("the ledger-repository spelling is the same key as the workspace-repository spelling", (t) => {
+test("the old authored-relative spelling is refused from the workspace root", (t) => {
   const root = fixture(t);
-  assert.deepEqual(resolveWorkspaceDocumentPath(root, "tasks/task_a/x.md"), {
-    ok: true,
-    documentPath: "tasks/task_a/x.md",
-  });
+  const resolved = resolveWorkspaceDocumentPath(root, "tasks/task_a/x.md");
+  assert.equal(resolved.ok, false);
+  if (!resolved.ok) assert.match(resolved.reason, /outside the authored ledger root/u);
 });
 
 test("from the authored root itself the repository-relative spelling is the authored key", (t) => {

@@ -47,7 +47,11 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
               // The kernel contract carries the packet shape; the workspace-root path rule belongs
               // to the daemon read layer, so it is added here where the CLI facet is assembled.
               ...(field.field === "fromFile"
-                ? { pathKind: "workspace-file" as const, format: workspacePathFormat }
+                ? {
+                    pathKind: "workspace-file" as const,
+                    pathReader: "workspace-text" as const,
+                    format: workspacePathFormat,
+                  }
                 : {}),
             }),
           ]
@@ -177,7 +181,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { field: "body", codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 }, pathKind: "workspace-file", format: workspacePathFormat },
+        { field: "body", codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 }, pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
       ),
     ],
     payloadFields: [{ field: "body", type: "string", required: false }],
@@ -311,6 +315,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         {
           description: "Required with --source; with --run defaults to a unique artifacts/evidence path",
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
         },
       ),
     ],

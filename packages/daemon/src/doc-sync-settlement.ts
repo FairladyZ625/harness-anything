@@ -24,7 +24,7 @@ const toWorkspace = workspacePathOf;
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
-    report = publicScan(scan),
+    report = publicScan(scan, workspacePathOf(input)),
     opId = `scan:${input.action.kind}:${scan.baseLedgerSha.headDigest}`,
     detail = scanDetail(input, scan, input.action.kind);
   return input.action.kind === "doc-dry-run"

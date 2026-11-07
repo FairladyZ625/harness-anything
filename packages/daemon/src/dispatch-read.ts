@@ -1,5 +1,6 @@
 import {
   consumeKnownError,
+  documentWorkspacePath,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
@@ -998,8 +999,12 @@ function canonicalDispatchRow(
     ...awaitingRulingFields(projection, payload),
     resultRef,
     exitCode,
-    ...(documentPath && document ? { dispatchPath: documentPath } : {}),
-    ...(reportPath && projection.readDocument(reportPath).document ? { reportPath } : {}),
+    ...(documentPath && document
+      ? { dispatchPath: rootDir ? documentWorkspacePath(rootDir, documentPath) : documentPath }
+      : {}),
+    ...(reportPath && projection.readDocument(reportPath).document
+      ? { reportPath: rootDir ? documentWorkspacePath(rootDir, reportPath) : reportPath }
+      : {}),
     ...(annotations.length > 0
       ? {
           advisories: annotations.flatMap((entry) =>
