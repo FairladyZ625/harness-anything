@@ -4,8 +4,10 @@
 // descriptor's own action kind exits on denial before the effect and nothing on the route runs the
 // effect without it; a host command without such a decision must declare where its authority comes
 // from (`hostAuthority`), and that declaration is checked against the route, not trusted.
+import { availableParallelism } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import ts from "typescript";
 import { buildFlowGraph, isFunctionNode } from "./authorization-flow-graph.mjs";
 import { makeAuthorizationTracer } from "./authorization-flow-trace.mjs";
@@ -72,12 +74,19 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     readMethods = new Set(
       inputs.descriptors.filter((descriptor) => descriptor.commandClass === "repo-read").map((entry) => entry.method),
     ),
-    selected = options.only ? durable.filter((descriptor) => options.only.includes(descriptor.id)) : durable;
-  const rows = selected.map((descriptor) => {
+    selected = durable
+      .map((descriptor, index) => ({ descriptor, index }))
+      .filter(
+        ({ descriptor, index }) =>
+          (!options.only || options.only.includes(descriptor.id)) &&
+          (!options.shard || index % options.shard.count === options.shard.index),
+      );
+  const rows = selected.map(({ descriptor, index }) => {
     const kind = descriptor.actionKind ?? descriptor.id,
       authority = descriptor.hostAuthority ?? "authorization-port";
     if (authority === "local-process")
       return {
+        index,
         id: descriptor.id,
         kind,
         method: descriptor.method,
@@ -97,6 +106,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     });
     const evidence = authority === "local-transport" ? trace.local : trace.authorized;
     return {
+      index,
       id: descriptor.id,
       kind,
       method: descriptor.method,
@@ -107,7 +117,11 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     };
   });
   const receipt = receiptAuthorizationContract(rootDir);
-  const findings = [
+  return { rows, receipt, findings: findingsFor(rows, receipt) };
+}
+
+function findingsFor(rows, receipt) {
+  return [
     ...rows
       .filter((row) => !row.ok)
       .map((row) =>
@@ -119,7 +133,30 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
       ? []
       : [`${receipt.file}:${receipt.line} receipt.authorizationDecision is optional or nullable`]),
   ];
-  return { rows, findings, receipt };
+}
+
+/** Each worker builds its own graph and traces every count-th descriptor; rows merge in order. */
+async function shardedAudit(rootDir) {
+  const count = Math.max(1, Math.min(4, availableParallelism())),
+    shards = await Promise.all(
+      Array.from(
+        { length: count },
+        (_, index) =>
+          new Promise((resolve, reject) => {
+            const worker = new Worker(new URL(import.meta.url), {
+              workerData: { durableAuthorizationShard: { rootDir, shard: { index, count } } },
+            });
+            worker.once("message", resolve);
+            worker.once("error", reject);
+            worker.once("exit", (code) => {
+              if (code !== 0) reject(new Error(`authorization shard ${index} exited with ${code}`));
+            });
+          }),
+      ),
+    ),
+    rows = shards.flatMap((shard) => shard.rows).sort((left, right) => left.index - right.index),
+    receipt = shards[0].receipt;
+  return { rows, receipt, findings: findingsFor(rows, receipt) };
 }
 
 function receiptAuthorizationContract(rootDir) {
@@ -158,7 +195,7 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     const { rootDir, mode } = parseCommonArgs(argv);
     const started = Date.now();
-    const result = auditDurableActionAuthorization(rootDir, await loadAuthorizationInputs(rootDir));
+    const result = await shardedAudit(rootDir);
     console.log(`G0-2 ontology-durable-action-authorization: ${mode}`);
     console.log("command | action | authority | evidence");
     for (const row of result.rows)
@@ -180,5 +217,11 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
+if (!isMainThread && workerData?.durableAuthorizationShard) {
+  const { rootDir, shard } = workerData.durableAuthorizationShard;
+  const { rows, receipt } = auditDurableActionAuthorization(rootDir, await loadAuthorizationInputs(rootDir), {
+    shard,
+  });
+  parentPort.postMessage({ rows, receipt });
+} else if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
   process.exitCode = await main();

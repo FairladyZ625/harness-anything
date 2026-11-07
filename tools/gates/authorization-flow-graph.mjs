@@ -864,8 +864,15 @@ export function makeEvaluator(graph, facts) {
         binding.from === facts.authorityModule &&
         Object.hasOwn(facts.functions, binding.exported)
       ) {
-        const argument = node.arguments[0] ? fold(node.arguments[0], env, depth + 1) : null;
-        return argument ? applyAuthority(facts.functions[binding.exported], argument.value) : null;
+        // The authority answers only when every input it is asked about is present and decided;
+        // an absent optional field or an undecided input leaves the branch live.
+        const inputs = node.arguments.map((argument) => fold(argument, env, depth + 1));
+        return inputs.length > 0 && inputs.every((input) => input && input.value !== undefined && input.value !== null)
+          ? applyAuthority(
+              facts.functions[binding.exported],
+              inputs.map((input) => input.value),
+            )
+          : null;
       }
     }
     // A single-expression predicate folds through its body, so extracting one is transparent.
@@ -882,13 +889,9 @@ export function makeEvaluator(graph, facts) {
     return null;
   }
 
-  /** The kernel authority evaluated on a folded input; an input it rejects leaves the branch live. */
-  function applyAuthority(fn, input) {
-    try {
-      return { value: fn(input) };
-    } catch {
-      return null;
-    }
+  /** The kernel authority evaluated on a folded input. */
+  function applyAuthority(fn, inputs) {
+    return { value: fn(...inputs) };
   }
 
   function regexFrom(node) {
