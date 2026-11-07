@@ -552,7 +552,8 @@ export function recoverLatest(root: string, env: NodeJS.ProcessEnv, taskId: stri
     executionId = shown.executions.find(
       (execution) => execution.state === "active" && execution.iteration === shown.task.iteration,
     )?.executionId,
-    latest = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>)
+    // `task dispatches` exits 1 when its latest dispatch stopped: that is exactly the state to recover.
+    latest = (runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>)
       .filter((row) => row.executionId === executionId && row.role !== "reviewer")
       .sort((left, right) => String(left.startedAt).localeCompare(String(right.startedAt)))
       .at(-1);

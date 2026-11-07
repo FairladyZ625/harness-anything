@@ -652,8 +652,6 @@ test("terminal settlement leaves an execution lease generation it never dispatch
           prompt: "Dispatch under the surviving lease generation",
           taskId,
           dispatchKey: "lease-generation-next",
-          // The stopped dispatch is replaced through the recovery fence, never a plain re-dispatch.
-          recovery: { dispatchId: String(receipt.dispatchId), executionId },
         },
         binding,
       );

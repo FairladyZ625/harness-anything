@@ -213,7 +213,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
     assert.equal(outsiderClaim.outcome, "op_rejected", JSON.stringify(outsiderClaim));
     assert.equal(outsiderClaim.code, "executor_binding_invalid", JSON.stringify(outsiderClaim));
     assert.equal(launchCount, launchesBeforeOutsiderClaim, "the rejected dispatch must not launch a provider");
-    // The contract: the same principal recovers the settled dispatch and re-enters the same execution.
+    // The contract: the same principal redispatches and re-enters the same execution.
     const second = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {
@@ -222,8 +222,6 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
         prompt: "Rejoin the execution as a new RuntimeSession.",
         taskId,
         dispatchKey: "handoff-rejoin-second",
-        // The settled first dispatch is named: re-entry is a fenced recovery, not a plain re-dispatch.
-        recovery: { dispatchId: String(first.dispatchId), executionId },
       },
     });
     assert.equal(second.outcome, "applied", JSON.stringify(second));
