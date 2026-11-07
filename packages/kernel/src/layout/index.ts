@@ -356,8 +356,8 @@ export function resolveWorkspaceDocumentPath(rootDir: string, value: string): Wo
 }
 
 /** The inverse boundary translation: a receipt prints the path a caller would paste back in. */
-export function documentWorkspacePath(rootDir: string, document: string): string {
-  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
+export function documentWorkspacePath(rootDir: string, document: string, layout?: HarnessLayout): string {
+  const authoredRoot = (layout ?? resolveHarnessLayout(rootDir)).authoredRoot;
   return path
     .relative(rootDir, path.join(authoredRoot, ...document.split("/")))
     .split(path.sep)
