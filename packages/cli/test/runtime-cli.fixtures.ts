@@ -533,3 +533,39 @@ export function assertTaskMissionPrompt(
     /^Previous dispatch: \S+\nLast conclusion: [\s\S]*\nExit worktree HEAD: .*\nCurrent worktree HEAD: .*\nHEAD comparison: (?:same|changed|unavailable)$/u,
   );
 }
+
+/**
+ * `ha agent run --recover-dispatch` arguments naming the task's latest implementation dispatch on
+ * its current execution, or none for the execution's first dispatch. A stopped worker is replaced
+ * only through this fence (#4376); call it after any `task start`, which advances the revision.
+ */
+export function recoverLatest(root: string, env: NodeJS.ProcessEnv, taskId: string): string[] {
+  const shown = JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as {
+      readonly revision: number;
+      readonly task: { readonly iteration: number };
+      readonly executions: readonly {
+        readonly executionId: string;
+        readonly state: string;
+        readonly iteration: number;
+      }[];
+    },
+    executionId = shown.executions.find(
+      (execution) => execution.state === "active" && execution.iteration === shown.task.iteration,
+    )?.executionId,
+    // `task dispatches` exits 1 when its latest dispatch stopped: that is exactly the state to recover.
+    latest = (runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>)
+      .filter((row) => row.executionId === executionId && row.role !== "reviewer")
+      .sort((left, right) => String(left.startedAt).localeCompare(String(right.startedAt)))
+      .at(-1);
+  if (!executionId || !latest) return [];
+  return [
+    "--recover-dispatch",
+    String(latest.dispatchId),
+    "--execution-id",
+    executionId,
+    "--expected-version",
+    String(shown.revision),
+    "--idempotency-key",
+    `test-recovery-${String(latest.dispatchId)}-${String(shown.revision)}`,
+  ];
+}

@@ -92,6 +92,8 @@ export interface IncidentActionEvidence {
   readonly leaseOccupied: boolean;
   readonly resumable: boolean;
   readonly agentId: string | null;
+  /** The execution the source dispatch ran; a rerun names it in its recovery fence. */
+  readonly executionId: string | null;
   /** Completed dispatches for this task, the round number the owner-visible reason names. */
   readonly roundsUsed: number;
   readonly budget: { readonly used: number; readonly limit: number };
@@ -123,8 +125,17 @@ export type IncidentActionPlan =
 
 /** The owner-facing command that re-dispatches this incident under the same worker identity, or
  * acquires the execution when the source dispatch has no identity to reuse. */
-export function redispatchCommand(taskId: string, agentId: string | null): string {
-  return agentId === null ? `ha task start ${taskId}` : `ha agent run ${agentId} --task ${taskId}`;
+export function redispatchCommand(
+  taskId: string,
+  agentId: string | null,
+  source?: { readonly dispatchId: string; readonly executionId: string | null },
+): string {
+  if (agentId === null) return `ha task start ${taskId}`;
+  if (!source) return `ha agent run ${agentId} --task ${taskId}`;
+  return (
+    `ha agent run ${agentId} --task ${taskId} --recover-dispatch ${source.dispatchId} ` +
+    `--execution-id ${source.executionId ?? "<execution-id>"} --expected-version <revision> --idempotency-key <key>`
+  );
 }
 
 /** A guard refusal is a CEO handling item, never a question: the reason names the worker stop, the
@@ -133,11 +144,18 @@ export function redispatchCommand(taskId: string, agentId: string | null): strin
  * successor (a running dispatch or an accepted submission), and a string names the command. */
 export function incidentGuardPlan(input: {
   readonly taskId: string;
+  readonly dispatchId: string;
   readonly guard: string;
-  readonly evidence: Pick<IncidentActionEvidence, "roundsUsed" | "budget" | "agentId">;
+  readonly evidence: Pick<IncidentActionEvidence, "roundsUsed" | "budget" | "agentId" | "executionId">;
   readonly next?: string | null;
 }): IncidentGuardPlan {
-  const next = input.next === undefined ? redispatchCommand(input.taskId, input.evidence.agentId) : input.next;
+  const next =
+    input.next === undefined
+      ? redispatchCommand(input.taskId, input.evidence.agentId, {
+          dispatchId: input.dispatchId,
+          executionId: input.evidence.executionId,
+        })
+      : input.next;
   return {
     action: "needs_attention",
     attention: "guard",
@@ -162,6 +180,7 @@ export function planIncidentAction(input: {
   const escalate = (guard: string, next?: string | null): IncidentActionPlan =>
     incidentGuardPlan({
       taskId: input.taskId,
+      dispatchId: input.dispatchId,
       guard,
       evidence: input.evidence,
       ...(next === undefined ? {} : { next }),
@@ -200,9 +219,16 @@ export function planIncidentAction(input: {
     return { action: "resume", payload: incidentSpawnPayload(input.taskId, input.dispatchId, true, null) };
   }
   if (!input.evidence.agentId) return escalate("the source dispatch has no worker identity to rerun.");
+  if (!input.evidence.executionId) return escalate("the source dispatch names no execution to recover.");
   return {
     action: "rerun",
-    payload: incidentSpawnPayload(input.taskId, input.dispatchId, false, input.evidence.agentId),
+    payload: incidentSpawnPayload(
+      input.taskId,
+      input.dispatchId,
+      false,
+      input.evidence.agentId,
+      input.evidence.executionId,
+    ),
   };
 }
 
@@ -238,6 +264,7 @@ export function defaultIncidentDisposition(input: {
 }): DefaultIncidentDisposition {
   let refusal: Extract<IncidentActionPlan, { readonly action: "needs_attention" }> = incidentGuardPlan({
     taskId: input.taskId,
+    dispatchId: input.dispatchId,
     guard: "no declared automatic disposition is admissible.",
     evidence: input.evidence,
   });
@@ -255,11 +282,15 @@ function incidentSpawnPayload(
   sourceDispatchId: string,
   resume: boolean,
   agentId: string | null,
+  executionId?: string,
 ): JsonObject {
   return {
     taskId,
     ...(resume ? { dispatchId: sourceDispatchId } : {}),
     ...(agentId && !resume ? { agentId } : {}),
+    // A rerun replaces the stopped dispatch through the same compare-and-dispatch fence as a manual
+    // recovery; the source dispatch it read is the compare value, the dispatch key the caller key.
+    ...(!resume && executionId ? { recovery: { dispatchId: sourceDispatchId, executionId } } : {}),
     prompt: [
       `Continue task ${taskId}.`,
       `The previous worker (dispatch ${sourceDispatchId}) stopped without a submitted delivery; inspect the current worktree and continue from the existing progress.`,
@@ -308,12 +339,26 @@ export async function executeIncidentAction(input: {
       reason: input.plan.rationale,
       successorDispatchId: null,
     };
+  // The owner repeats the disposition that could not run: a resume continues the source's provider
+  // session; a rerun is the fenced recovery of the source dispatch under the same worker identity.
+  const planned = input.plan.payload,
+    plannedFence =
+      typeof planned.recovery === "object" && planned.recovery !== null && !Array.isArray(planned.recovery)
+        ? (planned.recovery as JsonObject)
+        : null,
+    next =
+      input.plan.action === "resume"
+        ? `ha agent run <agent-id> --resume-dispatch ${input.dispatchId}`
+        : redispatchCommand(input.taskId, typeof planned.agentId === "string" ? planned.agentId : null, {
+            dispatchId: input.dispatchId,
+            executionId: typeof plannedFence?.executionId === "string" ? plannedFence.executionId : null,
+          });
   if (!input.binding)
     return {
       action: "needs_attention",
       attention: "guard",
       status: "applied",
-      reason: `needs_attention: the source dispatch ${input.dispatchId} has no persisted action binding for ${input.plan.action}. Next: ${redispatchCommand(input.taskId, null)}`,
+      reason: `needs_attention: the source dispatch ${input.dispatchId} has no persisted action binding for ${input.plan.action}. Next: ${next}`,
       successorDispatchId: null,
     };
   try {
@@ -334,7 +379,7 @@ export async function executeIncidentAction(input: {
       action: "needs_attention",
       attention: "guard",
       status: "applied",
-      reason: `needs_attention: launch failed: ${launchFailure} (automatic ${input.plan.action} for dispatch ${input.dispatchId}). Next: ${redispatchCommand(input.taskId, null)}`,
+      reason: `needs_attention: launch failed: ${launchFailure} (automatic ${input.plan.action} for dispatch ${input.dispatchId}). Next: ${next}`,
       successorDispatchId: null,
     };
   }

@@ -17,6 +17,7 @@ const taskId = "task_incident_action",
     leaseOccupied: false,
     resumable: true,
     agentId: "worker_agent",
+    executionId: "execution_incident_action",
     roundsUsed: 4,
     budget: { used: 3, limit: 3 },
     headKnown: true,
@@ -31,7 +32,10 @@ test("a budget-exhausted worker stop is a guard escalation, not a question", () 
   assert.match(plan.rationale, /^needs_attention:/u);
   assert.match(plan.rationale, /Worker stopped without a submitted delivery on round 4/u);
   assert.match(plan.rationale, /automatic redispatch budget 3\/3 used on automatic redispatches for this task/u);
-  assert.match(plan.rationale, /Next: ha agent run worker_agent --task task_incident_action/u);
+  assert.match(
+    plan.rationale,
+    /Next: ha agent run worker_agent --task task_incident_action --recover-dispatch dispatch_incident_action --execution-id execution_incident_action --expected-version <revision> --idempotency-key <key>/u,
+  );
   assert.doesNotMatch(plan.rationale, /^question:/u);
 });
 
@@ -66,6 +70,29 @@ test("an automatic action without a persisted binding escalates as a guard, not 
   assert.equal(attention, "guard");
   assert.match(String(outcome.reason), /^needs_attention:/u);
   assert.doesNotMatch(String(outcome.reason), /^question:/u);
+});
+
+test("a rerun that cannot launch hands the owner the fenced recovery, not a bare task start", async () => {
+  const plan = planIncidentAction({
+    selected: "rerun_same_identity",
+    taskId,
+    dispatchId,
+    evidence: { ...evidence, budget: { used: 0, limit: 3 } },
+  });
+  assert.equal(plan.action, "rerun");
+  const outcome = await executeIncidentAction({
+    cell: {} as never,
+    taskId,
+    plan,
+    binding: null,
+    dispatchId,
+    keycloakSession: async () => ({}) as never,
+  });
+  assert.equal(outcome.action, "needs_attention");
+  assert.match(
+    String(outcome.reason),
+    /Next: ha agent run worker_agent --task task_incident_action --recover-dispatch dispatch_incident_action --execution-id execution_incident_action --expected-version <revision> --idempotency-key <key>$/u,
+  );
 });
 
 test("an automatic local continuation restores the current provider authority", async () => {

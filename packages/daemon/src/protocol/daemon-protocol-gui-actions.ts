@@ -368,6 +368,8 @@ export const daemonGuiActionMethods = Object.freeze([
       handoffEnabled: "boolean?",
       dispatchKey: "string",
       providerSessionId: "string?",
+      // Fenced recovery of a stopped implementation dispatch: { dispatchId, executionId, expectedVersion? }.
+      recovery: "json?",
       // Reviewer dispatches carry the canonical decision/task binding through the
       // same payload that runtime-spawn consumes.
       reviewTarget: "json?",

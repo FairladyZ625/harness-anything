@@ -778,7 +778,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         executionRuntimeIngress: { kind: "runtime-run", ...payload },
       },
       binding,
-      (authorizedBinding) => context.runtimeSpawner.spawn(spawn, authorizedBinding, worktree),
+      (authorizedBinding) => context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection),
     );
   };
   const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding) =>

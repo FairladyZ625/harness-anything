@@ -326,7 +326,8 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       // Operator notices appended by the host layer (e.g. the missing hosting-credential
       // warning); the CLI renders them through its generic warnings channel.
       warnings: "optional-array",
-
+      // A fenced recovery names the stopped dispatch it replaced and the caller key it answers.
+      recovery: "optional-object",
       authorizationDecision: "nullable-object",
     },
     "runtime spawn receipt",

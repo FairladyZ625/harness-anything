@@ -313,7 +313,8 @@ const cancellationResumeTest = async (context: TestContext) => {
     resumedText = String((resumedDispatch.receipt.result as Record<string, unknown>).text),
     stopGuidance =
       `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
-      `Reopen the execution to re-dispatch with: ha task start ${taskId}`;
+      `Recover the stopped worker with: ha agent run terra --task ${taskId} --recover-dispatch ${resumedDispatchId} ` +
+      `--execution-id ${executionId} --expected-version <revision> --idempotency-key <key>`;
   assert.ok(resumedText.startsWith("resumed:provider-cli-session:"), resumedText);
   assert.ok(resumedText.endsWith(stopGuidance), "an unsubmitted resume must carry its continuation entry");
   assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length, -stopGuidance.length), {
@@ -575,7 +576,9 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     wildcardText.endsWith(
       `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(wildcardDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nwildcard prompt` +
         `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
-        `Reopen the execution to re-dispatch with: ha task start ${taskId}`,
+        `Recover the stopped worker with: ha agent run any-worker --task ${taskId} ` +
+        `--recover-dispatch ${wildcardDispatchId} --execution-id ${executionId} ` +
+        "--expected-version <revision> --idempotency-key <key>",
     ),
     wildcardText,
   );

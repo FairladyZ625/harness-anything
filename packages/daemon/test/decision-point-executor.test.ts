@@ -544,6 +544,7 @@ function fakeIncidentCell(input: {
                 fallbackState: null,
                 nextDispatchId: null,
                 status: "stopped",
+                executionId: "execution-1",
                 ...(input.resume ? { resume: input.resume } : {}),
                 ...(input.agentId ? { agentId: input.agentId } : {}),
                 ...(receipt ? { decisionAction: receipt } : {}),
@@ -909,6 +910,8 @@ test("an exhausted Decisions rate limit applies the deterministic rerun instead 
   assert.equal(spawns.length, 1, "the default disposition reruns the same identity");
   assert.equal(spawns[0]?.payload.agentId, "terra");
   assert.equal(spawns[0]?.payload.dispatchKey, `incident-action:task-1:${dispatchId}`);
+  // The rerun replaces the stopped dispatch through the same recovery fence as a manual recovery.
+  assert.deepEqual(spawns[0]?.payload.recovery, { dispatchId, executionId: "execution-1" });
   const stored = await openDecisionAnnotationStore(rootDir).export();
   assert.equal(stored[0]?.status, "failed");
   assert.equal(stored[0]?.failureCode, "decision_rate_limited");
@@ -1474,6 +1477,11 @@ test("a failed launch escalates to the owner and records the launch failure", as
   assert.equal(stored[0]?.action?.action, "needs_attention");
   assert.equal(stored[0]?.action?.status, "applied");
   assert.match(String(stored[0]?.action?.reason), /launch failed/u);
+  // #4376: the owner repeats the automatic resume, not a bare task start.
+  assert.match(
+    String(stored[0]?.action?.reason),
+    new RegExp(`Next: ha agent run <agent-id> --resume-dispatch ${dispatchId}$`, "u"),
+  );
 });
 
 test("incident projection scrubs worker prose before it leaves the daemon", () => {
