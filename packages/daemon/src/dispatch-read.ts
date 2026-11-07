@@ -35,6 +35,7 @@ import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts"
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
 import { dispatchActivityIdleMinutes, dispatchActivityStatus, providerConnectionFailure } from "./dispatch-activity.ts";
 import { cursorStep } from "./paginated-read.ts";
+import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 
 type DispatchBatchRead = Extract<DaemonTaskDispatchesResult, { readonly taskIds: readonly string[] }>;
 
@@ -387,13 +388,18 @@ export function taskDispatchesOutcome(
   return { outcome, exitCode: unsettled || outcome === "succeeded" ? 0 : 1 };
 }
 
-/** Terminal verdict for one dispatch row as the await surface sees it: a still-scheduled or
- * still-dispatched fallback attempt keeps waiting on its successor row, and a just-exited
- * process is terminal only once its outcome event has been projected (status+outcome unknown). */
+/** Terminal verdict for one dispatch row as the await surface sees it. A provider failure is
+ * settled only after the fallback stream is exhausted or its successor is projected; a just-exited
+ * process is terminal only once its outcome event has been projected. */
 export function taskDispatchRowSettled(row: TaskDispatchRow, dispatchIds: readonly string[]): boolean {
+  const providerFailureTerminal =
+      row.status === "failed" &&
+      row.outcome === "failed" &&
+      row.classification !== null &&
+      isProviderFailureClassification(row.classification),
+    successorProjected = row.nextDispatchId !== null && dispatchIds.includes(row.nextDispatchId);
   if (row.fallbackState === "scheduled") return false;
-  if (row.fallbackState === "dispatched" && (row.nextDispatchId === null || !dispatchIds.includes(row.nextDispatchId)))
-    return false;
+  if (row.fallbackState === "dispatched" && !successorProjected && !providerFailureTerminal) return false;
   if (
     row.status === "succeeded" ||
     row.status === "failed" ||
@@ -421,6 +427,7 @@ export function taskDispatchRowsSettled(rows: readonly TaskDispatchRow[]): boole
  */
 export function unsettledCutReviewDispatches(input: {
   readonly projection: TaskProjectionQueries;
+  readonly rootDir?: string;
   readonly taskId: string;
   readonly executionId: string;
   readonly submissionDigest: `sha256:${string}`;
@@ -435,7 +442,7 @@ export function unsettledCutReviewDispatches(input: {
           event.payload.reviewTarget.digest === input.submissionDigest,
       ),
     sessions = events.flatMap((event) => input.projection.readRuntimeSession(event.payload.runtimeSessionId) ?? []),
-    rows = readSessionGroupDispatches({ events, sessions, projection: input.projection }),
+    rows = readSessionGroupDispatches({ events, sessions, projection: input.projection, rootDir: input.rootDir }),
     dispatchIds = rows.map((row) => row.dispatchId);
   return rows.filter((row) => !taskDispatchRowSettled(row, dispatchIds));
 }
@@ -588,6 +595,7 @@ export function readSessionGroupDispatches(input: {
   readonly sessions: readonly RuntimeSession[];
   readonly events: readonly DispatchEvent[];
   readonly projection: DispatchQueries;
+  readonly rootDir?: string;
   /** Aggregate pages need grouping fields, not the full delivered/blocked dispatch derivation. */
   readonly shallow?: boolean;
 }): readonly TaskDispatchRow[] {
@@ -595,7 +603,7 @@ export function readSessionGroupDispatches(input: {
   return input.events.map((event) =>
     input.shallow
       ? shallowSessionGroupRow(event, sessions.get(event.payload.runtimeSessionId))
-      : canonicalDispatchRow(input.projection, event, sessions.get(event.payload.runtimeSessionId)),
+      : canonicalDispatchRow(input.projection, event, sessions.get(event.payload.runtimeSessionId), input.rootDir),
   );
 }
 

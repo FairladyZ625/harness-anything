@@ -49,7 +49,9 @@ export function resolveRuntimeCwd(root: string, value: unknown): string {
   )
     throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd scope is invalid.");
   const requestedPath = cwd.scope === "repo-root" ? "." : requiredRuntimeSpawnText(cwd.path, "cwd.path"),
-    resolved = resolveContainedPath(root, requestedPath);
+    candidate = path.resolve(root, requestedPath);
+  if (!existsSync(candidate)) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd directory does not exist.");
+  const resolved = resolveContainedPath(root, requestedPath);
   if (resolved === null) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd must stay inside the repository.");
   return resolved;
 }

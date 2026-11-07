@@ -1,11 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { submissionDigest } from "@harness-anything/kernel";
+import { submissionDigest, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
+import { readDispatchStream, reopenDispatchStream } from "../src/dispatch-stream.ts";
+import { workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
-import { executionId, fixture, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
+import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 
 for (const registeredByWorker of [true, false]) {
   test(
@@ -23,6 +26,11 @@ for (const registeredByWorker of [true, false]) {
         await f.submit();
         const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
         assert.ok(dispatch?.type === "runtime_dispatch_requested");
+        assert.equal(
+          path.resolve(f.launches[0]!.cwd),
+          path.resolve(f.root, "harness", f.packagePath),
+          "a task-package reviewer without a detached worktree runs in its canonical package",
+        );
         const { dispatchId, runtimeSessionId } = dispatch.payload,
           reviewId = `review-${dispatchId}`,
           packet = `${f.packagePath}/artifacts/reports/${dispatchId}.json`,
@@ -96,15 +104,24 @@ test(
   "settlement rejects an approved packet when every local command fails before recovery",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, { autoSubmit: false, closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      submitCommit: true,
+      guiDelivery: true,
+      create: { presetId: "standard-task" },
+    });
     try {
       await f.install();
       await f.submit();
       const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(dispatch?.type === "runtime_dispatch_requested");
       const { dispatchId, runtimeSessionId } = dispatch.payload,
+        snapshotCwd = readDispatchStream(f.root, dispatchId)?.header.cwd,
         report = f.reportPath(dispatchId),
         packet = report.replace(/\.md$/u, ".json");
+      assert.ok(snapshotCwd, "review dispatch must record its immutable snapshot cwd");
+      assert.equal(existsSync(snapshotCwd), true, "the snapshot exists while the reviewer is running");
       mkdirSync(path.dirname(report), { recursive: true });
       writeFileSync(report, "# Review\n\nApproved packet without successful local evidence.\n");
       writeFileSync(
@@ -134,6 +151,11 @@ test(
       assert.equal(terminal.payload.outcome, "failed");
       assert.equal(terminal.payload.attempt?.classification, "gate_red");
       assert.equal(
+        existsSync(snapshotCwd),
+        false,
+        `a non-provider failure terminal also reclaims the snapshot (cwd=${snapshotCwd}, root=${f.root})`,
+      );
+      assert.equal(
         f.events().filter((event) => event.type === "review_recorded").length,
         0,
         "an approved packet without successful local command evidence must never be persisted",
@@ -143,6 +165,166 @@ test(
     }
   },
 );
+
+test("consent settles an exhausted provider-failed reviewer with no projected successor", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    closeoutProfile: "standard",
+    providerRoundBackoffBaseSeconds: 300,
+  });
+  try {
+    await f.install();
+    await f.submit();
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const { dispatchId, runtimeSessionId } = dispatch.payload,
+      reviewId = `review-${dispatchId}`;
+    assert.equal((await f.review(runtimeSessionId, reviewId)).outcome, "applied");
+
+    f.failProviderFaultPending();
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "failed");
+    const terminal = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    assert.ok(terminal?.type === "runtime_session_outcome_observed");
+    assert.equal(terminal.payload.attempt?.classification, "provider_fault");
+    assert.equal(terminal.payload.attempt?.fallbackState, "scheduled");
+    const stream = readDispatchStream(f.root, dispatchId);
+    assert.ok(stream);
+    reopenDispatchStream(f.root, stream.header).appendFallbackState(
+      { state: "exhausted", reason: "Provider fallback could not launch its successor." },
+      terminal.occurredAt,
+    );
+    assert.equal(readDispatchStream(f.root, dispatchId)?.fallbackState, "exhausted");
+    const rows = (await f.cell().read("repo.task.dispatches", { taskId })).dispatches,
+      predecessor = rows.find((row) => row.dispatchId === dispatchId);
+    assert.equal(predecessor?.status, "failed");
+    assert.equal(predecessor?.outcome, "failed");
+    assert.equal(predecessor?.classification, "provider_fault");
+    assert.equal(predecessor?.nextDispatchId, null);
+
+    const consented = await f.consent(reviewId);
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+  } finally {
+    await f.close();
+  }
+});
+
+test("consent waits while a provider-failed reviewer fallback is scheduled for a future retry", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    closeoutProfile: "standard",
+    providerRoundBackoffBaseSeconds: 300,
+  });
+  try {
+    await f.install();
+    await f.submit();
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const { dispatchId, runtimeSessionId } = dispatch.payload,
+      reviewId = `review-${dispatchId}`;
+    assert.equal((await f.review(runtimeSessionId, reviewId)).outcome, "applied");
+
+    f.failProviderFaultPending();
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "failed");
+    const terminal = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    assert.ok(terminal?.type === "runtime_session_outcome_observed");
+    assert.equal(terminal.payload.attempt?.fallbackState, "scheduled");
+    const stream = readDispatchStream(f.root, dispatchId);
+    assert.ok(stream);
+    reopenDispatchStream(f.root, stream.header).appendFallbackState(
+      {
+        state: "scheduled",
+        delayMs: 300_000,
+        notBeforeAt: "2099-01-01T00:00:00.000Z",
+        nextProvider: { instance: "ds-harness-api" },
+      },
+      terminal.occurredAt,
+    );
+    const rows = (await f.cell().read("repo.task.dispatches", { taskId })).dispatches,
+      predecessor = rows.find((row) => row.dispatchId === dispatchId);
+    assert.equal(predecessor?.fallbackState, "scheduled");
+    assert.equal(predecessor?.nextDispatchId, null);
+
+    const consent = await f.consent(reviewId);
+    assert.equal(consent.code, "review_dispatch_unsettled", JSON.stringify(consent));
+  } finally {
+    await f.close();
+  }
+});
+
+test("consent still waits for a queued reviewer fallback successor in the same cut", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    closeoutProfile: "standard",
+    providerRoundBackoffBaseSeconds: 300,
+  });
+  try {
+    await f.install();
+    await f.submit();
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const { dispatchId, runtimeSessionId } = dispatch.payload,
+      reviewId = `review-${dispatchId}`,
+      digest = dispatch.payload.reviewTarget?.digest;
+    assert.ok(digest);
+    assert.equal((await f.review(runtimeSessionId, reviewId)).outcome, "applied");
+
+    f.failPending();
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "failed");
+    const successor = await appendCanonicalReviewSuccessor(f, dispatch, digest, "same-cut"),
+      rows = (await f.cell().read("repo.task.dispatches", { taskId })).dispatches,
+      successorRow = rows.find((row) => row.dispatchId === successor.dispatchId);
+    assert.equal(successorRow?.status, "unknown", "a projected dispatch without a session is still queued");
+    assert.equal(
+      (await f.consent(reviewId)).code,
+      "review_dispatch_unsettled",
+      "a real same-cut successor remains part of the consent gate",
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+async function appendCanonicalReviewSuccessor(
+  f: Awaited<ReturnType<typeof fixture>>,
+  predecessor: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>,
+  digest: `sha256:${string}`,
+  label: string,
+): Promise<{ readonly dispatchId: string }> {
+  const dispatchKey = `task-review-consent-successor:${label}`,
+    identity = createHash("sha256")
+      .update(`${workspaceId("completion-review")}\0${dispatchKey}`)
+      .digest("hex"),
+    payload = {
+      ...predecessor.payload,
+      dispatchId: `dispatch_${identity.slice(0, 24)}`,
+      runtimeSessionId: `runtime_${identity.slice(24, 48)}`,
+      dispatchKey,
+      attemptGroupId: predecessor.payload.attemptGroupId ?? predecessor.payload.dispatchId,
+      attemptIndex: (predecessor.payload.attemptIndex ?? 0) + 1,
+      reviewTarget: { ...predecessor.payload.reviewTarget!, digest },
+    },
+    receipt = await f.cell().runtimeIngress(
+      {
+        kind: "event",
+        type: "runtime_dispatch_requested",
+        opId: `op-review-successor-${label}`,
+        payload,
+      },
+      owner,
+    );
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  return { dispatchId: payload.dispatchId };
+}
 
 test(
   "settlement cannot take reviewer identity from an artifact's self-reported actor",

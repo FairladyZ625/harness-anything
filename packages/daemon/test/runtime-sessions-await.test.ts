@@ -279,6 +279,27 @@ test("taskDispatchRowSettled honours fallback chains and the unknown-outcome gra
       fallbackState: "dispatched",
       nextDispatchId: "dispatch-elsewhere",
     }),
+    scheduledProviderFailure = dispatchRow({
+      status: "failed",
+      outcome: "failed",
+      fallbackState: "scheduled",
+      classification: "provider_fault",
+    }),
+    failedFallbackLaunch = dispatchRow({
+      status: "failed",
+      outcome: "failed",
+      fallbackState: "dispatched",
+      nextDispatchId: "dispatch-missing",
+      reason: "Provider process disconnected before completing the attempt.",
+      classification: "provider_fault",
+    }),
+    failedNonProvider = dispatchRow({
+      status: "failed",
+      outcome: "failed",
+      fallbackState: "dispatched",
+      nextDispatchId: "dispatch-missing",
+      classification: "gate_red",
+    }),
     exhausted = dispatchRow({ fallbackState: "exhausted", status: "failed", outcome: "failed" }),
     justExited = dispatchRow({ status: "unknown", outcome: null }),
     unknownTerminal = dispatchRow({ status: "unknown", outcome: "unknown" }),
@@ -292,12 +313,35 @@ test("taskDispatchRowSettled honours fallback chains and the unknown-outcome gra
     "a dispatched row is terminal once its successor row is projected",
   );
   assert.equal(taskDispatchRowSettled(dispatchedAway, ids), false);
+  assert.equal(
+    taskDispatchRowSettled(scheduledProviderFailure, ids),
+    false,
+    "a scheduled provider failure may still have a live fallback waiting for its backoff",
+  );
+  assert.equal(
+    taskDispatchRowSettled(failedFallbackLaunch, ids),
+    true,
+    "a failed predecessor with no projected successor is terminal",
+  );
+  assert.equal(
+    taskDispatchRowSettled(failedNonProvider, ids),
+    false,
+    "non-provider failures still await their successor",
+  );
   assert.equal(taskDispatchRowSettled(exhausted, ids), true);
   assert.equal(taskDispatchRowSettled(justExited, ids), false, "status=unknown without outcome is still projecting");
   assert.equal(taskDispatchRowSettled(unknownTerminal, ids), true);
   assert.equal(taskDispatchRowSettled(succeeded, ids), true);
   assert.equal(taskDispatchRowsSettled([succeeded, unknownTerminal]), true);
   assert.equal(taskDispatchRowsSettled([succeeded, running]), false);
+  assert.equal(
+    taskDispatchRowsSettled([
+      dispatchedTo,
+      dispatchRow({ dispatchId: "dispatch-2", status: "running", outcome: null }),
+    ]),
+    false,
+    "a queued or running fallback successor still blocks settlement",
+  );
 });
 
 test("a parked sessions.await ends when the connection that asked for it closes", async () => {

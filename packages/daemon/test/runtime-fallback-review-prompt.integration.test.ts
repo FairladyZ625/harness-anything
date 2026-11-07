@@ -1,7 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { resolveRuntimeCwd } from "../src/runtime-spawn-mission.ts";
 import { fixture, owner } from "./task-completion-review.fixture.ts";
 
 test(
@@ -11,8 +14,11 @@ test(
     const f = await fixture(1, true, false, false, false, {
       autoSubmit: false,
       closeoutProfile: "standard",
+      submitCommit: true,
+      guiDelivery: true,
+      create: { presetId: "standard-task" },
       keycloakSession: async () => owner.keycloakAuthorization.session,
-      providerRoundBackoffBaseSeconds: 0,
+      providerRoundBackoffBaseSeconds: 1,
     });
     try {
       await f.install(null);
@@ -25,6 +31,10 @@ test(
         firstStream?.header.fallbackAttempt,
         `first dispatch has no provider fallback chain: ${JSON.stringify(firstStream?.header)}`,
       );
+      const snapshotCwd = firstStream.header.cwd;
+      assert.ok(snapshotCwd, `review dispatch has no cwd: ${JSON.stringify(firstStream.header)}`);
+      const marker = path.join(snapshotCwd, ".review-snapshot-marker");
+      writeFileSync(marker, "initial snapshot\n");
       assert.deepEqual(
         firstStream.header.fallbackAttempt.candidates.map(({ instance }) => instance),
         ["review-first", "review-second"],
@@ -33,6 +43,18 @@ test(
       const settledStream = readDispatchStream(f.root, firstDispatch.payload.dispatchId);
       assert.equal(settledStream?.attemptOutcome?.classification, "provider_quota", JSON.stringify(settledStream));
       assert.equal(settledStream?.fallbackState, "scheduled", JSON.stringify(settledStream));
+      assert.equal(
+        resolveRuntimeCwd(f.root, {
+          scope: "repo-relative",
+          path: path.relative(f.root, snapshotCwd),
+        }),
+        snapshotCwd,
+        `provider fallback must still resolve its scheduled reviewer cwd (root=${f.root}, cwd=${snapshotCwd}, relative=${path.relative(f.root, snapshotCwd)})`,
+      );
+      assert.ok(
+        existsSync(snapshotCwd),
+        "the review snapshot must remain available while provider fallback is scheduled",
+      );
       await f.waitForLaunches(2);
 
       const attempts = f.events().filter((event) => event.type === "runtime_dispatch_requested"),
@@ -46,6 +68,9 @@ test(
         ["review-first", "review-second"],
         "the second dispatch must be the provider fallback attempt",
       );
+      assert.equal(f.launches[1]?.cwd, snapshotCwd, "provider fallback must use the frozen review snapshot");
+      assert.ok(existsSync(f.launches[1]!.cwd), "provider fallback must start inside the existing review snapshot");
+      assert.equal(readFileSync(marker, "utf8"), "initial snapshot\n", "fallback must reuse the original snapshot");
       assert.notEqual(successor.dispatchId, first.dispatchId);
       assert.ok(
         prompt.includes(`review-${successor.dispatchId}`),
@@ -80,6 +105,17 @@ test(
         String(successor.dispatchId),
       );
       assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      const pendingConsent = await f.consent(`review-${String(successor.dispatchId)}`);
+      assert.equal(pendingConsent.code, "review_dispatch_unsettled", JSON.stringify(pendingConsent));
+      assert.equal(
+        await f.settleReview(String(successor.dispatchId), String(successor.runtimeSessionId), "Review complete."),
+        "succeeded",
+      );
+      assert.equal(
+        existsSync(snapshotCwd),
+        false,
+        `the review snapshot is reclaimed only after the fallback chain ends (cwd=${snapshotCwd}, root=${f.root})`,
+      );
       const review = f.events().find((event) => event.type === "review_recorded");
       assert.ok(review?.type === "review_recorded");
       assert.equal(review.payload.review.reviewId, `review-${successor.dispatchId}`);
