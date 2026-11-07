@@ -255,6 +255,8 @@ test(
       ok: true,
       ready: true,
       url: "https://keycloak.example",
+      // The provider names its own administration console; the edge does not build the admin path.
+      consoleUrl: "https://keycloak.example/admin/harness/console/",
       realm: "harness",
       clientId: "harness-node-node-one",
       status: 200,

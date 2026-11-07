@@ -333,6 +333,10 @@ export class ManagedRbacService {
       mode: config.mode,
       url: config.url,
       browserUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
+      consoleUrl: keycloakConsoleUrl(
+        config.listener ? managedRbacListenerUrl(config.listener) : config.url,
+        config.realm,
+      ),
       realm: config.realm,
       clientId: config.clientId,
       status: response.status,
@@ -1227,4 +1231,9 @@ async function healthReadinessAttempt(
     if (transientTransportFailure(error)) return { transportFailure: error };
     throw error;
   }
+}
+
+/** The administration console of one Keycloak realm, served from the address a browser reaches. */
+export function keycloakConsoleUrl(browserUrl: string, realm: string): string {
+  return `${browserUrl.replace(/\/$/u, "")}/admin/${encodeURIComponent(realm)}/console/`;
 }

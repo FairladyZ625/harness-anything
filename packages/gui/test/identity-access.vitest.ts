@@ -121,7 +121,10 @@ describe("IdentityAccessView", () => {
     secret.value = "fixture-write-only";
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(configure).toHaveBeenCalledWith(
-      expect.objectContaining({ clientId: "harness-center", clientSecret: "fixture-write-only" }),
+      expect.objectContaining({
+        url: "https://identity.example.test",
+        settings: { realm: "fleet", clientId: "harness-center", clientSecret: "fixture-write-only" },
+      }),
       undefined,
       undefined,
     );

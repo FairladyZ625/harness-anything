@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   findExpiredWaivers,
   findProviderBoundaryViolations,
+  findStaleFingerprints,
   providerLineFingerprint,
 } from "../authorization-provider-boundary.mjs";
 
@@ -105,4 +106,17 @@ test("expires legacy waiver entries on their declared date", () => {
   assert.deepEqual(findExpiredWaivers(waivers, "2026-12-07"), [
     "packages/daemon/src/**: waiver expired 2026-12-07 (task_273e5317cfe2d8740fadaee7e7)",
   ]);
+});
+
+test("rejects a line fingerprint whose waived source line no longer exists", () => {
+  const line = 'export type IdentityProvider = "builtin" | "keycloak" | "unknown";';
+  const file = "packages/authorization-gui/src/identity-presentation.ts";
+  const live = providerLineFingerprint(file, line);
+  const stale = providerLineFingerprint(file, "  // removed legacy line");
+  assert.deepEqual(findStaleFingerprints([live], [{ file, text: `/** doc */\n  ${line}\n` }]), []);
+  assert.deepEqual(findStaleFingerprints([live, stale], [{ file, text: `${line}\n` }]), [
+    `tools/gate-allowlists/authorization-provider-boundary.json: line fingerprint ${stale} matches no current source line; delete it`,
+  ]);
+  // The same text in another file is a different line: the waiver belongs to its own path.
+  assert.equal(findStaleFingerprints([live], [{ file: "packages/gui/src/x.ts", text: line }]).length, 1);
 });
