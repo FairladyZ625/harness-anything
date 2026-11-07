@@ -336,3 +336,49 @@ test("edge-join is red once its daemon-repo-register denial no longer exits", (t
     ),
   );
 });
+
+// Dominance is per path: an enforcer on one branch of a test must not lend its evidence to the
+// branch that skips it and reaches the same effect.
+test("an authorization on only one branch of a test does not authorize the branch that skips it", (t) => {
+  threeStage(
+    t,
+    ["runtime-instance-create"],
+    (dir) =>
+      edit(
+        dir,
+        "packages/daemon/src/daemon-host-runtime-api.ts",
+        "const authorizationDecision = await requireAuthorizedFleetAction({\n        kind: actionKind,",
+        "let authorizationDecision: AuthorizationDecision | undefined;\n      if (payload.probe !== true)\n        authorizationDecision = await requireAuthorizedFleetAction({\n        kind: actionKind,",
+      ),
+    { reason: /reaches the code after it without the runtime-instance-create authorization/ },
+  );
+  threeStage(
+    t,
+    ["task-create"],
+    (dir) =>
+      edit(
+        dir,
+        queuedRoute,
+        "if (durable) {\n          queuedDecision = await authorizeAtCurrentCut()!;",
+        'if (durable && binding.source !== "local") {\n          queuedDecision = await authorizeAtCurrentCut()!;',
+      ),
+    { reason: /without the task-create authorization|effect callback runs before the authorization denial exit/ },
+  );
+});
+
+test("a branch skips authorization only when the authorization port itself chose it", (t) => {
+  // D1: access configuration stays open until the port reports that someone holds access-manage.
+  // The same skip chosen by request data instead of the port is a bypass.
+  threeStage(
+    t,
+    ["node-unregister"],
+    (dir) =>
+      edit(
+        dir,
+        "packages/authorization-keycloak/src/oidc-session-service.ts",
+        "!(await this.#bootstrapRequired(await this.#centerToken()))",
+        "loginTarget !== undefined",
+      ),
+    { reason: /reaches the code after it without the access-manage authorization/ },
+  );
+});

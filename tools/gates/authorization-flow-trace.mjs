@@ -192,6 +192,35 @@ export function makeAuthorizationTracer(graph, anchors) {
     return false;
   }
 
+  /** Whether a value handed to a call may be the decision: `decided ?? fallback` still carries it. */
+  function spends(expression, tainted, depth) {
+    const node = unwrap(expression);
+    if (!node || depth > 4) return false;
+    if (derived(node, tainted)) return true;
+    if (
+      ts.isBinaryExpression(node) &&
+      [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(node.operatorToken.kind)
+    )
+      return spends(node.left, tainted, depth + 1) || spends(node.right, tainted, depth + 1);
+    if (ts.isIdentifier(node)) {
+      const binding = graph.lookup(node.text, node);
+      return binding?.kind === "var" && binding.declaration.initializer
+        ? spends(binding.declaration.initializer, tainted, depth + 1)
+        : false;
+    }
+    if (ts.isCallExpression(node) || ts.isObjectLiteralExpression(node))
+      return ts.isCallExpression(node)
+        ? node.arguments.some((argument) => spends(argument, tainted, depth + 1)) || derived(node, tainted)
+        : node.properties.some((property) =>
+            ts.isSpreadAssignment(property)
+              ? spends(property.expression, tainted, depth + 1)
+              : ts.isPropertyAssignment(property)
+                ? spends(property.initializer, tainted, depth + 1)
+                : ts.isShorthandPropertyAssignment(property) && spends(property.name, tainted, depth + 1),
+          );
+    return false;
+  }
+
   function decisionCall(node, tainted) {
     if (isPortCall(node)) return true;
     if (node.arguments.some((argument) => derived(argument, tainted))) return true;
@@ -281,6 +310,37 @@ export function makeAuthorizationTracer(graph, anchors) {
     return proven;
   }
 
+  // A branch chosen by the authorization port itself (a bootstrap window decided by asking the
+  // port whether anyone holds the authority) is a policy outcome, not a bypass of it.
+  const portReaching = new Map();
+  function reachesPort(fn, depth) {
+    if (!fn.body || depth > 3) return false;
+    if (portReaching.has(fn)) return portReaching.get(fn);
+    portReaching.set(fn, false);
+    let found = false;
+    eachOwnNode(fn.body, (node) => {
+      if (!found && ts.isCallExpression(node))
+        found =
+          isPortCall(node) || resolvedFunctions(unwrap(node.expression)).some((inner) => reachesPort(inner, depth + 1));
+    });
+    portReaching.set(fn, found);
+    return found;
+  }
+
+  function portDecided(condition, tainted) {
+    if (!condition) return false;
+    if (derived(condition, tainted)) return true;
+    let found = false;
+    (function walk(node) {
+      if (found || isFunctionNode(node)) return;
+      if (ts.isIdentifier(node) && declaredIn(tainted, node)) found = true;
+      else if (ts.isCallExpression(node))
+        found = isPortCall(node) || resolvedFunctions(unwrap(node.expression)).some((fn) => reachesPort(fn, 0));
+      if (!found) ts.forEachChild(node, walk);
+    })(unwrap(condition));
+    return found;
+  }
+
   /** Trace one descriptor from the transport entries. */
   function traceDescriptor(descriptor) {
     const facts = {
@@ -305,6 +365,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       authorized: false,
       effect: false,
       local: false,
+      consumed: false,
       tainted: new Set(),
       refusals: new Set(),
       decisionKind: null,
@@ -320,6 +381,8 @@ export function makeAuthorizationTracer(graph, anchors) {
         authorized: live.every((state) => state.authorized),
         effect: live.some((state) => state.effect),
         local: live.every((state) => state.local),
+        // Spent on some path: what is still pending after the meeting point is the unspent rest.
+        consumed: live.some((state) => state.consumed),
         tainted: new Set([...left.tainted, ...right.tainted]),
         refusals: new Set([...left.refusals].filter((declaration) => right.refusals.has(declaration))),
         decisionKind: live.every((state) => sameSubject(state.decisionKind, live[0].decisionKind))
@@ -418,6 +481,29 @@ export function makeAuthorizationTracer(graph, anchors) {
       return access;
     }
 
+    // Dominance is per path. Where branches meet, the code after the meeting point is reached by
+    // every live branch; if one of them carries this route's authorization and another does not,
+    // that other branch reaches what follows (the effect) without it. A branch that exits (a denial
+    // return, a throw, an early response) is not live and does not count.
+    const partialJoins = new Set();
+    // An authorization already spent on its own effect inside the branch (a publication that
+    // authorizes, exits on denial and writes) guards nothing after the meeting point.
+    function checkJoin(node, before, branches, condition) {
+      if (before.authorized) return;
+      const live = branches.filter((branch) => branch.alive);
+      if (
+        !live.some(
+          (branch) => branch.authorized && !branch.consumed && branch.decisionKind?.kind === descriptor.kind,
+        ) ||
+        !live.some((branch) => !branch.authorized)
+      )
+        return;
+      const at = where(node);
+      if (partialJoins.has(at) || portDecided(condition, before.tainted)) return;
+      partialJoins.add(at);
+      report.violations.push(`${at}: a branch reaches the code after it without the ${descriptor.kind} authorization`);
+    }
+
     const sameSubject = (left, right) => left?.kind === right?.kind && left?.routed === right?.routed;
     const label = (subject) => subject?.kind ?? "request";
 
@@ -503,6 +589,7 @@ export function makeAuthorizationTracer(graph, anchors) {
           right = clone(state);
         visit(node.whenTrue, env, left);
         visit(node.whenFalse, env, right);
+        checkJoin(node, state, [left, right], node.condition);
         Object.assign(state, join(left, right));
         return;
       }
@@ -582,6 +669,8 @@ export function makeAuthorizationTracer(graph, anchors) {
         }
       }
       const functions = values.filter((value) => value.fn);
+      if (state.authorized && node.arguments.some((argument) => spends(argument, state.tainted, 0)))
+        state.consumed = true;
       // A declared local-transport route continues past its transport guard into resolved code.
       if (descriptor.localTransport && state.local && functions.length > 0 && !state.localReported) {
         state.localReported = true;
@@ -644,10 +733,14 @@ export function makeAuthorizationTracer(graph, anchors) {
         }
         const inner = clone(state);
         inner.authorized = false;
+        inner.consumed = false;
         const outcome = walkFunction(value, bindArguments(value, node.arguments, env), inner);
         walked.push(outcome);
         if (!outcome.authorizedReturn) allAuthorized = false;
-        else state.decisionKind = outcome.decisionKind;
+        else {
+          state.decisionKind = outcome.decisionKind;
+          if (outcome.consumedReturn) state.consumed = true;
+        }
       }
       if (walked.length > 0 && walked.length === functions.length) {
         // A callee that returns only past its own local-transport exit leaves this frame local.
@@ -691,6 +784,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         );
         if (carried.length > 0) {
           calls.calls.at(-1).carried = true;
+          state.consumed = true;
           if (!carried.some((candidate) => parameterUsed(candidate, value.node)))
             report.violations.push(`${where(value.node)}: the authorization decision does not reach the effect`);
           for (const candidate of carried) inner.tainted.add(candidate);
@@ -727,6 +821,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         if (state.alive)
           frame.returns.push({
             authorized: state.authorized,
+            consumed: state.consumed,
             decisionKind: state.decisionKind,
             local: state.local,
             nullish: nullish(statement.expression),
@@ -781,6 +876,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       // A non-local branch that does not exit leaves the request's transport unproven.
       if (transport === "then" && left.alive) right.local = state.local;
       if (transport === "else" && right.alive) left.local = state.local;
+      checkJoin(statement, state, [left, right], statement.expression);
       Object.assign(state, join(left, right));
       // A denial exit for this exact routed action authorizes everything after the test.
       if (polarity && state.alive && state.authorized && !state.reported) reportExactExit(statement, state);
@@ -820,6 +916,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         // Without a taken case or a default, control continues after the switch.
         fallsThrough = !clauses.some(ts.isDefaultClause) && !matched;
       let merged = fallsThrough ? clone(state) : { ...state, alive: false };
+      const branches = [merged];
       for (const clause of clauses) {
         if (folded && ts.isCaseClause(clause)) {
           const label = evaluator.fold(clause.expression, env);
@@ -831,8 +928,10 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (ts.isBreakStatement(child)) break;
           walkStatement(child, env, branch, frame);
         }
+        branches.push(branch);
         merged = join(merged, branch);
       }
+      checkJoin(statement, state, branches, statement.expression);
       Object.assign(state, merged);
     }
 
@@ -866,7 +965,13 @@ export function makeAuthorizationTracer(graph, anchors) {
 
     function walkFunction(value, env, state) {
       const fn = value.node,
-        none = { authorizedReturn: false, decisionKind: null, localReturn: false, refusal: false };
+        none = {
+          authorizedReturn: false,
+          consumedReturn: false,
+          decisionKind: null,
+          localReturn: false,
+          refusal: false,
+        };
       if (!fn.body || stack.includes(fn) || stack.length > maxWalkDepth) return none;
       const key = signature(value, env, state);
       const seen = memo.get(fn) ?? new Map();
@@ -881,6 +986,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         if (state.alive)
           frame.returns.push({
             authorized: state.authorized,
+            consumed: state.consumed,
             decisionKind: state.decisionKind,
             local: state.local,
             nullish: true,
@@ -889,6 +995,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         visit(fn.body, env, state);
         frame.returns.push({
           authorized: state.authorized,
+          consumed: state.consumed,
           decisionKind: state.decisionKind,
           local: state.local,
           nullish: nullish(fn.body),
@@ -897,6 +1004,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       stack.pop();
       const result = {
         authorizedReturn: frame.returns.length > 0 && frame.returns.every((entry) => entry.authorized),
+        consumedReturn: frame.returns.length > 0 && frame.returns.every((entry) => entry.consumed),
         localReturn: frame.returns.length > 0 && frame.returns.every((entry) => entry.local),
         refusal:
           frame.returns.some((entry) => entry.nullish) &&
