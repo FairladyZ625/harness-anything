@@ -42,6 +42,8 @@ import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
 import { captureDispatchForensics, dispatchForensicsRequired } from "./runtime-dispatch-evidence.ts";
 import { writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
+import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
+export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -1284,42 +1286,6 @@ export function applied(
   dispatchId: string,
 ) {
   return runtimeSpawnReceipt(event, publication, runtimeSessionId, dispatchId);
-}
-
-/** The runtime-spawn receipt of a published dispatch event; a replayed request answers with the same one. */
-export function runtimeSpawnReceipt(
-  event: AgentRuntimeEventV1,
-  publication: ReturnType<CanonicalEventStore["publication"]>,
-  runtimeSessionId: string,
-  dispatchId: string,
-) {
-  const revision = event.workspaceRevision,
-    canonicalVisible = publication.cut.opId === event.opId && publication.cut.revision === revision,
-    base = {
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "runtime-spawn",
-      opId: event.opId,
-      runtimeSessionId,
-      dispatchId,
-      revision,
-      evidence: `event-object:${event.opId}`,
-      visibility: "center" as const,
-      proof: {
-        committedRevision: revision,
-        appliedCut: publication.cut.revision,
-        durable: canonicalVisible,
-        canonicalVisible,
-        worktreeVisible: null,
-      },
-    };
-  return canonicalVisible
-    ? { ...base, outcome: "applied" as const }
-    : {
-        ...base,
-        outcome: "pending" as const,
-        guidance: [{ kind: "retry-receipt", args: { opId: event.opId } }],
-      };
 }
 
 export function controlReceipt(

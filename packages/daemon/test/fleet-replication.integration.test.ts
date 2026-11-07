@@ -335,7 +335,7 @@ test("full mirror comparison covers rejected and no-event commits", { timeout: 1
   const noEvent = await fixture.centerRun({
     kind: "task-start",
     taskId: seededTask.taskId,
-    executionId: "ignored-new-execution",
+    executionId: seededTask.executionId,
   });
   assert.equal(noEvent.outcome, "no_changes", JSON.stringify(noEvent));
   compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "no-event ledger");

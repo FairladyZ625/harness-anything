@@ -131,7 +131,8 @@ import {
 } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { providerErrorLimit } from "./runtime-spawn-limits.ts";
-import { runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
+import { admitTaskDispatch, runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
+import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
@@ -268,6 +269,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     handoffRollout?: Uint8Array,
     onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
     onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
+    admissionTaskRead?: ReturnType<typeof requireCurrentTaskProjection> | null,
   ): Promise<JsonObject> {
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
@@ -352,7 +354,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     });
     // Every local spawn (runtime.run, squad turns, fallback continuations) runs in the RepoCell write queue.
     const taskSnapshot =
-        taskId && !input.remote ? requireCurrentTaskProjection(projection!, taskId, "runtime.run").snapshot : null,
+        taskId && !input.remote
+          ? (admissionTaskRead ?? requireCurrentTaskProjection(projection!, taskId, "runtime.run")).snapshot
+          : null,
       leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null,
       // A reviewer dispatch binds to the submitted cut under review — never to the task's active
       // implementation execution or lease — so it cannot observe, open, or mutate an implementation
@@ -1438,6 +1442,46 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint, rollout),
     spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
       spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
+    /** The direct RepoCell runtime.run route owns admission and reuses its task projection read. */
+    spawnTask: async (
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      worktree: TaskWorktreeCheckout | null = null,
+      admissionProjection: ReturnType<typeof requiredRuntimeProjection>,
+    ) => {
+      const admitted = admitTaskDispatch({
+        repoId: input.repoId,
+        rootDir: input.rootDir,
+        projection: admissionProjection,
+        payload,
+        ownsLiveProcess: (runtimeSessionId) => processes.has(runtimeSessionId),
+      });
+      if (admitted.kind === "replay")
+        return {
+          ...runtimeSpawnReceipt(
+            admitted.event,
+            requiredRuntimeStore(input).publication(admitted.event),
+            admitted.event.payload.runtimeSessionId,
+            admitted.event.payload.dispatchId,
+          ),
+          recovery: admitted.recovery,
+        } as unknown as JsonObject;
+      const receipt = await spawnAttempt(
+        admitted.payload,
+        binding,
+        undefined,
+        undefined,
+        undefined,
+        "runtime",
+        worktree,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        admitted.taskRead,
+      );
+      return admitted.recovery ? { ...receipt, recovery: { ...admitted.recovery, replayed: false } } : receipt;
+    },
     spawnCoordinated: (
       payload: JsonObject,
       binding: RuntimeBinding,

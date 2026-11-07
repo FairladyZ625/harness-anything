@@ -176,7 +176,12 @@ for (const closeoutRecorded of [false, true]) {
     );
     assert.equal(outcomes[0]?.outcome, "stopped");
     assert.match(outcomeBodies[0]!, /Task task_0123456789abcdef01234567 is not submitted/u);
-    assert.match(outcomeBodies[0]!, /ha task start task_0123456789abcdef01234567/u);
+    assert.match(
+      outcomeBodies[0]!,
+      /ha agent run <agent-id> --task task_0123456789abcdef01234567 --recover-dispatch dispatch_0123456789abcdef01234567 --execution-id execution-owner/u,
+    );
+    assert.match(outcomeBodies[0]!, /--expected-version <revision> --idempotency-key <key>/u);
+    assert.doesNotMatch(outcomeBodies[0]!, /ha task start task_0123456789abcdef01234567/u);
     assert.equal(
       git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(),
       pushed,
