@@ -1,7 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findExpiredWaivers, findProviderBoundaryViolations } from "../authorization-provider-boundary.mjs";
+import {
+  findExpiredWaivers,
+  findProviderBoundaryViolations,
+  providerLineFingerprint,
+} from "../authorization-provider-boundary.mjs";
 
 test("rejects newly added Keycloak symbols and realm contract fields in consumers", () => {
   assert.deepEqual(
@@ -44,6 +48,29 @@ test("permits future Keycloak provider packages and neutral admin client names",
       `+++ b/packages/authorization-keycloak-enterprise/src/provider.ts\n+const realm = "main";\n+++ b/packages/gui/src/renderer/connection-data.ts\n+} from "./connection-admin-client.ts";\n+const path = "/admin/settings";`,
     ),
     [],
+  );
+});
+
+test("keeps builtin provider shapes inside the tracked remediation boundary", () => {
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/authorization-builtin/src/state.ts\n+readonly realm: "local";\n+clientId: "harness-center",\n+++ b/packages/authorization-keycloak-gui/src/ui-host.ts\n+export interface KeycloakUiHost { readonly realm: string }`,
+    ),
+    [
+      'packages/authorization-builtin/src/state.ts: provider-specific realm field: readonly realm: "local";',
+      'packages/authorization-builtin/src/state.ts: Keycloak-specific symbol, error, or REST path: clientId: "harness-center",',
+    ],
+  );
+});
+
+test("waives only exact registered legacy source lines, not new lines in the same package", () => {
+  const legacy = 'const label = "Keycloak account";';
+  const fingerprint = providerLineFingerprint("packages/gui/src/legacy.ts", legacy);
+  assert.deepEqual(
+    findProviderBoundaryViolations(`+++ b/packages/gui/src/legacy.ts\n+${legacy}\n+const realm = "new";`, [
+      fingerprint,
+    ]),
+    ['packages/gui/src/legacy.ts: provider-specific realm field: const realm = "new";'],
   );
 });
 

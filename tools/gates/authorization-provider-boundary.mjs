@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,7 +18,11 @@ export function providerMarkerReason(line) {
   return null;
 }
 
-export function findProviderBoundaryViolations(diffText) {
+export function providerLineFingerprint(file, sourceLine) {
+  return createHash("sha256").update(`${file}\0${sourceLine.trim()}`).digest("hex");
+}
+
+export function findProviderBoundaryViolations(diffText, waivedFingerprints = []) {
   const errors = [];
   let file = "";
   for (const line of String(diffText).split(/\r?\n/u)) {
@@ -30,7 +35,9 @@ export function findProviderBoundaryViolations(diffText) {
     const isProviderPackage =
       file.startsWith(`${PROVIDER_PACKAGE_PREFIX}/`) || file.startsWith(`${PROVIDER_PACKAGE_PREFIX}-`);
     if (isProviderPackage || EXEMPTED_TEST_PATH.test(file)) continue;
-    const reason = providerMarkerReason(line.slice(1));
+    const sourceLine = line.slice(1);
+    if (waivedFingerprints.includes(providerLineFingerprint(file, sourceLine))) continue;
+    const reason = providerMarkerReason(sourceLine);
     if (reason) errors.push(`${file}: ${reason}: ${line.slice(1).trim()}`);
   }
   return errors;
@@ -49,7 +56,10 @@ export function checkAuthorizationProviderBoundary(rootDir) {
   });
   const allowlist = JSON.parse(readFileSync(path.join(rootDir, WAIVER_PATH), "utf8"));
   const today = new Date().toISOString().slice(0, 10);
-  return [...findProviderBoundaryViolations(diff), ...findExpiredWaivers(allowlist, today)];
+  return [
+    ...findProviderBoundaryViolations(diff, allowlist.lineFingerprints ?? []),
+    ...findExpiredWaivers(allowlist, today),
+  ];
 }
 
 async function main() {
