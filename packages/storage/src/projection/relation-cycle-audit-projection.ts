@@ -57,16 +57,19 @@ export function ensureRelationCycleAudit(db: DatabaseSync): void {
     );
     runSql(db, "CREATE INDEX relation_cycle_member_component ON relation_cycle_member(component_id)");
     runSql(db, "CREATE TABLE relation_cycle_result (relation_type TEXT PRIMARY KEY,issue_json TEXT)");
-    const dirty = (row: string) => `INSERT INTO relation_cycle_dirty
-      SELECT ${row}.relation_type,${row}.source_ref WHERE ${row}.relation_type IN (${acyclicTypes}) ON CONFLICT(relation_type,node_ref) DO NOTHING;
-      INSERT INTO relation_cycle_dirty SELECT ${row}.relation_type,${row}.target_ref WHERE ${row}.relation_type IN (${acyclicTypes}) ON CONFLICT(relation_type,node_ref) DO NOTHING;`;
+    const dirty = (row: string, endpoint: "source_ref" | "target_ref") => `INSERT INTO relation_cycle_dirty
+      SELECT ${row}.relation_type,${row}.${endpoint}
+      WHERE ${row}.relation_type IN (${acyclicTypes}) AND NOT EXISTS (
+        SELECT 1 FROM relation_cycle_dirty
+        WHERE relation_type=${row}.relation_type AND node_ref=${row}.${endpoint}
+      );`;
     for (const operation of ["INSERT", "UPDATE", "DELETE"]) {
       const before = operation !== "INSERT",
         after = operation !== "DELETE";
       runSql(
         db,
         `CREATE TRIGGER relation_cycle_changed_${operation} AFTER ${operation} ON relation_cycle_edge BEGIN
-        ${before ? dirty("OLD") : ""}${after ? dirty("NEW") : ""}
+        ${before ? `${dirty("OLD", "source_ref")}${dirty("OLD", "target_ref")}` : ""}${after ? `${dirty("NEW", "source_ref")}${dirty("NEW", "target_ref")}` : ""}
         ${operation === "INSERT" ? "UPDATE relation_cycle_count SET count=count+1;" : operation === "DELETE" ? "UPDATE relation_cycle_count SET count=count-1;" : ""} END`,
       );
       for (const table of ["relation_edge", "task_relation"])

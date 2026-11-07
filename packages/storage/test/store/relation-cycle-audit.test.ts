@@ -29,6 +29,7 @@ function ledger() {
       relationType: string,
       state = "active",
       direction = "directed",
+      refresh = true,
     ) {
       revision += 1;
       db.prepare(
@@ -61,7 +62,7 @@ function ledger() {
           recordIndex: 0,
         }),
       );
-      refreshRelationCycleAudit(db);
+      if (refresh) refreshRelationCycleAudit(db);
     },
   };
 }
@@ -91,6 +92,25 @@ test("projection audit reports typed cycle issues with the closed node chain and
         },
       ],
     });
+  } finally {
+    fixture.db.close();
+  }
+});
+
+test("relation mirror triggers keep a repeated dirty endpoint unique until the batch refresh", () => {
+  const fixture = ledger();
+  try {
+    for (let index = 0; index < 100; index++)
+      fixture.edge(`parallel-${index}`, "task/a", "task/b", "depends-on", "active", "directed", false);
+
+    assert.equal(
+      Number(
+        (fixture.db.prepare("SELECT count(*) AS count FROM relation_cycle_dirty").get() as { count: number }).count,
+      ),
+      2,
+    );
+    refreshRelationCycleAudit(fixture.db);
+    assert.deepEqual(auditRelationCycles(fixture.db), { scannedEdges: 100, issues: [] });
   } finally {
     fixture.db.close();
   }
