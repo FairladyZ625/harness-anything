@@ -1,0 +1,91 @@
+{
+  "schema": "dispatch-lifecycle-observation-baseline/v1",
+  "authority": "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
+  "policy": "entries may only be removed; each site is keyed by path, symbol, kind, and source fingerprint",
+  "entries": [
+    {
+      "path": "packages/daemon/src/dispatch-read.ts",
+      "symbol": "canonicalDispatchRow",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "b84523f0d2f4d5cfa0b02314e8f20c175dd787258b5c091afa78c5273a13698b"
+    },
+    {
+      "path": "packages/daemon/src/dispatch-read.ts",
+      "symbol": "readRuntimeSessionActivityEvidence",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "d78200e6d27391a87cd2a98a25307624ea5cb7719cede503e0f087953b8ac38b"
+    },
+    {
+      "path": "packages/daemon/src/dispatch-read.ts",
+      "symbol": "withLocalDispatchStreamEvidence",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "875bea95ce878594dcd3e335bce57e76ef882039295625678fa4110cb414e97b"
+    },
+    {
+      "path": "packages/daemon/src/live-dispatch-worktree.ts",
+      "symbol": "liveDispatchIn",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "7e6af973a43461143ee6f42094313fe1f6a2f93598438f97c57c53dcaf459328"
+    },
+    {
+      "path": "packages/daemon/src/repo-cell-task-mutation.ts",
+      "symbol": "dispatchProcessIsOrphaned",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "3af03c34079a37023683d4ff0d532d2e8e9e2333fb808438223f4101df97c92c"
+    },
+    {
+      "path": "packages/daemon/src/runtime-handoff-native.ts",
+      "symbol": "prepareRuntimeHandoff",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "c11b8357890b4c4e3c14fbe89a8d118106fd1e28e4173238fdd9c8de94dd8486"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawn-adoption.ts",
+      "symbol": "locallyObservedRuntimeSessions",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "e5ab3b8d7a5f2fe9407a5879fb673945421451c9a076f95d49f8552b62a8de52"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawn-adoption.ts",
+      "symbol": "restoreRuntime",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "460c6c41e9d35a6db6aef11dbd8f4c2678b1ac6437e775c2f215e30ad76c552b"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawn-adoption.ts",
+      "symbol": "restoreRuntime",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "6a171031b2a94e3a7e8bef801027596b62130f4eec379b4dfbb42795592c857c"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawn-control.ts",
+      "symbol": "liveness",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "d45c135e715c2c20f8a737a7ccc84eb03a25340ad5fe29717b68d6c109b82763"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawn-control.ts",
+      "symbol": "steerRuntime",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "116fe2a6153802a5506571638a5eda4bcd4d46dd1b29fd0b2a89904d0accca54"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawn-process.ts",
+      "symbol": "drain",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "95b0837fe9fc98de814b119e10f4b9e0449263f1ca5e4d636771af60fe145b43"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawner.ts",
+      "symbol": "selectRuntime",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "3f50d3a92b539f027d5fe6d18b33e84eed534aab9b89e970ae54f97cf7da744f"
+    },
+    {
+      "path": "packages/daemon/src/runtime-spawner.ts",
+      "symbol": "selectRuntime",
+      "kind": "runtimePidIsAlive",
+      "fingerprint": "edefeb998dc2946dea9787474a923777356998d441de8fd9917802890d1604fa"
+    }
+  ]
+}

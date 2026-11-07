@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { checkDomainJudgmentSingleDefinition } from "./check-domain-judgment-single-definition.mjs";
+import {
+  checkDispatchLifecycleObservationSites,
+  checkDomainJudgmentSingleDefinition,
+  scanDispatchLifecycleObservationSites,
+} from "./check-domain-judgment-single-definition.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -30,7 +34,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /eight judgments resolve to kernel domain services/u);
+  assert.match(result.stdout, /eight kernel judgments plus dispatch observation ratchet/u);
 });
 
 test("positive fixture: a renderer readiness definition is refused", (t) => {
@@ -88,4 +92,42 @@ test("positive fixture: a second bilingual closeout judgment in daemon or render
     ),
     findings.join("\n"),
   );
+});
+
+test("dispatch observation ratchet rejects admission and terminal judgments but accepts observations", (t) => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "ha-dispatch-observation-fixture-"));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  cpSync(path.join(repoRoot, "tools/fixtures/dispatch-lifecycle-observation"), fixture, { recursive: true });
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: fixture });
+  const sites = scanDispatchLifecycleObservationSites(fixture),
+    findings = checkDispatchLifecycleObservationSites(sites, {
+      schema: "dispatch-lifecycle-observation-baseline/v1",
+      entries: [],
+    });
+  assert.equal(sites.length, 2);
+  assert.ok(sites.some(({ kind }) => kind === "runtimePidIsAlive"));
+  assert.ok(sites.some(({ kind }) => kind === "process-lost-terminal-return"));
+  assert.equal(findings.length, 2);
+  assert.ok(findings.every((finding) => finding.includes("new ")));
+});
+
+test("dispatch observation baseline rejects additions and permits reductions", () => {
+  const entry = {
+      path: "packages/daemon/src/legacy.ts",
+      symbol: "admission",
+      kind: "runtimePidIsAlive",
+      fingerprint: "fingerprint-a",
+    },
+    current = { schema: "dispatch-lifecycle-observation-baseline/v1", entries: [] },
+    prior = [entry],
+    reduced = checkDispatchLifecycleObservationSites([], current, prior),
+    expanded = checkDispatchLifecycleObservationSites([entry], { ...current, entries: [entry] }, []),
+    stale = checkDispatchLifecycleObservationSites([], { ...current, entries: [entry] });
+  assert.deepEqual(reduced, []);
+  assert.ok(expanded.some((finding) => finding.includes("baseline may only shrink")));
+  assert.ok(stale.some((finding) => finding.includes("stale baseline entry should be removed")));
 });

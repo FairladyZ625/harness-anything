@@ -2111,19 +2111,27 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**", "tools/check-domain-judgment-single-definition.mjs"],
+      "localPathGlobs": [
+        "packages/**",
+        "tools/check-domain-judgment-single-definition.mjs",
+        "tools/check-domain-judgment-single-definition.test.mjs",
+        "tools/gate-allowlists/dispatch-lifecycle-observation.json"
+      ],
       "authoritySource": [
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u9886\u57df\u670d\u52a1\u8de8\u805a\u5408\u7684\u5224\u5b9a\u4ecd\u5728-domain-\u5c42",
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u5207\u7247-3--\u5224\u5b9a\u4e0b\u6c89",
         "harness/governance/standards/architecture-conformance-standard.md#\u9886\u57df\u6a21\u578b\u56db\u94c1\u5f8b\u4e0e-ddd-ratchet-\u95e82026-08-18-\u65b0\u589e",
-        "harness/adr/ADR-0024-gui-renderer-state-management.md#d5\u786c-p4p5-are-enforced-through-cache-discipline"
+        "harness/adr/ADR-0024-gui-renderer-state-management.md#d5\u786c-p4p5-are-enforced-through-cache-discipline",
+        "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
+        "task/task_fe48ff810926e57adcd587d74e/artifacts/design.md#F2"
       ],
       "consumerScope": [
         "kernel transition and completion readiness",
         "warm and cold Decision coverage projections",
         "Fact liveness projection and GUI DTO consumption",
-        "daemon task blocking projection and GUI DTO consumption"
+        "daemon task blocking projection and GUI DTO consumption",
+        "dispatch lifecycle observations, admission, and terminal judgments across daemon producers and consumers"
       ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
@@ -2131,10 +2139,10 @@
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "CH1 ratchet: projection and GUI business judgments must call the four named kernel domain functions; duplicate algorithms have no allowlist."
+        "allowed": true,
+        "location": "tools/gate-allowlists/dispatch-lifecycle-observation.json",
+        "adrOrDecisionRequired": true,
+        "notes": "CH1 named judgments remain single-definition with no duplicate allowlist. CH4 adds an observation debt inventory keyed by file, symbol, and fingerprint; it only shrinks and never grants a new business judgment."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -2167,7 +2175,9 @@
         "status": "covered",
         "evidence": [
           "tools/check-domain-judgment-single-definition.test.mjs",
-          "tools/fixtures/domain-judgment-single-definition/packages/gui/src/duplicate-readiness.ts"
+          "tools/fixtures/domain-judgment-single-definition/packages/gui/src/duplicate-readiness.ts",
+          "tools/fixtures/dispatch-lifecycle-observation/packages/daemon/src/positive-controls.ts",
+          "tools/gate-allowlists/dispatch-lifecycle-observation.json"
         ]
       }
     },
