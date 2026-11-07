@@ -339,12 +339,26 @@ export async function executeIncidentAction(input: {
       reason: input.plan.rationale,
       successorDispatchId: null,
     };
+  // The owner repeats the disposition that could not run: a resume continues the source's provider
+  // session; a rerun is the fenced recovery of the source dispatch under the same worker identity.
+  const planned = input.plan.payload,
+    plannedFence =
+      typeof planned.recovery === "object" && planned.recovery !== null && !Array.isArray(planned.recovery)
+        ? (planned.recovery as JsonObject)
+        : null,
+    next =
+      input.plan.action === "resume"
+        ? `ha agent run <agent-id> --resume-dispatch ${input.dispatchId}`
+        : redispatchCommand(input.taskId, typeof planned.agentId === "string" ? planned.agentId : null, {
+            dispatchId: input.dispatchId,
+            executionId: typeof plannedFence?.executionId === "string" ? plannedFence.executionId : null,
+          });
   if (!input.binding)
     return {
       action: "needs_attention",
       attention: "guard",
       status: "applied",
-      reason: `needs_attention: the source dispatch ${input.dispatchId} has no persisted action binding for ${input.plan.action}. Next: ${redispatchCommand(input.taskId, null)}`,
+      reason: `needs_attention: the source dispatch ${input.dispatchId} has no persisted action binding for ${input.plan.action}. Next: ${next}`,
       successorDispatchId: null,
     };
   try {
@@ -365,7 +379,7 @@ export async function executeIncidentAction(input: {
       action: "needs_attention",
       attention: "guard",
       status: "applied",
-      reason: `needs_attention: launch failed: ${launchFailure} (automatic ${input.plan.action} for dispatch ${input.dispatchId}). Next: ${redispatchCommand(input.taskId, null)}`,
+      reason: `needs_attention: launch failed: ${launchFailure} (automatic ${input.plan.action} for dispatch ${input.dispatchId}). Next: ${next}`,
       successorDispatchId: null,
     };
   }

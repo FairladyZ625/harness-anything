@@ -1283,6 +1283,16 @@ export function applied(
   runtimeSessionId: string,
   dispatchId: string,
 ) {
+  return runtimeSpawnReceipt(event, publication, runtimeSessionId, dispatchId);
+}
+
+/** The runtime-spawn receipt of a published dispatch event; a replayed request answers with the same one. */
+export function runtimeSpawnReceipt(
+  event: AgentRuntimeEventV1,
+  publication: ReturnType<CanonicalEventStore["publication"]>,
+  runtimeSessionId: string,
+  dispatchId: string,
+) {
   const revision = event.workspaceRevision,
     canonicalVisible = publication.cut.opId === event.opId && publication.cut.revision === revision,
     base = {

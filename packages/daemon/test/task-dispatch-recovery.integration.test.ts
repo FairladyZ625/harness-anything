@@ -10,6 +10,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -159,6 +160,22 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
             signal: null,
           });
           launch.exit(0);
+          await outcomeObserved(runtimeSessionId);
+        },
+        // The worker process ends without any provider output reaching the daemon.
+        vanishWorker = async (index: number, dispatchId: string, runtimeSessionId: string) => {
+          const launch = launches[index]!;
+          assert.ok(launch.exit, "the runtime exit listener attaches before the provider exits");
+          appendRuntimeWorkerRecord(root, dispatchId, {
+            kind: "process_exit",
+            occurredAt: "2026-11-07T12:00:01.000Z",
+            exitCode: 0,
+            signal: null,
+          });
+          launch.exit(0);
+          await outcomeObserved(runtimeSessionId);
+        },
+        outcomeObserved = async (runtimeSessionId: string) => {
           await eventually(() =>
             makeTaskEventReader({ repoId, rootDir: root })
               .read()
@@ -261,6 +278,18 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
       assert.equal(replayed.runtimeSessionId, recovered.runtimeSessionId);
       assert.equal((replayed.recovery as Record<string, unknown>).replayed, true);
       assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId]);
+      // The replay answers with the original operation's durable receipt, and both receipts pass
+      // the result validator the daemon's repo.agentRuntime.spawn RPC applies before replying.
+      assert.equal(replayed.opId, recovered.opId, JSON.stringify(replayed));
+      assert.equal(replayed.status, "accepted_durable", JSON.stringify(replayed));
+      parseDaemonGuiActionResult("repo.agentRuntime.spawn", recovered);
+      parseDaemonGuiActionResult("repo.agentRuntime.spawn", replayed);
+      // The same key with a different request is a conflict, not a retry.
+      await assert.rejects(
+        cell.spawnRuntime(spawnPayload("ceo-recovery-1", { ...fence, executionId: "execution-elsewhere" }), ceo),
+        { code: "idempotency_key_conflict" },
+      );
+      assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId]);
 
       // A second controller that still believes the first dispatch is the last one is refused even
       // after the recovered worker stops too: on main its plain `agent run` dispatched again.
@@ -278,6 +307,57 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
           error.code === "dispatch_recovery_superseded" && error.message.includes(recoveredDispatchId),
       );
       assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId], "no double dispatch");
+
+      // The task left `active` after the comparison was read: the recovery is refused.
+      const parked = await cell.run(
+        { kind: "task-transition", taskId, status: "blocked", reason: "Owner holds the task" },
+        ceo,
+      );
+      assert.equal(parked.outcome, "applied", JSON.stringify(parked));
+      await assert.rejects(
+        cell.spawnRuntime(
+          spawnPayload("ceo-recovery-3", {
+            dispatchId: recoveredDispatchId,
+            executionId,
+            expectedVersion: await revision(),
+          }),
+          ceo,
+        ),
+        (error: Error & { code?: string }) =>
+          error.code === "dispatch_recovery_task_changed" && error.message.includes('"status":"blocked"'),
+      );
+      assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId]);
+      const resumed = await cell.run(
+        { kind: "task-transition", taskId, status: "active", reason: "Owner released the hold" },
+        ceo,
+      );
+      assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+
+      // A source whose end is not settled (its worker vanished without a provider result) is not
+      // recoverable: "unknown" fails closed instead of guessing the worker stopped.
+      const third = await cell.spawnRuntime(
+          spawnPayload("ceo-recovery-4", {
+            dispatchId: recoveredDispatchId,
+            executionId,
+            expectedVersion: await revision(),
+          }),
+          ceo,
+        ),
+        thirdDispatchId = String(third.dispatchId);
+      await vanishWorker(2, thirdDispatchId, String(third.runtimeSessionId));
+      await assert.rejects(
+        cell.spawnRuntime(
+          spawnPayload("ceo-recovery-5", {
+            dispatchId: thirdDispatchId,
+            executionId,
+            expectedVersion: await revision(),
+          }),
+          ceo,
+        ),
+        (error: Error & { code?: string }) =>
+          error.code === "dispatch_recovery_source_unsettled" && error.message.includes(thirdDispatchId),
+      );
+      assert.deepEqual(dispatches(), [firstDispatchId, recoveredDispatchId, thirdDispatchId]);
     } finally {
       await cell.close();
     }

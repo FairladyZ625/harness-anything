@@ -121,6 +121,7 @@ import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts"
 import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-cell-read-payloads.ts";
 import { admitTaskDispatch } from "./task-dispatch-recovery.ts";
+import { runtimeSpawnReceipt } from "./runtime-spawn-settlement.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -789,7 +790,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           payload: spawn,
           ownsLiveProcess: context.runtimeSpawner.ownsLiveProcess,
         });
-        if (admitted.kind === "replay") return admitted.receipt;
+        // A replayed recovery answers with the receipt of the dispatch it already produced: the
+        // same operation, so the queue attaches that operation's durable acceptance.
+        if (admitted.kind === "replay")
+          return {
+            ...runtimeSpawnReceipt(
+              admitted.event,
+              context.store.publication(admitted.event),
+              admitted.event.payload.runtimeSessionId,
+              admitted.event.payload.dispatchId,
+            ),
+            recovery: admitted.recovery,
+          } as unknown as JsonObject;
         const receipt = await context.runtimeSpawner.spawn(admitted.payload, authorizedBinding, worktree);
         return admitted.recovery ? { ...receipt, recovery: { ...admitted.recovery, replayed: false } } : receipt;
       },
