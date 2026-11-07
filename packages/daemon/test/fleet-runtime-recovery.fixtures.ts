@@ -215,10 +215,6 @@ export async function fleetFixture(
           host: {
             ...host,
             runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
-              if (args[1].kind === "event")
-                console.error(
-                  `[fixture-runtime-ingress] ${args[1].type} ${String((args[1].payload as { outcome?: unknown }).outcome ?? "")}`,
-                );
               if (
                 args[1].kind === "event" &&
                 args[1].type === "runtime_session_outcome_observed" &&
