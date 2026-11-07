@@ -13,7 +13,7 @@ export interface OidcCenterSelection {
 export function oidcCenterSelections(userRoot: string) {
   const directory = path.join(userRoot, "rbac", "oidc-centers"),
     memory = new Map<string, OidcCenterSelection>();
-  const binding = (target?: string): string => {
+  const binding = (target?: string, identityOverride?: Readonly<Record<string, unknown>>): string => {
     const configFile = path.join(userRoot, "rbac", "config.json"),
       edge = target ? readFleetEdgeConfig(target) : null,
       config = edge ?? (existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : null),
@@ -27,6 +27,7 @@ export function oidcCenterSelections(userRoot: string) {
           }
         : null;
     const identity =
+      identityOverride ??
       targetIdentity ??
       (config && typeof config === "object"
         ? Object.fromEntries(
@@ -40,8 +41,8 @@ export function oidcCenterSelections(userRoot: string) {
       .digest("hex");
   };
   return {
-    read(target?: string): OidcCenterSelection | undefined {
-      const key = binding(target),
+    read(target?: string, identityOverride?: Readonly<Record<string, unknown>>): OidcCenterSelection | undefined {
+      const key = binding(target, identityOverride),
         file = path.join(directory, `${key}.json`),
         cached = memory.get(key);
       if (cached) return cached;

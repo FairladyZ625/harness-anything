@@ -8,7 +8,6 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
   const sourceRoot = path.resolve(oldRoot),
     targetRoot = path.resolve(newRoot);
   if (sourceRoot === targetRoot) return;
-  const selection = userRoot === undefined ? undefined : oidcCenterSelections(userRoot).read(sourceRoot);
   const config = readFleetEdgeConfig(targetRoot);
   if (!config) return;
   if (config.repoId !== repoId)
@@ -16,6 +15,16 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
       "fleet_edge_config_missing",
       `Workspace ${targetRoot} has no matching fleet-edge.json for repository ${repoId}. Restore the edge config, then retry the root update.`,
     );
+  const selection =
+    userRoot === undefined
+      ? undefined
+      : oidcCenterSelections(userRoot).read(sourceRoot, {
+          repoId: config.repoId,
+          host: config.host,
+          port: config.port,
+          caPath: config.caPath,
+          ...(config.servername ? { servername: config.servername } : {}),
+        });
 
   const relocatedCaPath = relocateAbsolutePath(config.caPath, sourceRoot, targetRoot),
     caPath = relocatedCaPath ?? config.caPath,
