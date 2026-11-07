@@ -491,17 +491,20 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
 }
 
 export function runArtifactAdd(input: Input): ArtifactAddReceipt {
-  // The destination is a caller-facing path, and the daemon knows the registered repository root
-  // even when the caller addresses a task worktree. Print the repository spelling unconditionally;
-  // the event's own claims keep the authored key.
-  const toWorkspace = workspacePathOf({ ...input, workspaceCoordinate: true }),
-    taskId = requiredDocSyncText(input.action.taskId, "taskId"),
-    destinationValue = requiredDocSyncText(input.action.destination, "destination"),
-    inline = typeof input.action.content === "string" ? input.action.content : undefined,
-    sourceValue = typeof input.action.source === "string" ? input.action.source : undefined;
+  // `pathCoordinate` is the thin CLI's caller-coordinate marker. Strip it before the exact action
+  // check and keep the marker local to this boundary: daemon-internal artifact publishers continue
+  // to receive and return the ledger's authored key.
+  const workspaceCoordinate = input.action.pathCoordinate === "workspace",
+    { pathCoordinate: _pathCoordinate, ...artifactAction } = input.action,
+    normalizedInput: Input = { ...input, action: artifactAction, workspaceCoordinate },
+    toWorkspace = workspacePathOf(normalizedInput),
+    taskId = requiredDocSyncText(artifactAction.taskId, "taskId"),
+    destinationValue = requiredDocSyncText(artifactAction.destination, "destination"),
+    inline = typeof artifactAction.content === "string" ? artifactAction.content : undefined,
+    sourceValue = typeof artifactAction.source === "string" ? artifactAction.source : undefined;
   if (
     (inline === undefined) === (sourceValue === undefined) ||
-    !hasExactDocSyncActionFields(input.action, [
+    !hasExactDocSyncActionFields(artifactAction, [
       "kind",
       "taskId",
       inline === undefined ? "source" : "content",
@@ -509,22 +512,20 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     ])
   )
     throw docSyncError("invalid_command", "task artifact add requires exactly one of source or content");
-  if (inline !== undefined && Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
+  if (inline !== undefined && Buffer.byteLength(JSON.stringify(artifactAction)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "inline task artifact exceeds the command frame limit");
   if (inline !== undefined) {
     const receipt = publishTaskArtifactBytes(
-      input,
-      taskArtifactTarget(input, taskId, destinationValue),
+      normalizedInput,
+      taskArtifactTarget(normalizedInput, taskId, destinationValue),
       Buffer.from(inline),
     );
-    // The source branch below already prints the workspace spelling; the inline content branch must
-    // print the same coordinate, or the same command returns two different path shapes.
     return (receipt.outcome === "applied" || receipt.outcome === "pending") && typeof receipt.destination === "string"
       ? { ...receipt, destination: toWorkspace(receipt.destination) }
       : receipt;
   }
-  const source = artifactSource(input, requiredDocSyncText(sourceValue, "source")),
-    target = taskArtifactTarget(input, taskId, destinationValue, source.absolute);
+  const source = artifactSource(normalizedInput, requiredDocSyncText(sourceValue, "source")),
+    target = taskArtifactTarget(normalizedInput, taskId, destinationValue, source.absolute);
   // Size is settled from the file, not from a buffer: a source past the blob contract is refused
   // without first reading 50 MB of it into the daemon.
   if (lstatSync(source.absolute).size > RAW_ARTIFACT_MAX_BYTES)
@@ -532,7 +533,7 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
       "artifact_too_large",
       `artifact source exceeds the ${RAW_ARTIFACT_MAX_BYTES} byte content object contract`,
     );
-  const receipt = publishTaskArtifactBytes(input, target, readFileSync(source.absolute));
+  const receipt = publishTaskArtifactBytes(normalizedInput, target, readFileSync(source.absolute));
   return receipt.outcome === "applied" || receipt.outcome === "pending"
     ? {
         ...receipt,

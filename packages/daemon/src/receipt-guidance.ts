@@ -30,7 +30,7 @@ export function receiptLayoutRoots(store: CanonicalEventStore, rootDir: string):
 
 export function workspaceRelativePath(roots: WorkspaceLayoutRoots, ledgerPath: string): string {
   const prefix = path.relative(roots.rootDir, roots.authoredRoot).split(path.sep).join("/");
-  return prefix === "" ? ledgerPath : `${prefix}/${ledgerPath}`;
+  return `${prefix}/${ledgerPath}`;
 }
 
 export function taskCreateGuidance(

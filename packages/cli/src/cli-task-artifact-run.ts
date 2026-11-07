@@ -112,6 +112,7 @@ export async function runTaskArtifactCommand(
       taskId: invocation.taskId,
       content: `${JSON.stringify(transcript, null, 2)}\n`,
       destination,
+      pathCoordinate: "workspace",
     },
   });
   if (receipt.ok !== true) return receipt;

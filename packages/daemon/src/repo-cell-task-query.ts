@@ -92,7 +92,7 @@ function withWorkspacePackagePaths(
   payload: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
   const rows = payload.rows;
-  if (!Array.isArray(rows)) return payload;
+  if (!Array.isArray(rows) || typeof rootDir !== "string" || rootDir === "") return payload;
   const layout = resolveHarnessLayout(rootDir);
   return {
     ...payload,
