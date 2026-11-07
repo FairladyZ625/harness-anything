@@ -161,6 +161,14 @@ export interface TaskV2 extends BaseEntityPinState {
   /** Set from the preset profile; a successful completion archives the package. */
   readonly archiveOnComplete?: boolean;
 }
+const reviewDispatchIntentFields: readonly string[] = [
+  "executionId",
+  "reviewerId",
+  "runtimeInstanceId",
+  "model",
+  "effort",
+  "fast",
+];
 export interface TaskReviewDispatchIntentV1 {
   readonly executionId: string;
   readonly reviewerId: string;
@@ -303,14 +311,9 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     const intent = value.reviewDispatchIntent;
     if (
       !isRecord(intent) ||
-      !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(intent, [
-        "executionId",
-        "reviewerId",
-        "runtimeInstanceId",
-        "model",
-        "effort",
-        "fast",
-      ]) ||
+      // Only executionId and reviewerId are required; the writer omits every choice the dispatch did not make.
+      !hasRequiredFields(intent, ["executionId", "reviewerId"]) ||
+      (!allowUnknownFields && !Object.keys(intent).every((field) => reviewDispatchIntentFields.includes(field))) ||
       !isNonEmptyString(intent.executionId) ||
       !/^[A-Za-z0-9_-]{1,96}$/u.test(String(intent.reviewerId)) ||
       (intent.runtimeInstanceId !== undefined && !isNonEmptyString(intent.runtimeInstanceId)) ||
