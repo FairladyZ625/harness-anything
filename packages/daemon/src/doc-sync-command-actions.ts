@@ -498,8 +498,18 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     throw docSyncError("invalid_command", "task artifact add requires exactly one of source or content");
   if (inline !== undefined && Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "inline task artifact exceeds the command frame limit");
-  if (inline !== undefined)
-    return publishTaskArtifactBytes(input, taskArtifactTarget(input, taskId, destinationValue), Buffer.from(inline));
+  if (inline !== undefined) {
+    const receipt = publishTaskArtifactBytes(
+      input,
+      taskArtifactTarget(input, taskId, destinationValue),
+      Buffer.from(inline),
+    );
+    // The source branch below already prints the workspace spelling; the inline content branch must
+    // print the same coordinate, or the same command returns two different path shapes.
+    return (receipt.outcome === "applied" || receipt.outcome === "pending") && typeof receipt.destination === "string"
+      ? { ...receipt, destination: documentWorkspacePath(input.rootDir, receipt.destination) }
+      : receipt;
+  }
   const source = artifactSource(input, requiredDocSyncText(sourceValue, "source")),
     target = taskArtifactTarget(input, taskId, destinationValue, source.absolute);
   // Size is settled from the file, not from a buffer: a source past the blob contract is refused
