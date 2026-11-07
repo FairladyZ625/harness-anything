@@ -780,7 +780,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             options.host.status().repos.find((repo) => repo.repoId === a.repoId)?.rootDir ?? "",
             hasDaemonGitFollower(options.storage?.[a.repoId]),
           )
-        : { originUrl: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
+        : { originUrl: null, originAddress: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
         personId: principal.oidcPrincipal!.personId,
@@ -792,6 +792,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         writerEpoch: ownedEpochFor(a.repoId).epoch,
         replicationSequence: replicationHead(a.repoId),
         originUrl: centerGit.originUrl,
+        originAddress: centerGit.originAddress,
         originPushUrls: centerGit.originPushUrls,
         defaultBranch: centerGit.defaultBranch,
         defaultBranchCommit: centerGit.defaultBranchCommit,

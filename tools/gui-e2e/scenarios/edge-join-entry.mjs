@@ -8,7 +8,7 @@ const LINK = `harness-edge://join/${Buffer.from(
 ).toString("base64url")}`;
 
 /**
- * 加入中心向导的无窗口端到端流程:粘贴 → 设备登录展示 → 逐仓进度 → 完成,以及一次错误态。
+ * 加入中心向导的无窗口端到端流程:粘贴 → SSH 反向的中心浏览器设备码 → 逐仓进度 → 完成,以及一次错误态。
  *
  * 中心/Keycloak 不可在隔离 lane 里起真服务,所以场景在**主进程**替换 `harness:edge:join`
  * 的 IPC handler(渲染进程仍走真实 preload 与真实通道,`kind` 收窄由 preload 完成),
@@ -20,7 +20,7 @@ export default {
   feature: "edge-join",
   lane: "isolated",
   description:
-    "Open the join-center wizard from the project switcher, show the stubbed device sign-in, paint per-repository progress, finish, and show one plain-language refusal.",
+    "Open the join-center wizard from the project switcher, show the SSH-reverse center-browser device page, paint per-repository progress, finish, and show one plain-language refusal.",
   async run({ page, app, fixture, shot }) {
     await bridgeReady(page);
 
@@ -37,6 +37,8 @@ export default {
             userCode: "ABCD-EFGH",
             interval: 1,
             expiresAt: Date.now() + 10 * 60_000,
+            transport: "ssh-reverse",
+            browserApprovalUri: "https://center.example.test/realms/harness/device",
           },
           joined = {
             ok: true,
@@ -45,6 +47,30 @@ export default {
             state: "synced",
             repoIds: [repoId],
             repositories: [{ repoId, ok: true }],
+            nodeId: "e2e-node",
+            personId: "e2e-person",
+          },
+          originNeeded = {
+            ok: true,
+            command: "edge-join",
+            joinId: "e2e-join",
+            state: "partial",
+            code: "edge_join_sync_failed",
+            repoIds: [repoId],
+            repositories: [
+              {
+                repoId,
+                ok: false,
+                code: "edge_origin_missing",
+                error: {
+                  code: "edge_origin_missing",
+                  hint: "The workspace has no Git origin. Enter a reachable address and retry.",
+                },
+                needsOrigin: true,
+                defaultBranch: "main",
+                centerOrigin: "ssh://git.center.example/company/repo.git",
+              },
+            ],
             nodeId: "e2e-node",
             personId: "e2e-person",
           };
@@ -71,9 +97,12 @@ export default {
             if (globalThis.__edgeJoinMode === "reject")
               return { ok: false, code: "pin_mismatch", rejectionExplanation: "center certificate pin mismatch" };
             if (begins === 1) return device;
-            // 第二次调用代表逐仓库注册与首次同步;留出时间让进度读口画出「同步中」。
-            await new Promise((resolve) => setTimeout(resolve, 2_200));
-            return joined;
+            if (begins === 2) return originNeeded;
+            globalThis.__edgeJoinOriginUrls = input.originUrls;
+            // The scenario releases first sync when the renderer has observed its progress phase.
+            return new Promise((resolve) => {
+              globalThis.__edgeJoinResolve = () => resolve(joined);
+            });
           }
           throw new Error(`unexpected edge join request: ${String(input?.kind)}`);
         });
@@ -96,14 +125,30 @@ export default {
 
     await page.getByTestId("edge-join-user-code").waitFor();
     assert.equal(await page.getByTestId("edge-join-user-code").innerText(), "ABCD-EFGH");
-    assert.ok((await page.getByTestId("edge-join-login-uri").innerText()).startsWith("https://"));
+    assert.equal(
+      await page.getByTestId("edge-join-browser-approval-uri").innerText(),
+      "https://center.example.test/realms/harness/device",
+    );
     await shot("edge-join-device");
-    await page.getByTestId("edge-join-open-login").click();
-
     await page.getByTestId("edge-join-repositories").waitFor();
     assert.match(await page.getByTestId("edge-join-repositories").innerText(), new RegExp(fixture.repoId, "u"));
     await shot("edge-join-joining");
 
+    const originInput = page.getByTestId(`edge-join-origin-input-${fixture.repoId}`);
+    await originInput.waitFor();
+    assert.equal(await page.getByTestId("edge-join-origin-validate").isDisabled(), true);
+    assert.match(await page.getByTestId("edge-join-wizard").innerText(), /ssh:\/\/git\.center\.example/u);
+    await shot("edge-join-origin-needed");
+    await originInput.fill("ssh://git.edge.example/company/repo.git");
+    await page.getByTestId("edge-join-origin-validate").click();
+    await page
+      .getByTestId("edge-join-repositories")
+      .getByText(/First sync|首次同步中/u)
+      .waitFor();
+    await app.evaluate(() => globalThis.__edgeJoinResolve());
+    assert.deepEqual(await app.evaluate(() => globalThis.__edgeJoinOriginUrls), {
+      [fixture.repoId]: "ssh://git.edge.example/company/repo.git",
+    });
     await page.getByTestId("edge-join-done").waitFor({ timeout: 15_000 });
     assert.match(await page.getByTestId("edge-join-repositories").innerText(), /Synced|已同步/u);
     await shot("edge-join-done");
@@ -139,9 +184,9 @@ export default {
     await wizard.waitFor({ state: "hidden" });
 
     const calls = await app.evaluate(() => globalThis.__edgeJoinCalls);
-    assert.equal(calls.filter((call) => call.kind === "join").length, 3);
+    assert.equal(calls.filter((call) => call.kind === "join").length, 4);
     assert.ok(calls.every((call) => call.kind !== "join" || call.link === LINK));
-    for (const kind of ["poll", "progress", "open-login"])
+    for (const kind of ["poll", "progress"])
       assert.ok(
         calls.some((call) => call.kind === kind),
         kind,

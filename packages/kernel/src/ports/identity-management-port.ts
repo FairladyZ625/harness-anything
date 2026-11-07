@@ -41,6 +41,8 @@ export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly workspaceRoot?: string;
   /** edge-join: persistent replica quota in bytes; omitted to derive from the target volume. */
   readonly quotaBytes?: number;
+  /** edge-join: an explicit, locally reachable origin for invited repositories that have none. */
+  readonly originUrls?: Readonly<Record<string, string>>;
   readonly link?: string;
   readonly operation?: string;
   readonly mode?: "managed" | "external";

@@ -1,18 +1,18 @@
 // `ha edge join <link>`: authenticate the invited person over the center's pinned TLS channel,
 // then register and sync one local mirror for each repository carried by the invitation.
 import { X509Certificate } from "node:crypto";
-import { existsSync, statfsSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statfsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { writeFileDurably } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import { runProcessExitAsync, runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned, requestFleetEdgeJoinStatusPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
-import { FleetEdgeGitPreflightError, fleetEdgeRepositoryGitFailure } from "../fleet-edge-git-preflight.ts";
-import { runProcessExitAsync } from "../process-port.ts";
+import { fleetEdgeRepositoryGitFailure, isSupportedFleetGitRemote } from "../fleet-edge-git-preflight.ts";
 
 const DEFAULT_QUOTA_FRACTION = 0.4;
 
@@ -81,7 +81,12 @@ export interface EdgeJoinClientPorts {
 }
 
 export async function joinFleetEdge(
-  request: { readonly link: string; readonly workspaceRoot?: string; readonly quotaBytes?: number },
+  request: {
+    readonly link: string;
+    readonly workspaceRoot?: string;
+    readonly quotaBytes?: number;
+    readonly originUrls?: Readonly<Record<string, string>>;
+  },
   ports: EdgeJoinClientPorts,
 ): Promise<Record<string, unknown>> {
   const link = decodeEdgeJoinLink(request.link);
@@ -139,12 +144,17 @@ export async function joinFleetEdge(
     session.authority.realm !== authority.realm ||
     session.authority.servername !== authority.servername ||
     (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
-  )
+  ) {
+    const login = await ports.beginLogin(authority, loginTarget);
     return {
-      ...(await ports.beginLogin(authority, loginTarget)),
+      ...login,
       command: "edge-join",
       ...(link.transport ? { transport: link.transport } : {}),
+      ...(link.transport === "ssh-reverse" && authority.browserUrl
+        ? { browserApprovalUri: deviceApprovalUri(authority.browserUrl, authority.realm) }
+        : {}),
     };
+  }
   const port = Number(center.port || 443),
     address = {
       hostname: center.hostname,
@@ -187,6 +197,9 @@ export async function joinFleetEdge(
       readonly ok: boolean;
       readonly code?: unknown;
       readonly error?: unknown;
+      readonly needsOrigin?: boolean;
+      readonly defaultBranch?: string;
+      readonly centerOrigin?: string;
     }[];
 
   for (const repository of admitted.repositories) {
@@ -195,34 +208,36 @@ export async function joinFleetEdge(
       report = (phase: EdgeJoinRepositoryProgress["phase"]) =>
         ports.onProgress?.({ joinId: admitted.joinId, repository: { repoId: repository.repoId, phase } });
     report("workspace");
-    const workspaceFailure = await prepareWorkspace(root, repository.harnessYaml);
-    if (workspaceFailure) {
+    const workspaceFailure = await prepareJoinWorkspace(root, repository, request.originUrls?.[repository.repoId]);
+    if (workspaceFailure !== null) {
+      const failedWorkspace = workspaceFailure;
       report("failed");
       repositories.push({
         repoId: repository.repoId,
         workspaceRoot: root,
         ok: false,
-        ...edgeJoinSyncFailure(repository.repoId, workspaceFailure),
+        ...edgeJoinSyncFailure(repository.repoId, failedWorkspace),
+        ...(failedWorkspace.needsOrigin === true ? { needsOrigin: true } : {}),
+        ...(failedWorkspace.defaultBranch ? { defaultBranch: failedWorkspace.defaultBranch } : {}),
+        ...(failedWorkspace.centerOrigin ? { centerOrigin: failedWorkspace.centerOrigin } : {}),
       });
       continue;
     }
-    const preflightFailure = await fleetEdgeRepositoryGitFailure({
-      rootDir: root,
-      center: repository,
-      operation: "edge sync",
-    });
-    // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
-    writeFileDurably(caPath, certificate);
+    // The pinned certificate and join receipt are local trust/configuration, never part of the Git checkout.
     const previous = readFleetEdgeConfig(root),
       saved = previous?.nodeId === admitted.nodeId ? previous : null,
+      savedWaitTimeoutMs = saved?.waitTimeoutMs,
+      savedMaxAgeMs = saved?.maxAgeMs,
+      savedMaxLagRevisions = saved?.maxLagRevisions,
       quotaBytes =
         request.quotaBytes ??
         saved?.quotaBytes ??
         deriveEdgeJoinQuotaBytes(root, ports.availableBytes ?? ((directory) => availableFilesystemBytes(directory)));
+    writeFileDurably(caPath, certificate);
     writeFleetEdgeConfig(root, {
-      ...(saved?.waitTimeoutMs === undefined ? {} : { waitTimeoutMs: saved.waitTimeoutMs }),
-      ...(saved?.maxAgeMs === undefined ? {} : { maxAgeMs: saved.maxAgeMs }),
-      ...(saved?.maxLagRevisions === undefined ? {} : { maxLagRevisions: saved.maxLagRevisions }),
+      ...(savedWaitTimeoutMs === undefined ? {} : { waitTimeoutMs: savedWaitTimeoutMs }),
+      ...(savedMaxAgeMs === undefined ? {} : { maxAgeMs: savedMaxAgeMs }),
+      ...(savedMaxLagRevisions === undefined ? {} : { maxLagRevisions: savedMaxLagRevisions }),
       repoId: repository.repoId,
       host: center.hostname,
       port,
@@ -238,6 +253,13 @@ export async function joinFleetEdge(
       viewRoot: `${root}-view`,
       quotaBytes,
     });
+    report("register");
+    await ports.register(root, repository.repoId);
+    const preflightFailure = await fleetEdgeRepositoryGitFailure({
+      rootDir: root,
+      center: repository,
+      operation: "edge sync",
+    });
     if (preflightFailure) {
       report("failed");
       repositories.push({
@@ -248,8 +270,6 @@ export async function joinFleetEdge(
       });
       continue;
     }
-    report("register");
-    await ports.register(root, repository.repoId);
     report("sync");
     const synced = await ports.sync({
       repoId: repository.repoId,
@@ -284,9 +304,11 @@ export async function joinFleetEdge(
     });
   }
   const failure = repositories.find((repository) => !repository.ok);
+  let failureReply: { readonly code?: string; readonly error?: unknown } = {};
+  if (failure !== undefined) failureReply = { code: "edge_join_sync_failed", error: failure.error };
   return {
-    ok: failure === undefined,
-    ...(failure ? { code: "edge_join_sync_failed", error: failure.error } : {}),
+    ok: true,
+    ...failureReply,
     command: "edge-join",
     joinId: admitted.joinId,
     state: repositories.every((repository) => repository.ok) ? "synced" : "partial",
@@ -339,6 +361,141 @@ function availableFilesystemBytes(rootDir: string): number {
   return stats.bavail * stats.bsize;
 }
 
+async function prepareJoinWorkspace(
+  root: string,
+  repository: {
+    readonly harnessYaml: string;
+    readonly originUrl: string | null;
+    readonly originAddress?: string | null;
+    readonly defaultBranch: string | null;
+    readonly defaultBranchCommit: string | null;
+  },
+  originUrl: string | undefined,
+): Promise<{
+  readonly code: string;
+  readonly message: string;
+  readonly needsOrigin?: boolean;
+  readonly defaultBranch?: string;
+  readonly centerOrigin?: string;
+} | null> {
+  mkdirSync(root, { recursive: true });
+  const hasGit = existsSync(path.join(root, ".git"));
+  if (!repository.originUrl) {
+    if (!hasGit) await prepareWorkspace(root, repository.harnessYaml, repository.defaultBranch ?? "main");
+    return null;
+  }
+
+  if (!hasGit && readdirSync(root).length > 0)
+    return {
+      code: "edge_workspace_not_empty",
+      message: `The workspace ${root} contains files and cannot be cloned over. Move those files or choose an empty workspace, then retry.`,
+    };
+  const currentOrigin = hasGit
+    ? await runProcessTextAsync("git", ["-C", root, "remote", "get-url", "origin"]).catch(() => "")
+    : "";
+  if (currentOrigin.trim()) {
+    ensureCenterLayout(root, repository.harnessYaml);
+    return null;
+  }
+  if (!repository.defaultBranch || !repository.defaultBranchCommit)
+    return {
+      code: "center_default_branch_unavailable",
+      message: "The center did not provide a readable default branch head. Repair the center repository and retry.",
+    };
+  const needsOrigin = {
+    needsOrigin: true,
+    defaultBranch: repository.defaultBranch,
+    ...(repository.originAddress ? { centerOrigin: repository.originAddress } : {}),
+  };
+  if (!originUrl) {
+    if (hasGit) ensureCenterLayout(root, repository.harnessYaml);
+    return {
+      code: "edge_origin_missing",
+      message: `${root} needs a Git origin that can reach the center repository. Enter a reachable Git address; it will be checked before cloning.`,
+      ...needsOrigin,
+    };
+  }
+  const addressFailure = await validateFleetOriginAddress(root, originUrl, repository.defaultBranch);
+  if (addressFailure) return { ...addressFailure, ...needsOrigin };
+  if (hasGit) {
+    try {
+      await runProcessTextAsync("git", ["-C", root, "remote", "add", "origin", originUrl]);
+    } catch {
+      return {
+        code: "edge_origin_add_failed",
+        message:
+          "The checked Git address could not be added because the workspace changed. Inspect its remotes, then retry.",
+      };
+    }
+    ensureCenterLayout(root, repository.harnessYaml);
+    return null;
+  }
+  try {
+    await runProcessTextAsync("git", [
+      "clone",
+      "--quiet",
+      "--single-branch",
+      "--branch",
+      repository.defaultBranch,
+      "--",
+      originUrl,
+      root,
+    ]);
+    ensureCenterLayout(root, repository.harnessYaml);
+    return null;
+  } catch {
+    return {
+      code: "edge_origin_clone_failed",
+      message:
+        "The Git address passed ls-remote but the default branch could not be cloned. Check repository read access, then retry.",
+      ...needsOrigin,
+    };
+  }
+}
+
+function ensureCenterLayout(root: string, harnessYaml: string): void {
+  const layout = path.join(root, "harness", "harness.yaml");
+  if (existsSync(layout)) return;
+  mkdirSync(path.dirname(layout), { recursive: true });
+  writeFileDurably(layout, harnessYaml);
+}
+
+async function validateFleetOriginAddress(
+  rootDir: string,
+  address: string,
+  defaultBranch: string | null,
+): Promise<{ readonly code: string; readonly message: string } | null> {
+  const trimmed = address.trim();
+  if (!defaultBranch || !isSupportedFleetGitRemote(trimmed))
+    return {
+      code: "edge_origin_invalid",
+      message: "Enter a valid HTTPS, SSH, Git, or local Git address and ensure the center default branch is available.",
+    };
+  const result = await runProcessExitAsync(
+    "git",
+    ["ls-remote", "--exit-code", "--heads", trimmed, `refs/heads/${defaultBranch}`],
+    rootDir,
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    undefined,
+    undefined,
+    { timeoutMs: 30_000 },
+  ).catch(() => null);
+  if (!result || result.exitCode !== 0)
+    return {
+      code: "edge_origin_unreachable",
+      message: `Git could not reach the supplied address or find the center default branch ${defaultBranch}. Check the address and repository read access, then retry.`,
+    };
+  return null;
+}
+
+function deviceApprovalUri(browserUrl: string, realm: string): string {
+  const url = new URL(browserUrl);
+  url.pathname = `/realms/${encodeURIComponent(realm)}/device`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {
   const realmUrl = new URL(`realms/${encodeURIComponent(authority.realm)}`, `${authority.url.replace(/\/$/u, "")}/`),
     address = new URL(authority.url).origin;
@@ -373,27 +530,12 @@ function edgeWorkspaceRoot(repoId: string, requestedRoot: string | undefined, ho
   return path.join(base, repoId);
 }
 
-/**
- * Keep the center's private layout beside the edge checkout without making it part of project history.
- * A caller that joins a Git-backed center must provide the real checkout; fabricating a repository here would
- * create a local-only commit and make every later task worktree inherit the wrong base.
- */
-async function prepareWorkspace(root: string, harnessYaml: string): Promise<FleetEdgeGitPreflightError | undefined> {
-  if (!existsSync(path.join(root, ".git")))
-    return new FleetEdgeGitPreflightError(
-      "edge_checkout_required",
-      `Cannot join repository ${root} without an existing Git checkout. Provide --root for a real project checkout; Harness will not initialize or commit a local repository.`,
-    );
-  const layout = path.join(root, "harness", "harness.yaml"),
-    ignored = await runProcessExitAsync("git", ["check-ignore", "--quiet", "--", "harness/harness.yaml"], root, {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: "0",
-    });
-  if (ignored.exitCode !== 0)
-    return new FleetEdgeGitPreflightError(
-      "edge_layout_not_ignored",
-      `Cannot use the private Harness layout at ${layout} because Git does not ignore it. Add harness/harness.yaml to .gitignore, then retry.`,
-    );
-  if (!existsSync(layout)) writeFileDurably(layout, harnessYaml);
-  return undefined;
+/** A remote-edge registration needs the center's layout file inside a Git repository with a branch. */
+async function prepareWorkspace(root: string, harnessYaml: string, defaultBranch: string): Promise<void> {
+  ensureCenterLayout(root, harnessYaml);
+  // A local-only center has no history to clone; keep the branch empty rather than creating a forked commit.
+  if (existsSync(path.join(root, ".git"))) return;
+  const git = (...args: readonly string[]) => runProcessTextAsync("git", ["-C", root, ...args]);
+  await git("init", "-q", "-b", defaultBranch);
+  await git("add", "harness/harness.yaml");
 }

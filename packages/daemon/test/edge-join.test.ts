@@ -363,6 +363,7 @@ test("the join result carries layouts for every invited repository", () => {
           repoId: "repo-a",
           harnessYaml: "schema: harness-anything/v1\n",
           originUrl: null,
+          originAddress: "https://git.example/team/repo-a.git",
           originPushUrls: [],
           defaultBranch: null,
           defaultBranchCommit: null,
@@ -379,11 +380,14 @@ test("the join result carries layouts for every invited repository", () => {
     }),
   );
   assert.equal(frame.schema, "fleet.edge.join.result/v1");
-  if (frame.schema === "fleet.edge.join.result/v1")
+  if (frame.schema === "fleet.edge.join.result/v1") {
     assert.deepEqual(
       frame.repositories.map(({ repoId }) => repoId),
       ["repo-a", "repo-b"],
     );
+    assert.equal(frame.repositories[0]?.originAddress, "https://git.example/team/repo-a.git");
+    assert.equal(Object.hasOwn(frame.repositories[1]!, "originAddress"), false, "older v1 results remain valid");
+  }
 });
 
 test("a member-device link has no token and cannot bypass an invitation token", () => {
