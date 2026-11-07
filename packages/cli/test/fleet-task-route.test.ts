@@ -408,6 +408,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     );
   }
   writeFileSync(path.join(root, "body.md"), "# Authored on the edge\n" + "Long prose. ".repeat(80));
+  writeFileSync(path.join(root, "work-plan.md"), "# Edge work\n\n## Mission\n\nCreate the work from the edge.\n");
   writeFileSync(path.join(root, "ids.txt"), "# edge-local batch\nF-0000EDGE\n");
   writeFileSync(
     path.join(root, "decision-review.json"),
@@ -422,6 +423,26 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     }),
   );
   for (const argv of [
+    [
+      "work",
+      "create",
+      "--title",
+      "Edge work",
+      "--decision",
+      "dec_51BE0FEB9A078031D052101951",
+      "--kind",
+      "feat",
+      "--risk-tier",
+      "medium",
+      "--urgency",
+      "high",
+      "--slug",
+      "edge-work",
+      "--plan-file",
+      "work-plan.md",
+      "--locale",
+      "zh-CN",
+    ],
     ["fact", "reclassify", "F-0000EDGE", "--type", "closeout", "--rationale", "Verified."],
     ["fact", "archive", "--ids-file", "ids.txt", "--reason", "Finished."],
     ["fact", "unarchive", "F-0000EDGE", "--reason", "Restore."],
