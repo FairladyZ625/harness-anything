@@ -27,6 +27,8 @@ export async function fleetScheduleRoute(
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
   const { executor: _executor, ...action } = command.action;
+  const descriptor = commandDescriptorForAction(action.kind),
+    resolvedAction = await resolveFleetPacketAction(command, action, "inputs" in descriptor ? descriptor.inputs : []);
   return {
     host: config.host,
     port: config.port,
@@ -38,8 +40,67 @@ export async function fleetScheduleRoute(
     viewRoot: config.viewRoot,
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
-    action: { kind: "fleet-schedule", payload: action },
+    action: { kind: "fleet-schedule", payload: resolvedAction },
   };
+}
+
+/** Resolve a Schedule mission file on the edge before either local or Fleet execution. */
+export function materializeScheduleMission(command: ThinCommand): ThinCommand {
+  if (
+    !["schedule-create", "schedule-update"].includes(command.action.kind) ||
+    typeof command.action.missionFile !== "string"
+  )
+    return command;
+  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
+    relative = path.relative(command.rootDir, missionPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative))
+    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
+      code: "invalid_field",
+    });
+  const { missionFile: _missionFile, ...action } = command.action;
+  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
+}
+
+async function resolveFleetPacketAction(
+  command: ThinCommand,
+  action: Record<string, unknown>,
+  inputs: readonly { readonly name: string; readonly jsonAllowedFields?: readonly string[] }[],
+): Promise<Record<string, unknown>> {
+  const fromFile = action.fromFile,
+    jsonInput = action.jsonInput;
+  const { fromFile: _fromFile, jsonInput: _jsonInput, ...directAction } = action;
+  if (typeof fromFile !== "string" && typeof jsonInput !== "string") return directAction;
+  const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input",
+    file =
+      typeof fromFile === "string"
+        ? path.isAbsolute(fromFile)
+          ? fromFile
+          : path.join(command.rootDir, fromFile)
+        : null;
+  let packet: unknown;
+  try {
+    packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput));
+  } catch (error) {
+    throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${cliErrorMessage(error)}`), {
+      code: "invalid_field",
+    });
+  }
+  if (packet === null || typeof packet !== "object" || Array.isArray(packet))
+    throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
+  const packetInput = inputs.find(
+      (input) => input.name === (typeof fromFile === "string" ? "--from-file" : "--json-input"),
+    ),
+    allowed = packetInput?.jsonAllowedFields;
+  if (allowed) {
+    const fields = packet as Record<string, unknown>,
+      unsupported = Object.keys(fields).filter((field) => !allowed.includes(field));
+    if (unsupported.length)
+      throw Object.assign(new Error(`${source} cannot carry ${unsupported.join(", ")} over the fleet channel.`), {
+        code: "invalid_field",
+      });
+    return { ...fields, ...directAction };
+  }
+  return { ...directAction, submission: packet };
 }
 
 // The registry-mode gate behind every fleet reroute: a workspace only takes a
@@ -157,10 +218,6 @@ export async function fleetTaskRoute(
 ): Promise<Record<string, unknown> | null> {
   const actionKind = command.action.kind;
   if (!hasCommandDescriptor(actionKind)) return null;
-  // Document conflict exits have a dedicated route carrying the conflict action
-  // and id. Keep them out of the generic task payload so the center receives
-  // the conflict protocol frame rather than a repo.task.run action.
-  if (actionKind.startsWith("doc-conflict-")) return null;
   const descriptor = commandDescriptorForAction(actionKind);
   if (
     !("path" in descriptor) ||
@@ -218,8 +275,23 @@ export async function fleetTaskRoute(
       );
     }
   }
+  // Decision prose sources are edge-local just like task plans. Send the authored bytes, never
+  // the edge path, so the center's closed action schema and writer see the same body as a local
+  // invocation. `--body-file` is declared only for Decision propose/amend and the CLI has already
+  // rejected other action kinds before this route is selected.
+  if (typeof bodyFile === "string") {
+    try {
+      action.body = readFileSync(path.isAbsolute(bodyFile) ? bodyFile : path.join(command.rootDir, bodyFile), "utf8");
+    } catch (error) {
+      throw Object.assign(
+        new Error(`--body-file ${bodyFile} could not be read on this edge: ${cliErrorMessage(error)}`),
+        {
+          code: "invalid_field",
+        },
+      );
+    }
+  }
   // Source files belong to the addressed edge; only decoded authored values cross TLS.
-  if (typeof bodyFile === "string") action.body = readFileSync(path.resolve(command.rootDir, bodyFile), "utf8");
   if (typeof idsFile === "string")
     action.factIds = readFileSync(path.resolve(command.rootDir, idsFile), "utf8")
       .split(/\r?\n/u)
@@ -241,79 +313,6 @@ export async function fleetTaskRoute(
     ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,
   };
-  if (typeof fromFile === "string" || typeof jsonInput === "string") {
-    const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input",
-      file =
-        typeof fromFile === "string"
-          ? path.isAbsolute(fromFile)
-            ? fromFile
-            : path.join(command.rootDir, fromFile)
-          : null;
-    let packet: unknown;
-    try {
-      packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput));
-    } catch (error) {
-      throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${cliErrorMessage(error)}`), {
-        code: "invalid_field",
-      });
-    }
-    if (packet === null || typeof packet !== "object" || Array.isArray(packet))
-      throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
-    const packetInput = (
-      descriptor.inputs as readonly {
-        readonly name: string;
-        readonly jsonAllowedFields?: readonly string[];
-      }[]
-    ).find((input) => input.name === (typeof fromFile === "string" ? "--from-file" : "--json-input"));
-    if (packetInput?.jsonAllowedFields) {
-      const fields = packet as Record<string, unknown>;
-      const unsupported = Object.keys(fields).filter((field) => !packetInput.jsonAllowedFields!.includes(field));
-      if (unsupported.length)
-        throw Object.assign(new Error(`--from-file cannot carry ${unsupported.join(", ")} over the fleet channel.`), {
-          code: "invalid_field",
-        });
-      payload.action = { ...fields, ...action };
-    } else payload.action = { ...action, submission: packet };
-  }
+  payload.action = await resolveFleetPacketAction(command, { ...action, fromFile, jsonInput }, descriptor.inputs);
   return payload;
-}
-// Class-B surface on a remote-edge workspace: `ha doc sync` becomes one
-// compare→push/pull fleet round, and the three conflict exits become fleet
-// conflict-exit rounds. Everything else keeps its local receipt path.
-export async function fleetDocRoute(
-  command: ThinCommand,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<{ readonly method: string; readonly payload: Record<string, unknown> } | null> {
-  const kind = command.action.kind;
-  if (!hasCommandDescriptor(kind)) return null;
-  const descriptor = commandDescriptorForAction(kind);
-  if (descriptor.method !== command.method || descriptor.admission["remote-edge"] !== "via-center-forward") return null;
-  const sync = kind === "doc-submit",
-    conflict = kind.startsWith("doc-conflict-");
-  if (!sync && !conflict) return null;
-  const config = await fleetEdgeRegistration(command, env);
-  if (!config) return null;
-  const payload: Record<string, unknown> = {
-    host: config.host,
-    port: config.port,
-    caPath: config.caPath,
-    ...(config.servername ? { servername: config.servername } : {}),
-    nodeId: config.nodeId,
-    credential: config.credential,
-    repoId: config.repoId,
-    viewRoot: config.viewRoot,
-    quotaBytes: config.quotaBytes,
-    workspaceRoot: config.workspaceRoot,
-  };
-  if (sync) {
-    payload.dryRun = false;
-    payload.paths = Array.isArray(command.action.paths)
-      ? command.action.paths.filter((value): value is string => typeof value === "string")
-      : [];
-    if (command.action.all === true) payload.all = true;
-  } else {
-    payload.action = kind.slice("doc-conflict-".length);
-    payload.conflictId = command.action.conflictId;
-  }
-  return { method: sync ? "daemon.fleet.doc.sync" : "daemon.fleet.conflict.exit", payload };
 }

@@ -57,6 +57,7 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
+          field: "kindId",
           description: "address an existing Kind by kindId, kindRef or qualified id; defaults to declaration.id",
         },
       ),
