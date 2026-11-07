@@ -10,7 +10,9 @@
  * audits every allowlist ref against this index.
  *
  * Scope is the cited superset — every entity cited by the JSON allowlists in
- * tools/gate-allowlists plus the task cited by the B13 path fixture — not a
+ * tools/gate-allowlists, the task cited by the B13 path fixture and the
+ * source decision and owner task of every protocol descriptor `kindRewrite`
+ * (audited by ontology-durable-action-authorization.mjs) — not a
  * full ledger export: each row stays load-bearing and the file stays
  * reviewable. When a new allowlist citation lands, add its verified id here
  * in the same PR; the gate turns red until you do. Rows are never removed
@@ -32,6 +34,7 @@ export const EVIDENCE_INDEX = Object.freeze({
     "task_01KZWZEW11C499EACS9M5HVJZ8",
     "task_01KZXGJWVCKCA6B0MKB220PKFB",
     "task_038b4d6f3f596f842702719458",
+    "task_0db67484d039c6f44bb815ba7c",
     "task_03cb7a92053c5b072005256d57",
     "task_0bff009657f2a466ee187c8210",
     "task_1de89b0fd52d2c7a67617d1a2a",

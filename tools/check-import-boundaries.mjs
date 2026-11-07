@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import ts from "typescript";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
 import {
@@ -546,11 +547,60 @@ const cycleGraph = analyzeRuntimeImportCycles({
   readSource: (file) => readFileSync(path.join(root, file), "utf8"),
   resolveImport: (importer, specifier) => resolveImportFile(path.join(root, importer), specifier, knownImportFiles),
 });
+const valueEdgeNames = new Map(cycleGraph.edges.map((edge) => [`${edge.importer}\u0000${edge.target}`, edge]));
 for (const cycle of cycleGraph.cycles) {
+  // Name every value edge of the witness so the finding says which binding closes the cycle.
+  const edges = cycle.witness.slice(1).map((target, index) => {
+    const edge = valueEdgeNames.get(`${cycle.witness[index]}\u0000${target}`);
+    return `${cycle.witness[index]} -> ${target} [${edge?.kind ?? "edge"}${edge?.names.length ? `: ${edge.names.join(", ")}` : ""}]`;
+  });
   record(
     path.join(root, cycle.files[0]),
-    `runtime import cycle (${cycle.files.length} files): ${formatCycleWitness(cycle.witness)}; members: ${cycle.files.join(", ")}`,
+    `runtime import cycle (${cycle.files.length} files): ${formatCycleWitness(cycle.witness)}; value edges: ${edges.join("; ")}; members: ${cycle.files.join(", ")}`,
   );
+}
+
+// Domain code stays a pure model: a value edge into the schema/Effect runtime layer is a
+// dependency inversion even when no cycle closes. Type-only imports are erased and stay legal.
+const schemaRuntimeModule = /^packages\/kernel\/src\/schemas\//u,
+  effectRuntimeSpecifier = /^(?:effect|@effect\/[^/]+)(?:\/|$)/u;
+for (const edge of cycleGraph.edges)
+  if (edge.importer.startsWith("packages/kernel/src/domain/") && schemaRuntimeModule.test(edge.target))
+    record(
+      path.join(root, edge.importer),
+      `domain layer value-imports schema runtime ${edge.target} [${edge.kind}: ${edge.names.join(", ")}]; import it as a type or move the runtime use out of domain`,
+    );
+for (const file of packageSourceFiles.map(relative).filter((file) => file.startsWith("packages/kernel/src/domain/"))) {
+  const parsed = ts.createSourceFile(file, readFileSync(path.join(root, file), "utf8"), ts.ScriptTarget.Latest, true);
+  for (const statement of parsed.statements) {
+    const declaration = ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement) ? statement : null;
+    const specifier = declaration?.moduleSpecifier;
+    if (!specifier || !ts.isStringLiteral(specifier) || !effectRuntimeSpecifier.test(specifier.text)) continue;
+    if (valueBindingNames(declaration).length === 0) continue;
+    record(
+      path.join(root, file),
+      `domain layer value-imports Effect runtime ${specifier.text} [${valueBindingNames(declaration).join(", ")}]; import it as a type or move the runtime use out of domain`,
+    );
+  }
+}
+
+function valueBindingNames(declaration) {
+  if (ts.isExportDeclaration(declaration)) {
+    if (declaration.isTypeOnly) return [];
+    const clause = declaration.exportClause;
+    if (!clause) return ["*"];
+    if (ts.isNamespaceExport(clause)) return [clause.name.text];
+    return clause.elements.filter((element) => !element.isTypeOnly).map((element) => element.name.text);
+  }
+  const clause = declaration.importClause;
+  if (!clause) return ["side-effect"];
+  if (clause.isTypeOnly) return [];
+  const names = clause.name ? [clause.name.text] : [];
+  const bindings = clause.namedBindings;
+  if (bindings && ts.isNamespaceImport(bindings)) names.push(bindings.name.text);
+  if (bindings && ts.isNamedImports(bindings))
+    names.push(...bindings.elements.filter((element) => !element.isTypeOnly).map((element) => element.name.text));
+  return names;
 }
 
 // dec_D90F19C8AAAF39747F8F0D6698/CH8 C4: the workspace package graph is a DAG, and only the

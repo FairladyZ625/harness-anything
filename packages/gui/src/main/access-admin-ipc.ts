@@ -37,8 +37,8 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "receipt-list": {},
   "session-lifetime": {},
   "credential-support": {},
-  "password-change": { password: "secret" },
-  "password-reset": { personId: "text", password: "secret" },
+  "access-password-change": { password: "secret" },
+  "access-password-reset": { personId: "text", password: "secret" },
   "group-create": { groupId: "text", displayName: "text", scopes: "names", composites: "names" },
   "group-update": {
     groupId: "text",

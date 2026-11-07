@@ -87,6 +87,7 @@ export const actionPresentation = {
   "people-delegate": { domain: "people", name: "委派人员权限", description: "登记人员间的权限委派。" },
   "people-revoke-delegation": { domain: "people", name: "撤销人员委派", description: "结束已经登记的人员权限委派。" },
   "access-manage": { domain: "access", name: "管理访问权限", description: "管理全局策略、授权、账号与身份配置。" },
+  "access-password-change": { domain: "access", name: "修改本人密码", description: "修改当前登录账号自己的密码。" },
   "permission-request-create": { domain: "access", name: "申请权限", description: "请求授予指定资源范围的动作权限。" },
   "permission-request-decide": {
     domain: "access",
@@ -378,6 +379,8 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("daemon-fleet-center-start", undefined, false),
   hostAdmin("daemon-fleet-edge-sync", undefined, false),
   hostAdmin("access-manage", undefined, false),
+  // The signed-in person's own session is the authority: it changes only that person's password.
+  hostAdmin("access-password-change", undefined, false),
   hostAdmin("permission-request-create"),
   hostAdmin("permission-request-decide", undefined, false),
   hostAdmin("permission-request-withdraw"),

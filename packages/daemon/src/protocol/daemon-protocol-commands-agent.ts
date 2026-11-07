@@ -721,6 +721,12 @@ export const agentProtocolCommands = Object.freeze([
     method: "daemon.rbac.manage",
     // One operation of the managed RBAC surface, like login; it declares no Action of its own.
     actionKind: "rbac-bootstrap",
+    kindRewrite: {
+      authorizedKind: "daemon-repo-register",
+      sourceDecision: "dec_2BF45FF7E52020380F5F35CE2D/CH6",
+      ownerTask: "task_0db67484d039c6f44bb815ba7c",
+      expires: "2026-12-07",
+    },
     inputs: [
       cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot" }),
       cliInput(
@@ -766,8 +772,8 @@ export const agentProtocolCommands = Object.freeze([
             "session-lifetime",
             "session-lifetime-set",
             "credential-support",
-            "password-change",
-            "password-reset",
+            "access-password-change",
+            "access-password-reset",
             "listener",
             "listener-set",
             "team-list",
@@ -886,7 +892,8 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "access-password-change",
-    actionKind: "access-manage",
+    // The route requires the signed-in session and writes only that person's password.
+    hostAuthority: "own-session",
     phase: "W3",
     path: ["access", "password", "change"],
     summary: "Change the signed-in account password using a protected file or redirected stdin.",
@@ -969,6 +976,7 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "repo-bootstrap",
+    hostAuthority: "local-transport",
     phase: "W3",
     path: ["init"],
     summary: [

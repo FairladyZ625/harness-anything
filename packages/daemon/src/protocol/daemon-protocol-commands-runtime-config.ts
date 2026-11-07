@@ -276,6 +276,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-service-install",
+    hostAuthority: "local-process",
     phase: "Edge-Resident-H1",
     path: ["daemon", "service", "install"],
     summary:
@@ -293,6 +294,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-service-uninstall",
+    hostAuthority: "local-process",
     phase: "Edge-Resident-H1",
     path: ["daemon", "service", "uninstall"],
     summary: "Stop the supervised daemon and remove its service unit.",
@@ -301,6 +303,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-start",
+    hostAuthority: "local-process",
     phase: "W3",
     path: ["daemon", "start", "--service"],
     summary: "Explicitly start the resident daemon.",

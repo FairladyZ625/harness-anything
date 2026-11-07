@@ -210,6 +210,25 @@ type CliCommandDeclaration = {
   readonly path: readonly string[];
   readonly syntaxPath?: readonly string[];
   readonly inputs: readonly CliInputFacet[];
+  /**
+   * The authority of a host command that no AuthorizationPort decision gates (ruled for the
+   * durable-authorization gate, task_a28bf79f248c4e59f2149f22ad): `local-transport` is served only
+   * past the daemon's local-socket transport exit; `local-process` runs in the operator's own CLI
+   * process and sends the daemon nothing but a read; `own-session` requires the acting person's own
+   * signed-in session and acts only on that person.
+   */
+  readonly hostAuthority?: "local-transport" | "local-process" | "own-session";
+  /**
+   * A command whose route authorizes another action kind than the one it declares. The difference
+   * is legal only under a cited source decision, an owner task that designs it away and an expiry
+   * date; the durable-authorization gate traces `authorizedKind` and turns red once `expires` passes.
+   */
+  readonly kindRewrite?: {
+    readonly authorizedKind: string;
+    readonly sourceDecision: string;
+    readonly ownerTask: string;
+    readonly expires: string;
+  };
 };
 const defineTopologyCommand =
   (topology: CommandTopology) =>

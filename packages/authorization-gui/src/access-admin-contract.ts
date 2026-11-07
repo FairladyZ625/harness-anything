@@ -188,8 +188,8 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
         | "session-lifetime"
         | "credential-support";
     }
-  | { readonly operation: "password-change"; readonly password: string }
-  | { readonly operation: "password-reset"; readonly personId: string; readonly password: string }
+  | { readonly operation: "access-password-change"; readonly password: string }
+  | { readonly operation: "access-password-reset"; readonly personId: string; readonly password: string }
   | ({ readonly operation: "device-rename"; readonly displayName: string } & AccessDeviceChange)
   | ({ readonly operation: "device-pause" | "device-resume" | "device-remove" } & AccessDeviceChange)
   | { readonly operation: "device-logout-all"; readonly expectedVersion: string }

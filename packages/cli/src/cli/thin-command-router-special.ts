@@ -15,18 +15,17 @@ export function parseRoutedSpecial(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult | undefined {
   if (route.id === "access-password-change" || route.id === "access-password-reset") {
-    const operation = route.id === "access-password-change" ? "password-change" : "password-reset",
-      parsed = parseProjected(
-        route.id,
-        args.slice(route.path.length),
-        rootDir,
-        repoId,
-        json,
-        inputs,
-        {},
-        { operation },
-        route.method,
-      );
+    const parsed = parseProjected(
+      route.id,
+      args.slice(route.path.length),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      {},
+      { operation: route.id },
+      route.method,
+    );
     if (!parsed.ok) return parsed;
     const { passwordFile, ...action } = parsed.command.action;
     return {

@@ -178,14 +178,14 @@ test("built-in password change replaces the login secret and declares account re
     changeOwn: true,
     resetOthers: false,
   });
-  assert.deepEqual(await access.run({ operation: "password-change", password: "replacement-password" }), {
+  assert.deepEqual(await access.run({ operation: "access-password-change", password: "replacement-password" }), {
     ok: true,
     changed: true,
   });
   assert.equal(await authenticate("initial-password"), false);
   assert.equal(await authenticate("replacement-password"), true);
   await assert.rejects(
-    access.run({ operation: "password-reset", personId: "someone-else", password: "not-supported" }),
+    access.run({ operation: "access-password-reset", personId: "someone-else", password: "not-supported" }),
     { code: "unsupported_capability" },
   );
 });

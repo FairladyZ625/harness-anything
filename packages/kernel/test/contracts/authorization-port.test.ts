@@ -57,7 +57,8 @@ test("retired People mutations are absent from the durable authorization invento
   assert.equal(durablePolicyActions.includes("access-manage"), true);
   // task_6569c05452127015cf461219de adds the node-local auto-claim host action.
   // task_b61f743f47a04298a7a96704e0 adds the task witness run action.
-  assert.equal(durablePolicyActions.length, 172);
+  // task_a28bf79f248c4e59f2149f22ad separates the own-session password change from access-manage.
+  assert.equal(durablePolicyActions.length, 173);
   assert.equal(durablePolicyActions.includes("task-witness-run"), true);
   assert.equal(durablePolicyActions.includes("migrate-storage"), true);
   assert.equal(durablePolicyActions.includes("daemon-node-auto-claim"), true);

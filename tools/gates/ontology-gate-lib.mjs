@@ -126,28 +126,40 @@ export function loadCatalogSnapshot(rootDir, fixture = null) {
   return JSON.parse(runTypeScriptProbe(modulePath, script));
 }
 
-export function loadDurableActionKinds(rootDir, fixture = null) {
-  if (fixture) {
-    const parsed = JSON.parse(readFileSync(fixture, "utf8"));
-    if (!Array.isArray(parsed)) throw new Error("durable action fixture must be an array");
-    return [...new Set(parsed.map(String))].sort();
-  }
-  const commandsPath = path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
-  const guiPath = path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts");
+/**
+ * The evaluated action surfaces G-B compares: registry contracts as the runtime builds them
+ * (factory-made kinds included), ActionDeclarations, and the protocol ingress descriptors.
+ */
+export function loadActionCoverageSnapshot(rootDir) {
+  const modules = [
+    "packages/kernel/src/domain/entity-kind-registry.ts",
+    "packages/kernel/src/domain/action-declaration.ts",
+    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+    "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts",
+  ].map((file) => path.join(rootDir, file));
   const script = [
-    "const commands = await import(process.argv[1]);",
-    "const gui = await import(process.argv[2]);",
-    "const kinds = [...commands.daemonProtocolCommands, ...gui.daemonGuiActionMethods]",
-    "  .filter((entry) => entry.commandClass !== 'repo-read')",
-    "  .map((entry) => entry.actionKind ?? entry.id);",
-    "process.stdout.write(JSON.stringify([...new Set(kinds)].sort()));",
+    "const [registry, declarations, commands, gui] = await Promise.all(process.argv.slice(1, 5).map((url) => import(url)));",
+    "const result = {",
+    "  kinds: registry.entityKindContracts.map((contract) => contract.kind),",
+    "  effects: registry.entityKindContracts.flatMap((contract) => (contract.actionCatalog?.actions ?? [])",
+    "    .filter((action) => action.execution && !action.execution.read)",
+    "    .map((action) => ({ kind: contract.kind, action: action.id, ingress: action.execution.ingress,",
+    "      implementation: action.execution.implementation, policyAction: action.policy?.action ?? null }))),",
+    "  declarations: declarations.actionDeclarations.map((entry) => ({ kind: entry.kind,",
+    "    executionClass: entry.executionClass, residency: entry.residency.scope })),",
+    "  artifactIngress: [...(declarations.artifactActionIngressKinds ?? [])],",
+    "  ingress: [...commands.daemonProtocolCommands, ...gui.daemonGuiActionMethods]",
+    "    .filter((entry) => entry.commandClass !== 'repo-read')",
+    "    .map((entry) => ({ kind: entry.actionKind ?? entry.id, method: entry.method })),",
+    "};",
+    "process.stdout.write(JSON.stringify(result));",
   ].join("\n");
-  return JSON.parse(runTypeScriptProbe(commandsPath, script, guiPath));
+  return JSON.parse(runTypeScriptProbe(modules[0], script, ...modules.slice(1)));
 }
 
-function runTypeScriptProbe(modulePath, script, secondModulePath = null) {
+function runTypeScriptProbe(modulePath, script, ...otherModulePaths) {
   const args = ["--no-warnings", "--experimental-strip-types", "-e", script, pathToUrl(modulePath)];
-  if (secondModulePath) args.push(pathToUrl(secondModulePath));
+  args.push(...otherModulePaths.map(pathToUrl));
   return execFileSync(process.execPath, args, {
     cwd: path.dirname(path.dirname(path.dirname(modulePath))),
     encoding: "utf8",
