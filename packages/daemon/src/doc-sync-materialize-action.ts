@@ -24,7 +24,9 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
     settlements = result.settlements.map((row) => ({
       ...row,
       path: workspacePath(row.path),
-      copy: row.copy === null ? null : workspacePath(row.copy),
+      // `copy` is already repository-root-relative (`.harness/conflicts/...`); it is not a ledger
+      // document, so prefixing the authored root here would point at a file that does not exist.
+      copy: row.copy,
     })),
     conflicts = result.conflicts.map(workspacePath);
   if (paths === undefined && settlements.length > 0) {
