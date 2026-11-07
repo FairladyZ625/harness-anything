@@ -6,13 +6,13 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { writeFileDurably } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
-import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned, requestFleetEdgeJoinStatusPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
-import { fleetEdgeRepositoryGitFailure } from "../fleet-edge-git-preflight.ts";
+import { FleetEdgeGitPreflightError, fleetEdgeRepositoryGitFailure } from "../fleet-edge-git-preflight.ts";
+import { runProcessExitAsync } from "../process-port.ts";
 
 const DEFAULT_QUOTA_FRACTION = 0.4;
 
@@ -195,7 +195,17 @@ export async function joinFleetEdge(
       report = (phase: EdgeJoinRepositoryProgress["phase"]) =>
         ports.onProgress?.({ joinId: admitted.joinId, repository: { repoId: repository.repoId, phase } });
     report("workspace");
-    await prepareWorkspace(root, repository.harnessYaml);
+    const workspaceFailure = await prepareWorkspace(root, repository.harnessYaml);
+    if (workspaceFailure) {
+      report("failed");
+      repositories.push({
+        repoId: repository.repoId,
+        workspaceRoot: root,
+        ok: false,
+        ...edgeJoinSyncFailure(repository.repoId, workspaceFailure),
+      });
+      continue;
+    }
     const preflightFailure = await fleetEdgeRepositoryGitFailure({
       rootDir: root,
       center: repository,
@@ -363,22 +373,27 @@ function edgeWorkspaceRoot(repoId: string, requestedRoot: string | undefined, ho
   return path.join(base, repoId);
 }
 
-/** A remote-edge registration needs the center's layout file inside a Git repository with a branch. */
-async function prepareWorkspace(root: string, harnessYaml: string): Promise<void> {
-  const layout = path.join(root, "harness", "harness.yaml");
+/**
+ * Keep the center's private layout beside the edge checkout without making it part of project history.
+ * A caller that joins a Git-backed center must provide the real checkout; fabricating a repository here would
+ * create a local-only commit and make every later task worktree inherit the wrong base.
+ */
+async function prepareWorkspace(root: string, harnessYaml: string): Promise<FleetEdgeGitPreflightError | undefined> {
+  if (!existsSync(path.join(root, ".git")))
+    return new FleetEdgeGitPreflightError(
+      "edge_checkout_required",
+      `Cannot join repository ${root} without an existing Git checkout. Provide --root for a real project checkout; Harness will not initialize or commit a local repository.`,
+    );
+  const layout = path.join(root, "harness", "harness.yaml"),
+    ignored = await runProcessExitAsync("git", ["check-ignore", "--quiet", "--", "harness/harness.yaml"], root, {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+    });
+  if (ignored.exitCode !== 0)
+    return new FleetEdgeGitPreflightError(
+      "edge_layout_not_ignored",
+      `Cannot use the private Harness layout at ${layout} because Git does not ignore it. Add harness/harness.yaml to .gitignore, then retry.`,
+    );
   if (!existsSync(layout)) writeFileDurably(layout, harnessYaml);
-  // An existing checkout keeps its own repository; a fresh workspace gets one for the edge mirror.
-  if (existsSync(path.join(root, ".git"))) return;
-  const git = (...args: readonly string[]) => runProcessTextAsync("git", ["-C", root, ...args]);
-  await git("init", "-q", "-b", "main");
-  await git("add", "harness/harness.yaml");
-  await git(
-    "-c",
-    "user.name=Harness Edge",
-    "-c",
-    "user.email=edge@harness.invalid",
-    "commit",
-    "-qm",
-    "Harness edge workspace",
-  );
+  return undefined;
 }

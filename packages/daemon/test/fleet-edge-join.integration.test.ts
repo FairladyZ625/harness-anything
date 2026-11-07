@@ -4,10 +4,10 @@
 // first sync. The credential lands only in fleet-edge.json (0600); the receipt never carries it. An
 // invitation bound to another person is refused.
 import assert from "node:assert/strict";
-import { EventEmitter, once } from "node:events";
-import type { ChildProcess } from "node:child_process";
+import { execFileSync, type ChildProcess } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { EventEmitter, once } from "node:events";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createServer } from "node:https";
 import test from "node:test";
@@ -218,14 +218,44 @@ test(
               certificate: loginCertificate,
             }),
           },
+          beforeOpen: (edgeRoot) => {
+            execFileSync("git", ["-C", edgeRoot, "rm", "--cached", "harness/harness.yaml"]);
+            writeFileSync(
+              path.join(edgeRoot, ".gitignore"),
+              "harness/\n.harness/\nfleet-edge.json\nfleet-center-ca.pem\n",
+            );
+            execFileSync("git", ["-C", edgeRoot, "add", ".gitignore"]);
+            execFileSync("git", [
+              "-C",
+              edgeRoot,
+              "-c",
+              "user.name=Edge Test",
+              "-c",
+              "user.email=edge@example.invalid",
+              "commit",
+              "-qm",
+              "ignore private edge layout",
+            ]);
+          },
         }),
         workspaceRoot = path.dirname(edge.edgeRoot);
+      const initialHead = execFileSync("git", ["-C", edge.edgeRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
       const response = await edge.rpc.handle({
         jsonrpc: "2.0",
         id: 1,
         method: "daemon.rbac.manage",
         params: { operation: "edge-join", link: invitation, workspaceRoot },
       });
+      assert.equal(
+        execFileSync("git", ["-C", edge.edgeRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+        initialHead,
+        "edge join must not create a project repository commit",
+      );
+      assert.equal(
+        execFileSync("git", ["-C", edge.edgeRoot, "status", "--porcelain"], { encoding: "utf8" }).trim(),
+        "",
+        "ignored edge layout and connection files must leave the checkout clean",
+      );
       return { edge, response: response as Record<string, unknown>, workspaceRoot };
     };
 
@@ -467,6 +497,22 @@ test(
       workspaceRoot: path.join(f.root, "recovered-workspaces"),
       quotaBytes: 1024 * 1024,
     };
+    const edgeRepo = path.join(request.workspaceRoot, "repo-a");
+    mkdirSync(edgeRepo, { recursive: true });
+    execFileSync("git", ["init", "-q", "-b", "main", edgeRepo]);
+    writeFileSync(path.join(edgeRepo, ".gitignore"), "harness/\n");
+    execFileSync("git", ["-C", edgeRepo, "add", ".gitignore"]);
+    execFileSync("git", [
+      "-C",
+      edgeRepo,
+      "-c",
+      "user.name=Edge Test",
+      "-c",
+      "user.email=edge@example.invalid",
+      "commit",
+      "-qm",
+      "edge checkout",
+    ]);
     await assert.rejects(joinFleetEdge(request, ports), { code: "join_reply_lost" });
     const recovered = await joinFleetEdge(request, ports),
       saved = readFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"))!;
