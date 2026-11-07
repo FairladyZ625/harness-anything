@@ -279,6 +279,12 @@ test("taskDispatchRowSettled honours fallback chains and the unknown-outcome gra
       fallbackState: "dispatched",
       nextDispatchId: "dispatch-elsewhere",
     }),
+    scheduledProviderFailure = dispatchRow({
+      status: "failed",
+      outcome: "failed",
+      fallbackState: "scheduled",
+      classification: "provider_fault",
+    }),
     failedFallbackLaunch = dispatchRow({
       status: "failed",
       outcome: "failed",
@@ -307,6 +313,11 @@ test("taskDispatchRowSettled honours fallback chains and the unknown-outcome gra
     "a dispatched row is terminal once its successor row is projected",
   );
   assert.equal(taskDispatchRowSettled(dispatchedAway, ids), false);
+  assert.equal(
+    taskDispatchRowSettled(scheduledProviderFailure, ids),
+    true,
+    "a terminal provider failure with no projected successor is settled even when its outcome snapshot says scheduled",
+  );
   assert.equal(
     taskDispatchRowSettled(failedFallbackLaunch, ids),
     true,

@@ -765,6 +765,16 @@ export async function fixture(
       );
       pending.exit?.(1);
     },
+    failProviderFaultPending: () => {
+      const pending = pendingProviders.at(-1)!;
+      pending.output?.(
+        `${JSON.stringify({
+          type: "turn.failed",
+          error: { http_status: 500, code: "server_error", message: "HTTP 500 fixture provider failure" },
+        })}\n`,
+      );
+      pending.exit?.(1);
+    },
     bindPending: () => {
       const pending = pendingProviders.at(-1)!;
       pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);

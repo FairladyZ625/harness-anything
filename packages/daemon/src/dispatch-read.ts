@@ -388,26 +388,18 @@ export function taskDispatchesOutcome(
   return { outcome, exitCode: unsettled || outcome === "succeeded" ? 0 : 1 };
 }
 
-/** Terminal verdict for one dispatch row as the await surface sees it: a still-scheduled or
- * still-dispatched fallback attempt keeps waiting on its successor row, and a just-exited
- * process is terminal only once its outcome event has been projected (status+outcome unknown). */
+/** Terminal verdict for one dispatch row as the await surface sees it. A terminal provider failure
+ * with no projected successor has exhausted its fallback even if the outcome snapshot still says
+ * scheduled; a just-exited process is terminal only once its outcome event has been projected. */
 export function taskDispatchRowSettled(row: TaskDispatchRow, dispatchIds: readonly string[]): boolean {
-  if (row.fallbackState === "scheduled") return false;
-  if (
-    row.fallbackState === "dispatched" &&
-    (row.nextDispatchId === null || !dispatchIds.includes(row.nextDispatchId))
-  ) {
-    // A provider-failed predecessor without a projected successor is the historical fallback-launch
-    // failure shape. A real queued/running continuation contributes its own row to dispatchIds;
-    // other failed rows remain pending until their successor is projected.
-    if (
-      row.status !== "failed" ||
-      row.outcome !== "failed" ||
-      row.classification === null ||
-      !isProviderFailureClassification(row.classification)
-    )
-      return false;
-  }
+  const providerFailureTerminal =
+      row.status === "failed" &&
+      row.outcome === "failed" &&
+      row.classification !== null &&
+      isProviderFailureClassification(row.classification),
+    successorProjected = row.nextDispatchId !== null && dispatchIds.includes(row.nextDispatchId);
+  if (row.fallbackState === "scheduled" && (!providerFailureTerminal || successorProjected)) return false;
+  if (row.fallbackState === "dispatched" && !successorProjected && !providerFailureTerminal) return false;
   if (
     row.status === "succeeded" ||
     row.status === "failed" ||
