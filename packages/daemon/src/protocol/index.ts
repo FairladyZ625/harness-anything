@@ -5,6 +5,7 @@ export type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./
 export { admitUseCaseProjectionSelector } from "./daemon-protocol-gui-types.ts";
 export type {
   AgentDeclarationV1,
+  AgentHostAccess,
   DaemonGuiActionResult,
   DaemonGuiReadPayloadMap,
   DaemonGuiReadResultMap,

@@ -30,7 +30,7 @@ import type {
   VerticalDefinition,
 } from "@harness-anything/kernel";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
-export type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/kernel";
+export type { AgentDeclarationV1, AgentHostAccess, SquadDeclarationV1 } from "@harness-anything/kernel";
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,

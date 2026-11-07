@@ -332,6 +332,7 @@ test("diff states instructions as lines and skills/runtimes as set changes", () 
         { id: "gui", path: "skills/gui" },
       ],
       runtimes: [{ type: "codex" }, { type: "claude" }],
+      hostAccess: "isolated",
     }),
   ]);
   try {
@@ -361,6 +362,10 @@ test("diff states instructions as lines and skills/runtimes as set changes", () 
     assert.ok(runtimes && "added" in runtimes);
     assert.deepEqual(runtimes.added, [{ type: "claude" }]);
     assert.deepEqual(runtimes.removed, []);
+    // hostAccess is a declaration facet: version diffs must show it like the other scalar fields.
+    const hostAccess = byField.get("hostAccess");
+    assert.ok(hostAccess && "from" in hostAccess);
+    assert.deepEqual([hostAccess.from, hostAccess.to], [null, "isolated"]);
     // Same revision on both sides is an empty difference, not a truncation.
     const empty = readAgentDiff(ports(f), { agentId: "versioned", from: f.revisions[1]!, to: f.revisions[1]! });
     assert.deepEqual(empty.fields, []);

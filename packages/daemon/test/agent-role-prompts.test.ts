@@ -67,7 +67,7 @@ for (const role of ["worker", "commander", "reviewer"] as const)
       "the inlined plan made the read instruction redundant",
     );
     assert.match(prompt, /evidence, risk, alternative and smallest useful verification/u);
-    assert.match(prompt, /Host access: isolated\. Do not use host tools or services/u);
+    assert.match(prompt, /Host access: operator\. You may use host tools and services that already exist/u);
     assert.match(prompt, /do not read, copy, or print real secret values/u);
     assert.match(prompt, /report the exact request/u);
     assert.match(prompt, /label unchecked items unverified/u);
@@ -77,7 +77,7 @@ for (const role of ["worker", "commander", "reviewer"] as const)
   });
 
 // hostAccess is the declaration's choice; the generated host line is the only host boundary a dispatch states.
-const hostAgent = (hostAccess?: "isolated" | "operator") => ({
+const hostAgent = (hostAccess?: "isolated" | "operator" | "bypass") => ({
   id: "host-agent",
   name: "Host Agent",
   instructions: "Do the work.",
@@ -90,17 +90,30 @@ test("an operator declaration may use existing host tools but never create VMs o
   assert.match(prompt, /Host access: operator\. You may use host tools and services that already exist/u);
   assert.match(prompt, /`prlctl exec` into an existing VM/u);
   assert.match(prompt, /Do not create or start VMs or Docker containers/u);
-  assert.doesNotMatch(prompt, /Host access: isolated|must not operate host virtualization/u);
+  assert.doesNotMatch(prompt, /Host access: isolated|Host access: bypass|must not operate host virtualization/u);
 });
-for (const hostAccess of [undefined, "isolated"] as const)
-  test(`a ${hostAccess ?? "undeclared"} hostAccess keeps host services prohibited`, () => {
-    const prompt = assembleAgentPrompt(hostAgent(hostAccess), "Do the mission.");
-    assert.match(prompt, /Host access: isolated\. Do not use host tools or services/u);
-    assert.match(prompt, /do not create or start VMs or Docker containers/u);
-    assert.doesNotMatch(prompt, /Host access: operator/u);
-  });
-test("the secret boundary names real secret values and allows credential product code and test credentials", () => {
-  for (const hostAccess of ["isolated", "operator"] as const) {
+test("an undeclared hostAccess resolves to the operator default", () => {
+  const prompt = assembleAgentPrompt(hostAgent(undefined), "Do the mission.");
+  assert.match(prompt, /Host access: operator\. You may use host tools and services that already exist/u);
+  assert.match(prompt, /Do not create or start VMs or Docker containers/u);
+  assert.doesNotMatch(prompt, /Host access: isolated|Host access: bypass/u);
+});
+test("an isolated declaration keeps host services prohibited", () => {
+  const prompt = assembleAgentPrompt(hostAgent("isolated"), "Do the mission.");
+  assert.match(prompt, /Host access: isolated\. Do not use host tools or services/u);
+  assert.match(prompt, /do not create or start VMs or Docker containers/u);
+  assert.doesNotMatch(prompt, /Host access: operator|Host access: bypass/u);
+});
+test("a bypass declaration permits host tools, VM creation, and containers without a prohibition", () => {
+  const prompt = assembleAgentPrompt(hostAgent("bypass"), "Do the mission.");
+  assert.match(prompt, /Host access: bypass\./u);
+  assert.match(prompt, /creating or starting VMs and Docker containers, are all permitted/u);
+  // bypass adds no container/VM prohibition of its own.
+  assert.doesNotMatch(prompt, /Do not (?:create|start) VMs or Docker containers|must not operate host virtualization/u);
+  assert.doesNotMatch(prompt, /Host access: isolated|Host access: operator/u);
+});
+test("the secret boundary is unchanged across all three host-access tiers", () => {
+  for (const hostAccess of ["isolated", "operator", "bypass"] as const) {
     const prompt = assembleAgentPrompt(hostAgent(hostAccess), "Do the mission.");
     assert.match(prompt, /do not read, copy, or print real secret values/u);
     assert.match(prompt, /never write a secret into logs, reports, PRs, facts, or artifacts/u);

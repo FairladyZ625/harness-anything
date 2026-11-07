@@ -178,7 +178,10 @@ test("attached task runtime settlement releases its execution lease before publi
       );
       // A task-bound dispatch without an agent declaration is worker work and carries the shared discipline.
       assert.match(launchedPrompt ?? "", /^# Harness Execution Discipline/u);
-      assert.match(launchedPrompt ?? "", /Host access: isolated\. Do not use host tools or services/u);
+      assert.match(
+        launchedPrompt ?? "",
+        /Host access: operator\. You may use host tools and services that already exist/u,
+      );
       const claimedProjection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),

@@ -1,4 +1,4 @@
-import type { AgentHostAccess, AgentRole } from "@harness-anything/kernel";
+import { DEFAULT_AGENT_HOST_ACCESS, type AgentHostAccess, type AgentRole } from "@harness-anything/kernel";
 
 // The only source of the host-access and secret-value boundaries a dispatch states; the Agent
 // declaration's hostAccess selects the host line, and every other surface points here.
@@ -10,6 +10,9 @@ const hostAccessBoundary: Readonly<Record<AgentHostAccess, string>> = {
   operator:
     "- Host access: operator. You may use host tools and services that already exist when the task needs them, " +
     "such as `prlctl exec` into an existing VM or a local CLI. Do not create or start VMs or Docker containers.",
+  bypass:
+    "- Host access: bypass. Host tools and services, including creating or starting VMs and Docker containers, " +
+    "are all permitted; the secret-value boundary below still applies.",
 };
 const secretValueBoundary =
   "- Secrets: do not read, copy, or print real secret values, and never write a secret into logs, reports, PRs, " +
@@ -93,8 +96,11 @@ const commanderDiscipline = `<very_important>
 - Include combined child evidence in the delivery; submit automatically dispatches the required ledger reviewers; track review through approval and hand the PR and evidence to the CEO. Do not merge the PR or main.
 </very_important>`;
 
-/** An undeclared hostAccess is isolated, so unbound dispatches never gain host access. */
-export function agentRolePrompt(role: AgentRole | undefined, hostAccess: AgentHostAccess = "isolated"): string {
+/** An undeclared hostAccess resolves to the Kernel default, so the default has one definition. */
+export function agentRolePrompt(
+  role: AgentRole | undefined,
+  hostAccess: AgentHostAccess = DEFAULT_AGENT_HOST_ACCESS,
+): string {
   return [
     sharedExecutionDiscipline(hostAccess),
     ...(role === "reviewer"

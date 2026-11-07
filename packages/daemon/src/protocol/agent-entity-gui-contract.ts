@@ -56,12 +56,24 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
   return errors;
 }
 const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
+  agentGuiHostAccess = Object.freeze(["isolated", "operator", "bypass"]),
+  agentHostAccessErrors = (row: Record<string, unknown>, prefix: string): readonly string[] =>
+    [
+      !agentGuiHostAccess.includes(String(row.hostAccess))
+        ? `${prefix} hostAccess must be isolated, operator, or bypass.`
+        : [],
+      !["declared", "default"].includes(String(row.hostAccessSource))
+        ? `${prefix} hostAccessSource must be declared or default.`
+        : [],
+    ].flat(),
   agentCatalogRowFields = Object.freeze([
     "id",
     "name",
     "runtimes",
     "instance",
     "permissionMode",
+    "hostAccess",
+    "hostAccessSource",
     "role",
     "layer",
     "retirement",
@@ -74,6 +86,8 @@ const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
     "runtimes",
     "instance",
     "permissionMode",
+    "hostAccess",
+    "hostAccessSource",
     "role",
     "instructions",
     "skills",
@@ -178,6 +192,7 @@ const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] 
     !agentRuntimeTargets(row.runtimes)
       ? "agent catalog row runtimes must be an array of unique {type, model?, effort?} targets."
       : [],
+    ...agentHostAccessErrors(row, "agent catalog row"),
     ...agentRetirementErrors(row, "agent catalog row"),
   ].flat();
 const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
@@ -202,6 +217,7 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
     row.preset !== null && row.preset !== undefined && !entityNonEmpty(row.preset)
       ? ["agent detail preset must be null or a non-empty preset id."]
       : [],
+    ...agentHostAccessErrors(row, "agent detail"),
     ...positiveRevision(row),
     ...agentRetirementErrors(row, "agent detail"),
   ].flat();

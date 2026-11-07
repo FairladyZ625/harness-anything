@@ -153,6 +153,8 @@ const agentDetail = {
   retirement: null,
   instance: "claude-one",
   permissionMode: "bypass",
+  hostAccess: "isolated",
+  hostAccessSource: "declared",
 } as const;
 const availableSkills = [
     { id: "review", path: "/Users/test/.claude/skills/review", source: "user" },
@@ -690,6 +692,11 @@ describe("agent runtime renderer", () => {
     ])
       expect(agent).toContain(text);
     expect(agent).toContain("Role is fully decoupled from model and provider");
+    expect(agent).toContain('data-testid="agent-host-access"');
+    expect(agent).toContain('data-testid="agent-host-access-isolated"');
+    expect(agent).toContain('data-testid="agent-host-access-operator"');
+    expect(agent).toContain('data-testid="agent-host-access-bypass"');
+    expect(agent).toMatch(/data-testid="agent-host-access-isolated"[^>]*aria-pressed="true"/u);
     expect(agent).toContain('data-testid="agent-instance-select"');
     expect(agent).toContain("Claude One · gpt-5.6-sol");
     expect(agent).toContain("provider/claude-one");
@@ -730,6 +737,7 @@ describe("agent runtime renderer", () => {
       skills: agentDetail.skills,
       instance: agentDetail.instance,
       permissionMode: agentDetail.permissionMode,
+      hostAccess: agentDetail.hostAccess,
     });
     const declaredEffort = {
       ...agentDetail,

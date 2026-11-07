@@ -206,6 +206,8 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
           id: declaration.id,
           name: "Unified Agent Updated",
           runtimes: declaration.runtimes,
+          hostAccess: "operator",
+          hostAccessSource: "default",
           layer: "user",
           source: "agents/unified-agent.json",
         },
@@ -217,6 +219,8 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     assert.deepEqual(JSON.parse(String(inspectedAgent.evidence)), {
       schema: "agent-inspection/v1",
       workspaceRevision: updated.revision,
+      hostAccess: "operator",
+      hostAccessSource: "default",
       agent: { ...declaration, name: "Unified Agent Updated" },
       status: "ready",
       watermark: updated.revision,
@@ -856,6 +860,77 @@ test("an ambiguous agent install reports its warning on the receipt the operator
         "then repository allowed-instance order. Pin one with the `instance` field, or state an order " +
         "with `preferredInstances`; run ha runtime instance list to see the enabled instances.",
     ]);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("agent list and inspect state the effective host access and whether it is declared", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-host-access-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("agent-host-access"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "agent-host-access-test",
+  });
+  try {
+    const declarations = [
+      { id: "default-agent", hostAccess: undefined },
+      { id: "isolated-agent", hostAccess: "isolated" },
+      { id: "bypass-agent", hostAccess: "bypass" },
+    ] as const;
+    for (const { id, hostAccess } of declarations) {
+      const created = await cell.run(
+        {
+          kind: "agent-install",
+          declaration: {
+            ...declaration,
+            id,
+            name: id,
+            ...(hostAccess === undefined ? {} : { hostAccess }),
+          },
+          expectedVersion: 0,
+          idempotencyKey: `host-access-${id}`,
+        },
+        binding,
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, binding);
+    }
+
+    const listed = await cell.run({ kind: "agent-list" }, binding),
+      rows = new Map(
+        (JSON.parse(String(listed.evidence)) as { agents: readonly Record<string, unknown>[] }).agents.map((row) => [
+          String(row.id),
+          row,
+        ]),
+      );
+    assert.equal(rows.get("default-agent")?.hostAccess, "operator");
+    assert.equal(rows.get("default-agent")?.hostAccessSource, "default");
+    assert.equal(rows.get("isolated-agent")?.hostAccess, "isolated");
+    assert.equal(rows.get("isolated-agent")?.hostAccessSource, "declared");
+    assert.equal(rows.get("bypass-agent")?.hostAccess, "bypass");
+    assert.equal(rows.get("bypass-agent")?.hostAccessSource, "declared");
+    // The generic CLI renderer keeps the default marker legible in `ha agent list`.
+    assert.match(renderEvidencePayload(JSON.parse(String(listed.evidence))), /operator\tdefault/u);
+
+    for (const { id, hostAccess } of declarations) {
+      const inspected = await cell.run({ kind: "agent-inspect", agentId: id }, binding),
+        evidence = JSON.parse(String(inspected.evidence)) as {
+          readonly hostAccess: string;
+          readonly hostAccessSource: string;
+        },
+        rendered = renderEvidencePayload(evidence);
+      assert.equal(evidence.hostAccess, hostAccess ?? "operator", id);
+      assert.equal(evidence.hostAccessSource, hostAccess === undefined ? "default" : "declared", id);
+      assert.match(rendered, new RegExp(`hostAccess=${hostAccess ?? "operator"}`, "u"), id);
+      assert.match(
+        rendered,
+        new RegExp(`hostAccessSource=${hostAccess === undefined ? "default" : "declared"}`, "u"),
+        id,
+      );
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

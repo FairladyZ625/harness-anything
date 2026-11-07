@@ -17,9 +17,19 @@ export interface AgentSkillDeclarationV1 {
 export type AgentRole = "worker" | "commander" | "reviewer";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
 /** Which host tools and services the dispatch prompt lets this Agent use; distinct from a runtime
- *  instance's `isolation`, which governs only the provider state directory. */
-const agentHostAccessValues = ["isolated", "operator"] as const;
+ *  instance's `isolation`, which governs only the provider state directory.
+ *  `operator` is the only definition of the undeclared default; every surface resolves through it. */
+const agentHostAccessValues = ["isolated", "operator", "bypass"] as const;
 export type AgentHostAccess = (typeof agentHostAccessValues)[number];
+export const DEFAULT_AGENT_HOST_ACCESS: AgentHostAccess = "operator";
+export function resolveAgentHostAccess(hostAccess: AgentHostAccess | undefined): {
+  readonly hostAccess: AgentHostAccess;
+  readonly hostAccessSource: "declared" | "default";
+} {
+  return hostAccess === undefined
+    ? { hostAccess: DEFAULT_AGENT_HOST_ACCESS, hostAccessSource: "default" }
+    : { hostAccess, hostAccessSource: "declared" };
+}
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
 export interface AgentRuntimeTargetV1 {
@@ -124,10 +134,11 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
       type: "string",
       enum: agentHostAccessValues,
       description:
-        "Host tools and services the dispatch prompt permits; omitted means isolated. operator may use " +
-        "existing host tools and services the task needs (for example executing inside an existing VM); " +
-        "isolated may not. Neither may create or start VMs or Docker containers.",
-      "x-error": "must be isolated or operator.",
+        "Host tools and services the dispatch prompt permits; omitted means operator. isolated may not use " +
+        "host tools or services outside this repository's own toolchain. operator may use existing host tools " +
+        "and services the task needs (for example executing inside an existing VM). bypass lifts both " +
+        "boundaries, including creating or starting VMs and Docker containers.",
+      "x-error": "must be isolated, operator, or bypass.",
     },
     role: {
       type: "string",
