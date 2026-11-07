@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { findRawWorkspaceFileReads } from "../../check-cli-path-contract.mjs";
+
 const script = path.resolve(import.meta.dirname, "../../check-cli-path-contract.mjs");
 
 function run(commands) {
@@ -143,6 +145,12 @@ test("a new write command with a document selection outside the zero-hit pipelin
   ]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /doc-sync-probe: write command with a document path is not routed/u);
+});
+
+test("a declared reader that a handler bypasses with a raw read is named", () => {
+  const source = `const text = readFileSync(path.resolve(command.rootDir, bodyFile), "utf8");`;
+  assert.deepEqual(findRawWorkspaceFileReads(source, ["bodyFile"]), ["bodyFile"]);
+  assert.deepEqual(findRawWorkspaceFileReads(`readFileSync(resolve(rootDir, fromFile), "utf8")`, ["bodyFile"]), []);
 });
 
 test("the gate actually evaluated document paths and zero-hit write probes, not an empty selection", () => {

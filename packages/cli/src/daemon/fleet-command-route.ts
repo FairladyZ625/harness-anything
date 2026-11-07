@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import {
@@ -8,6 +7,7 @@ import {
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 
 export async function fleetScheduleRoute(
   command: ThinCommand,
@@ -265,7 +265,7 @@ export async function fleetTaskRoute(
         code: "invalid_field",
       });
     try {
-      action.plan = readFileSync(path.isAbsolute(planFile) ? planFile : path.join(command.rootDir, planFile), "utf8");
+      action.plan = readWorkspaceTextFile(command.rootDir, planFile, "--plan-file");
     } catch (error) {
       throw Object.assign(
         new Error(`--plan-file ${planFile} could not be read on this edge: ${cliErrorMessage(error)}`),
@@ -279,21 +279,11 @@ export async function fleetTaskRoute(
   // the edge path, so the center's closed action schema and writer see the same body as a local
   // invocation. `--body-file` is declared only for Decision propose/amend and the CLI has already
   // rejected other action kinds before this route is selected.
-  if (typeof bodyFile === "string") {
-    try {
-      action.body = readFileSync(path.isAbsolute(bodyFile) ? bodyFile : path.join(command.rootDir, bodyFile), "utf8");
-    } catch (error) {
-      throw Object.assign(
-        new Error(`--body-file ${bodyFile} could not be read on this edge: ${cliErrorMessage(error)}`),
-        {
-          code: "invalid_field",
-        },
-      );
-    }
-  }
+  if (typeof bodyFile === "string") action.body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
   // Source files belong to the addressed edge; only decoded authored values cross TLS.
+  if (typeof bodyFile === "string") action.body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
   if (typeof idsFile === "string")
-    action.factIds = readFileSync(path.resolve(command.rootDir, idsFile), "utf8")
+    action.factIds = readWorkspaceTextFile(command.rootDir, idsFile, "--ids-file")
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith("#"));

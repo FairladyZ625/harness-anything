@@ -12,9 +12,10 @@
  *      refuses an unmatched selection. A new write command with `--path` that is not wired to that
  *      pipeline is named here instead of returning "applied" for zero candidates.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { documentPath } from "../packages/kernel/src/domain/doc-sync-codec.ts";
 import { resolveWorkspaceDocumentPath } from "../packages/kernel/src/layout/index.ts";
 import { isDocAction } from "../packages/daemon/src/doc-sync-command-actions.ts";
@@ -28,6 +29,16 @@ import { workspaceText } from "../packages/daemon/src/repo-cell-packets.ts";
 const PATH_KINDS = new Set(["ledger-document", "workspace-file", "cli-local", "host-path", "non-path"]);
 const WORKSPACE_FILE_READERS = new Set(["workspace-text", "prompt-file", "runtime-batch"]);
 const WRITE_CLASSES = new Set(["repo-write", "arbiter", "admin"]);
+const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+const CLI_SOURCE_ROOT = path.join(REPO_ROOT, "packages/cli/src");
+// The reader modules are the only places allowed to call `readFileSync` with a declared
+// workspace-file field. A command handler that raw-reads its own field bypasses the containment
+// boundary even when its registry declaration names the right reader.
+const WORKSPACE_FILE_READER_FILES = new Set([
+  "cli-workspace-file.ts",
+  "cli-runtime-prompt-file.ts",
+  "cli-runtime-batch-input.ts",
+]);
 // The registry is the only list: a path flag is a path flag because of what it is named, not
 // because a command was added to a maintenance list here.
 const isPathTokenName = (name) =>
@@ -86,6 +97,8 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
       violations.push(...checkPathInput(command, token, declared, counts, actionKind, root, known));
     }
   }
+
+  violations.push(...checkRawWorkspaceFileReads(commands));
 
   // The guard itself, probed once through the same function every doc write selection reaches.
   const missing = "tasks/__gate_probe_missing__/nope.md";
@@ -148,6 +161,64 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
     violations.push("the kernel document-path normalizer changed the authored key shape");
 
   return { ok: violations.length === 0, violations, counts };
+}
+
+/**
+ * A registry declaration is not proof that the command uses the reader it names. The CLI source is
+ * scanned for a raw `readFileSync` of any declared workspace-file action field; only the shared
+ * reader modules may perform that read. The field list comes from the registry, so a new command
+ * with a new workspace-file flag is covered without editing this check.
+ */
+export function findRawWorkspaceFileReads(source, fields) {
+  const found = [];
+  for (const field of fields) {
+    if (new RegExp(`readFileSync\\([^)]*\\b${field}\\b`, "su").test(source)) found.push(field);
+  }
+  return found;
+}
+
+function declaredWorkspaceFileFields(commands) {
+  const fields = new Set();
+  for (const command of commands) {
+    for (const input of command.inputs ?? [])
+      if (input.pathKind === "workspace-file") fields.add(camelName(input.name));
+    for (const input of command.positionalInputs ?? [])
+      if (input.pathKind === "workspace-file") fields.add(camelName(input.name));
+  }
+  return [...fields];
+}
+
+function camelName(name) {
+  return name
+    .replace(/^--/u, "")
+    .replace(/^[<[]/u, "")
+    .replace(/[>\]]$/u, "")
+    .replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase());
+}
+
+function checkRawWorkspaceFileReads(commands) {
+  const fields = declaredWorkspaceFileFields(commands),
+    violations = [];
+  for (const file of cliSourceFiles(CLI_SOURCE_ROOT)) {
+    if (WORKSPACE_FILE_READER_FILES.has(path.basename(file))) continue;
+    const source = readFileSync(file, "utf8");
+    for (const field of findRawWorkspaceFileReads(source, fields))
+      violations.push(
+        `${path.relative(REPO_ROOT, file)}: raw read of declared workspace-file field ${field}; ` +
+          `use the shared cli-workspace-file.ts reader`,
+      );
+  }
+  return violations;
+}
+
+function cliSourceFiles(root) {
+  const files = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const target = path.join(root, entry.name);
+    if (entry.isDirectory()) files.push(...cliSourceFiles(target));
+    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(target);
+  }
+  return files;
 }
 
 function checkPathInput(command, label, input, counts, actionKind, root, known) {
