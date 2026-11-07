@@ -22,6 +22,7 @@ import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
   readDispatchStreamHeader,
+  readDispatchStreamSummary,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -79,6 +80,7 @@ import { isStructuredSuccessResult, parseProviderFrame } from "./runtime-spawn-p
 import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-provider-stream.ts";
 import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
@@ -556,7 +558,37 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               }
               if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId, dispatchId, session.liveness))
                 continue;
-              if (!processes.has(session.runtimeSessionId))
+              // During daemon restart the worker host can remain healthy while adoption has not
+              // yet re-registered it in this spawner's process map. A canonical live observation
+              // only clears that gap when the dispatch stream still proves its PID is alive;
+              // unknown/stale/exited sessions reserve capacity until recovery proves or settles
+              // them. A stream that proves the worker is already gone is different: run the same
+              // adoption settlement used by daemon restart/cancel before deciding capacity, so a
+              // reviewer whose conclusion is already registered cannot strand the instance.
+              const streamSummary =
+                  typeof dispatchId === "string" ? readDispatchStreamSummary(input.rootDir, dispatchId) : null,
+                processProvenDead = Boolean(
+                  streamSummary?.process &&
+                    (streamSummary.process.exited || !runtimePidIsAlive(streamSummary.process.pid)),
+                );
+              if (processProvenDead && session.liveness !== "live") {
+                const [recovery] = await Promise.allSettled([
+                  adoptRuntimes(extracted, undefined, { runtimeSessionId: session.runtimeSessionId }),
+                ]);
+                if (recovery.status === "rejected") throw recovery.reason;
+                const settledSession = input.remote
+                  ? await input.remote.readRuntimeSession(session.runtimeSessionId)
+                  : projection!.readRuntimeSession(session.runtimeSessionId);
+                if (settledSession?.outcome !== null && settledSession?.outcome !== undefined) continue;
+              }
+              const liveProcessAfterRestart =
+                session.liveness === "live" &&
+                Boolean(
+                  streamSummary?.process &&
+                    !streamSummary.process.exited &&
+                    runtimePidIsAlive(streamSummary.process.pid),
+                );
+              if (!processes.has(session.runtimeSessionId) && !liveProcessAfterRestart)
                 throw runtimeSpawnError(
                   "runtime_recovery_pending",
                   `Runtime ${session.runtimeSessionId} has unresolved capacity.`,

@@ -148,6 +148,314 @@ for (const owner of ["node-a", "node-b", null]) {
   });
 }
 
+test("a canonical live session does not hold instance capacity while adoption is catching up", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-live-adoption-gap-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" });
+  const session = {
+    runtimeSessionId: "live-adoption-gap",
+    instanceId: definition.instanceId,
+    providerSessionId: null,
+    liveness: "live" as const,
+    outcome: null,
+  };
+  const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
+  openDispatchStream(rootDir, {
+    dispatchId,
+    runtimeSessionId: session.runtimeSessionId,
+    taskId: null,
+    executionId: null,
+    instanceId: session.instanceId,
+    startedAt: new Date().toISOString(),
+    dispatchOpId: dispatchId,
+    kindId: "codex",
+    permissionMode: "read-only",
+    cwd: rootDir,
+    binding: {
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: { kind: "node", nodeId: "node-a" },
+    },
+    prompt: "recover",
+    model: "test",
+    reasoningEffort: null,
+  });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+  const spawner = makeRuntimeSpawner({
+    rootDir,
+    repoId: "live-adoption-gap",
+    daemonGeneration: 1,
+    runtimeNode: { nodeId: "node-a" },
+    now: () => new Date().toISOString(),
+    stream: { publish: () => ({}) as never },
+    runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+    readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+    prepareLaunch: async () => {
+      throw prepared;
+    },
+    schedule: () => undefined,
+    remote: {
+      existing: async () => null,
+      taskContext: async () => {
+        throw new Error("taskless probe must not request task context");
+      },
+      readRuntimeSessions: async () => [session],
+      readRuntimeDispatch: async () => ({
+        payload: { dispatchId },
+        source: { kind: "node", nodeId: "node-a" },
+      }),
+      publish: async () => {
+        throw new Error("the capacity probe must not publish a dispatch");
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+  });
+  t.after(() => spawner.close());
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "select while adoption catches up",
+        cwd: { scope: "repo-root" },
+        dispatchKey: "probe-live-adoption-gap",
+      },
+      { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+    ),
+    prepared,
+  );
+  appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "reject after the live worker dies",
+        cwd: { scope: "repo-root" },
+        dispatchKey: "probe-live-worker-dead",
+      },
+      { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+    ),
+    { code: "runtime_recovery_pending" },
+  );
+});
+
+test("a reviewed unknown session with an exited worker is settled before the next review dispatch", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-reviewed-exited-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" });
+  const dispatchId = "dispatch_cccccccccccccccccccccccc";
+  const session = {
+    runtimeSessionId: "reviewed-exited",
+    instanceId: definition.instanceId,
+    providerSessionId: null,
+    liveness: "unknown" as const,
+    outcome: null as "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null,
+  };
+  openDispatchStream(rootDir, {
+    dispatchId,
+    runtimeSessionId: session.runtimeSessionId,
+    taskId: "task-review",
+    executionId: "execution-review",
+    instanceId: session.instanceId,
+    startedAt: new Date().toISOString(),
+    dispatchOpId: dispatchId,
+    kindId: "codex",
+    permissionMode: "read-only",
+    cwd: rootDir,
+    binding: {
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: { kind: "node", nodeId: "node-a" },
+    },
+    prompt: "review",
+    model: "test",
+    reasoningEffort: null,
+    role: "reviewer",
+    reviewTarget: { kind: "task", taskId: "task-review", executionId: "execution-review", digest: "digest" },
+  });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
+  const spawner = makeRuntimeSpawner({
+    rootDir,
+    repoId: "reviewed-exited",
+    daemonGeneration: 1,
+    runtimeNode: { nodeId: "node-a" },
+    now: () => new Date().toISOString(),
+    stream: { publish: () => ({}) as never },
+    runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+    readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+    prepareLaunch: async () => {
+      throw prepared;
+    },
+    schedule: () => undefined,
+    remote: {
+      existing: async () => null,
+      taskContext: async () => {
+        return { packageRoot: rootDir } as never;
+      },
+      readRuntimeSession: async () => session,
+      readRuntimeSessions: async () => [session],
+      readRuntimeDispatch: async () => ({
+        payload: { dispatchId },
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: { kind: "node", nodeId: "node-a" },
+      }),
+      reviewerReviewRegistered: async () => true,
+      publish: async (draft) => {
+        if (draft.type === "runtime_session_outcome_observed")
+          session.outcome = draft.payload.outcome as typeof session.outcome;
+        return { event: { type: draft.type } as never, receipt: { outcome: "applied" } };
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+  });
+  t.after(() => spawner.close());
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "dispatch next review",
+        cwd: { scope: "repo-root" },
+        dispatchKey: "probe-after-reviewed-exited",
+      },
+      { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+    ),
+    prepared,
+  );
+  assert.notEqual(session.outcome, null);
+});
+
+test("an unknown session with a live worker remains capacity-blocking", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-unknown-live-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" });
+  const dispatchId = "dispatch_dddddddddddddddddddddddd";
+  const session = {
+    runtimeSessionId: "unknown-live",
+    instanceId: definition.instanceId,
+    providerSessionId: null,
+    liveness: "unknown" as const,
+    outcome: null,
+  };
+  openDispatchStream(rootDir, {
+    dispatchId,
+    runtimeSessionId: session.runtimeSessionId,
+    taskId: null,
+    executionId: null,
+    instanceId: session.instanceId,
+    startedAt: new Date().toISOString(),
+    dispatchOpId: dispatchId,
+    kindId: "codex",
+    permissionMode: "read-only",
+    cwd: rootDir,
+    binding: {
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: { kind: "node", nodeId: "node-a" },
+    },
+    prompt: "recover",
+    model: "test",
+    reasoningEffort: null,
+  });
+  appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+  const spawner = makeRuntimeSpawner({
+    rootDir,
+    repoId: "unknown-live",
+    daemonGeneration: 1,
+    runtimeNode: { nodeId: "node-a" },
+    now: () => new Date().toISOString(),
+    stream: { publish: () => ({}) as never },
+    runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+    readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+    prepareLaunch: async () => {
+      throw prepared;
+    },
+    schedule: () => undefined,
+    remote: {
+      existing: async () => null,
+      taskContext: async () => {
+        throw new Error("live fixture must not request task context");
+      },
+      readRuntimeSession: async () => session,
+      readRuntimeSessions: async () => [session],
+      readRuntimeDispatch: async () => ({
+        payload: { dispatchId },
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: { kind: "node", nodeId: "node-a" },
+      }),
+      publish: async () => {
+        throw new Error("live unknown session must not settle");
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+  });
+  t.after(() => spawner.close());
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "dispatch while unknown worker lives",
+        cwd: { scope: "repo-root" },
+        dispatchKey: "probe-unknown-live",
+      },
+      { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+    ),
+    { code: "runtime_recovery_pending", message: /unresolved capacity/u },
+  );
+  assert.equal(session.outcome, null);
+});
+
+test("an unknown canonical session still holds instance capacity until recovery", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-unknown-adoption-gap-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" });
+  const session = {
+    runtimeSessionId: "unknown-adoption-gap",
+    instanceId: definition.instanceId,
+    providerSessionId: null,
+    liveness: "unknown" as const,
+    outcome: null,
+  };
+  const spawner = makeRuntimeSpawner({
+    rootDir,
+    repoId: "unknown-adoption-gap",
+    daemonGeneration: 1,
+    runtimeNode: { nodeId: "node-a" },
+    now: () => new Date().toISOString(),
+    stream: { publish: () => ({}) as never },
+    runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+    readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+    prepareLaunch: async () => {
+      throw prepared;
+    },
+    schedule: () => undefined,
+    remote: {
+      existing: async () => null,
+      taskContext: async () => {
+        throw new Error("taskless probe must not request task context");
+      },
+      readRuntimeSessions: async () => [session],
+      readRuntimeDispatch: async () => ({
+        payload: { dispatchId: "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb" },
+        source: { kind: "node", nodeId: "node-a" },
+      }),
+      publish: async () => {
+        throw new Error("the capacity probe must not publish a dispatch");
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+  });
+  t.after(() => spawner.close());
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "select while recovery is unresolved",
+        cwd: { scope: "repo-root" },
+        dispatchKey: "probe-unknown-adoption-gap",
+      },
+      { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+    ),
+    { code: "runtime_recovery_pending" },
+  );
+});
+
 test("a session without a dispatch never holds its instance, while a dispatched failed recovery still does", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-residual-dispatch-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
