@@ -457,7 +457,7 @@ export class AccessAdminService {
       ok: true,
       seconds,
       version: String(seconds),
-      authority: { url: session.realmAdmin.url, realm: session.realmAdmin.realm },
+      authority: { url: session.realmAdmin.url, name: session.realmAdmin.realm },
       ...session.adapter.sessionLifetimeBounds,
     };
   }

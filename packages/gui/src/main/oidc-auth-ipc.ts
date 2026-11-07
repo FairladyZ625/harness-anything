@@ -138,13 +138,11 @@ export function registerOidcAuthIpc(
     const input = rawInput as RbacBindingInput;
     if (input?.mode === "managed")
       return daemonRequest({ operation: "bootstrap", mode: "managed", ...authTarget(rawInput) });
-    if (input?.mode !== "external") throw new Error("Keycloak mode must be managed or external.");
+    if (input?.mode !== "external") throw new Error("Identity provider mode must be managed or external.");
     return daemonRequest({
+      ...providerSettings(input.settings),
       mode: input.mode,
       url: input.url,
-      realm: input.realm,
-      clientId: input.clientId,
-      clientSecret: input.clientSecret,
       ...authTarget(rawInput),
     });
   });
@@ -153,13 +151,24 @@ export function registerOidcAuthIpc(
     const binding = normalizeBindingStatusReply(
       await ports.daemonRequest({ operation: "health", ...authTarget(input) }),
     );
-    if (typeof binding.url !== "string" || typeof binding.realm !== "string")
-      throw new Error("Daemon did not return a Keycloak binding.");
-    const url = typeof binding.browserUrl === "string" ? binding.browserUrl : binding.url;
-    const consoleUrl = `${url.replace(/\/$/u, "")}/admin/${encodeURIComponent(binding.realm)}/console/`;
+    const consoleUrl = binding.consoleUrl;
+    if (typeof consoleUrl !== "string") throw new Error("The identity provider offers no administration console.");
     await ports.openExternal(consoleUrl);
     return { ok: true };
   });
+}
+
+/** Keys the binding request itself owns; a provider setting can never select another operation or target. */
+const BINDING_ENVELOPE_KEYS = new Set(["operation", "mode", "url", "repoId", "rootDir"]);
+
+/** Provider settings are forwarded verbatim; the daemon's provider names and validates them. */
+function providerSettings(settings: unknown): Record<string, string> {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings))
+    throw new Error("Identity provider settings must be an object.");
+  const entries = Object.entries(settings);
+  if (entries.some(([key, value]) => typeof value !== "string" || BINDING_ENVELOPE_KEYS.has(key)))
+    throw new Error("Identity provider settings must be text values that do not name the request itself.");
+  return Object.fromEntries(entries) as Record<string, string>;
 }
 
 function authTarget(input: unknown): JsonObject {

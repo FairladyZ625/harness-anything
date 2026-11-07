@@ -10,25 +10,18 @@
         "reason": "Legacy provider-specific daemon implementation and RPC wiring; exact source rows are enumerated in the task audit artifact."
       },
       {
-        "scope": "packages/gui/src/** (62 audit lines)",
+        "scope": "packages/gui/src/** (62 audit lines; 45 remain)",
         "paths": ["packages/gui/src/**"],
         "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
         "expiresOn": "2026-12-07",
         "reason": "Legacy provider-specific GUI IPC, presentation and copy; exact source rows are enumerated in the task audit artifact."
       },
       {
-        "scope": "packages/authorization-gui/src/** (5 audit lines)",
-        "paths": ["packages/authorization-gui/src/**"],
-        "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
-        "expiresOn": "2026-12-07",
-        "reason": "Legacy provider-specific public GUI contracts; exact source rows are enumerated in the task audit artifact."
-      },
-      {
-        "scope": "packages/cli/src/** (4 audit lines)",
+        "scope": "packages/cli/src/** (4 audit lines; rbac-bootstrap provider flags remain)",
         "paths": ["packages/cli/src/**"],
         "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
         "expiresOn": "2026-12-07",
-        "reason": "Legacy provider-specific CLI login errors and polling copy; exact source rows are enumerated in the task audit artifact."
+        "reason": "Legacy provider-specific rbac-bootstrap flags (--realm, --client-id, --client-secret-stdin) that move with the daemon.rbac.manage schema; device-login copy is already provider-neutral."
       },
       {
         "scope": "packages/authorization-builtin/src/** (16 authority/plugin source lines)",

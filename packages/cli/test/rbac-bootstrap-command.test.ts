@@ -110,6 +110,11 @@ test("device polling re-announces a replacement code and preserves the last tran
   );
   assert.ok(failedPolls > 0, "the existing CLI interval retries before its deadline");
   assert.match(String(expired.rejectionExplanation), /read ECONNRESET \[ECONNRESET\]/u);
+  // The CLI frames the provider's own explanation without naming a provider itself.
+  assert.match(
+    String(expired.rejectionExplanation),
+    /^Device login expired; the last identity provider request failed: /u,
+  );
 });
 
 test("device login prints the browser entry, code and expiry while session receipts show identity and the session deadline", () => {

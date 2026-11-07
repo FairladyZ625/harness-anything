@@ -9,14 +9,16 @@ export const OIDC_CONFIGURE_CHANNEL = "harness:auth:configure";
 export const OIDC_BOOTSTRAP_STATUS_CHANNEL = "harness:auth:bootstrap-status";
 export const OIDC_BOOTSTRAP_ADMIN_CHANNEL = "harness:auth:bootstrap-admin";
 
+/**
+ * Binding an identity provider. `settings` is the selected provider's own configuration, named and
+ * validated by that provider; this contract and the GUI bridge only carry it.
+ */
 export type RbacBindingInput =
   | { readonly mode: "managed" }
   | {
       readonly mode: "external";
       readonly url: string;
-      readonly realm: string;
-      readonly clientId: string;
-      readonly clientSecret: string;
+      readonly settings: Readonly<Record<string, string>>;
     };
 
 export interface BootstrapAdminInput {
