@@ -737,22 +737,26 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.repo.metadata.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
-        principal = await readerAuth(a),
+        replicaReadAdmission = frame.actionKind === "repository-read",
+        // Machine tokens are accepted only through node-bound replica admission for this read action.
+        principal = replicaReadAdmission ? await replicaAdmission(a) : await readerAuth(a),
         baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),
         actionAllowed =
           frame.actionKind === undefined
             ? null
-            : (
-                await options.host.authorize(
-                  a.repoId,
-                  frame.actionKind,
-                  {
-                    ...principal,
-                    ...(frame.executionCredential ? { executionCredential: frame.executionCredential } : {}),
-                  },
-                  frame.taskId ? { taskId: frame.taskId } : undefined,
-                )
-              ).outcome === "allowed";
+            : replicaReadAdmission
+              ? true
+              : (
+                  await options.host.authorize(
+                    a.repoId,
+                    frame.actionKind,
+                    {
+                      ...principal,
+                      ...(frame.executionCredential ? { executionCredential: frame.executionCredential } : {}),
+                    },
+                    frame.taskId ? { taskId: frame.taskId } : undefined,
+                  )
+                ).outcome === "allowed";
       if (
         actionAllowed === true &&
         frame.actionKind === "task-submit" &&
@@ -783,7 +787,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         : { originUrl: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
-        personId: principal.oidcPrincipal!.personId,
+        personId: principal.fleetReplicaPrincipal?.personId ?? principal.oidcPrincipal!.personId,
         actionAllowed,
         messageId: mid(frame.messageId, "metadata"),
         inReplyTo: frame.messageId,

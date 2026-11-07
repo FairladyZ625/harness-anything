@@ -16,6 +16,7 @@ import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
+  commandDescriptorForAction,
   commandIdForDaemonMethod,
   daemonProtocolError,
   invalidParamsReceipt,
@@ -308,6 +309,7 @@ export function createJsonRpcProtocolServer(options: {
       !daemonControl &&
       !sessionIndependentRbacOperation(method, params as JsonObject) &&
       !sessionIndependentFleetRuntimeRead(method, params as JsonObject) &&
+      !sessionIndependentFleetReplicaRead(method, params as JsonObject) &&
       !relayExecution &&
       options.sessionPrincipal
     ) {
@@ -319,6 +321,12 @@ export function createJsonRpcProtocolServer(options: {
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
+    } else if (!daemonControl && sessionIndependentFleetReplicaRead(method, params as JsonObject)) {
+      Object.assign(options.authContext, {
+        oidcPrincipal: undefined,
+        replicaReadPrincipal: undefined,
+        replicaReadDenied: undefined,
+      });
     }
     markDaemonOperationPhase("repository-admission");
     updateDaemonOperation({
@@ -1213,6 +1221,13 @@ function sessionIndependentFleetRuntimeRead(method: string, params: JsonObject):
       String(action.method),
     )
   );
+}
+
+function sessionIndependentFleetReplicaRead(method: string, params: JsonObject): boolean {
+  if (method !== "daemon.fleet.task.run" || !isJsonObject(params.payload) || !isJsonObject(params.payload.action))
+    return false;
+  // Let the server-selected edge read bind once with replicaRead enabled, so refresh rejection stays on this request.
+  return commandDescriptorForAction(String(params.payload.action.kind)).admission["remote-edge"] === "edge-replica";
 }
 
 function protocolFailure(command: string, error: unknown) {

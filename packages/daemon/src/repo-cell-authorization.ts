@@ -77,25 +77,9 @@ export async function evaluateRepoCellAction(input: {
     );
   const credential = input.binding.keycloakAuthorization;
   if (!credential) {
-    const evaluatedAtCut = `canonical:${input.revision}`,
-      missingContextDecision = authorizeAction(envelope, {
-        evaluatedAtCut,
-        decision: {
-          policyRef: envelope.authorizationRef,
-          actor: envelope.actor,
-          subject: envelope.target,
-          bindingsUsed: [{ authority: "authorization-provider", scope: policyAction }],
-          outcome: "denied",
-          reasonCodes: ["authorization_context_missing"],
-          nextActions: [
-            "No signed-in user authorization context reached the repo-cell binding. Check the daemon host binding and Fleet writer handoff before retrying.",
-          ],
-          evaluatedAtCut,
-        },
-      });
     return authorizeRepoCellAction({
       ...input,
-      binding: { ...input.binding, authorizationDecision: missingContextDecision },
+      binding: { ...input.binding, authorizationDecision: undefined },
     });
   }
   if (input.binding.executionPrincipal) {

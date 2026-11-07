@@ -1,6 +1,75 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { consumeKnownError, type OidcLoginAuthority } from "@harness-anything/kernel";
 import { fetchWithTlsCa } from "../tls-ca-certificate.ts";
+import { systemCaCertificates } from "../tls-ca-certificate.ts";
+import { readFleetLoginAuthorityClient } from "./peer.ts";
 import type { FleetEdgeConfig } from "../client/fleet-edge-config.ts";
-import type { OidcLoginAuthority } from "@harness-anything/kernel";
+
+type ReplicaAccessConfig = Pick<
+  FleetEdgeConfig,
+  | "host"
+  | "port"
+  | "caPath"
+  | "servername"
+  | "loginUrl"
+  | "loginRealm"
+  | "loginServername"
+  | "loginCertificate"
+  | "nodeId"
+  | "credential"
+>;
+
+/** Creates a reader for replica admission, preferring the current user session and then the node identity. */
+export function createFleetReplicaAccessTokenReader(input: {
+  readonly config: ReplicaAccessConfig;
+  readonly workspaceRoot: string;
+  readonly readUserAccessToken: () => Promise<string | undefined>;
+}): () => Promise<string | undefined> {
+  let replicaLoginAuthority: OidcLoginAuthority | null | undefined;
+  return async () => {
+    let userToken: string | undefined;
+    try {
+      userToken = await input.readUserAccessToken();
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as { readonly code?: unknown }).code
+          : undefined;
+      if (code !== "authentication_required") throw error;
+      consumeKnownError(error);
+    }
+    if (userToken) return userToken;
+    if (replicaLoginAuthority === undefined) {
+      const centerAuthority =
+        input.config.loginUrl && !input.config.loginRealm
+          ? await readFleetLoginAuthorityClient({
+              hostname: input.config.host,
+              port: input.config.port,
+              ca: readFileSync(
+                path.isAbsolute(input.config.caPath)
+                  ? input.config.caPath
+                  : path.resolve(input.workspaceRoot, input.config.caPath),
+              ),
+              ...(input.config.servername ? { servername: input.config.servername } : {}),
+              nodeId: input.config.nodeId,
+              credential: input.config.credential,
+            })
+          : null;
+      replicaLoginAuthority = resolveFleetReplicaAuthority(input.config, centerAuthority);
+    }
+    const loginAuthority = replicaLoginAuthority;
+    if (!loginAuthority) return undefined;
+    return requestFleetReplicaToken({
+      url: loginAuthority.url,
+      realm: loginAuthority.realm,
+      nodeId: input.config.nodeId,
+      credential: input.config.credential,
+      ca: loginAuthority.certificate ?? input.config.loginCertificate ?? systemCaCertificates(),
+      ...(input.config.loginServername ? { servername: input.config.loginServername } : {}),
+    });
+  };
+}
 
 /** Resolves the machine-token authority while repairing configs written before loginRealm existed. */
 export function resolveFleetReplicaAuthority(

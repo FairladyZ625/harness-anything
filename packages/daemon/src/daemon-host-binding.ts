@@ -68,6 +68,8 @@ export function localDefaultBinding(
   executor: RepoCellBinding["actor"]["executor"] = null,
   replicaRead = false,
 ): RepoCellBinding {
+  if (replicaRead && auth.replicaReadDenied)
+    throw hostCodedError("authorization_denied", "The current session does not authorize this replica read.");
   const replicaPrincipal =
     replicaRead &&
     auth.replicaReadPrincipal &&

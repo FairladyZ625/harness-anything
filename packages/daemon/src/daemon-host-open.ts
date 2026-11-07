@@ -1,4 +1,4 @@
-import { createFleetMemberDeviceLink, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
+import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
 import { runFleetEdgeTask } from "./fleet-edge-task.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
@@ -154,8 +154,7 @@ import { createIdentitySession } from "./authorization-provider.ts";
 import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
-import { requestFleetReplicaToken, resolveFleetReplicaAuthority } from "./fleet/replica-token.ts";
-import { systemCaCertificates } from "./tls-ca-certificate.ts";
+import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
@@ -1392,50 +1391,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       replicaSyncControllers.set(repo.repoId, { controller, config: connection });
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
-      let replicaLoginAuthority: ReturnType<typeof resolveFleetReplicaAuthority> | undefined;
-      const task = runFleetReplicaSync({
-        readAccessToken: async () => {
-          let userToken: string | undefined;
-          try {
-            const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
-            userToken = auth.localSessionAccessToken
-              ? await auth.localSessionAccessToken()
-              : auth.oidcPrincipal?.accessToken;
-          } catch (error) {
-            const errorCode =
-              typeof error === "object" && error !== null && "code" in error
-                ? (error as { readonly code?: unknown }).code
-                : undefined;
-            if (errorCode !== "authentication_required") throw error;
-            consumeKnownError(error);
-          }
-          if (userToken) return userToken;
-          if (replicaLoginAuthority === undefined) {
-            const centerAuthority =
-              config.loginUrl && !config.loginRealm
-                ? await readFleetLoginAuthorityClient({
-                    hostname: config.host,
-                    port: config.port,
-                    ca: readFileSync(caPath),
-                    ...(config.servername ? { servername: config.servername } : {}),
-                    nodeId: config.nodeId,
-                    credential: config.credential,
-                  })
-                : null;
-            replicaLoginAuthority = resolveFleetReplicaAuthority(config, centerAuthority);
-          }
-          const loginAuthority = replicaLoginAuthority;
-          if (loginAuthority)
-            return requestFleetReplicaToken({
-              url: loginAuthority.url,
-              realm: loginAuthority.realm,
-              nodeId: config.nodeId,
-              credential: config.credential,
-              ca: loginAuthority.certificate ?? config.loginCertificate ?? systemCaCertificates(),
-              ...(config.loginServername ? { servername: config.loginServername } : {}),
-            });
-          return undefined;
+      const readAccessToken = createFleetReplicaAccessTokenReader({
+        config,
+        workspaceRoot: rootDir,
+        readUserAccessToken: async () => {
+          const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
+          return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
         },
+      });
+      const task = runFleetReplicaSync({
+        readAccessToken,
         hostname: config.host,
         port: config.port,
         ca: readFileSync(caPath),

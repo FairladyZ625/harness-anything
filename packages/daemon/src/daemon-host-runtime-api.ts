@@ -2,6 +2,7 @@ import path from "node:path";
 import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConfig } from "./fleet-center-config.ts";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
@@ -597,10 +598,32 @@ export function createDaemonHostRuntimeApi(
           );
         // The edge only relays its machine credential; the center decides whether the node's owner may sync.
         context.localOnly(auth);
-        const receipt = await syncFleetEdgeMirror(
-          { payload: request },
-          async () => (await context.oidc.bind(auth, request.workspaceRoot)).oidcPrincipal?.accessToken,
-          () => context.startReplicaSyncs(),
+        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),
+          matchingConfig =
+            persistedConfig?.repoId === request.repoId &&
+            persistedConfig.host === request.host &&
+            persistedConfig.port === request.port &&
+            persistedConfig.nodeId === request.nodeId
+              ? persistedConfig
+              : null,
+          readAccessToken = createFleetReplicaAccessTokenReader({
+            config: {
+              ...request,
+              ...(matchingConfig?.loginUrl ? { loginUrl: matchingConfig.loginUrl } : {}),
+              ...(matchingConfig?.loginRealm ? { loginRealm: matchingConfig.loginRealm } : {}),
+              ...(matchingConfig?.loginServername ? { loginServername: matchingConfig.loginServername } : {}),
+              ...(matchingConfig?.loginCertificate ? { loginCertificate: matchingConfig.loginCertificate } : {}),
+            },
+            workspaceRoot: request.workspaceRoot,
+            readUserAccessToken: async () => {
+              const session = await context.oidc.bind(auth, request.workspaceRoot);
+              return session.localSessionAccessToken
+                ? session.localSessionAccessToken()
+                : session.oidcPrincipal?.accessToken;
+            },
+          });
+        const receipt = await syncFleetEdgeMirror({ payload: request }, readAccessToken, () =>
+          context.startReplicaSyncs(),
         );
         await runReplicaConfirmedRound({
           reconcile: () => context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile(),
