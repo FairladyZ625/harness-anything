@@ -491,7 +491,11 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
 }
 
 export function runArtifactAdd(input: Input): ArtifactAddReceipt {
-  const taskId = requiredDocSyncText(input.action.taskId, "taskId"),
+  // The destination is a caller-facing path, and the daemon knows the registered repository root
+  // even when the caller addresses a task worktree. Print the repository spelling unconditionally;
+  // the event's own claims keep the authored key.
+  const toWorkspace = workspacePathOf({ ...input, workspaceCoordinate: true }),
+    taskId = requiredDocSyncText(input.action.taskId, "taskId"),
     destinationValue = requiredDocSyncText(input.action.destination, "destination"),
     inline = typeof input.action.content === "string" ? input.action.content : undefined,
     sourceValue = typeof input.action.source === "string" ? input.action.source : undefined;
@@ -516,7 +520,7 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     // The source branch below already prints the workspace spelling; the inline content branch must
     // print the same coordinate, or the same command returns two different path shapes.
     return (receipt.outcome === "applied" || receipt.outcome === "pending") && typeof receipt.destination === "string"
-      ? { ...receipt, destination: workspacePathOf(input)(receipt.destination) }
+      ? { ...receipt, destination: toWorkspace(receipt.destination) }
       : receipt;
   }
   const source = artifactSource(input, requiredDocSyncText(sourceValue, "source")),
@@ -533,7 +537,7 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     ? {
         ...receipt,
         source: source.relative,
-        destination: workspacePathOf(input)(target.destination),
+        destination: toWorkspace(target.destination),
       }
     : receipt;
 }
