@@ -33,6 +33,26 @@ test("an aborted queued backup leaves the active lease and queue moving", async 
   active();
 });
 
+test("closing the backup queue rejects waiters and waits for active leases", async () => {
+  const queue = createBaseBackupQueue(1),
+    active = await queue.acquire(new AbortController().signal, () => undefined),
+    queued = queue.acquire(new AbortController().signal, () => undefined),
+    closing = queue.close();
+  await assert.rejects(queued, /queue is closed/u);
+  let closed = false;
+  void closing.then(() => {
+    closed = true;
+  });
+  assert.equal(closed, false);
+  active();
+  await closing;
+  assert.equal(closed, true);
+  await assert.rejects(
+    queue.acquire(new AbortController().signal, () => undefined),
+    /queue is closed/u,
+  );
+});
+
 test("one thousand queued replicas never exceed the configured backup build limit", async () => {
   const queue = createBaseBackupQueue(2),
     controllers = Array.from({ length: 1_000 }, () => new AbortController());

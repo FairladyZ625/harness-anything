@@ -1607,6 +1607,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (closed) return;
       closed = true;
       closing.abort();
+      const backupsClosed = backupBuildQueue.close();
       // `server.close` only resolves once every accepted socket is gone, and an edge keeps replica
       // sessions open between pulls, so none of them ends on its own. Cut every socket this listener
       // accepted — not just the hello-registered ones — or a peer that never reached its hello holds
@@ -1616,7 +1617,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       );
       for (const socket of connections) socket.destroy();
       sessions.clear();
-      await drained;
+      await Promise.all([drained, backupsClosed]);
       try {
         for (const [repoId, owned] of ownedEpochs) {
           const current = writerEpoch.current(repoId);
