@@ -158,6 +158,7 @@ export function readTaskIndexRows(
   db: DatabaseSync,
   query: TaskProjectionListQuery = {},
 ): { readonly rows: readonly TaskIndexProjectionRow[]; readonly page: ProjectionPage | null } {
+  if (query.scopeRootTaskId !== undefined) return readTaskScopeRows(db, query);
   const values: (string | number | null)[] = [],
     where: string[] = [],
     field = (jsonPath: string) => `json_extract(task_snapshot.snapshot_json, '${jsonPath}')`;
@@ -195,31 +196,6 @@ export function readTaskIndexRows(
   // the JSON expression here defeats those indexes and walks archived history on every work/agenda
   // read, even though the predicate has the same meaning.
   if (query.activePackagesOnly) where.push("task_snapshot.package_disposition = 'active'");
-  if (query.scopeRootTaskId !== undefined) {
-    // Match the PostgreSQL reader: a scope contains the selected root, all descendants and its
-    // existing ancestors. The parent expression is indexed, so unrelated historical tasks are
-    // never materialized before the caller assembles the bounded scope.
-    const parent = field("$.task.metadata.parentTaskId");
-    where.push(`task_snapshot.task_id IN (
-      WITH RECURSIVE descendants(task_id) AS (
-        SELECT task_id FROM task_snapshot WHERE task_id = ?
-        UNION
-        SELECT child.task_id FROM task_snapshot AS child JOIN descendants AS parent_rows
-          ON ${parent.replaceAll("task_snapshot", "child")} = parent_rows.task_id
-      ), ancestors(task_id, parent_id) AS (
-        SELECT task_id, ${parent} FROM task_snapshot WHERE task_id = ?
-        UNION
-        SELECT parent_rows.task_id, ${parent.replaceAll("task_snapshot", "parent_rows")}
-        FROM task_snapshot AS parent_rows JOIN ancestors AS child_rows
-          ON parent_rows.task_id = child_rows.parent_id
-        WHERE child_rows.parent_id IS NOT NULL
-      )
-      SELECT task_id FROM descendants
-      UNION
-      SELECT task_id FROM ancestors
-    )`);
-    values.push(query.scopeRootTaskId, query.scopeRootTaskId);
-  }
   if (query.taskIds !== undefined) {
     where.push("task_snapshot.task_id IN (SELECT value FROM json_each(?))");
     values.push(JSON.stringify(query.taskIds));
@@ -299,6 +275,52 @@ export function readTaskIndexRows(
             nextCursor: rows.length > limit && last ? encodePageCursor([last.taskId]) : null,
           },
   };
+}
+
+function readTaskScopeRows(
+  db: DatabaseSync,
+  query: TaskProjectionListQuery,
+): { readonly rows: readonly TaskIndexProjectionRow[]; readonly page: ProjectionPage | null } {
+  const { scopeRootTaskId, ...unscopedQuery } = query,
+    members = new Map<string, TaskIndexProjectionRow>(),
+    root = readTaskIndexRows(db, {
+      taskIds: [scopeRootTaskId!],
+      ...(query.presentationStatus === undefined ? {} : { presentationStatus: query.presentationStatus }),
+    }).rows[0];
+  if (!root) return readTaskIndexRows(db, { ...unscopedQuery, taskIds: [] });
+
+  // Page through the existing parent index. This keeps the walk proportional to the selected
+  // scope; a recursive join makes SQLite scan the full parent expression index at every level.
+  members.set(root.taskId, root);
+  const pending = [root.taskId];
+  for (let index = 0; index < pending.length; index += 1) {
+    const parentTaskId = pending[index]!;
+    for (const child of readTaskIndexRows(db, {
+      parentTaskId,
+      ...(query.presentationStatus === undefined ? {} : { presentationStatus: query.presentationStatus }),
+    }).rows) {
+      if (members.has(child.taskId)) continue;
+      members.set(child.taskId, child);
+      pending.push(child.taskId);
+    }
+  }
+
+  const ancestors = new Set(members.keys());
+  for (let parentTaskId = root.parentTaskId; parentTaskId !== null && !ancestors.has(parentTaskId); ) {
+    const parent = readTaskIndexRows(db, {
+      taskIds: [parentTaskId],
+      ...(query.presentationStatus === undefined ? {} : { presentationStatus: query.presentationStatus }),
+    }).rows[0];
+    if (!parent) break;
+    ancestors.add(parent.taskId);
+    members.set(parent.taskId, parent);
+    parentTaskId = parent.parentTaskId;
+  }
+
+  const memberIds = [...members.keys()],
+    selectedIds =
+      query.taskIds === undefined ? memberIds : memberIds.filter((taskId) => query.taskIds!.includes(taskId));
+  return readTaskIndexRows(db, { ...unscopedQuery, taskIds: selectedIds });
 }
 
 /** Derive display-only creation time from the first canonical event for a task.
