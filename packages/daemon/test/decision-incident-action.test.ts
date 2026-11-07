@@ -17,6 +17,7 @@ const taskId = "task_incident_action",
     leaseOccupied: false,
     resumable: true,
     agentId: "worker_agent",
+    executionId: "execution_incident_action",
     roundsUsed: 4,
     budget: { used: 3, limit: 3 },
     headKnown: true,
@@ -31,7 +32,10 @@ test("a budget-exhausted worker stop is a guard escalation, not a question", () 
   assert.match(plan.rationale, /^needs_attention:/u);
   assert.match(plan.rationale, /Worker stopped without a submitted delivery on round 4/u);
   assert.match(plan.rationale, /automatic redispatch budget 3\/3 used on automatic redispatches for this task/u);
-  assert.match(plan.rationale, /Next: ha agent run worker_agent --task task_incident_action/u);
+  assert.match(
+    plan.rationale,
+    /Next: ha agent run worker_agent --task task_incident_action --recover-dispatch dispatch_incident_action --execution-id execution_incident_action --expected-version <revision> --idempotency-key <key>/u,
+  );
   assert.doesNotMatch(plan.rationale, /^question:/u);
 });
 

@@ -120,6 +120,7 @@ import { explainAuthenticationRequired, readTaskActionExplanation } from "./task
 import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
 import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-cell-read-payloads.ts";
+import { admitTaskDispatch } from "./task-dispatch-recovery.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -778,7 +779,20 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         executionRuntimeIngress: { kind: "runtime-run", ...payload },
       },
       binding,
-      (authorizedBinding) => context.runtimeSpawner.spawn(spawn, authorizedBinding, worktree),
+      async (authorizedBinding) => {
+        // Admission and the dispatch it admits share this write turn: no dispatch or lease write
+        // can land between the recovery comparison and the dispatch event.
+        const admitted = admitTaskDispatch({
+          repoId: context.input.repoId,
+          rootDir: context.rootDir,
+          projection: context.projection,
+          payload: spawn,
+          ownsLiveProcess: context.runtimeSpawner.ownsLiveProcess,
+        });
+        if (admitted.kind === "replay") return admitted.receipt;
+        const receipt = await context.runtimeSpawner.spawn(admitted.payload, authorizedBinding, worktree);
+        return admitted.recovery ? { ...receipt, recovery: { ...admitted.recovery, replayed: false } } : receipt;
+      },
     );
   };
   const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding) =>

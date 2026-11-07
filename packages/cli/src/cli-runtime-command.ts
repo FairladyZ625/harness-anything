@@ -105,7 +105,9 @@ export async function runRuntimeFacadeCommand(
       ...command,
       action: {
         ...spawnAction,
-        dispatchKey: `runtime-cli-${randomUUID()}`,
+        // A caller idempotency key is the dispatch key; only a keyless run gets a fresh one.
+        dispatchKey:
+          typeof spawnAction.dispatchKey === "string" ? spawnAction.dispatchKey : `runtime-cli-${randomUUID()}`,
       },
     });
   // --dry-run: the daemon returned the assembled dispatch preview; print the

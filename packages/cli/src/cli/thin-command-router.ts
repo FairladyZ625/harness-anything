@@ -434,12 +434,21 @@ function parseAgentRun(
       agentId,
       ...(f.booleans.has("--claim-next") ? { claimNext: true } : {}),
       ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
+      ...(f.one.get("--recover-dispatch")
+        ? {
+            recovery: {
+              dispatchId: f.one.get("--recover-dispatch"),
+              executionId: f.one.get("--execution-id"),
+              expectedVersion: Number(f.one.get("--expected-version")),
+            },
+            dispatchKey: f.one.get("--idempotency-key"),
+          }
+        : {}),
       ...(f.booleans.has("--enable-handoff") ? { handoffEnabled: true } : {}),
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),
       ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
       ...(prompt ? { prompt } : {}),
-      ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(missionName ? { missionName } : {}),
       ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
