@@ -250,7 +250,14 @@ function sourceInputs(command: Command): readonly CliInput[] {
 
 function scenarios(command: Command): readonly Scenario[] {
   const inputs = command.inputs as readonly CliInput[],
-    result: Scenario[] = [{ label: "declared inputs" }];
+    result: Scenario[] =
+      command.id === "task-archive"
+        ? [
+            { label: "task-id" },
+            { label: "--ids", extraInputs: ["--ids"] },
+            { label: "--filter", extraInputs: ["--filter"] },
+          ]
+        : [{ label: "declared inputs" }];
   for (const input of sourceInputs(command)) result.push({ label: input.name, packetInput: input.name });
   if (command.id === "decision-repin") result.push({ label: "--all", extraInputs: ["--all"] });
   for (const input of inputs.filter((value) => value.projection === "json-object"))
@@ -319,7 +326,11 @@ function commandArgv(command: Command, root: string, scenario: Scenario): string
     positional = syntax
       .filter(isPositional)
       .filter(
-        () => !(command.id === "task-archive" || (command.id === "decision-repin" && scenario.label === "--all")),
+        () =>
+          !(
+            (command.id === "task-archive" && scenario.label !== "task-id") ||
+            (command.id === "decision-repin" && scenario.label === "--all")
+          ),
       ),
     argv = [...commandPath, ...positional.map((token) => positionalValue(command, token))],
     inputs = command.inputs as readonly CliInput[];
@@ -352,6 +363,7 @@ function commandArgv(command: Command, root: string, scenario: Scenario): string
       ...(action?.input.exactlyOneOf ?? []),
     ];
   for (const group of constraints) {
+    if (command.id === "task-archive" && scenario.label === "task-id") continue;
     const selected = inputs.filter((input) => group.includes(input.field ?? fieldFor(input)) && used.has(input.name));
     if (selected.length > 0) continue;
     const choice = inputs.find((input) => group.includes(input.field ?? fieldFor(input)));
@@ -413,10 +425,6 @@ function commandArgv(command: Command, root: string, scenario: Scenario): string
       reason = inputs.find((input) => input.name === "--reason");
     if (soft) addFlag(argv, used, command, soft, root);
     if (reason) addFlag(argv, used, command, reason, root);
-  }
-  if (command.id === "task-archive") {
-    const ids = inputs.find((input) => input.name === "--ids");
-    if (ids) addFlag(argv, used, command, ids, root);
   }
   if (packetInput && ["schedule-update", "schedule-delete"].includes(command.id)) {
     const scheduleIdPosition = argv.indexOf("schedule-one");
@@ -585,7 +593,10 @@ test("each remote-edge via-center-forward declaration reaches its matching fleet
           assert.ok(routed.method, descriptor.id);
           assert.deepEqual(routed.payload, jsonWire(expected), `${descriptor.id} runtime fields changed on edge route`);
           if (routed.method !== "repo.squad.control") {
-            const centerRuntimeParams = parseDaemonRpcParams(routed.method, { payload: routed.payload });
+            const centerRuntimeParams = parseDaemonRpcParams(routed.method, {
+              repo: { repoId: runtime.repoId },
+              payload: routed.payload,
+            });
             assert.ok(
               centerRuntimeParams.ok,
               `${descriptor.id} rejected by center ${routed.method} parser: ${centerRuntimeParams.ok ? "" : centerRuntimeParams.errors.join("; ")}`,
