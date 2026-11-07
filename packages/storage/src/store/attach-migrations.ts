@@ -417,20 +417,20 @@ function historicalDispatchGroups(store: CanonicalEventStore, repoId: string): r
         outcome = value.outcome?.payload.outcome ?? null,
         terminal = value.outcome !== null,
         process = value.exited ? "exited" : value.started ? "alive" : "unobserved";
-      // Historical outcome/stream summaries close prior attempts, but they do not prove the
-      // current process group was stopped. The current attempt therefore keeps its reservation
-      // and lease until the center accepts a fenced stop proof.
+      // Historical outcome/stream summaries do not prove that the process group was stopped.
+      // An exit observation changes the process fact, but only a center-accepted stop proof can
+      // release the reservation and lease. Apply the exited fact before the current-attempt
+      // fallback so an exited current attempt cannot be imported as starting/running.
       return {
         dispatchId: payload.dispatchId,
         runtimeSessionId: payload.runtimeSessionId,
         instanceId: payload.instanceId,
-        // An outcome summarizes the attempt but does not prove that its process group stopped.
-        // Only the explicit runtime_session_exited observation is sufficient to release the
-        // reservation during migration; otherwise keep the attempt settling and its lease held.
-        phase: current && !terminal ? (value.started ? "running" : "starting") : value.exited ? "closed" : "settling",
+        // An outcome or runtime-session exit is not a process-tree stop proof. The canonical
+        // center lifecycle must later accept process_stop_proven before this attempt can close.
+        phase: value.exited ? "settling" : current && !terminal ? (value.started ? "running" : "starting") : "settling",
         process,
-        stopProof: value.exited ? "proven_stopped" : "unproven",
-        capacity: value.exited ? "released" : "held",
+        stopProof: "unproven",
+        capacity: "held",
         reservationId: payload.dispatchId,
         outcome,
         taskLease:
