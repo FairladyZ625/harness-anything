@@ -26,7 +26,7 @@ import { EdgeJoinAdminService } from "./access-admin-edge-join.ts";
 import { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
 export { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
-/** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
+/** What the authorization provider must show once an operation took effect; reconciliation observes exactly this. */
 type Expectation =
   | { readonly kind: "team"; readonly teamId: string; readonly version: string }
   | { readonly kind: "team-created"; readonly name: string }
@@ -91,7 +91,7 @@ interface PermissionRequest {
 
 /**
  * Typed administration of policy groups, `(group, resource)` grants, the fleet node registry, and
- * the realm's session lifetime. Keycloak holds the only state evaluation reads; the journal written
+ * the provider's session lifetime. The authorization provider holds the only state evaluation reads; the journal written
  * here is an audit trail that nothing evaluates.
  */
 export class AccessAdminService {
@@ -177,8 +177,12 @@ export class AccessAdminService {
         (request.operation === "edge-join-create" && request.joinMode === "member-device"),
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
+      credentialRead = request.operation === "credential-support",
+      ownPasswordChange = request.operation === "password-change",
       actorSession = await (ownDevices ||
       publicRequest ||
+      credentialRead ||
+      ownPasswordChange ||
       request.operation === "permission-request-list" ||
       request.operation === "permission-request-decide"
         ? this.#oidc.requireSession(request.rootDir)
@@ -251,6 +255,12 @@ export class AccessAdminService {
         return this.#sessionLifetime();
       case "session-lifetime-set":
         return this.#mutate(request, actor, (session) => this.#planSessionLifetime(session, request));
+      case "credential-support":
+        return this.#credentialCapabilities(actorSession.accessToken);
+      case "password-change":
+        return this.#writePasswordCredential(request, actor, false);
+      case "password-reset":
+        return this.#writePasswordCredential(request, actor, true);
       default:
         throw coded("access_operation_unknown", `Unknown access administration operation ${request.operation}.`);
     }
@@ -504,7 +514,8 @@ export class AccessAdminService {
     }
     const personId = text(request.personId, "personId"),
       userId = await session.adapter.findUserId(session.token, personId);
-    if (!userId) throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
+    if (!userId)
+      throw coded("access_person_unknown", `No identity provider account carries Harness person ${personId}.`);
     const held = request.operation === "team-member-add",
       next = held ? uniqueSorted([...members, userId]) : members.filter((id) => id !== userId);
     return {
@@ -538,7 +549,8 @@ export class AccessAdminService {
           : []),
       ]),
       userId = await session.adapter.findUserId(session.token, personId);
-    if (!userId) throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
+    if (!userId)
+      throw coded("access_person_unknown", `No identity provider account carries Harness person ${personId}.`);
     const groups = await session.adapter.readPolicyGroups(session.token),
       byId = new Map(groups.map((group) => [group.id, group] as const)),
       held = (await session.adapter.readGrants(session.token)).filter(
@@ -630,7 +642,7 @@ ${JSON.stringify(planned.preview, null, 2)}`,
       const removed = removedNode(planned.expect),
         release = removed ? this.#ports.nodeRetirement!.fence(removed) : undefined;
       try {
-        // The intent lands before Keycloak changes, so a lost receipt can be reconciled without replaying the write.
+        // The intent lands before the provider changes, so a lost receipt can be reconciled without replaying the write.
         try {
           this.#ports.journal.append(
             JSON.stringify({
@@ -818,7 +830,8 @@ ${JSON.stringify(planned.preview, null, 2)}`,
     if (!groups.some((group) => group.id === groupId))
       throw coded("policy_group_unknown", `Policy group ${groupId} does not exist.`);
     const userId = await session.adapter.findUserId(session.token, personId);
-    if (!userId) throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
+    if (!userId)
+      throw coded("access_person_unknown", `No identity provider account carries Harness person ${personId}.`);
     const holders = await this.#grantHolders(session, groupId, resource),
       userIds = held ? uniqueSorted([...holders, userId]) : holders.filter((id) => id !== userId);
     return {
@@ -865,7 +878,7 @@ ${JSON.stringify(planned.preview, null, 2)}`,
     if (!/^[A-Za-z0-9_-]{1,96}$/u.test(nodeId))
       throw coded("node_invalid", "A node id uses letters, digits, underscores, and hyphens.");
     if (!(await session.adapter.findUserId(session.token, personId)))
-      throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
+      throw coded("access_person_unknown", `No identity provider account carries Harness person ${personId}.`);
     const current = await session.adapter.readNode(session.token, nodeId),
       currentVersion = nodeVersion(current),
       next = {
@@ -992,6 +1005,46 @@ ${JSON.stringify(planned.preview, null, 2)}`,
     };
   }
 
+  async #credentialCapabilities(userAccessToken: string): Promise<Record<string, unknown>> {
+    const session = await this.#session(),
+      decision = await session.adapter.authorize({
+        userAccessToken,
+        action: "access-manage",
+        resource: { kind: "fleet" },
+      });
+    return {
+      ok: true,
+      changeOwn: session.adapter.credentialCapabilities.changeOwn,
+      resetOthers: session.adapter.credentialCapabilities.resetOthers && decision.outcome === "allowed",
+    };
+  }
+
+  async #writePasswordCredential(
+    request: AccessAdminRequest,
+    actor: string,
+    resetOthers: boolean,
+  ): Promise<Record<string, unknown>> {
+    const password = request.password;
+    if (typeof password !== "string" || password.length === 0)
+      throw coded("password_invalid", "A password cannot be empty.");
+    const personId = resetOthers ? text(request.personId, "personId") : actor;
+    return this.#oidc.serialize(async () => {
+      const session = await this.#session(),
+        supported = resetOthers
+          ? session.adapter.credentialCapabilities.resetOthers
+          : session.adapter.credentialCapabilities.changeOwn;
+      if (!supported)
+        throw coded(
+          "unsupported_capability",
+          resetOthers
+            ? "The selected identity provider cannot reset another account's password."
+            : "The selected identity provider cannot change account passwords.",
+        );
+      await session.adapter.writePasswordCredential(session.token, personId, password);
+      return { ok: true, changed: true, ...(resetOthers ? { personId } : {}) };
+    });
+  }
+
   #records(operationId: string): readonly Readonly<Record<string, unknown>>[] {
     return this.#ports.journal
       .read()
@@ -1067,7 +1120,7 @@ function removedNode(expect: unknown): string | null {
 function unsettled(operationId: string): Error {
   return coded(
     "access_receipt_unsettled",
-    `Operation ${operationId} reached Keycloak without a settled receipt; reconcile it by operationId instead of repeating it.`,
+    `Operation ${operationId} reached the identity service without a settled receipt; reconcile it by operationId instead of repeating it.`,
   );
 }
 

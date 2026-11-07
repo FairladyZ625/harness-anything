@@ -55,6 +55,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       string,
       { id: string; username: string; attributes: Record<string, string[]>; serviceAccountClientId?: string }
     >(),
+    passwords = new Map<string, string>(),
     tokens = new Map<string, string>(),
     tokenIssuers = new Map<string, string>(),
     interactiveSessions = new Map<
@@ -360,6 +361,12 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     }
     if (/^\/users\/[^/]+\/execute-actions-email$/u.test(route) && method === "PUT")
       return new Response(null, { status: 204 });
+    if (/^\/users\/[^/]+\/reset-password$/u.test(route) && method === "PUT") {
+      const userId = decodeURIComponent(route.split("/")[2]!);
+      if (!users.has(userId)) return json({}, 404);
+      passwords.set(userId, String(body?.value ?? ""));
+      return new Response(null, { status: 204 });
+    }
     if (route.endsWith("/role-mappings/realm")) {
       for (const role of body as unknown as Named[]) realmRoles.get(role.name)?.members.add(route.split("/")[2]!);
       return new Response(null, { status: 204 });
@@ -454,6 +461,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     permissions,
     userPolicies,
     users,
+    passwords,
     realmRoles,
     profile,
     realm,
@@ -568,8 +576,14 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         serviceAccountClientId,
       };
       users.set(user.id, user);
+      passwords.set(user.id, "initial-password");
       tokens.set(`token-${personId}`, user.id);
       return `token-${personId}`;
+    },
+    authenticatePassword(personId: string, password: string): boolean {
+      return [...users.values()].some(
+        (user) => user.attributes.harness_person_id?.[0] === personId && passwords.get(user.id) === password,
+      );
     },
   };
 }

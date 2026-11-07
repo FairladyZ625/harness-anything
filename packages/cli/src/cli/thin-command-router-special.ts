@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { parseExplain } from "./thin-command-explain.ts";
 import { parseGraph } from "./thin-command-graph.ts";
@@ -13,6 +14,32 @@ export function parseRoutedSpecial(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult | undefined {
+  if (route.id === "access-password-change" || route.id === "access-password-reset") {
+    const operation = route.id === "access-password-change" ? "password-change" : "password-reset",
+      parsed = parseProjected(
+        route.id,
+        args.slice(route.path.length),
+        rootDir,
+        repoId,
+        json,
+        inputs,
+        {},
+        { operation },
+        route.method,
+      );
+    if (!parsed.ok) return parsed;
+    const { passwordFile, ...action } = parsed.command.action;
+    return {
+      ...parsed,
+      command: {
+        ...parsed.command,
+        action: {
+          ...action,
+          ...(typeof passwordFile === "string" ? { passwordFile: path.resolve(rootDir, passwordFile) } : {}),
+        },
+      },
+    };
+  }
   if (route.id === "agenda") {
     const f = readFlags(route.id, args.slice(1), inputs);
     return f.ok

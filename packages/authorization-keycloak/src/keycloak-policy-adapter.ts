@@ -139,6 +139,7 @@ export class KeycloakPolicyAdapter
     AuthorizationNodeCredentialPort,
     AuthorizationDecisionPort
 {
+  readonly credentialCapabilities = Object.freeze({ changeOwn: true, resetOthers: true });
   issueExecutionCredential(token: string, principal: RuntimeExecutionPrincipal): Promise<string> {
     return issueRuntimeExecutionCredential(
       { ...this.#config, accessToken: token, provider: this },
@@ -646,6 +647,20 @@ export class KeycloakPolicyAdapter
       `/users?q=${encodeURIComponent(`${personAttribute}:${personId}`)}&exact=true`,
     );
     return users.length === 1 && typeof users[0]!.id === "string" ? users[0]!.id : undefined;
+  }
+
+  async writePasswordCredential(adminAccessToken: string, personId: string, password: string): Promise<void> {
+    if (password.length === 0)
+      throw Object.assign(new Error("A password cannot be empty."), { code: "password_invalid" });
+    const userId = await this.findUserId(adminAccessToken, personId);
+    if (!userId)
+      throw Object.assign(new Error(`No unique identity carries Harness person ${personId}.`), {
+        code: "access_person_unknown",
+      });
+    await this.#request(adminAccessToken, `/users/${encodeURIComponent(userId)}/reset-password`, {
+      method: "PUT",
+      body: JSON.stringify({ type: "password", value: password, temporary: false }),
+    });
   }
 
   async readPersonTeams(adminAccessToken: string, personId: string): Promise<readonly string[]> {

@@ -12,6 +12,11 @@ export interface AuthorizationGrant {
   readonly userIds: readonly string[];
 }
 
+export interface AuthorizationCredentialCapabilities {
+  readonly changeOwn: boolean;
+  readonly resetOthers: boolean;
+}
+
 export interface AuthorizationNode {
   readonly nodeId: string;
   readonly personId: string;
@@ -62,6 +67,9 @@ export interface AuthorizationPolicyAdministrationPort {
 }
 
 export interface AuthorizationIdentityDirectoryPort {
+  /** Identity-provider credential operations available through the daemon's trusted management boundary. */
+  readonly credentialCapabilities: AuthorizationCredentialCapabilities;
+  readonly writePasswordCredential: (adminAccessToken: string, personId: string, password: string) => Promise<void>;
   readonly readPeople: (
     adminAccessToken: string,
   ) => Promise<readonly { readonly userId: string; readonly personId: string; readonly username: string }[]>;

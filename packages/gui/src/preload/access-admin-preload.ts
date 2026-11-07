@@ -6,7 +6,7 @@ import {
 
 /**
  * 账号与访问控制页的 preload 面:每个方法是同一通道上的一条带类型请求,主进程收窄见
- * main/access-admin-ipc.ts。渲染进程只拿到 daemon 的答复,不接触 Keycloak 与管理凭据。
+ * main/access-admin-ipc.ts。渲染进程只通过 typed request 使用服务商能力,不会拿到服务商管理凭据。
  */
 export function accessAdminPreloadApi(
   invoke: (channel: string, request: AccessAdminRequest) => Promise<unknown>,
@@ -44,6 +44,9 @@ export function accessAdminPreloadApi(
     receipts: () => ask({ operation: "receipt-list" }),
     reconcile: (input) => ask({ operation: "receipt-reconcile", ...input }),
     sessionLifetime: () => ask({ operation: "session-lifetime" }),
+    credentialSupport: () => ask({ operation: "credential-support" }),
+    changePassword: (input) => ask({ operation: "password-change", ...input }),
+    resetPassword: (input) => ask({ operation: "password-reset", ...input }),
     setSessionLifetime: (input) => ask({ operation: "session-lifetime-set", ...input }),
     issueEdgeJoin: (input) => ask({ operation: "edge-join-create", ...input }),
     edgeJoinStatus: (input) => ask({ operation: "edge-join-status", ...input }),

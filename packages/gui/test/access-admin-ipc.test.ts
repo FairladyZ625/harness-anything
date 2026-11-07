@@ -62,6 +62,9 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.receipts();
   await api.reconcile({ operationId: "operation-1" });
   await api.sessionLifetime();
+  await api.credentialSupport();
+  await api.changePassword({ password: "private-change-password" });
+  await api.resetPassword({ personId: "person-target", password: "private-reset-password" });
   await api.setSessionLifetime({ sessionLifetimeSeconds: 3_600, expectedVersion: "21600" });
   await api.forRepository("server-b").groups();
   await api.nodes();
@@ -107,6 +110,9 @@ test("every preload method reaches the daemon as one operation the protocol cont
     { operation: "receipt-list" },
     { operation: "receipt-reconcile", operationId: "operation-1" },
     { operation: "session-lifetime" },
+    { operation: "credential-support" },
+    { operation: "password-change", password: "private-change-password" },
+    { operation: "password-reset", personId: "person-target", password: "private-reset-password" },
     {
       operation: "session-lifetime-set",
       sessionLifetimeSeconds: 3_600,
@@ -205,6 +211,8 @@ test("a request outside the typed contract is refused before it reaches the daem
       /does not take nodeId/u,
     ],
     [{ operation: "edge-join-status", joinId: " " }, /requires joinId/u],
+    [{ operation: "password-change", password: "" }, /requires password/u],
+    [{ operation: "password-reset", password: "private-password" }, /requires personId/u],
     [
       {
         operation: "edge-join-create",

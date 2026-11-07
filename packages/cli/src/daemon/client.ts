@@ -1,4 +1,5 @@
 import { runtimeCredentialInput } from "../cli/runtime-credential-input.ts";
+import { readPasswordInput } from "./password-input.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -478,7 +479,7 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
 }
 /** A first administrator's password is transient RPC input, read only at the original socket boundary. */
 function bootstrapParams(action: ThinCommand["action"], socketPath: string): JsonObject {
-  const { kind: _kind, passwordFile, clientSecretStdin, ...params } = action;
+  const { kind: _kind, passwordFile, passwordStdin, clientSecretStdin, ...params } = action;
   if (params.mode === "external") {
     if (socketPath.startsWith("tcp://"))
       throw Object.assign(new Error("External configuration requires the center's original local socket."), {
@@ -495,6 +496,9 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
       });
     }
     return { ...params, clientSecret } as JsonObject;
+  }
+  if (["password-change", "password-reset"].includes(String(params.operation))) {
+    return { ...params, password: readPasswordInput(passwordFile, passwordStdin) } as JsonObject;
   }
   if (params.operation !== "bootstrap-admin") return params as JsonObject;
   if (socketPath.startsWith("tcp://"))

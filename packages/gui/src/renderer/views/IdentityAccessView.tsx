@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RepoMode } from "../components/RepoModeBadge.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
@@ -10,6 +10,7 @@ import type { AuthorizationUiComponents } from "@harness-anything/authorization-
 import type { IdentityProvider } from "@harness-anything/authorization-gui/identity-presentation";
 import { readIdentity, type IdentitySnapshot } from "../identity-session.ts";
 import { consumeAccountLoginRequest, subscribeAccountLoginRequest } from "../account-login-request.ts";
+import { CredentialManagementTab } from "./CredentialManagementTab.tsx";
 import {
   AccessServiceTab,
   DevicesTab,
@@ -20,7 +21,8 @@ import {
   TeamsTab,
 } from "../authorization-ui.tsx";
 
-type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "requests" | "receipts";
+type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "requests" | "receipts" | "credentials";
+type CredentialCapabilities = { readonly changeOwn: boolean; readonly resetOthers: boolean };
 
 /** The header shows a confirmed account, an explicit unavailable state, or nothing while the read is in flight. */
 type CurrentIdentity = { readonly phase: "loading" } | IdentitySnapshot;
@@ -28,15 +30,15 @@ type CurrentIdentity = { readonly phase: "loading" } | IdentitySnapshot;
 function providerLabel(provider: IdentityProvider): string {
   return provider === "builtin"
     ? t("identityAccess.localIdentity")
-    : provider === "keycloak"
-      ? t("identityAccess.keycloakIdentity")
+    : provider === "external"
+      ? t("identityAccess.externalIdentity")
       : "";
 }
 
 function signInLabel(provider: IdentityProvider): string {
   return provider === "builtin"
     ? t("identityAccess.localSignIn")
-    : provider === "keycloak"
+    : provider === "external"
       ? t("identityAccess.signIn")
       : t("identityAccess.signInNeutral");
 }
@@ -68,9 +70,11 @@ export function IdentityAccessView({
   const bridge = guiHostBridge(),
     ui = components ?? bridge?.authorizationUi,
     auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined,
-    access = bridge?.access?.forRepository(repoId),
+    access = useMemo(() => bridge?.access?.forRepository(repoId), [bridge?.access, repoId]),
     [tab, setTab] = useState<AccessTab>("grants"),
-    [autoLogin, setAutoLogin] = useState(false);
+    [autoLogin, setAutoLogin] = useState(false),
+    [credentialCapabilities, setCredentialCapabilities] = useState<CredentialCapabilities | null>(null),
+    credentialRequest = useRef(0);
 
   const [identity, setIdentity] = useState<CurrentIdentity>({ phase: "loading" }),
     identityRequest = useRef(0);
@@ -92,6 +96,23 @@ export function IdentityAccessView({
       window.removeEventListener("harness-auth-changed", refreshIdentity);
     };
   }, [auth, repoId, rootDir]);
+
+  useEffect(() => {
+    setCredentialCapabilities(null);
+    credentialRequest.current += 1;
+    const request = credentialRequest.current;
+    if (identity.phase !== "ready" || !identity.authenticated || !access) return;
+    void access.credentialSupport().then(
+      (reply) => {
+        if (credentialRequest.current === request && reply.ok)
+          setCredentialCapabilities({ changeOwn: reply.changeOwn, resetOthers: reply.resetOthers });
+      },
+      () => undefined,
+    );
+    return () => {
+      credentialRequest.current += 1;
+    };
+  }, [auth, access, repoId, identity]);
 
   // A business read that needs authentication or the error surface's sign-in action requests the
   // account surface; the same request starts the service tab's existing login flow once it mounts.
@@ -181,6 +202,9 @@ export function IdentityAccessView({
                   { key: "teams" as const, label: t("accessControl.teams.title") },
                   { key: "service" as const, label: t("accessControl.tab.service") },
                   { key: "receipts" as const, label: t("accessControl.tab.receipts") },
+                  ...(credentialCapabilities && (credentialCapabilities.changeOwn || credentialCapabilities.resetOthers)
+                    ? [{ key: "credentials" as const, label: t("identityAccess.passwords") }]
+                    : []),
                 ]
               : [{ key: "service" as const, label: t("accessControl.tab.service") }]),
           ]}
@@ -208,6 +232,13 @@ export function IdentityAccessView({
           )
         ) : ui?.AccessControl ? (
           <ui.AccessControl auth={auth} access={access} repoId={repoId} rootDir={rootDir} repositories={repos} />
+        ) : tab === "credentials" && credentialCapabilities && identity.phase === "ready" && identity.authenticated ? (
+          <CredentialManagementTab
+            access={access}
+            personId={identity.personId}
+            canChangeOwn={credentialCapabilities.changeOwn}
+            canResetOthers={credentialCapabilities.resetOthers}
+          />
         ) : tab === "devices" ? (
           <DevicesTab access={access} auth={auth} repoId={repoId} rootDir={rootDir} />
         ) : tab === "teams" ? (

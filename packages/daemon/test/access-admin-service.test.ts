@@ -17,6 +17,45 @@ import { keycloakIssuer, keycloakRealm, keycloakUrl, keycloakSessionStore } from
 
 import { accessAdminFixture as fixture, edgeJoinCenter } from "./access-admin-service.fixture.ts";
 
+test("password changes use the signed-in subject; other-account reset requires access management and leaves no receipt", async (t) => {
+  const { keycloak, run, signIn, journal } = await fixture(t);
+  keycloak.account("person-target");
+  assert.deepEqual(await run({ operation: "credential-support" }), {
+    ok: true,
+    changeOwn: true,
+    resetOthers: true,
+  });
+  assert.deepEqual(await run({ operation: "password-change", password: "changed-own-password" }), {
+    ok: true,
+    changed: true,
+  });
+  assert.equal(keycloak.authenticatePassword("person-admin", "initial-password"), false);
+  assert.equal(keycloak.authenticatePassword("person-admin", "changed-own-password"), true);
+  assert.deepEqual(await run({ operation: "password-reset", personId: "person-target", password: "reset-target" }), {
+    ok: true,
+    changed: true,
+    personId: "person-target",
+  });
+  assert.equal(keycloak.authenticatePassword("person-target", "initial-password"), false);
+  assert.equal(keycloak.authenticatePassword("person-target", "reset-target"), true);
+  assert.deepEqual(journal(), []);
+
+  keycloak.account("person-regular");
+  signIn("person-regular", []);
+  assert.deepEqual(await run({ operation: "credential-support" }), {
+    ok: true,
+    changeOwn: true,
+    resetOthers: false,
+  });
+  await assert.rejects(
+    run({ operation: "password-reset", personId: "person-target", password: "unauthorized-reset" }),
+    { code: "authorization_denied" },
+  );
+  assert.equal(keycloak.authenticatePassword("person-target", "reset-target"), true);
+  assert.equal(keycloak.authenticatePassword("person-target", "unauthorized-reset"), false);
+  assert.deepEqual(journal(), []);
+});
+
 test("a group granted on repository A allows there and denies on repository B", async (t) => {
   const { keycloak, run, evaluate } = await fixture(t);
   keycloak.account("alice");

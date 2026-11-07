@@ -31,6 +31,7 @@ export interface AccessAdminRequest {
   readonly requestVersion?: number;
   readonly decision?: "approve" | "reject";
   readonly rationale?: string;
+  readonly password?: string;
 }
 
 export interface ManagedRbacRequest extends AccessAdminRequest {

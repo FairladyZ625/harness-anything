@@ -27,6 +27,7 @@ import { accessAdminPreloadApi } from "../src/preload/access-admin-preload.ts";
 import type { RepoMode } from "../src/renderer/components/RepoModeBadge.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
+import { CredentialManagementTab } from "../src/renderer/views/CredentialManagementTab.tsx";
 
 // This file loads the daemon's own modules, which Vite only leaves intact in the Node environment
 // (the browser one rewrites their `new URL(…, import.meta.url)` asset paths). The DOM is installed by
@@ -216,6 +217,38 @@ afterEach(() => {
 });
 
 describe("账号与访问控制页", () => {
+  it("shows only self-service controls when the identity provider does not support account resets", async () => {
+    await act(async () =>
+      root.render(
+        createElement(CredentialManagementTab, {
+          access: {} as AccessAdminApi,
+          personId: "person-owner",
+          canChangeOwn: true,
+          canResetOthers: false,
+        }),
+      ),
+    );
+    expect(byTestId("account-new-password")).toBeTruthy();
+    expect(container.querySelector('[data-testid="account-password-target"]')).toBeNull();
+    expect(container.querySelector('[data-testid="account-reset-password"]')).toBeNull();
+  });
+
+  it("hides self-service controls when only account reset is supported", async () => {
+    await act(async () =>
+      root.render(
+        createElement(CredentialManagementTab, {
+          access: { grants: async () => ({ ok: true, people: [] }) } as unknown as AccessAdminApi,
+          personId: "person-admin",
+          canChangeOwn: false,
+          canResetOthers: true,
+        }),
+      ),
+    );
+    await settle();
+    expect(container.querySelector('[data-testid="account-new-password"]')).toBeNull();
+    expect(container.querySelector('[data-testid="account-password-target"]')).toBeTruthy();
+  });
+
   it("creates a self-request through the form, shows its exact version, and applies another person's GUI approval", async () => {
     const f = await stack();
     f.keycloak.account("requester");
@@ -442,6 +475,29 @@ describe("账号与访问控制页", () => {
     expect(receipts()).not.toContain("未结算");
     expect(container.querySelector('[data-testid="receipt-reconcile-lost-receipt"]')).toBeNull();
     expect(keycloak.writes).toEqual([]);
+  });
+
+  it("changes the signed-in account password and resets another account from the password tab", async () => {
+    const f = await stack();
+    f.keycloak.account("person-target");
+    f.signIn("person-admin", ["offline_access"], true);
+    await openTab(f.access, "密码管理");
+
+    await type(byTestId<HTMLInputElement>("account-new-password"), "changed-admin-password");
+    await type(byTestId<HTMLInputElement>("account-confirm-password"), "changed-admin-password");
+    const changeForm = byTestId<HTMLInputElement>("account-new-password").closest("form")!;
+    await act(async () => changeForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await settle();
+    expect(f.keycloak.authenticatePassword("person-admin", "initial-password")).toBe(false);
+    expect(f.keycloak.authenticatePassword("person-admin", "changed-admin-password")).toBe(true);
+    expect(byTestId<HTMLInputElement>("account-new-password").value).toBe("");
+
+    await type(byTestId<HTMLSelectElement>("account-password-target"), "person-target");
+    await type(byTestId<HTMLInputElement>("account-reset-password"), "changed-target-password");
+    await click(byTestId("account-password-reset"));
+    expect(f.keycloak.authenticatePassword("person-target", "initial-password")).toBe(false);
+    expect(f.keycloak.authenticatePassword("person-target", "changed-target-password")).toBe(true);
+    expect(byTestId<HTMLInputElement>("account-reset-password").value).toBe("");
   });
 
   it("names the Keycloak that carries authorization, opens its console outside the page, and sets the session lifetime", async () => {
