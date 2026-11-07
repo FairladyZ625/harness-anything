@@ -13,6 +13,8 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
+import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
+import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
 import type { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 
 type FleetFixture = Awaited<ReturnType<typeof fleetNodeClaimFixture>>;
@@ -74,6 +76,8 @@ export async function fleetEdgeHostFixture(
     "-qm",
     "edge config",
   ]);
+  execFileSync("git", ["-C", edgeRoot, "config", "user.name", "Edge Test"]);
+  execFileSync("git", ["-C", edgeRoot, "config", "user.email", "edge@example.invalid"]);
   if (options.registerBeforeOpen !== false)
     registerBootstrappedDaemonRepo({
       repoId: options.repoId ?? "lease-repo",
@@ -191,14 +195,39 @@ export async function fleetEdgeHostFixture(
   };
   t.after(close);
   if (options.waitForAttachments !== false) await host.attachmentsSettled();
-  const rpc = createJsonRpcProtocolServer({
-    host,
-    build: daemonBuildStamp(),
-    authContext: auth,
-    sessionPrincipal: (method, params) => host.sessionPrincipal(auth, method, params),
-    emit: async () => undefined,
+  const rpcServers = new Set<ReturnType<typeof createJsonRpcProtocolServer>>(),
+    createRpc = () => {
+      const rpc = createJsonRpcProtocolServer({
+        host,
+        build: daemonBuildStamp(),
+        authContext: { ...auth },
+        sessionPrincipal: (method, params) => host.sessionPrincipal(auth, method, params),
+        executionPrincipal: async (credential, method, params) => {
+          const principal = readRuntimeExecutionPrincipal(edgeRoot, credential);
+          if (!principal)
+            throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
+              code: "authorization_denied",
+            });
+          requireExecutionRequestScope(principal, method, params);
+          return principal;
+        },
+        edgeExecutionPrincipal: async (credential) => {
+          const principal = readRuntimeExecutionPrincipal(edgeRoot, credential);
+          if (!principal)
+            throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
+              code: "authorization_denied",
+            });
+          return principal;
+        },
+        emit: async () => undefined,
+      });
+      rpcServers.add(rpc);
+      return rpc;
+    },
+    rpc = createRpc();
+  t.after(() => {
+    for (const server of rpcServers) server.close();
   });
-  t.after(() => rpc.close());
   await rpc.handle({
     jsonrpc: "2.0",
     id: 0,
@@ -207,7 +236,10 @@ export async function fleetEdgeHostFixture(
   });
   let id = 0;
   /** One CLI edge task command, as `ha task ...` sends it to the local daemon. */
-  const command = async (action: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  const command = async (
+    action: Record<string, unknown>,
+    executionCredential?: string,
+  ): Promise<Record<string, unknown>> => {
     id += 1;
     const {
       schema: _schema,
@@ -218,14 +250,34 @@ export async function fleetEdgeHostFixture(
       loginCertificate: _loginCertificate,
       ...payload
     } = config;
-    const response = await rpc.handle({
-      jsonrpc: "2.0",
-      id,
-      method: "daemon.fleet.task.run",
-      // The CLI names the workspace root on every fleet task payload; the task channel reads the
-      // invitation's interactive client from that root's fleet-edge.json.
-      params: { payload: { ...payload, workspaceRoot: edgeRoot, action } },
-    });
+    const client = executionCredential ? createRpc() : rpc;
+    if (executionCredential) {
+      const hello = await client.handle({
+        jsonrpc: "2.0",
+        id: id + 10_000,
+        method: "protocol.hello",
+        params: {
+          protocolVersion: currentDaemonProtocolVersion,
+          buildCommit: daemonBuildStamp().commit,
+          executionCredential,
+        },
+      });
+      if (!hello || Array.isArray(hello) || !("result" in hello))
+        throw new Error(`edge worker hello failed: ${JSON.stringify(hello)}`);
+    }
+    let response;
+    try {
+      response = await client.handle({
+        jsonrpc: "2.0",
+        id,
+        method: "daemon.fleet.task.run",
+        // The CLI names the workspace root on every fleet task payload; the task channel reads the
+        // invitation's interactive client from that root's fleet-edge.json.
+        params: { payload: { ...payload, workspaceRoot: edgeRoot, action } },
+      });
+    } finally {
+      if (executionCredential) client.close();
+    }
     if (!response || Array.isArray(response) || !("result" in response))
       throw new Error(`edge command failed: ${JSON.stringify(response)}`);
     return response.result as Record<string, unknown>;
@@ -235,5 +287,5 @@ export async function fleetEdgeHostFixture(
       { kind: "register", rootDir: edgeRoot, repoId: options.repoId ?? "lease-repo", mode: "remote-edge" },
       auth,
     );
-  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register, issuer, close };
+  return { host, rpc, createRpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register, issuer, close };
 }
