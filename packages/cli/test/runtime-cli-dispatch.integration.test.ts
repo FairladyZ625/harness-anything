@@ -54,7 +54,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const assembledPromptPrefix =
       "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
-    bound = runStopped([
+    boundArgs = [
       "agent",
       "run",
       "fable",
@@ -66,12 +66,26 @@ test("Delegated dispatches archive identity, mission and separate reports and re
       taskId,
       ...recoverLatest(root, env, taskId),
       "--no-stream",
-    ]),
+    ],
+    bound = runStopped(boundArgs),
     boundSpawn = bound.spawn as Record<string, unknown>,
     boundDispatchId = String(boundSpawn.dispatchId),
     boundDispatch = JSON.parse(
       await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`)),
     ) as Record<string, unknown>;
+  // #4376: a caller that lost the first receipt retries the same recovery through the real CLI and
+  // daemon RPC; it gets the receipt of the dispatch already produced, and no second worker runs.
+  const boundReplay = runMaybe(root, env, boundArgs),
+    boundReplaySpawn = boundReplay.receipt.spawn as Record<string, unknown> | undefined;
+  assert.equal(boundReplaySpawn?.dispatchId, boundDispatchId, JSON.stringify(boundReplay.receipt));
+  assert.equal(boundReplaySpawn?.opId, boundSpawn.opId, "the replay answers with the original operation");
+  assert.equal(boundReplaySpawn?.status, "accepted_durable", JSON.stringify(boundReplaySpawn));
+  assert.equal((boundReplaySpawn?.recovery as Record<string, unknown> | undefined)?.replayed, true);
+  assert.equal(
+    (runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>).length,
+    2,
+    "the replay leaves the first and the recovered dispatch only",
+  );
   const assembledPrompt = await readPublishedDispatch(path.join(artifactRoot, "missions", `${boundDispatchId}.md`));
   assert.ok(assembledPrompt.startsWith(assembledPromptPrefix), assembledPrompt);
   assert.match(assembledPrompt, /# Worker Role/u);

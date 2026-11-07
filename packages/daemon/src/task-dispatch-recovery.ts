@@ -106,7 +106,7 @@ function sourceVerdict(
 
 export type TaskDispatchAdmission =
   | { readonly kind: "spawn"; readonly payload: JsonObject; readonly recovery: JsonObject | null }
-  | { readonly kind: "replay"; readonly receipt: JsonObject };
+  | { readonly kind: "replay"; readonly event: DispatchEvent; readonly recovery: JsonObject };
 
 /**
  * Admit a task-bound implementation dispatch at the runtime publication cut. It runs inside the
@@ -182,30 +182,23 @@ export function admitTaskDispatch(input: {
       runtimeSessionId: identity.runtimeSessionId,
     };
   const replayed = input.projection.readRuntimeDispatchById(identity.dispatchId)?.event;
+  // A delegated run (`--to`) dispatches its target agent; that is the identity the stored dispatch carries.
+  const requestedAgentId = typeof payload.targetAgentId === "string" ? payload.targetAgentId : payload.agentId;
   if (replayed) {
+    // The key names task, source and caller key; a replay that changes any other part of the
+    // request is a different request under the same key, not a retry.
     if (
       replayed.payload.taskId !== taskId ||
-      (typeof payload.agentId === "string" && replayed.payload.agentId !== payload.agentId)
+      replayed.payload.executionId !== fence.executionId ||
+      (typeof requestedAgentId === "string" && replayed.payload.agentId !== requestedAgentId)
     )
       refuse("idempotency_key_conflict", `Idempotency key ${callerKey} already produced a different dispatch.`, {
         taskId,
         dispatchId: identity.dispatchId,
+        executionId: replayed.payload.executionId ?? null,
         agentId: replayed.payload.agentId ?? null,
       });
-    return {
-      kind: "replay",
-      receipt: {
-        ok: true,
-        outcome: "no_changes",
-        code: "no_changes",
-        taskId,
-        executionId: replayed.payload.executionId ?? fence.executionId,
-        dispatchId: identity.dispatchId,
-        runtimeSessionId: identity.runtimeSessionId,
-        summary: `recovery ${callerKey} already dispatched ${identity.dispatchId}`,
-        recovery: { ...recovery, replayed: true },
-      },
-    };
+    return { kind: "replay", event: replayed, recovery: { ...recovery, replayed: true } };
   }
   const read = input.projection.read(taskId),
     snapshot = read.snapshot,

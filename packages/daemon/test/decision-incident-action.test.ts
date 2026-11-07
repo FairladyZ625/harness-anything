@@ -72,6 +72,29 @@ test("an automatic action without a persisted binding escalates as a guard, not 
   assert.doesNotMatch(String(outcome.reason), /^question:/u);
 });
 
+test("a rerun that cannot launch hands the owner the fenced recovery, not a bare task start", async () => {
+  const plan = planIncidentAction({
+    selected: "rerun_same_identity",
+    taskId,
+    dispatchId,
+    evidence: { ...evidence, budget: { used: 0, limit: 3 } },
+  });
+  assert.equal(plan.action, "rerun");
+  const outcome = await executeIncidentAction({
+    cell: {} as never,
+    taskId,
+    plan,
+    binding: null,
+    dispatchId,
+    keycloakSession: async () => ({}) as never,
+  });
+  assert.equal(outcome.action, "needs_attention");
+  assert.match(
+    String(outcome.reason),
+    /Next: ha agent run worker_agent --task task_incident_action --recover-dispatch dispatch_incident_action --execution-id execution_incident_action --expected-version <revision> --idempotency-key <key>$/u,
+  );
+});
+
 test("an automatic local continuation restores the current provider authority", async () => {
   let launched: RepoCellBinding | undefined;
   const binding: RepoCellBinding = {
