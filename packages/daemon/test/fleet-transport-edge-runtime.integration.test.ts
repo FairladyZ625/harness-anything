@@ -4,7 +4,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
@@ -18,7 +18,9 @@ import {
   readFleetRuntimeSessionsPaged,
 } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { readFleetOperationalClient } from "../src/fleet/peer.ts";
+import { readFleetOperationalClient, readFleetRepositoryMetadataClient } from "../src/fleet/peer.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { waitForFleetReplicaSequence } from "../src/fleet/replica-sync.ts";
 import {
   fleetFixture,
   git,
@@ -741,7 +743,7 @@ test(
   },
 );
 test(
-  "an edge dispatches into its task worktree without publishing unsubmitted commits at settlement",
+  "an edge dispatch after registered-root migration uses the new task worktree without publishing unsubmitted commits at settlement",
   { timeout: 60_000 },
   async (t) => {
     const installation: RuntimeInstallationWitness = {
@@ -786,10 +788,10 @@ test(
     );
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
     await waitForFleetPublication(fixture.host, repoId, installed.opId, localAuthFixture());
+    let edgeRoot = path.join(fixture.root, "worker-edge"),
+      viewRoot = `${edgeRoot}-view`;
     const center = await fixture.center(),
-      edgeRoot = path.join(fixture.root, "worker-edge"),
       edgeUserRoot = path.join(fixture.root, "worker-edge-user"),
-      viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
     git(fixture.root, "clone", "--bare", "-q", fixture.repo, remote);
@@ -798,7 +800,6 @@ test(
     const branch = git(fixture.repo, "branch", "--show-current");
     git(fixture.repo, "remote", "set-head", "origin", branch);
     git(fixture.root, "clone", "-q", remote, edgeRoot);
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     git(edgeRoot, "branch", `--set-upstream-to=origin/${branch}`);
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
@@ -810,19 +811,23 @@ test(
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    const replicaSync = startResidentReplicaSync({
-      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
+    assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
+    copyFileSync(fixture.certFile, path.join(edgeRoot, "fleet-center-ca.pem"));
+    writeFleetEdgeConfig(edgeRoot, {
+      host: "127.0.0.1",
       port: center.port,
-      ca: fixture.cert,
+      caPath: path.join(edgeRoot, "fleet-center-ca.pem"),
+      loginUrl: fixture.owners.url,
+      loginRealm: "harness",
+      loginCertificate: fixture.cert.toString(),
       nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
       repoId,
       viewRoot,
-      diskQuotaBytes: replicaQuota,
+      quotaBytes: replicaQuota,
     });
-    t.after(() => replicaSync.close());
-    applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
-    assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId,
@@ -863,6 +868,8 @@ test(
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
+    const oldRoot = edgeRoot,
+      oldViewRoot = viewRoot;
     const claimUnknownHandoff = () =>
       edgeHost.fleet.edgeRuntime(
         {
@@ -899,6 +906,46 @@ test(
     git(fixture.repo, "push", "-q", "origin", branch);
     git(fixture.repo, "fetch", "-q", "origin");
     await assert.rejects(claimUnknownHandoff(), { code: "edge_default_branch_behind" });
+
+    const replicaSequenceBeforeMigration = (
+      await readFleetRepositoryMetadataClient({
+        hostname: "127.0.0.1",
+        port: center.port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId,
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      })
+    ).replicationSequence;
+    const movedRoot = path.join(fixture.root, "worker-edge-moved"),
+      movedViewRoot = `${movedRoot}-view`;
+    renameSync(oldRoot, movedRoot);
+    edgeRoot = movedRoot;
+    const migration = await edgeHost.admin({ kind: "update", repoId, rootDir: movedRoot }, localAuth);
+    assert.equal(migration.outcome, "applied", JSON.stringify(migration));
+    assert.equal(existsSync(oldRoot), false, "the registered old workspace root has been retired");
+    const migratedConfig = readFleetEdgeConfig(edgeRoot);
+    assert.equal(migratedConfig?.caPath, path.join(movedRoot, "fleet-center-ca.pem"));
+    assert.equal(migratedConfig?.viewRoot, movedViewRoot);
+    assert.equal(existsSync(oldViewRoot), false, "the old replica directory moves with the registration");
+    viewRoot = movedViewRoot;
+    const centerAfterMigration = await readFleetRepositoryMetadataClient({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId,
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    });
+    await waitForFleetReplicaSequence(
+      { viewRoot, repoId, nodeId: fixture.subject.nodeId },
+      centerAfterMigration.replicationSequence,
+    );
+
     git(edgeRoot, "fetch", "-q", "origin");
     git(edgeRoot, "merge", "--ff-only", `origin/${branch}`);
     const base = git(edgeRoot, "rev-parse", "HEAD");
@@ -925,7 +972,12 @@ test(
     );
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const worktree = path.join(edgeRoot, ".worktrees", taskId);
-    assert.deepEqual(launchedIn, [worktree], "the worker runs in the task's worktree, not the node's main checkout");
+    assert.deepEqual(launchedIn, [worktree], "the worker runs in the migrated task worktree");
+    assert.equal(
+      path.dirname(path.dirname(launchedIn[0] ?? "")),
+      edgeRoot,
+      "the dispatch runtime resolves its worktree from the migrated registration root",
+    );
     const settled = async () =>
       (
         await fixture.host.read(
@@ -937,6 +989,21 @@ test(
       ).session.activity.outcome;
     await eventually(async () => (await settled()) !== null, "edge runtime archive outcome to be observed");
     assert.equal(await settled(), "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
+    const centerHeadAfterDispatch = await readFleetRepositoryMetadataClient({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId,
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    });
+    await waitForFleetReplicaSequence(
+      { viewRoot, repoId, nodeId: fixture.subject.nodeId },
+      centerHeadAfterDispatch.replicationSequence,
+    );
+    assert.ok(centerHeadAfterDispatch.replicationSequence > replicaSequenceBeforeMigration);
     const delivered = git(worktree, "rev-parse", "HEAD");
     assert.notEqual(delivered, base);
     assert.equal(
