@@ -135,6 +135,7 @@ import { openRemoteProxyManager } from "./remote-proxy.ts";
 import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
+import { openRuntimeRecoveryWatch, runReplicaConfirmedRound } from "./runtime-recovery-watch.ts";
 import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
 import { createNodeRetirement } from "./fleet/node-retirement.ts";
@@ -256,7 +257,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>(),
-    fleetVersionWarnings = new Map<string, FleetVersionWarning>();
+    fleetVersionWarnings = new Map<string, FleetVersionWarning>(),
+    runtimeRecoveryWatch = openRuntimeRecoveryWatch();
   const oidc = input.oidc ?? createIdentitySession(input.userRoot),
     {
       writerEpochLease,
@@ -954,6 +956,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     fleetEdgeRuntimes,
     fleetVersionWarnings,
+    runtimeRecoveryWatch,
     runtimeDaemonRoute,
     scheduleScheduler,
     edgeRuntimeFor,
@@ -1385,16 +1388,22 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         onRevoked: () => revokeFleetMirrorTree(rootDir),
         onConfirmed: async (changedPaths) => {
           applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
-          await edgeRuntimeFor({
-            ...config,
-            caPath,
-            viewRoot,
-            workspaceRoot: rootDir,
-            method: "repo.squad.control",
-            action: {},
-          }).reconcile();
-          await autoClaimLoop.trigger("replica-confirmed");
-          await autoDispatchLoop.trigger("replica-confirmed");
+          await runReplicaConfirmedRound({
+            reconcile: () =>
+              edgeRuntimeFor({
+                ...config,
+                caPath,
+                viewRoot,
+                workspaceRoot: rootDir,
+                method: "repo.squad.control",
+                action: {},
+              }).reconcile(),
+            observeRecovery: (failures) => runtimeRecoveryWatch.observe(config.repoId, failures, now()),
+            triggers: [
+              () => autoClaimLoop.trigger("replica-confirmed"),
+              () => autoDispatchLoop.trigger("replica-confirmed"),
+            ],
+          });
         },
         onConfirmedFailure: (error) =>
           input.recordLifecycle?.({

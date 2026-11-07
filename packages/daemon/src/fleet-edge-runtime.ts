@@ -35,6 +35,7 @@ import {
   type TaskWorktreeBindingV1,
 } from "@harness-anything/kernel";
 import { selectReviewTarget } from "./review-dispatch-admission.ts";
+import { runtimeRecoveryError } from "./runtime-recovery-watch.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
@@ -1055,8 +1056,9 @@ export function openFleetEdgeRuntime(input: {
         await squad.flushPublications();
         await pullRuntimeReplica();
       });
-      const failed = recovered.find((result) => result.outcome === "failed");
-      if (failed) throw failed.error;
+      // Each runtime was recovered on its own; the error names every failure, not just the first.
+      const failed = runtimeRecoveryError(recovered);
+      if (failed) throw failed;
     },
     awaitCanonicalRuntimeSessions: async (action: JsonObject, connectionSignal?: AbortSignal): Promise<JsonObject> =>
       (await readFleetOperationalClient({

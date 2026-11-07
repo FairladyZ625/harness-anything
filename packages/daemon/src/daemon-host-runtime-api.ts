@@ -26,6 +26,7 @@ import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import { runReplicaConfirmedRound } from "./runtime-recovery-watch.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import {
@@ -601,8 +602,11 @@ export function createDaemonHostRuntimeApi(
           async () => (await context.oidc.bind(auth, request.workspaceRoot)).oidcPrincipal?.accessToken,
           () => context.startReplicaSyncs(),
         );
-        await context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile();
-        await context.scheduleScheduler.refresh();
+        await runReplicaConfirmedRound({
+          reconcile: () => context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile(),
+          observeRecovery: (failures) => context.runtimeRecoveryWatch.observe(request.repoId, failures, context.now()),
+          triggers: [() => context.scheduleScheduler.refresh()],
+        });
         return receipt;
       },
       edgeRuntime: async (payload, auth) => {
