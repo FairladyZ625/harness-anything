@@ -49,14 +49,11 @@ export function materializeScheduleMission(command: ThinCommand): ThinCommand {
     typeof command.action.missionFile !== "string"
   )
     return command;
-  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
-    relative = path.relative(command.rootDir, missionPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
-      code: "invalid_field",
-    });
-  const { missionFile: _missionFile, ...action } = command.action;
-  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
+  const { missionFile, ...action } = command.action;
+  return {
+    ...command,
+    action: { ...action, mission: readWorkspaceTextFile(command.rootDir, missionFile, "--mission-file") },
+  };
 }
 
 // The registry-mode gate behind every fleet reroute: a workspace only takes a
