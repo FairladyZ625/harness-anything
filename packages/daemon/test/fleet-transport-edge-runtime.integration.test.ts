@@ -800,7 +800,6 @@ test(
     const branch = git(fixture.repo, "branch", "--show-current");
     git(fixture.repo, "remote", "set-head", "origin", branch);
     git(fixture.root, "clone", "-q", remote, edgeRoot);
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     git(edgeRoot, "branch", `--set-upstream-to=origin/${branch}`);
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
@@ -828,6 +827,7 @@ test(
       viewRoot,
       quotaBytes: replicaQuota,
     });
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId,
@@ -886,7 +886,6 @@ test(
     ).replicationSequence;
     renameSync(oldRoot, movedRoot);
     edgeRoot = movedRoot;
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     const migration = await edgeHost.admin({ kind: "update", repoId, rootDir: movedRoot }, localAuth);
     assert.equal(migration.outcome, "applied", JSON.stringify(migration));
     assert.equal(existsSync(oldRoot), false, "the registered old workspace root has been removed");
@@ -895,6 +894,20 @@ test(
     assert.equal(migratedConfig?.viewRoot, movedViewRoot);
     assert.equal(existsSync(oldViewRoot), false, "the old replica directory is moved with the workspace registration");
     viewRoot = movedViewRoot;
+    const centerAfterMigration = await readFleetRepositoryMetadataClient({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId,
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    });
+    await waitForFleetReplicaSequence(
+      { viewRoot, repoId, nodeId: fixture.subject.nodeId },
+      centerAfterMigration.replicationSequence,
+    );
     const claimUnknownHandoff = () =>
       edgeHost.fleet.edgeRuntime(
         {
