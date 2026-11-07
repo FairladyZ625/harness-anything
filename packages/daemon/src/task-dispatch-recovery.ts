@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { TaskProjection } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readRuntimeSessionActivityEvidence, readTaskDispatchRow, taskDispatchRowSettled } from "./dispatch-read.ts";
+import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 
 /**
@@ -105,7 +106,12 @@ function sourceVerdict(
 }
 
 export type TaskDispatchAdmission =
-  | { readonly kind: "spawn"; readonly payload: JsonObject; readonly recovery: JsonObject | null }
+  | {
+      readonly kind: "spawn";
+      readonly payload: JsonObject;
+      readonly recovery: JsonObject | null;
+      readonly taskRead: ReturnType<typeof requireCurrentTaskProjection> | null;
+    }
   | { readonly kind: "replay"; readonly event: DispatchEvent; readonly recovery: JsonObject };
 
 /**
@@ -136,8 +142,9 @@ export function admitTaskDispatch(input: {
       typeof payload.dispatchId === "string" ||
       payload.dryRun === true
     )
-      return { kind: "spawn", payload, recovery: null };
-    const snapshot = input.projection.read(taskId).snapshot,
+      return { kind: "spawn", payload, recovery: null, taskRead: null };
+    const taskRead = requireCurrentTaskProjection(input.projection, taskId, "runtime.run"),
+      snapshot = taskRead.snapshot,
       execution = snapshot.executions.find(
         (candidate) => candidate.state === "active" && candidate.iteration === snapshot.task?.iteration,
       ),
@@ -146,7 +153,7 @@ export function admitTaskDispatch(input: {
     // execution lease; the spawn's own lease admission reports that conflict. The fence is the
     // only way to replace a worker that has stopped.
     if (!execution || !prior || !sourceVerdict(input, prior).recoverable)
-      return { kind: "spawn", payload, recovery: null };
+      return { kind: "spawn", payload, recovery: null, taskRead };
     refuse(
       "dispatch_recovery_fence_required",
       `Execution ${execution.executionId} of task ${taskId} already has implementation dispatch ` +
@@ -200,8 +207,8 @@ export function admitTaskDispatch(input: {
       });
     return { kind: "replay", event: replayed, recovery: { ...recovery, replayed: true } };
   }
-  const read = input.projection.read(taskId),
-    snapshot = read.snapshot,
+  const taskRead = requireCurrentTaskProjection(input.projection, taskId, "runtime.run"),
+    snapshot = taskRead.snapshot,
     task = snapshot.task,
     execution = snapshot.executions.find(
       (candidate) => candidate.state === "active" && candidate.iteration === task?.iteration,
@@ -272,5 +279,5 @@ export function admitTaskDispatch(input: {
       `Dispatch ${source.payload.dispatchId} is no longer the execution's last implementation dispatch.`,
       { ...sourceState, latestDispatchId: (successor ?? latest)?.payload.dispatchId ?? null },
     );
-  return { kind: "spawn", payload: { ...payload, dispatchKey }, recovery };
+  return { kind: "spawn", payload: { ...payload, dispatchKey }, recovery, taskRead };
 }

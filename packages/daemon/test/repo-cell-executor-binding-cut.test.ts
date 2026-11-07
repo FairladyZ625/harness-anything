@@ -662,6 +662,10 @@ function contextFor(
           fixture.spawned.push({ payload, actor: verified.actor });
           return Promise.resolve({ ok: true });
         },
+        spawnTask: (payload: unknown, verified: RepoCellBinding) => {
+          fixture.spawned.push({ payload, actor: verified.actor });
+          return Promise.resolve({ ok: true });
+        },
       },
       observedActor: null as RepoCellBinding["actor"] | null,
       taskReads: 0,
