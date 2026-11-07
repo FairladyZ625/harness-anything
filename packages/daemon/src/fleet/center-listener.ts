@@ -792,7 +792,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         writerEpoch: ownedEpochFor(a.repoId).epoch,
         replicationSequence: replicationHead(a.repoId),
         originUrl: centerGit.originUrl,
-        originAddress: centerGit.originAddress,
+        ...(centerGit.originAddress === undefined ? {} : { originAddress: centerGit.originAddress }),
         originPushUrls: centerGit.originPushUrls,
         defaultBranch: centerGit.defaultBranch,
         defaultBranchCommit: centerGit.defaultBranchCommit,
