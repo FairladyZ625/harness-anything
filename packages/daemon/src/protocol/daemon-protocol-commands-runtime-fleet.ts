@@ -43,6 +43,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       false,
       { code: "invalid_field" },
       {
+        pathKind: "non-path",
         description:
           "replace this stopped implementation dispatch of the task in one atomic compare-and-dispatch; " +
           "required whenever the task's active execution already has an implementation dispatch",
@@ -55,7 +56,11 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       "single",
       false,
       { code: "invalid_field" },
-      { description: "the task execution the recovered dispatch ran", requires: ["--recover-dispatch"] },
+      {
+        pathKind: "non-path",
+        description: "the task execution the recovered dispatch ran",
+        requires: ["--recover-dispatch"],
+      },
     ),
     cliInput(
       "--expected-version",
@@ -63,6 +68,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       false,
       { code: "invalid_field" },
       {
+        pathKind: "non-path",
         description: "the task revision the recovery was decided on",
         regex: "^[0-9]+$",
         requires: ["--recover-dispatch"],
@@ -74,6 +80,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       false,
       { code: "invalid_field" },
       {
+        pathKind: "non-path",
         description: "caller key; replaying the same recovery returns the dispatch it already produced",
         requires: ["--recover-dispatch"],
       },
