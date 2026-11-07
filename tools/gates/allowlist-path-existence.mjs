@@ -83,6 +83,10 @@ export const allowlistJsonPolicies = Object.freeze({
     pathSections: {},
     nonPathSections: ["exceptions"],
   },
+  "authorization-provider-boundary.json": {
+    pathSections: {},
+    nonPathSections: ["providerWaivers", "lineFingerprints"],
+  },
   "check-self-repo-path-literals.json": {
     pathSections: { allowlistedUsages: "path" },
     nonPathSections: ["forbiddenDirectories"],
@@ -104,6 +108,8 @@ const explicitExclusions = Object.freeze([
   "check-integration-test-shards.intentionalTestDeletions (intentional deletion tombstones)",
   "check-poll-spin-boundary.exceptions (file#function#kind keys the gate exact-syncs)",
   "scan-forbidden-symbols.forbiddenSymbols (symbol and regex entries)",
+  "authorization-provider-boundary.providerWaivers.paths (scope globs, not concrete checkout paths)",
+  "authorization-provider-boundary.lineFingerprints (source-line hashes, not checkout paths)",
 ]);
 
 function collectAllowlistAudits(rootDir) {

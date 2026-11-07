@@ -57,8 +57,8 @@ export function checkAuthorizationProviderBoundary(rootDir) {
   const allowlist = JSON.parse(readFileSync(path.join(rootDir, WAIVER_PATH), "utf8"));
   const today = new Date().toISOString().slice(0, 10);
   return [
-    ...findProviderBoundaryViolations(diff, allowlist.lineFingerprints ?? []),
-    ...findExpiredWaivers(allowlist, today),
+    ...findProviderBoundaryViolations(diff, allowlist.entries.lineFingerprints ?? []),
+    ...findExpiredWaivers({ entries: allowlist.entries.providerWaivers }, today),
   ];
 }
 
