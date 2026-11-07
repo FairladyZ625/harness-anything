@@ -23,6 +23,7 @@ import {
   published,
   readDispatchRecords,
   readPublishedDispatch,
+  recoverLatest,
   renderedRulingContract,
   run,
   runMaybe,
@@ -63,6 +64,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
       "bound prompt",
       "--task",
       taskId,
+      ...recoverLatest(root, env, taskId),
       "--no-stream",
     ]),
     boundSpawn = bound.spawn as Record<string, unknown>,
@@ -193,6 +195,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     "reject outsider",
     "--task",
     taskId,
+    ...recoverLatest(root, env, taskId),
     "--no-stream",
   ]);
   assert.equal(outsider.status, 1);
@@ -212,6 +215,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     "cross-kind dispatch",
     "--task",
     taskId,
+    ...recoverLatest(root, env, taskId),
     "--no-stream",
   ]);
   assert.equal(crossKind.status, 1, JSON.stringify(crossKind));
@@ -365,8 +369,12 @@ test("Task-bound batch enforces one lease holder and archives successful dispatc
     taskBatchRows.length,
     JSON.stringify(batch.receipt),
   );
+  // A row that races a live holder loses the lease; one that arrives after the holder stopped must
+  // name the stopped dispatch instead of silently dispatching a second worker (#4376).
   assert.equal(
-    rejectedTaskBatchRows.every((row) => row.code === "runtime_task_lease_required"),
+    rejectedTaskBatchRows.every((row) =>
+      ["runtime_task_lease_required", "dispatch_recovery_fence_required"].includes(String(row.code)),
+    ),
     true,
     JSON.stringify(batch.receipt),
   );
@@ -584,9 +592,10 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   const { parent, root, env, userRoot, daemonId } = fixture;
   installIdentities(parent, root, env);
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "mission");
-  const stopGuidance =
+  const stopGuidance = (dispatchId: string) =>
     `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
-    `Reopen the execution to re-dispatch with: ha task start ${taskId}`;
+    `Recover the stopped worker with: ha agent run terra --task ${taskId} --recover-dispatch ${dispatchId} ` +
+    `--execution-id ${executionId} --expected-version <revision> --idempotency-key <key>`;
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
   const pathLikeMission = runMaybe(root, env, [
@@ -597,6 +606,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     existingMissionPath,
     "--task",
     taskId,
+    ...recoverLatest(root, env, taskId),
     "--no-stream",
   ]);
   assert.equal(pathLikeMission.status, 1);
@@ -624,6 +634,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     "existing-mission",
     "--task",
     taskId,
+    ...recoverLatest(root, env, taskId),
     "--no-stream",
   ]);
   assert.equal(unsyncedMission.status, 1);
@@ -642,6 +653,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     path.join("harness", packagePath, "artifacts", "missions", "existing-mission.md"),
     "--task",
     taskId,
+    ...recoverLatest(root, env, taskId),
     "--no-stream",
   ]);
   assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
@@ -654,7 +666,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
         // dec_E369B861 CH3: explicit prompts and derived missions both name the reviewer.
         `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。` +
         `\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
-        stopGuidance,
+        stopGuidance(promptFileDispatchId),
     ),
   );
   const reused = runMaybe(root, env, [
@@ -665,6 +677,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       "existing-mission",
       "--task",
       taskId,
+      ...recoverLatest(root, env, taskId),
       "--no-stream",
     ]),
     reusedDispatchId = String((reused.receipt.spawn as Record<string, unknown>).dispatchId),
@@ -690,7 +703,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     readdirSync(path.join(artifactRoot, "missions")).sort(),
     ["existing-mission.md", `${promptFileDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
   );
-  assert.equal(reusedReport, `final:${reusedMission}${stopGuidance}`);
+  assert.equal(reusedReport, `final:${reusedMission}${stopGuidance(reusedDispatchId)}`);
   assertTaskMissionPrompt(reusedMission, {
     repoId: "runtime-cli",
     taskId,
@@ -712,7 +725,17 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const taskPackage = path.join(realpathSync(root), "harness", packagePath);
   // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
-  const derived = runMaybe(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
+  const derived = runMaybe(root, env, [
+      "agent",
+      "run",
+      "terra",
+      "--task",
+      taskId,
+      ...recoverLatest(root, env, taskId),
+      "--cwd",
+      ".",
+      "--no-stream",
+    ]),
     derivedText = String((derived.receipt.result as Record<string, unknown>).text),
     derivedMission =
       `${taskPlanSection(realizedPlan("mission"), taskPackage)}\n\n` +
@@ -732,8 +755,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     derivedText,
     /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,
   );
-  assert.ok(derivedText.endsWith(stopGuidance), "an unsubmitted exit must carry its continuation entry");
-  assertTaskMissionPrompt(derivedText.slice("final:".length, -stopGuidance.length), {
+  const derivedStop = stopGuidance(String((derived.receipt.spawn as Record<string, unknown>).dispatchId));
+  assert.ok(derivedText.endsWith(derivedStop), "an unsubmitted exit must carry its continuation entry");
+  assertTaskMissionPrompt(derivedText.slice("final:".length, -derivedStop.length), {
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(root),
@@ -779,6 +803,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "notification control",
       "--task",
       taskId,
+      ...recoverLatest(root, env, taskId),
       "--detach",
     ]),
     controlNotificationWait = runMaybe(root, env, [
@@ -805,6 +830,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "notification missing",
       "--task",
       taskId,
+      ...recoverLatest(root, env, taskId),
       "--detach",
       "--on-exit",
       missingNotifier,
@@ -832,6 +858,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "notification nonzero",
       "--task",
       taskId,
+      ...recoverLatest(root, env, taskId),
       "--detach",
       "--on-exit",
       nonzeroNotifier,
