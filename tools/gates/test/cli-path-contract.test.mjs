@@ -153,11 +153,11 @@ test("a declared reader that a handler bypasses with a raw read is named", () =>
   assert.deepEqual(findRawWorkspaceFileReads(`readFileSync(resolve(rootDir, fromFile), "utf8")`, ["bodyFile"]), []);
 });
 
-test("the gate actually evaluated document paths and zero-hit write probes, not an empty selection", () => {
+test("the gate actually evaluated document paths and zero-hit write commands, not an empty selection", () => {
   const result = run([]);
   assert.equal(result.status, 0, result.stderr);
   const match =
-    /cli-path-contract: ok \((\d+) commands, (\d+) path inputs, (\d+) document paths, (\d+) zero-hit write probes\)/u.exec(
+    /cli-path-contract: ok \((\d+) commands, (\d+) path inputs, (\d+) document paths, (\d+) zero-hit write commands\)/u.exec(
       result.stdout,
     );
   assert.ok(match, result.stdout);

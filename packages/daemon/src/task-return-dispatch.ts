@@ -1,4 +1,5 @@
 import {
+  documentWorkspacePath,
   normalizeTaskLifecycleCommand,
   reviewsForExecution,
   type ExecutionV1,
@@ -652,6 +653,7 @@ function prepareWorkerContinuation(
         (runtimeInstanceId ? ` --instance ${runtimeInstanceId}` : "") +
         (model ? ` --model ${model}` : "")
       : null;
+  const workspaceReportPath = input.reportPath === null ? null : documentWorkspacePath(cell.rootDir, input.reportPath);
   return {
     mode,
     resumeCommand,
@@ -683,13 +685,13 @@ function prepareWorkerContinuation(
               `The owner returned your submitted cut to implementation: ${input.ownerReturnReason}`,
               ...(input.reportPath === null
                 ? []
-                : [`Read the review report with ha doc show --path ${input.reportPath} --raw`]),
+                : [`Read the review report with ha doc show --path ${workspaceReportPath} --raw`]),
               "Fix the cause of the return, then submit the reworked cut again.",
             ]
           : [
               "# Review verdict: changes_requested",
               `Review ${input.review?.reviewId ?? "the recorded review"} on your submitted cut requested changes: ${input.review?.reason ?? "the owner returned this cut without a recorded review"}`,
-              `Read the full review report with ha doc show --path ${input.reportPath} --raw`,
+              `Read the full review report with ha doc show --path ${workspaceReportPath} --raw`,
               "Address the findings, then submit the reworked cut again.",
             ]
         ).join("\n"),

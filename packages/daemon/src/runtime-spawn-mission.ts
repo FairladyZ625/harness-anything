@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
-import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
+import { consumeKnownError, documentWorkspacePath, resolveHarnessLayout } from "@harness-anything/kernel";
 import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import {
@@ -789,7 +789,7 @@ export function deriveTaskMission(
       path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
     ),
     missionDocument = missionName
-      ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName)
+      ? readMissionDocument(rootDir, projection, planDocument.packagePath, taskId, missionName)
       : null,
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
@@ -872,6 +872,7 @@ export function runtimeMissionName(value: unknown): string {
 }
 
 function readMissionDocument(
+  rootDir: string,
   projection: TaskProjection,
   packagePath: string,
   taskId: string,
@@ -879,14 +880,15 @@ function readMissionDocument(
 ): string {
   const name = runtimeMissionName(missionName),
     logicalPath = `${packagePath}/artifacts/missions/${name}.md`,
+    workspacePath = documentWorkspacePath(rootDir, logicalPath),
     read = projection.readDocument(logicalPath);
   if (read.watermark < read.sourceRevision || !read.document || !read.document.body.trim())
     throw runtimeSpawnError(
       "runtime_mission_unavailable",
       [
-        `Task ${taskId} has no ready non-empty mission in the canonical projection at harness/${logicalPath}. `,
+        `Task ${taskId} has no ready non-empty mission in the canonical projection at ${workspacePath}. `,
         `Publish it with ha task artifact add ${taskId} --source <file> --destination artifacts/missions/${name}.md, ` +
-          `or if harness/${logicalPath} exists, run ha doc sync --submit --path ${logicalPath}; then retry.`,
+          `or if ${workspacePath} exists, run ha doc sync --submit --path ${workspacePath}; then retry.`,
       ].join(""),
     );
   return read.document.body;

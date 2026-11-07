@@ -11,6 +11,7 @@ import {
   resolveHarnessLayout,
   submissionDigest,
   decisionReviewContentDigest,
+  documentWorkspacePath,
   type ExecutionV1,
   type ReviewV1,
   type TaskReviewDispatchIntentV1,
@@ -663,10 +664,12 @@ export async function spawnCutReviewDispatch(
       dispatchKey: key,
       packagePath: input.packagePath,
     }),
+    continuationWorkspaceReport =
+      continuation === null ? null : documentWorkspacePath(cell.rootDir, continuation.reportRef),
     continuationNote = continuation
       ? [
           "This is a re-review of the same task and reviewer seat.",
-          `Read the previous registered report at harness/${continuation.reportRef} with ha doc show --path ${continuation.reportRef} --raw.`,
+          `Read the previous registered report at ${continuationWorkspaceReport} with ha doc show --path ${continuationWorkspaceReport} --raw.`,
           ...(continuation.review
             ? [
                 `Previous review ${continuation.review.reviewId}: verdict=${continuation.review.verdict}; reason=${continuation.review.reason}.`,

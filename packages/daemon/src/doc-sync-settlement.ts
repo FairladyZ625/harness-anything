@@ -1,4 +1,5 @@
-import { isNativeExecution, type TaskProjection } from "@harness-anything/kernel";
+import path from "node:path";
+import { isNativeExecution, resolveHarnessLayout, type TaskProjection } from "@harness-anything/kernel";
 import {
   documentPath,
   documentWorkspacePath,
@@ -21,6 +22,15 @@ export function workspacePathOf(input: Pick<Input, "rootDir">): (document: strin
 }
 
 const toWorkspace = workspacePathOf;
+
+/** The inverse: a workspace spelling back to the ledger key the projection indexes by. */
+function authoredPathOf(input: Pick<Input, "rootDir">): (workspace: string) => string {
+  const prefix = path
+    .relative(input.rootDir, resolveHarnessLayout(input.rootDir).authoredRoot)
+    .split(path.sep)
+    .join("/");
+  return (workspace) => (prefix && workspace.startsWith(`${prefix}/`) ? workspace.slice(prefix.length + 1) : workspace);
+}
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
@@ -205,7 +215,8 @@ export function scannerSettlement(
       unresolvedTouches: scanned.unresolvedTouches,
       deletions: scanned.deletions,
     };
-  const submitNext = receipt.outcome === "applied" ? closeoutSubmitNext(input.projection, scanned) : [];
+  const submitNext =
+    receipt.outcome === "applied" ? closeoutSubmitNext(input.projection, scanned, authoredPathOf(input)) : [];
   return {
     ...receipt,
     ...(detail ? { detail } : {}),
@@ -224,11 +235,12 @@ export function scannerSettlement(
 function closeoutSubmitNext(
   projection: TaskProjection,
   receiptDetail: { readonly paths: readonly { readonly path: string }[] } | undefined,
+  authoredPath: (workspace: string) => string,
 ): { command: string; reason: string }[] {
   const taskIds = new Set(
     (receiptDetail?.paths ?? [])
       .filter((row) => row.path.endsWith("/closeout.md"))
-      .map((row) => projection.taskIdForDocumentPath(row.path))
+      .map((row) => projection.taskIdForDocumentPath(authoredPath(row.path)))
       .filter((taskId): taskId is string => taskId !== null),
   );
   return [...taskIds]
