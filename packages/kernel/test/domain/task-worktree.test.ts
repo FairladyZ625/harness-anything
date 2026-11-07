@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveTaskWorktreeBinding, validateTaskV2 } from "../../src/index.ts";
+import { deriveTaskWorktreeBinding, REPLAY_TASK_GRAPH, validateTaskV2 } from "../../src/index.ts";
 
 const standard = {
   taskId: "task_b7ca3b72da0be23393b16f0a10",
@@ -39,14 +39,7 @@ test("Task/v2 does not store a worktree binding: every reader derives it", () =>
     title: "Worktree",
     taskClass: "standard",
     status: "planned",
-    graph: {
-      schema: "task-graph/v1",
-      nodes: [
-        { id: "implementation", kind: "work" },
-        { id: "review", kind: "review" },
-      ],
-      edges: [],
-    },
+    graph: REPLAY_TASK_GRAPH,
     currentNode: "implementation",
     iteration: 0,
     createdBy: { principal: { personId: "person-1" }, executor: null },
@@ -61,4 +54,29 @@ test("Task/v2 does not store a worktree binding: every reader derives it", () =>
     false,
   );
   assert.deepEqual(validateTaskV2({ ...task, worktree }), [unknownField]);
+  assert.deepEqual(
+    validateTaskV2({
+      ...task,
+      reviewDispatchIntent: {
+        executionId: "execution-review-intent",
+        reviewerId: "reviewer-one",
+        runtimeInstanceId: "instance-one",
+        model: "model-one",
+        effort: "high",
+        fast: true,
+      },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    validateTaskV2({
+      ...task,
+      reviewDispatchIntent: {
+        executionId: "execution-review-intent",
+        reviewerId: "reviewer-one",
+        fast: "yes",
+      },
+    }),
+    [{ code: "invalid_task", message: "review dispatch intent is invalid" }],
+  );
 });

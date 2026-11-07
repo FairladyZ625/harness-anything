@@ -8,7 +8,7 @@ import { submissionDigest } from "@harness-anything/kernel";
 
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { readFleetOperationalClient } from "../src/fleet/peer.ts";
-import { parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
+import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 
@@ -154,6 +154,196 @@ test(
       "the canonical Review must precede terminal outcome",
     );
     assert.equal(terminal.payload.outcome, "succeeded");
+  },
+);
+
+test(
+  "center leaves a node review pending and only the matching edge loop spawns it",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture = await dualSyncFixture(scheduleRuntimePorts().runtimeInstances(), {
+      runtimeDiscover: () => [
+        {
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          executablePath: "/opt/test/codex",
+          version: "1.0.0",
+          observedAt: "2026-08-26T00:00:00.000Z",
+        },
+      ],
+    });
+    t.after(() => fixture.close());
+    await fixture.registerRuntimeInstance({
+      instanceId: definition.instanceId,
+      name: "Schedule Codex",
+      kindId: definition.kindId,
+      installationId: definition.installationId,
+      providerId: definition.providerId,
+      models: [definition.model],
+      authMode: definition.authMode,
+    });
+    const installed = await fixture.centerRun({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "fleet-reviewer",
+        name: "Fleet reviewer",
+        instructions: "Review the submitted cut.",
+        runtimes: [{ type: "codex", model: definition.model }],
+        instance: definition.instanceId,
+        role: "reviewer",
+      },
+    });
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const settings = await fixture.centerRun({
+      kind: "settings-update",
+      roles: { defaultReviewer: "fleet-reviewer" },
+    });
+    assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+    const created = await fixture.createTask(
+      "node-one",
+      "task-auto-dispatch-boundary",
+      "Auto dispatch boundary",
+      "docs-task",
+    );
+    const executionId = "execution-auto-dispatch-boundary";
+    assert.equal(
+      (await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId })).ok,
+      true,
+    );
+    writeFileSync(path.join(fixture.repo, "verification.md"), "Verified node-bound review dispatch.\n");
+    const artifact = await fixture.centerRun({
+      kind: "task-artifact-add",
+      taskId: created.taskId,
+      source: "verification.md",
+      destination: "verification.md",
+    });
+    assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    await fixture.waitPublished(String(artifact.opId));
+    assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+    fixture.writeWorktree(
+      "node-one",
+      `${created.packagePath}/closeout.md`,
+      "# Closeout\n\n## Summary\n\nNode-bound review dispatch.\n\n## Verification\n\nChecked the artifact.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nFleet review.\n",
+    );
+    const submitted = await fixture.edgeTask("node-one", { kind: "task-submit", taskId: created.taskId, executionId });
+    assert.equal(submitted.ok, true, JSON.stringify(submitted));
+    assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+    const channel = (nodeId: "node-one" | "node-two") => fixture.channel(nodeId),
+      readCandidates = async (nodeId: "node-one" | "node-two") =>
+        parseNodeAutoDispatchSnapshot(
+          await readFleetOperationalClient({
+            hostname: channel(nodeId).host,
+            port: channel(nodeId).port,
+            ca: readFileSync(channel(nodeId).caPath),
+            servername: channel(nodeId).servername,
+            nodeId: channel(nodeId).nodeId,
+            credential: channel(nodeId).credential,
+            repoId: channel(nodeId).repoId,
+            readAccessToken: channel(nodeId).readAccessToken,
+            method: "repo.tasks.autoDispatchCandidates",
+            payload: {},
+          }),
+        ).candidates;
+    let launchesOne = 0,
+      launchesTwo = 0;
+    const makeRuntime = (nodeId: "node-one" | "node-two") => {
+      const config = channel(nodeId),
+        daemonRoot = path.join(fixture.root, `${nodeId}-auto-dispatch`),
+        runtime = openFleetEdgeRuntime({
+          readBinding: () => fixture.owners.binding(nodeId),
+          controlBinding: () => fixture.owners.binding(nodeId),
+          request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
+          daemonGeneration: 1,
+          daemonRoute: {
+            userRoot: daemonRoot,
+            daemonId: `${nodeId}-auto-dispatch`,
+            endpoint: path.join(daemonRoot, "daemon.sock"),
+          },
+          ports: scheduleRuntimePorts(),
+          launch: () => {
+            if (nodeId === "node-one") launchesOne += 1;
+            else launchesTwo += 1;
+            return {
+              pid: 92000 + launchesOne + launchesTwo,
+              onOutput: () => undefined,
+              onErrorOutput: () => undefined,
+              onExit: () => undefined,
+              terminate: () => undefined,
+            };
+          },
+        });
+      return runtime;
+    };
+    const nodeOneRuntime = makeRuntime("node-one"),
+      nodeTwoRuntime = makeRuntime("node-two"),
+      nodeOneLoop = openNodeAutoDispatchLoop({
+        read: (_signal) => readCandidates("node-one"),
+        spawn: async (candidate, signal) => {
+          const result = await nodeOneRuntime.run("repo.agentRuntime.spawn", candidate.payload, signal);
+          assert.equal(result.outcome, "applied", JSON.stringify(result));
+        },
+      }),
+      nodeTwoLoop = openNodeAutoDispatchLoop({
+        read: (_signal) => readCandidates("node-two"),
+        spawn: async (candidate, signal) => {
+          const result = await nodeTwoRuntime.run("repo.agentRuntime.spawn", candidate.payload, signal);
+          assert.equal(result.outcome, "applied", JSON.stringify(result));
+        },
+      });
+    t.after(async () => {
+      await Promise.all([nodeOneLoop.close(), nodeTwoLoop.close(), nodeOneRuntime.close(), nodeTwoRuntime.close()]);
+    });
+    const before = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
+      .read()
+      .events.filter((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === created.taskId);
+    assert.equal(before.filter((event) => event.payload.role === "reviewer").length, 0);
+    const explicit = await fixture.centerRun({
+      kind: "task-dispatch-review",
+      taskIds: [created.taskId],
+      agentId: "fleet-reviewer",
+      runtimeInstanceId: definition.instanceId,
+      model: definition.model,
+      effort: "high",
+      fast: true,
+    });
+    assert.equal(explicit.outcome, "pending", JSON.stringify(explicit));
+    assert.equal(
+      (explicit.dispatches as readonly Record<string, unknown>[] | undefined)?.[0]?.outcome,
+      "pending",
+      JSON.stringify(explicit),
+    );
+    const waiting = (await readCandidates("node-one")).find((candidate) => candidate.taskId === created.taskId);
+    assert.equal(waiting?.kind, "review");
+    assert.equal(waiting?.payload.agentId, "fleet-reviewer");
+    assert.equal(waiting?.payload.runtimeInstanceId, definition.instanceId);
+    assert.equal(waiting?.payload.model, definition.model);
+    assert.equal(waiting?.payload.effort, "high");
+    assert.equal(waiting?.payload.fast, true);
+    await nodeTwoLoop.trigger("wrong-node");
+    await nodeOneLoop.trigger("submit");
+    await nodeOneLoop.trigger("duplicate-wake");
+    assert.equal(launchesOne, 1);
+    assert.equal(launchesTwo, 0);
+    const after = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
+      .read()
+      .events.filter((event) => event.type === "runtime_dispatch_requested" && event.payload.taskId === created.taskId);
+    assert.equal(after.filter((event) => event.payload.role === "reviewer").length, 1);
+    const reviewer = after.find(
+      (event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer",
+    );
+    assert.deepEqual(reviewer?.source, { kind: "node", nodeId: "node-one" });
+    assert.equal(reviewer?.payload.agentId, "fleet-reviewer");
+    assert.equal(reviewer?.payload.instanceId, definition.instanceId);
+    assert.equal(
+      (reviewer?.payload.definitionSnapshot as { readonly model?: string } | undefined)?.model,
+      definition.model,
+    );
+    assert.equal(
+      (reviewer?.payload.definitionSnapshot as { readonly reasoningEffort?: string } | undefined)?.reasoningEffort,
+      "high",
+    );
+    assert.equal((reviewer?.payload.definitionSnapshot as { readonly fast?: boolean } | undefined)?.fast, true);
   },
 );
 
@@ -404,6 +594,32 @@ test(
         otherNodeReviewCandidates.some((candidate) => candidate.taskId === created.taskId),
         false,
       );
+      if (iteration === 0) {
+        const explicit = await fixture.centerRun({
+          kind: "task-dispatch-review",
+          taskIds: [created.taskId],
+          agentId: "fleet-reviewer",
+          runtimeInstanceId: definition.instanceId,
+          model: definition.model,
+          effort: "high",
+          fast: true,
+        });
+        assert.equal(explicit.outcome, "pending", JSON.stringify(explicit));
+        assert.equal(
+          (explicit.dispatches as readonly Record<string, unknown>[] | undefined)?.[0]?.outcome,
+          "pending",
+          JSON.stringify(explicit),
+        );
+        const pinned = (await readAutoDispatchCandidates("node-one")).find(
+          (candidate) => candidate.taskId === created.taskId,
+        );
+        assert.equal(pinned?.kind, "review", JSON.stringify(pinned));
+        assert.equal(pinned?.payload.agentId, "fleet-reviewer");
+        assert.equal(pinned?.payload.runtimeInstanceId, definition.instanceId);
+        assert.equal(pinned?.payload.model, definition.model);
+        assert.equal(pinned?.payload.effort, "high");
+        assert.equal(pinned?.payload.fast, true);
+      }
       const reviewers: string[] = [];
       for (const explicit of [false, true]) {
         const result = await spawn(`review-${iteration}-${explicit}`, explicit ? executionId : undefined);

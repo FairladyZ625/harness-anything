@@ -428,9 +428,10 @@ export function makeRepoReadRuntime(
           }
         }
         return rows.flatMap((row) => {
-          const review = nodeReviewDispatchCandidate(cell, { taskId: row.taskId, requiredNodeId: nodeId });
+          const taskId = row.taskId;
+          const review = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: nodeId });
           if (review) return [review];
-          const rework = nodeReworkDispatchCandidate(cell, { taskId: row.taskId, requiredNodeId: nodeId });
+          const rework = nodeReworkDispatchCandidate(cell, { taskId, requiredNodeId: nodeId });
           return rework ? [rework] : [];
         });
       }),

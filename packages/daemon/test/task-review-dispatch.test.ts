@@ -6,9 +6,11 @@ import test from "node:test";
 import { historicalReadConclusions, type ExecutionV1 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
-import { decisionReviewDispatchPrompt, reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
+import { decisionReviewDispatchPrompt, dispatchTaskReview, reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
 import { taskExecutionPlacement } from "../src/task-execution-placement.ts";
 import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
+import { nodeReworkDispatchCandidate } from "../src/task-return-dispatch.ts";
+import { readLastExecutionWorkerDispatch } from "../src/dispatch-read.ts";
 
 const sha256 = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 
@@ -154,6 +156,60 @@ test("execution placement does not infer a physical node from non-portable sourc
   });
 });
 
+test("explicit review dispatch stays pending when its execution source cannot be resolved", async () => {
+  const taskId = "task-review-placement-unresolved",
+    executionId = "execution-review-placement-unresolved",
+    snapshot = {
+      task: {
+        schema: "task/v2",
+        taskId,
+        title: "Unresolved review placement",
+        taskClass: "standard",
+        status: "in_review",
+        graph: { nodes: [], edges: [] },
+        currentNode: "review",
+        iteration: 0,
+        createdBy: { principal: { kind: "person", id: "owner" } },
+        completionGateIds: [],
+        presetSnapshotDigest: null,
+        pinned: false,
+      },
+      revision: 2,
+      executions: [{ schema: "execution/v1", executionId, iteration: 0, state: "submitted", submission: {} }],
+      reviews: [],
+      edgesTaken: [],
+      lease: null,
+    },
+    cell = {
+      input: { repoId: "repo-review-placement-unresolved" },
+      projection: {
+        read: () => ({ snapshot, packagePath: "tasks/review-placement-unresolved", watermark: 2, sourceRevision: 2 }),
+        readLeaseIntervals: () => [
+          {
+            taskId,
+            executionId,
+            acquiredRevision: 1,
+            holder: { source: "remote_direct", actor: { executor: null } },
+          },
+        ],
+        readRuntimeDispatchesByTaskExecution: () => [],
+      },
+      settings: { readRepository: () => ({ roles: { defaultReviewer: "default-reviewer" } }) },
+      store: { readHead: () => ({ revision: 2 }) },
+      operationId: () => "op-review-placement-unresolved",
+    } as unknown as Parameters<typeof dispatchTaskReview>[0];
+  const result = await dispatchTaskReview(
+    cell,
+    { kind: "task-dispatch-review", taskIds: [taskId], agentId: "selected-reviewer" } as never,
+    { actor: { principal: { personId: "owner" }, executor: null }, source: "local" } as never,
+  );
+  const step = (result.dispatches as readonly Record<string, unknown>[])[0];
+  assert.equal(result.outcome, "pending", JSON.stringify(result));
+  assert.equal(step?.outcome, "pending", JSON.stringify(step));
+  assert.equal(step?.agentId, "selected-reviewer");
+  assert.match(String(result.warnings), /no runtime dispatch was created/u);
+});
+
 test("execution placement uses a portable lease source without inventing a runtime dispatch", () => {
   for (const [source, expected] of [
     ["local", { kind: "local" }],
@@ -236,6 +292,126 @@ test("node auto-dispatch deduplicates a pending key and accepts a new canonical 
   await loop.trigger("next-canonical-attempt");
   assert.deepEqual(launched, ["review:first", "review:retry"]);
   await loop.close();
+});
+
+test("node rework candidate waits for the submitting worker to settle", () => {
+  let settled = false;
+  const taskId = "task-node-rework-settle",
+    executionId = "exe-node-rework-settle",
+    dispatchEvent = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_dispatch_requested",
+      eventId: "event-dispatch-node-rework-settle",
+      opId: "op-dispatch-node-rework-settle",
+      workspaceRevision: 3,
+      taskId,
+      source: { kind: "node", nodeId: "node-laptop" },
+      occurredAt: "2026-11-07T00:00:00.000Z",
+      payload: {
+        dispatchId: "dispatch_node_rework_settle_000000000001",
+        runtimeSessionId: "worker-live",
+        taskId,
+        executionId,
+        role: "worker",
+        agentId: "worker",
+        instanceId: "instance",
+        provider: { instance: "instance", model: "model" },
+        startedAt: "2026-11-07T00:00:00.000Z",
+      },
+    },
+    task = {
+      schema: "task/v2",
+      taskId,
+      title: "Node rework settle",
+      taskClass: "standard",
+      status: "active",
+      graph: { nodes: [], edges: [] },
+      currentNode: "implementation",
+      iteration: 1,
+      createdBy: { principal: { kind: "person", id: "owner" } },
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+      pinned: {},
+    },
+    snapshot = {
+      task,
+      revision: 4,
+      executions: [
+        {
+          schema: "execution/v1",
+          executionId,
+          iteration: 0,
+          state: "changes_requested",
+          submission: {
+            completionClaim: "Implementation complete.",
+            verificationNotes: [],
+            knownGaps: [],
+            residualRisks: [],
+          },
+        },
+      ],
+      reviews: [
+        {
+          executionId,
+          verdict: "changes_requested",
+          reviewId: "review",
+          reviewedAt: "2026-11-07T00:01:00.000Z",
+          reason: "changes",
+        },
+      ],
+      lease: null,
+    },
+    cell = {
+      input: { repoId: "repo-node-rework-settle" },
+      rootDir: "/tmp/repo-node-rework-settle",
+      projection: {
+        read: () => ({ snapshot, packagePath: "tasks/node-rework-settle" }),
+        readLeaseIntervals: () => [
+          {
+            executionId,
+            acquiredRevision: 2,
+            holder: {
+              source: { kind: "node", nodeId: "node-laptop" },
+              actor: { executor: { id: "runtime-session:worker-live" } },
+            },
+          },
+        ],
+        readRuntimeDispatchesByTaskExecution: () => [{ event: dispatchEvent }],
+        readRuntimeDispatchByDispatchKey: () => null,
+        readRuntimeSession: () =>
+          settled
+            ? { liveness: "settled", outcome: "succeeded", lastObservedAt: "2026-11-07T00:02:00.000Z" }
+            : { liveness: "live", outcome: null, lastObservedAt: "2026-11-07T00:01:00.000Z" },
+        readRuntimeSessionEventsByType: () => [],
+        readDocument: () => ({ document: null }),
+        readRuntimeDispatchByResumeSource: () => null,
+        readRuntimeDispatchesByAttemptGroup: () => [],
+        readTaskRelationsBySources: () => [],
+      },
+      settings: { readRepository: () => ({ roles: { defaultWorker: "worker" } }) },
+    } as unknown as Parameters<typeof nodeReworkDispatchCandidate>[0];
+  assert.deepEqual(taskExecutionPlacement(cell, taskId, executionId), { kind: "node", nodeId: "node-laptop" });
+  assert.equal(
+    readLastExecutionWorkerDispatch(cell.projection, {
+      taskId,
+      executionId,
+      workerExecutorIds: new Set(["runtime-session:worker-live"]),
+    })?.status,
+    "running",
+  );
+  assert.equal(nodeReworkDispatchCandidate(cell, { taskId, requiredNodeId: "node-laptop" }), null);
+  settled = true;
+  assert.equal(
+    readLastExecutionWorkerDispatch(cell.projection, {
+      taskId,
+      executionId,
+      workerExecutorIds: new Set(["runtime-session:worker-live"]),
+    })?.status,
+    "succeeded",
+  );
+  const candidate = nodeReworkDispatchCandidate(cell, { taskId, requiredNodeId: "node-laptop" });
+  assert.equal(candidate?.kind, "rework");
+  assert.equal(candidate?.requiredNodeId, "node-laptop");
 });
 
 test("node auto-dispatch close cancels an in-flight candidate read", async () => {

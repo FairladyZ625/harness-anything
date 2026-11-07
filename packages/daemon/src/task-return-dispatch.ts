@@ -95,7 +95,18 @@ export function nodeReworkDispatchCandidate(
     ownerReturnReason = review ? null : (arrangement?.reason ?? null),
     reportPath = review ? reviewReportRelativePath(read.packagePath, review.reviewId) : null,
     previous = submittingWorkerDispatch(cell, input.taskId, execution.executionId),
-    hasIdentityOverride = Object.values(arrangement ?? {}).some((value) => value !== undefined),
+    active = read.snapshot.lease
+      ? submittingWorkerDispatch(cell, input.taskId, read.snapshot.lease.executionId)
+      : undefined;
+  if (
+    [previous, active].some(
+      (worker) =>
+        worker !== undefined &&
+        (worker.status === "running" || (worker.status === "unknown" && worker.outcome === null)),
+    )
+  )
+    return null;
+  const hasIdentityOverride = Object.values(arrangement ?? {}).some((value) => value !== undefined),
     mode = previous?.resume === undefined || hasIdentityOverride ? "fresh" : "resume",
     continuation = prepareWorkerContinuation(
       cell,
@@ -364,18 +375,20 @@ async function dispatchContinuation(
         runtimeSessionId: existing.event.payload.runtimeSessionId,
       },
     };
-  for (const prior of new Map(
-    [previous, active].filter((value) => value !== undefined).map((value) => [value.runtimeSessionId, value]),
-  ).values()) {
-    if (prior.status === "running" || (prior.status === "unknown" && prior.outcome === null)) {
-      try {
-        await cancelSubmittingWorker(cell, input.taskId, prior.runtimeSessionId, binding);
-      } catch (error) {
-        const failure = cell.failed(input.opId, error);
-        return {
-          continuation: { mode: prior.resume === undefined ? "fresh" : "resume", ...failure },
-          steps: [failure],
-        };
+  if (!input.requiredNodeId) {
+    for (const prior of new Map(
+      [previous, active].filter((value) => value !== undefined).map((value) => [value.runtimeSessionId, value]),
+    ).values()) {
+      if (prior.status === "running" || (prior.status === "unknown" && prior.outcome === null)) {
+        try {
+          await cancelSubmittingWorker(cell, input.taskId, prior.runtimeSessionId, binding);
+        } catch (error) {
+          const failure = cell.failed(input.opId, error);
+          return {
+            continuation: { mode: prior.resume === undefined ? "fresh" : "resume", ...failure },
+            steps: [failure],
+          };
+        }
       }
     }
   }

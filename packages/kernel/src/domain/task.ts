@@ -155,9 +155,19 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly reviewReturnBudget?: number;
   /** This task's own reviewer agent id; unset falls back to the repository defaultReviewer. */
   readonly reviewer?: string;
+  /** Explicit review-dispatch choices waiting for the implementation node to come online. */
+  readonly reviewDispatchIntent?: TaskReviewDispatchIntentV1;
   readonly closeoutOverrides?: CloseoutOverridesV1;
   /** Set from the preset profile; a successful completion archives the package. */
   readonly archiveOnComplete?: boolean;
+}
+export interface TaskReviewDispatchIntentV1 {
+  readonly executionId: string;
+  readonly reviewerId: string;
+  readonly runtimeInstanceId?: string;
+  readonly model?: string;
+  readonly effort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  readonly fast?: boolean;
 }
 export interface ContractValidationIssue {
   readonly code: string;
@@ -196,6 +206,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "contractVersion",
       "reviewReturnBudget",
       "reviewer",
+      "reviewDispatchIntent",
       "closeoutOverrides",
       "archiveOnComplete",
       "assignment",
@@ -288,6 +299,28 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     issues.push({ code: "invalid_task", message: "reviewReturnBudget must be a positive integer" });
   if (value.reviewer !== undefined && !/^[A-Za-z0-9_-]{1,96}$/u.test(String(value.reviewer)))
     issues.push({ code: "invalid_task", message: "reviewer must be an agent id" });
+  if (value.reviewDispatchIntent !== undefined) {
+    const intent = value.reviewDispatchIntent;
+    if (
+      !isRecord(intent) ||
+      !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(intent, [
+        "executionId",
+        "reviewerId",
+        "runtimeInstanceId",
+        "model",
+        "effort",
+        "fast",
+      ]) ||
+      !isNonEmptyString(intent.executionId) ||
+      !/^[A-Za-z0-9_-]{1,96}$/u.test(String(intent.reviewerId)) ||
+      (intent.runtimeInstanceId !== undefined && !isNonEmptyString(intent.runtimeInstanceId)) ||
+      (intent.model !== undefined && !isNonEmptyString(intent.model)) ||
+      (intent.effort !== undefined &&
+        !["minimal", "low", "medium", "high", "xhigh", "max"].includes(String(intent.effort))) ||
+      (intent.fast !== undefined && typeof intent.fast !== "boolean")
+    )
+      issues.push({ code: "invalid_task", message: "review dispatch intent is invalid" });
+  }
   if (value.closeoutOverrides !== undefined && !isValidCloseoutOverrides(value.closeoutOverrides))
     issues.push({
       code: "invalid_task",

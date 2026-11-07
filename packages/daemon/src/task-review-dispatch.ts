@@ -13,6 +13,7 @@ import {
   decisionReviewContentDigest,
   type ExecutionV1,
   type ReviewV1,
+  type TaskReviewDispatchIntentV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { derivedTaskActionProtocolCommands } from "./protocol/daemon-protocol-commands-task.ts";
@@ -77,7 +78,16 @@ export function nodeReviewDispatchCandidate(
   if (!execution || !read.packagePath) return null;
   const placement = taskExecutionPlacement(cell, input.taskId, execution.executionId);
   if (placement.kind !== "node" || placement.nodeId !== input.requiredNodeId) return null;
-  const selection = reviewSeatForCut({ cell, execution, taskReviewer: snapshot.task.reviewer });
+  const intent =
+      snapshot.task.reviewDispatchIntent?.executionId === execution.executionId
+        ? snapshot.task.reviewDispatchIntent
+        : undefined,
+    selection = intent
+      ? {
+          kind: "seat" as const,
+          seat: { reviewerId: intent.reviewerId, source: "argument" as const },
+        }
+      : reviewSeatForCut({ cell, execution, taskReviewer: snapshot.task.reviewer });
   if (selection.kind === "escalated") return null;
   const { reviewerId } = selection.seat,
     resolved = readAgentDeclarationResolution({
@@ -104,6 +114,10 @@ export function nodeReviewDispatchCandidate(
       implementationNodeId: input.requiredNodeId,
       reviewerNodeId: input.requiredNodeId,
     }),
+    ...(intent?.runtimeInstanceId ? { runtimeInstanceId: intent.runtimeInstanceId } : {}),
+    ...(intent?.model ? { model: intent.model } : {}),
+    ...(intent?.effort ? { effort: intent.effort } : {}),
+    ...(intent?.fast === undefined ? {} : { fast: intent.fast }),
   } satisfies JsonObject;
   return {
     repoId: cell.input.repoId,
@@ -1019,16 +1033,42 @@ export async function dispatchTaskReview(
       { reviewerId } = seat;
     const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
     if (placement.kind === "node") {
+      const intent: TaskReviewDispatchIntentV1 = {
+        executionId: execution.executionId,
+        reviewerId,
+        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+        ...(typeof action.model === "string" ? { model: action.model } : {}),
+        ...(typeof action.effort === "string" ? { effort: action.effort as TaskReviewDispatchIntentV1["effort"] } : {}),
+        ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
+      };
+      const intentReceipt = cell.taskSurfaceWrite(
+        {
+          kind: "task-amend",
+          taskId,
+          patches: [{ field: "reviewDispatchIntent", value: JSON.stringify(intent) }],
+        },
+        binding,
+      );
+      if (!["applied", "no_changes"].includes(String(intentReceipt.outcome))) {
+        fail(
+          `Task ${taskId} review intent could not be persisted on implementation node ${placement.nodeId}.`,
+          reviewerId,
+          execution.executionId,
+        );
+        continue;
+      }
       steps.push({ taskId, executionId: execution.executionId, requiredNodeId: placement.nodeId, outcome: "pending" });
       warnings.push(`Task ${taskId} review is pending on implementation node ${placement.nodeId}.`);
       continue;
     }
     if (placement.kind === "unresolved") {
-      fail(
-        `Task ${taskId} review is pending: ${placement.reason}; no runtime dispatch was created.`,
-        reviewerId,
-        execution.executionId,
-      );
+      steps.push({
+        taskId,
+        executionId: execution.executionId,
+        agentId: reviewerId,
+        outcome: "pending",
+      });
+      warnings.push(`Task ${taskId} review is pending: ${placement.reason}; no runtime dispatch was created.`);
       continue;
     }
     let resolved;
