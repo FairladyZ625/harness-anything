@@ -1,12 +1,14 @@
 import { existsSync, renameSync } from "node:fs";
 import path from "node:path";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { oidcCenterSelections } from "./oidc-center-selection.ts";
 
 /** Relocate only edge-owned paths that were rooted in the old workspace's join layout. */
-export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repoId: string): void {
+export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repoId: string, userRoot?: string): void {
   const sourceRoot = path.resolve(oldRoot),
     targetRoot = path.resolve(newRoot);
   if (sourceRoot === targetRoot) return;
+  const selection = userRoot === undefined ? undefined : oidcCenterSelections(userRoot).read(sourceRoot);
   const config = readFleetEdgeConfig(targetRoot);
   if (!config) return;
   if (config.repoId !== repoId)
@@ -39,6 +41,7 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
       throw error;
     }
   }
+  if (selection !== undefined && userRoot !== undefined) oidcCenterSelections(userRoot).write(targetRoot, selection);
 }
 
 function relocateAbsolutePath(value: string, sourceRoot: string, targetRoot: string): string | null {

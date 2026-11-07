@@ -618,7 +618,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       replicaSyncControllers.delete(repoId);
     }
     try {
-      migrateFleetEdgeWorkspace(oldRoot, newRoot, repoId);
+      migrateFleetEdgeWorkspace(oldRoot, newRoot, repoId, input.userRoot);
     } catch (error) {
       startReplicaSyncs();
       throw error;
