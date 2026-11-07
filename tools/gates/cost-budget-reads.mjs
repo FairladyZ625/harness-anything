@@ -50,6 +50,10 @@ export const READ_DIMENSIONS = Object.freeze([
 ]);
 export function readProbeAppliesTo(probe, backend, dimension) {
   if (probe.sourceAudit ? dimension !== "source-events" : dimension === "source-events") return false;
+  // The adversarial relation fixture is intentionally sparse. Only probes that
+  // opt into this dimension may run there; unrelated readers would observe a
+  // different fixture and turn the shard into noise.
+  if (dimension === "relation-visibility" && !probe.dimensions?.includes(dimension)) return false;
   if (probe.dimensions && !probe.dimensions.includes(dimension)) return false;
   if (probe.backends && !probe.backends.includes(backend)) return false;
   return true;

@@ -39,7 +39,7 @@ pg.Client.prototype.query = function (...args) {
   });
 };
 installReadProbe();
-const { state, responsePort, size, dimension, rootDir, lowVisibility } = workerData;
+const { state, responsePort, size, dimension, rootDir, lowVisibility, allVisible } = workerData;
 let backend;
 const respond = (value) => {
   responsePort.postMessage(value);
@@ -59,41 +59,81 @@ try {
         tenantId: "g38",
         projectId: "read",
         policyEpoch: 0,
-        ...(lowVisibility ? { readers: ["reader-visible"] } : {}),
+        ...(lowVisibility || allVisible ? { readers: ["reader-visible"] } : {}),
       },
     },
   });
   const bundles = [],
     writerFence = { repoId: "g38-read", holderId: "read-fixture", epoch: 1 };
   let collecting = false;
-  const seeded = await seedReadLedger(
-    {
-      append: async (bundle) => {
-        if (collecting) bundles.push(bundle);
-        else await backend.eventStore.append(bundle, bundle.event.workspaceRevision - 1, writerFence);
-      },
-      beginHistory: () => {
-        collecting = true;
-      },
-    },
-    dimension,
-    size,
-  );
+  const directRelationFixture =
+    (lowVisibility || allVisible) &&
+    (dimension === "relation-visibility" || dimension === "relations") &&
+    size >= 10_000;
+  const seeded = directRelationFixture
+    ? { baseRevision: 0, growth: 0 }
+    : await seedReadLedger(
+        {
+          append: async (bundle) => {
+            if (collecting) bundles.push(bundle);
+            else await backend.eventStore.append(bundle, bundle.event.workspaceRevision - 1, writerFence);
+          },
+          beginHistory: () => {
+            collecting = true;
+          },
+        },
+        dimension,
+        size,
+      );
   // Both selected and historical command results stay bounded: a single all-history
   // command would make receipt hydration another growing input, beyond this axis.
   let accepted;
-  for (let offset = 0; offset < bundles.length; offset += READ_HISTORY_BATCH_SIZE) {
-    const batch = bundles.slice(offset, offset + READ_HISTORY_BATCH_SIZE),
-      baseRevision = batch[0].event.workspaceRevision - 1,
-      last = batch.pop();
-    accepted = await backend.eventStore.append({ ...last, preceding: batch }, baseRevision, writerFence);
+  if (directRelationFixture) {
+    await backend.pool.query(
+      `INSERT INTO ha_relations
+         (tenant_id, project_id, policy_epoch, readers, relation_id, source_ref, target_ref,
+          relation_type, relation_state, workspace_revision, value, freshness, current_target_version)
+       SELECT 'g38', 'read', 0,
+              CASE WHEN $2::boolean THEN ARRAY['reader-visible']::text[]
+                   WHEN series > $1::bigint - GREATEST(1, CEIL($1::numeric / 100.0)::bigint)
+                     THEN ARRAY['reader-visible']::text[]
+                   ELSE ARRAY['reader-hidden']::text[] END,
+              'relation-' || lpad(series::text, 8, '0'),
+              'task/history-' || lpad(series::text, 8, '0'), 'task/other-' || lpad(series::text, 8, '0'),
+              'depends-on', 'active', series,
+              jsonb_build_object(
+                'id', 'relation-' || lpad(series::text, 8, '0'),
+                'revision', series,
+                'source', 'task/history-' || lpad(series::text, 8, '0'),
+                'target', 'task/other-' || lpad(series::text, 8, '0'),
+                'type', 'depends-on',
+                'strength', 'strong',
+                'direction', 'directed',
+                'origin', 'declared',
+                'state', 'active',
+                'rationale', 'Historical relation',
+                'targetObservedVersion', NULL,
+                'sourcePath', 'fixture:relation',
+                'recordIndex', 0
+              ),
+              'current', NULL
+       FROM generate_series(0, $1::bigint - 1) AS generated(series)`,
+      [size, allVisible],
+    );
+  } else {
+    for (let offset = 0; offset < bundles.length; offset += READ_HISTORY_BATCH_SIZE) {
+      const batch = bundles.slice(offset, offset + READ_HISTORY_BATCH_SIZE),
+        baseRevision = batch[0].event.workspaceRevision - 1,
+        last = batch.pop();
+      accepted = await backend.eventStore.append({ ...last, preceding: batch }, baseRevision, writerFence);
+    }
+    assert.equal(
+      accepted.cut.revision,
+      seeded.baseRevision + seeded.growth,
+      "PG fixture did not seed the committed collection size",
+    );
   }
-  assert.equal(
-    accepted.cut.revision,
-    seeded.baseRevision + seeded.growth,
-    "PG fixture did not seed the committed collection size",
-  );
-  if (lowVisibility) {
+  if (lowVisibility && !directRelationFixture) {
     // Keep the authorization port unchanged and make only the fixture's relation rows sparse:
     // the last 1% in the relation-id order are visible to the reader. This is an adversarial
     // page position, so an ordered scan must visit the hidden prefix before returning k=1.

@@ -9,7 +9,7 @@ import { initRepo } from "../../../storage/test/store/task-event-store.fixtures.
 import { seedReadLedger, READ_HISTORY_BATCH_SIZE } from "./g38-read-ledger.mjs";
 import { installReadProbe, resetReadProbe, snapshotReadProbe } from "./g38-read-probe.mjs";
 
-export async function openReadBackend(backend, dimension, size, { lowVisibility = false } = {}) {
+export async function openReadBackend(backend, dimension, size, { lowVisibility = false, allVisible = false } = {}) {
   // Install before opening any measured connection, including canonical point readers.
   installReadProbe();
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-read-"));
@@ -71,7 +71,7 @@ export async function openReadBackend(backend, dimension, size, { lowVisibility 
   const state = new Int32Array(new SharedArrayBuffer(4)),
     { port1, port2 } = new MessageChannel(),
     worker = new Worker(new URL("./g38-read-pg-worker.mjs", import.meta.url), {
-      workerData: { state, responsePort: port2, dimension, size, rootDir, lowVisibility },
+      workerData: { state, responsePort: port2, dimension, size, rootDir, lowVisibility, allVisible },
       transferList: [port2],
       execArgv: [],
     });

@@ -149,6 +149,19 @@ export const READ_PROBES = Object.freeze({
       }),
     size: (value) => value.edges.length,
   },
+  "relation-page-all-visible": {
+    reads: ["command:relation-list", "method:repo.triadic.relationGraph"],
+    dimensions: ["relations"],
+    backends: ["pglite"],
+    run: ({ runtime }) =>
+      runtime.read("repo.triadic.relationGraph", {
+        facet: "edges",
+        relationType: "depends-on",
+        state: "active",
+        limit: 1,
+      }),
+    size: (value) => value.edges.length,
+  },
   "relation-page-low-visibility": {
     reads: ["command:relation-list", "method:repo.triadic.relationGraph"],
     dimensions: ["relation-visibility"],
@@ -194,6 +207,7 @@ export async function measureReadScale(
   const started = performance.now();
   const fixture = await openReadBackend(backend, dimension, size, {
     lowVisibility: dimension === "relation-visibility",
+    allVisible: dimension === "relations",
   });
   const seededAt = performance.now();
   console.log(JSON.stringify({ g38Seed: { backend, dimension, size, durationMs: seededAt - started } }));

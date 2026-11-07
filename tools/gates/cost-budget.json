@@ -1109,6 +1109,7 @@
           "measurements": [
             "cli-relation-list",
             "relation-page",
+            "relation-page-all-visible",
             "relation-page-low-visibility",
             "relation-freshness-page"
           ]
@@ -1463,6 +1464,7 @@
         "method:repo.triadic.relationGraph": {
           "measurements": [
             "relation-page",
+            "relation-page-all-visible",
             "relation-page-low-visibility"
           ]
         },
