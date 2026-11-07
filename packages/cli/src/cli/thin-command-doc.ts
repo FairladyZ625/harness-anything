@@ -2,6 +2,10 @@ import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
+// The marker tells the daemon doc action entry that these strings are CLI-typed workspace-relative
+// paths; daemon-internal callers keep passing authored keys and are never translated.
+const workspacePaths = Object.freeze({ pathCoordinate: "workspace" as const });
+
 export function parseDoc(
   id: string,
   args: readonly string[],
@@ -17,7 +21,7 @@ export function parseDoc(
       all = f.booleans.has("--all");
     if (all && paths.length)
       return rejected("invalid_field", "Use either --path or --all for doc materialize, not both.", json);
-    return accepted(rootDir, repoId, json, { kind: id, paths, ...(all ? { all: true } : {}) });
+    return accepted(rootDir, repoId, json, { kind: id, paths, ...(all ? { all: true } : {}), ...workspacePaths });
   }
   if (id.startsWith("doc-conflict-")) {
     const verb = args[2],
@@ -63,6 +67,7 @@ export function parseDoc(
         json,
       );
     return accepted(rootDir, repoId, json, {
+      ...workspacePaths,
       kind: id,
       path: f.one.get("--path"),
       ...(f.booleans.has("--raw") ? { raw: true } : {}),
@@ -72,21 +77,25 @@ export function parseDoc(
   }
   if (id === "doc-retire")
     return accepted(rootDir, repoId, json, {
+      ...workspacePaths,
       kind: id,
       paths: f.many.get("--path") ?? [],
       reason: f.one.get("--reason"),
     });
   if (id === "doc-status")
     return accepted(rootDir, repoId, json, {
+      ...workspacePaths,
       kind: id,
       ...(taskId ? { taskId } : { paths }),
     });
   if (id === "doc-sync-dry-run")
     return accepted(rootDir, repoId, json, {
+      ...workspacePaths,
       kind: "doc-dry-run",
       ...(taskId ? { taskId } : { paths }),
     });
   return accepted(rootDir, repoId, json, {
+    ...workspacePaths,
     kind: "doc-submit",
     ...(taskId ? { taskId } : { paths, ...(all ? { all: true } : {}) }),
   });

@@ -141,7 +141,7 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
     automaticPlanPath = `${automaticPackagePath}/task_plan.md`,
     oneSectionMissing = realizedPlan("Automatic lease").replace(/\n\n## Constraints\n\n[^\n]+/u, "");
   published(root, env, automaticTask);
-  writeFileSync(path.join(root, "harness", automaticPlanPath), oneSectionMissing);
+  writeFileSync(path.join(root, automaticPlanPath), oneSectionMissing);
   const automaticArgs = [
       "agent",
       "run",
@@ -161,7 +161,7 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
     diskDiffers: true,
     missingSections: [{ section: "Constraints", reason: "empty" }],
   });
-  writeFileSync(path.join(root, "harness", automaticPackagePath, "task_plan.md"), realizedPlan("Automatic lease"));
+  writeFileSync(path.join(root, automaticPackagePath, "task_plan.md"), realizedPlan("Automatic lease"));
   const automaticPlanSync = run(root, env, ["doc", "sync", "--submit", "--path", automaticPlanPath]);
   const automaticLease = runMaybe(root, env, automaticArgs);
   assert.equal(automaticLease.status, 0, JSON.stringify(automaticLease));
@@ -252,7 +252,7 @@ const cancellationResumeTest = async (context: TestContext) => {
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(workerRoot),
-    taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+    taskPackageRoot: path.join(realpathSync(root), packagePath),
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
@@ -321,7 +321,7 @@ const cancellationResumeTest = async (context: TestContext) => {
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(workerRoot),
-    taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+    taskPackageRoot: path.join(realpathSync(root), packagePath),
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.receipt.runtimeSessionId),

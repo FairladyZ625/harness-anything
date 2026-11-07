@@ -68,6 +68,7 @@ export const agentProtocolCommands = Object.freeze([
         {
           format: workspacePathFormat,
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           conflictsWith: ["--declaration"],
           jsonFields: [
             "id",

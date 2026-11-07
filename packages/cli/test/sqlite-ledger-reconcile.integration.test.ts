@@ -67,7 +67,7 @@ test("local CLI initializes and accepts the native generation-3 SQLite ledger", 
     const lastAccepted = waitForAcceptedReceipt(
       root,
       userRoot,
-      run(root, userRoot, ["doc", "sync", "--submit", "--path", authoredPath]),
+      run(root, userRoot, ["doc", "sync", "--submit", "--path", `harness/${authoredPath}`]),
     );
     // Let the Git follower certify this accepted write before the center takes over the writer
     // epoch; a receipt read after takeover is correctly rejected as a stale local writer.

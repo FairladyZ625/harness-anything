@@ -163,6 +163,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonAllowedFields: decisionProposalJsonFields,
           jsonDefaultFields: decisionProposalDefaultJsonFields,
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           conflictsWith: ["--json-input"],
         },
@@ -205,6 +206,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           requiresAny: ["--from-file", "--json-input"],
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           conflictsWith: ["--body"],
           wire: { omit: true },
@@ -381,6 +383,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           jsonAllowedFields: [
             "reviewId",
@@ -437,6 +440,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           jsonAllowedFields: ["responses"],
           jsonFields: ["responses"],
@@ -465,6 +469,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
           jsonFields: ["reviewContentDigest", "reviewIds", "reason"],
@@ -560,7 +565,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { pathKind: "workspace-file", format: workspacePathFormat, wire: { omit: true } },
+        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat, wire: { omit: true } },
       ),
       cliInput(
         "--consent-by",

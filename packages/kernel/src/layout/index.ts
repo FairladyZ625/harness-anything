@@ -332,12 +332,14 @@ export type WorkspaceDocumentPath =
   | { readonly ok: false; readonly reason: string };
 
 /**
- * The one spelling rule for every document path a caller types: it is relative to a repository
- * root that contains the ledger. In the nested layout those are two roots for one file — the
- * workspace repository (`--root`, so `harness/tasks/x.md`) and the ledger repository itself
- * (`tasks/x.md`, which is also how a task worktree mirrors its package) — and both translate to
- * the same authored key. The command name never picks the coordinate: every doc --path command
- * goes through this one translation, and absolute paths inside either root are accepted.
+ * The one spelling rule for a document path a caller types at the CLI boundary: it is relative to
+ * the workspace repository root, so `harness/tasks/x.md`. There is no second accepted spelling —
+ * from the workspace root the ledger's authored key (`tasks/x.md`) is outside the authored root
+ * and is refused; that is the wanted behaviour for old authored-relative callers.
+ *
+ * When the process root is the ledger repository itself (`harness/`), the workspace spelling of
+ * that root is the authored key and the same in-authored-root check covers it. Daemon-internal
+ * callers pass authored keys and never use this boundary.
  */
 export function resolveWorkspaceDocumentPath(rootDir: string, value: string): WorkspaceDocumentPath {
   const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot,
@@ -345,24 +347,12 @@ export function resolveWorkspaceDocumentPath(rootDir: string, value: string): Wo
     relative = path.relative(authoredRoot, absolute);
   if (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative))
     return { ok: true, documentPath: relative.split(path.sep).join("/") };
-  // The ledger repository is nested, so its own root is a second repository root for the same
-  // file. A caller standing in `harness/` (or a worktree mirroring `tasks/…`) types that spelling.
-  if (path.isAbsolute(value))
-    return {
-      ok: false,
-      reason: `${value} is outside the authored ledger root ${authoredRoot}`,
-    };
-  try {
-    const authored = normalizeRelativeDocumentPath(value);
-    return authored === "" || authored.startsWith("..")
-      ? {
-          ok: false,
-          reason: `${value} is outside the authored ledger root ${authoredRoot}`,
-        }
-      : { ok: true, documentPath: authored };
-  } catch {
-    return { ok: false, reason: `${value} is not a valid document path` };
-  }
+  return {
+    ok: false,
+    reason:
+      `${value} is outside the authored ledger root ${authoredRoot}; ` +
+      `pass a path relative to the workspace root (for example harness/tasks/<task>/task_plan.md)`,
+  };
 }
 
 /** The inverse boundary translation: a receipt prints the path a caller would paste back in. */

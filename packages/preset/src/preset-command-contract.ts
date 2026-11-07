@@ -2,6 +2,7 @@ import type {
   CliInputError,
   CliInputGroup,
   CliInputFacet,
+  CliPositionalInputFacet,
   CommandAdmission,
   CommandAdmissionRoute,
   CommandTopology,
@@ -18,6 +19,9 @@ export type {
   CliInputError,
   CliInputGroup,
   CliInputFacet,
+  CliPositionalInputFacet,
+  PathKind,
+  PathReader,
   CommandAdmission,
   CommandAdmissionRoute,
   CommandTopology,
@@ -166,6 +170,7 @@ export function defineCliCommand<
     readonly path: readonly string[];
     readonly syntaxPath?: readonly string[];
     readonly inputs: readonly CliInputFacet[];
+    readonly positionalInputs?: readonly CliPositionalInputFacet[];
     readonly inputGroups?: readonly CliInputGroup[];
     readonly commandClass: CommandTopology["commandClass"];
     readonly admission: CommandAdmission;
@@ -177,6 +182,9 @@ export function defineCliCommand<
     firstPositional = syntaxPath.findIndex((token) => token.includes("<") || token.startsWith("[")),
     path = Object.freeze(syntaxPath.slice(0, firstPositional < 0 ? syntaxPath.length : firstPositional)),
     inputs = Object.freeze(declaration.inputs.map((input) => Object.freeze(input))) as Command["inputs"],
+    positionalInputs = Object.freeze(
+      (declaration.positionalInputs ?? []).map((input) => Object.freeze(input)),
+    ) as readonly CliPositionalInputFacet[],
     usageInputs = inputs.map((input) => {
       const placeholder = input.enum?.join("|") ?? input.name.slice(2),
         suffix = input.kind === "repeated" && input.required ? "..." : "",
@@ -198,6 +206,7 @@ export function defineCliCommand<
     path,
     syntaxPath,
     inputs,
+    positionalInputs,
     flags: inputs,
     usage,
     help,
@@ -310,7 +319,7 @@ const taskCreateCliInputs = Object.freeze(
         ...(field.regex ? { regex: field.regex } : {}),
         ...cli,
         ...(cli.name === "--from-file" || cli.name === "--plan-file"
-          ? { pathKind: "workspace-file" as const, format: workspacePathFormat }
+          ? { pathKind: "workspace-file" as const, pathReader: "workspace-text" as const, format: workspacePathFormat }
           : {}),
         ...(cli.name === "--profile" ? { format: taskCreateProfileFormat } : {}),
         ...(cli.name === "--title" ? { format: titleFocusFormat } : {}),

@@ -577,7 +577,7 @@ test("doc retire accepts the workspace spelling in the nested ledger layout", as
     await waitForWorktree(cell, submitted, binding);
     rmSync(path.join(rootDir, "harness", logical));
     const retired = (await cell.run(
-      { kind: "doc-retire", paths: [`harness/${logical}`], reason: "superseded duplicate" },
+      { kind: "doc-retire", paths: [logical], reason: "superseded duplicate" },
       binding,
     )) as { readonly outcome?: string; readonly evidence?: string };
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));

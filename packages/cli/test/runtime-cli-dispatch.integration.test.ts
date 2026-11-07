@@ -93,7 +93,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(root),
-    taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+    taskPackageRoot: path.join(realpathSync(root), packagePath),
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
@@ -117,7 +117,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
           unknown
         >,
     );
-  const evidenceRoot = path.join(root, "harness", packagePath, "artifacts", "dispatches", boundDispatchId);
+  const evidenceRoot = path.join(root, packagePath, "artifacts", "dispatches", boundDispatchId);
   assert.equal(existsSync(path.join(evidenceRoot, "stream.jsonl")), true, "abnormal stream evidence is published");
   assert.equal(
     existsSync(path.join(evidenceRoot, "request-trace.json")),
@@ -160,7 +160,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     reasoningEffort: null,
     fast: false,
     cwd: realpathSync(root),
-    missionRef: `${packagePath}/artifacts/missions/${boundDispatchId}.md`,
+    missionRef: `${packagePath.replace(/^harness\//u, "")}/artifacts/missions/${boundDispatchId}.md`,
     runtimeSessionId: bound.runtimeSessionId,
     providerSessionId: "provider-cli-session",
     startedAt: boundDispatch.startedAt,
@@ -174,8 +174,8 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     // A task-bound worker that exits stopped is an abnormal terminal in this task's contract, so
     // settlement publishes the redacted stream and correlation trace beside the dispatch record.
     forensicsRef: {
-      stream: `${packagePath}/artifacts/dispatches/${boundDispatchId}/stream.jsonl`,
-      requestTrace: `${packagePath}/artifacts/dispatches/${boundDispatchId}/request-trace.json`,
+      stream: `${packagePath.replace(/^harness\//u, "")}/artifacts/dispatches/${boundDispatchId}/stream.jsonl`,
+      requestTrace: `${packagePath.replace(/^harness\//u, "")}/artifacts/dispatches/${boundDispatchId}/request-trace.json`,
     },
     attemptGroupId: boundDispatchId,
     attemptIndex: 0,
@@ -256,7 +256,7 @@ test("Runtime report is archived after the worker submits its execution", async 
     submittedPackagePath = String(submittedTask.packagePath),
     submittedPlanPath = `${submittedPackagePath}/task_plan.md`;
   published(root, env, submittedTask);
-  writeFileSync(path.join(root, "harness", submittedPlanPath), realizedPlan("Submitted runtime archive"));
+  writeFileSync(path.join(root, submittedPlanPath), realizedPlan("Submitted runtime archive"));
   run(root, env, ["doc", "sync", "--submit", "--path", submittedPlanPath]);
   const started = run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
   // The delivery commits below write repo Git directly, so the daemon must finish publishing the
@@ -294,8 +294,8 @@ test("Runtime report is archived after the worker submits its execution", async 
     submittedReportPath = `${submittedPackagePath}/artifacts/reports/${submittedDispatchId}.md`;
   // The report is archived by a doc-sync publication after the runtime settles, and the dispatch
   // read derives reportPath from the archived file, so the row is read only after the file exists.
-  await eventuallyFile(path.join(root, "harness", submittedReportPath));
-  assert.equal(existsSync(path.join(root, "harness", submittedReportPath)), true);
+  await eventuallyFile(path.join(root, submittedReportPath));
+  assert.equal(existsSync(path.join(root, submittedReportPath)), true);
   const submittedDispatch = (
     run(root, env, ["task", "dispatches", submittedTaskId]).dispatches as Array<Record<string, unknown>>
   ).find((row) => row.dispatchId === submittedDispatchId);
@@ -654,7 +654,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assert.equal(unsyncedMission.status, 1);
   assert.equal(unsyncedMission.receipt.code, "runtime_mission_unavailable");
   mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
-  writeFileSync(path.join(root, "harness", existingMissionPath), "existing mission");
+  writeFileSync(path.join(root, existingMissionPath), "existing mission");
   // Manual sync stays the tested path; a concurrent authored-candidate settlement may have won
   // the write, which the receipt reports as no_changes — both outcomes leave the doc clean.
   const missionSync = run(root, env, ["doc", "sync", "--submit", "--path", existingMissionPath]);
@@ -664,7 +664,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     "run",
     "terra",
     "--prompt-file",
-    path.join("harness", packagePath, "artifacts", "missions", "existing-mission.md"),
+    path.join(packagePath, "artifacts", "missions", "existing-mission.md"),
     "--task",
     taskId,
     ...recoverLatest(root, env, taskId),
@@ -712,7 +712,10 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       after: { outcome: reused.receipt.outcome, dispatchId: reusedDispatchId },
     })}`,
   );
-  assert.equal(reusedDispatch.missionRef, `${packagePath}/artifacts/missions/${reusedDispatchId}.md`);
+  assert.equal(
+    reusedDispatch.missionRef,
+    `${packagePath.replace(/^harness\//u, "")}/artifacts/missions/${reusedDispatchId}.md`,
+  );
   assert.deepEqual(
     readdirSync(path.join(artifactRoot, "missions")).sort(),
     ["existing-mission.md", `${promptFileDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
@@ -722,12 +725,12 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(root),
-    taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
+    taskPackageRoot: path.join(realpathSync(root), packagePath),
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(reused.receipt.runtimeSessionId),
     mission:
-      `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), "harness", packagePath))}\n\n` +
+      `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), packagePath))}\n\n` +
       `${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(reusedDispatchId)}\n\n` +
       `${workerWorktreeBoundary}\n\n` +
       // dec_E369B861 CH3: the worker mission names who reviews the next submitted cut.
@@ -737,7 +740,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     continuationContext: true,
   });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const taskPackage = path.join(realpathSync(root), "harness", packagePath);
+  const taskPackage = path.join(realpathSync(root), packagePath);
   // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
   const derived = runMaybe(root, env, [
       "agent",
