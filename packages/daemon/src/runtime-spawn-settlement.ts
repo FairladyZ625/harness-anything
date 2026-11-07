@@ -45,6 +45,14 @@ import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 
+// A runtime can lose its local process entry while terminal settlement is still
+// publishing the center-side documents. A concurrent recovery then gets a new
+// ActiveRuntime for the same session. Share the archive promise by session so
+// that both settlement paths observe one canonical document write; replaying the
+// same op with a newly rendered dispatch document would otherwise be rejected as
+// an op_conflict.
+const runtimeArchivePromises = new WeakMap<RuntimeSpawnerContext, Map<string, Promise<void>>>();
+
 export async function publishExit(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
@@ -559,35 +567,47 @@ export async function publishExit(
           }
         : null;
     if (archive) {
+      let archivePromise: Promise<void> | undefined;
       try {
-        const archiveBinding = context.input.remote
-          ? terminalBinding
-          : await (context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding);
-        const archived = context.input.remote
-          ? await context.input.remote.archive(archive)
-          : await writeRuntime(
-              context,
-              () =>
-                archiveRuntimeDispatch({
-                  workspaceId: context.input.repoId,
-                  rootDir: context.input.rootDir,
-                  store: context.requiredRuntimeStore(context.input),
-                  projection: context.requiredRuntimeProjection(context.input),
-                  binding: archiveBinding,
-                  now: context.input.now,
-                  archive,
-                }),
-              archiveBinding,
-            );
-        if (archived.outcome !== "applied" && archived.outcome !== "no_changes")
-          throw context.runtimeSpawnError(
-            "runtime_archive_failed",
-            `Runtime archive ${active.dispatchId} was not applied: ${archived.outcome}${
-              "code" in archived && typeof archived.code === "string" ? ` ${archived.code}` : ""
-            }${"detail" in archived && archived.detail ? ` ${JSON.stringify(archived.detail)}` : ""}`,
-          );
+        archivePromise = runtimeArchivePromises.get(context)?.get(active.runtimeSessionId);
+        if (!archivePromise) {
+          const archives = runtimeArchivePromises.get(context) ?? new Map<string, Promise<void>>();
+          runtimeArchivePromises.set(context, archives);
+          archivePromise = (async () => {
+            const archiveBinding = context.input.remote
+              ? terminalBinding
+              : await (context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding);
+            const archived = context.input.remote
+              ? await context.input.remote.archive(archive)
+              : await writeRuntime(
+                  context,
+                  () =>
+                    archiveRuntimeDispatch({
+                      workspaceId: context.input.repoId,
+                      rootDir: context.input.rootDir,
+                      store: context.requiredRuntimeStore(context.input),
+                      projection: context.requiredRuntimeProjection(context.input),
+                      binding: archiveBinding,
+                      now: context.input.now,
+                      archive,
+                    }),
+                  archiveBinding,
+                );
+            if (archived.outcome !== "applied" && archived.outcome !== "no_changes")
+              throw context.runtimeSpawnError(
+                "runtime_archive_failed",
+                `Runtime archive ${active.dispatchId} was not applied: ${archived.outcome}${
+                  "code" in archived && typeof archived.code === "string" ? ` ${archived.code}` : ""
+                }${"detail" in archived && archived.detail ? ` ${JSON.stringify(archived.detail)}` : ""}`,
+              );
+          })();
+          archives.set(active.runtimeSessionId, archivePromise);
+        }
+        await archivePromise;
         archivePublished = true;
       } catch (error) {
+        if (archivePromise && runtimeArchivePromises.get(context)?.get(active.runtimeSessionId) === archivePromise)
+          runtimeArchivePromises.get(context)!.delete(active.runtimeSessionId);
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
         // A required task report is part of the success cut. Keep the terminal
