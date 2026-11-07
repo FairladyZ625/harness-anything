@@ -49,7 +49,16 @@ export async function measureTaskDispatchAdmission(rootDir, size) {
       executions: [{ executionId, state: "active", iteration: 1, submission: null }],
     },
     projection = {
-      read: () => keyed({ snapshot, packagePath: null }),
+      read: () =>
+        keyed({
+          status: "ready",
+          snapshot,
+          packagePath: `tasks/${taskId}`,
+          watermark: snapshot.revision,
+          sourceRevision: snapshot.revision,
+          warnings: [],
+          catchUp: { maxItems: 0, reducedItems: 0, storeTransactions: 0 },
+        }),
       readDocument: () => keyed({ document: null }),
       readRuntimeDispatchesByTaskExecution: () => keyed(rows),
       readRuntimeDispatchById: (dispatchId) => keyed(byId.has(dispatchId) ? { event: byId.get(dispatchId) } : null),
