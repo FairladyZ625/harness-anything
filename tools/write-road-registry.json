@@ -107,6 +107,7 @@
     "packages/daemon/src/doc-sync-details.ts",
     "packages/daemon/src/doc-sync-files.ts",
     "packages/daemon/src/fleet-edge-content.ts",
+    "packages/daemon/src/fleet-edge-workspace-migration.ts",
     "packages/daemon/src/fleet/edge-join-client.ts",
     "packages/storage/src/durable-file.ts",
     "packages/storage/src/canonical-tree-materialization.ts",
