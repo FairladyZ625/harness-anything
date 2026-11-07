@@ -624,7 +624,9 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_2C72644059ACA2D4BE30C07786/CH1 adds access-manage; node retirement consumes it.
   // task_6569c05452127015cf461219de adds the node-local auto-claim host action.
   // task_e69543d4d51e21794937b7e713: independently revocable Fleet overview read (viewer).
-  assert.equal(actionDeclarations.length, 174);
+  // task_a28bf79f248c4e59f2149f22ad: a password change is the signed-in person's own-session action,
+  // no longer access-manage.
+  assert.equal(actionDeclarations.length, 175);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),
