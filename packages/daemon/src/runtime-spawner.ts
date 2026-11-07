@@ -435,7 +435,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
-    const taskPackageRoot = dispatchTaskPackageRoot(input, taskId, remoteTask),
+    // Reviewers inspect the detached immutable checkout. The task package boundary is derived
+    // inside that checkout by resolveRuntimeMission; applying the canonical package root here
+    // would override the prepared review worktree and leave cleanup pointed at the wrong cwd.
+    const taskPackageRoot = reviewerBinding ? null : dispatchTaskPackageRoot(input, taskId, remoteTask),
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,

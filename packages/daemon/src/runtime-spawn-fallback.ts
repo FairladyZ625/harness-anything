@@ -23,6 +23,7 @@ import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.t
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import { reclaimReviewWorktree } from "./task-worktree.ts";
 import {
   agentRuntimeModelMatches,
   agentRuntimeTargetForKind,
@@ -538,6 +539,13 @@ export function scheduleFallbackContinuation(args: {
             endedAt: input.now(),
             binding,
           });
+          if (header.role === "reviewer" && typeof header.cwd === "string") {
+            const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, header.cwd);
+            if (reviewCleanupFailure)
+              console.error(
+                `[review-worktree] ${header.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`,
+              );
+          }
         }
       }, runtimeBindingForDispatch(stream.header.binding!));
     },

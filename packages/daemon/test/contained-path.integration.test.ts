@@ -51,6 +51,22 @@ test("runtime cwd rejects symlink escapes", symlinkTests, () => {
   }
 });
 
+test("runtime cwd reports a missing directory separately from a containment escape", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cwd-missing-"));
+  try {
+    assert.throws(
+      () => resolveRuntimeCwd(root, { scope: "repo-relative", path: "missing" }),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd directory does not exist.",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("terminal cwd rejects symlink escapes before spawning", symlinkTests, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-terminal-cwd-")),
     root = path.join(parent, "repo"),

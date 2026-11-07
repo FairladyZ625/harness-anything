@@ -35,6 +35,7 @@ import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts"
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
 import { dispatchActivityIdleMinutes, dispatchActivityStatus, providerConnectionFailure } from "./dispatch-activity.ts";
 import { cursorStep } from "./paginated-read.ts";
+import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 
 type DispatchBatchRead = Extract<DaemonTaskDispatchesResult, { readonly taskIds: readonly string[] }>;
 
@@ -392,8 +393,21 @@ export function taskDispatchesOutcome(
  * process is terminal only once its outcome event has been projected (status+outcome unknown). */
 export function taskDispatchRowSettled(row: TaskDispatchRow, dispatchIds: readonly string[]): boolean {
   if (row.fallbackState === "scheduled") return false;
-  if (row.fallbackState === "dispatched" && (row.nextDispatchId === null || !dispatchIds.includes(row.nextDispatchId)))
-    return false;
+  if (
+    row.fallbackState === "dispatched" &&
+    (row.nextDispatchId === null || !dispatchIds.includes(row.nextDispatchId))
+  ) {
+    // A provider-failed predecessor without a projected successor is the historical fallback-launch
+    // failure shape. A real queued/running continuation contributes its own row to dispatchIds;
+    // other failed rows remain pending until their successor is projected.
+    if (
+      row.status !== "failed" ||
+      row.outcome !== "failed" ||
+      row.classification === null ||
+      !isProviderFailureClassification(row.classification)
+    )
+      return false;
+  }
   if (
     row.status === "succeeded" ||
     row.status === "failed" ||

@@ -1,9 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { submissionDigest } from "@harness-anything/kernel";
+import { readDispatchStream, reopenDispatchStream } from "../src/dispatch-stream.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
 import { executionId, fixture, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 
@@ -96,15 +97,24 @@ test(
   "settlement rejects an approved packet when every local command fails before recovery",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, { autoSubmit: false, closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      submitCommit: true,
+      guiDelivery: true,
+      create: { presetId: "standard-task" },
+    });
     try {
       await f.install();
       await f.submit();
       const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(dispatch?.type === "runtime_dispatch_requested");
       const { dispatchId, runtimeSessionId } = dispatch.payload,
+        snapshotCwd = readDispatchStream(f.root, dispatchId)?.header.cwd,
         report = f.reportPath(dispatchId),
         packet = report.replace(/\.md$/u, ".json");
+      assert.ok(snapshotCwd, "review dispatch must record its immutable snapshot cwd");
+      assert.equal(existsSync(snapshotCwd), true, "the snapshot exists while the reviewer is running");
       mkdirSync(path.dirname(report), { recursive: true });
       writeFileSync(report, "# Review\n\nApproved packet without successful local evidence.\n");
       writeFileSync(
@@ -134,6 +144,11 @@ test(
       assert.equal(terminal.payload.outcome, "failed");
       assert.equal(terminal.payload.attempt?.classification, "gate_red");
       assert.equal(
+        existsSync(snapshotCwd),
+        false,
+        `a non-provider failure terminal also reclaims the snapshot (cwd=${snapshotCwd}, root=${f.root})`,
+      );
+      assert.equal(
         f.events().filter((event) => event.type === "review_recorded").length,
         0,
         "an approved packet without successful local command evidence must never be persisted",
@@ -143,6 +158,45 @@ test(
     }
   },
 );
+
+test("consent settles a failed reviewer fallback predecessor when no successor row was projected", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    closeoutProfile: "standard",
+  });
+  try {
+    await f.install();
+    await f.submit();
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const { dispatchId, runtimeSessionId } = dispatch.payload,
+      reviewId = `review-${dispatchId}`,
+      stream = readDispatchStream(f.root, dispatchId);
+    assert.ok(stream, "review dispatch stream must exist");
+    assert.equal((await f.review(runtimeSessionId, reviewId)).outcome, "applied");
+    const unsettled = await f.consent(reviewId);
+    assert.equal(unsettled.code, "review_dispatch_unsettled", JSON.stringify(unsettled));
+
+    // This is the persisted shape left when the predecessor linked a continuation before it
+    // published a successor dispatch row, then the fallback launch failed.
+    reopenDispatchStream(f.root, stream.header).appendFallbackState(
+      {
+        state: "dispatched",
+        nextDispatchId: "dispatch_000000000000000000000000",
+        nextRuntimeSessionId: "runtime_000000000000000000000000",
+      },
+      new Date().toISOString(),
+    );
+    assert.equal(
+      await f.settleReview(dispatchId, runtimeSessionId, "Provider process disconnected.", null, 1),
+      "failed",
+    );
+    const consented = await f.consent(reviewId);
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+  } finally {
+    await f.close();
+  }
+});
 
 test(
   "settlement cannot take reviewer identity from an artifact's self-reported actor",

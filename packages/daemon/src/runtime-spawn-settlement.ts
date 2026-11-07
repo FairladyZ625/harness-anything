@@ -782,11 +782,6 @@ export async function publishExit(
     rejectSettlement(error);
     throw error;
   } finally {
-    if (!settlementFailed && active.role === "reviewer") {
-      const reviewCleanupFailure = await reclaimReviewWorktree(context.input.rootDir, active.cwd);
-      if (reviewCleanupFailure)
-        console.error(`[review-worktree] ${active.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
-    }
     context.exiting.delete(active.runtimeSessionId);
     if (context.processes.get(active.runtimeSessionId) !== active) active.releaseAuthorization?.();
     if (!settlementFailed) resolveSettlement();
@@ -801,6 +796,12 @@ async function publishTerminalOutcome(
   archiveAllowed = true,
 ): Promise<void> {
   const { payload, body } = terminal;
+  const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
+  if (active.role === "reviewer" && fallbackState !== "scheduled") {
+    const reviewCleanupFailure = await reclaimReviewWorktree(context.input.rootDir, active.cwd);
+    if (reviewCleanupFailure)
+      console.error(`[review-worktree] ${active.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+  }
   await context.publishRuntimeEvent(
     "runtime_session_exited",
     { runtimeSessionId: active.runtimeSessionId },
