@@ -17,6 +17,7 @@ import { ensureRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
+import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
   closeProjectionConnection,
@@ -569,6 +570,11 @@ ${REPOSITORY_READ_TABLES_SQL}
     );
 ${ARTIFACT_TIMELINE_TABLES_SQL}
   `);
+  // The ordinary projection mount inlines the shared table DDL above, so it must also install
+  // the derived census that createProjectionTables() installs for standalone readers. Without
+  // this call, fresh G38/integration projections can reach the summary reader before the table
+  // exists and fail with "no such table: workspace_task_census".
+  ensureWorkspaceTaskCensus(db);
   backfillRuntimeSessionExecutionNode(db);
   ensureRuntimeMemberIndex(db, onValidationProgress);
   backfillEventSummaryReadIndex(db, onValidationProgress);
