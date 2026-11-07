@@ -15,6 +15,20 @@ test("rejects newly added Keycloak symbols and realm contract fields in consumer
   );
 });
 
+test("rejects provider-specific role, client credentials, and admin REST paths", () => {
+  assert.deepEqual(
+    findProviderBoundaryViolations(
+      `+++ b/packages/daemon/src/auth.ts\n+const realmRole = "operator";\n+const clientId = "console";\n+const clientSecret = secret;\n+fetch("/admin/serverinfo");`,
+    ),
+    [
+      'packages/daemon/src/auth.ts: Keycloak-specific symbol, error, or REST path: const realmRole = "operator";',
+      'packages/daemon/src/auth.ts: Keycloak-specific symbol, error, or REST path: const clientId = "console";',
+      "packages/daemon/src/auth.ts: Keycloak-specific symbol, error, or REST path: const clientSecret = secret;",
+      'packages/daemon/src/auth.ts: Keycloak-specific symbol, error, or REST path: fetch("/admin/serverinfo");',
+    ],
+  );
+});
+
 test("permits provider internals, test fixtures, and neutral authorization contracts", () => {
   assert.deepEqual(
     findProviderBoundaryViolations(
