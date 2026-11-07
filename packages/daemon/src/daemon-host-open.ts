@@ -617,6 +617,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       await running.task;
       replicaSyncControllers.delete(repoId);
     }
+    const runtimeKeyPrefix = `[${JSON.stringify(repoId)},`;
+    for (const [key, runtime] of fleetEdgeRuntimes) {
+      if (!key.startsWith(runtimeKeyPrefix)) continue;
+      fleetEdgeRuntimes.delete(key);
+      runtime.close();
+    }
     try {
       migrateFleetEdgeWorkspace(oldRoot, newRoot, repoId, input.userRoot);
     } catch (error) {
