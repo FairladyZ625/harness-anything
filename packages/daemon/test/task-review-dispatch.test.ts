@@ -85,7 +85,7 @@ test("execution placement follows the last lease holder's dispatch source", () =
     }),
     cell = {
       projection: {
-        readLeaseIntervals: () => [implementationLease],
+        readLatestLeaseIntervalForExecution: () => implementationLease,
         readRuntimeDispatchesByTaskExecution: () => [
           dispatch("older", { kind: "node", nodeId: "node-old" }),
           dispatch("current", { kind: "node", nodeId: "node-current" }),
@@ -101,21 +101,21 @@ test("execution placement follows the last lease holder's dispatch source", () =
 test("execution placement uses the requested execution lease after a later execution starts", () => {
   const cell = {
     projection: {
-      readLeaseIntervals: () => [
-        {
-          executionId: "exe-submitted",
-          acquiredRevision: 10,
-          holder: {
-            source: { kind: "node", nodeId: "node-laptop" },
-            actor: { executor: { id: "runtime-session:submitted" } },
-          },
-        },
-        {
-          executionId: "exe-next-round",
-          acquiredRevision: 20,
-          holder: { source: "local", actor: { executor: { id: "owner" } } },
-        },
-      ],
+      readLatestLeaseIntervalForExecution: (_taskId: string, executionId: string) =>
+        executionId === "exe-submitted"
+          ? {
+              executionId: "exe-submitted",
+              acquiredRevision: 10,
+              holder: {
+                source: { kind: "node", nodeId: "node-laptop" },
+                actor: { executor: { id: "runtime-session:submitted" } },
+              },
+            }
+          : {
+              executionId: "exe-next-round",
+              acquiredRevision: 20,
+              holder: { source: "local", actor: { executor: { id: "owner" } } },
+            },
       readRuntimeDispatchesByTaskExecution: () => [
         {
           event: {
@@ -135,16 +135,14 @@ test("execution placement uses the requested execution lease after a later execu
 test("execution placement does not infer a physical node from non-portable sources", () => {
   const cell = {
     projection: {
-      readLeaseIntervals: () => [
-        {
-          executionId: "exe-placement",
-          acquiredRevision: 1,
-          holder: {
-            source: "remote_direct",
-            actor: { executor: { id: "runtime-session:current" } },
-          },
+      readLatestLeaseIntervalForExecution: () => ({
+        executionId: "exe-placement",
+        acquiredRevision: 1,
+        holder: {
+          source: "remote_direct",
+          actor: { executor: { id: "runtime-session:current" } },
         },
-      ],
+      }),
       readRuntimeDispatchesByTaskExecution: () => [
         { event: { source: "remote_direct", payload: { role: "worker", runtimeSessionId: "current" } } },
       ],
@@ -184,14 +182,12 @@ test("explicit review dispatch stays pending when its execution source cannot be
       input: { repoId: "repo-review-placement-unresolved" },
       projection: {
         read: () => ({ snapshot, packagePath: "tasks/review-placement-unresolved", watermark: 2, sourceRevision: 2 }),
-        readLeaseIntervals: () => [
-          {
-            taskId,
-            executionId,
-            acquiredRevision: 1,
-            holder: { source: "remote_direct", actor: { executor: null } },
-          },
-        ],
+        readLatestLeaseIntervalForExecution: () => ({
+          taskId,
+          executionId,
+          acquiredRevision: 1,
+          holder: { source: "remote_direct", actor: { executor: null } },
+        }),
         readRuntimeDispatchesByTaskExecution: () => [],
       },
       settings: { readRepository: () => ({ roles: { defaultReviewer: "default-reviewer" } }) },
@@ -220,13 +216,11 @@ test("execution placement uses a portable lease source without inventing a runti
   ] as const) {
     const cell = {
       projection: {
-        readLeaseIntervals: () => [
-          {
-            executionId: "exe-placement",
-            acquiredRevision: 1,
-            holder: { source, actor: { executor: { id: "implementer" } } },
-          },
-        ],
+        readLatestLeaseIntervalForExecution: () => ({
+          executionId: "exe-placement",
+          acquiredRevision: 1,
+          holder: { source, actor: { executor: { id: "implementer" } } },
+        }),
       },
     } as unknown as Parameters<typeof taskExecutionPlacement>[0];
     assert.deepEqual(taskExecutionPlacement(cell, "task-placement", "exe-placement"), expected);
@@ -236,16 +230,14 @@ test("execution placement uses a portable lease source without inventing a runti
 test("execution placement rejects a dispatch source that disagrees with the implementation lease", () => {
   const cell = {
     projection: {
-      readLeaseIntervals: () => [
-        {
-          executionId: "exe-placement",
-          acquiredRevision: 1,
-          holder: {
-            source: { kind: "node", nodeId: "node-laptop" },
-            actor: { executor: { id: "runtime-session:current" } },
-          },
+      readLatestLeaseIntervalForExecution: () => ({
+        executionId: "exe-placement",
+        acquiredRevision: 1,
+        holder: {
+          source: { kind: "node", nodeId: "node-laptop" },
+          actor: { executor: { id: "runtime-session:current" } },
         },
-      ],
+      }),
       readRuntimeDispatchesByTaskExecution: () => [
         {
           event: {
@@ -376,6 +368,14 @@ test("node rework candidate waits for the submitting worker to settle", () => {
             },
           },
         ],
+        readLatestLeaseIntervalForExecution: () => ({
+          executionId,
+          acquiredRevision: 2,
+          holder: {
+            source: { kind: "node", nodeId: "node-laptop" },
+            actor: { executor: { id: "runtime-session:worker-live" } },
+          },
+        }),
         readRuntimeDispatchesByTaskExecution: () => [{ event: dispatchEvent }],
         readRuntimeDispatchByDispatchKey: () => null,
         readRuntimeSession: () =>

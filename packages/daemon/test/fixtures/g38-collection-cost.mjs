@@ -367,7 +367,13 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
     ]),
     ids = Array.from({ length: size }, (_, index) => `task-review-${index}`),
     events = new Map(),
-    counts = { taskIdsRead: 0, taskProjectionsRead: 0, dispatchSteps: 0, publications: 0 },
+    counts = {
+      taskIdsRead: 0,
+      taskProjectionsRead: 0,
+      leaseIntervalsRead: 0,
+      dispatchSteps: 0,
+      publications: 0,
+    },
     taskIds = new Proxy(ids, {
       get(target, property, receiver) {
         if (typeof property === "string" && /^(0|[1-9]\d*)$/u.test(property)) counts.taskIdsRead += 1;
@@ -390,6 +396,24 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
         artifacts: [],
       },
     }),
+    leaseIntervalFor = (taskId) => {
+      const executionId = executionFor(taskId).executionId;
+      return {
+        taskId,
+        executionId,
+        holder: {
+          taskId,
+          executionId,
+          actor: { principal: { personId: "cost-worker" }, executor: { kind: "agent", id: "worker-cost" } },
+          source: "local",
+        },
+        previousHolder: null,
+        acquiredRevision: 1,
+        releasedRevision: null,
+        leaseExpiresAt: "2026-11-02T01:00:00.000Z",
+        reason: "initial_claim",
+      };
+    },
     cell = {
       rootDir,
       cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
@@ -421,6 +445,13 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
               reviews: [],
             },
           };
+        },
+        readLatestLeaseIntervalForExecution(taskId, executionId) {
+          // Placement reads one indexed task/execution interval. Keep this fixture's history
+          // independent of the batch size so G38 measures the supplied task-id collection.
+          counts.leaseIntervalsRead += 1;
+          const interval = leaseIntervalFor(taskId);
+          return interval.executionId === executionId ? interval : null;
         },
         readRuntimeDispatchByDispatchKey(key) {
           const event = events.get(key);
@@ -480,6 +511,7 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
   counts.dispatchSteps = result.dispatches.length;
   assertTaskReviewDispatchMeasurement(result, size, counts.publications);
   assert.ok(counts.taskProjectionsRead >= size);
+  assert.equal(counts.leaseIntervalsRead, size);
   return { size, counts };
 }
 

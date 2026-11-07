@@ -433,6 +433,7 @@ export function makeTaskProjectionReader(
       readDecisionIncomingRelations: knowledgeQueries.readDecisionIncomingRelations,
       readDecisionCoverage: knowledgeQueries.readDecisionCoverage,
       readLeaseIntervals: runtimeQueries.readLeaseIntervals,
+      readLatestLeaseIntervalForExecution: runtimeQueries.readLatestLeaseIntervalForExecution,
       readLatestLeaseInterval: runtimeQueries.readLatestLeaseInterval,
       currentLease: runtimeQueries.currentLease,
       currentLeaseForExecution: runtimeQueries.currentLeaseForExecution,

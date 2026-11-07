@@ -5,17 +5,13 @@ export type TaskExecutionPlacement =
   | { readonly kind: "local" }
   | { readonly kind: "unresolved"; readonly reason: string };
 
-/** Resolves physical placement from the last execution lease holder and its own dispatch source. */
+/** Resolves physical placement from the execution's newest lease holder and its own dispatch source. */
 export function taskExecutionPlacement(
   cell: RepoCellOperationalContext,
   taskId: string,
   executionId: string,
 ): TaskExecutionPlacement {
-  const interval = cell.projection
-    .readLeaseIntervals(taskId)
-    .reduce<
-      ReturnType<typeof cell.projection.readLatestLeaseInterval>
-    >((latest, candidate) => (candidate.executionId === executionId && (latest === null || candidate.acquiredRevision > latest.acquiredRevision) ? candidate : latest), null);
+  const interval = cell.projection.readLatestLeaseIntervalForExecution(taskId, executionId);
   if (!interval) return { kind: "unresolved", reason: "the implementation lease holder is unavailable" };
   const leasePlacement = placementFromSource(interval.holder.source);
   if (!leasePlacement)

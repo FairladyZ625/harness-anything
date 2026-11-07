@@ -50,6 +50,7 @@ export const PG_TASK_QUERY_METHODS = [
   "readSquadRun",
   "readSquadRuns",
   "readLeaseIntervals",
+  "readLatestLeaseIntervalForExecution",
   "readLatestLeaseInterval",
   "readDocument",
   "readDocumentMetadata",

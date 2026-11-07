@@ -34,6 +34,7 @@ export type PgValueQueries = AsyncQueries<
   | "readSquadRun"
   | "readSquadRuns"
   | "readLeaseIntervals"
+  | "readLatestLeaseIntervalForExecution"
   | "readLatestLeaseInterval"
   | "readDocumentMetadata"
   | "readDocument"
@@ -162,6 +163,18 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
           [scope.tenantId, scope.projectId, scope.policyEpoch, readers, taskId],
         );
         return result.rows.map(({ value }) => JSON.parse(value) as LeaseInterval);
+      }),
+    readLatestLeaseIntervalForExecution: (taskId, executionId) =>
+      read(async (client) => {
+        await assertPgReadIndexReady(client, scope, "lease-interval");
+        const result = await client.query<{ value: string }>(
+          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='lease-interval' AND owner_id=$5 AND execution_id=$6
+          AND (cardinality($4::text[])=0 OR readers && $4::text[])
+          ORDER BY order_revision DESC LIMIT 1`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, taskId, executionId],
+        );
+        return result.rows[0] ? (JSON.parse(result.rows[0].value) as LeaseInterval) : null;
       }),
     readLatestLeaseInterval: (taskId) =>
       read(async (client) => {

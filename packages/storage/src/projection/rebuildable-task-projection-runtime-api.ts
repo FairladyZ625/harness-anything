@@ -7,6 +7,7 @@ import {
   changeLease,
   effectiveLease,
   readIntervals,
+  readLatestIntervalForExecution,
   readLatestInterval,
   readRuntimeInstallation,
   readRuntimeInstallations,
@@ -35,6 +36,7 @@ export function runtimeLeaseApi(
   | "readSquadRun"
   | "readSquadRuns"
   | "readLeaseIntervals"
+  | "readLatestLeaseIntervalForExecution"
   | "readLatestLeaseInterval"
   | "currentLease"
   | "currentLeaseForExecution"
@@ -58,6 +60,8 @@ export function runtimeLeaseApi(
     readSquadRun: (squadRunId) => withDatabase(projectionPath, readHead, (db) => readSquadRun(db, squadRunId)),
     readSquadRuns: () => withDatabase(projectionPath, readHead, readSquadRuns),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, readHead, (db) => readIntervals(db, taskId)),
+    readLatestLeaseIntervalForExecution: (taskId, executionId) =>
+      withDatabase(projectionPath, readHead, (db) => readLatestIntervalForExecution(db, taskId, executionId)),
     readLatestLeaseInterval: (taskId) => withDatabase(projectionPath, readHead, (db) => readLatestInterval(db, taskId)),
     currentLease: (taskId, at) =>
       withDatabase(projectionPath, readHead, (db) => effectiveLease(db, taskId, at ?? now())),
