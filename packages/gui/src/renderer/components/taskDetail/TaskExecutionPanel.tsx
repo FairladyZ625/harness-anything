@@ -154,7 +154,12 @@ export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
     // steer 的失败走纸条自身的 error 字段(不进全局 feedback):纸条留在队列、显示真实错误、可撤回重试。
     setBusy(true);
     runtimeCommandClient
-      .steer(task.projectId, { runtimeSessionId: runningRow.runtimeSessionId, prompt: text })
+      .steer(task.projectId, {
+        runtimeSessionId: runningRow.runtimeSessionId,
+        prompt: text,
+        // 只投给面板看到的那一轮:续跑/重派后 daemon 拒绝并返回当前目标,而不是改投新会话。
+        expected: { taskId: task.taskId, executionId: runningRow.executionId, dispatchId: runningRow.dispatchId },
+      })
       .then(() => {
         setNotes((current) =>
           current.map((note) => (note.id === noteId ? { ...note, deliveredAt: Date.now(), error: null } : note)),

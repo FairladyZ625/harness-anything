@@ -476,7 +476,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "agentRuntime.steer",
     "repo.agentRuntime.steer",
     "runtime-steer",
-    shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }),
+    shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string", expected: "json?" }),
     "steerAgentRuntime",
     "/api/agent-runtime/sessions/:id/steer",
     "repo-write",

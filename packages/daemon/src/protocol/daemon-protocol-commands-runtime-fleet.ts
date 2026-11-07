@@ -217,6 +217,42 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--prompt", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt-file"] }),
       cliInput("--prompt-file", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt"] }),
+      // Compare-and-steer (#4372): each stated expectation must still hold when the daemon appends.
+      cliInput(
+        "--expect-task",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { description: "refuse unless the target is bound to this task", conflictsWith: ["--expect-taskless"] },
+      ),
+      cliInput(
+        "--expect-execution",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { description: "refuse unless the target runs this execution", conflictsWith: ["--expect-taskless"] },
+      ),
+      cliInput(
+        "--expect-taskless",
+        "boolean",
+        false,
+        { code: "invalid_field" },
+        { description: "refuse unless the target is a taskless conversation" },
+      ),
+      cliInput(
+        "--expect-dispatch",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { description: "refuse unless this dispatch is still the current leaf; never re-targeted" },
+      ),
+      cliInput(
+        "--expect-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { description: "refuse unless the leaf still carries this many steer requests", format: "<integer>" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({

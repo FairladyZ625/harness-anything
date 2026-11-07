@@ -34,7 +34,19 @@ export const runtimeCommandClient = {
   // point and continues it with the appended prompt; the receipt is the only success signal.
   steer: async (
     repoId: string,
-    input: { readonly runtimeSessionId?: string; readonly dispatchId?: string; readonly prompt: string },
+    input: {
+      readonly runtimeSessionId?: string;
+      readonly dispatchId?: string;
+      readonly prompt: string;
+      /** Compare-and-steer: the daemon refuses unless the target still matches what the panel saw. */
+      readonly expected?: {
+        readonly taskId?: string;
+        readonly executionId?: string;
+        readonly taskless?: true;
+        readonly dispatchId?: string;
+        readonly version?: number;
+      };
+    },
   ): Promise<unknown> =>
     action(
       await invoke(

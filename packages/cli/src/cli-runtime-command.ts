@@ -94,7 +94,9 @@ export async function runRuntimeFacadeCommand(
           summary:
             action.kind === "runtime-cancel"
               ? `runtime-cancel: ${String(result.detail ?? "cancelled")}`
-              : `runtime-steer: ${String(result.outcome ?? "applied")}`,
+              : typeof result.summary === "string"
+                ? result.summary
+                : `runtime-steer: ${String(result.outcome ?? "applied")}`,
         }
       : result;
   }

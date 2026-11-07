@@ -194,6 +194,8 @@ describe("TaskExecutionPanel", () => {
       expect(runtimeCommandClient.steer).toHaveBeenCalledWith("repo-a", {
         runtimeSessionId: "runtime-run",
         prompt: "先补上回归测试再继续",
+        // compare-and-steer:面板看到的任务/执行/轮次一起交给 daemon 核对,不匹配即拒绝而非改投。
+        expected: { taskId: "task-x", executionId: "execution-x", dispatchId: "dispatch-run" },
       }),
     );
     // 会话推进后纸条滑入对应轮次步骤卡(absorbed),不再留在队列。

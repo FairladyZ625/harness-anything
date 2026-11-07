@@ -139,6 +139,8 @@ function parseRuntimeControl(
       `Use one non-empty value for --prompt or --prompt-file. Run ${inputs.get(kind)?.helpCommand ?? `ha ${kind} --help`} for accepted inputs.`,
       json,
     );
+  const expected = steerExpectation(flags);
+  if (typeof expected === "string") return rejected("invalid_field", expected, json);
   return accepted(
     rootDir,
     repoId,
@@ -148,9 +150,27 @@ function parseRuntimeControl(
       ...(id.startsWith("dispatch_") ? { dispatchId: id } : { runtimeSessionId: id }),
       ...prompt,
       ...(promptFile ? { promptFile } : {}),
+      ...(expected ? { expected } : {}),
     },
     route.method,
   );
+}
+
+/** The daemon compares these against the target in the same section that appends the steer. */
+function steerExpectation(
+  flags: ReturnType<typeof readFlags> & { readonly ok: true },
+): Readonly<Record<string, string | number | true>> | null | string {
+  const version = flags.one.get("--expect-version");
+  if (version !== undefined && !/^\d+$/u.test(version))
+    return "--expect-version must be a non-negative integer steer version.";
+  const expected = {
+    ...(flags.one.get("--expect-task") ? { taskId: flags.one.get("--expect-task")! } : {}),
+    ...(flags.one.get("--expect-execution") ? { executionId: flags.one.get("--expect-execution")! } : {}),
+    ...(flags.booleans.has("--expect-taskless") ? { taskless: true as const } : {}),
+    ...(flags.one.get("--expect-dispatch") ? { dispatchId: flags.one.get("--expect-dispatch")! } : {}),
+    ...(version !== undefined ? { version: Number(version) } : {}),
+  };
+  return Object.keys(expected).length ? expected : null;
 }
 
 function runtimeTarget(kind: string): string {

@@ -11,6 +11,15 @@ import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-g
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import {
+  parseRuntimeSteerExpectation,
+  resolveRuntimeSteerHeader,
+  runtimeSteerMismatch,
+  runtimeSteerReceiptTarget,
+  runtimeSteerRefusal,
+  runtimeSteerTarget,
+  type RuntimeSteerLiveness,
+} from "./runtime-steer-target.ts";
 
 export async function cancelRuntime(
   context: RuntimeSpawnerContext,
@@ -252,38 +261,34 @@ export async function steerRuntime(
   payload: JsonObject,
   binding: RuntimeBinding,
 ): Promise<JsonObject> {
-  const unknownField = unknownFieldViolation(payload, ["runtimeSessionId", "dispatchId", "prompt"]);
+  const unknownField = unknownFieldViolation(payload, ["runtimeSessionId", "dispatchId", "prompt", "expected"]);
   if (unknownField)
     throw runtimeSpawnError("invalid_runtime_steer", `Runtime steer payload contains an ${unknownField}`);
   const runtimeSessionIdInput = payload.runtimeSessionId,
     dispatchIdInput = payload.dispatchId,
-    prompt = requiredRuntimeSpawnText(payload.prompt, "prompt");
+    prompt = requiredRuntimeSpawnText(payload.prompt, "prompt"),
+    expected = parseRuntimeSteerExpectation(payload.expected);
   if ((typeof runtimeSessionIdInput === "string") === (typeof dispatchIdInput === "string"))
     throw runtimeSpawnError("invalid_runtime_steer", "Specify exactly one runtime session id or dispatch id.");
-  const headers = readDispatchStreamHeaders(context.input.rootDir);
-  let header = headers.find((entry) =>
-    typeof dispatchIdInput === "string"
-      ? entry.dispatchId === dispatchIdInput
-      : entry.runtimeSessionId === runtimeSessionIdInput,
-  );
-  if (!header) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
-  if (typeof dispatchIdInput === "string" && header.taskId === null) {
-    // A taskless conversation addressed by its first dispatch steers the current leaf round:
-    // an earlier round's process has exited by the time a later round runs, and only the leaf
-    // can be live. Task-bound dispatches keep direct addressing.
-    const seen = new Set([header.dispatchId]);
-    let current = header;
-    for (;;) {
-      const child = headers.find((entry) => entry.resumedFromDispatchId === current.dispatchId);
-      if (!child || seen.has(child.dispatchId)) break;
-      seen.add(child.dispatchId);
-      current = child;
-    }
-    header = current;
-  }
-  const runtimeSessionId = header.runtimeSessionId;
-  if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
-    throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");
+  const selector =
+      typeof dispatchIdInput === "string"
+        ? { dispatchId: dispatchIdInput }
+        : { runtimeSessionId: runtimeSessionIdInput as string },
+    { rootDir, repoId } = context.input;
+  let header = resolveRuntimeSteerHeader(rootDir, selector);
+  const runtimeSessionId = header.runtimeSessionId,
+    liveness = (): RuntimeSteerLiveness => {
+      const owned = context.processes.get(header.runtimeSessionId);
+      if (!owned || !runtimePidIsAlive(owned.process.pid)) return "stopped";
+      return owned.providerSessionId ? "running" : "starting";
+    },
+    // With an expectation, every refusal carries the current target so the caller can re-read.
+    refuse = (code: string, message: string): Error =>
+      expected
+        ? runtimeSteerRefusal(code, message, runtimeSteerTarget(rootDir, repoId, header, liveness()))
+        : runtimeSpawnError(code, message);
+  if (!header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
+    throw refuse("execution_scope_mismatch", "This runtime is owned by another node.");
   assertRuntimeRecoveryReady(context, runtimeSessionId);
   let active = context.processes.get(runtimeSessionId);
   if (!active) {
@@ -291,23 +296,44 @@ export async function steerRuntime(
     assertRuntimeRecoveryReady(context, runtimeSessionId);
     active = context.processes.get(runtimeSessionId);
   }
-  if (!active) throw runtimeSpawnError("runtime_not_running", "Runtime is not running.");
+  // No await from here to the append: the comparison and the write are one section of the writer.
+  if (expected) {
+    const current = resolveRuntimeSteerHeader(rootDir, selector);
+    // A leaf that moved during adoption is a different target, whatever the caller stated.
+    if (current.dispatchId !== header.dispatchId) {
+      header = current;
+      throw refuse("runtime_steer_target_changed", "The steer target changed while it was being resolved.");
+    }
+  }
+  if (!active) throw refuse("runtime_not_running", "Runtime is not running.");
   if (!runtimeKindForId(active.kindId).steer)
-    throw runtimeSpawnError("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
+    throw refuse("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
   if (!active.providerSessionId)
-    throw runtimeSpawnError("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
+    throw refuse("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
   // A recorded request nobody follows is not an applied steer: the host is the only reader of
   // this stream, and a host that is gone cannot be steered back. Settlement retires the runtime,
   // but the window before it does would otherwise report success into an empty room.
   if (!runtimePidIsAlive(active.process.pid))
-    throw runtimeSpawnError("runtime_steer_unavailable", "Runtime control channel is unavailable.");
-  const opId = `runtime-steer-${createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
+    throw refuse("runtime_steer_unavailable", "Runtime control channel is unavailable.");
+  const target = runtimeSteerTarget(rootDir, repoId, header, "running"),
+    mismatch = expected ? runtimeSteerMismatch(expected, target) : null;
+  if (mismatch)
+    throw runtimeSteerRefusal(
+      "runtime_steer_target_changed",
+      `The steer target no longer matches expected.${mismatch.field}.`,
+      target,
+      mismatch.field,
+      mismatch.expected,
+    );
+  const version = target.version + 1,
+    opId = `runtime-steer-${createHash("sha256").update(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
   // The dispatch stream is the control channel: the worker host owning the provider follows
   // this file, so a host adopted after a daemon restart is steered like one this daemon spawned.
-  appendRuntimeWorkerRecord(context.input.rootDir, header.dispatchId, {
+  appendRuntimeWorkerRecord(rootDir, header.dispatchId, {
     kind: "steer_requested",
     opId,
     runtimeSessionId,
+    version,
     occurredAt: context.input.now(),
     actor: binding.actor,
     source: binding.source,
@@ -328,6 +354,9 @@ export async function steerRuntime(
     status: "settled_no_write",
     visibility: "center",
     evidence: `dispatch-stream:${header.dispatchId}:steer_requested:${opId}`,
+    // `applied` is the stream append, not the provider's turn: the worker host applies it later.
+    summary: `Steer request appended to ${header.dispatchId} at steer version ${String(version)}; the provider has not confirmed it yet.`,
+    steerTarget: runtimeSteerReceiptTarget({ ...target, version }),
   };
 }
 
