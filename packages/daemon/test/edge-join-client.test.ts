@@ -345,7 +345,7 @@ test("SSH-reverse sign-in exposes the center browser's Keycloak device page sepa
         beginLogin: async (authority) => ({
           ok: true,
           pending: true,
-          verificationUri: "https://127.0.0.1:9443/realms/harness/device",
+          verificationUri: "https://macbook-pro-company.local:8443/realms/harness/device?user_code=ABCD-EFGH",
           userCode: "ABCD-EFGH",
           interval: 5,
           expiresAt: Date.now() + 60_000,
@@ -357,8 +357,11 @@ test("SSH-reverse sign-in exposes the center browser's Keycloak device page sepa
       },
     );
   assert.equal(result.transport, "ssh-reverse");
-  assert.equal(result.verificationUri, "https://127.0.0.1:9443/realms/harness/device");
-  assert.equal(result.browserApprovalUri, "https://macbook-pro-company.local:8443/realms/harness/device");
+  assert.equal(
+    result.verificationUri,
+    "https://macbook-pro-company.local:8443/realms/harness/device?user_code=ABCD-EFGH",
+  );
+  assert.equal(result.browserApprovalUri, result.verificationUri);
 });
 
 test("missing origin offers an ls-remote checked address and clones the center head before registration", async (t) => {
