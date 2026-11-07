@@ -315,8 +315,8 @@ test("taskDispatchRowSettled honours fallback chains and the unknown-outcome gra
   assert.equal(taskDispatchRowSettled(dispatchedAway, ids), false);
   assert.equal(
     taskDispatchRowSettled(scheduledProviderFailure, ids),
-    true,
-    "a terminal provider failure with no projected successor is settled even when its outcome snapshot says scheduled",
+    false,
+    "a scheduled provider failure may still have a live fallback waiting for its backoff",
   );
   assert.equal(
     taskDispatchRowSettled(failedFallbackLaunch, ids),

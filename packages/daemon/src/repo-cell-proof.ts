@@ -453,6 +453,7 @@ export async function proofFor(
       pending = consented?.submission
         ? unsettledCutReviewDispatches({
             projection,
+            rootDir,
             taskId: command.taskId,
             executionId: command.executionId,
             submissionDigest: submissionDigest(consented.submission),

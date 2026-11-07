@@ -213,6 +213,54 @@ test("consent settles an exhausted provider-failed reviewer with no projected su
   }
 });
 
+test("consent waits while a provider-failed reviewer fallback is scheduled for a future retry", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    closeoutProfile: "standard",
+    providerRoundBackoffBaseSeconds: 300,
+  });
+  try {
+    await f.install();
+    await f.submit();
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    const { dispatchId, runtimeSessionId } = dispatch.payload,
+      reviewId = `review-${dispatchId}`;
+    assert.equal((await f.review(runtimeSessionId, reviewId)).outcome, "applied");
+
+    f.failProviderFaultPending();
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "failed");
+    const terminal = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    assert.ok(terminal?.type === "runtime_session_outcome_observed");
+    assert.equal(terminal.payload.attempt?.fallbackState, "scheduled");
+    const stream = readDispatchStream(f.root, dispatchId);
+    assert.ok(stream);
+    reopenDispatchStream(f.root, stream.header).appendFallbackState(
+      {
+        state: "scheduled",
+        delayMs: 300_000,
+        notBeforeAt: "2099-01-01T00:00:00.000Z",
+        nextProvider: { instance: "ds-harness-api" },
+      },
+      terminal.occurredAt,
+    );
+    const rows = (await f.cell().read("repo.task.dispatches", { taskId })).dispatches,
+      predecessor = rows.find((row) => row.dispatchId === dispatchId);
+    assert.equal(predecessor?.fallbackState, "scheduled");
+    assert.equal(predecessor?.nextDispatchId, null);
+
+    const consent = await f.consent(reviewId);
+    assert.equal(consent.code, "review_dispatch_unsettled", JSON.stringify(consent));
+  } finally {
+    await f.close();
+  }
+});
+
 test("consent still waits for a queued reviewer fallback successor in the same cut", async () => {
   const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
