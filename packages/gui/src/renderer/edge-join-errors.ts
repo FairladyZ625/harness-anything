@@ -58,6 +58,10 @@ const explanations: Readonly<Record<string, { readonly message: MessageKey; read
     message: "views.edgeJoin.error.oidc_device_rejected.message",
     next: "views.edgeJoin.error.oidc_device_rejected.next",
   },
+  edge_join_sync_failed: {
+    message: "views.edgeJoin.error.edge_join_sync_failed.message",
+    next: "views.edgeJoin.error.edge_join_sync_failed.next",
+  },
 };
 
 export interface EdgeJoinFailureView {

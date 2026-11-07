@@ -816,6 +816,8 @@
   "views.edgeJoin.error.oidc_device_transport_unavailable.next": "检查网络后重试;若持续失败请联系中心管理员。",
   "views.edgeJoin.error.oidc_device_rejected.message": "登录服务拒绝了本次设备登录。",
   "views.edgeJoin.error.oidc_device_rejected.next": "重新开始加入;若持续失败请联系中心管理员。",
+  "views.edgeJoin.error.edge_join_sync_failed.message": "边缘工作区未能完成首次同步。",
+  "views.edgeJoin.error.edge_join_sync_failed.next": "修复所列仓库问题后重新开始加入。",
   "views.edgeJoin.error.fallback.message": "加入没有完成,中心或登录服务返回了错误。",
   "views.repositories.localConnection": "本机",
   "views.repositories.centerConnection": "中心节点",

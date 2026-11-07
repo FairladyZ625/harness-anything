@@ -286,6 +286,24 @@ describe("edge join wizard", () => {
     expect(container.textContent).toContain("Confirm the link came from a trusted administrator");
   });
 
+  it("shows the retry path when initial repository sync fails", async () => {
+    installBridge({
+      begin: vi.fn(async () => ({
+        ok: false,
+        code: "edge_join_sync_failed",
+        rejectionExplanation: "Edge repository repo-a failed during initial sync.",
+      })),
+    });
+    const { container } = await mount();
+    await act(async () => setInputValue(byTestId(container, "edge-join-link-input") as HTMLInputElement, LINK));
+    await settle(1);
+    await click(container, "edge-join-start");
+    await settle();
+
+    expect(byTestId(container, "edge-join-error-message")?.textContent).toContain("could not complete its first sync");
+    expect(container.textContent).toContain("Fix the reported repository problem");
+  });
+
   it("explains an unreachable sign-in service on the first join attempt and keeps the daemon detail", async () => {
     installBridge({
       begin: vi.fn(async () => ({

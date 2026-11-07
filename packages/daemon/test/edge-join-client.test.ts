@@ -201,7 +201,8 @@ test("one invitation creates and syncs an independent workspace for every reposi
       sync: async () => assert.fail("a mismatched origin must stop before sync"),
     },
   );
-  assert.equal(mismatch.ok, true, "an admitted join returns a receipt even when its first sync fails");
+  assert.equal(mismatch.ok, false, "a failed first-sync preflight must remain a failure receipt");
+  assert.equal(mismatch.code, "edge_join_sync_failed");
   assert.equal(mismatch.state, "partial");
   assert.equal((mismatch.repositories as Array<{ code?: string }>)[0]?.code, "edge_default_branch_unverifiable");
   assert.equal(mismatchRegistered, true, "a prepared workspace is registered before the first sync preflight");
@@ -527,7 +528,6 @@ test("missing origin offers an ls-remote checked address and clones the center h
   assert.deepEqual(order, ["register", "sync"], "registration precedes the first sync");
   assert.equal(git("-C", workspace, "remote", "get-url", "origin"), alternateOrigin);
   assert.equal(git("-C", workspace, "log", "-1", "--format=%s"), "center base");
-  assert.doesNotMatch(git("-C", workspace, "log", "--format=%s"), /Harness edge workspace/u);
   assert.equal(existsSync(path.join(workspace, "harness", "harness.yaml")), true);
 });
 

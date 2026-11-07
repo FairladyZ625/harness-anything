@@ -544,6 +544,7 @@ export function createDaemonHostRepositoryApi(
           }),
           result = updateDaemonRepo({
             ...request,
+            ...(request.rootDir === undefined ? {} : { canonicalRoot: request.rootDir }),
             userRoot: context.input.userRoot,
             createConvenienceLinks: false,
           });

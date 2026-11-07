@@ -200,6 +200,7 @@ export interface DaemonHost {
       | {
           readonly kind: "update";
           readonly repoId: string;
+          readonly rootDir?: string;
           readonly displayName?: string;
           readonly mode?: DaemonRepoMode;
           readonly endpoint?: string;

@@ -295,7 +295,7 @@ export async function refreshRegistry(context: DaemonHostRegistryContext): Promi
     );
   for (const [repoId, cell] of [...context.cells]) {
     const repo = enabled.get(repoId);
-    if (!repo || cell.status().mode !== repo.mode) {
+    if (!repo || cell.status().mode !== repo.mode || cell.status().rootDir !== repo.canonicalRoot) {
       await context.closeCell(repoId);
       context.unavailable.delete(repoId);
       context.unavailableProbes.delete(repoId);

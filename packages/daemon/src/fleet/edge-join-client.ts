@@ -304,10 +304,15 @@ export async function joinFleetEdge(
     });
   }
   const failure = repositories.find((repository) => !repository.ok);
-  let failureReply: { readonly code?: string; readonly error?: unknown } = {};
-  if (failure !== undefined) failureReply = { code: "edge_join_sync_failed", error: failure.error };
+  // Missing origin is an intentional pause: the GUI must keep the receipt so the operator can
+  // supply a reachable address and retry. Any other failed repository is a real join failure and
+  // must propagate to CLI/GUI callers instead of being reported as a successful partial join.
+  const recoverable = repositories.every((repository) => repository.ok || repository.needsOrigin === true),
+    failureReply: { readonly code?: string; readonly error?: unknown } = recoverable
+      ? {}
+      : { code: "edge_join_sync_failed", error: failure?.error };
   return {
-    ok: true,
+    ok: recoverable,
     ...failureReply,
     command: "edge-join",
     joinId: admitted.joinId,
