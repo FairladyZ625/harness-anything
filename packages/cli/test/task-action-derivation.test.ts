@@ -38,6 +38,13 @@ test("daemon lifecycle command inputs and thin CLI parameters are projections of
                 required: field.required,
                 ...(field.enum ? { enum: field.enum } : {}),
                 ...(field.regex ? { regex: field.regex } : {}),
+                // The coordinate is CLI-boundary metadata: a file field names the shared reader,
+                // every other value field states that it is not a path, and booleans carry no value.
+                ...(field.cli.kind === "boolean"
+                  ? {}
+                  : field.field === "fromFile"
+                    ? { pathKind: "workspace-file", pathReader: "workspace-text" }
+                    : { pathKind: "non-path" }),
                 ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),
                 ...(field.cli.jsonSchema
                   ? {

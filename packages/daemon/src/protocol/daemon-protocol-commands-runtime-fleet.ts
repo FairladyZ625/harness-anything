@@ -18,6 +18,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   ].join(""),
   method: "repo.agentRuntime.spawn",
   positional: "agentId",
+  positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
   inputs: [
     cliInput(
       "--claim-next",
@@ -28,13 +29,19 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
         conflictsWith: ["--task", "--resume-dispatch", "--dry-run", "--cwd"],
       },
     ),
-    cliInput("--task", "single", false, { code: "missing_field" }),
-    cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }),
+    cliInput("--task", "single", false, { code: "missing_field" }, { pathKind: "non-path" }),
+    cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     cliInput("--enable-handoff", "boolean", false, { code: "invalid_field" }),
-    cliInput("--instance", "single", false, { code: "invalid_field" }),
+    cliInput("--instance", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     cliInput("--cwd", "single", false, { code: "invalid_field" }, { pathKind: "host-path" }),
-    cliInput("--to", "single", false, { code: "invalid_field" }),
-    cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt-file"] }),
+    cliInput("--to", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+    cliInput(
+      "--prompt",
+      "single",
+      false,
+      { code: "invalid_field" },
+      { pathKind: "non-path", conflictsWith: ["--mission", "--prompt-file"] },
+    ),
     cliInput(
       "--prompt-file",
       "single",
@@ -47,20 +54,24 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
         conflictsWith: ["--mission", "--prompt"],
       },
     ),
-    cliInput("--mission", "single", false, { code: "invalid_field" }, { conflictsWith: ["--prompt", "--prompt-file"] }),
-    cliInput("--model", "single", false, { code: "invalid_field" }),
+    cliInput(
+      "--mission",
+      "single",
+      false,
+      { code: "invalid_field" },
+      { pathKind: "non-path", conflictsWith: ["--prompt", "--prompt-file"] },
+    ),
+    cliInput("--model", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     cliInput(
       "--effort",
       "single",
       false,
       { code: "invalid_runtime_effort" },
-      {
-        enum: ["minimal", "low", "medium", "high", "xhigh", "max"],
-      },
+      { pathKind: "non-path", enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
     ),
     cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
     cliInput("--detach", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--no-stream"] }),
-    cliInput("--on-exit", "single", false, { code: "invalid_field" }, { requires: ["--detach"] }),
+    cliInput("--on-exit", "single", false, { code: "invalid_field" }, { pathKind: "non-path", requires: ["--detach"] }),
     cliInput("--no-stream", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--detach"] }),
     cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--on-exit"] }),
   ],
@@ -86,9 +97,27 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       inputs:
         operation === "claim"
           ? [
-              cliInput("--instance", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
-              cliInput("--prompt", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
-              cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "dispatchKey" }),
+              cliInput(
+                "--instance",
+                "single",
+                true,
+                { code: "missing_field" },
+                { pathKind: "non-path", wire: { omit: true } },
+              ),
+              cliInput(
+                "--prompt",
+                "single",
+                true,
+                { code: "missing_field" },
+                { pathKind: "non-path", wire: { omit: true } },
+              ),
+              cliInput(
+                "--idempotency-key",
+                "single",
+                false,
+                { code: "invalid_field" },
+                { pathKind: "non-path", field: "dispatchKey" },
+              ),
             ]
           : [],
     }),
@@ -100,12 +129,18 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     summary: "Dispatch an unbound runtime prompt; use ha agent run for task-bound work.",
     method: "repo.agentRuntime.spawn",
     inputs: [
-      cliInput("--agent", "single", false, { code: "invalid_field" }),
-      cliInput("--to", "single", false, { code: "invalid_field" }),
-      cliInput("--squad", "single", false, { code: "invalid_field" }),
-      cliInput("--model", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--to", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--squad", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--model",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--effort",
         "single",
@@ -113,7 +148,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
         },
-        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+        { pathKind: "non-path", enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
@@ -125,15 +160,21 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_permission",
         },
-        { enum: ["bypass", "workspace-write", "read-only"] },
+        { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
       ),
-      cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission"] }),
+      cliInput(
+        "--prompt",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", conflictsWith: ["--mission"] },
+      ),
       cliInput(
         "--mission",
         "single",
         false,
         { code: "invalid_field" },
-        { requires: ["--task"], conflictsWith: ["--prompt"] },
+        { pathKind: "non-path", requires: ["--task"], conflictsWith: ["--prompt"] },
       ),
       cliInput(
         "--cwd",
@@ -144,16 +185,34 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         },
         { pathKind: "host-path" },
       ),
-      cliInput("--task", "single", false, { code: "invalid_field" }),
-      cliInput("--resume", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--resume-dispatch", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--idempotency-key", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--resume",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--resume-dispatch",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--idempotency-key",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--detach", "boolean", false, {
         code: "invalid_field",
       }),
@@ -164,7 +223,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { requires: ["--detach"] },
+        { pathKind: "non-path", requires: ["--detach"] },
       ),
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",
@@ -193,9 +252,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     ].join(""),
     method: "repo.agentRuntime.overview",
     inputs: [
-      cliInput("--task", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--task",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--wait", "boolean", false, {
         code: "invalid_field",
       }),
@@ -205,7 +270,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",
       }),
-      cliInput("--limit", "single", false, { code: "invalid_field" }, { projection: "number" }),
+      cliInput("--limit", "single", false, { code: "invalid_field" }, { pathKind: "non-path", projection: "number" }),
     ],
   }),
   defineRepoReadCommand({
@@ -233,7 +298,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     summary: "Interrupt at a safe point and continue the same provider session with additional instructions.",
     method: "repo.agentRuntime.steer",
     inputs: [
-      cliInput("--prompt", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt-file"] }),
+      cliInput(
+        "--prompt",
+        "single",
+        false,
+        { code: "missing_field" },
+        { pathKind: "non-path", conflictsWith: ["--prompt-file"] },
+      ),
       cliInput(
         "--prompt-file",
         "single",
@@ -264,9 +335,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         "single",
         true,
         { code: "missing_field" },
-        {
-          format: "why this incident needs no further action",
-        },
+        { pathKind: "non-path", format: "why this incident needs no further action" },
       ),
     ],
   }),
@@ -297,17 +366,35 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^(?:0|[1-9][0-9]{0,4})$" },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]{0,4})$" },
       ),
-      cliInput("--key", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--cert", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--repo", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--key",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--cert",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--repo",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--quota-bytes",
         "single",
@@ -315,14 +402,26 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^[1-9][0-9]{0,15}$" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]{0,15}$" },
       ),
-      cliInput("--bind", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--external-url", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--bind",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--external-url",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--state-root",
         "single",
@@ -341,9 +440,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     summary: "Mirror the fleet center ledger into the registered workspace harness over verified TLS.",
     method: "daemon.fleet.edge.sync",
     inputs: [
-      cliInput("--host", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--host",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--port",
         "single",
@@ -351,11 +456,17 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^(?:0|[1-9][0-9]{0,4})$" },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]{0,4})$" },
       ),
-      cliInput("--ca", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--ca",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--node-id",
         "single",
@@ -363,11 +474,17 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[A-Za-z0-9_-]{1,96}$" },
+        { pathKind: "non-path", regex: "^[A-Za-z0-9_-]{1,96}$" },
       ),
-      cliInput("--credential", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--credential",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--view-root",
         "single",
@@ -384,11 +501,17 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^[1-9][0-9]{0,15}$" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]{0,15}$" },
       ),
-      cliInput("--servername", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--servername",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--timeout-ms",
         "single",
@@ -396,16 +519,22 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[1-9][0-9]{0,9}$" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]{0,9}$" },
       ),
     ],
   }),
 ] as const);
 
 const scheduleIdInput = () =>
-  cliInput("--idempotency-key", "single", false, {
-    code: "invalid_field",
-  });
+  cliInput(
+    "--idempotency-key",
+    "single",
+    false,
+    {
+      code: "invalid_field",
+    },
+    { pathKind: "non-path" },
+  );
 
 export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
   scheduleShowJsonAllowedFields = scheduleShowJsonFields,
@@ -450,6 +579,7 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
     false,
     { code: "invalid_field" },
     {
+      pathKind: "non-path",
       jsonFields: requiredFields,
       jsonAllowedFields: allowedFields,
       format: "<json|@->",
@@ -466,10 +596,17 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Create an interval or cron Schedule using one Agent's or Squad's declarations.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--name", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--name",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--mode",
         "single",
@@ -477,26 +614,62 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { enum: ["detect", "remediate"] },
+        { pathKind: "non-path", enum: ["detect", "remediate"] },
       ),
-      cliInput("--every", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--cron", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--timezone", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--agent", "single", false, {
-        code: "missing_field",
-      }),
-      cliInput("--squad", "single", false, {
-        code: "missing_field",
-      }),
-      cliInput("--mission", "single", false, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--every",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--cron",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--timezone",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--agent",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--squad",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--mission",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--mission-file",
         "single",
@@ -513,7 +686,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
         },
-        { enum: scheduleReasoningEfforts },
+        { pathKind: "non-path", enum: scheduleReasoningEfforts },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
@@ -544,7 +717,7 @@ export const scheduleProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { regex: "^(?:[1-9]|[1-9][0-9]|1[0-6][0-8])$" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|1[0-6][0-8])$" },
       ),
     ],
   }),
@@ -555,13 +728,14 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "List occurrence history, including active, settled, and missed runs.",
     method: "repo.task.read",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
       cliInput(
         "--limit",
         "single",
         false,
         { code: "invalid_field" },
-        { regex: "^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$" },
       ),
     ],
   }),
@@ -572,6 +746,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Show one canonical Schedule definition and projected run state.",
     method: "repo.task.read",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: schedulePacketInputs(scheduleShowJsonFields, scheduleShowJsonAllowedFields),
   }),
   defineCenterForwardWriteCommand({
@@ -581,6 +756,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Replace selected Schedule definition fields in one canonical declaration event.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
       ...schedulePacketInputs(scheduleUpdateJsonFields, scheduleUpdateJsonAllowedFields),
       cliInput(
@@ -590,26 +766,62 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["detect", "remediate"] },
+        { pathKind: "non-path", enum: ["detect", "remediate"] },
       ),
-      cliInput("--name", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--every", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--cron", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--timezone", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--agent", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--mission", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--name",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--every",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--cron",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--timezone",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--agent",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--mission",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--mission-file",
         "single",
@@ -626,7 +838,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
         },
-        { enum: scheduleReasoningEfforts },
+        { pathKind: "non-path", enum: scheduleReasoningEfforts },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
@@ -636,7 +848,7 @@ export const scheduleProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { field: "keepDays", regex: "^[1-9][0-9]{0,3}$" },
+        { pathKind: "non-path", field: "keepDays", regex: "^[1-9][0-9]{0,3}$" },
       ),
       cliInput(
         "--keep-monthly",
@@ -662,11 +874,18 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Delete a Schedule definition while retaining its canonical event history.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
       ...schedulePacketInputs(scheduleDeleteJsonFields, scheduleDeleteJsonAllowedFields),
-      cliInput("--reason", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--reason",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       scheduleIdInput(),
     ],
   }),
@@ -677,6 +896,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Arm a paused Schedule without changing its cadence.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [scheduleIdInput()],
   }),
   defineCenterForwardWriteCommand({
@@ -686,6 +906,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Pause a Schedule without deleting its definition or run history.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [scheduleIdInput()],
   }),
   defineRuntimeLocalWriteCommand({
@@ -695,6 +916,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Claim one manual occurrence and launch it only after the claim is canonical.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [scheduleIdInput()],
   }),
   defineRuntimeLocalWriteCommand({
@@ -706,6 +928,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Settle a claimed Schedule occurrence from a trusted runtime outcome.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineRuntimeLocalWriteCommand({
@@ -717,6 +940,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Claim a Schedule occurrence without launching it.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineRuntimeLocalWriteCommand({
@@ -728,6 +952,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Link a runtime dispatch to its fenced Schedule occurrence.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineRuntimeLocalWriteCommand({
@@ -739,6 +964,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Record aggregated missed Schedule occurrences.",
     method: "repo.task.run",
     positional: "scheduleId",
+    positionalInputs: [{ name: "<schedule-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
 ] as const);
