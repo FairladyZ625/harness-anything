@@ -4224,7 +4224,11 @@
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f1-统一语义坐标系被证伪至少四套-kindactionread-坐标并存",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f6-entity-化有真货也有文档metadata换皮"
       ],
-      "consumerScope": ["kernel canonical entity-kind registry", "registry-external EntityRef kind authorities"],
+      "consumerScope": [
+        "kernel canonical entity-kind registry as evaluated at runtime, factory-made contracts included",
+        "registry durable effects, protocol ingress descriptors and ActionDeclarations covering each other",
+        "registry-external EntityRef kind authorities"
+      ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries"],
