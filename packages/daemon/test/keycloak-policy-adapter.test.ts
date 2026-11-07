@@ -426,7 +426,7 @@ test("RepoCell online evaluation uses the authenticated token and asks for the r
   assert.equal(repository.outcome, "allowed");
   assert.equal(entity.outcome, "allowed");
   assert.deepEqual(permissions, ["repo-a#repo-bootstrap", "repo-b#task-start", "repo-b:task/task_123#task-start"]);
-  assert.deepEqual(missing.reasonCodes, ["authentication_required"]);
+  assert.deepEqual(missing.reasonCodes, ["authorization_context_missing"]);
 });
 
 test("Task pin scope cannot authorize a non-Task EntityRef", async () => {
