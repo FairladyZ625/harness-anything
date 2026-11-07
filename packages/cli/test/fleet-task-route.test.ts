@@ -7,12 +7,7 @@ import test from "node:test";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { parseFleetFrame, isFleetTaskAction } from "@harness-anything/daemon/internal/fleet/command-protocol";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import {
-  fleetDocRoute,
-  fleetRuntimeRoute,
-  fleetScheduleRoute,
-  fleetTaskRoute,
-} from "../src/daemon/fleet-command-route.ts";
+import { fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "../src/daemon/fleet-command-route.ts";
 
 test("fleet task routing requires both edge config and remote-edge registry mode", async (t) => {
   // Registry roots are compared after realpath; a symlinked tmpdir (macOS /var) must not fail the match.
@@ -84,7 +79,6 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     taskId: "task_one",
   });
   assert.equal(await fleetTaskRoute(undeclaredRead, env), null);
-  assert.equal(await fleetDocRoute(undeclaredRead, env), null);
   const routed = await fleetTaskRoute(command("repo.task.run", { kind: "task-start", taskId: "task_one" }), env);
   assert.deepEqual(routed?.action, { kind: "task-start", taskId: "task_one" });
   assert.deepEqual(
@@ -97,7 +91,6 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   );
   for (const kind of ["doc-status", "doc-dry-run"]) {
     const read = command("repo.task.read", { kind, paths: ["context/notes.md"] });
-    assert.equal(await fleetDocRoute(read, env), null);
     assert.deepEqual((await fleetTaskRoute(read, env))?.action, { kind, paths: ["context/notes.md"] });
   }
   const docRetire = command("repo.task.run", {
@@ -106,21 +99,14 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     reason: "The authored note is obsolete.",
   });
   assert.deepEqual((await fleetTaskRoute(docRetire, env))?.action, docRetire.action);
-  const docSubmitAll = await fleetDocRoute(command("repo.task.run", { kind: "doc-submit", paths: [], all: true }), env);
-  assert.equal(docSubmitAll?.payload.dryRun, false);
-  assert.deepEqual(docSubmitAll?.payload.paths, []);
-  assert.equal(docSubmitAll?.payload.all, true);
-  for (const [kind, action] of [
-    ["doc-conflict-resolve", "resolve"],
-    ["doc-conflict-discard-local", "discard-local"],
-    ["doc-conflict-overwrite-center", "overwrite-center"],
-  ] as const) {
+  const docSubmitAll = await fleetTaskRoute(
+    command("repo.task.run", { kind: "doc-submit", paths: [], all: true }),
+    env,
+  );
+  assert.deepEqual(docSubmitAll?.action, { kind: "doc-submit", paths: [], all: true });
+  for (const kind of ["doc-conflict-resolve", "doc-conflict-discard-local", "doc-conflict-overwrite-center"]) {
     const conflict = command("repo.task.run", { kind, conflictId: "cflt-one" });
-    assert.equal(await fleetTaskRoute(conflict, env), null);
-    const routedConflict = await fleetDocRoute(conflict, env);
-    assert.equal(routedConflict?.method, "daemon.fleet.conflict.exit");
-    assert.equal(routedConflict?.payload.action, action);
-    assert.equal(routedConflict?.payload.conflictId, "cflt-one");
+    assert.deepEqual((await fleetTaskRoute(conflict, env))?.action, conflict.action, kind);
   }
   const child = path.join(root, "worktrees", "nested");
   mkdirSync(child, { recursive: true });
@@ -354,8 +340,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     const routed =
       (await fleetScheduleRoute(entry, env)) ??
       (await fleetRuntimeRoute(entry, env)) ??
-      (await fleetTaskRoute(entry, env)) ??
-      (await fleetDocRoute(entry, env));
+      (await fleetTaskRoute(entry, env));
     if (
       (descriptor.admission["remote-edge"] === "via-center-forward" ||
         descriptor.admission["remote-edge"] === "edge-replica") &&

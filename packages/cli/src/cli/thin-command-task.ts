@@ -37,6 +37,23 @@ export function parseTask(
   if (id === "task-escalation-resolve") return parseTaskEscalate(args, rootDir, repoId, json, inputs, true);
   const taskId = args[2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
+  if (id === "task-witness-run") {
+    const flags = readFlags(id, args.slice(3), inputs);
+    return flags.ok
+      ? accepted(
+          rootDir,
+          repoId,
+          json,
+          {
+            kind: id,
+            taskId,
+            executionId: flags.one.get("--execution-id"),
+            gateId: flags.one.get("--gate"),
+          },
+          "repo.task.witness.run",
+        )
+      : rejected(flags.code, flags.nextAction, json);
+  }
   if (id === "task-push") return parseTaskPush(args, rootDir, repoId, json, inputs);
   if (
     id === "task-assign" ||

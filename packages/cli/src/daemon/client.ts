@@ -25,7 +25,12 @@ import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/
 import { materializeArtifactSource } from "../cli-artifact-source.ts";
 import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
-import { fleetDocRoute, fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
+import {
+  fleetRuntimeRoute,
+  fleetScheduleRoute,
+  fleetTaskRoute,
+  materializeScheduleMission,
+} from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
@@ -336,16 +341,6 @@ export async function runCommandThroughDaemon(
       autostart,
       request: requestLocalDaemonJsonRpcForTarget,
     });
-  const fleetDoc = await fleetDocRoute(command, env);
-  if (fleetDoc)
-    return requestFleetRoute({
-      command,
-      env,
-      method: fleetDoc.method,
-      payload: fleetDoc.payload as JsonObject,
-      autostart,
-      request: requestLocalDaemonJsonRpcForTarget,
-    });
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
@@ -520,22 +515,6 @@ function materializeTaskPrBody(command: ThinCommand): ThinCommand {
   if (command.action.kind !== "task-push" || typeof command.action.bodyFile !== "string") return command;
   const { bodyFile, ...action } = command.action;
   return { ...command, action: { ...action, body: readFileSync(path.resolve(command.rootDir, bodyFile), "utf8") } };
-}
-
-function materializeScheduleMission(command: ThinCommand): ThinCommand {
-  if (
-    !["schedule-create", "schedule-update"].includes(command.action.kind) ||
-    typeof command.action.missionFile !== "string"
-  )
-    return command;
-  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
-    relative = path.relative(command.rootDir, missionPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
-      code: "invalid_field",
-    });
-  const { missionFile: _missionFile, ...action } = command.action;
-  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
 }
 
 async function settleRepoWarming(

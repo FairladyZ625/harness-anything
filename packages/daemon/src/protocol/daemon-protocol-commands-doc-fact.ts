@@ -77,9 +77,15 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--task", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "paths" },
+      ),
       cliInput(
         "--all",
         "boolean",
@@ -148,9 +154,15 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Retire one or more canonical documents with one audited reason.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--path", "repeated", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        true,
+        {
+          code: "missing_field",
+        },
+        { field: "paths" },
+      ),
       cliInput("--reason", "single", true, {
         code: "missing_field",
       }),

@@ -987,6 +987,7 @@
         "tools/test-tier-manifest.mjs",
         "tools/run-node-tests.mjs",
         "package.json:scripts.test:contract",
+        "packages/daemon/test/via-center-forward-command.contract.test.ts",
         "packages/gui/test/ipc-handler-registration.test.ts",
         "packages/gui/src/api/api-contract-registry.ts",
         "packages/gui/src/preload/allowlist.ts",
@@ -994,6 +995,7 @@
       ],
       "consumerScope": [
         "node:test suites classified as contract",
+        "every command registry entry admitted as remote-edge via-center-forward, exercised through the edge CLI route and center Fleet parser",
         "GUI bridge static lock: API registry shipped/deferred methods, preload allowlist, and registered IPC channels stay aligned"
       ],
       "githubContext": {
