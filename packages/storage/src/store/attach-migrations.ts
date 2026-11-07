@@ -424,10 +424,13 @@ function historicalDispatchGroups(store: CanonicalEventStore, repoId: string): r
         dispatchId: payload.dispatchId,
         runtimeSessionId: payload.runtimeSessionId,
         instanceId: payload.instanceId,
-        phase: current && !terminal ? (value.started ? "running" : "starting") : current ? "settling" : "closed",
-        process: current ? process : value.exited ? "exited" : "lost",
-        stopProof: current ? "unproven" : "proven_stopped",
-        capacity: current ? "held" : "released",
+        // An outcome summarizes the attempt but does not prove that its process group stopped.
+        // Only the explicit runtime_session_exited observation is sufficient to release the
+        // reservation during migration; otherwise keep the attempt settling and its lease held.
+        phase: current && !terminal ? (value.started ? "running" : "starting") : value.exited ? "closed" : "settling",
+        process,
+        stopProof: value.exited ? "proven_stopped" : "unproven",
+        capacity: value.exited ? "released" : "held",
         reservationId: payload.dispatchId,
         outcome,
         taskLease:
@@ -448,9 +451,13 @@ function historicalDispatchGroups(store: CanonicalEventStore, repoId: string): r
       fallbackScheduled = currentOutcome?.attempt?.fallbackState === "scheduled",
       awaitingRuling = currentOutcome?.attempt?.classification === "awaiting_ruling",
       currentTerminal = current.outcome !== null,
-      // A terminal current attempt with no successor/fallback/ruling is already closed and needs
-      // no lifecycle import. All other groups are unfinished from the new aggregate's view.
-      unfinished = !currentTerminal || fallbackScheduled || awaitingRuling;
+      // An outcome alone is not a stop proof. Import terminal groups whose historical attempts
+      // still lack an exit observation so their reservations and leases cannot be reused.
+      unfinished =
+        !currentTerminal ||
+        fallbackScheduled ||
+        awaitingRuling ||
+        attempts.some((attempt) => attempt.stopProof === "unproven");
     if (!unfinished) continue;
     const currentAttempt = attempts.at(-1)!;
     result.push({
