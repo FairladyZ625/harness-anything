@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,6 +25,27 @@ export function writeRepoFile(rootDir, filePath, body) {
   const absolutePath = path.join(rootDir, filePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, body);
+}
+
+/**
+ * Replace the one occurrence of `from` in `text`, matching across LF and CRLF checkouts.
+ *
+ * A `core.autocrlf=true` checkout hands the test CRLF sources while the fragments written in the
+ * test file carry LF (#4420). Both sides are searched with `\r?\n`, and the replacement adopts the
+ * file's own line ending so a CRLF copy stays CRLF and line numbers do not shift. The exactly-once
+ * requirement is unchanged: zero or several matches still fail.
+ */
+export function replaceSourceOnce(text, from, to, file = "source") {
+  const pattern = new RegExp(
+    from
+      .split(/\r?\n/u)
+      .map((line) => line.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+      .join("\r?\\n"),
+    "gu",
+  );
+  assert.equal(text.match(pattern)?.length ?? 0, 1, `${file}: the mutated text must occur exactly once`);
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  return text.replace(pattern, () => to.split(/\r?\n/u).join(eol));
 }
 
 export function makeRepo(files) {
