@@ -943,6 +943,9 @@ const createResult = Object.freeze({
     wire(field("taskId", "string", true), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
     field("taskStatus", "string", true, ["planned"]),
     field("packagePath", "string", true),
+    // The workspace spelling the CLI prints beside the canonical `packagePath`; GUI receipts
+    // validate the field, so it is part of the result schema even though it is optional.
+    field("workspacePackagePath", "string", false),
     field("generatedPaths", "string-array", true),
     field("presetDigest", "string", true),
     field("scaffoldDigest", "string", true),

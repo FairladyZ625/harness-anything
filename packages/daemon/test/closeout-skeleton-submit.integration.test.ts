@@ -282,7 +282,7 @@ test(
       t.diagnostic(`Real task-show receipt: ${JSON.stringify(shown)}`);
       const published = await execute(
         process.execPath,
-        [cli, "--root", rootDir, "doc", "show", "--path", `${packagePath}/closeout.md`, "--raw"],
+        [cli, "--root", rootDir, "doc", "show", "--path", `harness/${packagePath}/closeout.md`, "--raw"],
         { cwd: rootDir, env: publisherEnv },
       );
       assert.equal(published.stdout, incident, "the accepted closeout is the exact incident body");
