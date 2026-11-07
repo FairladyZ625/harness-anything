@@ -23,10 +23,18 @@ test("a doc status row path pastes back into doc show --path from the same works
     body = "# Pasted\n\nround trip\n";
   try {
     write(rootDir, logical, body);
-    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+    // Both calls carry the marker the CLI puts on its actions: this test exercises the CLI
+    // coordinate, not the authored key a daemon-internal caller still uses.
+    const submitted = await cell.run(
+      { kind: "doc-submit", paths: [`harness/${logical}`], pathCoordinate: "workspace" },
+      binding,
+    );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
-    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as {
+    const status = (await cell.run(
+      { kind: "doc-status", paths: [`harness/${logical}`], pathCoordinate: "workspace" },
+      binding,
+    )) as {
       readonly detail?: { readonly paths: readonly { readonly path: string }[] };
     };
     const printed = status.detail?.paths[0]?.path;

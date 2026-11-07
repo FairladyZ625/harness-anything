@@ -119,12 +119,8 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
         binding,
       )) as Record<string, unknown>;
       assert.equal(added.outcome, "applied", JSON.stringify(added));
-      const logical = `${packagePath}/artifacts/${relative}`;
-      assert.equal(
-        String(added.destination),
-        `harness/${logical}`,
-        `${destination}: receipt prints the workspace path`,
-      );
+      const logical = String(added.destination);
+      assert.equal(logical, `${packagePath}/artifacts/${relative}`);
       const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(added.opId));
       assert.equal(event?.schema, "doc-event/v1", `${destination}: no doc event`);
       if (event?.schema !== "doc-event/v1") continue;
@@ -142,7 +138,7 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       assert.equal(shown.outcome, "applied", JSON.stringify(shown));
       assert.deepEqual(Buffer.from(shown.evidence, "utf8"), bytes, `${destination}: projected bytes`);
       const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
-      const row = rows(status.evidence).find((candidate) => candidate.path === `harness/${logical}`);
+      const row = rows(status.evidence).find((candidate) => candidate.path === logical);
       assert.deepEqual([row?.state, row?.mediaType], ["clean", mediaType], `${destination}: doc status`);
     }
     const reader = makeTaskEventReader({ repoId, rootDir }),
@@ -330,8 +326,8 @@ test("authored architecture C4 files travel from dry-run through opaque submit",
     assert.deepEqual(
       rows(String(dry.evidence)).map((row) => [row.path, row.state, row.mediaType]),
       [
-        [`harness/${manifest}`, "eligible", "application/json"],
-        [`harness/${model}`, "eligible", "text/x-harness-opaque"],
+        [manifest, "eligible", "application/json"],
+        [model, "eligible", "text/x-harness-opaque"],
       ],
     );
     const submitted = (await cell.run({ kind: "doc-submit", paths: [model, manifest] }, binding)) as Record<
@@ -444,7 +440,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     const dry = await cell.run({ kind: "doc-dry-run", paths: [logical] }, binding);
     assert.deepEqual(
       rows(String(dry.evidence)).map((row) => [row.path, row.state]),
-      [[`harness/${logical}`, "eligible"]],
+      [[logical, "eligible"]],
     );
     const first = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
     assert.equal(first.outcome, "applied", JSON.stringify(first));
@@ -507,7 +503,7 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
       rmSync(path.join(rootDir, "harness", logical));
       const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
         row = rows(status.evidence)[0];
-      assert.equal(row?.path, `harness/${logical}`);
+      assert.equal(row?.path, logical);
       assert.equal(row?.state, "deletion");
       assert.match(String(row?.reason), /canonical document is missing/u);
     }
@@ -596,9 +592,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
     )) as Record<string, unknown>;
     assert.equal(added.outcome, "applied", JSON.stringify(added));
     await waitForFixturePublication(cell, String(added.opId), binding);
-    const packagePath = String(added.destination)
-        .split("/artifacts/")[0]!
-        .replace(/^harness\//u, ""),
+    const packagePath = String(added.destination).split("/artifacts/")[0]!,
       manual = `${packagePath}/artifacts/reports/manual.html`;
     write(rootDir, manual, "<!doctype html>\n<title>Manual report</title>\n");
     await reachGreenInReview(cell, rootDir, repoId, taskId, packagePath);
@@ -773,12 +767,8 @@ test("raw task artifacts publish their original bytes, filename, and owner throu
         binding,
       )) as Record<string, unknown>;
       assert.equal(added.outcome, "applied", `${destination}: ${JSON.stringify(added)}`);
-      const logical = `${packagePath}/artifacts/${destination}`;
-      assert.equal(
-        String(added.destination),
-        `harness/${logical}`,
-        "the artifact keeps its real filename in the caller coordinate",
-      );
+      const logical = String(added.destination);
+      assert.equal(logical, `${packagePath}/artifacts/${destination}`, "the artifact keeps its real filename");
       const event = reader.readEvent(String(added.opId));
       assert.equal(event?.schema, "doc-event/v1", `${destination}: no doc event`);
       if (event?.schema !== "doc-event/v1") continue;

@@ -71,7 +71,7 @@ test("doc status stays clean while the git outbox publication is still pending",
       statusRows = JSON.parse((status.evidence ?? "").slice("doc-scan:".length)) as {
         rows: readonly { readonly path: string; readonly state: string; readonly reason?: string }[];
       };
-    assert.equal(statusRows.rows.find((row) => row.path === "harness/context/window.md")?.state, "clean");
+    assert.equal(statusRows.rows.find((row) => row.path === "context/window.md")?.state, "clean");
     assert.doesNotMatch(status.summary ?? "", /BLOCKED/u);
     await waitForFixturePublication(cell, submitted.opId, binding);
     assert.equal(git(rootDir, "show", "HEAD:harness/context/window.md"), "# Settled before the outbox");
@@ -123,9 +123,9 @@ test("Explicit submission keeps forbidden and unresolved candidates out of an el
       statusRows = JSON.parse((status.evidence ?? "").slice("doc-scan:".length)) as {
         rows: readonly { readonly path: string; readonly state: string }[];
       };
-    assert.equal(statusRows.rows.find((row) => row.path === "harness/context/eligible.md")?.state, "clean");
-    assert.equal(statusRows.rows.find((row) => row.path === `harness/${unresolved}`)?.state, "blocked");
-    assert.equal(statusRows.rows.find((row) => row.path === "harness/harness.yaml")?.state, "blocked");
+    assert.equal(statusRows.rows.find((row) => row.path === "context/eligible.md")?.state, "clean");
+    assert.equal(statusRows.rows.find((row) => row.path === unresolved)?.state, "blocked");
+    assert.equal(statusRows.rows.find((row) => row.path === "harness.yaml")?.state, "blocked");
     assert.match(status.summary ?? "", /doc-status: BLOCKED \(2\)/u);
     assert.equal(
       readFileSync(path.join(rootDir, "harness", unresolved), "utf8"),

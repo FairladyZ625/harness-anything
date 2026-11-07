@@ -214,8 +214,10 @@ export async function runCliPackageSmoke(root = process.cwd()) {
       ),
       "receipt show",
     );
+    // `task create` prints repository-relative paths, so the package path already carries the
+    // ledger root. Joining it under `harness/` again would name a package that never exists.
     const planPath = `${String(created.packagePath)}/task_plan.md`;
-    writeFileSync(path.join(projectDir, "harness", planPath), realizedTaskPlan("Smoke Task"));
+    writeFileSync(path.join(projectDir, planPath), realizedTaskPlan("Smoke Task"));
     expectOk(
       runJson(
         binPath,
@@ -238,7 +240,7 @@ export async function runCliPackageSmoke(root = process.cwd()) {
       ),
       "task start",
     );
-    const taskDir = path.join(projectDir, "harness", String(created.packagePath));
+    const taskDir = path.join(projectDir, String(created.packagePath));
     mkdirSync(path.join(taskDir, "artifacts"), { recursive: true });
     writeFileSync(
       path.join(taskDir, "artifacts", "smoke.md"),

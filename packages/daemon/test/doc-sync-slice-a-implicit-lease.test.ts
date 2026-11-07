@@ -93,7 +93,7 @@ test("a selection submit applies prose after its heading is rewritten", async ()
       (
         unconfirmed.detail as { unresolvedTouches?: readonly { path: string; requiredRoute: string }[] }
       ).unresolvedTouches?.map(({ path, requiredRoute }) => [path, requiredRoute]),
-      [["harness/events/segments/manifest.json", "canonical-event"]],
+      [["events/segments/manifest.json", "canonical-event"]],
     );
   } finally {
     await cell.close();
@@ -127,11 +127,11 @@ test("a selection submit applies eligible prose and reports an unrelated deletio
     assert.equal(settled.worktree.state, "verified");
     assert.match(
       String(submitted.summary),
-      /doc-submit: applied[\s\S]*harness\/context\/eligible\.md[\s\S]*blocked \(not submitted[\s\S]*harness\/context\/deleted\.md\tdeletion\ttask=-\trequiredRoute=deletion_forbidden\tcanonical document is missing from the worktree/u,
+      /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*blocked \(not submitted[\s\S]*context\/deleted\.md\tdeletion\ttask=-\trequiredRoute=deletion_forbidden\tcanonical document is missing from the worktree/u,
     );
     // An applied submit that skipped the deletion names the same retire exit as a refused one.
     assert.ok(
-      String(submitted.summary).includes("ha doc retire --path harness/context/deleted.md --reason"),
+      String(submitted.summary).includes("ha doc retire --path context/deleted.md --reason"),
       JSON.stringify(submitted.summary),
     );
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
@@ -323,7 +323,8 @@ test("path and confirmed full submits ride the repository prose channel when ano
     const status = await cell.run(
       {
         kind: "doc-status",
-        paths: [`${packagePath}/artifacts/reports/leased.md`],
+        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        pathCoordinate: "workspace",
       },
       person,
     );
@@ -335,7 +336,8 @@ test("path and confirmed full submits ride the repository prose channel when ano
     const prefixedStatus = await cell.run(
       {
         kind: "doc-status",
-        paths: [`${packagePath}/artifacts/reports/leased.md`],
+        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        pathCoordinate: "workspace",
       },
       person,
     );
@@ -343,7 +345,8 @@ test("path and confirmed full submits ride the repository prose channel when ano
     const scoped = await cell.run(
       {
         kind: "doc-submit",
-        paths: [`${packagePath}/artifacts/reports/leased.md`],
+        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        pathCoordinate: "workspace",
       },
       person,
     );
@@ -378,12 +381,12 @@ test("path and confirmed full submits ride the repository prose channel when ano
     assert.equal(fullSubmit.outcome, "applied", JSON.stringify(fullSubmit));
     assert.match(
       String(fullSubmit.summary),
-      new RegExp(`applied:\\nharness/${packagePath}/artifacts/reports/second\\.md`, "u"),
+      new RegExp(`applied:\\n${packagePath}/artifacts/reports/second\\.md`, "u"),
     );
     assert.match(
       String(fullSubmit.summary),
       new RegExp(
-        `blocked \\(not submitted[\\s\\S]*harness/${packagePath}/progress\\.md\\tblocked\\ttask=${taskId}\\trequiredRoute=task-progress-append`,
+        `blocked \\(not submitted[\\s\\S]*${packagePath}/progress\\.md\\tblocked\\ttask=${taskId}\\trequiredRoute=task-progress-append`,
         "u",
       ),
     );
@@ -531,7 +534,7 @@ test("a submit whose only candidate is a deleted canonical document names the re
     };
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "deletion_forbidden");
-    const retireCommand = `ha doc retire --path harness/${logical} --reason`;
+    const retireCommand = `ha doc retire --path ${logical} --reason`;
     assert.ok((rejected.summary ?? "").includes(retireCommand), JSON.stringify(rejected.summary));
     // rejectionExplanation is the field the CLI hint chain promotes; it must carry the same exit.
     assert.ok(
@@ -577,7 +580,12 @@ test("doc retire accepts the workspace spelling in the nested ledger layout", as
     await waitForWorktree(cell, submitted, binding);
     rmSync(path.join(rootDir, "harness", logical));
     const retired = (await cell.run(
-      { kind: "doc-retire", paths: [logical], reason: "superseded duplicate" },
+      {
+        kind: "doc-retire",
+        paths: [`harness/${logical}`],
+        pathCoordinate: "workspace",
+        reason: "superseded duplicate",
+      },
       binding,
     )) as { readonly outcome?: string; readonly evidence?: string };
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));

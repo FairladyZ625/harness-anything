@@ -8,7 +8,6 @@ import {
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
-  documentWorkspacePath,
   isDocEvent,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
@@ -80,6 +79,11 @@ export type Input = {
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly authoredCandidateInventory?: AuthoredCandidateInventoryV1;
   readonly runtimeArchive?: RuntimeArchiveWriteScope;
+  /**
+   * The caller typed workspace-relative paths at the CLI boundary. Only then may a receipt print
+   * the workspace spelling; daemon-internal callers keep the ledger's canonical authored keys.
+   */
+  readonly workspaceCoordinate?: boolean;
 };
 
 export type DocSettlementReceipt = WriteReceipt & {
@@ -200,11 +204,16 @@ function withWorkspaceDocumentPaths(input: Input): Input {
   if (Array.isArray(authoredAction.paths) && authoredAction.paths.every((value) => typeof value === "string"))
     return {
       ...input,
+      workspaceCoordinate: true,
       action: { ...authoredAction, paths: (authoredAction.paths as readonly string[]).map(toAuthored) },
     };
   if (typeof authoredAction.path === "string")
-    return { ...input, action: { ...authoredAction, path: toAuthored(authoredAction.path) } };
-  return { ...input, action: authoredAction };
+    return {
+      ...input,
+      workspaceCoordinate: true,
+      action: { ...authoredAction, path: toAuthored(authoredAction.path) },
+    };
+  return { ...input, workspaceCoordinate: true, action: authoredAction };
 }
 
 export function runDocAction(rawInput: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
@@ -507,7 +516,7 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     // The source branch below already prints the workspace spelling; the inline content branch must
     // print the same coordinate, or the same command returns two different path shapes.
     return (receipt.outcome === "applied" || receipt.outcome === "pending") && typeof receipt.destination === "string"
-      ? { ...receipt, destination: documentWorkspacePath(input.rootDir, receipt.destination) }
+      ? { ...receipt, destination: workspacePathOf(input)(receipt.destination) }
       : receipt;
   }
   const source = artifactSource(input, requiredDocSyncText(sourceValue, "source")),
@@ -524,7 +533,7 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     ? {
         ...receipt,
         source: source.relative,
-        destination: documentWorkspacePath(input.rootDir, target.destination),
+        destination: workspacePathOf(input)(target.destination),
       }
     : receipt;
 }
@@ -622,7 +631,7 @@ function publishTaskArtifactBytes(
   if (projectedEdit || (tracked && gitModified(ledgerRootDir, gitTarget)))
     throw docSyncError(
       "artifact_tracked_edit",
-      `destination is a tracked edit; use ha doc sync --submit --path ${documentWorkspacePath(input.rootDir, destination)}`,
+      `destination is a tracked edit; use ha doc sync --submit --path ${workspacePathOf(input)(destination)}`,
     );
   if (tracked || (existsSync(authoredTarget) && !sameUntrackedSource) || projected.document !== null) {
     const sha = sha256Bytes(content),
@@ -644,7 +653,7 @@ function publishTaskArtifactBytes(
     throw docSyncError(
       "artifact_collision",
       `artifact destination already exists: ${destination}; the published copy ${authored} is the source of truth. ` +
-        `Edit it in place, then update it with ha doc sync --submit --path ${documentWorkspacePath(input.rootDir, destination)}`,
+        `Edit it in place, then update it with ha doc sync --submit --path ${workspacePathOf(input)(destination)}`,
     );
   }
   if (projected.watermark !== projected.sourceRevision)

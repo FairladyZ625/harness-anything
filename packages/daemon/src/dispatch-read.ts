@@ -995,7 +995,7 @@ function canonicalDispatchRow(
     // The artifact is keyed by dispatch id, so its presence means this dispatch wrote the ask. Read
     // it here rather than gating on the settled classification: the question must stay visible even
     // when the stream cut predates the classification.
-    ...awaitingRulingFields(projection, payload),
+    ...awaitingRulingFields(projection, payload, rootDir ?? null),
     resultRef,
     exitCode,
     ...(documentPath && document
@@ -1109,6 +1109,7 @@ function squadOwnerChildTaskIds(
 function awaitingRulingFields(
   projection: DispatchQueries,
   dispatch: { readonly taskId?: string; readonly dispatchId: string },
+  rootDir: string | null,
 ): Pick<TaskDispatchRow, "ruling"> {
   const taskId = dispatch.taskId;
   if (!taskId) return {};
@@ -1127,7 +1128,15 @@ function awaitingRulingFields(
     packagePath,
     dispatch.dispatchId,
   );
-  return ruling === null ? {} : { ruling: { question: ruling.question, options: ruling.options, path: ruling.path } };
+  return ruling === null
+    ? {}
+    : {
+        ruling: {
+          question: ruling.question,
+          options: ruling.options,
+          path: rootDir ? documentWorkspacePath(rootDir, ruling.path) : ruling.path,
+        },
+      };
 }
 
 function resumeDispatch(

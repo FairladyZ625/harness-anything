@@ -107,7 +107,7 @@ test("command evidence and text artifacts reach the ledger without their raw cre
     );
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     await waitForFixturePublication(cell, receipt.opId, ownerBinding);
-    const stored = readFileSync(path.join(root, String(receipt.destination)), "utf8"),
+    const stored = readFileSync(path.join(root, "harness", String(receipt.destination)), "utf8"),
       parsed = JSON.parse(stored) as Record<string, unknown>;
     for (const secret of [awsAccessKeyId, googleApiKey, jwt, privateKeyBody, "plainvalue123"])
       assert.equal(stored.includes(secret), false, `${secret} must not reach the ledger artifact`);
@@ -123,7 +123,7 @@ test("command evidence and text artifacts reach the ledger without their raw cre
     );
     assert.equal(fromSource.outcome, "applied", JSON.stringify(fromSource));
     await waitForFixturePublication(cell, fromSource.opId, ownerBinding);
-    const storedSource = readFileSync(path.join(root, String(fromSource.destination)), "utf8");
+    const storedSource = readFileSync(path.join(root, "harness", String(fromSource.destination)), "utf8");
     assert.equal(storedSource.includes("sourcevalue456"), false, "a text source reaches the same write boundary");
     assert.match(storedSource, /\[REDACTED\]/u);
   } finally {
@@ -238,7 +238,7 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
           revision: artifact.revision,
           receiptId: artifact.receiptId,
           source: "incoming.md",
-          destination: `harness/${destination}`,
+          destination,
         },
         JSON.stringify(replay),
       );
@@ -391,7 +391,7 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     const dry = await cell.run({ kind: "doc-dry-run", paths: [standard] }, binding);
     assert.deepEqual(
       rows(dry.evidence).map((row) => [row.path, row.state]),
-      [[`harness/${standard}`, "eligible"]],
+      [[standard, "eligible"]],
     );
     const applied = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
@@ -502,7 +502,7 @@ test("amending the title retitles the published plan through the typed route and
     )) as { outcome?: string; opId?: string; changedPaths?: readonly string[] };
     assert.equal(amended.outcome, "applied", JSON.stringify(amended));
     assert.ok(
-      amended.changedPaths?.includes(`harness/${plan}`),
+      amended.changedPaths?.includes(plan),
       `amend changedPaths must retitle the plan: ${JSON.stringify(amended.changedPaths)}`,
     );
     await waitForFixturePublication(cell, amended.opId!, binding);
