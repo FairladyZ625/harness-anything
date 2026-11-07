@@ -126,25 +126,6 @@ export function loadCatalogSnapshot(rootDir, fixture = null) {
   return JSON.parse(runTypeScriptProbe(modulePath, script));
 }
 
-export function loadDurableActionKinds(rootDir, fixture = null) {
-  if (fixture) {
-    const parsed = JSON.parse(readFileSync(fixture, "utf8"));
-    if (!Array.isArray(parsed)) throw new Error("durable action fixture must be an array");
-    return [...new Set(parsed.map(String))].sort();
-  }
-  const commandsPath = path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
-  const guiPath = path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts");
-  const script = [
-    "const commands = await import(process.argv[1]);",
-    "const gui = await import(process.argv[2]);",
-    "const kinds = [...commands.daemonProtocolCommands, ...gui.daemonGuiActionMethods]",
-    "  .filter((entry) => entry.commandClass !== 'repo-read')",
-    "  .map((entry) => entry.actionKind ?? entry.id);",
-    "process.stdout.write(JSON.stringify([...new Set(kinds)].sort()));",
-  ].join("\n");
-  return JSON.parse(runTypeScriptProbe(commandsPath, script, guiPath));
-}
-
 /**
  * The evaluated action surfaces G-B compares: registry contracts as the runtime builds them
  * (factory-made kinds included), ActionDeclarations, and the protocol ingress descriptors.

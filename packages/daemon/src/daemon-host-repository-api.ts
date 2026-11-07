@@ -196,6 +196,9 @@ export function createDaemonHostRepositoryApi(
       return { schema: "node-auto-claim-candidates/v2", candidates, activeTaskIds: [...activeTaskIds] };
     },
     bootstrap: async (request, auth) => {
+      // Init claims repository ownership for the signed-in person on this machine; a device
+      // session or another transport never reaches it (the descriptor declares local-transport).
+      context.localOnly(auth);
       const requestedRoot = canonicalRoot(request.rootDir, true),
         registeredRoot = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.state === "enabled" && repo.mode === "local" && repo.canonicalRoot === requestedRoot,

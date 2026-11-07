@@ -60,6 +60,36 @@ function underSocketOwnerProof(node) {
   return false;
 }
 
+// `then` when a true condition means the request did not arrive over the local socket, `else`
+// when a false one does: the authentication context's transport discriminant against the local
+// transport. A guard is this test with an exit on its non-local side.
+function nonLocalPolarity(condition) {
+  const node = unwrap(condition);
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
+    const inner = nonLocalPolarity(node.operand);
+    return inner === "then" ? "else" : inner === "else" ? "then" : null;
+  }
+  if (!ts.isBinaryExpression(node)) return null;
+  const operator = node.operatorToken.kind;
+  if (operator === ts.SyntaxKind.BarBarToken)
+    return [node.left, node.right].some((side) => nonLocalPolarity(side) === "then") ? "then" : null;
+  if (operator === ts.SyntaxKind.AmpersandAmpersandToken)
+    return [node.left, node.right].some((side) => nonLocalPolarity(side) === "else") ? "else" : null;
+  if (comparesField(node, "transportKind", ts.SyntaxKind.ExclamationEqualsEqualsToken, "unix-socket")) return "then";
+  if (comparesField(node, "transportKind", ts.SyntaxKind.EqualsEqualsEqualsToken, "unix-socket")) return "else";
+  return null;
+}
+
+const nullish = (expression) => {
+  const node = unwrap(expression);
+  return (
+    !node ||
+    node.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(node) && node.text === "undefined") ||
+    ts.isVoidExpression(node)
+  );
+};
+
 let fileOf = (node) => node.getSourceFile().fileName;
 
 function where(node) {
@@ -252,15 +282,25 @@ export function makeAuthorizationTracer(graph, anchors) {
         functions: anchors.functions,
       },
       evaluator = makeEvaluator(graph, facts),
-      report = { authorized: [], violations: [], unresolved: [], decisionKinds: new Set() },
+      report = { authorized: [], local: [], violations: [], unresolved: [], decisionKinds: new Set() },
       memo = new Map(),
       frameKeys = new WeakMap(),
       frameIds = new Map(),
       guardCalls = new Map(),
       stack = [];
 
-    const newState = () => ({ alive: true, authorized: false, effect: false, tainted: new Set(), decisionKind: null });
-    const clone = (state) => ({ ...state, tainted: new Set(state.tainted) });
+    const newState = () => ({
+      alive: true,
+      authorized: false,
+      effect: false,
+      local: false,
+      tainted: new Set(),
+      refusals: new Set(),
+      decisionKind: null,
+    });
+    const clone = (state) => ({ ...state, tainted: new Set(state.tainted), refusals: new Set(state.refusals) });
+    // Calls whose result is non-null exactly when the request is not local (a refusal value).
+    const refusalCalls = new WeakSet();
     const join = (left, right) => {
       const live = [left, right].filter((state) => state.alive);
       if (live.length === 0) return { ...left, alive: false };
@@ -268,7 +308,9 @@ export function makeAuthorizationTracer(graph, anchors) {
         alive: true,
         authorized: live.every((state) => state.authorized),
         effect: live.some((state) => state.effect),
+        local: live.every((state) => state.local),
         tainted: new Set([...left.tainted, ...right.tainted]),
+        refusals: new Set([...left.refusals].filter((declaration) => right.refusals.has(declaration))),
         decisionKind: live.every((state) => sameSubject(state.decisionKind, live[0].decisionKind))
           ? live[0].decisionKind
           : null,
@@ -293,7 +335,9 @@ export function makeAuthorizationTracer(graph, anchors) {
             break;
           }
         }
-      if (call.arguments.some((input) => carriesRequest(input, env))) return { kind, routed: true };
+      const carried = call.arguments.some((input) => carriesRequest(input, env));
+      if (carried && kind !== null) return { kind, routed: true };
+      let evaluatedKind = null;
       for (const value of evaluator.evaluate(unwrap(call.expression), env)) {
         if (!value.fn || !value.node.body) continue;
         let inner = null;
@@ -301,9 +345,11 @@ export function makeAuthorizationTracer(graph, anchors) {
           if (inner === null && ts.isCallExpression(node) && node !== call && decisionCall(node, new Set()))
             inner = decisionSubject(node, bindArguments(value, call.arguments, env), depth + 1);
         });
-        if (inner?.routed) return { kind: kind ?? inner.kind, routed: true };
+        if (inner?.routed || (carried && inner?.kind)) return { kind: kind ?? inner.kind, routed: true };
+        evaluatedKind ??= inner?.kind ?? null;
       }
-      return { kind, routed: false };
+      // A decision over stored state still answers for the action its port call evaluated.
+      return { kind: kind ?? evaluatedKind, routed: carried };
     }
 
     function carriesRequest(expression, env) {
@@ -462,6 +508,11 @@ export function makeAuthorizationTracer(graph, anchors) {
         }
       }
       const functions = values.filter((value) => value.fn);
+      // A declared local-transport route continues past its transport guard into resolved code.
+      if (descriptor.localTransport && state.local && functions.length > 0 && !state.localReported) {
+        state.localReported = true;
+        report.local.push(`${where(node)}: runs only after the local-transport exit`);
+      }
       // A local function handed to an external scheduler (Promise.all, Array.from, map) runs.
       if (functions.length === 0 && values.some((value) => value.external !== undefined))
         for (const argument of node.arguments)
@@ -482,6 +533,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       }
       let allAuthorized = functions.length > 0,
         enforcedSubject = null;
+      const walked = [];
       for (const value of functions) {
         if (allowPredicate(value.node)) {
           allAuthorized = false;
@@ -507,7 +559,9 @@ export function makeAuthorizationTracer(graph, anchors) {
           // An immediately invoked function runs in this frame; a closure over the route carries it.
           isFunctionNode(callee) ||
           (value.env.size > 0 && routedFrame(value.env)) ||
-          node.arguments.some((argument) => carriesRoute(argument, env) || functionArgument(argument, env));
+          node.arguments.some((argument) => carriesRoute(argument, env) || functionArgument(argument, env)) ||
+          // A declared local-transport route follows the authentication context into its guard.
+          (descriptor.localTransport && node.arguments.some((argument) => graph.carriesTransport(argument)));
         if (!descend) {
           allAuthorized = false;
           continue;
@@ -515,8 +569,15 @@ export function makeAuthorizationTracer(graph, anchors) {
         const inner = clone(state);
         inner.authorized = false;
         const outcome = walkFunction(value, bindArguments(value, node.arguments, env), inner);
+        walked.push(outcome);
         if (!outcome.authorizedReturn) allAuthorized = false;
         else state.decisionKind = outcome.decisionKind;
+      }
+      if (walked.length > 0 && walked.length === functions.length) {
+        // A callee that returns only past its own local-transport exit leaves this frame local.
+        if (walked.every((outcome) => outcome.localReturn)) state.local = true;
+        // A callee answering null only on the local side is a refusal: `if (refusal) exit`.
+        else if (walked.every((outcome) => outcome.refusal)) refusalCalls.add(node);
       }
       // A callee whose every return passed its own denial exit authorizes what follows it.
       if (allAuthorized && !state.authorized) {
@@ -573,6 +634,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         for (const declaration of statement.declarationList.declarations) {
           if (!declaration.initializer) continue;
           visit(declaration.initializer, env, state);
+          if (refusalCalls.has(unwrap(declaration.initializer))) state.refusals.add(declaration);
           if (derived(declaration.initializer, state.tainted)) {
             state.tainted.add(declaration);
             const call = producerCallIn(declaration.initializer, env);
@@ -582,7 +644,13 @@ export function makeAuthorizationTracer(graph, anchors) {
       } else if (ts.isExpressionStatement(statement)) visit(statement.expression, env, state);
       else if (ts.isReturnStatement(statement)) {
         visit(statement.expression, env, state);
-        if (state.alive) frame.returns.push({ authorized: state.authorized, decisionKind: state.decisionKind });
+        if (state.alive)
+          frame.returns.push({
+            authorized: state.authorized,
+            decisionKind: state.decisionKind,
+            local: state.local,
+            nullish: nullish(statement.expression),
+          });
         state.alive = false;
       } else if (ts.isThrowStatement(statement)) state.alive = false;
       else if (ts.isIfStatement(statement)) walkIf(statement, env, state, frame);
@@ -615,18 +683,43 @@ export function makeAuthorizationTracer(graph, anchors) {
       if (folded)
         return walkStatement(folded.value ? statement.thenStatement : statement.elseStatement, env, state, frame);
       const polarity = denialPolarity(statement.expression, state.tainted),
+        transport = nonLocalPolarity(statement.expression) ?? refusalPolarity(statement.expression, state),
         left = clone(state),
         right = clone(state);
+      if (transport === "then") right.local = true;
+      if (transport === "else") left.local = true;
       if (polarity === "else") left.authorized = true;
       if (polarity === "then") right.authorized = true;
+      // A boolean predicate over a decision answers for the action its own port call evaluated.
+      const predicate = polarity && predicateCallIn(statement.expression);
+      if (predicate) (polarity === "else" ? left : right).decisionKind = decisionSubject(predicate, env);
       walkStatement(statement.thenStatement, env, left, frame);
       walkStatement(statement.elseStatement, env, right, frame);
       // A denial branch that does not exit leaves the denied decision live after the test.
       if (polarity === "then" && left.alive) right.authorized = state.authorized;
       if (polarity === "else" && right.alive) left.authorized = state.authorized;
+      // A non-local branch that does not exit leaves the request's transport unproven.
+      if (transport === "then" && left.alive) right.local = state.local;
+      if (transport === "else" && right.alive) left.local = state.local;
       Object.assign(state, join(left, right));
       // A denial exit for this exact routed action authorizes everything after the test.
       if (polarity && state.alive && state.authorized && !state.reported) reportExactExit(statement, state);
+    }
+
+    function refusalPolarity(condition, state) {
+      const node = unwrap(condition);
+      if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken)
+        return refusalPolarity(node.operand, state) === "then" ? "else" : null;
+      if (!ts.isIdentifier(node)) return null;
+      const binding = graph.lookup(node.text, node);
+      return binding?.declaration && state.refusals.has(binding.declaration) ? "then" : null;
+    }
+
+    function predicateCallIn(condition) {
+      const node = unwrap(condition);
+      if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken)
+        return predicateCallIn(node.operand);
+      return ts.isCallExpression(node) && resolvedFunctions(unwrap(node.expression)).some(allowPredicate) ? node : null;
     }
 
     function reportExactExit(node, state) {
@@ -681,7 +774,7 @@ export function makeAuthorizationTracer(graph, anchors) {
     }
 
     function signature(value, env, state) {
-      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
+      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.local ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
     }
 
     function internFrame(env, value) {
@@ -693,7 +786,7 @@ export function makeAuthorizationTracer(graph, anchors) {
 
     function walkFunction(value, env, state) {
       const fn = value.node,
-        none = { authorizedReturn: false, decisionKind: null };
+        none = { authorizedReturn: false, decisionKind: null, localReturn: false, refusal: false };
       if (!fn.body || stack.includes(fn) || stack.length > maxWalkDepth) return none;
       const key = signature(value, env, state);
       const seen = memo.get(fn) ?? new Map();
@@ -705,14 +798,30 @@ export function makeAuthorizationTracer(graph, anchors) {
       const frame = { returns: [] };
       if (ts.isBlock(fn.body)) {
         walkStatement(fn.body, env, state, frame);
-        if (state.alive) frame.returns.push({ authorized: state.authorized, decisionKind: state.decisionKind });
+        if (state.alive)
+          frame.returns.push({
+            authorized: state.authorized,
+            decisionKind: state.decisionKind,
+            local: state.local,
+            nullish: true,
+          });
       } else {
         visit(fn.body, env, state);
-        frame.returns.push({ authorized: state.authorized, decisionKind: state.decisionKind });
+        frame.returns.push({
+          authorized: state.authorized,
+          decisionKind: state.decisionKind,
+          local: state.local,
+          nullish: nullish(fn.body),
+        });
       }
       stack.pop();
       const result = {
         authorizedReturn: frame.returns.length > 0 && frame.returns.every((entry) => entry.authorized),
+        localReturn: frame.returns.length > 0 && frame.returns.every((entry) => entry.local),
+        refusal:
+          frame.returns.some((entry) => entry.nullish) &&
+          frame.returns.some((entry) => !entry.nullish) &&
+          frame.returns.every((entry) => !entry.nullish || entry.local),
         decisionKind: frame.returns.find((entry) => entry.decisionKind)?.decisionKind ?? null,
       };
       seen.set(key, result);

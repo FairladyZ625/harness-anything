@@ -279,6 +279,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-stop",
+    hostAuthority: "local-transport",
     phase: "W3",
     path: ["daemon", "stop"],
     summary: "Stop the resident daemon.",
@@ -337,6 +338,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "daemon-fleet-edge-sync",
+    hostAuthority: "local-transport",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "edge", "sync"],
     summary: "Mirror the fleet center ledger into the registered workspace harness over verified TLS.",

@@ -65,7 +65,11 @@ function declareStatements(statements, bindings) {
   }
 }
 
-export function buildFlowGraph(rootDir) {
+/**
+ * `rootDir` holds the traced sources; `anchorRoot` holds the kernel authority files the anchors
+ * name (the same checkout unless a test traces a mutated copy of the sources).
+ */
+export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
   const modules = new Map(),
     members = new Map(),
     typedEntries = new Map(),
@@ -117,11 +121,18 @@ export function buildFlowGraph(rootDir) {
     implementsMember,
     memberSignature,
     interfaceMembers,
+    carriesTransport,
   };
+
+  /** Whether an argument is (or holds) an authentication context: a value with a transport discriminant. */
+  function carriesTransport(node) {
+    const type = checker.getTypeAtLocation(node);
+    return (type.isUnion() ? type.types : [type]).some((part) => checker.getPropertyOfType(part, "transportKind"));
+  }
 
   /** The member declarations of an interface in a kernel authority file, keyed by member name. */
   function interfaceMembers(file, name) {
-    const source = program.getSourceFile(path.join(rootDir, file)),
+    const source = program.getSourceFile(fs.realpathSync(path.join(anchorRoot, file))),
       declaration = source?.statements.find(
         (statement) => ts.isInterfaceDeclaration(statement) && statement.name.text === name,
       );
@@ -153,11 +164,28 @@ export function buildFlowGraph(rootDir) {
     } else if (ts.isClassLike(container))
       for (const clause of container.heritageClauses ?? [])
         for (const type of clause.types) owners.push(checker.getTypeAtLocation(type));
-    return owners.some((owner) =>
-      (owner.isUnion() ? owner.types : [owner]).some((part) =>
-        (checker.getPropertyOfType(part, key)?.declarations ?? []).some((candidate) => signatures.has(candidate)),
-      ),
-    );
+    if (
+      owners.some((owner) =>
+        (owner.isUnion() ? owner.types : [owner]).some((part) =>
+          (checker.getPropertyOfType(part, key)?.declarations ?? []).some((candidate) => signatures.has(candidate)),
+        ),
+      )
+    )
+      return true;
+    // A class without an `implements` clause still receives calls typed through an interface it
+    // structurally satisfies: that is where a typed member call dispatches.
+    if (!ts.isClassLike(container) || !container.name) return false;
+    const symbol = checker.getSymbolAtLocation(container.name),
+      instance = symbol && checker.getDeclaredTypeOfSymbol(symbol);
+    if (!instance) return false;
+    return [...signatures].some((signature) => {
+      const owner = signature.parent;
+      if (!owner || !(ts.isInterfaceDeclaration(owner) || ts.isTypeLiteralNode(owner))) return false;
+      const target = ts.isInterfaceDeclaration(owner)
+        ? checker.getDeclaredTypeOfSymbol(checker.getSymbolAtLocation(owner.name))
+        : checker.getTypeAtLocation(owner);
+      return checker.isTypeAssignableTo(instance, target);
+    });
   }
 
   function addMember(name, value, file, declaration) {
@@ -310,6 +338,12 @@ export function makeEvaluator(graph, facts) {
   }
 
   function memberOf(value, key, depth) {
+    if (value.module) {
+      const exported = graph.exportedBinding(value.module, key);
+      return exported
+        ? evaluateBinding(exported, key, new Map(), depth + 1)
+        : [{ broken: `${value.module}: ${key} is not exported` }];
+    }
     if (value.object) {
       for (const property of [...value.object.properties].reverse()) {
         if (ts.isSpreadAssignment(property)) {
@@ -369,7 +403,8 @@ export function makeEvaluator(graph, facts) {
   function distinct(values) {
     const seen = new Map();
     return values.filter((value) => {
-      const identity = value.node ?? value.object ?? value.classNode ?? value.broken ?? value.external ?? "unknown",
+      const identity =
+          value.node ?? value.object ?? value.classNode ?? value.module ?? value.broken ?? value.external ?? "unknown",
         frames = seen.get(identity) ?? new Set(),
         frame = value.env ?? null;
       if (frames.has(frame)) return false;
@@ -423,7 +458,9 @@ export function makeEvaluator(graph, facts) {
     if (ts.isPropertyAccessExpression(node)) {
       const key = memberName(node.name),
         receivers = evaluate(node.expression, env, depth + 1),
-        direct = receivers.flatMap((value) => (value.object || value.classNode ? memberOf(value, key, depth + 1) : []));
+        direct = receivers.flatMap((value) =>
+          value.object || value.classNode || value.module ? memberOf(value, key, depth + 1) : [],
+        );
       const known = direct.filter((value) => !value.unknown),
         opaque = receivers.some((value) => value.unknown || value.broken || value.fn),
         // Only a called member falls back to its implementations; data members stay unknown.
@@ -439,6 +476,15 @@ export function makeEvaluator(graph, facts) {
 
   function evaluateCall(node, env, depth) {
     const callee = unwrap(node.expression);
+    // A dynamic import of a traced module is that module's namespace, like a static import.
+    if (callee.kind === ts.SyntaxKind.ImportKeyword) {
+      const [specifier] = node.arguments;
+      if (!specifier || !ts.isStringLiteralLike(specifier)) return [unknown];
+      const target = graph.importTarget({ file: graph.fileOf(node), from: specifier.text });
+      if (target.external) return [{ external: specifier.text }];
+      if (target.broken) return [{ broken: target.broken }];
+      return [{ module: target.file }];
+    }
     if (ts.isPropertyAccessExpression(callee) && callee.name.text === "then") {
       const [resolved] = node.arguments;
       if (!resolved) return evaluate(callee.expression, env, depth + 1);

@@ -210,6 +210,13 @@ type CliCommandDeclaration = {
   readonly path: readonly string[];
   readonly syntaxPath?: readonly string[];
   readonly inputs: readonly CliInputFacet[];
+  /**
+   * The authority of a host command that no AuthorizationPort decision gates (ruled for the
+   * durable-authorization gate, task_a28bf79f248c4e59f2149f22ad): `local-transport` is served only
+   * past the daemon's local-socket transport exit; `local-process` runs in the operator's own CLI
+   * process and sends the daemon nothing but a read.
+   */
+  readonly hostAuthority?: "local-transport" | "local-process";
 };
 const defineTopologyCommand =
   (topology: CommandTopology) =>

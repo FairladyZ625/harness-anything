@@ -969,6 +969,7 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "repo-bootstrap",
+    hostAuthority: "local-transport",
     phase: "W3",
     path: ["init"],
     summary: [
