@@ -21,12 +21,14 @@
         {
           "locale": "zh-CN",
           "anchors": ["## Brief", "## Context", "## Verification"],
-          "bodyPath": "templates/task.plan.lightweight/zh-CN.md"
+          "bodyPath": "templates/task.plan.lightweight/zh-CN.md",
+          "requiredAnchorsByWorkKind": { "fix": ["## 防再犯门"] }
         },
         {
           "locale": "en-US",
           "anchors": ["## Brief", "## Context", "## Verification"],
-          "bodyPath": "templates/task.plan.lightweight/en-US.md"
+          "bodyPath": "templates/task.plan.lightweight/en-US.md",
+          "requiredAnchorsByWorkKind": { "fix": ["## Recurrence Gate"] }
         }
       ]
     },

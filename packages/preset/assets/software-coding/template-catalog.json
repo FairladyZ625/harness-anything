@@ -333,8 +333,8 @@
       "requiredAnchors": ["## Brief", "## Context", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Brief", "## Context", "## Verification"], "bodyPath": "templates/task.plan.lightweight/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Brief", "## Context", "## Verification"], "bodyPath": "templates/task.plan.lightweight/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Context", "## Verification"], "bodyPath": "templates/task.plan.lightweight/zh-CN.md", "requiredAnchorsByWorkKind": { "fix": ["## 防再犯门"] } },
+        { "locale": "en-US", "anchors": ["## Brief", "## Context", "## Verification"], "bodyPath": "templates/task.plan.lightweight/en-US.md", "requiredAnchorsByWorkKind": { "fix": ["## Recurrence Gate"] } }
       ]
     },
     {
