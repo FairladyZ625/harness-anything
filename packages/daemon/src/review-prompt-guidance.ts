@@ -56,8 +56,8 @@ export function scopedReReviewPrompt(route: Extract<ReviewReverifyRoute, { reado
       `${item.reverify}${item.adopted ? "" : ", not adopted"}): ${item.finding.text}`,
   );
   return [
-    "This is a scoped re-review. Verify only these previous blocking findings, one by one, against the diff " +
-      `since ${route.sinceCommit ?? "the previous review's cut"}:`,
+    "This is a scoped re-review; verify each previous finding listed below, one by one, against the new diff " +
+      `relative to the previous report's cut (the diff since ${route.sinceCommit ?? "the previous review's cut"}):`,
     ...items.map((item) => `- ${item}`),
     "Report each as fixed or still blocking. Do not raise new non-blocking findings. A new blocking finding is " +
       "allowed only when it breaks a current invariant or the production path; state why the previous round " +
