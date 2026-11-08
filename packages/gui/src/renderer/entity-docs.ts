@@ -170,6 +170,17 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "unpin",
     ],
   },
+  host: {
+    schemaId: "host/v1",
+    refTemplate: "host/{id}",
+    statuses: [
+      {
+        field: "process",
+        words: ["running", "stopped"],
+      },
+    ],
+    actions: [],
+  },
   migration: {
     schemaId: "migration/v1",
     refTemplate: "migration/{id}",

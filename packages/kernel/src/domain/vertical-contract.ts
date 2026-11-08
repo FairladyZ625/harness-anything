@@ -122,9 +122,9 @@ export function compileVerticalContract(
         schema: schemaVersions[schemaVersions.length - 1]!.schema,
         relations: Object.freeze({ directions: Object.freeze([]), edges: Object.freeze([]) }),
         canonicalProjection: Object.freeze({
-          embeddedEvents: Object.freeze([]),
           row: Object.freeze({ idField: "entityId", ownerField: null }),
         }),
+        stateStores: Object.freeze([]),
         ...(artifact.maturityVocabulary
           ? {
               statusVocabulary: Object.freeze([

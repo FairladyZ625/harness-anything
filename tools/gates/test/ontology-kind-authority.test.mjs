@@ -21,10 +21,11 @@ const command = (kind, commandClass = "repo-write") =>
 
 // Production shape: the registry composes direct rows with a factory-made contract module.
 function writeSurfaces(rootDir, { declarations, commands, artifactIngress = [] }) {
+  const hostStores = `[{ id: "host.process-lock", role: "operational", purpose: "process-lock", residency: "host-local", medium: { kind: "host-operational", recordSchema: "host-process-lock/v1", purpose: "process-lock" }, vocabulary: [], writerApi: "withHostProcessLock" }, { id: "host.diagnostic-log", role: "operational", purpose: "diagnostic-log", residency: "host-local", medium: { kind: "host-operational", recordSchema: "host-diagnostic-line/v1", purpose: "diagnostic-log" }, vocabulary: [], writerApi: "appendHostDiagnostic" }]`;
   writeRepoFile(
     rootDir,
     "packages/kernel/src/domain/runtime-instance-contract.ts",
-    `export function createRuntimeInstanceKindContract() {\n  return { kind: "runtime-instance", actionCatalog: { actions: [${executable("create", "runtime-instance-create")}] } };\n}\n`,
+    `export function createRuntimeInstanceKindContract() {\n  return { kind: "runtime-instance", actionCatalog: { actions: [${executable("create", "runtime-instance-create")}] }, stateStores: [] };\n}\n`,
   );
   writeRepoFile(
     rootDir,
@@ -32,8 +33,9 @@ function writeSurfaces(rootDir, { declarations, commands, artifactIngress = [] }
     [
       'import { createRuntimeInstanceKindContract } from "./runtime-instance-contract.ts";',
       "export const entityKindContracts = Object.freeze([",
-      `  { kind: "task", actionCatalog: { actions: [${executable("create", "task-create")}] } },`,
-      `  { kind: "runtime-session", actionCatalog: { actions: [${executable("runtime_session_started", "runtime_session_started", "compiled-event", "runtime-run")}] } },`,
+      `  { kind: "task", actionCatalog: { actions: [${executable("create", "task-create")}] }, stateStores: [] },`,
+      `  { kind: "runtime-session", actionCatalog: { actions: [${executable("runtime_session_started", "runtime_session_started", "compiled-event", "runtime-run")}] }, stateStores: [] },`,
+      `  { kind: "host", actionCatalog: null, stateStores: ${hostStores} },`,
       "  createRuntimeInstanceKindContract(),",
       "]);",
       "",
@@ -51,6 +53,40 @@ function writeSurfaces(rootDir, { declarations, commands, artifactIngress = [] }
     "export const daemonGuiActionMethods = [];\n",
   );
   writeRepoFile(rootDir, "packages/kernel/src/domain/entity-ref.ts", "export {};\n");
+}
+
+function writeStateSurfaces(
+  rootDir,
+  { owner = "task", duplicateStore = false, invalidHost = false, sharedCache = null, missingFreshness = false } = {},
+) {
+  writeSurfaces(rootDir, { declarations: coveredDeclarations, commands: coveredCommands });
+  const hostStores = invalidHost
+    ? `[{ id: "host.anything", role: "operational", purpose: "anything", residency: "host-local", medium: { kind: "host-operational", recordSchema: "anything/v1" }, vocabulary: [], writerApi: "anything" }]`
+    : `[{ id: "host.process-lock", role: "operational", purpose: "process-lock", residency: "host-local", medium: { kind: "host-operational", recordSchema: "host-process-lock/v1", purpose: "process-lock" }, vocabulary: [], writerApi: "withHostProcessLock" }, { id: "host.diagnostic-log", role: "operational", purpose: "diagnostic-log", residency: "host-local", medium: { kind: "host-operational", recordSchema: "host-diagnostic-line/v1", purpose: "diagnostic-log" }, vocabulary: [], writerApi: "appendHostDiagnostic" }]`;
+  const taskStoreId = duplicateStore ? "host.process-lock" : "task.task-events";
+  const cacheStore =
+    sharedCache === null
+      ? ""
+      : `, { id: "task.shared-cache", role: "replica", residency: "runtime-local", medium: { kind: "shared-cache", adapter: "${sharedCache}" }, vocabulary: [], source: { kind: "task", store: "task.task-events" }, freshness: ${missingFreshness ? "{}" : '{ cursor: "revision" }'}, invalidation: "fence-on-read", reader: "readTaskCache" }`;
+  writeRepoFile(
+    rootDir,
+    registryPath,
+    [
+      'import { createRuntimeInstanceKindContract } from "./runtime-instance-contract.ts";',
+      "export const entityKindContracts = Object.freeze([",
+      `  { kind: "task", actionCatalog: { actions: [${executable("create", "task-create")}] }, stateStores: [{ id: "${taskStoreId}", role: "authority", residency: "canonical", medium: { kind: "canonical-event", schema: "task-event/v1", types: ["*"], writers: ["task-writer"] }, vocabulary: [] }${cacheStore}] },`,
+      `  { kind: "runtime-session", actionCatalog: { actions: [${executable("runtime_session_started", "runtime_session_started", "compiled-event", "runtime-run")}] }, stateStores: [] },`,
+      `  { kind: "host", actionCatalog: null, stateStores: ${hostStores} },`,
+      "  createRuntimeInstanceKindContract(),",
+      "]);",
+      "",
+    ].join("\n"),
+  );
+  writeRepoFile(
+    rootDir,
+    "packages/kernel/src/domain/doc-sync-canonical-events.ts",
+    `export const canonicalEventSchemas = Object.freeze([{ schema: "task-event/v1", owner: "${owner}" }]);\n`,
+  );
 }
 
 const coveredDeclarations = [
@@ -172,6 +208,59 @@ test("G-B keeps host-local actions and generated Artifact ingress green without 
   const untyped = ratchet(rootDir);
   assert.equal(untyped.code, 1);
   assert.match(untyped.stdout, /entity-update: protocol ingress has no ActionDeclaration/u);
+});
+
+test("G0-2 closes state ownership over canonical schema owners and host stores", (t) => {
+  const rootDir = fixtureRoot(t);
+  writeStateSurfaces(rootDir);
+  assert.equal(ratchet(rootDir).code, 0);
+
+  writeStateSurfaces(rootDir, { owner: "phantom" });
+  const unknownOwner = ratchet(rootDir);
+  assert.equal(unknownOwner.code, 1);
+  assert.match(unknownOwner.stdout, /task-event\/v1: owner kind phantom does not exist/u);
+
+  writeStateSurfaces(rootDir, { duplicateStore: true });
+  const duplicate = ratchet(rootDir);
+  assert.equal(duplicate.code, 1);
+  assert.match(duplicate.stdout, /state store id host\.process-lock is declared by multiple kinds/u);
+
+  writeStateSurfaces(rootDir, { invalidHost: true });
+  const arbitraryHost = ratchet(rootDir);
+  assert.equal(arbitraryHost.code, 1);
+  assert.match(arbitraryHost.stdout, /unknown host operational purpose/u);
+});
+
+test("G0-2 rejects a canonical schema with no owner", (t) => {
+  const rootDir = fixtureRoot(t);
+  writeStateSurfaces(rootDir);
+  writeRepoFile(
+    rootDir,
+    "packages/kernel/src/domain/doc-sync-canonical-events.ts",
+    'export const canonicalEventSchemas = Object.freeze([{ schema: "task-event/v1" }]);\n',
+  );
+  const result = ratchet(rootDir);
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /task-event\/v1: canonical event schema has no owner/u);
+});
+
+test("G0-2 validates shared-cache adapter identity and replica shape", (t) => {
+  const rootDir = fixtureRoot(t);
+  writeStateSurfaces(rootDir, { sharedCache: "redis#createClient" });
+  assert.equal(ratchet(rootDir).code, 0);
+
+  writeStateSurfaces(rootDir, { sharedCache: "redis" });
+  const invalidAdapter = ratchet(rootDir);
+  assert.equal(invalidAdapter.code, 1);
+  assert.match(
+    invalidAdapter.stdout,
+    /task\.shared-cache: shared-cache medium requires an exact module#export adapter/u,
+  );
+
+  writeStateSurfaces(rootDir, { sharedCache: "redis#createClient", missingFreshness: true });
+  const missingCursor = ratchet(rootDir);
+  assert.equal(missingCursor.code, 1);
+  assert.match(missingCursor.stdout, /task\.shared-cache: replica requires freshness cursor/u);
 });
 
 test("G0-1 names an injected registry-external kind", (t) => {

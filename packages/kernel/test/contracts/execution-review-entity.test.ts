@@ -181,41 +181,38 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
     contractRef: "agent-runtime-event/v1",
   });
   assert.deepEqual(getEntityKindContract("execution")?.canonicalProjection, {
-    embeddedEvents: [
-      {
-        schema: "task-event/v1",
-        types: [
-          "execution_started",
-          "lease_renewed",
-          "execution_submitted",
-          "submission_forwarded",
-          "submission_returned",
-          "execution_executor_declared",
-          "execution_annotated",
-          "review_recorded",
-          "task_review_responded",
-          "review_consent_recorded",
-          "completion_gate_verified",
-          "gate_run_changed",
-          "task_completion_generation_retired",
-          "task_completed",
-          "lease_released",
-        ],
-        payloadField: "execution",
-      },
-    ],
     row: { idField: "executionId", ownerField: "taskId" },
   });
+  assert.deepEqual(
+    getEntityKindContract("execution")?.stateStores.find(({ id }) => id === "execution.task-events")?.projection,
+    {
+      payloadField: "execution",
+      types: [
+        "execution_started",
+        "lease_renewed",
+        "execution_submitted",
+        "submission_forwarded",
+        "submission_returned",
+        "execution_executor_declared",
+        "execution_annotated",
+        "review_recorded",
+        "task_review_responded",
+        "review_consent_recorded",
+        "completion_gate_verified",
+        "gate_run_changed",
+        "task_completion_generation_retired",
+        "task_completed",
+        "lease_released",
+      ],
+    },
+  );
   assert.deepEqual(getEntityKindContract("review")?.canonicalProjection, {
-    embeddedEvents: [
-      {
-        schema: "task-event/v1",
-        types: ["review_recorded", "review_consent_recorded"],
-        payloadField: "review",
-      },
-    ],
     row: { idField: "reviewId", ownerField: "taskId" },
   });
+  assert.deepEqual(
+    getEntityKindContract("review")?.stateStores.find(({ id }) => id === "review.task-events")?.projection,
+    { payloadField: "review", types: ["review_recorded", "review_consent_recorded"] },
+  );
   assert.deepEqual(explainEntityKind("execution").relations, {
     directions: ["directed"],
     edges: [
@@ -352,9 +349,27 @@ test("a synthetic third contract drives the same embedded projection interpreter
     },
     id: { field: "artifactId", pattern: "^artifact-", refTemplate: "artifact/{id}" },
     canonicalProjection: {
-      embeddedEvents: [{ schema: "fixture-event/v1", types: ["artifact_written"], payloadField: "artifact" }],
       row: { idField: "artifactId", ownerField: "taskId" },
     },
+    stateStores: [
+      {
+        id: "fixture.artifact-projection",
+        role: "projection",
+        residency: "canonical",
+        medium: {
+          kind: "canonical-event",
+          schema: "fixture-event/v1",
+          types: ["artifact_written"],
+          payloadField: "artifact",
+        },
+        vocabulary: [],
+        source: { kind: "artifact", store: "fixture.artifact-authority" },
+        freshness: { cursor: "revision" },
+        invalidation: "event-push",
+        reader: "readArtifactProjection",
+        projection: { payloadField: "artifact", types: ["artifact_written"] },
+      },
+    ],
     relations: {
       directions: ["directed"],
       edges: [
@@ -401,7 +416,6 @@ test("a synthetic third contract drives the same embedded projection interpreter
   );
   assert.equal(containsFunction(contract.canonicalProjection), false);
   assert.deepEqual(getEntityKindContract("runtime-session")?.canonicalProjection, {
-    embeddedEvents: [],
     row: { idField: "runtimeSessionId", ownerField: null },
   });
   assert.equal(getEntityKindContract("runtime-session")?.relations.edges[0]?.projection, undefined);

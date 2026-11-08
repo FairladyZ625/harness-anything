@@ -8,7 +8,10 @@ import {
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { DecisionEventV1 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import type { FactEventV1 } from "@harness-anything/kernel/internal/domain/fact-event.ts";
-import { entityKindContracts } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
+import {
+  entityKindContracts,
+  type EntityKindContract,
+} from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import { interpretEmbeddedEntityProjections } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
 import {
   relationFreshnessAnchorForType,
@@ -45,14 +48,25 @@ export const RELATION_PROJECTION_VERSION = "relation-projection/v1" as const;
  * produce embedded projections and are absent by construction.
  */
 const embeddedProjectionContractsBySchema = new Map<string, readonly (typeof entityKindContracts)[number][]>(
-  [...new Set(entityKindContracts.flatMap((contract) => contract.canonicalProjection?.embeddedEvents ?? []))].map(
-    (source) => [
-      source.schema,
-      entityKindContracts.filter((contract) =>
-        contract.canonicalProjection?.embeddedEvents.some((candidate) => candidate.schema === source.schema),
+  [
+    ...new Set(
+      entityKindContracts.flatMap((contract) =>
+        contract.stateStores.flatMap((store: EntityKindContract["stateStores"][number]) =>
+          store.projection && store.medium.kind === "canonical-event" && store.medium.schema
+            ? [{ schema: store.medium.schema }]
+            : [],
+        ),
       ),
-    ],
-  ),
+    ),
+  ].map((source) => [
+    source.schema,
+    entityKindContracts.filter((contract) =>
+      contract.stateStores.some(
+        (store: EntityKindContract["stateStores"][number]) =>
+          store.projection && store.medium.kind === "canonical-event" && store.medium.schema === source.schema,
+      ),
+    ),
+  ]),
 );
 
 export function applyRelationProjectionEvent(
