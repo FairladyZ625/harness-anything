@@ -566,7 +566,7 @@ export async function serve(
             frame.buildCommit !== null &&
             centerBuildCommit !== null &&
             frame.buildCommit !== centerBuildCommit
-              ? `Fleet build differs (center=${centerBuildCommit.slice(0, 12)}, edge=${frame.buildCommit.slice(0, 12)}); upgrade with ha update.`
+              ? `Fleet build differs (center=${centerBuildCommit.slice(0, 12)}, edge=${frame.buildCommit.slice(0, 12)}); upgrade with git pull --ff-only, then build CLI and daemon.`
               : undefined;
         options.onVersionWarning?.(nodeId, versionWarning ?? null);
         await enqueue(
