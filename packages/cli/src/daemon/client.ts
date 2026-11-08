@@ -460,8 +460,8 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
   const artifactCoordinate =
       command.method === "repo.task.run" &&
       command.action.kind === "task-artifact-add" &&
-      command.pathCoordinate === "workspace"
-        ? "workspace"
+      command.pathCoordinate !== undefined
+        ? command.pathCoordinate
         : undefined,
     { kind: _kind, ...actionPayload } = command.action,
     payload =

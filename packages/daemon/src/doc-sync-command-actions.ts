@@ -84,6 +84,7 @@ export type Input = {
    * the workspace spelling; daemon-internal callers keep the ledger's canonical authored keys.
    */
   readonly workspaceCoordinate?: boolean;
+  readonly artifactDestinationWorkspaceCoordinate?: boolean;
 };
 
 export type DocSettlementReceipt = WriteReceipt & {
@@ -494,9 +495,15 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
   // `pathCoordinate` is the thin CLI's caller-coordinate marker. Strip it before the exact action
   // check and keep the marker local to this boundary: daemon-internal artifact publishers continue
   // to receive and return the ledger's authored key.
-  const workspaceCoordinate = input.action.pathCoordinate === "workspace",
+  const pathCoordinate = input.action.pathCoordinate,
+    workspaceCoordinate = pathCoordinate === "workspace" || pathCoordinate === "task-artifact",
     { pathCoordinate: _pathCoordinate, ...artifactAction } = input.action,
-    normalizedInput: Input = { ...input, action: artifactAction, workspaceCoordinate },
+    normalizedInput: Input = {
+      ...input,
+      action: artifactAction,
+      workspaceCoordinate,
+      artifactDestinationWorkspaceCoordinate: pathCoordinate === "workspace",
+    },
     toWorkspace = workspacePathOf(normalizedInput),
     taskId = requiredDocSyncText(artifactAction.taskId, "taskId"),
     destinationValue = requiredDocSyncText(artifactAction.destination, "destination"),
@@ -563,17 +570,30 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
   const task = input.projection.read(taskId);
   if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
     throw docSyncError("content_not_ready", `Task ${taskId} is not ready for artifact add`);
-  const relativeDestination = destinationValue.startsWith("artifacts/")
-    ? destinationValue
-    : `artifacts/${destinationValue}`;
   let destination: ReturnType<typeof documentPath>;
-  try {
-    destination = documentPath(`${task.packagePath}/${relativeDestination}`);
-  } catch {
-    throw docSyncError(
-      "invalid_artifact_path",
-      "destination must be an artifact path under the current task artifacts/ directory",
-    );
+  if (input.artifactDestinationWorkspaceCoordinate === true) {
+    const resolved = resolveWorkspaceDocumentPath(input.rootDir, destinationValue);
+    if (!resolved.ok) throw docSyncError("invalid_artifact_path", resolved.reason);
+    try {
+      destination = documentPath(resolved.documentPath);
+    } catch {
+      throw docSyncError(
+        "invalid_artifact_path",
+        "destination must be an artifact path under the current task artifacts/ directory",
+      );
+    }
+  } else {
+    const relativeDestination = destinationValue.startsWith("artifacts/")
+      ? destinationValue
+      : `artifacts/${destinationValue}`;
+    try {
+      destination = documentPath(`${task.packagePath}/${relativeDestination}`);
+    } catch {
+      throw docSyncError(
+        "invalid_artifact_path",
+        "destination must be an artifact path under the current task artifacts/ directory",
+      );
+    }
   }
   const classification = classifyTextualArtifactPath(destination),
     rawClassification = classifyRawArtifactPath(destination);

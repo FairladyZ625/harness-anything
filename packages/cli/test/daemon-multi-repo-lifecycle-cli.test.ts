@@ -444,11 +444,16 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "--source",
       "cli-artifact.md",
       "--destination",
-      "evidence/cli.md",
+      "harness/tasks/task-alpha-alpha/artifacts/evidence/cli.md",
     ]);
     assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
     assert.equal(artifact.destination, "harness/tasks/task-alpha-alpha/artifacts/evidence/cli.md");
     assert.equal(Object.hasOwn(artifact, "pathCoordinate"), false);
+    const artifactEvent = ledgerReaders.open(fixture.alpha, "alpha").readEvent(String(artifact.opId));
+    assert.deepEqual(
+      artifactEvent?.payload.documentClaims?.map((claim) => claim.path),
+      ["tasks/task-alpha-alpha/artifacts/evidence/cli.md"],
+    );
     settleFollower(fixture.alpha, fixture.userRoot, artifact);
     assert.equal(readFileSync(path.join(fixture.alpha, String(artifact.destination)), "utf8"), "# CLI artifact\n");
     const progress = run(fixture.alpha, fixture.userRoot, [

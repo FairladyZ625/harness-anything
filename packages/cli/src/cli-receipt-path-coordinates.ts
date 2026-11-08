@@ -41,7 +41,11 @@ export function translateReceiptPathCoordinates(receipt: Receipt): Receipt {
   if (scoped.ok !== true) return scoped;
   const evidence = scoped.evidence;
   let payload: unknown;
-  if (typeof evidence === "string" && evidence.startsWith("{") && evidence.includes('"workspacePackagePath"')) {
+  if (
+    typeof evidence === "string" &&
+    evidence.startsWith("{") &&
+    (evidence.includes('"workspacePackagePath"') || typeof scoped.workspacePackagePath === "string")
+  ) {
     try {
       payload = JSON.parse(evidence);
     } catch (error) {
@@ -150,18 +154,23 @@ function mergePairs(left: readonly PackagePathPair[], right: readonly PackagePat
     .sort((one, two) => two.canonical.length - one.canonical.length);
 }
 
-function rewritePackagePaths(value: unknown, pairs: readonly PackagePathPair[]): unknown {
-  if (typeof value === "string") return rewritePath(value, pairs);
-  if (Array.isArray(value)) return value.map((nested) => rewritePackagePaths(nested, pairs));
+function rewritePackagePaths(value: unknown, pairs: readonly PackagePathPair[], translatePathFields = false): unknown {
+  if (Array.isArray(value)) return value.map((nested) => rewritePackagePaths(nested, pairs, translatePathFields));
   if (!isRecord(value)) return value;
   const pair = packagePathPair(value),
     rewritten: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value)) {
     if (key === "workspacePackagePath") continue;
-    rewritten[key] = key === "ledgerPackagePath" ? nested : rewritePackagePaths(nested, pairs);
+    if (key === "ledgerPackagePath") rewritten[key] = nested;
+    else if (key === "packagePath" && typeof nested === "string")
+      rewritten[key] = pair?.workspace ?? rewritePath(nested, pairs);
+    else if (key === "path" && translatePathFields && typeof nested === "string")
+      rewritten[key] = rewritePath(nested, pairs);
+    else if (key === "resultDocumentClaim" || key === "artifacts")
+      rewritten[key] = rewritePackagePaths(nested, pairs, true);
+    else rewritten[key] = rewritePackagePaths(nested, pairs, translatePathFields);
   }
   if (pair !== null) {
-    rewritten.packagePath = pair.workspace;
     rewritten.ledgerPackagePath = pair.canonical;
   }
   return rewritten;
@@ -175,15 +184,9 @@ function packagePathPair(value: Record<string, unknown>): PackagePathPair | null
 
 function rewritePath(value: string, pairs: readonly PackagePathPair[]): string {
   let rewritten = value;
-  for (const [index, { canonical, workspace }] of pairs.entries()) {
-    if (!rewritten.includes(canonical)) continue;
-    // Protect the already-workspace spelling first: it contains the canonical spelling as a
-    // substring (`harness/tasks/x` contains `tasks/x`), and a blind replace would double the prefix.
-    // The marker is index-based, not the path itself, so the canonical replace cannot touch it.
-    const protectedWorkspace = `\u0000${index}\u0000`;
-    rewritten = rewritten.split(workspace).join(protectedWorkspace);
-    rewritten = rewritten.split(canonical).join(workspace);
-    rewritten = rewritten.split(protectedWorkspace).join(workspace);
+  for (const { canonical, workspace } of pairs) {
+    if (rewritten === canonical) rewritten = workspace;
+    else if (rewritten.startsWith(`${canonical}/`)) rewritten = `${workspace}${rewritten.slice(canonical.length)}`;
   }
   return rewritten;
 }

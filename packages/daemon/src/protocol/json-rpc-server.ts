@@ -926,7 +926,10 @@ export function createJsonRpcProtocolServer(options: {
       // The CLI's artifact destination coordinate is transport metadata, not a Task Action field.
       // Attach it only after the closed RPC/action validators have accepted the request so the
       // daemon's internal doc writer can render the caller-facing workspace spelling.
-      if (commandParams.payload.pathCoordinate === "workspace")
+      if (
+        commandParams.payload.pathCoordinate === "workspace" ||
+        commandParams.payload.pathCoordinate === "task-artifact"
+      )
         action = { ...action, pathCoordinate: commandParams.payload.pathCoordinate };
     } catch (error) {
       return reply(commandMethod, protocolFailure(commandMethod, error));

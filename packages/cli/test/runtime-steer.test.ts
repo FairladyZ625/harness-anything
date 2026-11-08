@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { materializePromptFile } from "../src/cli-runtime-prompt-file.ts";
@@ -45,6 +45,35 @@ test("runtime steer --prompt-file steers a dispatch target and stays inside the 
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runtime steer --prompt-file rejects file and parent symlinks that leave the repository", (t) => {
+  if (process.platform === "win32") {
+    t.skip("requires POSIX file-symbolic-link semantics");
+    return;
+  }
+  const parent = mkdtempSync(path.join(tmpdir(), "steer-prompt-symlink-")),
+    root = path.join(parent, "repo"),
+    outside = path.join(parent, "outside");
+  mkdirSync(path.join(root, "linked"), { recursive: true });
+  mkdirSync(outside);
+  writeFileSync(path.join(outside, "prompt.md"), "outside prompt");
+  symlinkSync(path.join(outside, "prompt.md"), path.join(root, "file-link.md"));
+  symlinkSync(outside, path.join(root, "directory-link"), "dir");
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+
+  for (const requested of ["file-link.md", "directory-link/prompt.md"]) {
+    const parsed = parseThinCommand(["runtime", "steer", "runtime_session1", "--prompt-file", requested], root);
+    assert.equal(parsed.ok, true, JSON.stringify(parsed));
+    if (!parsed.ok) continue;
+    assert.throws(
+      () => materializePromptFile(parsed.command),
+      (error: unknown) =>
+        (error as { readonly code?: unknown }).code === "invalid_field" &&
+        /must stay within the selected repository/u.test(String((error as Error).message)),
+      requested,
+    );
   }
 });
 

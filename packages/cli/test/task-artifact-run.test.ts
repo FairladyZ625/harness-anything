@@ -41,7 +41,7 @@ test("task artifact add --run publishes the same-run transcript and preserves ch
   assert.ok(invocation);
   let transcript: Record<string, unknown> | undefined;
   const receipt = await runTaskArtifactCommand(invocation, undefined, async (command) => {
-    assert.equal(command.pathCoordinate, "workspace");
+    assert.equal(command.pathCoordinate, "task-artifact");
     assert.equal(Object.hasOwn(command.action, "pathCoordinate"), false);
     transcript = JSON.parse(String(command.action.content));
     assert.equal(command.action.source, undefined);
@@ -59,6 +59,25 @@ test("task artifact add --run publishes the same-run transcript and preserves ch
   for (const field of ["stdoutBase64", "stderrBase64"])
     assert.equal(Object.hasOwn(transcript ?? {}, field), false, `${field} must not duplicate raw output`);
   assert.match(String(receipt.evidencePath), /^artifacts\/evidence\/command-.*\.json$/u);
+});
+
+test("task artifact add --run uses task-local coordinates for its generated destination", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-task-evidence-coordinate-"));
+  try {
+    const invocation = parseTaskArtifactRunInvocation(
+      ["task", "artifact", "add", "task-proof", "--run", "--", process.execPath, "-e", "process.stdout.write('ok')"],
+      root,
+    );
+    assert.ok(invocation);
+    const receipt = await runTaskArtifactCommand(invocation, undefined, async (command) => {
+      assert.equal(command.pathCoordinate, "task-artifact");
+      assert.equal(command.action.destination?.startsWith("artifacts/evidence/"), true);
+      return { ok: true, outcome: "applied", destination: command.action.destination };
+    });
+    assert.equal(receipt.ok, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("task artifact add selects exactly one input source", () => {

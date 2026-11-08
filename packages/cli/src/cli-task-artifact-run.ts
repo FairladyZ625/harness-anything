@@ -104,7 +104,7 @@ export async function runTaskArtifactCommand(
     };
   const receipt = await publish({
     rootDir: safePath(invocation.rootDir),
-    pathCoordinate: "workspace",
+    pathCoordinate: invocation.destination === undefined ? "task-artifact" : "workspace",
     ...(invocation.repoId ? { repoId: invocation.repoId } : {}),
     json: invocation.json,
     method: "repo.task.run",

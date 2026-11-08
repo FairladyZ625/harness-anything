@@ -37,8 +37,7 @@ test("task-list translates every row and the human summary, and leaves the rest 
   assert.equal(payload.rows[0].packagePath, workspace);
   assert.equal(payload.rows[0].ledgerPackagePath, canonical);
   assert.equal(payload.rows[1].packagePath, null);
-  assert.match(String(translated.summary), new RegExp(`packagePath=${workspace}`, "u"));
-  assert.doesNotMatch(String(translated.summary), new RegExp(`packagePath=${canonical}`, "u"));
+  assert.equal(translated.summary, `task_b  task_a  packagePath=${canonical}`);
 });
 
 test("task show nests the same package under task, progress and artifacts; all are translated", () => {
@@ -61,8 +60,10 @@ test("task show nests the same package under task, progress and artifacts; all a
   assert.equal(payload.ledgerPackagePath, canonical);
   assert.equal(payload.progress[0].payload.resultDocumentClaim.path, `${workspace}/progress.md`);
   assert.equal(payload.executions[0].submission.artifacts[0].path, `${workspace}/artifacts/report.md`);
-  assert.match(String(translated.summary), new RegExp(`taskId=task_a  packagePath=${workspace}`, "u"));
-  assert.doesNotMatch(String(translated.summary), new RegExp(`packagePath=${canonical}`, "u"));
+  assert.equal(
+    translated.summary,
+    `task: taskId=task_a  packagePath=${canonical}\npackagePath=${canonical}  workspacePackagePath=${workspace}`,
+  );
 });
 
 test("a summary already carrying the workspace spelling is not double-prefixed", () => {
@@ -72,8 +73,48 @@ test("a summary already carrying the workspace spelling is not double-prefixed",
     workspacePackagePath: workspace,
     summary: `at ${workspace}\nledger ${canonical}`,
   });
-  assert.match(String(translated.summary), new RegExp(`at ${workspace}`, "u"));
-  assert.doesNotMatch(String(translated.summary), /harness\/harness/u);
+  assert.equal(String(translated.summary), `at ${workspace}\nledger ${canonical}`);
+});
+
+test("package translation changes typed paths only and matches complete path segments", () => {
+  const title = "Audit tasks/task_audit";
+  const completionClaim = "Read tasks/task_a/input verbatim";
+  const summary = `packagePath=${canonical}; title=${title}`;
+  const translated = translateReceiptPathCoordinates({
+    ok: true,
+    packagePath: canonical,
+    workspacePackagePath: workspace,
+    summary,
+    evidence: JSON.stringify({
+      task: { title },
+      progress: [
+        {
+          payload: {
+            text: "Literal tasks/task_a/input must remain as authored",
+            resultDocumentClaim: { path: `${canonical}/results/progress.md` },
+          },
+        },
+      ],
+      executions: [
+        {
+          submission: {
+            completionClaim,
+            artifacts: [{ path: `${canonical}/artifacts/report.md` }, { path: "tasks/task_audit/artifacts/report.md" }],
+          },
+        },
+      ],
+    }),
+  });
+  const payload = JSON.parse(String(translated.evidence));
+  assert.equal(payload.task.title, title);
+  assert.equal(payload.progress[0].payload.text, "Literal tasks/task_a/input must remain as authored");
+  assert.equal(payload.progress[0].payload.resultDocumentClaim.path, `${workspace}/results/progress.md`);
+  assert.equal(payload.executions[0].submission.completionClaim, completionClaim);
+  assert.deepEqual(payload.executions[0].submission.artifacts, [
+    { path: `${workspace}/artifacts/report.md` },
+    { path: "tasks/task_audit/artifacts/report.md" },
+  ]);
+  assert.equal(translated.summary, summary);
 });
 
 test("task-create translates the receipt field, not an evidence payload", () => {

@@ -11,6 +11,8 @@ import type {
   GeneratedSettingsFieldProtocolProjection,
   RpcShape,
 } from "./preset-command-contract-support.ts";
+import { readFileSync, realpathSync } from "node:fs";
+import path from "node:path";
 import { taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
 import { settingsFieldProtocolProjection } from "./settings-field-projection.generated.ts";
 import { taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
@@ -85,6 +87,27 @@ export function cliInput<const Extra extends Readonly<Record<string, unknown>> =
 // on the same source instead of two hand-copied sentences.
 export const workspacePathResolutionRule = "relative paths resolve from the workspace root, not the current directory";
 export const workspacePathFormat = `<path; ${workspacePathResolutionRule}>`;
+
+/** Read a UTF-8 workspace file after resolving both directory and file symlinks. */
+export function readWorkspaceText(rootDir: string, requested: string, field: string): string {
+  let requestedPath: string, candidate: string, bytes: Uint8Array;
+  try {
+    const root = realpathSync(rootDir);
+    requestedPath = path.resolve(root, requested);
+    requestedPath = path.join(realpathSync(path.dirname(requestedPath)), path.basename(requestedPath));
+    if (requestedPath !== root && !requestedPath.startsWith(`${root}${path.sep}`)) throw new Error("outside");
+    candidate = realpathSync(requestedPath);
+    if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw new Error("outside");
+    bytes = readFileSync(candidate);
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (error) {
+    if (error instanceof Error && error.message === "outside")
+      throw Object.assign(new Error(`${field} is outside the workspace boundary.`), { code: "invalid_command" });
+    throw Object.assign(new Error(`${field} must name a readable UTF-8 file inside the selected workspace.`), {
+      code: "invalid_command",
+    });
+  }
+}
 
 export function regexLength(regex: string | undefined): readonly [number, number] | undefined {
   const match = regex?.match(

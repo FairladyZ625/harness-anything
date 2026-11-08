@@ -8,7 +8,7 @@ export interface ThinCommand {
   readonly repoId?: string;
   readonly json: boolean;
   /** CLI-only transport metadata; never part of the closed Task Action input. */
-  readonly pathCoordinate?: "workspace";
+  readonly pathCoordinate?: "workspace" | "task-artifact";
   readonly method: string;
   readonly action: Readonly<Record<string, unknown>> & {
     readonly kind: string;

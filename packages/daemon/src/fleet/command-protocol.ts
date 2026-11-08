@@ -524,7 +524,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
       field: "pathCoordinate",
       type: "string",
       required: false,
-      wire: { enum: ["workspace"] },
+      wire: { enum: ["workspace", "task-artifact"] },
     });
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
