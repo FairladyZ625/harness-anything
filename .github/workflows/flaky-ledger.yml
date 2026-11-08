@@ -1,0 +1,34 @@
+name: flaky-ledger
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "29 21 * * *"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  flaky-ledger:
+    # Report-only rerun-green ledger (dec_25B3C380F6FB9D4D4A1E27921E CH2). Separate from rewrite-ci,
+    # with no branch-protection context, threshold or merge-blocking result.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Count rewrite-ci runs that turned green on a rerun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/flaky-rerun-ledger.mjs --repo "${{ github.repository }}" --days 14 --out tmp/flaky-ledger
+      - name: Preserve the ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-ledger-${{ github.run_id }}
+          path: tmp/flaky-ledger/
+          if-no-files-found: error
+          retention-days: 90

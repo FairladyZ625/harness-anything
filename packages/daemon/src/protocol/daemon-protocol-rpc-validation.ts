@@ -437,7 +437,10 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       !nonEmpty(value.dispatchKey))
   )
     errors.push("runtime spawn request is invalid");
-  if (method === "repo.agentRuntime.cancel" && !nonEmpty(value.runtimeSessionId))
+  if (
+    method === "repo.agentRuntime.cancel" &&
+    (!nonEmpty(value.runtimeSessionId) || (value.ruling !== undefined && !nonEmpty(value.ruling)))
+  )
     errors.push("runtime cancel request is invalid");
   if (method === "repo.gui.catalog.reread" && value.expectedDigest !== undefined && !digest(value.expectedDigest))
     errors.push("catalog reread digest is invalid");

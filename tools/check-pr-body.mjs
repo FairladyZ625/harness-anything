@@ -88,9 +88,14 @@ export function eventMigrationCommandNames(commands = [...agentProtocolCommands,
     .sort();
 }
 
+/** The active `Event-Migration:` values, shared with the combined-train body generator. */
+export function readEventMigrationDeclarations(body) {
+  return [...body.matchAll(EVENT_MIGRATION)].map((match) => match[1].trim());
+}
+
 export function checkEventMigrationDeclaration(body, { files = [], commandNames = eventMigrationCommandNames() } = {}) {
   const acceptedSampleChanges = files.filter((file) => ACCEPTED_CANONICAL_EVENT_SAMPLE.test(file)),
-    declarations = [...body.matchAll(EVENT_MIGRATION)].map((match) => match[1].trim()),
+    declarations = readEventMigrationDeclarations(body),
     required = acceptedSampleChanges.length > 0,
     issues = [];
   if (!required && declarations.length === 0)
@@ -143,7 +148,7 @@ function normalizedNonEmptyLines(text) {
 const PLACEHOLDER_ONLY_LINE =
   /^\s*(?:[-*+][ \t]*)?(?:tbd|todo|n\/a|na|none|pending|not applicable|待定|待补|待填|无|暂无|不适用|没有)\s*[.。!！]?\s*$/iu;
 
-function isPlaceholderLine(line) {
+export function isPlaceholderLine(line) {
   return /^\s*[-*]\s*$/u.test(line) || /^\s*(?:[-*_]){3,}\s*$/u.test(line) || PLACEHOLDER_ONLY_LINE.test(line);
 }
 

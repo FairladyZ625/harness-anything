@@ -339,17 +339,36 @@ Do not calculate or hand-copy production delta into the body. The submission
 freezes G33's result for its delivery commit; the PR renderer inserts it, and
 the PR workflow independently runs G33 against the current delivery diff.
 
-Preflight the completed body through the requested environment interface,
-then run the manifest's full PR-body job:
+Preflight the completed body through the same entry CI uses. It derives the
+complete gate set from `.github/workflows/pr-body.yml` and
+`tools/gate-manifest.json`, runs every gate even after an earlier one fails, and
+prints one summary with every failure and its fix hint:
 
 ```bash
-export PR_BODY="$(cat /tmp/harness-anything-pr-body.md)"
-node tools/check-pr-body.mjs --env PR_BODY
-export PR_BASE_SHA="$(git merge-base origin/main HEAD)"
-export PR_HEAD_SHA="$(git rev-parse HEAD)"
-node tools/run-manifest-gates.mjs --workflow-job pr-body-lint
-unset PR_BODY PR_BASE_SHA PR_HEAD_SHA
+npm run check:pr-body -- --body-file /tmp/harness-anything-pr-body.md
 ```
+
+Pass `--base <ref>` when `origin/main` is not the intended comparison; the entry
+always inspects the current checkout HEAD and has no `--head` option. Use
+`--pr <number>` to read the body and comparison base from a hosted pull request.
+The old practice of running `check-pr-body.mjs` and then only the `pr-body-lint`
+job is gone: it skipped the governance, production-delta, evidence and dependency
+declarations until CI exposed them one at a time.
+
+For a manual merge train, combine the member bodies first and run the same
+preflight on the result:
+
+```bash
+node tools/gates/combine-pr-bodies.mjs --pr <number> --pr <number> > /tmp/harness-anything-train-body.md
+npm run check:pr-body -- --body-file /tmp/harness-anything-train-body.md
+```
+
+The combiner aggregates each member's Dependency-Change, Event-Migration,
+governance declaration and required prose sections, and preserves evidence
+claims. It fails closed when the members disagree on a single-valued declaration
+(for example two different event migrations) instead of picking one silently.
+Queue-managed merge groups decide their own body after task_f8d4c881 lands; this
+generator serves manual trains and single-PR refreshes.
 
 [`references/example-pr-body.md`](references/example-pr-body.md) is a completed
 docs-only example that exercises every section. It is a fixture, not a template:
@@ -360,7 +379,10 @@ always copy the live repository template for a real PR.
 > renderer 同时生成 `# 中文` 的 `## 摘要`/`## 验证` 等节；closeout 是同一份文档，必须带
 > `## 摘要` 与 `## 验证`，只有英文的 closeout 会被拒绝，不会把英文塞进中文标题下。手写或
 > 补粘贴的中文段会被下次渲染替换。治理声明与 `Dependency-Change:` 也由 renderer 按台账与
-> closeout 生成，不要手工删除或改写。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID。Verification
+> closeout 生成，不要手工删除或改写。预检统一用 `npm run check:pr-body -- --body-file <path>`：
+> 它按 workflow 与 gate-manifest 派生全部正文检查，逐项跑完再汇总，不再分几条命令逐项暴露。
+> 手工合体列车先用 `tools/gates/combine-pr-bodies.mjs` 汇总各 PR 的声明与必需节，再对生成物
+> 跑同一入口。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID。Verification
 > 只记录直接通过、或由 runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生
 > 的 CI、人工 review 或测试写成已完成。
 

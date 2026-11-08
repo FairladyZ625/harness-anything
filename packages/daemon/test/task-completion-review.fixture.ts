@@ -21,7 +21,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import type { Snapshot } from "../src/repo-cell-types.ts";
-import { waitForArrival } from "./event-arrival.ts";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,

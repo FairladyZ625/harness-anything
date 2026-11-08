@@ -468,7 +468,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "agentRuntime.cancel",
     "repo.agentRuntime.cancel",
     "runtime-cancel",
-    shape({ runtimeSessionId: "string" }),
+    shape({ runtimeSessionId: "string", ruling: "string?" }),
     "cancelAgentRuntime",
     "/api/agent-runtime/sessions/:id/cancel",
     "repo-write",

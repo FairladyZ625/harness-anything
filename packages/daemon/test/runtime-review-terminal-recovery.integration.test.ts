@@ -12,7 +12,7 @@ import {
   reopenDispatchStream,
 } from "../src/dispatch-stream.ts";
 import { fixture, owner, taskId } from "./task-completion-review.fixture.ts";
-import { waitForArrival } from "./event-arrival.ts";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 for (const recovery of ["exit", "recorded-exit", "terminal"] as const) {
   test(`a missing Review settles failed through the canonical writer (${recovery})`, { timeout: 20_000 }, async (t) => {

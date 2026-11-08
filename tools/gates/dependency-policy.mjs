@@ -74,9 +74,13 @@ export function validateDependencyDeclaration(paths, prBody, declarationRequired
   if (!hasDependencyChange(paths)) return [];
   const declarations = readDependencyDeclarations(prBody);
   if (declarations.length !== 1)
-    return [`dependency changes require exactly one Dependency-Change: declaration; found ${declarations.length}`];
+    return [
+      `dependency changes require exactly one \`Dependency-Change: <description>\` line under ## Machine-Readable Declarations; found ${declarations.length}`,
+    ];
   if (declarations[0].length === 0 || /^(?:none|n\/a)$/iu.test(declarations[0]))
-    return ["Dependency-Change: must describe the deterministic dependency change"];
+    return [
+      "Dependency-Change: must describe the deterministic dependency change; replace `none` with what changed (for example `bump effect to 2.0.0`)",
+    ];
   return [];
 }
 

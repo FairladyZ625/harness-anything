@@ -568,6 +568,8 @@ test("runner reports a machine-readable outcome line for every started test file
   assert.equal(result.status, 1, output);
   assert.match(output, /^\[node-test-file\] pass tools\/test-fixtures\/runner-file-outcomes\/passing\.test\.mjs$/mu);
   assert.match(output, /^\[node-test-file\] fail tools\/test-fixtures\/runner-file-outcomes\/failing\.test\.mjs$/mu);
+  // The weights refresh reads one measured duration per finished file from the same stdout.
+  assert.match(output, /^\[node-test-duration\] \d+ tools\/test-fixtures\/runner-file-outcomes\/passing\.test\.mjs$/mu);
   // The outcome lines must close the run: a caller forwarding only stdout builds its per-file
   // summary from exactly these lines.
   const outcomeLines = output.split(/\r?\n/u).filter((line) => line.startsWith("[node-test-file] "));
