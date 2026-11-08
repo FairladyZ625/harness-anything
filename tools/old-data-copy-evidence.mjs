@@ -778,7 +778,7 @@ try {
 `;
 
 const COLD_REBUILD_RUNNER = String.raw`
-const { appendFileSync } = await import("node:fs");
+const { appendFileSync, existsSync, rmSync } = await import("node:fs");
 const path = await import("node:path");
 const { pathToFileURL } = await import("node:url");
 const toUrl = (p) => pathToFileURL(path.resolve(p)).href;
@@ -789,23 +789,31 @@ const record = (step, value) => {
 };
 let projection = null;
 try {
+  const kernel = await import(toUrl(path.join(BUILD_ROOT, "packages/kernel/src/index.ts")));
   const storage = await import(toUrl(path.join(BUILD_ROOT, "packages/storage/src/index.ts")));
   const store = storage.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
-  // This runner is deliberately a fresh process: the direct production reads can retain a
-  // projection's event objects on a large ledger even after close(). A separate process keeps
-  // the cold rebuild's peak bounded without weakening the production rebuild path itself.
+  const projectionPath = kernel.resolveHarnessLayout(WORKSPACE).taskProjectionPath;
+  for (const suffix of ["", "-wal", "-shm"])
+    rmSync(projectionPath + suffix, { force: true, maxRetries: 5, retryDelay: 20 });
+  const coldStart = !existsSync(projectionPath);
+  // A separate process avoids retained direct-read objects; replay from a removed projection
+  // exercises the production event reducer without the full-ledger diagnostic state digest.
   projection = storage.makeTaskProjection({
     rootDir: WORKSPACE,
     eventStore: store,
     catchUpLimit: ${EVIDENCE_CATCH_UP_LIMIT},
   });
+  const initialCut = projection.readCut();
   const startedAt = Date.now();
-  const rebuilt = projection.rebuild();
+  const rebuilt = projection.catchUp();
+  const finalCut = projection.readCut();
   const sourceRevision = store.readHead()?.revision ?? 0;
   record("cold-rebuild-receipt", {
+    coldStart,
+    initialWatermark: initialCut.watermark,
     watermark: rebuilt.watermark,
     sourceRevision,
-    stateDigest: rebuilt.stateDigest,
+    finalCut,
     metrics: rebuilt.metrics,
     elapsedMs: Date.now() - startedAt,
   });
@@ -1079,7 +1087,7 @@ export async function main(argv, session = {}) {
     const stopped = await cli(build.root, ["daemon", "stop"], env, workspace, { userRoot, daemonId });
     daemonStopReceipt = stopped.receipt;
     if (await awaitDaemonDown(pid)) daemonHandle = null;
-    // 6. Direct reads and full cold rebuild through the build's own production functions.
+    // 6. Direct reads and full cold replay through the build's own production functions.
     const direct = await runDirectEvidence(build.root, workspace, tempRoot, env, receipt.source.repository);
     receipt.directRunner = { exitCode: direct.status, signal: direct.signal };
     const byStep = new Map(direct.steps.map((step) => [step.step, step]));
@@ -1092,9 +1100,8 @@ export async function main(argv, session = {}) {
       taskDispatches: byStep.get("task-dispatches")?.value ?? null,
       events: byStep.get("event-read")?.value ?? null,
     };
-    // Cold rebuild runs in a second process. The direct reader intentionally exercises the
-    // production read ports, while a fresh process prevents its large event graph from
-    // inflating the rebuild's peak RSS on the real ledger.
+    // Cold replay runs in a second process. The direct reader intentionally exercises the
+    // production read ports, while a fresh process prevents its event graph from inflating replay.
     const cold = await runColdRebuildEvidence(build.root, workspace, tempRoot, env, receipt.source.repository);
     const coldByStep = new Map(cold.steps.map((step) => [step.step, step]));
     receipt.coldRebuild = coldByStep.get("cold-rebuild-receipt")?.value ?? null;
@@ -1138,6 +1145,9 @@ export async function main(argv, session = {}) {
       receipt.attach?.outcome === "terminal-record" &&
       receipt.attach?.record?.event === "repo_attach_completed" &&
       rebuild !== null &&
+      rebuild.coldStart === true &&
+      rebuild.initialWatermark === 0 &&
+      rebuild.finalCut?.status === "ready" &&
       rebuild.watermark === rebuild.sourceRevision;
     receipt.copy.sourceRevision = receipt.reads.storeHead?.revision ?? rebuild?.sourceRevision ?? null;
   } catch (error) {

@@ -300,9 +300,12 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
       new Set(receipt.reads.events.map((event) => event.schema)),
       new Set(["settings-event/v1", "event-shape-migration/v1"]),
     );
+    assert.equal(receipt.coldRebuild.coldStart, true);
+    assert.equal(receipt.coldRebuild.initialWatermark, 0);
     assert.equal(receipt.coldRebuild.watermark, 2);
     assert.equal(receipt.coldRebuild.sourceRevision, 2);
-    assert.match(receipt.coldRebuild.stateDigest, /^sha256:[0-9a-f]{64}$/u);
+    assert.equal(receipt.coldRebuild.finalCut.status, "ready");
+    assert.equal(receipt.coldRebuild.metrics.reducedItems, 2);
     assert.ok(receipt.coldRebuild.elapsedMs >= 0);
     if (existsSync("/usr/bin/time"))
       assert.ok(receipt.peakRss.rebuildBytes > 0, "/usr/bin/time reports the rebuild peak rss");
