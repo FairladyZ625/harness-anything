@@ -8,9 +8,11 @@ import { taskCompletionNext } from "../../src/domain/completion-readiness.ts";
 import { submissionDigest } from "../../src/domain/execution.ts";
 import { reviewDigest, type ReviewFindingV1 } from "../../src/domain/review.ts";
 import { reviewReverifyRoute } from "../../src/domain/review-reverify.ts";
+import { reduceTaskEvent, type TaskEventV1 } from "../../src/index.ts";
 import {
   applyTransition,
   normalizeTaskLifecycleCommand,
+  validateCurrentTaskEvent,
   validateTransition,
   type TaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -158,6 +160,9 @@ test("all owner-verify findings adopted: no reviewer is owed and owner consent c
   const consented = applyTransition(snapshot, ownerVerifyConsent(snapshot, executionId), consentProof);
   assert.equal(consented.event.type, "review_consent_overridden");
   assert.equal(consented.snapshot.consents.at(-1)?.submissionDigest, submissionDigest(execution.submission!));
+  // The event is admissible and replays to the same consent state as the projection rebuild reads it.
+  assert.deepEqual(validateCurrentTaskEvent(consented.event), []);
+  assert.deepEqual(reduceTaskEvent(snapshot, consented.event as TaskEventV1).consents, consented.snapshot.consents);
   const readiness = closeoutReadiness(consented.snapshot, undefined, readinessGates);
   assert.equal(readiness.blocker, undefined);
   assert.equal(readiness.readiness, "ready");
