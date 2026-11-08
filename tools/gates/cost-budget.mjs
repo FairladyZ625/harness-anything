@@ -436,7 +436,9 @@ export function evaluateCollectionCosts(measured) {
     )
       throw new Error(`${id}: collection scales must be positive integers with small < large`);
     const metrics = Object.keys(small.counts ?? {}),
-      maxGrowth = (large.size / small.size) * COLLECTION_LINEAR_TOLERANCE;
+      // A probe of writer-held work declares `growth: "constant"`: the larger collection may not cost more.
+      constant = measured[id].growth === "constant",
+      maxGrowth = constant ? 1 : (large.size / small.size) * COLLECTION_LINEAR_TOLERANCE;
     if (
       metrics.length === 0 ||
       metrics.sort().join() !==
@@ -452,7 +454,7 @@ export function evaluateCollectionCosts(measured) {
         throw new Error(`${id}.${metric}: counts must be nonnegative safe integers`);
       if (b > a * maxGrowth)
         errors.push(
-          `${id}.${metric}: ${a} at ${small.size} grew to ${b} at ${large.size} (${a === 0 ? "infinite" : (b / a).toFixed(2)}x), exceeding the ${maxGrowth}x linear-growth limit`,
+          `${id}.${metric}: ${a} at ${small.size} grew to ${b} at ${large.size} (${a === 0 ? "infinite" : (b / a).toFixed(2)}x), exceeding the ${constant ? "constant-cost" : `${maxGrowth}x linear-growth`} limit`,
         );
     }
   }
@@ -466,6 +468,7 @@ function parseArgs(argv) {
     dimension: process.env.G38_DIMENSION,
     output: process.env.G38_OUTPUT,
     resultsDir: process.env.G38_RESULTS,
+    requiredBackends: process.env.G38_REQUIRED_BACKENDS?.split(",").filter(Boolean),
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -478,6 +481,7 @@ function parseArgs(argv) {
     else if (arg === "--dimension") options.dimension = argv[++index];
     else if (arg === "--output") options.output = argv[++index];
     else if (arg === "--results") options.resultsDir = argv[++index];
+    else if (arg === "--required-backends") options.requiredBackends = argv[++index].split(",").filter(Boolean);
     else throw new Error(`unknown argument: ${arg}`);
   }
   return options;
@@ -512,10 +516,10 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
             `at ${g1.scales.small}, ${g1.actualLarge[operation][metric]} at ${g1.scales.large}`,
         );
     const collections = evaluateCollectionCosts(await measureCollectionCosts(rootDir));
-    for (const [id, { small, large }] of Object.entries(collections.measured))
+    for (const [id, { small, large, growth }] of Object.entries(collections.measured))
       for (const metric of Object.keys(small.counts))
         console.log(
-          `G38 ${id}.${metric}: ${small.counts[metric]} at ${small.size}, ${large.counts[metric]} at ${large.size} (max ${(large.size / small.size) * COLLECTION_LINEAR_TOLERANCE}x)`,
+          `G38 ${id}.${metric}: ${small.counts[metric]} at ${small.size}, ${large.counts[metric]} at ${large.size} (max ${growth === "constant" ? 1 : (large.size / small.size) * COLLECTION_LINEAR_TOLERANCE}x)`,
         );
     const errors = [...result.errors, ...g1.errors, ...collections.errors];
     if (errors.length > 0) {

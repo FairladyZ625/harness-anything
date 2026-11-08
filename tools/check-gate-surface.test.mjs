@@ -28,20 +28,28 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   assert.equal(boundaryCommands[0][1], undefined);
 
   for (const job of [
-    "typecheck",
+    "quick-gates",
     "fast-contract",
     "integration-shard",
     "boundaries",
     "package-policy",
-    "supply-chain",
     "gui-build",
   ]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
   }
   const prBodyWorkflow = readFileSync(path.join(repoRoot, ".github/workflows/pr-body.yml"), "utf8");
-  for (const job of ["pr-body-lint", "production-delta", "evidence-contract"]) {
-    assert.match(prBodyWorkflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain in the PR-body workflow`);
-  }
+  // Two aggregate jobs keep the existing enforcement: the required body/governance checks block,
+  // while the advisory checks stay non-blocking. Both run their full manifest plan before failing,
+  // so a run reports every check without letting an earlier failure hide the rest.
+  assert.match(prBodyWorkflow, /^  pr-body-lint:/mu, "the required aggregate PR-body job must remain");
+  assert.match(prBodyWorkflow, /^  pr-body-advisory:/mu, "the advisory aggregate PR-body job must remain");
+  assert.match(prBodyWorkflow, /run: node tools\/run-manifest-gates\.mjs --workflow-job pr-body-lint/u);
+  assert.match(prBodyWorkflow, /run: node tools\/run-manifest-gates\.mjs --workflow-job pr-body-advisory/u);
+  assert.doesNotMatch(
+    prBodyWorkflow,
+    /^  (?:production-delta|evidence-contract|dependency-policy-declaration):/mu,
+    "body checks run inside the aggregate jobs, not as separate jobs",
+  );
 });
 
 test("rewrite CI dependency artifact includes the daemon output built by npm ci", () => {

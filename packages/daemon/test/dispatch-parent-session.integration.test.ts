@@ -56,7 +56,7 @@ test("a local binding executor names the parent runtime session when the caller 
     repoId: workspaceId("parent-session-binding"),
     rootDir: canonicalRoot(root),
     ownerId: "parent-session-test",
-    runtimeInstances: () => [runtimeInstance("codex-parent")],
+    runtimeInstances: () => [{ ...runtimeInstance("codex-parent"), permissionMode: "workspace-write" }],
     prepareRuntimeLaunch: async (instanceId, request) => ({
       definition: definition(instanceId, request.model ?? "codex-parent-model"),
       installation,

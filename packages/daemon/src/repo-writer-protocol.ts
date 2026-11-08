@@ -5,7 +5,13 @@ import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { diagnosticForError } from "./receipt-guidance.ts";
 import type { RepoBootstrapInput } from "./repo-bootstrap.ts";
-import type { RepoCellBinding, RepoCellStatus, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
+import type {
+  RepoCellBinding,
+  RepoCellStatus,
+  RepoCellWriteQueueHead,
+  RepoTaskAction,
+  RuntimeIngressAction,
+} from "./repo-cell-types.ts";
 import type { RuntimeAttemptTerminal, RuntimeDaemonRoute } from "./runtime-spawn.ts";
 
 export const REPO_WRITER_PROTOCOL_VERSION = 1 as const;
@@ -84,6 +90,8 @@ export interface RepoWriterReceiptV1 {
   readonly executionStartedAtMs?: number;
   /** Process-monotonic milliseconds when the worker finished it; same clock as the daemon. */
   readonly finishedAtMs?: number;
+  /** The write that held the queue when this request was appended; absent when it did not wait. */
+  readonly queueHead?: RepoCellWriteQueueHead;
 }
 
 export interface RepoWriterCancelV1 {

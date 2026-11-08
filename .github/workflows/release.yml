@@ -43,6 +43,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - id: context
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -116,6 +117,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - name: Require npm credentials
         env:
@@ -150,6 +152,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - name: Publish all public workspaces as dry-run
         env:
@@ -190,6 +193,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - name: Build desktop installer
         working-directory: packages/gui

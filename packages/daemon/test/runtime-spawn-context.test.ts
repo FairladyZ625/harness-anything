@@ -32,6 +32,49 @@ test("an unbound runtime inherits its spawning daemon route and runtime actor", 
   assert.equal(launch.env.PATH?.split(path.delimiter)[0], "/installation/bin");
 });
 
+test("a read-only execution credential is delivered through the launch environment", async () => {
+  const principals: Array<{ readonly role: string; readonly taskId: string | null }> = [],
+    center = {
+      accessToken: "synthetic-access-token",
+      provider: {
+        issueExecutionCredential: async (
+          _accessToken: string,
+          principal: { readonly role: string; readonly taskId: string | null },
+        ) => {
+          principals.push(principal);
+          return "synthetic-execution-credential";
+        },
+      },
+    },
+    launch = await prepareBoundRuntimeLaunch({
+      input: {
+        rootDir: "/repo",
+        repoId: "repo",
+        now: () => "2026-11-08T00:00:00.000Z",
+        keycloakCenter: async () => center,
+      } as unknown as RuntimeSpawnerInput,
+      prepared: { env: {}, permissionMode: "read-only" } as Parameters<typeof prepareBoundRuntimeLaunch>[0]["prepared"],
+      daemonRoute: { userRoot: "/state", daemonId: "test", endpoint: "/daemon.sock" },
+      runtimeActor: "agent:runtime-session:readonly",
+      taskId: null,
+      execution: {
+        repoId: "repo",
+        personId: "person",
+        source: "local",
+        runtimeSessionId: "runtime-readonly",
+        dispatchId: "dispatch-readonly",
+        taskId: null,
+        executionId: null,
+        role: "read-only",
+      },
+    });
+  assert.deepEqual(
+    principals.map(({ role, taskId }) => ({ role, taskId })),
+    [{ role: "read-only", taskId: null }],
+  );
+  assert.equal(launch.env.HARNESS_EXECUTION_CREDENTIAL, "synthetic-execution-credential");
+});
+
 test("runtime CLI bin resolves from the nearest daemon installation", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-bin-")),
     modulePath = path.join(root, "packages", "daemon", "dist", "runtime-spawn-context.js"),
@@ -55,6 +98,12 @@ test("an artifact task resume discards an inherited canonical cwd and any explic
     });
   }
   assert.equal(resolveDispatchCwd(root, {}, root, null).cwd, root);
+});
+
+test("an artifact task rooted at the repository uses the repo-root cwd scope", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-package-root-cwd-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.equal(resolveDispatchCwd(root, {}, root, null, root).cwd, root);
 });
 
 test("runtime CLI bin stays absent when the daemon installation has no ha entry", (context) => {

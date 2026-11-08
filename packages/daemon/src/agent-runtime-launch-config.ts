@@ -19,6 +19,7 @@ import {
   unavailable,
 } from "./agent-runtime-instance-values.ts";
 import { claudeWorkspaceWriteSandbox, runtimeKindForId, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
+import { assertRuntimeWebSearchSupported, runtimeWebSearchForConfig } from "./agent-runtime-web-search.ts";
 
 // Platform-derived isolation environment. POSIX keeps HOME/TMPDIR/XDG_RUNTIME_DIR
 // semantics; Windows derives the same guarantees from USERPROFILE/TEMP/APPDATA and
@@ -73,6 +74,10 @@ export function launchArgs(
   commandInterceptions: CommandInterceptions = [],
   commandInterceptionArgs: readonly string[] = [],
 ): string[] {
+  // Never trust a literal caller: a persisted tier is re-validated here as well as on the
+  // write path, so a hand-edited instance file cannot enable hosted search on a provider
+  // that does not honor it.
+  assertRuntimeWebSearchSupported(config);
   if (
     config.kindId === "claude" &&
     permissionMode === "workspace-write" &&
@@ -168,6 +173,12 @@ export function launchArgs(
     // launches with no project interception rather than silently dropping the policy.
     if (token === "$api-auth") return config.auth.mode === "api-key" && !hook ? (launch.apiKeyArgs ?? []) : [];
     if (token === "$fast") return fast ? (launch.fastArgs ?? []) : [];
+    if (token === "$web-search") {
+      const mode = runtimeWebSearchForConfig(config);
+      // Always emit the effective tier, including `disabled`: an inherited Codex config
+      // that says live must not be able to upgrade a dispatch implicitly.
+      return mode === null ? [] : ["--config", `web_search=${tomlString(mode)}`];
+    }
     return [token];
   });
   if (config.kindId === "codex" && hook)

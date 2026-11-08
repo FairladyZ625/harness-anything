@@ -183,25 +183,28 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         }
       });
     const readOnly = await rpc(host, auth, "repo.agentRuntime.spawn", {
+      repo: { repoId },
+      payload: {
+        runtimeInstanceId: "codex-read-only",
+        agentId: "ask-agent",
+        model: "codex-model",
+        cwd: { scope: "repo-root" },
+        prompt: "read-only",
+        taskId: null,
+        dispatchKey: "codex-read-only",
+      },
+    });
+    assert.equal(readOnly.outcome, "applied", JSON.stringify(readOnly));
+    const readOnlyRead = await eventuallyValue(async () => {
+      const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
-        payload: {
-          runtimeInstanceId: "codex-read-only",
-          cwd: { scope: "repo-root" },
-          prompt: "read-only",
-          taskId: null,
-          dispatchKey: "codex-read-only",
-        },
-      }),
-      readOnlyRead = await eventuallyValue(async () => {
-        const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-          repo: { repoId },
-          payload: { runtimeSessionId: readOnly.runtimeSessionId },
-        });
-        // A read racing the writer's projection catch-up can observe the session before it is
-        // projected (runtime_session_not_found), which returns a receipt with no `session` at
-        // all -- keep polling rather than crashing on that transient shape.
-        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+        payload: { runtimeSessionId: readOnly.runtimeSessionId },
       });
+      // A read racing the writer's projection catch-up can observe the session before it is
+      // projected (runtime_session_not_found), which returns a receipt with no `session` at
+      // all -- keep polling rather than crashing on that transient shape.
+      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+    });
     assert.deepEqual(
       (
         readOnlyRead.session as {
@@ -1002,6 +1005,8 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
       "gpt-5.6-sol",
       "--config",
       'service_tier="fast"',
+      "--config",
+      'web_search="disabled"',
       "-",
     ]);
     const unsupported = await spawnCli(

@@ -83,7 +83,12 @@ import {
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
 import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
-import { runtimeVersionGate } from "./runtime-version.ts";
+import { runtimeVersionGate, runtimeWebSearchVersionGate } from "./runtime-version.ts";
+import {
+  readCodexManagedPolicyTexts,
+  runtimeWebSearchModelGate,
+  runtimeWebSearchPolicyConflict,
+} from "./agent-runtime-web-search.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
@@ -140,6 +145,9 @@ export function openRuntimeInstanceStore(input: {
     readonly installation: RuntimeInstallationWitness;
     readonly env: NodeJS.ProcessEnv;
   }) => RuntimeAuthReadiness | Promise<RuntimeAuthReadiness>;
+  /** Test/embedded seam for Codex's managed requirements. Production reads the host's
+   *  administrator policy through the same default source Codex loads. */
+  readonly managedPolicyTexts?: () => readonly string[] | Promise<readonly string[]>;
 }) {
   const platform = input.platform ?? process.platform,
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
@@ -147,6 +155,7 @@ export function openRuntimeInstanceStore(input: {
     // one place a launch reads a GitHub credential, and it reads the operator's own login.
     operatorEnvironment = input.env ?? process.env,
     resolveGithubToken = input.resolveGithubToken,
+    managedPolicyTexts = input.managedPolicyTexts ?? (() => readCodexManagedPolicyTexts(platform)),
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
@@ -242,6 +251,15 @@ export function openRuntimeInstanceStore(input: {
     const versionRefusal = runtimeVersionGate(installation.kindId, installation.version);
     if (versionRefusal)
       return rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
+    const webSearchRefusal = runtimeWebSearchVersionGate(config, installation.version);
+    if (webSearchRefusal)
+      return rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
+    const modelSearchRefusal = runtimeWebSearchModelGate(config, selectRuntimeModel(config), installation);
+    if (modelSearchRefusal)
+      return rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
+    const policyRefusal = await runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    if (policyRefusal)
+      return rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
@@ -347,6 +365,21 @@ export function openRuntimeInstanceStore(input: {
     if (versionRefusal) {
       rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
       throw runtimeInstanceError(versionRefusal.code, versionRefusal.hint);
+    }
+    const webSearchRefusal = runtimeWebSearchVersionGate(config, installation.version);
+    if (webSearchRefusal) {
+      rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
+      throw runtimeInstanceError(webSearchRefusal.code, webSearchRefusal.hint);
+    }
+    const modelSearchRefusal = runtimeWebSearchModelGate(config, model, installation);
+    if (modelSearchRefusal) {
+      rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
+      throw runtimeInstanceError(modelSearchRefusal.code, modelSearchRefusal.hint);
+    }
+    const policyRefusal = await runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    if (policyRefusal) {
+      rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
+      throw runtimeInstanceError(policyRefusal.code, policyRefusal.hint);
     }
     if (!path.isAbsolute(request.cwd) || !request.prompt)
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");
@@ -729,6 +762,7 @@ export function openRuntimeInstanceStore(input: {
         hasPermission = action.permissionMode !== undefined,
         hasIsolation = action.isolationState !== undefined,
         hasFast = action.fast !== undefined,
+        hasWebSearch = action.webSearch !== undefined,
         hasBaseUrl = action.baseUrl !== undefined,
         hasEffort = action.effort !== undefined,
         hasCredential = action.credentialRef !== undefined;
@@ -743,6 +777,7 @@ export function openRuntimeInstanceStore(input: {
         !hasPermission &&
         !hasIsolation &&
         !hasFast &&
+        !hasWebSearch &&
         !hasBaseUrl &&
         !hasEffort &&
         !hasCredential
@@ -751,7 +786,7 @@ export function openRuntimeInstanceStore(input: {
           "invalid_runtime_instance_update",
           [
             "Runtime instance update requires --name, --installation, --model, ",
-            "--default-model, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, --disable, or a new API key.",
+            "--default-model, --web-search, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, --disable, or a new API key.",
           ].join(""),
         );
       if (hasBaseUrl && current.kindId === "agy")
@@ -761,6 +796,11 @@ export function openRuntimeInstanceStore(input: {
         );
       if (hasFast && current.kindId !== "codex")
         throw runtimeInstanceError("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.");
+      if (hasWebSearch && !("webSearch" in runtimeKindForId(current.kindId).configuration.fields))
+        throw runtimeInstanceError(
+          "invalid_runtime_web_search",
+          `web search updates are not supported by ${current.kindId} runtime instances.`,
+        );
       if (hasEffort && runtimeEffortField(current.kindId) === undefined)
         throw runtimeInstanceError(
           "invalid_runtime_effort",
@@ -780,11 +820,13 @@ export function openRuntimeInstanceStore(input: {
         // same rule on every plane that declares an effort field, under that field's name.
         baseUrl = hasBaseUrl ? String(action.baseUrl).trim() : undefined,
         effort = hasEffort ? String(action.effort).trim() : undefined,
+        webSearch = hasWebSearch ? String(action.webSearch).trim() : undefined,
         kindConfig = runtimeInstanceKindConfig(
           current,
           baseUrl,
           hasFast ? requireBoolean(action.fast, "fast") : undefined,
           effort,
+          webSearch,
         );
       if (!models.includes(defaultModel))
         throw runtimeInstanceError(

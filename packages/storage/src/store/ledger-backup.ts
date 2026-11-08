@@ -47,33 +47,73 @@ export interface LedgerBackupFileV1 {
   readonly method: "copy" | "vacuum-into" | "symlink";
 }
 
+/** Live file sources copied before the writer cut, keyed by the source signature each had when copied. */
+export interface LedgerBackupStage {
+  readonly backupDir: string;
+  readonly copied: ReadonlyMap<string, string>;
+}
+
+/** What the writer cut itself copied: files changed since the stage, and staged files the cut no longer has. */
+export interface LedgerBackupCapture {
+  readonly copiedFiles: number;
+  readonly removedFiles: number;
+}
+
+/**
+ * Copy every live file source outside the writer cut. The cut then re-walks the same sources and
+ * copies only entries whose signature changed, so the writer is held for a stat walk plus the
+ * changed bytes instead of the whole ledger (2026-11-08: ~10 minutes of write queue per day).
+ */
+export function stageLedgerBackup(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly backupDir: string;
+}): LedgerBackupStage {
+  const backupDir = path.resolve(input.backupDir);
+  if (!path.isAbsolute(input.backupDir)) throw new Error("backup directory must be absolute");
+  if (fileSystem.exists(backupDir)) throw new Error("backup directory must not already exist");
+  const pass = copyPass(null),
+    payloadRoot = path.join(backupDir, "payload");
+  fileSystem.mkdir(payloadRoot, { recursive: true });
+  try {
+    copyLiveSources(resolveHarnessLayout(input.rootInput), payloadRoot, pass);
+  } catch (error) {
+    fileSystem.remove(backupDir);
+    throw error;
+  }
+  return { backupDir, copied: pass.seen };
+}
+
 export function createLedgerBackup(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly backupDir: string;
   readonly now?: Date;
   readonly generation?: 1 | 2 | 3;
   readonly registration?: LedgerBackupRegistrationV1;
+  /** A pre-cut copy of this backupDir; the capture then copies only what changed since it. */
+  readonly stage?: LedgerBackupStage;
   /** All live sources are frozen; subsequent validation reads only the payload. */
-  readonly onSnapshotCaptured?: () => void;
+  readonly onSnapshotCaptured?: (capture: LedgerBackupCapture) => void;
 }): LedgerBackupManifestV1 {
   const backupDir = path.resolve(input.backupDir);
   if (!path.isAbsolute(input.backupDir)) throw new Error("backup directory must be absolute");
-  if (fileSystem.exists(backupDir)) throw new Error("backup directory must not already exist");
+  if (input.stage) {
+    if (path.resolve(input.stage.backupDir) !== backupDir) throw new Error("backup stage belongs to another directory");
+  } else if (fileSystem.exists(backupDir)) throw new Error("backup directory must not already exist");
   const generation = input.generation ?? resolveActiveGeneration({ rootInput: input.rootInput }),
     layout = resolveHarnessLayout(input.rootInput),
     payloadRoot = path.join(backupDir, "payload"),
-    sourcePaths = existingBackupSources(layout.rootDir, layout.authoredRoot, layout.localRoot),
     sqlitePath = sqliteLedgerPath(input.rootInput, generation),
-    sqlitePresent = fileSystem.exists(sqlitePath);
+    sqlitePresent = fileSystem.exists(sqlitePath),
+    pass = copyPass(input.stage?.copied ?? null);
   fileSystem.mkdir(payloadRoot, { recursive: true });
   try {
-    copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
-    for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
+    copyLiveSources(layout, payloadRoot, pass);
+    const removedFiles = removeVanishedStagedEntries(layout.rootDir, payloadRoot, pass);
     for (const generation of [1, 2, 3]) {
       const database = sqliteLedgerPath(input.rootInput, generation);
       if (fileSystem.exists(database)) vacuumSqlite(layout.rootDir, database, payloadRoot);
     }
-    input.onSnapshotCaptured?.();
+    input.onSnapshotCaptured?.({ copiedFiles: pass.copiedFiles, removedFiles });
     const sqlite = sqlitePresent
         ? inspectSqlite(path.join(payloadRoot, path.relative(layout.rootDir, sqlitePath)))
         : null,
@@ -263,19 +303,56 @@ function workingTreeSources(authoredRoot: string): readonly string[] {
   return [...new Set([...tracked, ...untracked])];
 }
 
-function copyWorkingTree(rootDir: string, authoredRoot: string, payloadRoot: string): void {
+// One walk over the live sources. `previous` is the stage's record (null for a single-pass copy);
+// `seen` records what this walk found, keyed by source path, with "dir" for directories.
+interface CopyPass {
+  readonly previous: ReadonlyMap<string, string> | null;
+  readonly seen: Map<string, string>;
+  copiedFiles: number;
+}
+
+function copyPass(previous: ReadonlyMap<string, string> | null): CopyPass {
+  return { previous, seen: new Map(), copiedFiles: 0 };
+}
+
+function copyLiveSources(layout: ReturnType<typeof resolveHarnessLayout>, payloadRoot: string, pass: CopyPass): void {
+  copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot, pass);
+  for (const sourcePath of existingBackupSources(layout.rootDir, layout.authoredRoot, layout.localRoot))
+    copySource(layout.rootDir, sourcePath, payloadRoot, pass);
+}
+
+// Identity, size and both clocks: an in-place write moves mtime/ctime, a replace-by-rename moves ino.
+function sourceSignature(stat: { ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
+  return `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+}
+
+// A staged entry the cut no longer reached (deleted, untracked, or vanished) leaves the payload.
+function removeVanishedStagedEntries(rootDir: string, payloadRoot: string, pass: CopyPass): number {
+  let removed = 0;
+  for (const [source, signature] of pass.previous ?? []) {
+    if (pass.seen.has(source)) continue;
+    fileSystem.remove(path.join(payloadRoot, path.relative(rootDir, source)));
+    if (signature !== "dir") removed += 1;
+  }
+  return removed;
+}
+
+function copyWorkingTree(rootDir: string, authoredRoot: string, payloadRoot: string, pass: CopyPass): void {
   const included = new Set([authoredRoot]);
   for (const source of workingTreeSources(authoredRoot)) {
     for (let candidate = source; !included.has(candidate); candidate = path.dirname(candidate)) included.add(candidate);
   }
-  copyVanishingTree(authoredRoot, path.join(payloadRoot, path.relative(rootDir, authoredRoot)), (candidate) =>
-    included.has(candidate),
+  copyVanishingTree(
+    authoredRoot,
+    path.join(payloadRoot, path.relative(rootDir, authoredRoot)),
+    (candidate) => included.has(candidate),
+    pass,
   );
 }
 
 // A repository nested inside a source (a tool worktree under .claude/, a checkout someone
 // left in the tree) is tool state, not ledger content, and is skipped like a vanished entry.
-function copySource(rootDir: string, sourcePath: string, payloadRoot: string): void {
+function copySource(rootDir: string, sourcePath: string, payloadRoot: string, pass: CopyPass): void {
   const relative = path.relative(rootDir, sourcePath);
   if (relative === ".." || relative.startsWith(`..${path.sep}`))
     throw new Error("backup source escaped repository root");
@@ -284,6 +361,7 @@ function copySource(rootDir: string, sourcePath: string, payloadRoot: string): v
     path.join(payloadRoot, relative),
     (candidate, directory) =>
       candidate === sourcePath || !(directory && fileSystem.exists(path.join(candidate, ".git"))),
+    pass,
   );
 }
 
@@ -297,10 +375,19 @@ function copyVanishingTree(
   source: string,
   destination: string,
   keep: (candidate: string, directory: boolean) => boolean,
+  pass: CopyPass,
 ): boolean {
   const stat = fileSystem.lstat(source, { throwIfNoEntry: false });
   if (stat === undefined || !keep(source, stat.isDirectory())) return false;
   if (!stat.isDirectory()) {
+    const signature = sourceSignature(stat),
+      staged = pass.previous?.get(source);
+    if (staged === signature) {
+      pass.seen.set(source, signature);
+      return true;
+    }
+    // A staged directory replaced by a file at the same path must leave the payload first.
+    if (staged === "dir") fileSystem.remove(destination);
     fileSystem.mkdir(path.dirname(destination), { recursive: true });
     try {
       if (stat.isSymbolicLink()) {
@@ -312,6 +399,8 @@ function copyVanishingTree(
       } else {
         fileSystem.copy(source, destination, { mode: fileSystem.cloneMode });
       }
+      pass.seen.set(source, signature);
+      pass.copiedFiles += 1;
       return true;
     } catch (error) {
       if (!vanishedDuringCopy(error, source)) throw error;
@@ -325,8 +414,12 @@ function copyVanishingTree(
     if (!vanishedDuringCopy(error, source)) throw error;
     return false;
   }
-  fileSystem.mkdir(destination, { recursive: true });
-  for (const name of names) copyVanishingTree(path.join(source, name), path.join(destination, name), keep);
+  const staged = pass.previous?.get(source);
+  // A staged file replaced by a directory at the same path must leave the payload first.
+  if (staged !== undefined && staged !== "dir") fileSystem.remove(destination);
+  if (staged !== "dir") fileSystem.mkdir(destination, { recursive: true });
+  pass.seen.set(source, "dir");
+  for (const name of names) copyVanishingTree(path.join(source, name), path.join(destination, name), keep, pass);
   return true;
 }
 

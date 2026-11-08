@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 const workflowPath = path.join(process.cwd(), ".github/workflows/rewrite-ci.yml");
+const manifestPath = path.join(process.cwd(), "tools/gate-manifest.json");
 
 // The patterns below are written against LF. A Windows contributor's checkout has CRLF and they
 // would miss the blocks entirely, reporting a missing trigger that is right there -- #1526's
@@ -13,15 +14,15 @@ const readWorkflow = () => readFileSync(workflowPath, "utf8").replaceAll("\r\n",
 
 test("diff-based gates fetch canonical main and resolve their base from origin/main", () => {
   const workflow = readWorkflow();
-  for (const gate of ["tools/gates/test-selection.mjs"]) {
-    const invocation = workflow.indexOf(`node ${gate} --base origin/main`);
-    assert.notEqual(invocation, -1, `${gate} must be invoked with --base origin/main`);
-    const runBlock = workflow.slice(Math.max(0, invocation - 260), invocation);
-    assert.match(
-      runBlock,
-      /git fetch --no-tags origin main/u,
-      `${gate} must fetch canonical main before resolving its base`,
-    );
-    assert.doesNotMatch(runBlock, /github\.event\.pull_request\.base\.sha|\$BASE_SHA|git cat-file -e/u);
-  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const gate = manifest.gates.find((candidate) => candidate.id === "test-selection");
+  assert.equal(gate?.command, "node tools/gates/test-selection.mjs --base origin/main");
+
+  const fetchBase = workflow.indexOf("git fetch --no-tags origin main");
+  const runGates = workflow.indexOf("node tools/run-manifest-gates.mjs --workflow-job quick-gates");
+  assert.notEqual(fetchBase, -1, "quick-gates must fetch canonical main before diff-based gates");
+  assert.notEqual(runGates, -1, "quick-gates must execute the manifest-owned commands");
+  assert.ok(fetchBase < runGates, "quick-gates must fetch canonical main before resolving the gate base");
+  const runBlock = workflow.slice(fetchBase, runGates);
+  assert.doesNotMatch(runBlock, /github\.event\.pull_request\.base\.sha|\$BASE_SHA|git cat-file -e/u);
 });

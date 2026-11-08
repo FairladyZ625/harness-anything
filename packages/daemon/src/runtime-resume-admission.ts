@@ -257,11 +257,16 @@ export function resolveDispatchCwd(
   worktree: TaskWorktreeCheckout | null,
   taskPackageRoot?: string | null,
 ): { readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null } {
-  if (taskPackageRoot)
+  if (taskPackageRoot) {
+    const relativePackageRoot = path.relative(rootDir, taskPackageRoot);
     return {
-      cwd: resolveRuntimeCwd(rootDir, { scope: "repo-relative", path: path.relative(rootDir, taskPackageRoot) }),
+      cwd: resolveRuntimeCwd(
+        rootDir,
+        relativePackageRoot === "" ? { scope: "repo-root" } : { scope: "repo-relative", path: relativePackageRoot },
+      ),
       worktree: null,
     };
+  }
   if (payload.cwd === undefined && inherited) return { cwd: inherited, worktree: null };
   return {
     cwd: resolveRuntimeCwd(

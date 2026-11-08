@@ -4,6 +4,8 @@ import path from "node:path";
 import {
   applyLedgerBackupRetention,
   readVerifiedLedgerBackup,
+  stageLedgerBackup,
+  type LedgerBackupCapture,
   type LedgerBackupRetentionPolicyV1,
 } from "@harness-anything/storage";
 import {
@@ -139,18 +141,19 @@ async function executeLedgerBackup(input: {
     backupRoot = path.join(input.cell.rootDir, scheduledLedgerBackupRoot),
     backupDir = path.join(backupRoot, `ledger-backup-${input.occurrenceId}`),
     startedAt = performance.now();
-  const { reusedSnapshot, bytes, backupMs, captureMs, drillMs, cleanupMs, retention } = await finishLedgerBackup(
-    {
-      rootDir: input.cell.rootDir,
-      backupDir,
-      backupRoot,
-      now: input.cell.now(),
-      policy,
-    },
-    input.cell.runSnapshot,
-    Worker,
-    input.cell.backupExecutionLimitMs,
-  );
+  const { reusedSnapshot, bytes, backupMs, captureMs, captureCopiedFiles, drillMs, cleanupMs, retention } =
+    await finishLedgerBackup(
+      {
+        rootDir: input.cell.rootDir,
+        backupDir,
+        backupRoot,
+        now: input.cell.now(),
+        policy,
+      },
+      input.cell.runSnapshot,
+      Worker,
+      input.cell.backupExecutionLimitMs,
+    );
   return {
     outcome: "succeeded",
     detail: JSON.stringify({
@@ -159,6 +162,7 @@ async function executeLedgerBackup(input: {
       ...(reusedSnapshot ? { reusedSnapshot: true } : { bytes }),
       backupMs,
       captureMs,
+      captureCopiedFiles,
       drillMs,
       cleanupMs,
       removed: retention.removed.length,
@@ -243,19 +247,26 @@ if (!isMainThread && workerData?.kind === "ledger-backup-verification" && parent
     try {
       const backupStartedAt = performance.now(),
         reusedSnapshot = existingSnapshotIsVerified(input.backupDir);
+      // The bulk copy runs before the writer cut; capture then copies only what changed since.
+      phase = "stage";
+      const stage = reusedSnapshot
+        ? undefined
+        : stageLedgerBackup({ rootInput: input.rootDir, backupDir: input.backupDir });
       parentPort!.postMessage({ kind: "prepared" } satisfies BackupWorkerMessage);
       // Even a reused snapshot must pass the current writer and occurrence claim fence.
       await new Promise<void>((resolve) => parentPort!.once("message", () => resolve()));
-      let captureMs = 0;
+      let captureMs = 0,
+        captureCopiedFiles = 0;
       phase = "snapshot";
       const captureStartedAt = performance.now(),
-        snapshotCaptured = () => {
+        snapshotCaptured = (capture?: LedgerBackupCapture) => {
           captureMs = reusedSnapshot ? 0 : Math.round(performance.now() - captureStartedAt);
+          captureCopiedFiles = capture?.copiedFiles ?? 0;
           parentPort!.postMessage({ kind: "captured" } satisfies BackupWorkerMessage);
           phase = "validation";
         };
       if (reusedSnapshot) snapshotCaptured();
-      const manifest = reusedSnapshot ? null : backupRepo({ ...input, onSnapshotCaptured: snapshotCaptured }),
+      const manifest = reusedSnapshot ? null : backupRepo({ ...input, stage, onSnapshotCaptured: snapshotCaptured }),
         backupMs = Math.round(performance.now() - backupStartedAt);
       phase = "drill";
       const drillStartedAt = performance.now();
@@ -277,6 +288,7 @@ if (!isMainThread && workerData?.kind === "ledger-backup-verification" && parent
           bytes: manifest?.files.reduce((total, file) => total + file.size, 0) ?? 0,
           backupMs,
           captureMs,
+          captureCopiedFiles,
           drillMs,
           cleanupMs,
           retention,

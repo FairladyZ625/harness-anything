@@ -25,6 +25,7 @@ import type {
 } from "./agent-runtime-instance-types.ts";
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import { runtimeEffortField, runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimeWebSearchForConfig } from "./agent-runtime-web-search.ts";
 
 export function migrateLegacyInstallationIdentities(
   instances: readonly RuntimeInstanceConfig[],
@@ -118,16 +119,18 @@ export function installationLabel(installation: RuntimeInstallationWitness): str
   return `${installation.installationId} (${installation.version})`;
 }
 
-/** Rebuilds the kind-scoped configuration after a base URL, fast, or effort edit. For each
- * edit `undefined` means the update did not touch it (keep the stored value); a non-empty
- * value replaces it; an explicit empty string clears it back to the provider default. The
- * editable keys come from the kind's catalog entry, so each kind keeps its own field names
- * (codex stores effort as `reasoningEffort`) and fields a kind does not declare never move. */
+/** Rebuilds the kind-scoped configuration after a base URL, fast, effort, or native-search
+ *  edit. For each edit `undefined` means the update did not touch it (keep the stored value);
+ *  a non-empty value replaces it; an explicit empty string clears it back to the provider
+ *  default. The editable keys come from the kind's catalog entry, so each kind keeps its own
+ *  field names (codex stores effort as `reasoningEffort`) and fields a kind does not declare
+ *  never move. */
 export function runtimeInstanceKindConfig(
   current: RuntimeInstanceConfig,
   baseUrl: string | undefined,
   fast: boolean | undefined,
   effort: string | undefined,
+  webSearch: string | undefined,
 ):
   | { readonly claude?: unknown }
   | { readonly codex?: unknown }
@@ -136,7 +139,7 @@ export function runtimeInstanceKindConfig(
   const effortField = runtimeEffortField(current.kindId),
     provider = runtimeProviderConfig(current),
     editable = new Set(
-      ["baseUrl", "fast", effortField].filter(
+      ["baseUrl", "fast", "webSearch", effortField].filter(
         (field): field is string =>
           field !== undefined && field in runtimeKindForId(current.kindId).configuration.fields,
       ),
@@ -148,6 +151,11 @@ export function runtimeInstanceKindConfig(
         : baseUrl || undefined
       : undefined,
     nextFast = editable.has("fast") ? (fast === undefined ? provider.fast : fast) : undefined,
+    nextWebSearch = editable.has("webSearch")
+      ? webSearch === undefined
+        ? provider.webSearch
+        : webSearch || undefined
+      : undefined,
     nextEffort =
       effortField === undefined ? undefined : effort === undefined ? provider[effortField] : effort || undefined;
   return {
@@ -155,6 +163,7 @@ export function runtimeInstanceKindConfig(
       ...rest,
       ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
+      ...(nextWebSearch === undefined ? {} : { webSearch: nextWebSearch }),
       ...(effortField !== undefined && nextEffort ? { [effortField]: nextEffort } : {}),
     },
   };
@@ -215,6 +224,7 @@ export function definitionSnapshot(
   effort: string | null,
   fast: boolean,
 ): AgentDefinitionSnapshot {
+  const webSearch = runtimeWebSearchForConfig(config);
   return {
     schema: "agent-definition-snapshot/v1",
     configVersion: 1,
@@ -225,6 +235,7 @@ export function definitionSnapshot(
     model,
     reasoningEffort: effort,
     fast,
+    ...(webSearch === null ? {} : { webSearch }),
     baseUrl: runtimeBaseUrl(config) ?? null,
     authMode: config.auth.mode,
   };

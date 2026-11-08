@@ -7,6 +7,7 @@ import {
   type RuntimeCapabilitySupport,
   type RuntimeEndpointAvailability,
   type RuntimeProviderDeclaration,
+  type RuntimeWebSearchMode,
 } from "./runtime-inventory-types.ts";
 
 export {
@@ -14,7 +15,12 @@ export {
   type RuntimeCapabilitySupport,
   type RuntimeEndpointAvailability,
   type RuntimeProviderDeclaration,
+  type RuntimeWebSearchMode,
 };
+
+/** Native search tiers HA exposes. Codex's config schema also has `indexed`, which this
+ *  product does not offer: issue #4369 names disabled/cached/live. */
+export const runtimeWebSearchModes = ["disabled", "cached", "live"] as const satisfies readonly RuntimeWebSearchMode[];
 
 // Only daemon-mediated task commands: `ha task artifact add --run`, for example,
 // executes a local subprocess before daemon authorization. Never approve `ha *`.
@@ -300,6 +306,7 @@ export const runtimeKinds = [
       fields: {
         reasoningEffort: "effort",
         fast: "boolean",
+        webSearch: "identifier",
         baseUrl: "url",
         allowInsecureHttp: "boolean",
         wireApi: "identifier",
@@ -307,9 +314,22 @@ export const runtimeKinds = [
         httpHeaders: "headers",
         credentialHeader: "header-name",
       },
+      choices: { webSearch: runtimeWebSearchModes },
+      // Native hosted search is a provider capability, not a general HTTP permission.
+      // The launch argv always states the effective tier explicitly, including the
+      // default, so an inherited Codex config cannot upgrade a dispatch.
+      webSearch: {
+        modes: runtimeWebSearchModes,
+        defaultMode: "disabled",
+        providers: ["openai"],
+        // Verified against codex-cli 0.163.0 (this workspace) and reported on 0.164.0
+        // (issue #4369): both recognize the `web_search` config key.
+        minimumVersion: "0.163.0",
+      },
       publicFields: {
         reasoningEffort: "reasoningEffort",
         fast: "fast",
+        webSearch: "webSearch",
         baseUrl: "baseUrl",
         baseUrlConfigured: "baseUrlConfigured",
         allowInsecureHttp: "allow_insecure_http",
@@ -321,6 +341,7 @@ export const runtimeKinds = [
       publicDefaults: {
         reasoningEffort: null,
         fast: false,
+        webSearch: "disabled",
         baseUrl: null,
         baseUrlConfigured: false,
         wire_api: null,
@@ -356,6 +377,7 @@ export const runtimeKinds = [
         "$model",
         "$effort-config",
         "$fast",
+        "$web-search",
         "$session",
         "-",
       ],

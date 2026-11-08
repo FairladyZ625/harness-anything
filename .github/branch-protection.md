@@ -19,31 +19,35 @@ do not pay for duplicate full-check matrix runs.
 
 Required pull request checks must cover:
 
-- typecheck
+- quick-gates
 - fast and contract tests
 - integration tests
 - architecture boundaries
 - package policy
 - GUI build smoke
-Platform coverage is required: `crlf-checkout`, and `windows-first-run` on
-`ubuntu-latest` and `windows-latest`. They landed advisory in #1597 because the
-`windows-latest` arm had never passed, and were promoted once it did on `main`.
+`quick-gates` owns the merged typecheck, lint, supply-chain, dependency-policy,
+test-selection, schema-closure, entity-id-links, derived-contracts,
+canonical-event-compat, cost-budget, and Ubuntu smoke controls.
+Platform coverage is required through `crlf-checkout` and the Ubuntu positive
+controls inside `quick-gates`. The Windows platform smoke and Windows
+first-run arm run on `main` pushes and the daily schedule under
+`dec_7467B04DD9EFC2D18A656D2FB3`.
 
-They are platform coverage and were added after a run of Windows
-defects reached users through a fully green pull request. They divide that
-class in two. Four of those defects (#1525, #1526, #1538, #1588) were
-line-ending defects that reproduce on any host told to convert, so
-`crlf-checkout` catches them on a Linux runner. The rest needed a Windows
-process, so `windows-first-run` runs the product -- initialize, hold a resident
-daemon, publish, clone, stop -- rather than asserting that it refuses cleanly.
-Its `ubuntu-latest` arm is the positive control: when only the Windows arm is
-red, the platform is the difference.
+The platform smoke controls were added after Windows defects reached users
+through a fully green pull request. Four of those defects (#1525, #1526,
+#1538, #1588) were line-ending defects that reproduce on any host told to
+convert, so `crlf-checkout` catches them on a Linux runner in every PR. The
+Windows platform smoke and Windows first-run product flow run on `main` pushes
+and the daily schedule, where both Windows arms remain visible without adding
+their matrices to the PR merge path.
 
-The full aggregate `npm run check` matrix runs on `main`, scheduled nightly, and
-manual workflow dispatch. It remains the release-grade gate and still covers
-typecheck, all node tests, boundaries, package policy, schema/API/service gates,
-supply-chain, Legacy Intake smoke, and CLI package smoke. Node 26 compatibility
-runs there and in the nightly `node26-compatibility` lane only — every one of
+The full aggregate `npm run check` matrix runs on the scheduled nightly and
+manual workflow dispatch. Main pushes run the tiered lanes plus the dedicated
+clean-build and Windows smoke checks. The aggregate remains the release-grade
+gate and covers typecheck, all node tests, boundaries, package policy,
+schema/API/service gates, supply-chain, Legacy Intake smoke, and CLI package
+smoke. Node 26 compatibility runs in the aggregate and the nightly
+`node26-compatibility` lane only — every one of
 its 25 real catches in 60 days was simultaneously caught by the Node 24
 typecheck lane (decision dec_F5B2CBF8B45042B6DA2824A7FA/CH3).
 
@@ -58,7 +62,7 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 
 - boundaries
 - package-policy
-- typecheck (24)
+- quick-gates
 - fast-contract
 - integration-shard (1)
 - integration-shard (2)
@@ -66,14 +70,19 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (4)
 - integration-shard (5)
 - integration-shard (6)
-- supply-chain
+- integration-shard (7)
+- integration-shard (8)
+- integration-shard (9)
+- integration-shard (10)
+- integration-shard (11)
+- integration-shard (12)
+- integration-shard (13)
+- integration-shard (14)
 - gui-build
 - pr-body-lint
 - crlf-checkout
-- windows-first-run (ubuntu-latest)
-- windows-first-run (windows-latest)
 
-Integration tests are required through the six `integration-shard (N)`
+Integration tests are required through the fourteen `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.
 
 GUI Electron E2E is an explicit local closeout gate for GUI-related tasks and

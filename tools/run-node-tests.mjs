@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
+import { integrationWeightOverruns, selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import {
   collectSlowTests,
   coverageReporterArgs,
@@ -225,6 +225,7 @@ let termination = Promise.resolve();
 const activeFiles = new Map();
 const startedFiles = new Set();
 const completedFiles = new Set();
+const fileDurationsMs = new Map();
 const removeSignalForwarding = installSignalForwarding(child);
 const watchdog =
   finiteTimeouts.length === 0
@@ -288,6 +289,19 @@ const exitCode = await new Promise((resolveRun) => {
 });
 const slowTests = collectSlowTests(output, options.slowThresholdMs);
 console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
+// One line per finished file: tools/integration-test-weights.json is refreshed from these lines in
+// CI logs, and the shard budget is only as true as those weights.
+for (const [file, durationMs] of [...fileDurationsMs].sort(([left], [right]) => left.localeCompare(right)))
+  console.log(`[node-test-duration] ${durationMs} ${file}`);
+// Weights are measured on GitHub's ubuntu runner, so only that runner can hold a file to its weight.
+const weightOverruns =
+  options.shard !== undefined && process.env.GITHUB_ACTIONS === "true"
+    ? integrationWeightOverruns(fileDurationsMs)
+    : [];
+for (const overrun of weightOverruns)
+  console.error(
+    `[integration-budget] ${overrun.file} took ${overrun.durationMs}ms against a declared weight of ${overrun.declaredMs}ms. Record its measured duration in tools/integration-test-weights.json (the shard budget sums those weights), or make it cheaper.`,
+  );
 // The spec reporter names no file for a passing top-level test, so the isolated dispatcher
 // cannot attribute its forwarded output per file without these lines.
 for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fileOutcome(file)} ${file}`);
@@ -295,7 +309,7 @@ for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fil
 // pipe (CI log shipping): the inline ✖ lines survive because they were written earlier, while
 // the failing-tests recap — the assertion details a red lane exists to show — is written last
 // and is exactly what gets lost. Exit naturally so pending writes drain first.
-process.exitCode = exitCode;
+process.exitCode = weightOverruns.length > 0 && exitCode === 0 ? 1 : exitCode;
 
 function fileOutcome(file) {
   if ((failuresByFile.get(file) ?? 0) > 0) return "fail";
@@ -435,6 +449,8 @@ function refreshActivity() {
       // A killed descendant may report its signal before the host processes the same
       // group signal. That envelope is termination evidence, not completed execution.
       if (timedOutFiles.length === 0 || !["SIGTERM", "SIGKILL"].includes(event.signal)) completedFiles.add(owner);
+      const startedAt = activeFiles.get(owner)?.startedAt;
+      if (startedAt !== undefined && Number.isFinite(event.at)) fileDurationsMs.set(owner, event.at - startedAt);
       activeFiles.delete(owner);
       lastTestByFile.delete(owner);
       openTestsByFile.delete(owner);

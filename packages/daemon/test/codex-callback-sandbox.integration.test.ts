@@ -265,21 +265,25 @@ interface LaunchResult {
 }
 
 function waitForFile(file: string): Promise<LaunchResult> {
-  return new Promise((resolve, reject) => {
-    const watcher = watch(path.dirname(file), check),
-      deadline = setTimeout(() => {
-        watcher.close();
-        const log = file.replace(/\.json$/u, ".log");
-        reject(
-          new Error(`Codex did not exit: ${file}\n${existsSync(log) ? readFileSync(log, "utf8") : "No launch log"}`),
-        );
-      }, 75_000);
+  let watcher: ReturnType<typeof watch> | undefined, deadline: ReturnType<typeof setTimeout> | undefined;
+  const completion = new Promise<LaunchResult>((resolve, reject) => {
+    watcher = watch(path.dirname(file), check);
+    deadline = setTimeout(() => reject(new Error(`Codex did not exit: ${file}`)), 75_000);
     function check(): void {
       if (!existsSync(file)) return;
-      watcher.close();
-      clearTimeout(deadline);
       resolve(JSON.parse(readFileSync(file, "utf8")) as LaunchResult);
     }
     check();
   });
+  return completion
+    .catch((error) => {
+      const log = file.replace(/\.json$/u, ".log");
+      throw new Error(`Codex did not exit: ${file}\n${existsSync(log) ? readFileSync(log, "utf8") : "No launch log"}`, {
+        cause: error,
+      });
+    })
+    .finally(() => {
+      watcher?.close();
+      if (deadline) clearTimeout(deadline);
+    });
 }

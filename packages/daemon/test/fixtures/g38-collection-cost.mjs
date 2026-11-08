@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { durableActionKinds, getExecutableEntityAction } from "@harness-anything/kernel";
 import { measureWorktreeDocuments } from "./g38-worktree-document-cost.mjs";
 import { measureTaskDispatchAdmission } from "./g38-dispatch-recovery-cost.mjs";
+import { measureBackupCaptureCopies } from "./g38-backup-capture-cost.mjs";
 import { DECISION_PROBES, measureDecisionCollection } from "./g38-decision-cost.mjs";
 import {
   measureTaskReviewConsent,
@@ -750,13 +751,24 @@ export async function measureCatalogBatch(rootDir, size, actionKind) {
 
 export async function measureCollectionCosts(rootDir, scales = COLLECTION_SCALES) {
   const measured = {};
-  for (const [id, { run }] of Object.entries(COLLECTION_PROBES))
-    measured[id] = { small: await run(rootDir, scales.small), large: await run(rootDir, scales.large) };
+  for (const [id, { run, growth }] of Object.entries(COLLECTION_PROBES))
+    measured[id] = {
+      small: await run(rootDir, scales.small),
+      large: await run(rootDir, scales.large),
+      ...(growth ? { growth } : {}),
+    };
   return measured;
 }
 
 export const COLLECTION_PROBES = Object.freeze({
   ...DECISION_PROBES,
+  // Writer-held work must not grow with the unchanged ledger: the gate holds it constant, not linear.
+  "schedule-run-now:unchanged-ledger-files": {
+    action: "schedule-run-now",
+    dimension: "unchanged-ledger-files",
+    growth: "constant",
+    run: measureBackupCaptureCopies,
+  },
   "entity-pin:agenda-pins": {
     action: "entity-pin",
     dimension: "agenda-pins",

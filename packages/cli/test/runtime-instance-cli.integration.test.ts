@@ -82,6 +82,7 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     assert.deepEqual((shown.instance as Record<string, unknown>).configuration, {
       reasoningEffort: "high",
       fast: true,
+      webSearch: "disabled",
       baseUrl: "http://127.0.0.1:1/v1",
       baseUrlConfigured: true,
       wire_api: "responses",

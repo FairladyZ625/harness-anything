@@ -1,7 +1,7 @@
 import type { SettingsV1, AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
-import type { RuntimeKindId } from "./runtime-inventory.ts";
+import type { RuntimeKindId, RuntimeWebSearchMode } from "./runtime-inventory.ts";
 
 export type RuntimeInstanceKind = RuntimeKindId;
 
@@ -37,6 +37,8 @@ export interface ClaudeRuntimeInstanceConfig {
 export interface CodexRuntimeInstanceConfig {
   readonly reasoningEffort?: string;
   readonly fast?: boolean;
+  /** Native hosted-search tier. Absent means disabled; launch always states it explicitly. */
+  readonly webSearch?: RuntimeWebSearchMode;
   readonly baseUrl?: string;
   readonly allowInsecureHttp?: boolean;
   readonly wireApi?: string;
@@ -60,6 +62,7 @@ export interface RuntimeProviderInstanceConfig {
   readonly effort?: string;
   readonly reasoningEffort?: string;
   readonly fast?: boolean;
+  readonly webSearch?: RuntimeWebSearchMode;
   readonly baseUrl?: string;
   readonly allowInsecureHttp?: boolean;
   readonly wireApi?: string;
@@ -84,6 +87,9 @@ export interface RuntimeInstallationWitness {
   readonly observedAt: string;
   readonly models?: readonly string[];
   readonly defaultModel?: string;
+  /** Models whose provider catalog advertises native hosted search. Absent means the
+   *  capability was not witnessed; an opt-in search tier fails closed on that absence. */
+  readonly searchCapableModels?: readonly string[];
 }
 
 /** What a registry lookup needs from a witness: the two fields that identify an installation. */
@@ -94,7 +100,7 @@ export type RuntimeInstallationIdentity = Pick<RuntimeInstallationWitness, "inst
  *  absolute executable of an observation that already happened. */
 export type RecordedRuntimeInstallation = Pick<
   RuntimeInstallationWitness,
-  "installationId" | "kindId" | "version" | "observedAt" | "models" | "defaultModel"
+  "installationId" | "kindId" | "version" | "observedAt" | "models" | "defaultModel" | "searchCapableModels"
 >;
 
 export interface RuntimeAuthReadiness {

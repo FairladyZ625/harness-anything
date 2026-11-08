@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { auditAllowlistRefReachability, main } from "../allowlist-path-existence.mjs";
+import { allowlistJsonPolicies, auditAllowlistRefReachability, main } from "../allowlist-path-existence.mjs";
 import { EVIDENCE_INDEX } from "../evidence-index.mjs";
 import { captureGate, writeRepoFile } from "./helpers.mjs";
 
@@ -107,5 +107,23 @@ test("B13 accepts the action-catalog null allowlist and its decision citations r
     false,
     "repository-read is a read-only admission outside the action-catalog-null gate set",
   );
+  assert.deepEqual(auditAllowlistRefReachability(EVIDENCE_INDEX, refs).findings, []);
+});
+
+test("B13 audits integration over-budget exceptions as live test paths", () => {
+  // The live audit above covers these rows only while this classification holds: an exception
+  // naming a deleted or renamed test file must turn the ratchet red instead of lingering.
+  assert.deepEqual(allowlistJsonPolicies["check-integration-test-shards.json"], {
+    pathSections: { overBudgetFiles: "value" },
+    nonPathSections: ["intentionalTestDeletions"],
+  });
+  const allowlist = JSON.parse(
+    readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-integration-test-shards.json"), "utf8"),
+  );
+  const refs = allowlist.entries.overBudgetFiles.map((entry, index) => ({
+    source: `check-integration-test-shards.json:entries.overBudgetFiles[${index}].ref`,
+    ref: entry.ref,
+  }));
+  assert.ok(refs.length > 0);
   assert.deepEqual(auditAllowlistRefReachability(EVIDENCE_INDEX, refs).findings, []);
 });

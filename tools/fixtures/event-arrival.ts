@@ -1,12 +1,17 @@
 /**
+ * The shared event-driven wait for tests (dec_25B3C380F6FB9D4D4A1E27921E CH1): an integration test
+ * waits for the process under test to publish something, never for the wall clock to pass.
+ *
  * Wait until a durable read reports a value, without losing an arrival between the read and the
  * subscription. Order is the contract: `subscribe` installs the wake-up first, then `read` observes
  * durable state. An arrival that lands before or during the read is therefore either seen by the
  * read itself or delivered to the already-installed wake-up; a caller that reads first and
- * subscribes afterwards has a window in which the only notification is discarded.
+ * subscribes afterwards has a window in which the only notification is discarded. The read may be
+ * asynchronous (a drain followed by a projection read): the wake-up stays installed across it.
+ * There is no deadline here; the node:test `timeout` option is the only hang guard.
  */
 export async function waitForArrival<T>(
-  read: () => T | null,
+  read: () => T | null | Promise<T | null>,
   subscribe: (arrive: () => void) => () => void,
 ): Promise<T> {
   for (;;) {
@@ -16,7 +21,7 @@ export async function waitForArrival<T>(
     });
     const unsubscribe = subscribe(release);
     try {
-      const value = read();
+      const value = await read();
       if (value !== null) return value;
       await arrived;
     } finally {

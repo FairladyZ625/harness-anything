@@ -70,6 +70,7 @@
     "cron-parser": "5.10.0",
     "effect": "3.21.4",
     "node-pty": "1.2.0-beta.15",
+    "smol-toml": "^1.9.1",
     "tar": "7.5.22",
     "undici": "7.30.1"
   },

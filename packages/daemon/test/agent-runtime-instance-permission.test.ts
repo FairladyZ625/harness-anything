@@ -237,6 +237,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "danger-full-access",
       "--model",
       "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
       "-",
     ]);
     assert.deepEqual(claudeDefault.args, [
@@ -265,6 +267,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "sandbox_workspace_write.exclude_slash_tmp=true",
       "--model",
       "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
       "-",
     ]);
     const relayEnabled = await store.prepareLaunch("codex-open", {
@@ -287,6 +291,8 @@ test("permission defaults open and tightens through the instance record or a sin
       'permissions.harness-callback-relay.network={enabled=true,domains={},unix_sockets={"/tmp/harness-anything-501/r-0123456789abcdef01234567.sock"="allow"}}',
       "--model",
       "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
       "-",
     ]);
     const resumedRelay = await store.prepareLaunch("codex-open", {
@@ -311,6 +317,8 @@ test("permission defaults open and tightens through the instance record or a sin
       'permissions.harness-callback-relay.network={enabled=true,domains={},unix_sockets={"/tmp/harness-anything-501/r-0123456789abcdef01234567.sock"="allow"}}',
       "--model",
       "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
       "session-relay",
       "-",
     ]);
@@ -325,7 +333,17 @@ test("permission defaults open and tightens through the instance record or a sin
         prompt: "Dispatch",
         permissionMode: "read-only",
       });
-    assert.deepEqual(dispatched.args, ["exec", "--json", "--sandbox", "read-only", "--model", "gpt-5.6-sol", "-"]);
+    assert.deepEqual(dispatched.args, [
+      "exec",
+      "--json",
+      "--sandbox",
+      "read-only",
+      "--model",
+      "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
+      "-",
+    ]);
     assert.deepEqual(claudeDispatched.args, [
       "-p",
       "--verbose",
@@ -354,6 +372,8 @@ test("permission defaults open and tightens through the instance record or a sin
         ...(providerSessionId ? ["--dangerously-bypass-approvals-and-sandbox"] : ["--sandbox", "danger-full-access"]),
         "--model",
         "gpt-5.6-sol",
+        "--config",
+        'web_search="disabled"',
         ...(providerSessionId ? [providerSessionId] : []),
         "-",
       ]);
@@ -382,6 +402,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "--dangerously-bypass-approvals-and-sandbox",
       "--model",
       "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
       "session-bypass",
       "-",
     ]);
@@ -397,6 +419,8 @@ test("permission defaults open and tightens through the instance record or a sin
       "sandbox_workspace_write.exclude_slash_tmp=true",
       "--model",
       "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
       "session-workspace",
       "-",
     ]);
@@ -408,6 +432,8 @@ test("permission defaults open and tightens through the instance record or a sin
       'sandbox_mode="read-only"',
       "--model",
       "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
       "session-read-only",
       "-",
     ]);

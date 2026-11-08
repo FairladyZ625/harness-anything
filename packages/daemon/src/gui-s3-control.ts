@@ -323,6 +323,8 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       // Which instance was chosen and which selection rule decided it; the CLI renders the
       // reason so a same-kind sibling skip is explainable from the receipt alone.
       runtimeSelection: "optional-object",
+      // Effective Codex native-search tier; a receipt-level fact, never account configuration.
+      webSearch: "optional-string",
       // Operator notices appended by the host layer (e.g. the missing hosting-credential
       // warning); the CLI renders them through its generic warnings channel.
       warnings: "optional-array",

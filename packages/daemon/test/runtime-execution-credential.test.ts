@@ -18,6 +18,7 @@ import {
   requireExecutionDocumentSelection,
   requireExecutionRequestScope,
   requireExecutionActionScope,
+  runtimeExecutionRoleForLaunch,
   taskExecutionSurfaces,
 } from "../src/runtime-execution-scope.ts";
 import {
@@ -191,6 +192,15 @@ test("unbound session credentials preserve the person, repository and live dispa
       realm.fetch,
     ),
     { code: "execution_credential_rejected" },
+  );
+});
+
+test("a read-only ceiling narrows only a taskless session execution role", () => {
+  assert.equal(runtimeExecutionRoleForLaunch({ taskId: null, role: "session", readOnlyCeiling: true }), "read-only");
+  assert.equal(runtimeExecutionRoleForLaunch({ taskId: null, role: "session", readOnlyCeiling: false }), "session");
+  assert.equal(
+    runtimeExecutionRoleForLaunch({ taskId: "task-worker", role: "implementation", readOnlyCeiling: true }),
+    "implementation",
   );
 });
 
@@ -1076,6 +1086,17 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
       }),
     { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },
   );
+});
+
+test("the read-only identity rejects every declared repository write action", () => {
+  const p = readOnlyPrincipal();
+  for (const command of daemonProtocolCommands.filter((entry) => entry.commandClass === "repo-write")) {
+    const kind = "actionKind" in command ? command.actionKind : command.id;
+    assert.throws(() => requireExecutionActionScope(p, { kind }), {
+      code: "execution_credential_rejected",
+      message: /allowlisted ledger queries/u,
+    });
+  }
 });
 
 test("every repo-read protocol command resolves through the execution request precheck", () => {

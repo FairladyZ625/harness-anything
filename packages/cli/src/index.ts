@@ -244,7 +244,7 @@ function versionWarningText(receipt: Record<string, unknown>): string | null {
         })
       : null;
   return warning && typeof warning.centerBuildCommit === "string" && typeof warning.localBuildCommit === "string"
-    ? `WARNING version mismatch center=${warning.centerBuildCommit} local=${warning.localBuildCommit}; upgrade with ${String(warning.upgradeCommand ?? "ha update")}`
+    ? `WARNING version mismatch center=${warning.centerBuildCommit} local=${warning.localBuildCommit}; upgrade with ${String(warning.upgradeCommand ?? "git pull --ff-only, then build CLI and daemon")}`
     : null;
 }
 
