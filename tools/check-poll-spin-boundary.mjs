@@ -9,35 +9,56 @@ const allowlistPath = `tools/gate-allowlists/${gateId}.json`;
 const update = process.argv.includes("--update");
 const rootArg = process.argv.slice(2).find((argument) => argument !== "--update");
 const root = path.resolve(rootArg ?? process.cwd());
-const eslint = new ESLint({
-  cwd: root,
-  overrideConfigFile: true,
-  overrideConfig: [
-    {
-      files: ["**/*.{js,mjs,ts,tsx}"],
-      languageOptions: { parser: tsParser, parserOptions: { ecmaVersion: 2024, sourceType: "module" } },
-      plugins: { ha: { rules: { "no-poll-spin": noPollSpin } } },
-      rules: { "ha/no-poll-spin": ["error", { baseline: [], root }] },
-    },
-  ],
-});
-const patterns = ["packages/*/src/**/*.{ts,tsx,js,mjs}", "tools/gates/**/*.{js,mjs}"];
-const results = await eslint.lintFiles(patterns);
+// Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and integration tests
+// (dec_25B3C380F6FB9D4D4A1E27921E CH1) share one rule, one baseline and one exact-sync ratchet; the
+// integration flag adds the wall-clock-as-correctness kinds only to test files.
+const integrationPatterns = [
+  "packages/**/*.integration.test.{ts,tsx,mjs,js}",
+  "tools/**/*.integration.test.{ts,mjs,js}",
+];
+const lanes = [
+  { patterns: ["packages/*/src/**/*.{ts,tsx,js,mjs}", "tools/gates/**/*.{js,mjs}"], integration: false },
+  { patterns: integrationPatterns, integration: true },
+];
 const keys = new Set();
-for (const result of results) {
-  if (result.filePath.endsWith("no-poll-spin.js")) continue;
-  for (const message of result.messages) {
-    const key = /Baseline key: (\S+)/u.exec(message.message)?.[1];
-    if (key) keys.add(key);
+for (const lane of lanes) {
+  const eslint = new ESLint({
+    cwd: root,
+    overrideConfigFile: true,
+    errorOnUnmatchedPattern: false,
+    overrideConfig: [
+      {
+        files: ["**/*.{js,mjs,ts,tsx}"],
+        languageOptions: { parser: tsParser, parserOptions: { ecmaVersion: 2024, sourceType: "module" } },
+        plugins: { ha: { rules: { "no-poll-spin": noPollSpin } } },
+        rules: { "ha/no-poll-spin": ["error", { baseline: [], root, integration: lane.integration }] },
+      },
+    ],
+  });
+  for (const result of await eslint.lintFiles(lane.patterns)) {
+    if (result.filePath.endsWith("no-poll-spin.js")) continue;
+    for (const message of result.messages) {
+      const key = /Baseline key: (\S+)/u.exec(message.message)?.[1];
+      if (key) keys.add(key);
+    }
   }
 }
 if (update) {
-  const exceptions = [...keys].sort().map((key) => ({
-    key,
-    event: "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
-    ref: "dec_EF5F3820E81FB8A5266F1F3342",
-    reason: "Existing polling or synchronous bridge at the CH3 baseline.",
-  }));
+  const exceptions = [...keys].sort().map((key) =>
+    /\.integration\.test\./u.test(key)
+      ? {
+          key,
+          event: "baseline-2026-11-08: integration test judges correctness by the wall clock",
+          ref: "dec_25B3C380F6FB9D4D4A1E27921E",
+          reason: "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry.",
+        }
+      : {
+          key,
+          event: "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+          ref: "dec_EF5F3820E81FB8A5266F1F3342",
+          reason: "Existing polling or synchronous bridge at the CH3 baseline.",
+        },
+  );
   const document = { schema: "harness-anything/gate-allowlist/v1", gateId, entries: { exceptions } };
   await writeFile(path.join(root, allowlistPath), `${JSON.stringify(document, null, 2)}\n`);
 }

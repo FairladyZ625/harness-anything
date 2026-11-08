@@ -35,6 +35,41 @@ function isClockNow(node) {
   );
 }
 
+// Integration tests (dec_25B3C380F6FB9D4D4A1E27921E CH1) may not judge correctness by the wall clock:
+// a deadline compared against now(), a timer that schedules what the process under test should be
+// seen doing, a self-written poll/waitFor loop, or the shared wall-clock poller. Waits go through
+// tools/fixtures/event-arrival.ts; the node:test `timeout` option is the only hang guard.
+const comparisons = new Set(["<", "<=", ">", ">="]);
+const selfPollName = /^(?:waitFor|waitUntil|poll|eventually|until|retry)/iu;
+const pollHelperModule = /(?:^|\/)wait-for-condition(?:\.[cm]?[jt]s)?$/u;
+const pollHelperName = /^eventually/u;
+
+function isNowCall(node) {
+  return node?.type === "CallExpression" && isClockNow(node.callee);
+}
+
+function definedName(node) {
+  if (node.type === "FunctionDeclaration") return node.id?.name ?? null;
+  if (node.parent?.type === "VariableDeclarator" && node.parent.id.type === "Identifier") return node.parent.id.name;
+  return null;
+}
+
+function containsLoop(node, visitorKeys) {
+  let found = false;
+  function walk(current) {
+    if (!current || found) return;
+    if (loopTypes.has(current.type) || current.type === "ForOfStatement" || current.type === "ForInStatement")
+      found = true;
+    for (const key of visitorKeys[current.type] ?? []) {
+      const value = current[key];
+      if (Array.isArray(value)) value.forEach(walk);
+      else walk(value);
+    }
+  }
+  walk(node);
+  return found;
+}
+
 function insideLoop(node) {
   for (let current = node.parent; current; current = current.parent) {
     if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) return false;
@@ -64,7 +99,11 @@ export default {
     schema: [
       {
         type: "object",
-        properties: { baseline: { type: "array", items: { type: "string" } }, root: { type: "string" } },
+        properties: {
+          baseline: { type: "array", items: { type: "string" } },
+          root: { type: "string" },
+          integration: { type: "boolean" },
+        },
         additionalProperties: false,
       },
     ],
@@ -78,8 +117,10 @@ export default {
     const waitAliases = new Set(["delay", "sleep", "setTimeout", "setImmediate"]);
     const baseline = new Set(context.options[0]?.baseline ?? []);
     const cwd = context.options[0]?.root ?? context.getCwd?.() ?? process.cwd();
-    const report = (node, kind) => {
-      const key = `${normalized(context.filename, cwd)}#${enclosingFunction(node)}#${kind}`;
+    const integration = context.options[0]?.integration === true;
+    const pollHelpers = new Set();
+    const report = (node, kind, symbol = enclosingFunction(node)) => {
+      const key = `${normalized(context.filename, cwd)}#${symbol}#${kind}`;
       if (!baseline.has(key)) context.report({ node, messageId: "forbidden", data: { key } });
     };
     const milliseconds = (node) =>
@@ -90,7 +131,14 @@ export default {
           : undefined;
     return {
       ImportDeclaration(node) {
+        const helperModule = pollHelperModule.test(String(node.source.value));
         for (const specifier of node.specifiers) {
+          if (
+            integration &&
+            specifier.type === "ImportSpecifier" &&
+            (helperModule || pollHelperName.test(specifier.imported.name))
+          )
+            pollHelpers.add(specifier.local.name);
           if (specifier.type === "ImportSpecifier" && waitAliases.has(specifier.imported.name)) {
             waitAliases.add(specifier.local.name);
           }
@@ -102,8 +150,11 @@ export default {
       },
       CallExpression(node) {
         const name = callName(node.callee);
-        if ((name === "setInterval" || name === "setTimeout") && milliseconds(node.arguments[1]) < 250)
+        if (integration && (name === "setInterval" || name === "setTimeout")) report(node, "scheduled-timer");
+        else if ((name === "setInterval" || name === "setTimeout") && milliseconds(node.arguments[1]) < 250)
           report(node, "short-timer");
+        if (integration && node.callee.type === "Identifier" && pollHelpers.has(node.callee.name))
+          report(node, "poll-helper");
         if (name === "wait" && node.callee.type === "MemberExpression" && node.callee.object.name === "Atomics")
           report(node, "atomics-wait");
       },
@@ -114,6 +165,20 @@ export default {
           insideLoop(node)
         )
           report(node, "await-in-loop");
+      },
+      BinaryExpression(node) {
+        if (!integration) return;
+        if (
+          (comparisons.has(node.operator) && (isNowCall(node.left) || isNowCall(node.right))) ||
+          (node.operator === "-" && isNowCall(node.right) && !isNowCall(node.left))
+        )
+          report(node, "clock-deadline");
+      },
+      "FunctionDeclaration, FunctionExpression, ArrowFunctionExpression"(node) {
+        if (!integration) return;
+        const name = definedName(node);
+        if (name && selfPollName.test(name) && containsLoop(node.body, context.sourceCode.visitorKeys))
+          report(node, "self-poll", name);
       },
       WhileStatement(node) {
         if (containsNow(node.test, context.sourceCode.visitorKeys)) report(node, "clock-loop");

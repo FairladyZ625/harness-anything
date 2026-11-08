@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { waitForArrival } from "./event-arrival.ts";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 test("an arrival during the first absent read is not lost", async () => {
   let arrive: (() => void) | undefined,
