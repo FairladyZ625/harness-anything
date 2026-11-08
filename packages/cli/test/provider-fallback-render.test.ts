@@ -283,3 +283,26 @@ test("a receipt without a runtime selection gains no extra line", () => {
   });
   assert.doesNotMatch(rendered.text, /runtime instance:/u);
 });
+
+test("a spawn or instance receipt renders only the effective native-search tier", () => {
+  const spawn = renderCliReceipt({
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-spawn",
+    outcome: "applied",
+    opId: "op-web-search",
+    webSearch: "live",
+  });
+  assert.match(spawn.text, /^web search: live$/mu);
+  assert.doesNotMatch(spawn.text, /apiKey|credential|auth\.json/u);
+
+  const instance = renderCliReceipt({
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-instance-show",
+    outcome: "applied",
+    opId: "op-instance",
+    instance: { instanceId: "codex-web", configuration: { webSearch: "cached" } },
+  });
+  assert.match(instance.text, /^web search: cached$/mu);
+});

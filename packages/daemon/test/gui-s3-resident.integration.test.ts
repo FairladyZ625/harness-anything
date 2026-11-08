@@ -283,6 +283,8 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       "danger-full-access",
       "--model",
       "runtime-test-model-2",
+      "--config",
+      'web_search="disabled"',
       "-",
     ]);
     assert.match(String((launched?.env as Record<string, unknown>).HOME), /runtime-instances\/resident-codex\/home$/u);

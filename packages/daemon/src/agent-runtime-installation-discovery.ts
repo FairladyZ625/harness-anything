@@ -9,7 +9,11 @@ import { runtimeVersionGate } from "./runtime-version.ts";
 
 export const runtimeModelCatalogCache = new Map<
   string,
-  Promise<{ readonly models: readonly string[]; readonly defaultModel: string } | null>
+  Promise<{
+    readonly models: readonly string[];
+    readonly defaultModel: string;
+    readonly searchCapableModels?: readonly string[];
+  } | null>
 >();
 
 export async function discoverRuntimeInstallations(
@@ -94,12 +98,14 @@ export function discoverRuntimeModelCatalog(input: {
 }): Promise<{
   readonly models: readonly string[];
   readonly defaultModel: string;
+  readonly searchCapableModels?: readonly string[];
 } | null> {
   const cacheKey = `${input.kindId}\0${input.executablePath}\0${input.version}`;
   const cached = runtimeModelCatalogCache.get(cacheKey);
   if (cached) return cached;
   const discovered = (async () => {
-    let models: string[] = [];
+    let models: string[] = [],
+      searchCapableModels: string[] = [];
     try {
       const declaration = runtimeKindForId(input.kindId);
       // A null probe is an explicit unavailable catalog, never an empty successful probe.
@@ -111,11 +117,20 @@ export function discoverRuntimeModelCatalog(input: {
           captureOutput: true,
         });
       models = [...modelProbeParsers[declaration.executable.modelProbeFormat](output)];
+      if (declaration.executable.modelProbeFormat === "json-models")
+        searchCapableModels = modelSearchCapableModels(output);
     } catch (error) {
       consumeKnownError(error);
     }
-    const unique = [...new Set(models)];
-    return unique[0] ? { models: unique, defaultModel: unique[0] } : null;
+    const unique = [...new Set(models)],
+      capable = [...new Set(searchCapableModels)].filter((model) => unique.includes(model));
+    return unique[0]
+      ? {
+          models: unique,
+          defaultModel: unique[0],
+          ...(capable.length > 0 ? { searchCapableModels: capable } : {}),
+        }
+      : null;
   })();
   runtimeModelCatalogCache.set(cacheKey, discovered);
   return discovered;
@@ -157,6 +172,22 @@ const modelProbeParsers: Record<ModelProbeFormat, (output: string) => readonly s
     ["fable", "sonnet", "opus"].filter((alias) => output.includes(`'${alias}'`) || output.includes(`"${alias}"`)),
 };
 
+/** Codex's bundled catalog marks models that expose the native hosted search tool. Other
+ *  json-model providers do not publish this field and yield an empty (unknown) subset. */
+function modelSearchCapableModels(output: string): string[] {
+  const decoded = JSON.parse(output) as {
+    readonly models?: readonly {
+      readonly slug?: unknown;
+      readonly id?: unknown;
+      readonly supports_search_tool?: unknown;
+    }[];
+  };
+  return (decoded.models ?? [])
+    .filter((model) => model.supports_search_tool === true)
+    .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
+    .filter(Boolean);
+}
+
 /** Merges models observed on the ACP `session/new` response into the catalog
  * cache that CLI probes feed, so a protocol-advertised model set reaches the
  * same consumption surface as a probed one. Union-only: observed models never
@@ -175,8 +206,13 @@ export function observeRuntimeModels(input: {
     merged = (async () => {
       const base = previous ? await previous : null,
         models = [...new Set([...(base?.models ?? []), ...observed])],
-        defaultModel = base?.defaultModel ?? input.currentModel ?? models[0]!;
-      return { models, defaultModel };
+        defaultModel = base?.defaultModel ?? input.currentModel ?? models[0]!,
+        searchCapableModels = (base?.searchCapableModels ?? []).filter((model) => models.includes(model));
+      return {
+        models,
+        defaultModel,
+        ...(searchCapableModels.length > 0 ? { searchCapableModels } : {}),
+      };
     })();
   runtimeModelCatalogCache.set(cacheKey, merged);
 }

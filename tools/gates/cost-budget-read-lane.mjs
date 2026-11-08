@@ -11,7 +11,7 @@ import {
   validateReadCoverage,
 } from "./cost-budget-reads.mjs";
 
-export function combineReadShards(shards) {
+export function combineReadShards(shards, requiredBackends = READ_BACKENDS) {
   const measured = {};
   for (const shard of shards) {
     if (shard.schema !== "g38-read-shard/v1") throw new Error("invalid G38 read shard");
@@ -25,7 +25,7 @@ export function combineReadShards(shards) {
       }
     }
   }
-  for (const backend of READ_BACKENDS)
+  for (const backend of requiredBackends)
     for (const dimension of READ_DIMENSIONS)
       if (!measured[backend]?.[dimension]) throw new Error(`missing G38 shard ${backend}/${dimension}`);
   return measured;
@@ -39,7 +39,15 @@ export async function runReadLane({
   dimension,
   resultsDir,
   output,
+  requiredBackends = READ_BACKENDS,
 }) {
+  if (
+    !Array.isArray(requiredBackends) ||
+    requiredBackends.length === 0 ||
+    requiredBackends.some((backendName) => !READ_BACKENDS.includes(backendName)) ||
+    new Set(requiredBackends).size !== requiredBackends.length
+  )
+    throw new Error("required G38 backends must be a non-empty unique backend list");
   const started = performance.now();
   const section = JSON.parse(readFileSync(budgetPath, "utf8")).readCostScaling;
   const { READ_PROBES } = await import(
@@ -53,7 +61,13 @@ export async function runReadLane({
     const shards = readdirSync(resultsDir)
       .filter((name) => name.endsWith(".json"))
       .map((name) => JSON.parse(readFileSync(path.join(resultsDir, name), "utf8")));
-    result = evaluateReadMeasurements({ section, inventory, probes: READ_PROBES, measured: combineReadShards(shards) });
+    result = evaluateReadMeasurements({
+      section,
+      inventory,
+      probes: READ_PROBES,
+      measured: combineReadShards(shards, requiredBackends),
+      backends: requiredBackends,
+    });
   } else {
     if (backend && !READ_BACKENDS.includes(backend)) throw new Error("invalid G38 read backend");
     const dimensions = dimension ? dimension.split(",") : READ_DIMENSIONS;

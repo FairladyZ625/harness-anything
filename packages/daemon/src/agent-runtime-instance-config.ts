@@ -17,6 +17,7 @@ import type {
 } from "./agent-runtime-instance-types.ts";
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";
+import { assertRuntimeWebSearchSupported, runtimeWebSearchMode } from "./agent-runtime-web-search.ts";
 
 export {
   available,
@@ -245,7 +246,9 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
         "requiresOpenAiAuth, or httpHeaders; use a distinct providerId.",
       ].join(""),
     );
-  return { ...common, kindId, [kindId]: configuration } as RuntimeInstanceConfig;
+  const instance = { ...common, kindId, [kindId]: configuration } as RuntimeInstanceConfig;
+  assertRuntimeWebSearchSupported(instance);
+  return instance;
 }
 
 function hostingCredentialRefs(value: unknown): { readonly github?: string; readonly gitlab?: string } {
@@ -331,15 +334,19 @@ export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
   if (
     !isRuntimeInstanceRecord(value) ||
     Object.keys(value).some(
-      (key) => !["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"].includes(key),
+      (key) =>
+        !["reasoningEffort", "fast", "webSearch", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"].includes(
+          key,
+        ),
     )
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
-      "codex configuration accepts only reasoningEffort, fast, baseUrl, wireApi, requiresOpenAiAuth, and httpHeaders.",
+      "codex configuration accepts only reasoningEffort, fast, webSearch, baseUrl, wireApi, requiresOpenAiAuth, and httpHeaders.",
     );
   const effort = value.reasoningEffort === undefined ? undefined : runtimeEffort(value.reasoningEffort),
     fast = value.fast === undefined ? undefined : requireBoolean(value.fast, "fast"),
+    webSearch = value.webSearch === undefined ? undefined : runtimeWebSearchMode(value.webSearch),
     baseUrl = value.baseUrl === undefined ? undefined : secureRuntimeBaseUrl(value.baseUrl),
     wireApi = value.wireApi === undefined ? undefined : identifier(value.wireApi, "wireApi"),
     requiresOpenAiAuth =
@@ -350,6 +357,7 @@ export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
   return {
     ...(effort ? { reasoningEffort: effort } : {}),
     ...(fast === undefined ? {} : { fast }),
+    ...(webSearch === undefined ? {} : { webSearch }),
     ...(baseUrl ? { baseUrl } : {}),
     ...(wireApi ? { wireApi } : {}),
     ...(requiresOpenAiAuth === undefined ? {} : { requiresOpenAiAuth }),

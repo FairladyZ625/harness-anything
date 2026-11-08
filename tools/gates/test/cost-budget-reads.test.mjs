@@ -323,16 +323,28 @@ test("G38 shard join rejects missing, duplicate and unknown backend/dimension sl
   );
 });
 
+test("G38 conditional summary accepts PGlite-only shards but still requires every PGlite dimension", () => {
+  const f = fixture();
+  const shards = READ_DIMENSIONS.map((dimension) => ({
+    schema: "g38-read-shard/v1",
+    measured: { pglite: { [dimension]: f.measured.pglite[dimension] } },
+  }));
+  const measured = combineReadShards(shards, ["pglite"]);
+  assert.deepEqual(Object.keys(measured), ["pglite"]);
+  assert.equal(evaluateReadMeasurements({ ...f, measured, backends: ["pglite"] }).ok, true);
+  assert.throws(() => combineReadShards(shards.slice(1), ["pglite"]), /missing G38 shard pglite/u);
+  assert.throws(() => combineReadShards(shards), /missing G38 shard sqlite/u);
+});
+
 test("G38 CI retains the legacy budget and joins every Node26 backend/collection shard", () => {
   const workflow = parse(readFileSync(new URL("../../../.github/workflows/rewrite-ci.yml", import.meta.url), "utf8"));
   const jobs = workflow.jobs;
-  const legacy = jobs["cost-budget"],
-    reads = jobs["cost-budget-reads"],
+  const reads = jobs["cost-budget-reads"],
+    sqliteReads = jobs["cost-budget-reads-sqlite"],
     summary = jobs["cost-budget-read-summary"];
-  assert.ok(
-    legacy.steps.some((step) => step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_PHASE === "legacy"),
-  );
-  assert.deepEqual(reads.strategy.matrix.backend, [...READ_BACKENDS]);
+  const quick = jobs["quick-gates"];
+  assert.ok(quick.steps.some((step) => step.env?.G38_PHASE === "legacy"));
+  assert.deepEqual(reads.strategy.matrix.backend, ["pglite"]);
   assert.deepEqual(reads.strategy.matrix.dimension, [...READ_DIMENSIONS]);
   assert.equal(reads.strategy["fail-fast"], false);
   assert.ok(reads.steps.some((step) => step.with?.["node-version"] === 26));
@@ -350,7 +362,18 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
         step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_PHASE === "read" && !step["continue-on-error"],
     ),
   );
+  assert.deepEqual(sqliteReads.strategy.matrix.dimension, [...READ_DIMENSIONS]);
+  assert.equal(sqliteReads.steps.find((step) => step.run === "npm ci") !== undefined, true);
+  assert.ok(
+    sqliteReads.steps.some(
+      (step) => step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_BACKEND === "sqlite",
+    ),
+  );
   assert.ok(summary.needs.includes("cost-budget-reads"));
+  assert.equal(
+    summary.steps.find((step) => step.env?.G38_PHASE === "read-summary").env.G38_REQUIRED_BACKENDS,
+    "${{ github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads == 'false' && 'pglite' || 'pglite,sqlite' }}",
+  );
   assert.ok(
     summary.steps.some(
       (step) =>
@@ -361,7 +384,7 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
   );
   const manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8"));
   const gate = manifest.gates.find((entry) => entry.id === "cost-budget");
-  for (const id of ["cost-budget", "cost-budget-reads", "cost-budget-read-summary"])
+  for (const id of ["cost-budget-reads", "cost-budget-reads-sqlite", "cost-budget-read-summary"])
     assert.ok(gate.executionSurfaces.rewriteCi.pullRequestJobs.includes(id));
 });
 

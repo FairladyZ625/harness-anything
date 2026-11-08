@@ -552,6 +552,8 @@ test(
       'sandbox_mode="read-only"',
       "--model",
       "test-model",
+      "--config",
+      'web_search="disabled"',
       "provider-thread-stable",
       "-",
     ]);
@@ -916,6 +918,8 @@ test(
         "--dangerously-bypass-approvals-and-sandbox",
         "--model",
         "test-model",
+        "--config",
+        'web_search="disabled"',
         "provider-thread-compaction",
         "-",
       ]);
@@ -1077,6 +1081,8 @@ test("a task-bound Codex turn that ends on a progress note resumes the same thre
       "--dangerously-bypass-approvals-and-sandbox",
       "--model",
       "test-model",
+      "--config",
+      'web_search="disabled"',
       "provider-thread-compaction",
       "-",
     ]);

@@ -9,6 +9,7 @@ import type { RuntimeInstallation } from "@harness-anything/kernel";
 export type RuntimeCapabilitySupport = "supported" | "unsupported" | "unverified";
 export type RuntimeAuthMode = "subscription" | "api-key";
 export type RuntimeEndpointAvailability = "none" | "optional" | "required";
+export type RuntimeWebSearchMode = "disabled" | "cached" | "live";
 export interface RuntimeProviderDeclaration {
   readonly kindId: string;
   readonly protocolFamily: RuntimeInstallation["protocolFamily"];
@@ -38,6 +39,18 @@ export interface RuntimeProviderDeclaration {
     readonly choices?: Readonly<Record<string, readonly string[]>>;
     readonly publicFields: Readonly<Record<string, string>>;
     readonly publicDefaults: Readonly<Record<string, unknown>>;
+    /** Native provider search is a per-kind capability, not a global setting. Absent means
+     *  the kind has no controlled search tier; the field and `$web-search` token are then
+     *  rejected by the same declaration. `providers` scopes the tier to providers that
+     *  actually honor the native hosted tool. */
+    readonly webSearch?: {
+      readonly modes: readonly RuntimeWebSearchMode[];
+      readonly defaultMode: RuntimeWebSearchMode;
+      readonly providers: readonly string[];
+      /** Oldest CLI build verified to recognize the config key. Only enforced for modes
+       *  other than `defaultMode`, so a default launch keeps working on older builds. */
+      readonly minimumVersion?: string;
+    };
   };
   readonly auth: {
     readonly shape: "subscription-only" | "api-override" | "separate";
