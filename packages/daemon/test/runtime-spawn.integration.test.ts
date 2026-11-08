@@ -828,7 +828,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
         models: [`${kindId}-model`],
         defaultModel: `${kindId}-model`,
         enabled: true,
-        permissionMode: "read-only",
+        permissionMode: "workspace-write",
         authMode: "subscription",
         authState: "authenticated",
         authReadiness: { status: "ready", code: null, hint: null },

@@ -151,6 +151,20 @@ for (const scenario of [
       assert.equal(spawned.outcome, "op_rejected", JSON.stringify(spawned));
       assert.equal(spawned.code, "runtime_read_only_agent_required");
       assert.equal(existsSync(envPath), false, "refused dispatch must not launch a provider with a credential");
+      const retry = (await rpc("repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: "codex-ask",
+          permissionMode: "workspace-write",
+          taskId: null,
+          cwd: { scope: "repo-root" },
+          prompt: "重构组怎么样了？",
+          dispatchKey: "ask-allowlist-retry",
+        },
+      })) as { readonly outcome: string };
+      assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+      await eventuallyValue(() => (existsSync(envPath) ? readFileSync(envPath, "utf8") : null));
+      writeFileSync(path.join(parent, "ask-finish"), "");
       return;
     }
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));

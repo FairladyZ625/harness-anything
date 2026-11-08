@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "../src/runtime-spawn-context.ts";
+import {
+  assertRuntimeLaunchAuthorization,
+  daemonCliBinDirectory,
+  prepareBoundRuntimeLaunch,
+} from "../src/runtime-spawn-context.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { resolveDispatchCwd } from "../src/runtime-resume-admission.ts";
 
@@ -50,6 +54,16 @@ test("a taskless read-only launch rejects broad or missing identity before touch
           }),
           { code: "runtime_read_only_agent_required" },
         );
+});
+
+test("runtime launch authorization accepts only the declared read-only identity", () => {
+  assertRuntimeLaunchAuthorization({ taskId: null, permissionMode: "read-only", executionRole: "read-only" });
+  assertRuntimeLaunchAuthorization({ taskId: "task-1", permissionMode: "read-only", executionRole: "implementation" });
+  assertRuntimeLaunchAuthorization({ taskId: null, permissionMode: "workspace-write", executionRole: "session" });
+  assert.throws(
+    () => assertRuntimeLaunchAuthorization({ taskId: null, permissionMode: "read-only", executionRole: "session" }),
+    { code: "runtime_read_only_agent_required" },
+  );
 });
 
 test("runtime CLI bin resolves from the nearest daemon installation", (context) => {

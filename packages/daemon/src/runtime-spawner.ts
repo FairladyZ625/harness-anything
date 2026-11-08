@@ -93,7 +93,11 @@ import type {
 } from "./runtime-spawn-types.ts";
 import type { RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
-import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
+import {
+  assertRuntimeLaunchAuthorization,
+  daemonCliBinDirectory,
+  prepareBoundRuntimeLaunch,
+} from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { taskExecutionSurfaces } from "./runtime-execution-scope.ts";
@@ -1031,6 +1035,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {
+      assertRuntimeLaunchAuthorization({
+        taskId,
+        permissionMode: launchedPermissionMode,
+        executionRole:
+          !taskId && !reviewerBinding && !decisionReviewTarget && daemonRoute
+            ? unboundReadOnlyAgent
+              ? "read-only"
+              : "session"
+            : undefined,
+      });
       assertRuntimeHandoffLaunch(
         handoffEnabled,
         handoff,

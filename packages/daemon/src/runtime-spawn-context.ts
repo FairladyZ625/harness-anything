@@ -47,6 +47,19 @@ export interface RuntimeEventPublication<T extends RuntimeEventType> {
   readonly receipt?: JsonObject;
 }
 
+/** A provider permission label cannot widen the execution identity delivered by HA. */
+export function assertRuntimeLaunchAuthorization(args: {
+  readonly taskId: string | null;
+  readonly permissionMode: PreparedRuntimeLaunch["permissionMode"];
+  readonly executionRole?: RuntimeExecutionPrincipal["role"];
+}): void {
+  if (args.taskId === null && args.permissionMode === "read-only" && args.executionRole !== "read-only")
+    throw runtimeSpawnError(
+      "runtime_read_only_agent_required",
+      "Taskless read-only runtime spawn requires a declared read-only Agent; use ha agent run ask-agent.",
+    );
+}
+
 /** Closed composition contract shared by the runtime spawner's extracted helpers. */
 export interface RuntimeSpawnerContext {
   readonly closed?: () => boolean;
@@ -117,11 +130,11 @@ export async function prepareBoundRuntimeLaunch(args: {
   const { input, prepared, daemonRoute, callbackRelay, taskId, trustedSchedule } = args;
   // A provider sandbox cannot narrow a session credential's repository authority. Require
   // the existing allowlist-only identity before delivering any local or center-issued secret.
-  if (taskId === null && prepared.permissionMode === "read-only" && args.execution?.role !== "read-only")
-    throw runtimeSpawnError(
-      "runtime_read_only_agent_required",
-      "Taskless read-only runtime spawn requires a declared read-only Agent; use ha agent run ask-agent.",
-    );
+  assertRuntimeLaunchAuthorization({
+    taskId,
+    permissionMode: prepared.permissionMode,
+    executionRole: args.execution?.role,
+  });
   if (!daemonRoute) return prepared;
   const remote =
     args.execution && input.remote ? input.remote.executionCredential(args.execution.runtimeSessionId) : undefined;
