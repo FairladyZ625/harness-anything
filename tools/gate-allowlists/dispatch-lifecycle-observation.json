@@ -461,6 +461,13 @@
       },
       {
         "path": "packages/daemon/src/runtime-spawn-control.ts",
+        "symbol": "cancelRuntime",
+        "kind": "process-table-probe",
+        "fingerprint": "ef01e2baa8fd8131e2c6dd562f970fddb56218276a3659d934edc98dfd13e62a",
+        "slice": "5"
+      },
+      {
+        "path": "packages/daemon/src/runtime-spawn-control.ts",
         "symbol": "enforceRuntimeSpendCap",
         "kind": "process-table-probe",
         "fingerprint": "fa1473b3d234a7ac2d78de6e02db64ebf2797a400095372237062930ce476ffe",

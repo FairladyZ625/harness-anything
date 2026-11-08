@@ -2227,19 +2227,6 @@
         "probe": "cli-schedule-reckon",
         "backend": "pglite",
         "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 873 at 200 -> 8073 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 93 -> 273, firstCall 93 -> 273 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "cli-schedule-reckon",
-        "backend": "pglite",
-        "dimension": "dispatches",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 148896 at 200 -> 1473700 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 5372 -> 38496, firstCall 5372 -> 38496 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
@@ -2306,25 +2293,12 @@
         "backend": "pglite",
         "dimension": "dispatches",
         "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1290 at 200 -> 12090 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 120 -> 390, firstCall 120 -> 390 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum, dispatch lifecycle slice 1). Required bounded-pair witness: sqlRowsRead warm 60 -> 114, firstCall 60 -> 114 at 10/100 (5/50 no longer witnesses the scan on PGlite). Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "projection:runtime-session-groups",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 11419 at 200 -> 108619 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 1471 -> 3919, firstCall 1471 -> 3919 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
+          "small": 10,
+          "large": 100
         }
       },
       {
@@ -2333,19 +2307,6 @@
         "dimension": "dispatches",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 967408 at 200 -> 8678336 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 133620 -> 326008, firstCall 133620 -> 326008 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "repo.reckoning.signals.read",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 867 at 200 -> 8067 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 87 -> 267, firstCall 87 -> 267 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
@@ -2449,12 +2410,12 @@
         "backend": "pglite",
         "dimension": "dispatches",
         "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2561 at 200 -> 24161 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 327 -> 987, firstCall 327 -> 987 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 232 at 200 -> 2032 at 2000 (cold/warm maximum, dispatch lifecycle slice 1). Required bounded-pair witness: sqlRowsRead warm 42 -> 132, firstCall 42 -> 132 at 10/100 (5/50 no longer witnesses the scan on PGlite). Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
-          "small": 5,
-          "large": 50
+          "small": 10,
+          "large": 100
         }
       },
       {
