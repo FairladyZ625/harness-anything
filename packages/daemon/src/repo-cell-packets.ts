@@ -65,16 +65,15 @@ export function packetJson(
 
 export function workspaceText(rootDir: string, requestedValue: unknown, field: string): string {
   const requested = requiredCellText(requestedValue, field),
-    authoredRoot = resolveHarnessLayout(rootDir).authoredRoot,
-    relativeToAuthored = path.relative(authoredRoot, path.resolve(rootDir, requested));
+    layout = resolveHarnessLayout(rootDir),
+    absolute = path.resolve(rootDir, requested),
+    relativeToTasks = path.relative(layout.tasksRoot, absolute);
   if (
-    relativeToAuthored === "" ||
-    (!path.isAbsolute(relativeToAuthored) &&
-      relativeToAuthored !== ".." &&
-      !relativeToAuthored.startsWith(`..${path.sep}`))
+    relativeToTasks === "" ||
+    (!path.isAbsolute(relativeToTasks) && relativeToTasks !== ".." && !relativeToTasks.startsWith(`..${path.sep}`))
   )
     return new TextDecoder("utf-8", { fatal: true }).decode(
-      readAuthoredDocumentBytes(authoredRoot, relativeToAuthored),
+      readAuthoredDocumentBytes(layout.authoredRoot, path.relative(layout.authoredRoot, absolute)),
     );
   return readWorkspaceText(rootDir, requested, field);
 }
