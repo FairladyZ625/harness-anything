@@ -265,6 +265,8 @@ export interface SystemStatusSuccess {
       readonly error: BridgeError | null;
     };
   };
+  /** Main-process overlay: the running bundle's own dist/build-id.txt commit. */
+  readonly guiBuild?: { readonly commit: string | null };
   readonly repos: ReadonlyArray<SystemRepoRow>;
   readonly nodeAutoClaim?: {
     readonly enabled: boolean;
@@ -1057,12 +1059,15 @@ function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {
 }
 
 function isSystemStatusSuccess(value: unknown): value is SystemStatusSuccess {
+  const guiBuild = isRendererRecord(value) ? value.guiBuild : undefined;
   return (
     isRendererRecord(value) &&
     value.schema === "gui-system-status/v1" &&
     value.ok === true &&
     typeof value.observedAt === "string" &&
     isRendererRecord(value.daemon) &&
+    (guiBuild === undefined ||
+      (isRendererRecord(guiBuild) && (guiBuild.commit === null || typeof guiBuild.commit === "string"))) &&
     Array.isArray(value.repos) &&
     value.repos.every(
       (repo) =>

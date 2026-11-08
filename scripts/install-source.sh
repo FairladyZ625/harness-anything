@@ -120,9 +120,13 @@ else
   printf '%s\n' "$deps_digest" > "$deps_stamp"
 fi
 node node_modules/electron/install.js
+# Upgrade step: daemon, CLI and GUI are built together. A running Electron window keeps the
+# bundle it started with, so `ha gui` must be restarted after this block; rebuilding only the
+# CLI leaves the old GUI contract to reject new daemon fields.
 npm run build -w @harness-anything/daemon
 npm run build -w @harness-anything/cli
 npm run build -w @harness-anything/gui
+printf '%s\n' 'Rebuilt daemon, CLI and GUI; quit any running GUI window and rerun `ha gui` to load the new bundle.'
 node -e "const fs=require('fs'),path=require('path');const root=path.dirname(require.resolve('electron/package.json'));const rel=fs.readFileSync(path.join(root,'path.txt'),'utf8').trim();const bin=path.join(root,'dist',rel);fs.accessSync(bin,fs.constants.X_OK);console.log('Electron runtime: '+bin)"
 (cd packages/cli && npm_config_prefix="$npm_prefix" npm link)
 cli_entry="$npm_prefix/bin/ha"

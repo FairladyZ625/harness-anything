@@ -7,6 +7,7 @@ import type { DecisionState, TaskRow } from "./model/types.ts";
 import type { WorkspaceSummaryRead } from "../api/renderer-dto.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { FleetVersionWarningBanner } from "./components/FleetVersionWarningBanner.tsx";
+import { GuiBuildWarningBanner } from "./components/GuiBuildWarningBanner.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { LiveFloorView } from "./views/LiveFloorView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
@@ -602,6 +603,10 @@ function AppShell() {
           ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
           <FleetVersionWarningBanner warning={fleetOverview.overview?.versionWarning} />
+          <GuiBuildWarningBanner
+            guiCommit={systemQuery.data?.guiBuild?.commit}
+            daemonCommit={systemQuery.data?.daemon.build.commitSha}
+          />
           <RepositoryReadNotice
             repoId={activeRepoId}
             onLogin={() => {

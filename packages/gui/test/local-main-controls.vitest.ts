@@ -109,4 +109,46 @@ describe("local main controls runtime-instance boundary", () => {
     expect(invokes).toEqual([{ method: "updateRuntimeInstance", payload }]);
     expect(rawRequests).toEqual([]);
   });
+
+  it("overlays the GUI build identity on system status without overriding daemon fields", async () => {
+    const bridge = addLocalMainControls({
+      bridge: {
+        stream: (() => () => undefined) as never,
+        invoke: async () => ({
+          schema: "gui-system-status/v1",
+          ok: true,
+          observedAt: "2026-11-08T00:00:00.000Z",
+          daemon: { daemonId: "daemon-a", pid: 7, build: { version: "0.1.0", commitSha: "daemon-build" } },
+          repos: [],
+        }),
+      },
+      target,
+      guiBuild: () => ({ commit: "gui-build" }),
+    });
+    await expect(bridge.invoke("getSystemStatus", {})).resolves.toMatchObject({
+      daemon: { daemonId: "daemon-a", build: { commitSha: "daemon-build" } },
+      guiBuild: { commit: "gui-build" },
+    });
+  });
+
+  it("keeps a daemon-provided GUI build identity if the contract ever grows one", async () => {
+    const bridge = addLocalMainControls({
+      bridge: {
+        stream: (() => () => undefined) as never,
+        invoke: async () => ({
+          schema: "gui-system-status/v1",
+          ok: true,
+          observedAt: "2026-11-08T00:00:00.000Z",
+          daemon: { daemonId: "daemon-a", pid: 7, build: { version: "0.1.0", commitSha: "daemon-build" } },
+          guiBuild: { commit: "daemon-reported" },
+          repos: [],
+        }),
+      },
+      target,
+      guiBuild: () => ({ commit: "gui-build" }),
+    });
+    await expect(bridge.invoke("getSystemStatus", {})).resolves.toMatchObject({
+      guiBuild: { commit: "daemon-reported" },
+    });
+  });
 });

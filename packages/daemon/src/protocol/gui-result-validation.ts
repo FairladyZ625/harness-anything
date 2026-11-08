@@ -248,6 +248,28 @@ const resultValidators = {
   "repo.fleet.overview.read": validateFleetOverview,
 } satisfies Record<DaemonGuiRpcReadMethod, ResultValidator>;
 
+// Client inbound only. A daemon from the current/previous protocol window may have added a field
+// this GUI bundle does not declare; when the only failures are unknown fields, the read view must
+// still render them. Every other failure (missing field, wrong type, secret-shaped key, schema id)
+// stays fatal. `protocol.hello` already refused any peer outside {current, previous} before this
+// parser runs, so the tolerance is bounded to that window rather than being permanent.
+function isUnknownReadFieldError(error: string): boolean {
+  return (
+    / field "[^"]+" is unknown; remove it\.$/u.test(error) ||
+    / is not allowed$/u.test(error) ||
+    error === "observe tail payload contains an unknown field"
+  );
+}
+const ignoredReadFields = new Set<string>();
+function reportIgnoredReadFields(method: DaemonGuiRpcReadMethod, errors: readonly string[]): void {
+  for (const error of errors) {
+    const key = `${method}\u0000${error}`;
+    if (ignoredReadFields.has(key)) continue;
+    ignoredReadFields.add(key);
+    console.warn(`[gui-read-compat] ${method} ignored an additive daemon field: ${error}`);
+  }
+}
+
 export function validateDaemonWorkspaceScope(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return [validationError("workspace-scope", "result", value, "must be an object")];
   const row = (item: unknown) =>
@@ -439,17 +461,20 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
           : value,
     data = repositoryReadData(normalized);
   const errors =
-    isJsonObject(normalized) && normalized.ok === false
-      ? validateDaemonProtocolError(normalized)
-      : [
-          ...validateRepositoryReadFrame(normalized),
-          ...(method === "repo.tasks.list"
-            ? validateDaemonTaskSnapshotList(data)
-            : method === "repo.settings.read"
-              ? validateDaemonSettingsReadForClient(data)
-              : resultValidators[method](data)),
-        ];
-  if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
+      isJsonObject(normalized) && normalized.ok === false
+        ? validateDaemonProtocolError(normalized)
+        : [
+            ...validateRepositoryReadFrame(normalized),
+            ...(method === "repo.tasks.list"
+              ? validateDaemonTaskSnapshotList(data)
+              : method === "repo.settings.read"
+                ? validateDaemonSettingsReadForClient(data)
+                : resultValidators[method](data)),
+          ],
+    ignored = errors.filter(isUnknownReadFieldError),
+    fatal = errors.filter((error) => !isUnknownReadFieldError(error));
+  if (ignored.length) reportIgnoredReadFields(method, ignored);
+  if (fatal.length) throw new DaemonProtocolContractError("invalid_result", fatal.join("; "));
   return normalized as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
 }
 
