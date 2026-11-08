@@ -912,9 +912,10 @@ export async function main(argv, session = {}) {
   let daemonHandle = null;
   const env = forensicEnv(process.env);
   // The attach timeout is an explicit command-line budget for this forensic run. Pass the same
-  // budget to the writer-ready watchdog inside the isolated daemon; otherwise a large real ledger
-  // is rejected by the daemon's 60 s default before awaitAttach can observe its completion.
+  // budget to both node-local daemon guards; otherwise a large real ledger is rejected by either
+  // the writer-ready watchdog or host attach registry before awaitAttach can observe completion.
   env.HARNESS_WRITER_READY_WATCHDOG_MS = String(args.attachTimeoutMs);
+  env.HARNESS_REPO_ATTACH_TIMEOUT_MS = String(args.attachTimeoutMs);
   session.tempRoot = tempRoot;
   session.keep = args.keep;
   session.env = env;

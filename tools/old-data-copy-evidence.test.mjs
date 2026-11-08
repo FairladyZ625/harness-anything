@@ -101,6 +101,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     "HARNESS_EXECUTION_CREDENTIAL",
     "HARNESS_ACTOR",
     "HARNESS_WRITER_READY_WATCHDOG_MS",
+    "HARNESS_REPO_ATTACH_TIMEOUT_MS",
     "CODEX_HOME",
     "ANTHROPIC_API_KEY",
   ])

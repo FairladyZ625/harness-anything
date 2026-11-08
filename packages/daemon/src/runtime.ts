@@ -24,6 +24,21 @@ export interface DaemonServeDeferred {
   readonly endpoint: string;
   readonly witness: "unix-socket" | "singleton-lock";
 }
+/** Node-local attach budget override for forensic/slow-disk launches. Shared daemon settings
+ * remain unchanged; ordinary starts keep the host's 60s default. */
+export const REPO_ATTACH_TIMEOUT_MS_ENV = "HARNESS_REPO_ATTACH_TIMEOUT_MS";
+export const REPO_ATTACH_TIMEOUT_MS = 60_000;
+
+export function resolveRepoAttachTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const fromEnv = env[REPO_ATTACH_TIMEOUT_MS_ENV];
+  if (fromEnv === undefined || fromEnv === "") return REPO_ATTACH_TIMEOUT_MS;
+  const value = Number(fromEnv);
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw Object.assign(new Error(`${REPO_ATTACH_TIMEOUT_MS_ENV} must be a positive integer of milliseconds.`), {
+      code: "repo_attach_timeout_invalid",
+    });
+  return value;
+}
 export type DaemonServeStart = RunningDaemon | DaemonServeDeferred;
 /** Teardown must reach the lock even when an earlier step rejects; resident supersession keeps
  *  its pid until process exit. A teardown failure must not mask the drain's own rejection. */
@@ -92,6 +107,7 @@ export async function startDaemon(input: {
     buildSupersessionObserved = false,
     socketBound = false,
     stopping = false;
+  const attachTimeoutMs = input.attachTimeoutMs ?? resolveRepoAttachTimeoutMs();
   let fleetDrainDeadline: ReturnType<typeof setTimeout> | undefined;
   let buildDrainRecheck: ReturnType<typeof setInterval> | undefined;
   let fleetDrainExpired = false;
@@ -264,6 +280,7 @@ export async function startDaemon(input: {
     host = await observation.withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
         ...input,
+        attachTimeoutMs,
         endpoint,
         recordLifecycle,
         oidc,
