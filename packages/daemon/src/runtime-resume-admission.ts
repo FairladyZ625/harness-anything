@@ -16,6 +16,7 @@ import {
   openTaskWorktreeBinding,
   presetSnapshotReader,
   taskWorkspaceView,
+  worktreeBaseUnavailableError,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { hasUnbornHead } from "./schedule-occurrence-workspace.ts";
@@ -213,13 +214,7 @@ export async function prepareDispatchWorktree(
     undefined,
     payload.role === "reviewer" ? (pinnedCommit === null ? { followPublishedBranch: false } : { pinnedCommit }) : {},
   );
-  if (!checkout && hasUnbornHead(input.rootDir))
-    throw runtimeSpawnError(
-      "worktree_base_unavailable",
-      `Task ${taskId}'s worktree ${binding.path} cannot be created: ${input.rootDir} has no default-branch commit ` +
-        "to cut it from. Create the repository's first commit (or push its default branch), then dispatch the " +
-        "task again.",
-    );
+  if (!checkout && hasUnbornHead(input.rootDir)) throw worktreeBaseUnavailableError(input.rootDir, taskId, binding);
   if (checkout && !checkout.setup.ok)
     throw runtimeSpawnError(
       "worktree_setup_failed",

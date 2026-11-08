@@ -120,6 +120,19 @@ export function taskWorkspaceView(
   return { kind: "task-package", path: path.relative(rootDir, packageRoot).split(path.sep).join("/") };
 }
 
+/**
+ * The one named failure for a binding that cannot be cut from an unborn repository. Both the runtime dispatch and
+ * the Squad run use it, so the refusal is one judgment rather than two copies.
+ */
+export function worktreeBaseUnavailableError(rootDir: string, taskId: string, binding: TaskWorktreeBindingV1): Error {
+  return cellCodedError(
+    "worktree_base_unavailable",
+    `Task ${taskId}'s worktree ${binding.path} cannot be created: ${rootDir} has no default-branch commit ` +
+      "to cut it from. Create the repository's first commit (or push its default branch), then dispatch the " +
+      "task again.",
+  );
+}
+
 export interface TaskWorktreeCheckout {
   readonly cwd: string;
   readonly branch: string;
