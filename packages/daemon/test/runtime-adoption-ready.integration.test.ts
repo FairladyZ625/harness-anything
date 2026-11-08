@@ -214,19 +214,6 @@ if(args[0]==="-C" && args[1]===${JSON.stringify(path.join(rootDir, "runtime-head
           ).outcome,
           "applied",
         );
-        if (fault === "authorization hold")
-          await assert.rejects(
-            cell.spawnRuntime(
-              {
-                runtimeInstanceId: definition.instanceId,
-                cwd: { scope: "repo-root" },
-                prompt: "must reserve old capacity",
-                dispatchKey: "while-recovering",
-              },
-              binding,
-            ),
-            { code: "runtime_recovery_pending" },
-          );
         const before = await cell.run({ kind: "task-show", taskId }, binding);
         assert.match(String((before as Record<string, unknown>).summary), /lease: [^\n]*phase=held/u);
         const other = withPolicyGroup(

@@ -3,7 +3,7 @@ import {
   executionArrangementAllows,
 } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, dispatchOwnerForNode } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -21,8 +21,6 @@ import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
-  readDispatchStreamHeader,
-  readDispatchStreamSummary,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -38,8 +36,6 @@ import {
   adoptRuntimes,
   reclaimFailedLaunchTempDirectory,
   sweepSettledRuntimeTempDirectories,
-  assertRuntimeRecoveryReady,
-  ownedByRuntimeSpawner,
 } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
@@ -80,7 +76,7 @@ import { isStructuredSuccessResult, parseProviderFrame } from "./runtime-spawn-p
 import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-provider-stream.ts";
 import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+import { assertDispatchAdmission } from "./runtime-dispatch-admission.ts";
 import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
@@ -462,7 +458,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskPackageRoot,
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, canonicalRuntimeSessions] =
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(
           input,
           input.remote,
@@ -537,6 +533,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       });
       modelSlotHeld = true;
     }
+    const assertDispatchAdmissible = (runtimeInstanceId: string) =>
+      assertDispatchAdmission(
+        (query) =>
+          input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
+        { instanceId: runtimeInstanceId, owner: dispatchOwnerForNode(input.runtimeNode?.nodeId) },
+        runtimeSpawnError,
+      );
     const selectRuntime = () =>
       prepareRuntimeInstance(
         {
@@ -551,58 +554,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           now: input.now(),
         },
         async (runtimeInstanceId) => {
-          if (!dryRun)
-            for (const session of canonicalRuntimeSessions) {
-              if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
-              // A session can arrive after the startup census. Its canonical node owner,
-              // not absence from this node's process map, determines who must recover it.
-              let dispatchId: string | null | undefined;
-              if (!processes.has(session.runtimeSessionId)) {
-                const dispatch = input.remote
-                  ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
-                  : projection!.readRuntimeDispatch(session.runtimeSessionId);
-                dispatchId = dispatch?.payload.dispatchId ?? null;
-                const header = dispatchId ? readDispatchStreamHeader(input.rootDir, dispatchId) : null;
-                if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode, header)) continue;
-              }
-              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId, dispatchId, session.liveness))
-                continue;
-              // During daemon restart the worker host can remain healthy while adoption has not
-              // yet re-registered it in this spawner's process map. A canonical live observation
-              // only clears that gap when the dispatch stream still proves its PID is alive;
-              // unknown/stale/exited sessions reserve capacity until recovery proves or settles
-              // them. A stream that proves the worker is already gone is different: run the same
-              // adoption settlement used by daemon restart/cancel before deciding capacity, so a
-              // reviewer whose conclusion is already registered cannot strand the instance.
-              const streamSummary =
-                  typeof dispatchId === "string" ? readDispatchStreamSummary(input.rootDir, dispatchId) : null,
-                processProvenDead = Boolean(
-                  streamSummary?.process &&
-                    (streamSummary.process.exited || !runtimePidIsAlive(streamSummary.process.pid)),
-                );
-              if (processProvenDead && session.liveness !== "live") {
-                const [recovery] = await Promise.allSettled([
-                  adoptRuntimes(extracted, undefined, { runtimeSessionId: session.runtimeSessionId }),
-                ]);
-                if (recovery.status === "rejected") throw recovery.reason;
-                const settledSession = input.remote
-                  ? await input.remote.readRuntimeSession(session.runtimeSessionId)
-                  : projection!.readRuntimeSession(session.runtimeSessionId);
-                if (settledSession?.outcome !== null && settledSession?.outcome !== undefined) continue;
-              }
-              const liveProcessAfterRestart =
-                session.liveness === "live" &&
-                Boolean(
-                  streamSummary?.process &&
-                    !streamSummary.process.exited &&
-                    runtimePidIsAlive(streamSummary.process.pid),
-                );
-              if (!processes.has(session.runtimeSessionId) && !liveProcessAfterRestart)
-                throw runtimeSpawnError(
-                  "runtime_recovery_pending",
-                  `Runtime ${session.runtimeSessionId} has unresolved capacity.`,
-                );
-            }
+          if (!dryRun) await assertDispatchAdmissible(runtimeInstanceId);
           const initialFallback =
               inheritedFallback ??
               initialFallbackAttempt(

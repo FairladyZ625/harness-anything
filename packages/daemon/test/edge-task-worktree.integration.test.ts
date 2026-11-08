@@ -23,6 +23,7 @@ import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { checkoutTaskWorktree } from "../src/task-worktree.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 
 // dec_57370FF2021DADF04E3B21724D: an edge node holds no ledger, so the center delivers the task's worktree binding
 // (CH1), the edge dispatch works in that worktree (CH2), and a node that takes a task over continues the branch the
@@ -576,6 +577,7 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null, re
             ) ?? null
           );
         },
+        readDispatchLifecycle: emptyDispatchLifecycleRead,
         readRuntimeSessions: async () => [],
         publish: async () => assert.fail("the launch boundary precedes every publication"),
         archive: async () => assert.fail("nothing settles before launch"),

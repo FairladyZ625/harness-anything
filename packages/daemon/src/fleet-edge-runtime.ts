@@ -835,6 +835,16 @@ export function openFleetEdgeRuntime(input: {
           readEdgeRuntimeSessions(projection, query),
         );
       },
+      readDispatchLifecycle: async (query) =>
+        withEdgeReadModel(
+          {
+            viewRoot: request.viewRoot,
+            repoId: request.repoId,
+            nodeId: request.nodeId,
+            principalId: (await input.readBinding()).actor.principal.personId,
+          },
+          (projection) => projection.readDispatchLifecycle(query),
+        ),
       readRuntimeDispatch: async (runtimeSessionId) =>
         withEdgeReadModel(
           {

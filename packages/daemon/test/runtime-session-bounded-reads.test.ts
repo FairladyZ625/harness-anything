@@ -71,15 +71,10 @@ const projectionOf = (history: ReturnType<typeof sessionHistory>) =>
 
 test("dispatch reads the unsettled set, not the settled history", async () => {
   const history = sessionHistory();
-  const [local, , allowed, , canonical] = await resolveRuntimeDispatchResources(
-    {},
-    undefined,
-    projectionOf(history),
-    new Map(),
-  );
+  const [local, , allowed] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history), new Map());
   assert.deepEqual(allowed, ["instance-a", "instance-b"]);
   assert.deepEqual(
-    canonical.map(({ runtimeSessionId }) => runtimeSessionId),
+    local.map(({ runtimeSessionId }) => runtimeSessionId),
     ["runtime-open-a", "runtime-open-b", "runtime-open-c"],
   );
   assert.equal(local.length, 3);
@@ -92,7 +87,7 @@ test("dispatch reads the unsettled set, not the settled history", async () => {
 
 test("a resume additionally point-reads its native session, settled or not, in id order", async () => {
   const history = sessionHistory();
-  const [local, , , , canonical] = await resolveRuntimeDispatchResources(
+  const [local] = await resolveRuntimeDispatchResources(
     {},
     undefined,
     projectionOf(history),
@@ -101,7 +96,7 @@ test("a resume additionally point-reads its native session, settled or not, in i
   );
   // Same order the full history read produced, so `find(providerSessionId)` picks the same row.
   assert.deepEqual(
-    canonical.map(({ runtimeSessionId }) => runtimeSessionId),
+    local.map(({ runtimeSessionId }) => runtimeSessionId),
     ["runtime-open-a", "runtime-open-b", "runtime-open-c", "runtime-settled-00007"],
   );
   assert.equal(local.find((row) => row.providerSessionId === "native-resumed")?.runtimeSessionId, "runtime-open-c");
@@ -119,7 +114,7 @@ test("a resume additionally point-reads its native session, settled or not, in i
 
 test("remote dispatch sends the same bounded queries to its replica", async () => {
   const history = sessionHistory();
-  const [, , , , canonical] = await resolveRuntimeDispatchResources(
+  const [local] = await resolveRuntimeDispatchResources(
     {},
     { readRuntimeSessions: async (query) => history.readRuntimeSessions(query) } as NonNullable<
       RuntimeSpawnerInput["remote"]
@@ -128,7 +123,7 @@ test("remote dispatch sends the same bounded queries to its replica", async () =
     new Map(),
     "native-resumed",
   );
-  assert.equal(canonical.length, 4);
+  assert.equal(local.length, 4);
   assert.deepEqual(
     history.reads.map(({ query }) => query),
     [{ unsettledOnly: true }, { providerSessionId: "native-resumed" }],

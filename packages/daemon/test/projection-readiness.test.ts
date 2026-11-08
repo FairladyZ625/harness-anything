@@ -17,6 +17,7 @@ import { initRepo } from "./task-surface.fixtures.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
+import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 
 type TaskRead = ReturnType<TaskProjection["read"]>;
 
@@ -154,6 +155,7 @@ test("runtime dispatch does not replay-check an opId occupied by another canonic
         },
       }),
       projection: () => ({
+        readDispatchLifecycle: emptyDispatchLifecycleRead,
         readRuntimeSessions: () => [],
         getEntity: (kind: string, id: string) =>
           kind === "settings" && id === "repository"

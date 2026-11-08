@@ -613,48 +613,6 @@
       "slice": "5"
     },
     {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "liveness-comparison",
-      "fingerprint": "218d0a1620d97bbd136f582cfa7fbf02b709555889d183e72df40d5d1ee783b6",
-      "slice": "1"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "liveness-comparison",
-      "fingerprint": "ece9ff7a43fae2525ea03270c52dab59eb43d0b844deee1bfb3adbb42484e5ed",
-      "slice": "1"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "process-table-probe",
-      "fingerprint": "7f8f0401aefefde0a04866e9b09ee9e4b1f22c282e0ca34c840b163bc63f6b49",
-      "slice": "1"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "process-table-probe",
-      "fingerprint": "9d1a1837be5159908bdb280bcaecbe7fe10f48afff75c9ff45658f15aa64dcea",
-      "slice": "1"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "runtimePidIsAlive",
-      "fingerprint": "3f50d3a92b539f027d5fe6d18b33e84eed534aab9b89e970ae54f97cf7da744f",
-      "slice": "1"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawner.ts",
-      "symbol": "selectRuntime",
-      "kind": "runtimePidIsAlive",
-      "fingerprint": "edefeb998dc2946dea9787474a923777356998d441de8fd9917802890d1604fa",
-      "slice": "1"
-    },
-    {
       "path": "packages/daemon/src/squad-coordinator-publication.ts",
       "symbol": "publishState",
       "kind": "liveness-comparison",

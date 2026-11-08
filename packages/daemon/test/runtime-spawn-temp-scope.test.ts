@@ -13,6 +13,7 @@ import {
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
+import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding: RepoCellBinding = {
   actor: { principal: { personId: "person-owner" }, executor: null },
@@ -31,6 +32,7 @@ test("a dispatch hands its runtime session id to the launch preparation", async 
     store: () => ({ readEvent: () => null }),
     projection: () =>
       ({
+        readDispatchLifecycle: emptyDispatchLifecycleRead,
         readRuntimeSessions: () => [],
         currentLease: () => null,
         getEntity: () => ({ value: { runtime: { allowedInstances: ["worker"] } } }),
@@ -85,6 +87,7 @@ test("a launch refused after preparation returns the temp scope prepareLaunch mi
       store: () => ({ readEvent: () => null }),
       projection: () =>
         ({
+          readDispatchLifecycle: emptyDispatchLifecycleRead,
           readRuntimeSessions: () => [],
           currentLease: () => null,
           getEntity: () => ({ value: { runtime: { allowedInstances: ["worker"] } } }),
@@ -222,6 +225,7 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
         },
       },
       requiredRuntimeProjection: () => ({
+        readDispatchLifecycle: emptyDispatchLifecycleRead,
         readRuntimeSessions: () => assert.fail("the sweep must not read the whole session table"),
         readRuntimeSession: (id: string) => {
           pointReads.push(id);
@@ -272,6 +276,7 @@ test("the startup sweep point-reads only local temp directories regardless of se
       },
     },
     requiredRuntimeProjection: () => ({
+      readDispatchLifecycle: emptyDispatchLifecycleRead,
       readRuntimeSessions: () => {
         fullReads += 1;
         return history;
@@ -327,6 +332,7 @@ test("settled temp maintenance is independent of runtime adoption", async () => 
           },
         },
         requiredRuntimeProjection: () => ({
+          readDispatchLifecycle: emptyDispatchLifecycleRead,
           readRuntimeSessions: () => [],
           readRuntimeSession: () => ({ runtimeSessionId: settled, outcome: "succeeded" }),
         }),
