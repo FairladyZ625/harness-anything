@@ -90,6 +90,17 @@ ha settings update --roles '{"defaultWorker":"worker","defaultReviewer":"reviewe
 
 内置身份无需安装。`ha agent list` 和 `ha agent inspect` 展示已安装声明。需要定制时，编写 `agent-declaration/v1` JSON 文件并执行 `ha agent install --source <file>`；安装的同 ID 声明优先于内置声明。安装属于所选仓库的台账，物化视图位于 `harness/agents/<id>.json`，与机器级 Provider 配置分开。现有身份与角色偏好由用户自行修改。
 
+## 升级源码 checkout
+
+源码分发的受支持升级方式是：
+
+```bash
+git pull --ff-only
+npm run build
+```
+
+安装器执行同样的拉取和构建流程；无外网中心及固定提交的步骤见[源码安装与升级](02-edge-join.md#升级与无外网中心)。
+
 ## 派工记录保留期
 
 每次派工都会在 daemon 上写一份完整记录（JSONL 流式转录）；派工结束后记录归档在那台

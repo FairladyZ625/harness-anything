@@ -272,9 +272,9 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     id: "runtime-cancel",
     phase: "Runtime-B",
     path: ["runtime", "cancel", "<runtime-session-id>"],
-    summary: "Idempotently cancel a runtime session.",
+    summary: "Cancel a runtime session or record an owner ruling for an unreachable dispatch.",
     method: "repo.agentRuntime.cancel",
-    inputs: [],
+    inputs: [cliInput("--ruling", "single", false, { code: "invalid_field" })],
   }),
   defineRuntimeLocalWriteCommand({
     id: "runtime-steer",

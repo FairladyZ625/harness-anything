@@ -73,15 +73,16 @@ test("doctor health reports the eight checks and degrades to indeterminate witho
 test("doctor health reports a stable actionable Fleet build warning", () => {
   assert.deepEqual(
     fleetVersionDoctorCheck([
-      "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with ha update.",
-      "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with ha update.",
+      "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with git pull --ff-only, then build CLI and daemon.",
+      "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with git pull --ff-only, then build CLI and daemon.",
     ]),
     {
       id: "fleet-version",
       status: "warn",
       count: 1,
-      summary: "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with ha update.",
-      next: "Run ha update on the center and edge, then reconnect the Fleet session.",
+      summary:
+        "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with git pull --ff-only, then build CLI and daemon.",
+      next: "Run git pull --ff-only, then build CLI and daemon on the center and edge, then reconnect the Fleet session.",
     },
   );
 });

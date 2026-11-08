@@ -26,14 +26,16 @@ export async function cancelRuntime(
   payload: JsonObject,
   binding: RuntimeBinding,
 ): Promise<JsonObject> {
-  const allowed = ["runtimeSessionId", "escalation"],
+  const allowed = ["runtimeSessionId", "escalation", "ruling"],
     unknownField = unknownFieldViolation(payload, allowed);
   if (unknownField)
     throw runtimeSpawnError("invalid_runtime_cancel", `Runtime cancel payload contains an ${unknownField}`);
   const runtimeSessionId = requiredRuntimeSpawnText(payload.runtimeSessionId, "runtimeSessionId"),
     escalation = payload.escalation === true,
+    ruling = payload.ruling === undefined ? null : requiredRuntimeSpawnText(payload.ruling, "ruling").trim(),
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
+  if (ruling === "") throw runtimeSpawnError("invalid_runtime_ruling", "Owner ruling reason must not be empty.");
   // Terminal streams retain their owner binding after archival; repeated cancellation still verifies it.
   const headers = readDispatchStreamHeaders(context.input.rootDir, true),
     matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
@@ -145,11 +147,64 @@ export async function cancelRuntime(
             ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
             : {}),
         }) !== "proven_stopped"
-      )
+      ) {
+        if (ruling !== null) {
+          const hasLocalOwner =
+              context.processes.has(runtimeSessionId) ||
+              context.exiting.has(runtimeSessionId) ||
+              context.ownsModelSlot?.(runtimeSessionId) === true,
+            recordedGroup = ownerEvidence?.processGroupPid;
+          if (
+            matchingHeader !== undefined ||
+            readDispatchStreamSummary(context.input.rootDir, ownerEvidence?.payload.dispatchId ?? "") !== null ||
+            hasLocalOwner ||
+            (recordedGroup !== null && recordedGroup !== undefined)
+          )
+            throw runtimeSpawnError(
+              "runtime_ruling_not_allowed",
+              "Owner ruling requires no local runtime owner, no readable dispatch stream, and no recorded process group.",
+            );
+          const resultBody = JSON.stringify({
+              schema: "runtime-ruling-resolution/v1",
+              runtimeSessionId,
+              dispatchId: ownerEvidence?.payload.dispatchId ?? null,
+              from: "awaiting_ruling",
+              to: "closed",
+              event: "ruling_resolved",
+              disposition: "abandoned_unproven",
+              processStop: "unproven",
+              actor: binding.actor,
+              resolvedAt: context.input.now(),
+              reason: ruling,
+            }),
+            resultSha256 = createHash("sha256").update(resultBody).digest("hex");
+          await context.publishRuntimeEvent(
+            "runtime_session_outcome_observed",
+            {
+              runtimeSessionId,
+              outcome: "unknown",
+              exitCode: null,
+              resultRef: `artifact:runtime-result/sha256/${resultSha256}`,
+              result: {
+                sha256: resultSha256,
+                size: Buffer.byteLength(resultBody),
+                mediaType: "text/plain; charset=utf-8",
+              },
+              reasonCode: "ruling_resolved",
+              ...(ownerEvidence?.payload.dispatchId ? { dispatchId: ownerEvidence.payload.dispatchId } : {}),
+              endedAt: context.input.now(),
+            },
+            `${opId}-ruling-resolved`,
+            binding,
+            resultBody,
+          );
+          return context.controlReceipt(opId, runtimeSessionId, "ruling_resolved");
+        }
         throw runtimeSpawnError(
           "runtime_process_group_unproven",
           `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.${processGroupRecoveryHint()}`,
         );
+      }
     }
     if (typeof instanceId === "string") {
       const failure = context.input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId) ?? null;
