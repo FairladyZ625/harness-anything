@@ -20,13 +20,17 @@ type Codec = NonNullable<CliInputFacet["codec"]>;
 
 const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
 
+function descriptorKey(command: ThinCommand): string {
+  return command.id && hasCommandDescriptor(command.id) ? command.id : command.action.kind;
+}
+
 function invalid(message: string): never {
   throw Object.assign(new Error(message), { code: "invalid_field" });
 }
 
 function descriptorFor(command: ThinCommand) {
   try {
-    return commandDescriptorForAction(command.action.kind);
+    return commandDescriptorForAction(descriptorKey(command));
   } catch (error) {
     throw Object.assign(new Error(`No command declaration exists for ${command.action.kind}.`), {
       code: "invalid_field",
@@ -318,7 +322,7 @@ export function serializeFleetAction(command: ThinCommand): Action {
 /** Local execution uses the same declared file codecs as Fleet forwarding. JSON packets remain
  * on the daemon's command boundary; this materializes text targets without changing the action. */
 export function materializeCommandFileInputs(command: ThinCommand): ThinCommand {
-  if (!hasCommandDescriptor(command.action.kind)) return command;
+  if (!hasCommandDescriptor(descriptorKey(command))) return command;
   const action = { ...command.action };
   for (const input of inputsOf(descriptorFor(command))) {
     const codec = typeof input.codec === "object" ? input.codec : undefined;

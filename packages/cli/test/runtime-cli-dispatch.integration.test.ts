@@ -696,6 +696,7 @@ path.join(packagePath, "artifacts", "missions", "existing-mission.md"),
     "--no-stream",
   ]);
   assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
+  assert.ok(promptFile.receipt.spawn, JSON.stringify(promptFile.receipt));
   const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
   assert.ok(
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
