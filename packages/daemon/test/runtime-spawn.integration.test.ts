@@ -405,6 +405,11 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     repoId: workspaceId(repoId),
     rootDir: canonicalRoot(root),
     ownerId: "agent-model-test",
+    runtimeDaemonRoute: {
+      userRoot,
+      daemonId: "runtime-agent-model",
+      endpoint: path.join(userRoot, "runtime-agent-model.sock"),
+    },
     runtimeInstances: () => {
       instanceReads.count += 1;
       return instances.listPublic();

@@ -862,10 +862,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? runtimeExecutionRoleForLaunch({
               taskId: null,
               role: role === "reviewer" ? "reviewer" : "session",
-              readOnlyCeiling: launchedPermissionMode === "read-only",
+              readOnlyCeiling: launchedPermissionMode === "read-only" || unboundReadOnlyAgent,
             })
           : null,
-      dispatchRole = tasklessExecutionRole === "read-only" ? "read-only" : unboundReadOnlyAgent ? "read-only" : role;
+      dispatchRole = tasklessExecutionRole === "read-only" ? "read-only" : role;
     if (dispatchRole === "read-only" && !daemonRoute)
       throw runtimeSpawnError(
         "runtime_preconditions_unavailable",
@@ -1122,11 +1122,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 dispatchId: newDispatchId,
                 taskId: null,
                 executionId: null,
-                role: runtimeExecutionRoleForLaunch({
-                  taskId: null,
-                  role: "session",
-                  readOnlyCeiling: launchedPermissionMode === "read-only",
-                }),
+                role: dispatchRole === "read-only" ? "read-only" : "session",
               },
             }
           : {}),
