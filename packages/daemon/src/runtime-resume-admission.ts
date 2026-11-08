@@ -167,15 +167,13 @@ export function assertResumeAgent(
  * task-bound like an implementer here: relative writes from a review must land in its own checkout, never in the
  * canonical root the review is judging. A reviewer's checkout is pinned to the submission's frozen commit; submit
  * dispatches the review before the delivery order pushes that branch, so the published branch is not an anchor.
- * An already-started task keeps the workspace its explicit start recorded, including a start that reported no
- * worktree; a task that was never started must not acquire that root fallback silently here (issue #4431).
+ * A task-bound dispatch never acquires the repository-root fallback when its required worktree cannot be cut:
+ * an unborn repository is refused here before the provider launch, whether or not a start recorded an execution.
+ * A start may record "no workspace on this node" without blocking its own lifecycle write; that answer does not
+ * authorize a provider launch (issue #4431).
  */
 export async function prepareDispatchWorktree(
-  input: {
-    readonly rootDir: string;
-    readonly readSettings?: () => SettingsV1;
-    readonly projection?: () => Pick<TaskProjection, "read">;
-  },
+  input: { readonly rootDir: string; readonly readSettings?: () => SettingsV1 },
   payload: {
     readonly cwd?: unknown;
     readonly role?: unknown;
@@ -215,7 +213,7 @@ export async function prepareDispatchWorktree(
     undefined,
     payload.role === "reviewer" ? (pinnedCommit === null ? { followPublishedBranch: false } : { pinnedCommit }) : {},
   );
-  if (!checkout && !taskStarted(input, taskId) && hasUnbornHead(input.rootDir))
+  if (!checkout && hasUnbornHead(input.rootDir))
     throw runtimeSpawnError(
       "worktree_base_unavailable",
       `Task ${taskId}'s worktree ${binding.path} cannot be created: ${input.rootDir} has no default-branch commit ` +
@@ -228,15 +226,6 @@ export async function prepareDispatchWorktree(
       worktreeSetupFailure(checkout.cwd, checkout.setup, `dispatch task ${taskId} again`, checkout.baseRef),
     );
   return checkout;
-}
-
-/**
- * Whether an explicit start already recorded this task's execution here. A start is where a node first decides the
- * task's workspace; a later dispatch follows that decision rather than re-deciding it at provider launch.
- */
-function taskStarted(input: { readonly projection?: () => Pick<TaskProjection, "read"> }, taskId: string): boolean {
-  const read = input.projection?.().read(taskId, false, false);
-  return read !== undefined && read.snapshot.task !== null && read.snapshot.executions.length > 0;
 }
 
 /** The binding source of a node that holds the ledger: the task as its own projection currently has it. */
