@@ -45,6 +45,8 @@ export interface ObserveRow {
   readonly atMs: number | null;
   /** 日志行的 RPC 耗时毫秒(仅 request/conn 记录;events 行为 null),慢操作统计的输入。 */
   readonly durationMs: number | null;
+  /** 写请求在单写队列里的等待毫秒(请求日志 queueMs;其余 durationMs 为执行);无则 null。 */
+  readonly queueMs: number | null;
   /** 请求/连接日志自带的节点标识(daemonId/nodeId 字段;多节点透镜区分归属用)。 */
   readonly nodeId: string | null;
   /** 日志行的失败码(outcome ?? code;异常聚类按 类型+失败码 去重)。 */
@@ -506,6 +508,7 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     gapMarker: gap,
     atMs: null,
     durationMs: null,
+    queueMs: null,
     nodeId: null,
     code: null,
     subject: null,
@@ -550,6 +553,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       gapMarker: null,
       atMs: epochMsOf(at),
       durationMs: null as number | null,
+      queueMs: null as number | null,
       nodeId: null as string | null,
       code: null as string | null,
       // 主体归属:taskId 优先,无 taskId 的事件退到运行时会话(Top Talkers 的提取位)。
@@ -582,6 +586,7 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       atMs: epochMsOf(at),
       durationMs:
         typeof record.durationMs === "number" && Number.isFinite(record.durationMs) ? record.durationMs : null,
+      queueMs: typeof record.queueMs === "number" && Number.isFinite(record.queueMs) ? record.queueMs : null,
       nodeId: stringOf(record.daemonId) ?? stringOf(record.nodeId),
       code: outcome,
       // 主体归属:executor 调用方(代理/运行时身份)优先,无执行者退到连接标识。

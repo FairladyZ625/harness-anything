@@ -32,10 +32,14 @@ const SMELL_TONE: Record<ObserveSmellStat["kind"], string> = {
 const smellText = (smell: ObserveSmellStat): string => {
   switch (smell.kind) {
     case "slow_write_request":
-      return t("views.daemonObserve.smellSlowWrite", {
-        method: smell.label,
-        ms: String(Math.round(smell.value)),
-      });
+      return smell.queueMs == null
+        ? t("views.daemonObserve.smellSlowWrite", { method: smell.label, ms: String(Math.round(smell.value)) })
+        : t("views.daemonObserve.smellSlowWriteQueued", {
+            method: smell.label,
+            ms: String(Math.round(smell.value)),
+            queueMs: String(Math.round(smell.queueMs)),
+            executionMs: String(Math.round(Math.max(0, smell.value - smell.queueMs))),
+          });
     case "spinloop_polling":
       return t("views.daemonObserve.smellPolling", {
         method: smell.label,

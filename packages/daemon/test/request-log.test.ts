@@ -231,6 +231,41 @@ test("a parked sessions.await records wait while ordinary reads do not", async (
   assert.equal(records[1].wait, false);
 });
 
+test("a write records its write-queue wait separately from execution; a read records none", async (t) => {
+  const rootDir = tempRoot(t),
+    host = stubHost(rootDir),
+    log = openDaemonRequestLog({ resolveRootDir: () => rootDir }),
+    // The daemon always observes requests; that operation trace carries the write-queue phase.
+    server = Object.assign(
+      createJsonRpcProtocolServer({
+        host,
+        build: daemonBuildStamp(),
+        authContext: {
+          transportKind: "unix-socket",
+          unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" },
+        },
+        emit: async () => undefined,
+        recordRequest: log.record,
+        operationObserver: { begin: () => ({ update: () => undefined, end: () => undefined }) },
+      }),
+      { requestLog: log },
+    );
+  await handshake(server);
+  for (const [id, method, action] of [
+    [2, "repo.task.run", { kind: "fact-record", statement: "queued write", source: "fixture" }],
+    [3, "repo.task.read", { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
+  ] as const)
+    await server.handle({ jsonrpc: "2.0", id, method, params: { repo: { repoId: "logged" }, payload: { action } } });
+  server.close();
+  await server.requestLog.settle();
+  const [write, read] = readRecords(rootDir);
+  assert.equal(write.command, "fact-record");
+  assert.equal(typeof write.queueMs, "number", JSON.stringify(write));
+  assert.ok(write.queueMs! <= write.serviceMs, "the queue wait is part of the service time");
+  assert.equal(read.command, "task-show");
+  assert.equal("queueMs" in read, false);
+});
+
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {
   const rootDir = tempRoot(t),
     server = openServerWithLog(rootDir);

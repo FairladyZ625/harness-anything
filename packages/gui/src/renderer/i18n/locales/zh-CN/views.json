@@ -534,6 +534,7 @@
   "views.daemonObserve.sniffHealthy": "未发现阈值告警",
   "views.daemonObserve.sniffHealthyTip": "窗口内无慢写请求、无频密轮询，失败率在阈值内；不代表系统性能或锁健康",
   "views.daemonObserve.smellSlowWrite": "慢写请求: {method} {ms}ms",
+  "views.daemonObserve.smellSlowWriteQueued": "慢写请求: {method} {ms}ms(排队 {queueMs}ms · 执行 {executionMs}ms)",
   "views.daemonObserve.smellPolling": "频密轮询: {method} {rate}/s",
   "views.daemonObserve.smellFailures": "失败毛刺: {pct}%",
   "views.daemonObserve.smellFocusTip": "点击收敛透镜到该病灶",

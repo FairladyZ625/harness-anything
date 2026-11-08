@@ -1111,6 +1111,7 @@ export function createJsonRpcProtocolServer(options: {
         result,
         dispatchDelayMs,
         serviceMs,
+        ...writeQueueWait(serviceMs),
       }),
     );
   }
@@ -1169,6 +1170,17 @@ export function createJsonRpcProtocolServer(options: {
       actor: trafficActorForLog(executor, options.authContext),
     });
   }
+}
+
+// The same write-queue phase the connection log records, so request statistics can split a slow
+// write into queueing behind another write and its own execution.
+// Phases run on the monotonic clock and serviceMs on wall-clock milliseconds; clamp so the wait
+// never reads longer than the service time it is part of.
+function writeQueueWait(serviceMs: number): { readonly queueMs?: number } {
+  const phase = currentDaemonOperationTrace()?.phases.find(({ name }) => name === "write-queue");
+  return phase === undefined
+    ? {}
+    : { queueMs: Math.min(serviceMs, Math.max(0, Math.round(phase.endedAtMs - phase.startedAtMs))) };
 }
 
 function encodeAndAttach(response: JsonRpcResponse): number {

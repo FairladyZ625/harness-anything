@@ -34,6 +34,8 @@ export interface DaemonRequestLogEntry {
   readonly detail?: string | null;
   readonly dispatchDelayMs?: number;
   readonly serviceMs?: number;
+  /** Time a write waited in the repository's single write queue before it executed. */
+  readonly queueMs?: number;
   readonly durationMs: number;
 }
 
@@ -59,6 +61,8 @@ export interface DaemonRequestLogRecord {
   readonly detail?: string | null;
   readonly dispatchDelayMs: number;
   readonly serviceMs: number;
+  /** Present for writes: the write-queue wait inside serviceMs; the rest of serviceMs is execution. */
+  readonly queueMs?: number;
   readonly durationMs: number;
 }
 
@@ -252,6 +256,7 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     ...(entry.detail === undefined ? {} : { detail: entry.detail }),
     dispatchDelayMs: entry.dispatchDelayMs ?? 0,
     serviceMs: entry.serviceMs ?? entry.durationMs,
+    ...(entry.queueMs === undefined ? {} : { queueMs: entry.queueMs }),
     durationMs: entry.durationMs,
   };
 }
