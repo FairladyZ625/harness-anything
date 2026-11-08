@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -101,7 +101,42 @@ test("ordinary required declarations fail before a Fleet action is emitted", (t)
     () => serializeFleetAction(command(root, { kind: "task-progress-append", taskId: "task-one" })),
     (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
   );
+  assert.throws(
+    () => serializeFleetAction(command(root, { kind: "task-start", taskId: "task-one", evil: "x" })),
+    (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
+  );
 });
+
+test(
+  "file codecs reject a repository symlink that resolves outside the workspace",
+  { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false },
+  (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-symlink-"));
+    const outside = mkdtempSync(path.join(tmpdir(), "fleet-payload-outside-"));
+    t.after(() => {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    });
+    writeFileSync(
+      path.join(outside, "proposal.json"),
+      JSON.stringify({
+        title: "Edge proposal",
+        question: "Which writer?",
+        riskTier: "low",
+        urgency: "medium",
+        decisionClass: "ordinary",
+        chosen: [],
+        rejected: [],
+        claims: [],
+      }),
+    );
+    symlinkSync(path.join(outside, "proposal.json"), path.join(root, "proposal.json"));
+    assert.throws(
+      () => serializeFleetAction(command(root, { kind: "decision-propose", fromFile: "proposal.json" })),
+      (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
+    );
+  },
+);
 
 test("decision JSON arrays obey the same shape and row bound as center admission", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-wire-rows-"));

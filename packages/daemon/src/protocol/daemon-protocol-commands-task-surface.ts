@@ -142,7 +142,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["correction", "superseded-by"] },
+        { enum: ["correction", "superseded-by"], field: "annotationKind" },
       ),
     ],
   }),
@@ -363,6 +363,13 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     path: ["task", "delete"],
     summary: "Soft-delete through production authority; hard delete remains rejected with a repair path.",
     method: "repo.task.run",
+    payloadFields: [
+      { field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      { field: "mode", type: "string", required: true, enum: ["soft", "hard"] },
+      { field: "reason", type: "string", required: false },
+      { field: "confirm", type: "string", required: false },
+      { field: "deletedBy", type: "string", required: false },
+    ],
     inputs: [
       cliInput(
         "--soft",
@@ -371,7 +378,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { format: "<task-id>" },
+        { format: "<task-id>", field: "taskId" },
       ),
       cliInput(
         "--hard",
@@ -380,7 +387,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { format: "<task-id>" },
+        { format: "<task-id>", field: "taskId" },
       ),
       cliInput("--confirm", "single", false, {
         code: "invalid_field",

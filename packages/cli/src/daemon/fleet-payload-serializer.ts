@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   fleetActionPayloadIssue,
@@ -34,10 +34,20 @@ function descriptorFor(command: ThinCommand) {
 
 function readUtf8(rootDir: string, source: string, maxBytes: number, label: string): string {
   if (typeof source !== "string" || source.length === 0) invalid(`${label} must name one file on this edge.`);
-  const resolved = path.resolve(rootDir, source),
-    relative = path.relative(rootDir, resolved);
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    invalid(`${label} must stay within the selected repository.`);
+  let resolved: string;
+  try {
+    const root = realpathSync.native(rootDir);
+    resolved = realpathSync.native(path.resolve(rootDir, source));
+    const relative = path.relative(root, resolved);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+      invalid(`${label} must stay within the selected repository.`);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "invalid_field") throw error;
+    throw Object.assign(new Error(`${label} could not be resolved on this edge: ${cliErrorMessage(error)}`), {
+      code: "invalid_field",
+      cause: error,
+    });
+  }
   let bytes: Buffer;
   try {
     bytes = readFileSync(resolved);
@@ -160,22 +170,6 @@ function addDefaultFields(
       fields.set(field, { field, type: "json-object", required: false });
     else if (typeof value === "boolean") fields.set(field, { field, type: "boolean", required: false });
   }
-}
-
-function inferredField(field: string, value: unknown): EntityActionInputField {
-  if (Array.isArray(value)) {
-    const item = value.find((candidate) => candidate !== undefined);
-    return {
-      field,
-      type: "string-array",
-      required: false,
-      ...(item !== undefined && typeof item !== "string" ? { type: "json-object-array" as const } : {}),
-    };
-  }
-  if (value !== null && typeof value === "object") return { field, type: "json-object", required: false };
-  if (typeof value === "boolean") return { field, type: "boolean", required: false };
-  if (typeof value === "number") return { field, type: "number", required: false };
-  return { field, type: "string", required: false };
 }
 
 function adaptFieldToValue(field: EntityActionInputField, value: unknown): EntityActionInputField {
@@ -342,8 +336,11 @@ export function serializeFleetAction(command: ThinCommand): Action {
       : action;
     const { kind: _kind, ...payload } = validationAction,
       fields = new Map(validationFields(descriptor, original).map((field) => [field.field, field] as const));
-    for (const [field, value] of Object.entries(payload))
-      fields.set(field, adaptFieldToValue(fields.get(field) ?? inferredField(field, value), value));
+    for (const [field, value] of Object.entries(payload)) {
+      const declared = fields.get(field);
+      if (!declared) invalid(`action.${field} is not declared by its Fleet command`);
+      fields.set(field, adaptFieldToValue(declared, value));
+    }
     const issue = fleetActionPayloadIssue([...fields.values()], payload);
     if (issue) invalid(`${issue} does not match its Fleet declaration`);
   }
