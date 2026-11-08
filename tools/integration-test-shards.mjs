@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-export const integrationShardCount = 16;
+export const integrationShardCount = 14;
 // The median cost of an integration file added between 2026-10-25 and 2026-11-08 was 8.7s; the
 // previous 1s default let 354 unweighted files pile into shards that looked light.
 export const defaultIntegrationTestWeightMs = 10_000;
@@ -8,7 +8,7 @@ export const defaultIntegrationTestWeightMs = 10_000;
 // runs three files at a time on four cores. A shard's wall is at most about its weight sum / 2.6
 // (measured 2026-11-08 in task_34470c99bb4b77644b9ce3a246; raising the concurrency to 4 or 6 made
 // no shard faster and failed timing-sensitive tests), so this sum keeps the test step near
-// 6 minutes, under the 7-minute job line. The 16 shards start at 74% of it.
+// 6 minutes, under the 7-minute job line. The 14 shards start at 85% of it.
 export const integrationShardBudgetMs = 1_000_000;
 // A file runs its tests serially, so one file is a floor on its shard's wall. Files above this
 // either split or name their reason in entries.overBudgetFiles of

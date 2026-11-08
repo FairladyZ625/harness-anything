@@ -37,8 +37,6 @@
         "integration-shard (12)",
         "integration-shard (13)",
         "integration-shard (14)",
-        "integration-shard (15)",
-        "integration-shard (16)",
         "supply-chain",
         "gui-build",
         "node26-compatibility",
@@ -237,8 +235,6 @@
         "integration-shard (12)",
         "integration-shard (13)",
         "integration-shard (14)",
-        "integration-shard (15)",
-        "integration-shard (16)",
         "supply-chain",
         "gui-build",
         "pr-body-lint",
@@ -1177,9 +1173,7 @@
           "integration-shard (11)",
           "integration-shard (12)",
           "integration-shard (13)",
-          "integration-shard (14)",
-          "integration-shard (15)",
-          "integration-shard (16)"
+          "integration-shard (14)"
         ],
         "workflowJobs": ["integration-shard", "windows-integration-shard"],
         "nodeVersions": [24]
@@ -1227,9 +1221,7 @@
             "integration-shard (11)",
             "integration-shard (12)",
             "integration-shard (13)",
-            "integration-shard (14)",
-            "integration-shard (15)",
-            "integration-shard (16)"
+            "integration-shard (14)"
           ]
         },
         "classes": ["local", "pr"]
