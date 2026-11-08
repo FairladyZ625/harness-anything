@@ -33,7 +33,7 @@ import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { signOutAt } from "./keycloak.fixtures.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
+import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { FLEET_TRANSFER_CHUNK_BYTES, FLEET_UPLOAD_MAX_BYTES } from "../src/fleet/command-protocol.ts";
 const replicaQuota = 64 * 1024 * 1024;
