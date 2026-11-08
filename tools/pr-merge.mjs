@@ -14,7 +14,7 @@ const REMOTE = "origin";
 const TASK_BRANCH_PATTERN = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
 const RUNTIME_BUILD_PACKAGES = ["@harness-anything/daemon", "@harness-anything/cli"];
 
-function run(command, args, { cwd, allowFailure = false, env } = {}) {
+function run(command, args, { cwd, allowFailure = false, env, stdio = ["ignore", "pipe", "pipe"] } = {}) {
   const invocation =
     process.platform === "win32" && (command === "gh" || command === "ha")
       ? {
@@ -26,7 +26,7 @@ function run(command, args, { cwd, allowFailure = false, env } = {}) {
   const result = spawnSync(invocation.command, invocation.args, {
     cwd,
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio,
     // A long-lived task's `ha task show --json` receipt grows past spawnSync's 1 MiB default
     // (PR #3502's was 2.2 MiB). maxBuffer only caps collection, it does not preallocate.
     maxBuffer: 256 * 1024 * 1024,
@@ -38,7 +38,7 @@ function run(command, args, { cwd, allowFailure = false, env } = {}) {
     throw new Error(`${command} failed to launch: ${result.error.message}`);
   }
   if (!allowFailure && result.status !== 0) {
-    const detail = (result.stderr || result.stdout).trim();
+    const detail = String(result.stderr || result.stdout || "").trim();
     throw new Error(`${command} ${args.join(" ")} failed${detail ? `: ${detail}` : ""}`);
   }
   return result;
@@ -343,7 +343,12 @@ function requireReviewConsent(pr, root) {
   return evidence;
 }
 
-function mergeOpenPr(pr, root) {
+function positiveIntegerEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? String(fallback), 10);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+function enqueueOpenPr(pr, root) {
   const checks = run("gh", ["pr", "checks", String(pr.number), "--required"], {
     cwd: root,
     allowFailure: true,
@@ -356,25 +361,29 @@ function mergeOpenPr(pr, root) {
 
   const merge = run(
     "gh",
-    ["pr", "merge", String(pr.number), "--merge", "--admin", "--match-head-commit", pr.headRefOid],
+    ["pr", "merge", String(pr.number), "--auto", "--merge", "--match-head-commit", pr.headRefOid],
     { cwd: root },
   );
   if (merge.stdout) process.stdout.write(merge.stdout);
+  console.log(`PR #${pr.number} was added to the GitHub merge queue at ${pr.headRefOid}.`);
+}
 
-  // gh's zero exit already proves the merge happened, so a failure to read the PR back must not abort
-  // the cleanup: the annotation step re-reads the merge commit and reports itself unfinished instead.
-  try {
-    const merged = readPr(String(pr.number), root);
-    if (merged.state === "MERGED") return merged;
-    console.log(`PR #${pr.number} was merged by gh but GitHub still reports state=${merged.state}.`);
-  } catch (error) {
-    console.log(
-      `PR #${pr.number} was merged by gh but reading it back failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+function waitForMergedPr(pr, root) {
+  const maxPolls = positiveIntegerEnv("PR_MERGE_MAX_POLLS", 720),
+    waitMs = positiveIntegerEnv("PR_MERGE_WAIT_MS", 5_000);
+  for (let attempt = 0; attempt <= maxPolls; attempt += 1) {
+    const current = readPr(String(pr.number), root);
+    if (current.state === "MERGED") return current;
+    if (current.state !== "OPEN") throw new Error(`PR #${pr.number} left the merge queue with state=${current.state}.`);
+    if (attempt === maxPolls)
+      throw new Error(
+        `PR #${pr.number} remained OPEN after ${maxPolls} merge-queue polls; ` +
+          "inspect the queue and rerun this command after the required checks settle.",
+      );
+    console.log(`Waiting for PR #${pr.number} to merge (poll ${attempt + 1}/${maxPolls}).`);
+    if (waitMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
   }
-  return { ...pr, state: "MERGED", mergeCommit: null };
+  throw new Error(`PR #${pr.number} did not reach a terminal merge state.`);
 }
 
 function recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence) {
@@ -471,8 +480,10 @@ function printHelp() {
   process.stdout.write(
     [
       "Usage: node tools/pr-merge.mjs <PR-number-or-url>",
+      "       node tools/pr-merge.mjs <PR-number-or-url> [<PR> ...]",
       "",
-      "From the local main worktree: merge the PR after required checks pass, delete its",
+      "From the local main worktree: enqueue one or more PRs after required checks pass, wait for",
+      "GitHub's merge queue to merge them, delete their",
       "origin branch, remove its clean local worktree/branch, and fast-forward local main.",
       "A PR whose head branch is a task id must first have the owner-consented review of its",
       "current execution recorded in the harness ledger (ha task show); the check fails closed",
@@ -589,23 +600,48 @@ function main(argv) {
     printHelp();
     return;
   }
-  if (argv.length !== 1 || argv[0].startsWith("-")) {
-    throw new Error("Provide exactly one PR number or URL. Run with --help for usage.");
-  }
+  if (argv.length === 0 || argv.some((selector) => selector.startsWith("-")))
+    throw new Error("Provide one or more PR numbers or URLs. Run with --help for usage.");
 
-  const { mainWorktree, pr, prWorktree } = preflight(argv[0]);
-  console.log(`Finalizing PR #${pr.number} (${pr.headRefName} -> ${MAIN_BRANCH}).`);
-  let merged = pr,
-    evidence = null;
-  if (pr.state === "OPEN") {
-    evidence = requireReviewConsent(pr, mainWorktree.path);
-    merged = mergeOpenPr(pr, mainWorktree.path);
-  } else {
-    console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
+  const entries = argv.map((selector) => ({ selector, ...preflight(selector) })),
+    numbers = new Set(entries.map(({ pr }) => pr.number));
+  if (numbers.size !== entries.length) throw new Error("Provide each PR only once.");
+  const openEntries = entries.filter(({ pr }) => pr.state === "OPEN"),
+    evidenceByNumber = new Map();
+  for (const { pr, mainWorktree } of openEntries)
+    evidenceByNumber.set(pr.number, requireReviewConsent(pr, mainWorktree.path));
+  for (const { pr, mainWorktree } of openEntries) enqueueOpenPr(pr, mainWorktree.path);
+
+  const unfinishedEntries = [];
+  for (const { pr, prWorktree, mainWorktree } of entries) {
+    console.log(`Finalizing PR #${pr.number} (${pr.headRefName} -> ${MAIN_BRANCH}).`);
+    let merged = pr;
+    if (pr.state === "OPEN") merged = waitForMergedPr(pr, mainWorktree.path);
+    else console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
+    try {
+      const unfinished = finalizeMergedPr(
+        pr,
+        merged,
+        prWorktree,
+        mainWorktree.path,
+        evidenceByNumber.get(pr.number) ?? null,
+      );
+      if (unfinished.length > 0) unfinishedEntries.push({ pr, unfinished });
+    } catch (error) {
+      unfinishedEntries.push({
+        pr,
+        unfinished: [
+          {
+            step: "post-merge bookkeeping",
+            remedy: `node tools/pr-merge.mjs ${pr.number}`,
+            detail: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      });
+    }
   }
-  const unfinished = finalizeMergedPr(pr, merged, prWorktree, mainWorktree.path, evidence);
-  if (unfinished.length > 0) {
-    reportUnfinished(pr, unfinished);
+  for (const { pr, unfinished } of unfinishedEntries) reportUnfinished(pr, unfinished);
+  if (unfinishedEntries.length > 0) {
     process.exitCode = 1;
     return;
   }

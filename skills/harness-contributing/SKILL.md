@@ -439,16 +439,20 @@ commit, push normally, and update the PR body. Never
 force-push to escape a failed check.
 
 External contributors and their agents stop after the PR is green, current,
-conflict-free, and fully reviewed. A maintainer performs the repository's normal
-merge-commit path; only that maintainer may run:
+conflict-free, and fully reviewed. When the repository is eligible for GitHub's
+merge queue, the maintainer enqueues one or more reviewed PRs with:
 
 ```bash
-gh pr merge <pr-number> --repo FairladyZ625/harness-anything --merge --delete-branch
+node tools/pr-merge.mjs <pr-number> [<another-pr-number> ...]
 ```
 
-Do not squash, rebase-merge, direct-push, or use an admin bypass. The
-contribution is complete when GitHub reports the PR merged or closed with a
-clear reason.
+The helper validates each current head, enables merge-commit auto-merge, waits
+for GitHub's merge queue, and then runs the existing cleanup and ledger
+annotation. The temporary merge-group ref runs the same required checks;
+body-only checks reuse each source PR's existing declaration. Do not squash,
+rebase-merge, direct-push, or use an admin bypass. The hosted queue must be
+enabled by the owner on an eligible organization-owned repository before this
+step is used.
 
 > 中文：逐条处理 CI、human review 和 bot comment；P0/P1/P2 必须完成 triage。
 > 外部贡献者或 agent 在 PR 全绿、无冲突、review 完成后停下，由 maintainer 用普通

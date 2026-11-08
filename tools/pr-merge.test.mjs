@@ -34,24 +34,33 @@ function makeFakeGh(root) {
     script = `import { readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const statePath = process.env.PR_STATE_PATH;
-const data = JSON.parse(readFileSync(statePath, "utf8"));
+const store = JSON.parse(readFileSync(statePath, "utf8"));
+const dataFor = (number) => store.prs ? store.prs[String(number)] : store;
+const save = () => writeFileSync(statePath, JSON.stringify(store));
 if (args[0] === "pr" && args[1] === "view") {
+  const data = dataFor(args[2]);
   // GitHub answers UNKNOWN while it computes mergeability; later reads settle.
   if (Array.isArray(data.mergeableSequence) && data.mergeableSequence.length) {
     data.mergeable = data.mergeableSequence.shift();
-    writeFileSync(statePath, JSON.stringify(data));
+    save();
+  }
+  if (Array.isArray(data.stateSequence) && data.stateSequence.length) {
+    data.state = data.stateSequence.shift();
+    save();
   }
   process.stdout.write(JSON.stringify(data));
 } else if (args[0] === "pr" && args[1] === "checks") {
+  const data = dataFor(args[2]);
   if (!args.includes("--required")) process.exit(3);
   process.stdout.write("required-checks pass\\n");
 } else if (args[0] === "pr" && args[1] === "merge") {
-  const expected = ["--merge", "--admin", "--match-head-commit", data.headRefOid];
+  const data = dataFor(args[2]);
+  const expected = ["--auto", "--merge", "--match-head-commit", data.headRefOid];
   if (!expected.every((token) => args.includes(token))) process.exit(4);
-  data.state = "MERGED";
+  data.state = Array.isArray(data.stateSequence) && data.stateSequence.length > 0 ? "OPEN" : "MERGED";
   data.mergeCommit = data.mergeCommit ?? { oid: "b".repeat(40) };
-  writeFileSync(statePath, JSON.stringify(data));
-  process.stdout.write("merged by fake gh\\n");
+  save();
+  process.stdout.write("queued by fake gh\\n");
 } else {
   process.stderr.write(\`unexpected gh args: \${args.join(" ")}\\n\`);
   process.exit(2);
@@ -320,6 +329,40 @@ function fixture(
   };
 }
 
+function addSecondPr(setup) {
+  git(setup.seed, "checkout", "-b", "codex/pr-124", setup.upstreamHead);
+  writeFileSync(path.join(setup.seed, "second-feature.txt"), "second feature\n");
+  git(setup.seed, "add", "second-feature.txt");
+  git(setup.seed, "commit", "-m", "second feature");
+  const secondHead = git(setup.seed, "rev-parse", "HEAD");
+  git(setup.seed, "push", "-u", "origin", "codex/pr-124");
+  git(setup.main, "fetch", "origin", "codex/pr-124");
+  git(setup.main, "branch", "codex/pr-124", "origin/codex/pr-124");
+  const secondPrWorktree = path.join(path.dirname(setup.prWorktree), "pr-worktree-124");
+  git(setup.main, "worktree", "add", secondPrWorktree, "codex/pr-124");
+  const state = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(
+    setup.statePath,
+    JSON.stringify({
+      prs: {
+        123: state,
+        124: {
+          number: 124,
+          state: "OPEN",
+          isDraft: false,
+          baseRefName: "main",
+          headRefName: "codex/pr-124",
+          headRefOid: secondHead,
+          isCrossRepository: false,
+          mergeable: "MERGEABLE",
+          url: "https://example.test/pull/124",
+        },
+      },
+    }),
+  );
+  return secondPrWorktree;
+}
+
 test("merges, cleans the PR branch and worktree, and fast-forwards local main", (t) => {
   const setup = fixture(t);
   const initialHead = git(setup.main, "rev-parse", "HEAD");
@@ -339,6 +382,42 @@ test("merges, cleans the PR branch and worktree, and fast-forwards local main", 
     "@harness-anything/daemon",
     "@harness-anything/cli",
   ]);
+});
+
+test("enqueues the PR and waits for the queue to report a merge", (t) => {
+  const setup = fixture(t);
+  const state = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  // Preflight reads once; the first post-enqueue read remains OPEN and the second reaches MERGED.
+  state.stateSequence = ["OPEN", "OPEN", "MERGED"];
+  writeFileSync(setup.statePath, JSON.stringify(state));
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: { ...setup.env, PR_MERGE_WAIT_MS: "1", PR_MERGE_MAX_POLLS: "3" },
+  });
+
+  assert.match(result.stdout, /queued by fake gh/u);
+  assert.match(result.stdout, /Waiting for PR #123 to merge/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+});
+
+test("enqueues every requested PR before waiting for the first merge", (t) => {
+  const setup = fixture(t),
+    secondPrWorktree = addSecondPr(setup);
+
+  const result = run(process.execPath, [helper, "123", "124"], { cwd: setup.main, env: setup.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  const firstQueued = result.stdout.indexOf("PR #123 was added to the GitHub merge queue"),
+    secondQueued = result.stdout.indexOf("PR #124 was added to the GitHub merge queue"),
+    firstFinalized = result.stdout.indexOf("Finalizing PR #123");
+  assert.ok(firstQueued >= 0);
+  assert.ok(secondQueued > firstQueued);
+  assert.ok(firstFinalized > secondQueued, "all PRs must be enqueued before post-merge cleanup begins");
+  const state = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  assert.equal(state.prs[123].state, "MERGED");
+  assert.equal(state.prs[124].state, "MERGED");
+  assert.equal(existsSync(setup.prWorktree), false);
+  assert.equal(existsSync(secondPrWorktree), false);
 });
 
 test("synchronizes local main without git pull's shared FETCH_HEAD", (t) => {

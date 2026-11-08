@@ -9,7 +9,7 @@ This repository accepts work through pull requests against `main`.
 3. Open a pull request with the full repository PR template.
 4. Wait for the required `rewrite-ci` pull request contexts to pass.
 5. Resolve or explicitly route open P0/P1/P2 findings before merge.
-6. After approval and passing required checks, enable GitHub auto-merge, then delete the merged PR branch.
+6. After approval and passing required checks, enqueue the PR with `node tools/pr-merge.mjs`; the helper enables merge-commit auto-merge, waits for the merge queue, and performs branch cleanup after GitHub reports the merge.
 
 ## Required Checks
 
@@ -55,8 +55,9 @@ The active GitHub repository ruleset is the sole enforcement surface for
 `main`. It requires pull requests, the `rewrite-ci` status checks, deletion
 blocking, and non-fast-forward/force-push blocking with no bypass actors. The
 `check-github-required-contexts` gate verifies the hosted branch rules against
-the structured gate manifest. GitHub auto-merge waits for the required checks
-and merges the pull request when the rules are satisfied.
+the structured gate manifest. The GitHub merge queue waits for the required
+checks on the temporary `merge_group` ref and merges the pull request when the
+rules are satisfied.
 
 The active GitHub ruleset enforcement for `main` requires these status contexts:
 
