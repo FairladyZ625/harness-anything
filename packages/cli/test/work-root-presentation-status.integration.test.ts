@@ -42,9 +42,9 @@ test("ha work list presents a planned work as active once a subtask starts", asy
   }
   const seed = (taskId: string, title: string, extra: readonly string[] = []) => {
     const created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", title, ...extra]),
-      packagePath = String(created.packagePath);
+      packagePath = String(created.workspacePackagePath);
     published(root, env, created);
-    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedTaskPlan(title));
+    writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedTaskPlan(title));
     run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     return taskId;
   };

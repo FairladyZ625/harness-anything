@@ -390,7 +390,7 @@ test(
       submission = protectedSubmission(),
       projection = receipt(submission, {}, protectedId),
       evidence = JSON.parse(projection.evidence);
-    evidence.packagePath = "tasks/protected-example";
+    evidence.workspacePackagePath = "harness/tasks/protected-example";
     projection.evidence = JSON.stringify(evidence);
     try {
       execFileSync("git", ["init", "-q", root]);

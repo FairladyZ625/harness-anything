@@ -64,6 +64,11 @@ export function providerFaultFromFrame(
   value: Record<string, unknown>,
 ): RuntimeProviderFault | null {
   if (kindId === "claude") {
+    if (Array.isArray(value.permission_denials) && value.permission_denials.length > 0)
+      return fault(
+        "permission_denied",
+        `runtime_permission_denied: Claude denied ${String(value.permission_denials.length)} tool request(s).`,
+      );
     const responseCode = integer(value.api_error_status) ?? integer(value.error_status),
       error = diagnosticText(value.error),
       diagnostic = diagnosticText(value.result) ?? error;
@@ -154,7 +159,8 @@ export function classifyRuntimeExit(
       exitCode === null ||
       exitCode !== 0 ||
       active.providerOutcome === "failed" ||
-      providerFault?.code === "pre_tool_exit",
+      providerFault?.code === "pre_tool_exit" ||
+      providerFault?.code === "permission_denied",
     classified = (classification: RuntimeAttemptOutcome["classification"], reason: string) => ({
       outcome,
       classification,
@@ -187,6 +193,8 @@ export function classifyRuntimeExit(
       outcome: "failed",
     };
   if (ruling !== null) return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
+  if (attemptFailed && providerFault?.code === "permission_denied")
+    return { ...classified("worker_stop", providerFault.reason), outcome: "failed" };
   if (attemptFailed && providerFault?.code === "unrecognized_model")
     return classified("gate_red", providerFault.reason);
   // Codex can reject a request before it establishes a turn. Retry this one startup-only
@@ -288,7 +296,7 @@ function runtimeExitOutcome(
   if (active.providerOutcome === "failed" || (active.lossReason && providerFault)) return "failed";
   if (exitCode === null) return "unknown";
   if (exitCode !== 0) return "failed";
-  if (providerFault?.code === "pre_tool_exit") return "failed";
+  if (providerFault?.code === "pre_tool_exit" || providerFault?.code === "permission_denied") return "failed";
   if (
     active.providerOutcome === "succeeded" &&
     !active.toolCallObserved &&

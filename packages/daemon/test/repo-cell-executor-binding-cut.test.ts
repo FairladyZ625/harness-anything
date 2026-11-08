@@ -300,7 +300,7 @@ test("executor binding rejection names the claimed and held executors", async (t
     actual: "agent:runtime-session:unrelated-runtime",
     expectation:
       `Expected agent:${runtimeActor.executor.id} from the held execution lease; run from that executor, then retry ` +
-      `ha task artifact add ${taskId} --source <path> --destination <artifact-path>`,
+      `ha task artifact add ${taskId} --source <path> --destination <workspace-relative-artifact-path>`,
   });
   testContext.diagnostic(`executor_binding_invalid receipt=${JSON.stringify(receipt)}`);
   assert.equal(context.observedActor, null);
@@ -388,7 +388,7 @@ test("package basename diagnostics name the canonical task id and retry command"
     actual: packageBasename,
     expectation:
       `The supplied taskId matches the bound package basename; use canonical taskId ${taskId}, then retry ` +
-      `ha task artifact add ${taskId} --source <path> --destination <artifact-path>`,
+      `ha task artifact add ${taskId} --source <path> --destination <workspace-relative-artifact-path>`,
   });
   assert.equal(context.observedActor, null);
   const retried = await createRepoCellApi(context).run(action, binding);

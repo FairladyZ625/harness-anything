@@ -138,7 +138,14 @@ function resolveCallerPaths(result: ThinParseResult, workspaceRoot: SafePath, cw
   };
   for (const field of workspacePathFields[action.kind] ?? []) resolve(field, workspaceRoot);
   resolve("packageSource", cwd);
-  if (action.kind === "task-push") resolve("bodyFile", cwd);
+  if (action.kind === "task-push" && typeof action.bodyFile === "string") {
+    const absolute = path.resolve(workspaceRoot, action.bodyFile),
+      relative = path.relative(workspaceRoot, absolute);
+    if (relative.startsWith("..") || path.isAbsolute(relative))
+      return rejected("invalid_field", "--body-file must stay within the selected repository.", result.command.json);
+    resolved.bodyFile = absolute;
+    changed = true;
+  }
   return changed ? { ...result, command: { ...result.command, action: resolved as ThinCommand["action"] } } : result;
 }
 

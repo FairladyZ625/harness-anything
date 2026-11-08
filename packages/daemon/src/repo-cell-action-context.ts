@@ -1,15 +1,17 @@
 import type { RepoCellCore } from "./repo-cell.ts";
 import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import type { DispatchRecordLeaseSettlement } from "@harness-anything/storage";
-import type {
-  CanonicalEventAppendReceipt,
-  CanonicalEventStore,
-  DaemonRepoMode,
-  EventPublicationKillpoint,
-  LocalSettingsV1,
-  RepositorySettingsV1,
-  SettingsV1,
-  TaskProjection,
+import {
+  resolveHarnessLayout,
+  type CanonicalEventAppendReceipt,
+  type CanonicalEventStore,
+  type DaemonRepoMode,
+  type EventPublicationKillpoint,
+  type HarnessLayout,
+  type LocalSettingsV1,
+  type RepositorySettingsV1,
+  type SettingsV1,
+  type TaskProjection,
 } from "@harness-anything/kernel";
 import {
   annotateExecution as annotateExecutionImpl,
@@ -135,6 +137,8 @@ export interface RepoCellSettingsState {
 
 export interface RepoCellActionContext extends TaskQueryCell {
   readonly projection: TaskProjection;
+  /** The resolved layout for this repository, so receipt translation never re-reads harness.yaml. */
+  readonly layout: HarnessLayout;
   readonly store: CanonicalEventStore;
   readonly input: {
     readonly repoId: string;
@@ -306,6 +310,7 @@ export function createRepoCellActionContext(bindings: {
     queryRead: (): TaskQueryReadModel => unavailableTaskQuery(),
     publishGeneratedArtifact,
     rootDir: bindings.rootDir,
+    layout: resolveHarnessLayout(bindings.rootDir),
     get entityActionExecutor() {
       return bindings.getEntityActionExecutor();
     },

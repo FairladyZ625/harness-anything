@@ -1,5 +1,6 @@
 import {
   consumeKnownError,
+  documentWorkspacePath,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
@@ -141,9 +142,10 @@ export function readTaskDispatches(
   input: { readonly projection: TaskProjectionQueries; readonly rootDir?: string } & DaemonTaskDispatchesPayload,
 ): DaemonTaskDispatchesResult {
   const { projection, rootDir } = input;
-  if (input.agentId !== undefined || input.squadId !== undefined) return readMemberTaskDispatches(input);
+  if (input.agentId !== undefined || input.squadId !== undefined)
+    return withWorkspacePathPrefix(readMemberTaskDispatches(input), rootDir);
   if (input.latestOnly === true && input.taskIds !== undefined)
-    return readLatestTaskDispatches({ ...input, taskIds: input.taskIds });
+    return withWorkspacePathPrefix(readLatestTaskDispatches({ ...input, taskIds: input.taskIds }), rootDir);
   const singleTaskId = input.taskId,
     paged = singleTaskId === undefined && (input.limit !== undefined || input.cursor !== undefined),
     batch = projection.readTaskRuntimeBatch(
@@ -203,6 +205,7 @@ export function readTaskDispatches(
     exitCode: terminal.exitCode,
     watermark: batch.watermark,
     sourceRevision: batch.sourceRevision,
+    ...(rootDir === undefined ? {} : { workspacePathPrefix: documentWorkspacePath(rootDir, "") }),
     ...(singleTaskId === undefined
       ? {
           taskIds: batch.taskIds,
@@ -214,6 +217,13 @@ export function readTaskDispatches(
       : { taskId: singleTaskId }),
   };
   return "page" in result && paged ? { ...result, page: { ...result.page, cursor: input.cursor ?? null } } : result;
+}
+
+function withWorkspacePathPrefix(
+  result: DaemonTaskDispatchesResult,
+  rootDir: string | undefined,
+): DaemonTaskDispatchesResult {
+  return rootDir === undefined ? result : { ...result, workspacePathPrefix: documentWorkspacePath(rootDir, "") };
 }
 
 /** The aggregate read: one current dispatch per requested task, never the task's whole history.

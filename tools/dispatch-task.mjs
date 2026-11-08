@@ -100,8 +100,11 @@ export function runDispatch(input, dependencies = {}) {
 
   const created = invoke("task-create", ["task", "create", "--title", input.title, "--preset", input.preset]);
   const taskId = receiptText(created, "taskId", "task create");
-  const packagePath = receiptText(created, "packagePath", "task create");
-  const planPath = path.join(workspaceRoot, "harness", ...packagePath.split("/"), "task_plan.md");
+  // CLI receipts speak workspace-relative paths (`harness/tasks/...`) under `workspacePackagePath`;
+  // the caller's repository root is the same workspace root, so the package path is joined once,
+  // never under a second `harness/`.
+  const workspacePackagePath = receiptText(created, "workspacePackagePath", "task create");
+  const planPath = path.join(workspaceRoot, ...workspacePackagePath.split("/"), "task_plan.md");
   writeFileSync(planPath, planBody, "utf8");
   steps.push({ step: "plan-write", source: planSource, path: planPath });
 
@@ -120,7 +123,7 @@ export function runDispatch(input, dependencies = {}) {
     ok: true,
     taskId,
     executionId,
-    packagePath,
+    workspacePackagePath,
     planPath,
     dispatchId,
     runtimeSessionId,

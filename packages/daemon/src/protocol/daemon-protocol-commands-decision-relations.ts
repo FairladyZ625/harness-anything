@@ -19,11 +19,17 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "claimId", regex: "^C[A-Za-z0-9_-]+$" },
+        { pathKind: "non-path", field: "claimId", regex: "^C[A-Za-z0-9_-]+$" },
       ),
-      cliInput("--text", "single", true, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--text",
+        "single",
+        true,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--non-load-bearing",
         "boolean",
@@ -49,7 +55,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "claimId", regex: "^C[A-Za-z0-9_-]+$" },
+        { pathKind: "non-path", field: "claimId", regex: "^C[A-Za-z0-9_-]+$" },
       ),
       cliInput(
         "--mode",
@@ -58,7 +64,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["evidenced", "delivered", "standing_policy"] },
+        { pathKind: "non-path", enum: ["evidenced", "delivered", "standing_policy"] },
       ),
     ],
   }),
@@ -68,7 +74,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
     path: ["decision", "reckon", "<id>"],
     summary: "Record coverage at the exact projected basis revision.",
     method: "repo.task.run",
-    inputs: [cliInput("--task", "single", true, { code: "missing_field" }, { field: "taskId" })],
+    inputs: [cliInput("--task", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "taskId" })],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "decision-list",
@@ -77,10 +83,22 @@ export const decisionRelationProtocolCommands = Object.freeze([
     summary: "List the canonical Decision projection without authored prose.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--search", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--legacy-id", "single", false, { code: "invalid_field" }, { regex: "^E[1-9][0-9]*$" }),
+      cliInput(
+        "--search",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--legacy-id",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^E[1-9][0-9]*$" },
+      ),
       cliInput(
         "--legacy-range",
         "single",
@@ -88,7 +106,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^E[1-9][0-9]*-E[1-9][0-9]*$" },
+        { pathKind: "non-path", regex: "^E[1-9][0-9]*-E[1-9][0-9]*$" },
       ),
       cliInput(
         "--state",
@@ -98,15 +116,28 @@ export const decisionRelationProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
+          pathKind: "non-path",
           enum: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
         },
       ),
-      cliInput("--module", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--product-line", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--module",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--product-line",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--limit",
         "single",
@@ -114,11 +145,17 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
       ),
-      cliInput("--cursor", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--cursor",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -130,7 +167,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
     inputs: [
       // <id> and --id are the same field in two spellings; the parser rejects both-at-once
       // and reports a missing id itself, so the flag stays optional in the declaration.
-      cliInput("--id", "single", false, { code: "invalid_field" }),
+      cliInput("--id", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--include-body", "boolean", false, {
         code: "invalid_field",
       }),
@@ -145,9 +182,15 @@ export const decisionRelationProtocolCommands = Object.freeze([
     summary: "Create a generated, non-canonical candidate artifact from a file or governed artifact entity.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", true, { code: "missing_field" }, { field: "taskId" }),
-      cliInput("--input", "single", false, { code: "invalid_field" }, { field: "inputPath" }),
-      cliInput("--entity", "single", false, { code: "invalid_field" }, { field: "entityRef" }),
+      cliInput("--task", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "taskId" }),
+      cliInput(
+        "--input",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "workspace-file", pathReader: "workspace-text", field: "inputPath" },
+      ),
+      cliInput("--entity", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "entityRef" }),
     ],
     actionConstraints: [["inputPath", "entityRef"]],
   }),
@@ -159,9 +202,15 @@ export const decisionRelationProtocolCommands = Object.freeze([
     summary: "Promote one validated candidate claim through the canonical immutable Fact write path.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", true, { code: "missing_field" }, { field: "taskId" }),
-      cliInput("--candidate", "single", true, { code: "invalid_field" }, { field: "candidatePath" }),
-      cliInput("--claim", "single", true, { code: "invalid_field" }, { field: "statement" }),
+      cliInput("--task", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "taskId" }),
+      cliInput(
+        "--candidate",
+        "single",
+        true,
+        { code: "invalid_field" },
+        { pathKind: "workspace-file", pathReader: "workspace-text", field: "candidatePath" },
+      ),
+      cliInput("--claim", "single", true, { code: "invalid_field" }, { pathKind: "non-path", field: "statement" }),
       cliInput(
         "--id",
         "single",
@@ -169,7 +218,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "factId", regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
+        { pathKind: "non-path", field: "factId", regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
       ),
       cliInput(
         "--confidence",
@@ -178,7 +227,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["low", "medium", "high"] },
+        { pathKind: "non-path", enum: ["low", "medium", "high"] },
       ),
       cliInput(
         "--memory-class",
@@ -187,12 +236,24 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["semantic", "episodic", "procedural"] },
+        { pathKind: "non-path", enum: ["semantic", "episodic", "procedural"] },
       ),
-      cliInput("--memory-tag", "repeated", false, { code: "invalid_field" }, { field: "memoryTags" }),
-      cliInput("--observed-at", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--memory-tag",
+        "repeated",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "memoryTags" },
+      ),
+      cliInput(
+        "--observed-at",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
 ] as const);

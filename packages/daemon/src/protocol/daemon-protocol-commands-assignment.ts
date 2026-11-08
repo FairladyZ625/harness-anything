@@ -6,10 +6,7 @@ const expectedVersion = cliInput(
   "single",
   true,
   { code: "missing_field" },
-  {
-    regex: "^(?:0|[1-9][0-9]*)$",
-    projection: "number" as const,
-  },
+  { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" as const },
 );
 
 function assignmentCommands(kind: "agent" | "squad" | "schedule" | "task") {
@@ -24,10 +21,10 @@ function assignmentCommands(kind: "agent" | "squad" | "schedule" | "task") {
       method: "repo.task.run",
       inputs: [
         expectedVersion,
-        cliInput("--person", "single", false, invalid(), { field: "personId" }),
-        cliInput("--node", "single", false, invalid(), { field: "nodeId" }),
-        cliInput("--team", "single", false, invalid(), { field: "teamId" }),
-        cliInput("--expires-at", "single", false, invalid(), { field: "expiresAt" }),
+        cliInput("--person", "single", false, invalid(), { pathKind: "non-path", field: "personId" }),
+        cliInput("--node", "single", false, invalid(), { pathKind: "non-path", field: "nodeId" }),
+        cliInput("--team", "single", false, invalid(), { pathKind: "non-path", field: "teamId" }),
+        cliInput("--expires-at", "single", false, invalid(), { pathKind: "non-path", field: "expiresAt" }),
       ],
       actionConstraints: [["personId", "nodeId", "teamId"]],
     }),

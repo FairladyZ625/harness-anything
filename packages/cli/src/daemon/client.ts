@@ -22,15 +22,10 @@ import {
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { materializeCommandFileInputs } from "./fleet-payload-serializer.ts";
 import { materializeArtifactSource } from "../cli-artifact-source.ts";
-import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
-import {
-  fleetRuntimeRoute,
-  fleetScheduleRoute,
-  fleetTaskRoute,
-  materializeScheduleMission,
-} from "./fleet-command-route.ts";
+import { fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
@@ -340,9 +335,7 @@ export async function runCommandThroughDaemon(
     });
   // Local daemon paths still consume file arguments here. Remote-edge commands have already
   // crossed the declaration-driven serializer above, so the center never receives a local path.
-  command = materializeArtifactSource(
-    materializePromptFile(materializeScheduleMission(materializeTaskPrBody(command))),
-  );
+  command = materializeArtifactSource(materializeCommandFileInputs(command));
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
@@ -452,11 +445,20 @@ function daemonRequestParams(command: ThinCommand, repoId: string, env: NodeJS.P
     ...(daemonMethodAcceptsPayload(command.method)
       ? { payload: daemonRequestPayload(command, env) as JsonObject }
       : {}),
+    // The CLI-read plan file's path is diagnostic metadata, not a declared payload field: the
+    // daemon attaches it to the action only after the closed validators accept the request.
+    ...(command.planSource === undefined ? {} : { planSource: command.planSource }),
   };
 }
 
 function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Readonly<Record<string, unknown>> {
-  const { kind: _kind, ...actionPayload } = command.action,
+  const artifactCoordinate =
+      command.method === "repo.task.run" &&
+      command.action.kind === "task-artifact-add" &&
+      command.pathCoordinate !== undefined
+        ? command.pathCoordinate
+        : undefined,
+    { kind: _kind, ...actionPayload } = command.action,
     payload =
       command.method === "repo.script.run"
         ? Object.fromEntries(
@@ -469,7 +471,10 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
   // Task action methods carry the executor inside their open action envelope; every other method takes
   // payload.executor exactly where the daemon contract declares the field.
   return command.method === "repo.task.run" || command.method === "repo.task.read"
-    ? { action: executor ? { ...command.action, executor } : command.action }
+    ? {
+        action: executor ? { ...command.action, executor } : command.action,
+        ...(artifactCoordinate === undefined ? {} : { pathCoordinate: artifactCoordinate }),
+      }
     : executor && daemonMethodAcceptsPayloadExecutor(command.method)
       ? { ...payload, executor }
       : payload;
@@ -511,12 +516,6 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
     throw Object.assign(new Error("The administrator password file could not be read."), { code: "invalid_field" });
   }
   return { ...params, password } as JsonObject;
-}
-
-function materializeTaskPrBody(command: ThinCommand): ThinCommand {
-  if (command.action.kind !== "task-push" || typeof command.action.bodyFile !== "string") return command;
-  const { bodyFile, ...action } = command.action;
-  return { ...command, action: { ...action, body: readFileSync(path.resolve(command.rootDir, bodyFile), "utf8") } };
 }
 
 async function settleRepoWarming(

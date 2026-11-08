@@ -806,7 +806,7 @@ function executorRetryCommand(action: RepoTaskAction, taskId: string | null, exe
     case "fact-record":
       return `ha fact record ${task} --statement <observation> --source <source>`;
     case "task-artifact-add":
-      return `ha task artifact add ${task} --source <path> --destination <artifact-path>`;
+      return `ha task artifact add ${task} --source <path> --destination <workspace-relative-artifact-path>`;
     case "doc-submit":
       return `ha doc sync --submit --task ${task}`;
     default:

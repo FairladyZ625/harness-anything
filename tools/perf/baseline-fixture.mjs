@@ -111,32 +111,47 @@ export async function initializeFixtureRepo(fixture) {
   ]);
   if (created.status !== 0) throw new Error(`probe task create failed: ${failureDetail(created)}`);
   try {
-    fixture.packagePath = JSON.parse(created.stdout).packagePath ?? null;
+    const receipt = JSON.parse(created.stdout);
+    fixture.workspacePackagePath = receipt.workspacePackagePath ?? null;
+    fixture.ledgerPackagePath = receipt.ledgerPackagePath ?? null;
   } catch {
-    fixture.packagePath = null;
+    fixture.workspacePackagePath = null;
+    fixture.ledgerPackagePath = null;
   }
 }
 
 // Publishes the probe task's plan through the same doc-submit action the GUI resident-daemon
 // fixture uses (the task package on disk starts as worktree-only; the canonical read the CLI
-// serves needs one submitted document).
+// serves needs one submitted document). The daemon action takes the ledger's authored key, so
+// `probeDocPaths` returns it separately from the workspace spelling the CLI prints.
+export function probeDocPaths(receipt) {
+  const workspacePackagePath = typeof receipt.workspacePackagePath === "string" ? receipt.workspacePackagePath : null,
+    ledgerPackagePath = typeof receipt.ledgerPackagePath === "string" ? receipt.ledgerPackagePath : null;
+  if (!ledgerPackagePath) throw new Error("probe task create receipt carried no ledgerPackagePath");
+  if (!workspacePackagePath) throw new Error("probe task create receipt carried no workspacePackagePath");
+  return {
+    submit: `${ledgerPackagePath}/task_plan.md`,
+    show: `${workspacePackagePath}/task_plan.md`,
+  };
+}
+
 export async function submitProbeDoc(fixture) {
-  if (!fixture.packagePath) throw new Error("probe task create receipt carried no packagePath");
-  const endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
+  const paths = probeDocPaths(fixture),
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
   const receipt = await withoutExecutionCredential(() =>
     requestDaemonJsonRpcAt(
       endpoint,
       "repo.task.run",
       {
         repo: { repoId: PROBE_REPO_ID },
-        payload: { action: { kind: "doc-submit", paths: [`${fixture.packagePath}/task_plan.md`] } },
+        payload: { action: { kind: "doc-submit", paths: [paths.submit] } },
       },
       1_000,
       30_000,
     ),
   );
   if (receipt.ok !== true) throw new Error(`probe doc submit failed: ${JSON.stringify(receipt).slice(0, 600)}`);
-  return `${fixture.packagePath}/task_plan.md`;
+  return paths.show;
 }
 
 // The RPC clients this suite uses read process.env for an execution credential; this process may

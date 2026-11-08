@@ -409,12 +409,15 @@ function taskLifecycle(f, reader, label) {
     "docs-task",
   ]);
   f.publish(created, `task.create.${label}`);
-  const packagePath = created.packagePath,
-    planPath = `${packagePath}/task_plan.md`;
+  const workspacePackagePath = created.workspacePackagePath,
+    ledgerPackagePath = created.ledgerPackagePath,
+    planPath = `${workspacePackagePath}/task_plan.md`,
+    ledgerPlanPath = `${ledgerPackagePath}/task_plan.md`;
   f.check(`task.${label}.initial-content`, () =>
-    assertBytes(f.root, planPath, readFileSync(path.join(f.root, "harness", planPath)), created, reader),
+    // assertBytes matches the ledger's authored key; disk and CLI reads use the workspace spelling.
+    assertBytes(f.root, ledgerPlanPath, readFileSync(path.join(f.root, planPath)), created, reader),
   );
-  writeFileSync(path.join(f.root, "harness", planPath), realizedTaskPlan(`V2 scale ${label}`));
+  writeFileSync(path.join(f.root, planPath), realizedTaskPlan(`V2 scale ${label}`));
   const prose = f.invoke(`task.prose.${label}`, ["doc", "sync", "--submit", "--path", planPath]);
   f.publish(prose, `task.prose.${label}`);
   f.invoke(`task.fact.${label}`, [
@@ -428,12 +431,13 @@ function taskLifecycle(f, reader, label) {
     "test:entity-v2-scale",
   ]);
   f.invoke(`task.start.${label}`, ["task", "start", taskId, "--execution-id", `execution-${label}`], { actor });
-  const reportPath = `${packagePath}/artifacts/report.md`;
+  const reportPath = `${workspacePackagePath}/artifacts/report.md`,
+    ledgerReportPath = `${ledgerPackagePath}/artifacts/report.md`;
   const reportBody = Buffer.from(`# V2 scale ${label}\n\n${"durable bytes\n".repeat(32)}`);
-  mkdirSync(path.dirname(path.join(f.root, "harness", reportPath)), { recursive: true });
-  writeFileSync(path.join(f.root, "harness", reportPath), reportBody);
+  mkdirSync(path.dirname(path.join(f.root, reportPath)), { recursive: true });
+  writeFileSync(path.join(f.root, reportPath), reportBody);
   writeFileSync(
-    path.join(f.root, "harness", packagePath, "closeout.md"),
+    path.join(f.root, workspacePackagePath, "closeout.md"),
     "# Closeout\n\n## Summary\n\nReport delivered.\n\n## Verification\n\nExact bytes checked.\n\n" +
       "## Residual Risk\n\nBounded measurement.\n\n## Same Mechanism Elsewhere\n\nTask report ownership.\n",
   );
@@ -441,11 +445,13 @@ function taskLifecycle(f, reader, label) {
     actor,
   });
   f.publish(report, `task.report.${label}`, actor);
-  f.check(`task.${label}.report-same-cut-bytes`, () => assertBytes(f.root, reportPath, reportBody, report, reader));
+  f.check(`task.${label}.report-same-cut-bytes`, () =>
+    assertBytes(f.root, ledgerReportPath, reportBody, report, reader),
+  );
   f.invoke(`task.submit.${label}`, ["task", "submit", taskId], { actor });
-  mkdirSync(path.join(f.root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
+  mkdirSync(path.join(f.root, workspacePackagePath, "artifacts", "reports"), { recursive: true });
   writeFileSync(
-    path.join(f.root, "harness", packagePath, "artifacts", "reports", `${label}.md`),
+    path.join(f.root, workspacePackagePath, "artifacts", "reports", `${label}.md`),
     `# Review review-${label}\n\nCanonical artifact bytes checked.\n`,
   );
   const reviewed = f.invoke(

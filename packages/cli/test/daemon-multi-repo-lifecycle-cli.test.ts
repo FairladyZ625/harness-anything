@@ -126,7 +126,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "--dry-run",
     ]);
     assert.equal(alphaPreview.dryRun, true);
-    assert.equal(alphaPreview.packagePath, "tasks/task-alpha-alpha");
+    assert.equal(alphaPreview.workspacePackagePath, "harness/tasks/task-alpha-alpha");
+    assert.equal(alphaPreview.ledgerPackagePath, "tasks/task-alpha-alpha");
     assert.equal(existsSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha")), false);
     // A low-risk create selects the short profile automatically when the preset declares it.
     const lowRisk = (extra: readonly string[]) =>
@@ -236,8 +237,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task)\nnext: ha work list",
     );
     settleFollower(fixture.alpha, fixture.userRoot, alpha);
-    const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
-    writeFileSync(path.join(fixture.alpha, "harness", alphaPlan), realizedTaskPlan("Alpha"));
+    const alphaPlan = `${String(alpha.workspacePackagePath)}/task_plan.md`;
+    writeFileSync(path.join(fixture.alpha, alphaPlan), realizedTaskPlan("Alpha"));
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", alphaPlan]).outcome,
       "applied",
@@ -322,9 +323,40 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         "## 结论\n\nUse the event-backed lifecycle selected by this fixture.\n",
     );
     assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", decisionPath]).outcome,
+      run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", `harness/${decisionPath}`]).outcome,
       "applied",
     );
+    const decisionValidation = JSON.parse(
+      String(run(fixture.alpha, fixture.userRoot, ["decision", "validate", decision.decisionId]).evidence),
+    ) as { rows: readonly { readonly path: string }[] };
+    assert.equal(decisionValidation.rows[0]?.path, `harness/${decisionPath}`);
+    const rematerializePreview = run(fixture.alpha, fixture.userRoot, [
+      "decision",
+      "rematerialize",
+      "--id",
+      decision.decisionId,
+      "--dry-run",
+    ]);
+    assert.equal(rematerializePreview.outcome, "pending", JSON.stringify(rematerializePreview));
+    const rematerializeReport = JSON.parse(String(rematerializePreview.evidence)) as {
+      mode: string;
+      targets: readonly {
+        entityRef: string;
+        paths: readonly string[];
+        changedPaths: readonly string[];
+        unchangedPaths: readonly string[];
+        conflictPaths: readonly string[];
+      }[];
+    };
+    assert.equal(rematerializeReport.mode, "preview");
+    assert.equal(rematerializeReport.targets[0]?.entityRef, `decision/${decision.decisionId}`);
+    for (const path of rematerializeReport.targets.flatMap((target) => [
+      ...target.paths,
+      ...target.changedPaths,
+      ...target.unchangedPaths,
+      ...target.conflictPaths,
+    ]))
+      assert.match(path, /^harness\/decisions\//u, `rematerialize receipt path ${path}`);
     const beforeAccepted = ledgerReaders.open(fixture.alpha, "alpha").readHead()!.revision;
     const acceptedDecision = run(fixture.alpha, fixture.userRoot, [
       "decision",
@@ -384,10 +416,49 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       true,
     );
     assert.match(String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-alpha"]).evidence), /Alpha/u);
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]).outcome,
-      "applied",
+    const started = run(fixture.alpha, fixture.userRoot, ["task", "start", "task-alpha", "--execution-id", "exec-doc"]);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    // The caller reads the workspace spelling in both the path list and the semicolon evidence.
+    assert.deepEqual(
+      [...(started.changedPaths as readonly string[])].sort(),
+      [
+        `${String(alpha.workspacePackagePath)}/INDEX.md`,
+        `${String(alpha.workspacePackagePath)}/executions/exec-doc.md`,
+      ].sort(),
     );
+    assert.equal(
+      started.evidence,
+      "event-object:" +
+        `${String(started.opId)};files:harness/tasks/task-alpha-alpha/INDEX.md,` +
+        "harness/tasks/task-alpha-alpha/executions/exec-doc.md",
+    );
+    // The event store keeps the authored key the projection indexes by.
+    const startedEvent = ledgerReaders.open(fixture.alpha, "alpha").readEvent(String(started.opId));
+    assert.deepEqual(
+      [...(startedEvent?.payload.documentClaims?.map((claim) => claim.path) ?? [])].sort(),
+      ["tasks/task-alpha-alpha/INDEX.md", "tasks/task-alpha-alpha/executions/exec-doc.md"].sort(),
+    );
+    writeFileSync(path.join(fixture.alpha, "cli-artifact.md"), "# CLI artifact\n");
+    const artifact = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "artifact",
+      "add",
+      "task-alpha",
+      "--source",
+      "cli-artifact.md",
+      "--destination",
+      "harness/tasks/task-alpha-alpha/artifacts/evidence/cli.md",
+    ]);
+    assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    assert.equal(artifact.destination, "harness/tasks/task-alpha-alpha/artifacts/evidence/cli.md");
+    assert.equal(Object.hasOwn(artifact, "pathCoordinate"), false);
+    const artifactEvent = ledgerReaders.open(fixture.alpha, "alpha").readEvent(String(artifact.opId));
+    assert.deepEqual(
+      artifactEvent?.schema === "doc-event/v1" ? artifactEvent.payload.changes.map((change) => change.path) : undefined,
+      ["tasks/task-alpha-alpha/artifacts/evidence/cli.md"],
+    );
+    settleFollower(fixture.alpha, fixture.userRoot, artifact);
+    assert.equal(readFileSync(path.join(fixture.alpha, String(artifact.destination)), "utf8"), "# CLI artifact\n");
     const progress = run(fixture.alpha, fixture.userRoot, [
       "task",
       "progress",
@@ -398,18 +469,18 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "--evidence",
       "test:reports/cli.txt:passed",
     ]);
-    assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md");
+    assert.equal(progress.progressPath, "harness/tasks/task-alpha-alpha/progress.md");
     assert.equal(progress.summary, "appended progress for task-alpha at harness/tasks/task-alpha-alpha/progress.md");
     assert.match(String(settleFollower(fixture.alpha, fixture.userRoot, progress).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(progress.cut);
-    assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u);
+    assert.match(String(progress.evidence), /file:harness\/tasks\/task-alpha-alpha\/progress\.md/u);
     assert.match(
       readFileSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"), "utf8"),
       /CLI progress is canonical\..*Evidence: test:reports\/cli\.txt:passed/su,
     );
-    const docPath = "tasks/task-alpha-alpha/notes.md",
+    const docPath = "harness/tasks/task-alpha-alpha/notes.md",
       docBody = "# CLI canonical document\n",
-      authored = path.join(fixture.alpha, "harness", docPath);
+      authored = path.join(fixture.alpha, docPath);
     mkdirSync(path.dirname(authored), { recursive: true });
     writeFileSync(authored, docBody);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
@@ -443,15 +514,15 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "sync",
       "--submit",
       "--path",
-      "context/missing.md",
+      "harness/context/missing.md",
     ]);
     assert.equal(invalidSubmit.status, 1, JSON.stringify(invalidSubmit.receipt));
     assert.equal(invalidSubmit.receipt.ok, false, JSON.stringify(invalidSubmit.receipt));
     assert.equal(invalidSubmit.receipt.outcome, "op_rejected");
     assert.equal(invalidSubmit.receipt.code, "document_not_found");
-    const blockedPath = "context/other-session.md",
-      eligiblePath = "context/this-session.md",
-      blockedFile = path.join(fixture.alpha, "harness", blockedPath);
+    const blockedPath = "harness/context/other-session.md",
+      eligiblePath = "harness/context/this-session.md",
+      blockedFile = path.join(fixture.alpha, blockedPath);
     mkdirSync(path.dirname(blockedFile), { recursive: true });
     const stableMachineDocument = "---\nschema: stable\n---\n# Stable\n";
     writeFileSync(blockedFile, stableMachineDocument);
@@ -459,7 +530,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.equal(stableSubmit.outcome, "applied", JSON.stringify(stableSubmit));
     settleFollower(fixture.alpha, fixture.userRoot, stableSubmit);
     writeFileSync(blockedFile, "---\nschema: changed\n---\n# Stable\n");
-    writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
+    writeFileSync(path.join(fixture.alpha, eligiblePath), "# Eligible\n");
     const partial = runMaybe(fixture.alpha, fixture.userRoot, [
       "doc",
       "sync",
@@ -698,11 +769,16 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     );
     const children = JSON.parse(
       String(run(fixture.alpha, fixture.userRoot, ["task", "list", "--parent", workId]).evidence),
-    ) as { rows: Array<{ taskId: string }> };
+    ) as { rows: Array<{ taskId: string; workspacePackagePath?: string; ledgerPackagePath?: string }> };
     assert.deepEqual(
       children.rows.map(({ taskId }) => taskId),
       ["task-child"],
     );
+    // The CLI prints the workspace spelling and keeps the ledger key beside it: a row path pastes
+    // back into a path flag from the same repository root.
+    const childRow = children.rows[0]!;
+    assert.match(String(childRow.workspacePackagePath), /^harness\/tasks\//u, JSON.stringify(childRow));
+    assert.equal(childRow.workspacePackagePath, `harness/${String(childRow.ledgerPackagePath)}`);
     const works = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["work", "list"]).evidence)) as {
         rows: Array<{ taskId: string; root: string; taskCount: number }>;
       },

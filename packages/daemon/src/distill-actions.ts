@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   resolveHarnessLayout,
@@ -9,6 +9,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { exactFields } from "./protocol/schedule-runs-contract.ts";
+import { readWorkspaceText } from "./workspace-text-port.ts";
 
 interface ProjectionCut {
   readonly watermark: number;
@@ -178,10 +179,10 @@ export function distillPromotionAction(
   action: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> & { readonly kind: "fact-record" } {
   const taskId = requiredDistillText(action.taskId, "taskId"),
-    candidate = workspaceFile(rootDir, requiredDistillText(action.candidatePath, "candidatePath"));
+    candidate = workspaceFile(rootDir, requiredDistillText(action.candidatePath, "candidatePath"), "candidatePath");
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(candidate.absolutePath, "utf8"));
+    parsed = JSON.parse(candidate.text);
   } catch {
     throw distillActionError("invalid_command", "Candidate must be a readable UTF-8 distill-candidate/v1 artifact.");
   }
@@ -229,8 +230,8 @@ function distillSubject(input: {
       projectionCut: resolved.projectionCut,
     };
   }
-  const source = workspaceFile(input.rootDir, requiredDistillText(input.action.inputPath, "inputPath")),
-    bytes = readFileSync(source.absolutePath);
+  const source = workspaceFile(input.rootDir, requiredDistillText(input.action.inputPath, "inputPath"), "inputPath"),
+    bytes = Buffer.from(source.text, "utf8");
   return {
     kind: "workspace-file",
     ref: source.relativePath,
@@ -242,20 +243,12 @@ function distillSubject(input: {
 function workspaceFile(
   rootDir: string,
   requested: string,
-): { readonly absolutePath: string; readonly relativePath: string } {
+  field: string,
+): { readonly text: string; readonly relativePath: string } {
   const root = realpathSync(rootDir),
-    lexical = path.resolve(root, requested);
-  if (lexical === root || !lexical.startsWith(`${root}${path.sep}`))
-    throw distillActionError("invalid_command", `Path must stay inside the workspace: ${requested}`);
-  let absolutePath: string;
-  try {
-    absolutePath = realpathSync(lexical);
-  } catch {
-    throw distillActionError("invalid_command", `Path does not exist: ${requested}`);
-  }
-  if (!absolutePath.startsWith(`${root}${path.sep}`) || !statSync(absolutePath).isFile())
-    throw distillActionError("invalid_command", `Path must be a workspace file: ${requested}`);
-  return { absolutePath, relativePath: portableDistillPath(path.relative(root, absolutePath)) };
+    text = readWorkspaceText(rootDir, requested, field),
+    absolutePath = realpathSync(path.resolve(root, requested));
+  return { text, relativePath: portableDistillPath(path.relative(root, absolutePath)) };
 }
 
 function isCandidate(value: unknown): value is DistillCandidateArtifactV1 {

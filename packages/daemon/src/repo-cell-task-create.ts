@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   compileRelationCreatedEvent,
+  documentWorkspacePath,
   compileRelationDocumentWrite,
   deriveRelationId,
   sessionProvenance,
@@ -162,8 +163,11 @@ export function prepareTaskCreateAt(
   binding: RepoCellBinding,
   assigned?: { readonly workspaceRevision: number },
 ): WriteReceipt | PreparedTaskCreate {
-  const dryRun = action.dryRun === true,
-    canonicalAction = cell.withoutDryRun(action),
+  // `planSource` is the CLI's transport label for a plan file it already read; it is not part of
+  // the task action, so it is kept out of the operation identity and the compiled create input.
+  const { planSource, ...actionInput } = action,
+    dryRun = actionInput.dryRun === true,
+    canonicalAction = cell.withoutDryRun(actionInput),
     canonicalOpId = cell.operationId(canonicalAction, binding, cell.input.repoId, 0),
     opId = dryRun ? `preview:${createHash("sha256").update(canonicalOpId).digest("hex")}` : canonicalOpId,
     existing = dryRun ? null : cell.store.readEvent(opId);
@@ -199,6 +203,9 @@ export function prepareTaskCreateAt(
       taskId: idempotent.taskId,
       taskStatus: idempotent.status as TaskCreateReceipt["taskStatus"],
       packagePath: idempotent.packagePath,
+      ...(idempotent.packagePath === null
+        ? {}
+        : { workspacePackagePath: documentWorkspacePath(cell.rootDir, idempotent.packagePath, cell.layout) }),
       summary: `reused task ${idempotent.taskId} for the supplied idempotency key${
         current.snapshot.task ? workReceiptLine(cell.projection, current.snapshot.task) : ""
       }`,
@@ -298,12 +305,13 @@ export function prepareTaskCreateAt(
     }
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "plan_placeholder") {
-      const source = typeof action.planFile === "string" ? action.planFile : "the supplied plan body";
+      const planFile = typeof planSource === "string" ? planSource : action.planFile,
+        source = typeof planFile === "string" ? planFile : "the supplied plan body";
       Object.assign(error, {
         diagnostic: {
           kind: "validation",
           entity: "task create",
-          field: typeof action.planFile === "string" ? "planFile" : "plan",
+          field: typeof planFile === "string" ? "planFile" : "plan",
           actual: source,
           expectation: `Edit ${source}, then rerun ha task create with the same inputs; no task was created. ${error.message}`,
         },
@@ -338,6 +346,7 @@ export function prepareTaskCreateAt(
       taskId,
       taskStatus: "planned" as const,
       packagePath: compiled.packagePath,
+      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath, cell.layout),
       generatedPaths: compiled.documents.map((document) => document.path),
       presetDigest: compiled.snapshot.digest,
       scaffoldDigest: compiled.scaffoldDigest,
@@ -364,6 +373,7 @@ export function prepareTaskCreateAt(
         worktreeVisible: false,
       },
       ...common,
+      workspacePackagePath: documentWorkspacePath(cell.rootDir, compiled.packagePath, cell.layout),
       guidance: taskCreateGuidance(roots, {
         taskId,
         packagePath: compiled.packagePath,
@@ -474,6 +484,9 @@ export function preparedTaskCreateReceipt(
     visibility: "center",
     proof,
     ...fields,
+    ...(typeof fields.packagePath === "string"
+      ? { workspacePackagePath: documentWorkspacePath(cell.rootDir, fields.packagePath, cell.layout) }
+      : {}),
     guidance: taskCreateGuidance(roots, {
       taskId: fields.taskId,
       packagePath: compiled.packagePath,

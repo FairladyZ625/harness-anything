@@ -179,11 +179,11 @@ function writeCloseout(root: string, packagePath: string, summary: string, risk 
     worktree = existsSync(worktreesRoot)
       ? readdirSync(worktreesRoot)
           .map((name) => path.join(worktreesRoot, name))
-          .find((candidate) => existsSync(path.join(candidate, "harness", packagePath)))
+          .find((candidate) => existsSync(path.join(candidate, packagePath)))
       : undefined,
     closeoutRoots = [root, ...(worktree ? [worktree] : [])];
   for (const closeoutRoot of closeoutRoots) {
-    const closeout = path.join(closeoutRoot, "harness", packagePath, "closeout.md");
+    const closeout = path.join(closeoutRoot, packagePath, "closeout.md");
     mkdirSync(path.dirname(closeout), { recursive: true });
     writeFileSync(closeout, body);
   }

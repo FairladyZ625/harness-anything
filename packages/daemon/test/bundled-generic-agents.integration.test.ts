@@ -111,7 +111,7 @@ for (const frame of [
     const created = await cli(0, "task", "create", "--title", "Portable worker dispatch", "--risk-tier", "low");
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const taskId = String(created.taskId);
-    await realizeTaskPlanFixture(root, String(created.packagePath), (planPath: string) =>
+    await realizeTaskPlanFixture(root, String(created.workspacePackagePath), (planPath: string) =>
       run({ kind: "doc-submit", paths: [planPath] }),
     );
     assert.equal(existsSync(path.join(root, "harness", "skills")), false);
