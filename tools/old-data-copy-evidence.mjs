@@ -802,6 +802,7 @@ async function runDirectEvidence(buildRoot, workspace, tempRoot, env, repoId) {
     : [];
   return {
     status: result.status,
+    signal: result.signal ?? null,
     steps,
     peakRssBytes: timeBinary ? parsePeakRssBytes(result.stderr ?? "") : null,
     stderr: result.stderr ?? "",
@@ -831,6 +832,7 @@ export async function main(argv, session = {}) {
     copy: null,
     attach: null,
     reads: null,
+    directRunner: null,
     coldRebuild: null,
     mediumSubmission: null,
     peakRss: null,
@@ -1008,6 +1010,7 @@ export async function main(argv, session = {}) {
     if (await awaitDaemonDown(pid)) daemonHandle = null;
     // 6. Direct reads and full cold rebuild through the build's own production functions.
     const direct = await runDirectEvidence(build.root, workspace, tempRoot, env, receipt.source.repository);
+    receipt.directRunner = { exitCode: direct.status, signal: direct.signal };
     const byStep = new Map(direct.steps.map((step) => [step.step, step]));
     const observedLayout = byStep.get("layout")?.value ?? null;
     receipt.reads = {
@@ -1025,6 +1028,8 @@ export async function main(argv, session = {}) {
       rebuildBytes: direct.peakRssBytes,
       rebuildMethod: direct.peakRssBytes === null ? null : "/usr/bin/time maximum resident set size",
     };
+    if (direct.status !== 0)
+      receipt.failures.push({ phase: "direct-evidence-runner", exitCode: direct.status, signal: direct.signal });
     if (byStep.has("fatal")) receipt.failures.push({ phase: "direct-evidence", record: byStep.get("fatal").value });
     // The receipt must not be green about data the build never opened: if the build resolves a
     // different local root than the one the snapshot filled, the reads below came from an empty

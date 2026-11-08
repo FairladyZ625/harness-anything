@@ -292,6 +292,7 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     const headCommit = repoHead();
     if (headCommit.status === 0) assert.equal(receipt.build.headCommit, headCommit.stdout.trim());
     assert.equal(receipt.reads.storeHead.revision, 2);
+    assert.deepEqual(receipt.directRunner, { exitCode: 0, signal: null });
     assert.ok(Array.isArray(receipt.reads.taskIndex.first) && receipt.reads.taskIndex.first.length === 0);
     assert.ok(Array.isArray(receipt.reads.events) && receipt.reads.events.length === 2);
     assert.deepEqual(
