@@ -147,7 +147,10 @@ export async function appendDispatchLifecycleFixtures(
         actor,
         source: "local",
         occurredAt: "2026-11-08T00:00:00.000Z",
-        payload: { runtimeSessionId: "storage-lifecycle-session", lifecycle: lifecycleEvent },
+        payload: {
+          runtimeSessionId: lifecycleEvent.runtimeSessionId ?? "storage-lifecycle-session",
+          lifecycle: lifecycleEvent,
+        },
       };
       await append({ event: value, plan: canonicalEventWritePlan(value, "agent-runtime/v1", eventId), blobs: [] });
     };
