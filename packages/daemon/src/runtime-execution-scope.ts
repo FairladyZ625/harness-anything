@@ -19,6 +19,22 @@ import {
   type RuntimeExecutionPrincipal,
 } from "./runtime-execution-credential.ts";
 
+/**
+ * The canonical Kernel repository-read action has no command descriptor of its own, so the
+ * execution scope classifies it directly. It is the only action kind reachable from the closed
+ * read map below; command-backed actions keep resolving through the command registry.
+ */
+const repositoryReadActionKind = "repository-read" as const;
+
+/**
+ * GUI repository reads a runtime execution credential may issue. This is a closed policy: each
+ * entry names one wire method and its generic repository-read action class, so adding one read
+ * never opens the GUI read family or a write. The read handler owns the response projection.
+ */
+const executionRepositoryReads: ReadonlyMap<string, RepoTaskAction> = new Map([
+  ["repo.agent.skills.list", { kind: repositoryReadActionKind }],
+]);
+
 /** Narrow authentication before any host method can act, including local socket-owner controls. */
 export function requireExecutionRequestScope(
   principal: RuntimeExecutionPrincipal,
@@ -45,7 +61,8 @@ export function requireExecutionRequestScope(
   // execution scope explicitly so the worker can inspect the same repository baseline.
   requireExecutionActionScope(
     principal,
-    method === "repo.settings.read" ? { kind: "settings-read" } : actionForDaemonMethod(method, params.payload),
+    executionRepositoryReads.get(method) ??
+      (method === "repo.settings.read" ? { kind: "settings-read" } : actionForDaemonMethod(method, params.payload)),
   );
 }
 
@@ -79,7 +96,7 @@ const readOnlyLedgerQueries = new Set([
 ]);
 
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
-  const commandClass = commandClassForAction(action.kind);
+  const commandClass = action.kind === repositoryReadActionKind ? "repo-read" : commandClassForAction(action.kind);
   // The read-only dispatch holds no task lease, so every non-allowlisted action — read or
   // write — fails as one allowlist rejection instead of falling into task-binding logic.
   if (p.role === "read-only") {
