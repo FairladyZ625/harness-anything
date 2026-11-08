@@ -37,6 +37,21 @@ describe("Task completion panel", () => {
     expect(panel.textContent).toContain("完成销账独立评审尚未批准当前 cut");
   });
 
+  it("shows each previous finding's reverify route and who the cut waits on", async () => {
+    installBridge({
+      completionAction: "ha task review-consent task-w3 --dispose review-w2",
+      completionBlocker: { code: "review_pending", gate: "consent" },
+      reviewReverify: {
+        route: "owner-verify",
+        findings: [{ reviewId: "review-w2", findingId: "F-count", reverify: "owner-verify", adopted: true }],
+      },
+    });
+    await mount();
+    await clickTab("收口");
+    expect(byTestId("task-review-reverify").textContent).toBe("review-w2/F-count · 复核方式 owner-verify · 已采纳");
+    expect(byTestId("task-completion-next").textContent).toContain("task owner");
+  });
+
   it("routes the owner-verdict button once the read reports the consent blocker", async () => {
     installBridge({
       completionAction: "ha task review-consent task-w3",
