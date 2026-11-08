@@ -188,7 +188,7 @@ async function digestPgProjectionValues(
       }
       for (let offset = 0; offset < (row.value_characters ?? 0); offset += stateDigestChunkCharacters) {
         const chunk = await client.query<{ value_chunk: string }>(
-          `SELECT substring(value FROM $8 FOR $9) AS value_chunk
+          `SELECT substring(value FROM $8::integer FOR $9::integer) AS value_chunk
            FROM ha_projection_values
            WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
              AND (cardinality($4::text[])=0 OR readers && $4::text[])
