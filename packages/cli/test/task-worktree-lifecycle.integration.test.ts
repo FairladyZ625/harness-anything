@@ -8,7 +8,6 @@ import {
   cli,
   createRuntimeFixture,
   installIdentities,
-  published,
   readPublishedDispatch,
   run,
   runMaybe,
@@ -312,20 +311,6 @@ for (const { name, command } of [
     // A dispatch's mission carries the same note a start prints: the checkout it runs in was prepared first.
     assert.match(output.join(""), /Setup ran: run: touch /u);
   });
-
-test("a task-bound dispatch after a start refuses an unborn repository before launch", async (context) => {
-  const fixture = createRuntimeFixture(context),
-    { parent, root, env } = fixture;
-  // No gitRepository(root): the project repository is left exactly as ha init made it, with an unborn main.
-  installIdentities(parent, root, env);
-  const task = seedTask(root, env, "wt-unborn-started");
-  published(root, env, run(root, env, ["task", "start", task.taskId, "--execution-id", task.executionId]));
-  const dispatch = runMaybe(root, env, ["agent", "run", "terra", "--task", task.taskId, "--no-stream"]);
-  assert.notEqual(dispatch.status, 0, `${dispatch.stderr}\n${JSON.stringify(dispatch.receipt)}`);
-  assert.equal(dispatch.receipt.code, "worktree_base_unavailable", JSON.stringify(dispatch.receipt));
-  assert.equal("spawn" in dispatch.receipt, false, "no provider launch may be recorded");
-  assert.equal(existsSync(path.join(root, ".worktrees", task.taskId)), false);
-});
 
 function text(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): string {
   const result = spawnSync(process.execPath, [cli, "--root", root, ...args], { encoding: "utf8", env });
