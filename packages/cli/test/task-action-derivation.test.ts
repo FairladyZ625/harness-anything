@@ -120,6 +120,42 @@ test("repo.task.run validator consumes the same closed Task Action input", () =>
   assert.match(call({ kind: "task-complete", taskId: "task_contract", shadow: true }).join("\n"), /shadow/u);
 });
 
+test("artifact coordinate metadata is declared on the repo.task.run envelope, not the closed action", () => {
+  const action = {
+    kind: "task-artifact-add",
+    taskId: "task_contract",
+    source: "evidence.txt",
+    destination: "evidence/result.txt",
+  };
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.task.run",
+      params: { repo: { repoId: "canonical" }, payload: { action, pathCoordinate: "workspace" } },
+    }),
+    [],
+  );
+  assert.match(
+    validateDaemonRpcCall({
+      method: "repo.task.run",
+      params: {
+        repo: { repoId: "canonical" },
+        payload: { action: { ...action, pathCoordinate: "workspace" } },
+      },
+    }).join("\n"),
+    /action\.pathCoordinate.*not declared/u,
+  );
+  assert.match(
+    validateDaemonRpcCall({
+      method: "repo.task.run",
+      params: {
+        repo: { repoId: "canonical" },
+        payload: { action: { kind: "task-submit", taskId: "task_contract" }, pathCoordinate: "workspace" },
+      },
+    }).join("\n"),
+    /pathCoordinate is only declared for task-artifact-add/u,
+  );
+});
+
 test("removed submit JSON and complete evidence forms are rejected", () => {
   for (const [verb, flag] of [
     ["submit", "--from-file"],

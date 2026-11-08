@@ -14,7 +14,8 @@ function parsedArtifactSource(root: string, source: string) {
   );
   assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (!parsed.ok) throw new Error(parsed.nextAction);
-  assert.equal(parsed.command.action.pathCoordinate, "workspace");
+  assert.equal(parsed.command.pathCoordinate, "workspace");
+  assert.equal(Object.hasOwn(parsed.command.action, "pathCoordinate"), false);
   return parsed.command;
 }
 

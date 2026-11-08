@@ -207,6 +207,6 @@ export async function fleetTaskRoute(
     ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,
   };
-  payload.action = action;
+  payload.action = { ...action, ...(command.pathCoordinate ? { pathCoordinate: command.pathCoordinate } : {}) };
   return payload;
 }
