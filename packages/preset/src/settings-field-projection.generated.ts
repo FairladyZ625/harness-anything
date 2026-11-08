@@ -239,7 +239,7 @@ export const settingsFieldProtocolProjection = {
     },
     {
       field: "runtimeCommandInterceptions",
-      description: "Named regular expressions that deny matching shell commands, optionally scoped to an agent id.",
+      description: "Named shell deny patterns or reviewed exact commands, optionally scoped to an Agent id.",
       type: "json-object-array",
       required: false,
     },
@@ -676,10 +676,10 @@ export const settingsFieldProtocolProjection = {
     },
     {
       field: "runtimeCommandInterceptions",
-      description: "Named regular expressions that deny matching shell commands, optionally scoped to an agent id.",
+      description: "Named shell deny patterns or reviewed exact commands, optionally scoped to an Agent id.",
       group: "worker-permissions",
       effect:
-        "Every dispatch injects matching rules into native provider hooks; unsupported runtimes refuse to launch.",
+        "Deny patterns use native hooks; reviewed commands need Claude workspace-write and keep sandbox and HA checks.",
       name: "--runtime-command-interceptions",
       kind: "single",
       projection: "json-object-array",
