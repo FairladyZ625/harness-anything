@@ -23,3 +23,15 @@ export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
   "packages/kernel/src/domain/task-progress-event.ts|literal-type|task_progress_appended": 1,
   "packages/preset/src/preset-bootstrap.ts|literal-type|task_bootstrapped": 1,
 });
+
+/**
+ * Authorized by dec_6B912A63D279A922FA1288536D CH1 (AuthoredDocument aggregate, slice 2).
+ * The aggregate's private envelope builder is the only constructor; each event type has exactly
+ * one decision site. Same ceiling semantics as the task_* allowlist.
+ */
+export const AUTHORED_DOCUMENT_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
+  "packages/kernel/src/domain/authored-document.ts|dynamic-task-event|<dynamic>": 1,
+  "packages/kernel/src/domain/authored-document.ts|envelope-call|authored_document_registered": 1,
+  "packages/kernel/src/domain/authored-document.ts|envelope-call|authored_document_revised": 1,
+  "packages/kernel/src/domain/authored-document.ts|envelope-call|authored_document_retired": 1,
+});
