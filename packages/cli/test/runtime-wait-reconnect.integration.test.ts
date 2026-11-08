@@ -2,6 +2,7 @@
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -21,6 +22,7 @@ import { initRepo } from "../../daemon/test/task-surface.fixtures.ts";
 import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import { seedSquadWaitState, type SquadRunObservation } from "../../daemon/test/squad-terminal-wait.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   runtimeSessionId = "runtime-wait-reconnect",
@@ -29,6 +31,7 @@ const cli = path.resolve("packages/cli/src/index.ts"),
   // tight ceiling races the CLI's cold start under load (testing-standard, platform assumptions).
   // The magnitude follows the reconnect-budget paths that already needed 12 s / 20 s.
   hangGuardMs = 20_000;
+const progress = new EventEmitter();
 
 test("runtime status --wait renders the daemon verdict while the attached stream shows activity", async () => {
   const fixture = await openFixtureDaemon("stream-terminal");
@@ -66,7 +69,6 @@ test("runtime status --wait renders the daemon verdict while the attached stream
     await waitForObserved(() => (attachSocket !== undefined && pendingAwait.length === 1) || invocation.closed);
     assert.ok(attachSocket, "the runtime stream must attach");
     assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
-    await delay(1_200);
     assert.equal(statusReads, 1, "a parked await must not perform periodic status reads");
     assert.ok(!invocation.closed, "the wait must stay parked while the stream shows activity");
     attachSocket.write(
@@ -1129,6 +1131,7 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
             const line = buffered.slice(0, newline);
             buffered = buffered.slice(newline + 1);
             fixture.onRequest(socket, JSON.parse(line) as RpcRequest);
+            progress.emit("progress");
           }
         });
       });
@@ -1199,6 +1202,7 @@ function runWait(
   const completion = new Promise<InvocationResult>((resolve) => {
     child.once("close", (code) => {
       closed = true;
+      progress.emit("progress");
       resolve({
         code,
         receipt: json && stdout.trim() ? (JSON.parse(stdout) as Record<string, unknown>) : {},
@@ -1226,9 +1230,15 @@ interface InvocationResult {
 }
 
 // Anchors progression on the CLI's own observable action (a request it sent, a reply it still owes)
-// instead of a wall clock; the deadline only guards a hung run and never asserts how fast anything is.
+// instead of a wall clock. The node:test timeout and invocation guard are the only hang guards.
 async function waitForObserved(observed: () => boolean): Promise<void> {
-  for (const deadline = Date.now() + hangGuardMs; !observed() && Date.now() < deadline; ) await delay(20);
+  await waitForArrival(
+    () => (observed() ? true : null),
+    (arrive) => {
+      progress.on("progress", arrive);
+      return () => progress.off("progress", arrive);
+    },
+  );
 }
 
 async function withTimeout(
@@ -1366,8 +1376,4 @@ function runtimeStatus(terminal: boolean): Record<string, unknown> {
     watermark: terminal ? 2 : 1,
     sourceRevision: terminal ? 2 : 1,
   };
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

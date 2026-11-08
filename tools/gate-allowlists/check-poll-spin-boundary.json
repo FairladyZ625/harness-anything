@@ -100,30 +100,6 @@
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
       },
       {
-        "key": "packages/cli/test/runtime-wait-reconnect.integration.test.ts#delay#scheduled-timer",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
-        "key": "packages/cli/test/runtime-wait-reconnect.integration.test.ts#waitForObserved#await-in-loop",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
-        "key": "packages/cli/test/runtime-wait-reconnect.integration.test.ts#waitForObserved#clock-deadline",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
-        "key": "packages/cli/test/runtime-wait-reconnect.integration.test.ts#waitForObserved#self-poll",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
         "key": "packages/cli/test/sqlite-ledger-reconcile.integration.test.ts#waitForAcceptedReceipt#self-poll",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
