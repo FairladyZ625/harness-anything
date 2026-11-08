@@ -41,12 +41,6 @@
     },
     {
       "path": "packages/daemon/src/runtime-spawn-adoption.ts",
-      "symbol": "locallyObservedRuntimeSessions",
-      "kind": "runtimePidIsAlive",
-      "fingerprint": "e5ab3b8d7a5f2fe9407a5879fb673945421451c9a076f95d49f8552b62a8de52"
-    },
-    {
-      "path": "packages/daemon/src/runtime-spawn-adoption.ts",
       "symbol": "restoreRuntime",
       "kind": "runtimePidIsAlive",
       "fingerprint": "460c6c41e9d35a6db6aef11dbd8f4c2678b1ac6437e775c2f215e30ad76c552b"

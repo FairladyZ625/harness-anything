@@ -608,7 +608,7 @@ test("a failed recovery for an exited owner without a local process releases ins
   );
 });
 
-test("an exited session with a process still owned locally retains instance capacity", async (t) => {
+test("an exited session with a process still owned locally keeps control behind its failed recovery", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-exited-process-owner-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const runtimeSessionId = "runtime-exited-process-owner",
@@ -648,7 +648,7 @@ test("an exited session with a process still owned locally retains instance capa
   const recovery = await adoptRuntimes(context);
   assert.equal(recovery[0]?.outcome, "failed");
   assert.throws(
-    () => assertRuntimeRecoveryReady(context, runtimeSessionId, dispatchId, session.liveness),
+    () => assertRuntimeRecoveryReady(context, runtimeSessionId),
     (error) => error === recovery[0]?.error,
   );
 });

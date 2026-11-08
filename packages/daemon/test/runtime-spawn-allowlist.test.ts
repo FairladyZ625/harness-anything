@@ -11,7 +11,8 @@ test("remote dispatch resources do not require a local task projection", async (
     },
     { readRuntimeSessions: async () => [] } as NonNullable<RuntimeSpawnerInput["remote"]>,
     null,
-    new Map(),
   );
-  assert.deepEqual(resources, [[], [], ["remote-instance"], [], []]);
+  const [sessions, instances, allowed, health, instanceLoad] = resources;
+  assert.deepEqual([sessions, instances, allowed, health], [[], [], ["remote-instance"], []]);
+  assert.equal(instanceLoad("remote-instance"), 0, "an edge has no local lifecycle reservation index");
 });

@@ -23,6 +23,7 @@ import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess } from "./runtime-spawn-process.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+import { adoptedDispatchLifecycle, publishActiveDispatchLifecycle } from "./runtime-dispatch-lifecycle.ts";
 import {
   consumeDurableOutput,
   durableOutputRecordCount,
@@ -281,20 +282,11 @@ async function migrateLegacyDispatchGroups(context: RuntimeSpawnerContext): Prom
   }
 }
 
-/** Admission never waits while holding the writer: an unresolved owner cannot look idle. */
-export function assertRuntimeRecoveryReady(
-  context: RuntimeSpawnerContext,
-  runtimeSessionId: string,
-  dispatchId?: string | null,
-  observedLiveness?: RuntimeSessionSelection["liveness"],
-): boolean {
+/** Control never waits while holding the writer: an unresolved owner cannot look idle. */
+export function assertRuntimeRecoveryReady(context: RuntimeSpawnerContext, runtimeSessionId: string): boolean {
   const recovery = recoveries.get(context)?.get(runtimeSessionId);
-  if (dispatchId === null || recovery?.result?.outcome === "foreign" || recovery?.result?.outcome === "settled")
-    return false;
-  if (recovery?.result?.outcome === "failed") {
-    if (observedLiveness === "exited" && !hasLocalRuntimeOwner(context, runtimeSessionId)) return false;
-    throw recovery.result.error;
-  }
+  if (recovery?.result?.outcome === "foreign" || recovery?.result?.outcome === "settled") return false;
+  if (recovery?.result?.outcome === "failed") throw recovery.result.error;
   if (recovery && !recovery.result)
     throw context.runtimeSpawnError("runtime_recovery_pending", `Runtime ${runtimeSessionId} is still recovering.`);
   return true;
@@ -428,7 +420,8 @@ async function restoreRuntime(
     stream = fullStream ?? streamSummary;
   if (!stream) return;
   const processState = stream.process,
-    processPid = processState?.pid ?? 0;
+    processPid = processState?.pid ?? 0,
+    lifecycle = adoptedDispatchLifecycle(context, stream.header.dispatchId);
   const runtimeProcess = adoptNativeProcess(
     context.input.rootDir,
     stream.header.dispatchId,
@@ -498,8 +491,8 @@ async function restoreRuntime(
     fallbackAttempt: stream.header.fallbackAttempt ?? null,
     resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
     providerSessionId: stream.providerSessionId,
-    lifecycleAttemptGroupId: null,
-    lifecycleVersion: null,
+    lifecycleAttemptGroupId: lifecycle?.attemptGroupId ?? null,
+    lifecycleVersion: lifecycle?.version ?? null,
   });
   context.processes.set(active.runtimeSessionId, active);
   const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);
@@ -521,6 +514,16 @@ async function restoreRuntime(
           throw attachmentFailure;
         }
       }
+      // This owner takes the observation under its current fence before any later fact. If the
+      // center refuses, the reservation stays held and later local facts are not published under
+      // the superseded fence; the next adoption pass observes again.
+      await publishActiveDispatchLifecycle(context, active, {
+        type: "adopted_process_observed",
+        process: processAlive ? "alive" : "absent",
+      }).catch((error: unknown) => {
+        active.lifecycleVersion = null;
+        throw error;
+      });
 
       // Replaying the durable stream recomputes consumption from the launch cut. A runtime
       // already past its frozen limit must be stopped before liveness is republished, or a
@@ -554,6 +557,9 @@ async function restoreRuntime(
             signal: active.lossSignal,
           });
         await consumeDurableOutput(context, active);
+        await publishActiveDispatchLifecycle(context, active, {
+          type: active.lossReason ? "process_lost" : "process_exit",
+        });
         await context.publishExit(active, active.lossExitCode, session?.liveness === "exited");
       }
     })(),
@@ -712,19 +718,4 @@ function isBinding(value: unknown): value is RuntimeBinding {
     typeof (actor as { principal?: { personId?: unknown } }).principal?.personId === "string" &&
     binding.source !== undefined
   );
-}
-
-/** Instance load follows a live local PID; canonical liveness remains available to recovery admission. */
-export function locallyObservedRuntimeSessions(
-  sessions: readonly RuntimeSessionSelection[],
-  processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
-): readonly RuntimeSessionSelection[] {
-  return sessions.map((session) => {
-    const process = processes.get(session.runtimeSessionId)?.process;
-    return {
-      ...session,
-      liveness:
-        session.outcome !== null ? session.liveness : process && runtimePidIsAlive(process.pid) ? "live" : "unknown",
-    };
-  });
 }

@@ -58,6 +58,7 @@ export type DispatchLifecycleEvent =
     })
   | (EventBase & { readonly type: "owner_fence_verified"; readonly verification: "center" })
   | (EventBase & { readonly type: "process_started" })
+  | (EventBase & { readonly type: "adopted_process_observed"; readonly process: "alive" | "absent" })
   | (EventBase & { readonly type: "process_exit" | "process_lost" })
   | (EventBase & { readonly type: "process_stop_proven"; readonly proof: Exclude<DispatchStopProof, "unproven"> })
   | (EventBase & {
@@ -137,6 +138,8 @@ export interface DispatchLifecycleView {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
   readonly attemptGroupId: string;
+  /** Expected version for the next fenced event on this group. */
+  readonly groupVersion: number;
   readonly attempt: Pick<DispatchLifecycleAttempt, "phase" | "process" | "stopProof" | "capacity" | "outcome">;
   readonly group: Pick<DispatchLifecycleGroup, "phase" | "currentDispatchId" | "successorDispatchId" | "notBeforeAt">;
   readonly policy: {
@@ -300,17 +303,25 @@ export function reduceDispatchLifecycle(
 
   if (previous.repoId !== event.repoId)
     throw new DispatchLifecycleError("invalid_event", "dispatch group repository identity changed");
-  const verifiesImportedFence = event.type === "owner_fence_verified";
+  const verifiesImportedFence = event.type === "owner_fence_verified",
+    // A restarted owner adopts under its own, newer writer epoch; an older epoch stays fenced off.
+    renewsOwnerFence =
+      event.type === "adopted_process_observed" &&
+      event.ownerFence !== null &&
+      previous.ownerFence !== null &&
+      previous.ownerFenceVerified &&
+      event.ownerFence.epoch > previous.ownerFence.epoch;
   if (
     verifiesImportedFence
       ? previous.ownerFenceVerified ||
         previous.phase !== "settling" ||
         event.ownerFence === null ||
         (previous.ownerFence !== null && !sameFence(previous.ownerFence, event.ownerFence))
-      : event.ownerFence === null ||
-        previous.ownerFence === null ||
-        !sameFence(previous.ownerFence, event.ownerFence) ||
-        !previous.ownerFenceVerified
+      : !renewsOwnerFence &&
+        (event.ownerFence === null ||
+          previous.ownerFence === null ||
+          !sameFence(previous.ownerFence, event.ownerFence) ||
+          !previous.ownerFenceVerified)
   )
     throw new DispatchLifecycleError("stale_owner_fence", "dispatch event owner fence is stale");
   if (previous.version !== event.expectedGroupVersion)
@@ -359,6 +370,15 @@ export function reduceDispatchLifecycle(
       requireAttempt(currentAttempt, "starting", event);
       nextAttempt = { ...currentAttempt, phase: "running", process: "alive", capacity: "held" };
       phase = "running";
+      break;
+    case "adopted_process_observed":
+      // Adoption reconnects observation only: a live starting attempt is confirmed running, and an
+      // accepted settling attempt never returns to running.
+      if (currentAttempt.phase === "closed") invalidTransition(event, previous.phase);
+      if (event.process === "alive" && currentAttempt.phase === "starting") {
+        nextAttempt = { ...currentAttempt, phase: "running", process: "alive", capacity: "held" };
+        phase = "running";
+      }
       break;
     case "owner_fence_verified":
       if (event.source !== "center" || event.verification !== "center") invalidTransition(event, previous.phase);
@@ -441,7 +461,7 @@ export function reduceDispatchLifecycle(
   const group: DispatchLifecycleGroup = {
     ...previous,
     phase,
-    ownerFence: verifiesImportedFence ? event.ownerFence : previous.ownerFence,
+    ownerFence: verifiesImportedFence || renewsOwnerFence ? event.ownerFence : previous.ownerFence,
     ownerFenceVerified: event.type === "owner_fence_verified" ? true : previous.ownerFenceVerified,
     version: previous.version + 1,
     currentDispatchId: event.type === "dispatch_admitted" ? event.dispatchId : previous.currentDispatchId,
@@ -561,6 +581,7 @@ export function readDispatchLifecycle(
         dispatchId: attempt.dispatchId,
         runtimeSessionId: attempt.runtimeSessionId,
         attemptGroupId: group.attemptGroupId,
+        groupVersion: group.version,
         attempt: {
           phase: attempt.phase,
           process: attempt.process,
@@ -673,6 +694,7 @@ function validateEvent(event: DispatchLifecycleEvent): void {
       "dispatch_admitted",
       "owner_fence_verified",
       "process_started",
+      "adopted_process_observed",
       "process_exit",
       "process_lost",
       "process_stop_proven",
@@ -733,6 +755,8 @@ function validateEvent(event: DispatchLifecycleEvent): void {
     throw new DispatchLifecycleError("invalid_event", "dispatch group migration payload is invalid");
   if (event.type === "owner_fence_verified" && event.verification !== "center")
     throw new DispatchLifecycleError("invalid_event", "dispatch owner fence verification must come from the center");
+  if (event.type === "adopted_process_observed" && event.process !== "alive" && event.process !== "absent")
+    throw new DispatchLifecycleError("invalid_event", "dispatch adoption observation is invalid");
   if (event.type === "process_stop_proven" && event.proof !== "proven_stopped" && event.proof !== "launch_fenced_off")
     throw new DispatchLifecycleError("invalid_event", "dispatch stop proof is invalid");
   if (

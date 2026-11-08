@@ -72,6 +72,24 @@ test("positive fixture: daemon start preview and CLI cancellation eligibility co
   );
 });
 
+// dec_AEB05951 CH4 slice 2 removed the process-map/PID overlay that fed instance load. Counting
+// session liveness (or a local process map) for capacity again must fail before review.
+test("positive fixture: instance load derived from session liveness is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/runtime-spawn-mission.ts") &&
+        finding.includes("instead of lifecycle reservations"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) => finding.includes("runtime-spawn-allowlist.ts: must consume named domain judgment")),
+    findings.join("\n"),
+  );
+});
+
 // The bilingual closeout judgment is the writing boundary `ha task submit` and the PR body
 // renderer share. A second implementation on either side — including a tool-side renderer copy —
 // must fail this gate, which is what makes "same exported function" enforced rather than trusted.

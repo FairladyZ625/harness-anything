@@ -21,7 +21,6 @@ import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
-  readDispatchStreamHeader,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -37,7 +36,6 @@ import {
   adoptRuntimes,
   reclaimFailedLaunchTempDirectory,
   sweepSettledRuntimeTempDirectories,
-  ownedByRuntimeSpawner,
 } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
@@ -188,7 +186,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         input,
         input.remote,
         projection,
-        processes,
       );
     resolveRuntimeInstanceCandidates({
       ...(requested === undefined ? {} : { requested }),
@@ -464,14 +461,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskPackageRoot,
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, canonicalRuntimeSessions] =
-        await resolveRuntimeDispatchResources(
-          input,
-          input.remote,
-          projection!,
-          processes,
-          providerSessionId ?? undefined,
-        ),
+      [runtimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, instanceLoad] =
+        await resolveRuntimeDispatchResources(input, input.remote, projection!, providerSessionId ?? undefined),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
         binding,
@@ -505,7 +496,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         model,
         instances: runtimeInstances,
         allowedInstanceIds,
-        sessions: localRuntimeSessions,
+        sessions: runtimeSessions,
         health: providerHealth,
         now: input.now(),
       });
@@ -546,32 +537,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           model,
           instances: runtimeInstances,
           allowedInstanceIds,
-          sessions: localRuntimeSessions,
+          sessions: runtimeSessions,
+          instanceLoad,
           health: providerHealth,
           now: input.now(),
         },
         async (runtimeInstanceId) => {
-          if (!dryRun)
-            for (const session of canonicalRuntimeSessions) {
-              if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
-              // A session can arrive after the startup census. Its canonical node owner,
-              // not absence from this node's process map, determines who must recover it.
-              const dispatch = input.remote
-                ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
-                : projection!.readRuntimeDispatch(session.runtimeSessionId);
-              const dispatchId = dispatch?.payload.dispatchId ?? null,
-                header = dispatchId ? readDispatchStreamHeader(input.rootDir, dispatchId) : null;
-              if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode, header)) continue;
-              // During daemon restart the worker host can remain healthy while adoption has not
-              // yet re-registered it in this spawner's process map. A canonical live observation
-              // only clears that gap when the dispatch stream still proves its PID is alive;
-              // unknown/stale/exited sessions reserve capacity until recovery proves or settles
-              // them. A stream that proves the worker is already gone is different: run the same
-              // adoption settlement used by daemon restart/cancel before deciding capacity, so a
-              // reviewer whose conclusion is already registered cannot strand the instance.
-              // Capacity and lifecycle ownership are decided by the canonical reducer. Local
-              // process/PID state is an observation for recovery, never an admission predicate.
-            }
           const initialFallback =
               inheritedFallback ??
               initialFallbackAttempt(
@@ -583,7 +554,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 newDispatchId,
                 fallbackMission,
                 runtimeInstances,
-                localRuntimeSessions,
+                runtimeSessions,
                 allowedInstanceIds,
                 providerHealth,
                 input.now(),
@@ -601,7 +572,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     newDispatchId,
                     fallbackMission,
                     runtimeInstances,
-                    localRuntimeSessions,
+                    runtimeSessions,
                     allowedInstanceIds,
                     providerHealth,
                     input.now(),

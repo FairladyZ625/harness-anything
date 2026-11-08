@@ -4,7 +4,6 @@ import test from "node:test";
 import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
 import { readSettingsFacet } from "@harness-anything/kernel";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
-import { locallyObservedRuntimeSessions } from "../src/runtime-spawn-adoption.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
 import {
   agentRuntimeAmbiguityWarning,
@@ -224,10 +223,8 @@ test("prepare keeps the declared runtimes row order when an earlier row is busie
     {
       agent: agent(),
       instances: [instance("devin-idle", "devin", "provider-devin"), instance("codex-busy", "codex", "provider-codex")],
-      sessions: [
-        { instanceId: "codex-busy", liveness: "live" } as never,
-        { instanceId: "codex-busy", liveness: "live" } as never,
-      ],
+      sessions: [],
+      instanceLoad: (instanceId) => (instanceId === "codex-busy" ? 2 : 0),
       allowedInstanceIds: ["codex-busy", "devin-idle"],
     },
     async (id) => {
@@ -245,9 +242,10 @@ test("prepare spreads live load across instances of one declared runtime row", a
     {
       agent: { ...agent(), runtimes: [{ type: "codex" }] },
       instances: [instance("codex-b", "codex", "provider-codex"), instance("codex-a", "codex", "provider-codex")],
-      // The live session sits on the instance the configured order puts first, so only the
-      // live-load key can move the choice to its peer (an id tiebreak would also pick codex-a).
-      sessions: [{ instanceId: "codex-a", liveness: "live" } as never],
+      // The held reservation sits on the instance the configured order puts first, so only the
+      // load key can move the choice to its peer (an id tiebreak would also pick codex-a).
+      sessions: [],
+      instanceLoad: (instanceId) => (instanceId === "codex-a" ? 1 : 0),
       allowedInstanceIds: ["codex-a", "codex-b"],
     },
     async (id) => {
@@ -259,26 +257,15 @@ test("prepare spreads live load across instances of one declared runtime row", a
   assert.deepEqual(attempts, ["codex-b"]);
 });
 
-test("prepare counts a live local owner when canonical liveness is exited", async () => {
-  const attempts: string[] = [],
-    runtimeSessionId = "runtime-exited-canonical-live-local",
-    sessions = locallyObservedRuntimeSessions(
-      [
-        {
-          runtimeSessionId,
-          providerSessionId: null,
-          instanceId: "codex-a",
-          liveness: "exited",
-          outcome: null,
-        },
-      ],
-      new Map([[runtimeSessionId, { process: { pid: process.pid } }]]),
-    );
+test("prepare ignores session liveness and counts only lifecycle reservations", async () => {
+  const attempts: string[] = [];
   const selected = await prepareRuntimeInstance(
     {
       agent: { ...agent(), runtimes: [{ type: "codex" }] },
       instances: [instance("codex-a", "codex", "provider-codex"), instance("codex-b", "codex", "provider-codex")],
-      sessions,
+      // A canonical live session is not capacity evidence; the reservation index says codex-b is busy.
+      sessions: [{ instanceId: "codex-a", liveness: "live" } as never],
+      instanceLoad: (instanceId) => (instanceId === "codex-b" ? 1 : 0),
       allowedInstanceIds: ["codex-a", "codex-b"],
     },
     async (id) => {
@@ -286,9 +273,8 @@ test("prepare counts a live local owner when canonical liveness is exited", asyn
       return { prepared: id };
     },
   );
-  assert.equal(sessions[0]!.liveness, "live");
-  assert.equal(selected.instanceId, "codex-b");
-  assert.deepEqual(attempts, ["codex-b"]);
+  assert.equal(selected.instanceId, "codex-a");
+  assert.deepEqual(attempts, ["codex-a"]);
 });
 
 test("prepare keeps the configured order on an equal-load tie inside one declared row", async () => {

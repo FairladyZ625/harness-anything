@@ -71,18 +71,12 @@ const projectionOf = (history: ReturnType<typeof sessionHistory>) =>
 
 test("dispatch reads the unsettled set, not the settled history", async () => {
   const history = sessionHistory();
-  const [local, , allowed, , canonical] = await resolveRuntimeDispatchResources(
-    {},
-    undefined,
-    projectionOf(history),
-    new Map(),
-  );
+  const [canonical, , allowed] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history));
   assert.deepEqual(allowed, ["instance-a", "instance-b"]);
   assert.deepEqual(
     canonical.map(({ runtimeSessionId }) => runtimeSessionId),
     ["runtime-open-a", "runtime-open-b", "runtime-open-c"],
   );
-  assert.equal(local.length, 3);
   assert.equal(
     history.reads.reduce((sum, read) => sum + read.returned, 0),
     3,
@@ -92,24 +86,13 @@ test("dispatch reads the unsettled set, not the settled history", async () => {
 
 test("a resume additionally point-reads its native session, settled or not, in id order", async () => {
   const history = sessionHistory();
-  const [local, , , , canonical] = await resolveRuntimeDispatchResources(
-    {},
-    undefined,
-    projectionOf(history),
-    new Map(),
-    "native-resumed",
-  );
+  const [canonical] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history), "native-resumed");
   // Same order the full history read produced, so `find(providerSessionId)` picks the same row.
   assert.deepEqual(
     canonical.map(({ runtimeSessionId }) => runtimeSessionId),
     ["runtime-open-a", "runtime-open-b", "runtime-open-c", "runtime-settled-00007"],
   );
-  assert.equal(local.find((row) => row.providerSessionId === "native-resumed")?.runtimeSessionId, "runtime-open-c");
-  // The settled row keeps its canonical liveness; unsettled rows follow the local process map.
-  assert.deepEqual(
-    local.map(({ liveness }) => liveness),
-    ["unknown", "unknown", "unknown", "exited"],
-  );
+  assert.equal(canonical.find((row) => row.providerSessionId === "native-resumed")?.runtimeSessionId, "runtime-open-c");
   assert.ok(
     history.reads.every((read) => read.query !== undefined) &&
       history.reads.reduce((sum, read) => sum + read.returned, 0) === 3 + 2,
@@ -119,13 +102,12 @@ test("a resume additionally point-reads its native session, settled or not, in i
 
 test("remote dispatch sends the same bounded queries to its replica", async () => {
   const history = sessionHistory();
-  const [, , , , canonical] = await resolveRuntimeDispatchResources(
+  const [canonical] = await resolveRuntimeDispatchResources(
     {},
     { readRuntimeSessions: async (query) => history.readRuntimeSessions(query) } as NonNullable<
       RuntimeSpawnerInput["remote"]
     >,
     null,
-    new Map(),
     "native-resumed",
   );
   assert.equal(canonical.length, 4);
@@ -133,6 +115,42 @@ test("remote dispatch sends the same bounded queries to its replica", async () =
     history.reads.map(({ query }) => query),
     [{ unsettledOnly: true }, { providerSessionId: "native-resumed" }],
   );
+});
+
+test("instance load is the lifecycle reservation count, paged per instance and blind to process maps", async () => {
+  const history = sessionHistory(),
+    queries: unknown[] = [],
+    row = (attemptGroupId: string, capacity: "reserved" | "held" | "released") => ({
+      dispatchId: `dispatch-${attemptGroupId}`,
+      runtimeSessionId: `runtime-${attemptGroupId}`,
+      attemptGroupId,
+      groupVersion: 1,
+      attempt: { phase: "running", process: "alive", stopProof: "unproven", capacity, outcome: null },
+    }),
+    pages: Record<string, { rows: unknown[]; nextCursor: string | null }> = {
+      "instance-a:": { rows: [row("g1", "held"), row("g2", "released")], nextCursor: "g2" },
+      "instance-a:g2": { rows: [row("g3", "reserved")], nextCursor: null },
+    },
+    projection = {
+      ...projectionOf(history),
+      readDispatchLifecycle: (query: { instanceId?: string; afterGroupId?: string }) => {
+        queries.push(query);
+        return {
+          status: "ready",
+          watermark: 1,
+          sourceRevision: 1,
+          ...(pages[`${String(query.instanceId)}:${query.afterGroupId ?? ""}`] ?? { rows: [], nextCursor: null }),
+        };
+      },
+    } as unknown as TaskProjection;
+  const [, , , , instanceLoad] = await resolveRuntimeDispatchResources({}, undefined, projection);
+  assert.equal(instanceLoad("instance-a"), 2, "released capacity is free; reserved and held both occupy");
+  assert.equal(instanceLoad("instance-b"), 0);
+  assert.deepEqual(queries, [
+    { by: "active", instanceId: "instance-a", limit: 100 },
+    { by: "active", instanceId: "instance-a", limit: 100, afterGroupId: "g2" },
+    { by: "active", instanceId: "instance-b", limit: 100 },
+  ]);
 });
 
 test("native resume export checks read only the named provider session", () => {

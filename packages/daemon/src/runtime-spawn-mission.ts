@@ -393,23 +393,24 @@ export function resolveRuntimeInstanceCandidates(input: {
 
 /** Select before launch: machine availability can change after the instance definition was written. */
 export async function prepareRuntimeInstance<T>(
-  input: Parameters<typeof resolveRuntimeInstanceCandidates>[0],
+  input: Parameters<typeof resolveRuntimeInstanceCandidates>[0] & {
+    /** Held or reserved provider slots per instance, read from the canonical dispatch lifecycle. */
+    readonly instanceLoad?: (instanceId: string) => number;
+  },
   prepare: (instanceId: string) => Promise<T>,
 ): Promise<{ readonly instanceId: string; readonly launch: T }> {
   const reasons: string[] = [],
     candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons }),
-    liveLoad = new Map<string, number>(),
+    load = new Map(candidates.map((instanceId) => [instanceId, input.instanceLoad?.(instanceId) ?? 0])),
     // Every non-load key of the one selection rule, read from the shared helper so prepare cannot
     // drift from the resolver that produced this list. The resolver already applied row order,
     // preference, and model tier; re-applying them here keeps a stable sort on load alone from
     // letting an idle later row outrank a candidate a higher key had already preferred.
     rankOf = (instanceId: string): RuntimeInstanceRank => runtimeInstanceRank(input, instanceId);
-  for (const session of input.sessions)
-    if (session.liveness === "live") liveLoad.set(session.instanceId, (liveLoad.get(session.instanceId) ?? 0) + 1);
   // Load spreads capacity only among candidates the deterministic keys cannot separate; equal
   // ranks keep the resolver's configured order (a stable sort), which is the allowlist order.
   candidates.sort(
-    (a, b) => compareRuntimeInstanceRank(rankOf(a), rankOf(b)) || (liveLoad.get(a) ?? 0) - (liveLoad.get(b) ?? 0),
+    (a, b) => compareRuntimeInstanceRank(rankOf(a), rankOf(b)) || (load.get(a) ?? 0) - (load.get(b) ?? 0),
   );
   for (const instanceId of candidates) {
     try {

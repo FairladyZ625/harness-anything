@@ -80,3 +80,24 @@ export async function publishActiveDispatchLifecycle(
 export function lifecycleAttemptGroupId(active: Pick<ActiveRuntime, "dispatchId" | "fallbackAttempt">): string {
   return active.fallbackAttempt?.attemptGroupId ?? active.dispatchId;
 }
+
+/**
+ * The canonical lifecycle row an adopted runtime continues. Only a starting/running current attempt
+ * is rebound; an accepted settling or closed attempt belongs to settlement and is never reopened.
+ */
+export function adoptedDispatchLifecycle(
+  context: Pick<RuntimeSpawnerContext, "input" | "requiredRuntimeProjection">,
+  dispatchId: string,
+): { readonly attemptGroupId: string; readonly version: number } | null {
+  if (context.input.remote) return null;
+  const read = context.requiredRuntimeProjection(context.input).readDispatchLifecycle?.({
+      by: "dispatch",
+      dispatchIds: [dispatchId],
+    }),
+    row = read?.status === "ready" ? read.rows.find((candidate) => candidate.dispatchId === dispatchId) : undefined;
+  return row &&
+    row.group.currentDispatchId === dispatchId &&
+    (row.attempt.phase === "starting" || row.attempt.phase === "running")
+    ? { attemptGroupId: row.attemptGroupId, version: row.groupVersion }
+    : null;
+}

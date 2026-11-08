@@ -149,6 +149,65 @@ test("dispatch lifecycle rejects old owner epochs and stale group versions", () 
   });
 });
 
+test("restart adoption renews the owner fence once without regressing an accepted phase", () => {
+  const admitted = apply(emptyDispatchLifecycleProjection(), event("dispatch_admitted"), 1),
+    restarted = { ownerId: "node-a-restarted", epoch: fence.epoch + 1 },
+    adopted = apply(
+      admitted,
+      event("adopted_process_observed", {
+        expectedGroupVersion: 1,
+        eventId: "adopted",
+        ownerFence: restarted,
+        process: "alive",
+      }),
+      2,
+    );
+  // A live starting attempt whose process_started was lost is confirmed running by adoption.
+  assert.equal(adopted.groups["group-a"]?.phase, "running");
+  assert.equal(adopted.groups["group-a"]?.attempts[0]?.capacity, "held");
+  assert.deepEqual(adopted.groups["group-a"]?.ownerFence, restarted);
+  // The previous owner can no longer publish once a newer epoch adopted the attempt.
+  assert.throws(
+    () => reduceDispatchLifecycle(adopted, event("process_exit", { expectedGroupVersion: 2, eventId: "old" }), 3),
+    { name: "DispatchLifecycleError", code: "stale_owner_fence" },
+  );
+  assert.throws(
+    () =>
+      reduceDispatchLifecycle(
+        adopted,
+        event("adopted_process_observed", {
+          expectedGroupVersion: 2,
+          eventId: "older-adopt",
+          ownerFence: { ownerId: "node-a-older", epoch: fence.epoch - 1 },
+          process: "alive",
+        }),
+        3,
+      ),
+    { name: "DispatchLifecycleError", code: "stale_owner_fence" },
+  );
+  const lost = apply(
+    adopted,
+    event("process_lost", { expectedGroupVersion: 2, eventId: "lost", ownerFence: restarted }),
+    3,
+  );
+  const readopted = apply(
+    lost,
+    event("adopted_process_observed", {
+      expectedGroupVersion: 3,
+      eventId: "readopted",
+      ownerFence: { ownerId: "node-a-third", epoch: fence.epoch + 2 },
+      process: "alive",
+    }),
+    4,
+  );
+  assert.equal(readopted.groups["group-a"]?.phase, "settling", "adoption never returns settling to running");
+  assert.equal(readopted.groups["group-a"]?.attempts[0]?.process, "lost");
+  assert.equal(
+    readDispatchLifecycle(readopted, { by: "session", runtimeSessionId: "runtime-a" }).rows[0]?.groupVersion,
+    4,
+  );
+});
+
 test("single-writer admission grants only one reservation for an instance capacity slot", () => {
   const first = event("dispatch_admitted"),
     second = event("dispatch_admitted", {
@@ -192,6 +251,7 @@ test("online projection, cold rebuild, and bounded lifecycle reads agree", () =>
     dispatchId: "dispatch-a",
     runtimeSessionId: "runtime-a",
     attemptGroupId: "group-a",
+    groupVersion: 5,
     attempt: {
       phase: "closed",
       process: "exited",

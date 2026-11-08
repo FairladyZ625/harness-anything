@@ -82,6 +82,13 @@ const requiredConsumers = new Map([
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#fact", "export const factLivenessWords = ["],
   ["tools/gates/render-task-pr-body.mjs", "missingChineseCloseoutSections("],
   ["packages/daemon/src/repo-cell-submit.ts", "missingChineseCloseoutSections("],
+  // dec_AEB05951 CH4: instance load and restart adoption read the canonical dispatch lifecycle.
+  ["packages/daemon/src/runtime-spawn-allowlist.ts#instance-load", "readDispatchLifecycle("],
+  ["packages/daemon/src/runtime-spawn-adoption.ts#adoption", "adoptedDispatchLifecycle("],
+]);
+const lifecycleCapacityFiles = Object.freeze([
+  "packages/daemon/src/runtime-spawn-mission.ts",
+  "packages/daemon/src/runtime-spawn-allowlist.ts",
 ]);
 
 export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
@@ -151,6 +158,11 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     findings.push(
       "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
     );
+  for (const file of lifecycleCapacityFiles)
+    if (/\.liveness\s*[!=]==?|\bprocesses\.(?:has|get)\(|runtimePidIsAlive\(/u.test(read(root, file)))
+      findings.push(
+        `${file}: derives provider-instance load from session liveness or a local process map instead of lifecycle reservations`,
+      );
   const baseline = readDispatchObservationBaseline(root),
     dispatchSites = scanDispatchLifecycleObservationSites(root),
     priorBaseline = readPreviousDispatchObservationEntries(root);

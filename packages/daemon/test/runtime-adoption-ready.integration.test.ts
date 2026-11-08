@@ -8,10 +8,8 @@ import test from "node:test";
 import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
-import { locallyObservedRuntimeSessions } from "../src/runtime-spawn-adoption.ts";
 import { readObservedRuntimeSession } from "../src/agent-runtime-read.ts";
 import { openDispatchStream, appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
-import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import type { AgentDefinitionSnapshot, RuntimeSession } from "@harness-anything/kernel";
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -377,19 +375,6 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         alive,
       );
       assert.equal((await hub.attach(runtimeSessionId, "stream:0")).initial.ok, alive);
-      const selected = locallyObservedRuntimeSessions(
-        [{ ...accepted, liveness: "live" }],
-        new Map([[runtimeSessionId, { process: { pid } as RuntimeProcess }]]),
-      );
-      assert.equal(selected[0]!.liveness, alive ? "live" : "unknown");
-      assert.equal(
-        locallyObservedRuntimeSessions(
-          [{ ...accepted, liveness: "exited" }],
-          new Map([[runtimeSessionId, { process: { pid: process.pid } as RuntimeProcess }]]),
-        )[0]!.liveness,
-        "live",
-        "a live local PID remains instance-load evidence even when canonical liveness is exited",
-      );
       assert.equal(accepted.liveness, "unknown", "local evidence cannot mutate the canonical observation");
     } finally {
       runtime.close();
