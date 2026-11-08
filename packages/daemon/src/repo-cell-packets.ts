@@ -309,28 +309,37 @@ export function lifecycleReceipt(
     // never leave the previous delivery commit on the PR body. Artifact-only cuts have no branch.
     submittedCommit =
       event.type === "execution_submitted" ? (event.payload.execution.submission?.commitSha ?? null) : null,
-    next = [
-      ...(nextCommand
-        ? [
-            {
-              command: nextCommand,
-            },
-          ]
-        : []),
-      // Publish last: it is the recovery lane next to the completion step this receipt already
-      // named, not a replacement for the review/merge evidence the task's own lifecycle requires.
-      ...(submittedCommit === null
-        ? []
+    // A superseded Task is terminal; there is no round left to start or submit on it. The next step
+    // is the replacement recorded by the one supersede transition, so the receipt never sends an
+    // operator back to restart work the ledger already retired.
+    replacementTaskId =
+      snapshot.task?.status === "cancelled" && snapshot.task.supersededBy ? snapshot.task.supersededBy : null,
+    next =
+      replacementTaskId !== null
+        ? [{ command: `ha task show ${replacementTaskId}`, reason: "the replacement task recorded by this supersede" }]
         : [
-            {
-              command: `ha task push ${event.taskId}`,
-              reason: "publish this submitted cut; an existing PR body's submission-facts block refreshes from it",
-            },
-          ]),
-      ...(movedWorkRoot !== null
-        ? [{ command: `ha work show ${movedWorkRoot}`, reason: "the task's work after the move" }]
-        : []),
-    ],
+            ...(nextCommand
+              ? [
+                  {
+                    command: nextCommand,
+                  },
+                ]
+              : []),
+            // Publish last: it is the recovery lane next to the completion step this receipt already
+            // named, not a replacement for the review/merge evidence the task's own lifecycle requires.
+            ...(submittedCommit === null
+              ? []
+              : [
+                  {
+                    command: `ha task push ${event.taskId}`,
+                    reason:
+                      "publish this submitted cut; an existing PR body's submission-facts block refreshes from it",
+                  },
+                ]),
+            ...(movedWorkRoot !== null
+              ? [{ command: `ha work show ${movedWorkRoot}`, reason: "the task's work after the move" }]
+              : []),
+          ],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
     waiver = reviewWaiverLine(snapshot.task, execution),
     summary =

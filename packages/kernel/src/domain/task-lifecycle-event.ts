@@ -348,6 +348,22 @@ export function taskAmendment(
   };
 }
 
+/**
+ * The one supersede transition: the replaced Task is cancelled (terminal) and its package is
+ * archived because of that terminal replacement lineage, never as a second, independently written
+ * disposition. `pinned` clears like every other terminal transition. The writer and the replay
+ * reducer both call this, so a fresh event and a rebuilt projection cannot disagree.
+ */
+export function supersededTaskState(task: TaskV2, supersededBy: string | null): TaskV2 {
+  return {
+    ...task,
+    status: "cancelled",
+    pinned: false,
+    packageDisposition: "archived",
+    ...(supersededBy === null ? {} : { supersededBy }),
+  };
+}
+
 export type TaskEventV1 =
   | TaskCreatedEvent
   | ExecutionStartedEvent

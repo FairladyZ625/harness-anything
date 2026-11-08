@@ -865,7 +865,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       [["title", "byTaskId"]],
     ),
     "invalid_disposition",
-    "The old Task is active, unleased, and names or creates one valid replacement.",
+    "The old Task is active, unleased, has no unsettled dispatch, and names or creates one valid replacement.",
     "Archive old work and preserve explicit replacement lineage.",
     "oldTaskId",
   ),

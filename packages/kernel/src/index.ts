@@ -48,7 +48,7 @@ export {
 } from "./domain/task-lifecycle.contract.ts";
 export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
 export { revisionIssues } from "./domain/task-lifecycle-contract-support.ts";
-export { taskAmendment } from "./domain/task-lifecycle-event.ts";
+export { supersededTaskState, taskAmendment } from "./domain/task-lifecycle-event.ts";
 export {
   isTaskBoundRuntimeWriter,
   isReturnedRuntimeContinuation,

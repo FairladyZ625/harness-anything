@@ -1111,11 +1111,10 @@ test("work derivation uses complete raw subtrees, including archived and nested 
   }
 });
 
-// dec_mr7v4h6t: the derived status is "all subtree members terminal". A retired plan (archived and
-// superseded by its replacement) is no longer open work — workspace-scope-read's
-// supersededArchivedLeaf already drops it from `ha work show` leaf counts — so it must not keep the
-// root presented active forever. An archived task with no replacement is still open work and blocks.
-test("a superseded archived descendant retires from work derivation while an unreplaced archive blocks", () => {
+// dec_mr7v4h6t: the derived status is "all subtree members terminal". A superseded plan is
+// cancelled (terminal) by the supersede transition itself, so it cannot keep the root presented
+// active. An archived task with no replacement is still open work and blocks.
+test("a superseded terminal descendant retires from work derivation while an unreplaced archive blocks", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(
@@ -1137,7 +1136,7 @@ test("a superseded archived descendant retires from work derivation while an unr
       );
     add("retired-root", "planned", null, {}, "work");
     add("retired-done", "done", "retired-root");
-    add("retired-plan", "planned", "retired-root", {
+    add("retired-plan", "cancelled", "retired-root", {
       packageDisposition: "archived",
       supersededBy: "task-retired-replacement",
     });
@@ -1148,17 +1147,17 @@ test("a superseded archived descendant retires from work derivation while an unr
     assert.equal(
       readTaskPresentationStatus(db, "retired-root"),
       "done",
-      "a superseded archived plan is retired, so the all-terminal subtree derives done",
+      "the superseded plan is already terminal, so the all-terminal subtree derives done",
     );
     assert.equal(
       readTaskPresentationStatus(db, "archived-root"),
       "active",
-      "an archived task without a replacement keeps blocking; only the proven supersede pair retires",
+      "an archived task without a replacement keeps blocking",
     );
     assert.deepEqual(
       readTaskIndexRows(db, { presentationStatus: true, status: "done" }).rows.map(({ taskId }) => taskId),
       ["archived-done", "retired-done", "retired-root"],
-      "the filter and the projection answer from the same retired-plan rule",
+      "the filter and the projection answer from the same terminal status",
     );
   } finally {
     db.close();

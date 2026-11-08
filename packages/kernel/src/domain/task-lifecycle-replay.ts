@@ -8,7 +8,7 @@ import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
-import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
+import { TaskLifecycleContractError, supersededTaskState, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
@@ -518,6 +518,14 @@ export function reduceTaskEvent(
       task: event.payload.task,
       executions: replaceExecution(snapshot.executions, event.payload.execution),
       lease: null,
+    };
+  else if (event.type === "task_superseded")
+    // The supersede transition owns the terminal status. Deriving it here as well as in the writer
+    // makes a projection rebuild normalize historical events that recorded archived+active.
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: supersededTaskState(event.payload.task, event.payload.task.supersededBy ?? null),
     };
   else if (event.type !== "task_completed")
     next = {
