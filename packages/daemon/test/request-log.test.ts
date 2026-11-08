@@ -238,12 +238,13 @@ test("a write records its write-queue wait separately from execution; a read rec
       ...stubHost(rootDir),
       // The writer worker reports the head it waited behind with the receipt; the request log
       // must carry that attribution next to the wait, not just the duration.
-      run: async () => {
-        recordDaemonOperationQueueHead({
-          requestId: "writer-request-head",
-          command: "builtin:ledger-backup",
-          executingMs: 592_000,
-        });
+      run: async (_repo: string, action: { readonly kind?: string }) => {
+        if (action.kind === "fact-record")
+          recordDaemonOperationQueueHead({
+            requestId: "writer-request-head",
+            command: "builtin:ledger-backup",
+            executingMs: 592_000,
+          });
         return { outcome: "applied" as const, opId: "op_test_0001", revision: 7 };
       },
     } as unknown as DaemonHost,
