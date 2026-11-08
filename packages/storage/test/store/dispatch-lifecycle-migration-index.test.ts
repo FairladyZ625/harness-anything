@@ -25,3 +25,11 @@ test("indexed migration candidates retain terminal outcomes without accepted sto
     db.close();
   }
 });
+
+test("legacy candidate index yields to canonical scan when the lifecycle table is absent", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE runtime_session(runtime_session_id TEXT PRIMARY KEY)");
+  db.prepare("INSERT INTO runtime_session VALUES (?)").run("runtime_missing_index");
+  assert.equal(legacyDispatchLifecycleMigrationSessions(db), undefined);
+  db.close();
+});

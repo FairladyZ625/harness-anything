@@ -1,7 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /** Legacy sessions with no accepted stop proof; outcomes do not prove process-tree stop. */
-export function legacyDispatchLifecycleMigrationSessions(db: DatabaseSync): readonly string[] {
+export function legacyDispatchLifecycleMigrationSessions(db: DatabaseSync): readonly string[] | undefined {
+  const table = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'dispatch_lifecycle_attempt'")
+    .get();
+  if (table === undefined) return undefined;
   return db
     .prepare(
       "SELECT runtime_session_id FROM runtime_session WHERE " +

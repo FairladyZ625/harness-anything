@@ -131,6 +131,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'projection_meta'")
         .get();
       if (projectionMeta === undefined) return undefined;
+      // Older projection generations may have the metadata/index tables but predate the
+      // dispatch-lifecycle attempt table. They cannot establish the accepted stop-proof cut;
+      // return control to the canonical event scan instead of treating the old schema as empty.
       const projectionHead = Number(
         db.prepare("SELECT COALESCE(watermark, 0) AS revision FROM projection_meta WHERE singleton = 1").get()
           ?.revision ?? -1,
@@ -140,6 +143,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       // fallback unless this cache is a complete cut.
       if (projectionHead !== sqlite.revision()) return undefined;
       const candidateSessions = legacyDispatchLifecycleMigrationSessions(db);
+      if (candidateSessions === undefined) return undefined;
       if (candidateSessions.length === 0) return [];
       const groupIds = db
         .prepare(
