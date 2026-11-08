@@ -502,7 +502,22 @@ async function autoDeclareSubmittedExecutor(
   const candidates = new Map(
     rows.map((dispatch) => [dispatch.runtimeSessionId, { executorId: `runtime-session:${dispatch.runtimeSessionId}` }]),
   );
-  if (candidates.size !== 1) return null;
+  if (candidates.size !== 1)
+    throw new Error(
+      `[auto-executor-debug] ${JSON.stringify({
+        taskId,
+        executionId,
+        taskStatus: snapshot.task?.status,
+        currentNode: snapshot.task?.currentNode,
+        executionState: execution?.state,
+        executor: execution?.actor.executor,
+        review: execution?.submission?.completionContract.closeoutGates.review,
+        raw: exact.length,
+        projected: projectedExact.length,
+        rows: rows.length,
+        candidates: [...candidates.keys()],
+      })}`,
+    );
   const [candidate] = candidates.values();
   if (!candidate) return null;
   return cell.declareExecutionExecutor(
