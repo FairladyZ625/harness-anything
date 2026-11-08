@@ -15,6 +15,7 @@ import { runtimeWebSearchVersionGate } from "../src/runtime-version.ts";
 import type { RuntimeWebSearchMode } from "../src/runtime-inventory.ts";
 import {
   allowedWebSearchModesInPolicy,
+  decodeCodexManagedPolicyPreference,
   readCodexManagedPolicyFiles,
   runtimeWebSearchModelGate,
   runtimeWebSearchPolicyConflict,
@@ -193,6 +194,14 @@ test("a managed policy that exists but cannot be read is refused, while absence 
       (error: unknown) => codedAs(error, "runtime_web_search_policy_unreadable"),
     );
     assert.deepEqual(readCodexManagedPolicyFiles([path.join(root, "missing.toml")]), []);
+    assert.throws(
+      () => decodeCodexManagedPolicyPreference("not base64!"),
+      (error: unknown) => codedAs(error, "runtime_web_search_policy_unreadable"),
+    );
+    assert.throws(
+      () => decodeCodexManagedPolicyPreference(Buffer.from([0xff, 0xfe]).toString("base64")),
+      (error: unknown) => codedAs(error, "runtime_web_search_policy_unreadable"),
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

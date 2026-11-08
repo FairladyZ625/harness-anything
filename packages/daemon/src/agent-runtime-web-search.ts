@@ -180,7 +180,7 @@ export async function readCodexManagedPolicyTexts(
     }
     if (result.exitCode === 0) {
       const encoded = result.stdout.trim();
-      if (encoded) texts.push(Buffer.from(encoded, "base64").toString("utf8"));
+      if (encoded) texts.push(decodeCodexManagedPolicyPreference(encoded));
     } else if (!/Could not find key|does not exist/iu.test(result.stderr)) {
       throw runtimeInstanceError(
         "runtime_web_search_policy_unreadable",
@@ -189,6 +189,24 @@ export async function readCodexManagedPolicyTexts(
     }
   }
   return texts;
+}
+
+/** A managed-preference key that exists but is not a valid UTF-8 base64 TOML payload is
+ *  unreadable policy, not an unmanaged host. */
+export function decodeCodexManagedPolicyPreference(encoded: string): string {
+  const compact = encoded.replace(/\s/gu, "");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(compact) || compact.length % 4 !== 0)
+    throw runtimeInstanceError(
+      "runtime_web_search_policy_unreadable",
+      "macOS managed Codex requirements are not valid base64 and cannot be read.",
+    );
+  const decoded = Buffer.from(compact, "base64").toString("utf8");
+  if (decoded.includes("\uFFFD"))
+    throw runtimeInstanceError(
+      "runtime_web_search_policy_unreadable",
+      "macOS managed Codex requirements are not valid UTF-8 and cannot be read.",
+    );
+  return decoded;
 }
 
 /** Refuses an opt-in tier that local administrator policy does not allow. The policy is
