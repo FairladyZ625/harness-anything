@@ -107,6 +107,13 @@ test("ordinary required declarations fail before a Fleet action is emitted", (t)
   );
 });
 
+test("doc sync task selection serializes using the action taskId field", () => {
+  const parsed = parseThinCommand(["doc", "sync", "--submit", "--task", "task-one"], process.cwd());
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.deepEqual(serializeFleetAction(parsed.command), { kind: "doc-submit", taskId: "task-one" });
+});
+
 test(
   "file codecs reject a repository symlink that resolves outside the workspace",
   { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false },

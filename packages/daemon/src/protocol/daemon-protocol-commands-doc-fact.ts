@@ -74,9 +74,7 @@ export const docFactProtocolCommands = Object.freeze([
       "and task start still requires the scaffold headings.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId" }),
       cliInput(
         "--path",
         "repeated",
