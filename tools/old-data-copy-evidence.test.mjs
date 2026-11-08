@@ -107,6 +107,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     assert.equal(env[stripped], undefined, `${stripped} must not reach the forensic daemon`);
   assert.equal(env.NODE_OPTIONS, "--max-old-space-size=8192");
   assert.equal(env.HARNESS_DAEMON_OWNER_PID, String(process.pid));
+  assert.equal(env.HARNESS_WRITER_READY_WATCHDOG_MS, undefined);
   const invocation = cliInvocation("/build", ["task", "show", "task_example"], env, "/workspace", {
     userRoot: "/isolated/user-root",
     daemonId: "isolated-daemon",
@@ -243,7 +244,7 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
       "git local clone --no-checkout (no working tree)",
       "the snapshot transfers harness objects without checking out the authored tree",
     );
-    assert.equal(receipt.copy.sourceRevision, 1, "one seeded event");
+    assert.equal(receipt.copy.sourceRevision, 2, "one seeded event plus the attach migration marker");
     const cacheStep = receipt.copy.steps.find((step) => step.item === "cache/task.sqlite");
     assert.ok(cacheStep, "the cache database is part of the snapshot steps");
     assert.equal(receipt.copy.coldAttach, true);
@@ -290,12 +291,15 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.build.headCommit, receipt.build.loadedBuildId);
     const headCommit = repoHead();
     if (headCommit.status === 0) assert.equal(receipt.build.headCommit, headCommit.stdout.trim());
-    assert.equal(receipt.reads.storeHead.revision, 1);
+    assert.equal(receipt.reads.storeHead.revision, 2);
     assert.ok(Array.isArray(receipt.reads.taskIndex.first) && receipt.reads.taskIndex.first.length === 0);
-    assert.ok(Array.isArray(receipt.reads.events) && receipt.reads.events.length === 1);
-    assert.equal(receipt.reads.events[0].schema, "settings-event/v1");
-    assert.equal(receipt.coldRebuild.watermark, 1);
-    assert.equal(receipt.coldRebuild.sourceRevision, 1);
+    assert.ok(Array.isArray(receipt.reads.events) && receipt.reads.events.length === 2);
+    assert.deepEqual(
+      new Set(receipt.reads.events.map((event) => event.schema)),
+      new Set(["settings-event/v1", "event-shape-migration/v1"]),
+    );
+    assert.equal(receipt.coldRebuild.watermark, 2);
+    assert.equal(receipt.coldRebuild.sourceRevision, 2);
     assert.match(receipt.coldRebuild.stateDigest, /^sha256:[0-9a-f]{64}$/u);
     assert.ok(receipt.coldRebuild.elapsedMs >= 0);
     if (existsSync("/usr/bin/time"))
@@ -323,7 +327,11 @@ test("one command: medium submission records missing local auth and still cold-r
     assert.equal(receipt.ok, false);
     assert.equal(medium, null);
     assert.match(JSON.stringify(receipt.failures), /authentication_required/u);
-    assert.equal(receipt.coldRebuild.sourceRevision, 1, "the denied create does not append copied-ledger events");
+    assert.equal(
+      receipt.coldRebuild.sourceRevision,
+      2,
+      "the denied create does not append beyond the attach migration marker",
+    );
     assert.equal(receipt.coldRebuild.watermark, receipt.coldRebuild.sourceRevision);
     assert.equal(receipt.cleanup.kept, false);
     assert.equal(existsSync(receipt.cleanup.tempRoot), false, "temporary submitted copy removed");

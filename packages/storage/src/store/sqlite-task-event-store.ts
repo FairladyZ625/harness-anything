@@ -124,6 +124,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     if (!localRuntimeStateFileSystem.exists(projectionPath)) return undefined;
     const db = new DatabaseSync(projectionPath, { readOnly: true });
     try {
+      // A cold attach may have created the cache file before its schema bootstrap. Such a file
+      // has no accepted projection cut, so the indexed path must yield to the canonical scan
+      // instead of turning the attach into a data-shape failure.
+      const projectionMeta = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'projection_meta'")
+        .get();
+      if (projectionMeta === undefined) return undefined;
       const projectionHead = Number(
         db.prepare("SELECT COALESCE(watermark, 0) AS revision FROM projection_meta WHERE singleton = 1").get()
           ?.revision ?? -1,
