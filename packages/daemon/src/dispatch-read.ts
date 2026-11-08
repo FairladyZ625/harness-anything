@@ -1,7 +1,6 @@
 import {
   consumeKnownError,
   documentWorkspacePath,
-  resolveHarnessLayout,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
@@ -143,9 +142,10 @@ export function readTaskDispatches(
   input: { readonly projection: TaskProjectionQueries; readonly rootDir?: string } & DaemonTaskDispatchesPayload,
 ): DaemonTaskDispatchesResult {
   const { projection, rootDir } = input;
-  if (input.agentId !== undefined || input.squadId !== undefined) return readMemberTaskDispatches(input);
+  if (input.agentId !== undefined || input.squadId !== undefined)
+    return withWorkspacePathPrefix(readMemberTaskDispatches(input), rootDir);
   if (input.latestOnly === true && input.taskIds !== undefined)
-    return readLatestTaskDispatches({ ...input, taskIds: input.taskIds });
+    return withWorkspacePathPrefix(readLatestTaskDispatches({ ...input, taskIds: input.taskIds }), rootDir);
   const singleTaskId = input.taskId,
     paged = singleTaskId === undefined && (input.limit !== undefined || input.cursor !== undefined),
     batch = projection.readTaskRuntimeBatch(
@@ -205,6 +205,7 @@ export function readTaskDispatches(
     exitCode: terminal.exitCode,
     watermark: batch.watermark,
     sourceRevision: batch.sourceRevision,
+    ...(rootDir === undefined ? {} : { workspacePathPrefix: documentWorkspacePath(rootDir, "") }),
     ...(singleTaskId === undefined
       ? {
           taskIds: batch.taskIds,
@@ -216,6 +217,13 @@ export function readTaskDispatches(
       : { taskId: singleTaskId }),
   };
   return "page" in result && paged ? { ...result, page: { ...result.page, cursor: input.cursor ?? null } } : result;
+}
+
+function withWorkspacePathPrefix(
+  result: DaemonTaskDispatchesResult,
+  rootDir: string | undefined,
+): DaemonTaskDispatchesResult {
+  return rootDir === undefined ? result : { ...result, workspacePathPrefix: documentWorkspacePath(rootDir, "") };
 }
 
 /** The aggregate read: one current dispatch per requested task, never the task's whole history.
@@ -813,8 +821,7 @@ function canonicalDispatchRow(
   rootDir?: string,
   annotations: readonly import("./decision-annotations.ts").DecisionAnnotationEntry[] = [],
 ): TaskDispatchRow {
-  const layout = rootDir ? resolveHarnessLayout(rootDir) : null,
-    payload = event.payload,
+  const payload = event.payload,
     taskRead = payload.taskId ? projection.readTaskIndex({ taskIds: [payload.taskId] }).rows[0] : null,
     packagePath = taskRead?.packagePath ?? null,
     // The title rides beside taskId from this one read: a caller labelling the row must never
@@ -998,15 +1005,11 @@ function canonicalDispatchRow(
     // The artifact is keyed by dispatch id, so its presence means this dispatch wrote the ask. Read
     // it here rather than gating on the settled classification: the question must stay visible even
     // when the stream cut predates the classification.
-    ...awaitingRulingFields(projection, payload, rootDir ?? null, layout),
+    ...awaitingRulingFields(projection, payload),
     resultRef,
     exitCode,
-    ...(documentPath && document
-      ? { dispatchPath: rootDir ? documentWorkspacePath(rootDir, documentPath, layout ?? undefined) : documentPath }
-      : {}),
-    ...(reportPath && projection.readDocument(reportPath).document
-      ? { reportPath: rootDir ? documentWorkspacePath(rootDir, reportPath, layout ?? undefined) : reportPath }
-      : {}),
+    ...(documentPath && document ? { dispatchPath: documentPath } : {}),
+    ...(reportPath && projection.readDocument(reportPath).document ? { reportPath } : {}),
     ...(annotations.length > 0
       ? {
           advisories: annotations.flatMap((entry) =>
@@ -1112,8 +1115,6 @@ function squadOwnerChildTaskIds(
 function awaitingRulingFields(
   projection: DispatchQueries,
   dispatch: { readonly taskId?: string; readonly dispatchId: string },
-  rootDir: string | null,
-  layout: ReturnType<typeof resolveHarnessLayout> | null,
 ): Pick<TaskDispatchRow, "ruling"> {
   const taskId = dispatch.taskId;
   if (!taskId) return {};
@@ -1132,15 +1133,7 @@ function awaitingRulingFields(
     packagePath,
     dispatch.dispatchId,
   );
-  return ruling === null
-    ? {}
-    : {
-        ruling: {
-          question: ruling.question,
-          options: ruling.options,
-          path: rootDir ? documentWorkspacePath(rootDir, ruling.path, layout ?? undefined) : ruling.path,
-        },
-      };
+  return ruling === null ? {} : { ruling: { question: ruling.question, options: ruling.options, path: ruling.path } };
 }
 
 function resumeDispatch(
