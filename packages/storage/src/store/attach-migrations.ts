@@ -46,11 +46,6 @@ export type AttachMigrationRegistryEntry =
       readonly fields: readonly string[];
       readonly attachRequired: false;
       readonly conclusion: string;
-    }>
-  | Readonly<{
-      readonly kind: "dispatch-lifecycle-import";
-      readonly name: "dispatch-lifecycle.import";
-      readonly fields: readonly string[];
     }>;
 
 function taskOverrideAt(event: PersistedCanonicalEventV1, key: "fact" | "codeDoc"): boolean {
@@ -309,15 +304,18 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     matches: hasRetiredVerticalCloseoutCodeDoc,
   },
   {
-    kind: "dispatch-lifecycle-import",
+    kind: "event-migration",
     name: "dispatch-lifecycle.import",
     fields: ["RuntimeDispatchRequested", "RuntimeSessionFacts", "DispatchLifecycleProjection"],
+    matches: () => false,
   },
   ...historicalReadConclusions,
 ]);
 
 const registeredRetiredFields = new Set(
-  attachMigrationRegistry.flatMap((entry) => (entry.kind === "event-migration" ? entry.fields : [])),
+  attachMigrationRegistry.flatMap((entry) =>
+    entry.kind === "event-migration" && entry.name !== "dispatch-lifecycle.import" ? entry.fields : [],
+  ),
 );
 if (
   registeredRetiredFields.size !== retiredPersistedSchemaFields.length ||
@@ -330,26 +328,30 @@ const defaultMigrationActor: ActorIdentity = { principal: { personId: "daemon-up
 const dispatchLifecycleMigrationVersion = "dispatch-lifecycle/v1";
 
 type HistoricalDispatchGroup = {
-  readonly dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
-  readonly started: boolean;
-  readonly exited: boolean;
-  readonly outcome: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> | null;
+  dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
+  started: boolean;
+  exited: boolean;
+  outcome: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> | null;
 };
 
-function runtimeEventsByType(
+function forEachRuntimeEventByType(
   store: CanonicalEventStore,
   type: AgentRuntimeEventV1["type"],
-): readonly AgentRuntimeEventV1[] {
+  visit: (events: readonly AgentRuntimeEventV1[]) => void,
+): number {
   // Both SQLite and PG answer this through the runtime type index. Page by the canonical revision
   // bound rather than using readBatch, so attach never walks unrelated event types and remains
   // within the shared 500-row query contract.
-  if (!store.queryEvents) return [];
-  const events: AgentRuntimeEventV1[] = [];
+  if (!store.queryEvents) return 0;
+  let count = 0;
   let revisionBound: number | undefined;
   for (;;) {
     const page = store.queryEvents({ type, limit: 500, ...(revisionBound === undefined ? {} : { revisionBound }) });
     const runtime = page.filter(isAgentRuntimeEvent);
-    events.push(...runtime);
+    if (runtime.length > 0) {
+      count += runtime.length;
+      visit(runtime);
+    }
     if (page.length < 500) break;
     const oldest = page.reduce(
       (minimum, event) => Math.min(minimum, event.workspaceRevision),
@@ -358,54 +360,77 @@ function runtimeEventsByType(
     if (!Number.isFinite(oldest) || oldest >= (revisionBound ?? Number.POSITIVE_INFINITY)) break;
     revisionBound = oldest;
   }
-  return events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
+  return count;
 }
 
-function historicalDispatchGroups(store: CanonicalEventStore, repoId: string): readonly DispatchLifecycleGroup[] {
+function historicalDispatchGroups(
+  store: CanonicalEventStore,
+  repoId: string,
+  onProgress?: (processed: number) => void,
+): readonly DispatchLifecycleGroup[] {
   // A real canonical store always exposes ledger metadata. Keeping malformed unit fakes out of
   // the indexed import path preserves the existing shape-migration scan contract while still
   // making the production path fail closed on any missing metadata.
   if (store.ledgerMetadata === undefined) return [];
-  const indexedEvents = store.readDispatchLifecycleMigrationEvents?.(),
-    eventsByType = (type: AgentRuntimeEventV1["type"]): readonly AgentRuntimeEventV1[] =>
-      indexedEvents === undefined
-        ? runtimeEventsByType(store, type)
-        : indexedEvents.filter(
-            (event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event) && event.type === type,
-          ),
-    requests = eventsByType("runtime_dispatch_requested").filter(
-      (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
-        event.type === "runtime_dispatch_requested" &&
-        (event.payload.attemptGroupId === undefined || typeof event.payload.attemptGroupId === "string"),
-    ),
-    starts = new Set(
-      eventsByType("runtime_session_started")
-        .filter((event) => event.type === "runtime_session_started")
-        .map((event) => event.payload.runtimeSessionId),
-    ),
-    exits = new Set(
-      eventsByType("runtime_session_exited")
-        .filter((event) => event.type === "runtime_session_exited")
-        .map((event) => event.payload.runtimeSessionId),
-    ),
+  const indexedEvents = store.readDispatchLifecycleMigrationEvents?.();
+  let processed = 0;
+  const visitType = (type: AgentRuntimeEventV1["type"], visit: (event: AgentRuntimeEventV1) => void): void => {
+    if (indexedEvents === undefined) {
+      forEachRuntimeEventByType(store, type, (page) => {
+        for (const event of page) visit(event);
+        processed += page.length;
+        onProgress?.(processed);
+      });
+      return;
+    }
+    const matching = indexedEvents.filter(
+      (event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event) && event.type === type,
+    );
+    for (let offset = 0; offset < matching.length; offset += 500) {
+      const page = matching.slice(offset, offset + 500);
+      for (const event of page) visit(event);
+      processed += page.length;
+      onProgress?.(processed);
+    }
+  };
+  const grouped = new Map<string, HistoricalDispatchGroup[]>(),
+    starts = new Set<string>(),
+    exits = new Set<string>(),
     outcomes = new Map<string, Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>>();
-  for (const event of eventsByType("runtime_session_outcome_observed")) {
-    if (event.type === "runtime_session_outcome_observed") outcomes.set(event.payload.runtimeSessionId, event);
-  }
-  const grouped = new Map<string, HistoricalDispatchGroup[]>();
-  for (const dispatch of requests) {
-    const groupId = dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId,
+  visitType("runtime_dispatch_requested", (event) => {
+    if (
+      event.type !== "runtime_dispatch_requested" ||
+      (event.payload.attemptGroupId !== undefined && typeof event.payload.attemptGroupId !== "string")
+    )
+      return;
+    const groupId = event.payload.attemptGroupId ?? event.payload.dispatchId,
       values = grouped.get(groupId) ?? [];
-    values.push({
-      dispatch,
-      started: starts.has(dispatch.payload.runtimeSessionId),
-      exited: exits.has(dispatch.payload.runtimeSessionId),
-      outcome: outcomes.get(dispatch.payload.runtimeSessionId) ?? null,
-    });
+    values.push({ dispatch: event, started: false, exited: false, outcome: null });
     grouped.set(groupId, values);
-  }
+  });
+  visitType("runtime_session_started", (event) => {
+    if (event.type === "runtime_session_started") starts.add(event.payload.runtimeSessionId);
+  });
+  visitType("runtime_session_exited", (event) => {
+    if (event.type === "runtime_session_exited") exits.add(event.payload.runtimeSessionId);
+  });
+  visitType("runtime_session_outcome_observed", (event) => {
+    if (event.type !== "runtime_session_outcome_observed") return;
+    const previous = outcomes.get(event.payload.runtimeSessionId);
+    if (!previous || previous.workspaceRevision < event.workspaceRevision)
+      outcomes.set(event.payload.runtimeSessionId, event);
+  });
+  for (const values of grouped.values())
+    for (const value of values) {
+      value.started = starts.has(value.dispatch.payload.runtimeSessionId);
+      value.exited = exits.has(value.dispatch.payload.runtimeSessionId);
+      value.outcome = outcomes.get(value.dispatch.payload.runtimeSessionId) ?? null;
+    }
   const result: DispatchLifecycleGroup[] = [];
+  let visitedGroups = 0;
   for (const [attemptGroupId, values] of grouped) {
+    visitedGroups += 1;
+    if (visitedGroups % 256 === 0) onProgress?.(processed + visitedGroups);
     values.sort(
       (left, right) =>
         (left.dispatch.payload.attemptIndex ?? 0) - (right.dispatch.payload.attemptIndex ?? 0) ||
@@ -476,6 +501,7 @@ function historicalDispatchGroups(store: CanonicalEventStore, repoId: string): r
       attempts,
     });
   }
+  if (visitedGroups % 256 !== 0) onProgress?.(processed + visitedGroups);
   return result;
 }
 
@@ -484,8 +510,9 @@ function makeDispatchLifecycleImportEvents(input: {
   readonly now: () => string;
   readonly repoId: string;
   readonly sourceRevision: number;
+  readonly onProgress?: (processed: number) => void;
 }): { readonly preceding: readonly CanonicalWriteBundle[]; readonly groups: number } {
-  const groups = historicalDispatchGroups(input.store, input.repoId),
+  const groups = historicalDispatchGroups(input.store, input.repoId, input.onProgress),
     baseRevision = input.store.readHead()?.revision ?? 0,
     preceding: CanonicalWriteBundle[] = [];
   for (const [index, group] of groups.entries()) {
@@ -523,6 +550,7 @@ function applyDispatchLifecycleImport(input: {
   readonly now?: () => string;
   readonly actor?: ActorIdentity;
   readonly sourceRevision: number;
+  readonly onProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }): boolean {
   const now = input.now ?? (() => new Date().toISOString()),
     repoId = input.store.ledgerMetadata?.().repoId ?? "legacy-repository",
@@ -531,6 +559,11 @@ function applyDispatchLifecycleImport(input: {
       now,
       repoId,
       sourceRevision: input.sourceRevision,
+      onProgress: (processed) =>
+        input.onProgress?.({
+          applied: processed,
+          total: input.sourceRevision,
+        }),
     }),
     markerRevision = (input.store.readHead()?.revision ?? 0) + preceding.length + 1,
     opId = "upgrade-dispatch-lifecycle-import",
@@ -583,7 +616,7 @@ export function applyAttachMigrations(input: {
     ),
     pending = attachMigrationRegistry.filter(
       (entry): entry is Extract<AttachMigrationRegistryEntry, { readonly kind: "event-migration" }> =>
-        entry.kind === "event-migration" && !applied.has(entry.name),
+        entry.kind === "event-migration" && entry.name !== "dispatch-lifecycle.import" && !applied.has(entry.name),
     ),
     affectedEvents = new Map(pending.map(({ name }) => [name, 0])),
     total = input.store.readHead()?.revision ?? 0,
@@ -655,6 +688,11 @@ export function applyAttachMigrations(input: {
       now: input.now,
       actor: input.actor,
       sourceRevision: total,
+      onProgress: (progress) =>
+        input.onProgress?.({
+          applied: total + progress.applied,
+          total: Math.max(1, total * 3),
+        }),
     });
     appliedNow.push("dispatch-lifecycle.import");
     applied.add("dispatch-lifecycle.import");

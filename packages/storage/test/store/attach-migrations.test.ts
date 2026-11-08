@@ -149,11 +149,12 @@ test("attach migration registry covers each retired historical field and is idem
       "runtime.reviewDispatchKey",
       "vertical.completion.sources",
       "vertical.completion.closeoutCodeDoc",
+      "dispatch-lifecycle.import",
     ],
   );
   assert.deepEqual(
     attachMigrationRegistry
-      .filter((entry) => entry.kind === "event-migration")
+      .filter((entry) => entry.kind === "event-migration" && entry.name !== "dispatch-lifecycle.import")
       .flatMap(({ fields }) => fields)
       .sort(),
     [...retiredPersistedSchemaFields].sort(),
@@ -449,6 +450,66 @@ test("dispatch lifecycle migration uses the indexed candidate cut instead of sca
   assert.deepEqual(result.applied, ["dispatch-lifecycle.import"]);
 });
 
+test("dispatch lifecycle fallback reads runtime history in bounded pages and reports attach progress", () => {
+  const requests = Array.from({ length: 501 }, (_, index) => ({
+      ...envelope(
+        "agent-runtime-event/v1",
+        {
+          dispatchId: `dispatch-${index}`,
+          runtimeSessionId: `session-${index}`,
+          instanceId: "instance-legacy",
+          attemptGroupId: `group-${index}`,
+          attemptIndex: 0,
+          taskId: null,
+          executionId: null,
+        },
+        `request-${index}`,
+        index + 1,
+      ),
+      type: "runtime_dispatch_requested",
+    })) as unknown as PersistedCanonicalEventV1[],
+    fixture = fakeStore(requests),
+    base = fixture.store as unknown as Record<string, unknown>,
+    progress: { readonly applied: number; readonly total: number }[] = [];
+  base.ledgerMetadata = () => ({ repoId: "legacy-repo", generation: 3, revision: requests.length });
+  base.queryEvents = ({
+    type,
+    limit,
+    revisionBound,
+  }: {
+    readonly type?: string;
+    readonly limit: number;
+    readonly revisionBound?: number;
+  }) =>
+    requests
+      .filter(
+        (event) => event.type === type && (revisionBound === undefined || event.workspaceRevision < revisionBound),
+      )
+      .sort((left, right) => right.workspaceRevision - left.workspaceRevision)
+      .slice(0, limit);
+  base.append = ({
+    event,
+    preceding,
+  }: {
+    readonly event: PersistedCanonicalEventV1;
+    readonly preceding?: readonly { readonly event: PersistedCanonicalEventV1 }[];
+  }) => {
+    for (const bundle of preceding ?? []) fixture.events.push(bundle.event);
+    fixture.events.push(event);
+    return {};
+  };
+
+  const result = applyAttachMigrations({
+    store: fixture.store,
+    onProgress: (value) => progress.push(value),
+  });
+
+  assert.deepEqual(result.applied, ["dispatch-lifecycle.import"]);
+  assert.equal(fixture.events.filter((event) => event.type === "runtime_dispatch_lifecycle_observed").length, 501);
+  assert.ok(progress.length >= 4, "bounded event pages and group batches publish progress");
+  assert.ok(progress.every((value, index) => index === 0 || value.applied > progress[index - 1]!.applied));
+});
+
 test("zero-match attach scans persist their local watermark and skip an unchanged head", () => {
   const { store, events, reads, watermarks } = fakeStore([
     envelope("task-event/v1", { task: { title: "Historical one" } }, "historical-one", 1),
@@ -459,7 +520,9 @@ test("zero-match attach scans persist their local watermark and skip an unchange
   assert.equal(events.length, 2, "shape-only test stores do not run the canonical lifecycle import");
   assert.deepEqual(
     [...watermarks],
-    attachMigrationRegistry.filter((entry) => entry.kind === "event-migration").map(({ name }) => [name, 2]),
+    attachMigrationRegistry
+      .filter((entry) => entry.kind === "event-migration" && entry.name !== "dispatch-lifecycle.import")
+      .map(({ name }) => [name, 2]),
   );
   assert.deepEqual(reads.scannedRevisions, [1, 2]);
 
