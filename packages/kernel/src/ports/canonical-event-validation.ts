@@ -10,6 +10,7 @@ import {
   validateCurrentCanonicalEvent,
   validateCurrentDocEvent,
   type DocEventV1,
+  type PersistedCanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { assertMigrationImportWritePlan } from "../domain/migration-import-event.ts";
 import {
@@ -44,13 +45,44 @@ import {
   type FrozenWritePlan,
   type WriteTarget,
 } from "../domain/write-chain.contract.ts";
+import { LEDGER_DOCUMENT_MAX_BYTES } from "../domain/artifact-text-classification.ts";
 import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store.ts";
 import { TaskEventStoreError } from "./task-event-store.ts";
-import { canonicalDocumentClaims, canonicalDocumentMode, contentClaims } from "./canonical-document-claims.ts";
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentMode,
+  contentClaims,
+  isContentObjectClaim,
+} from "./canonical-document-claims.ts";
 
 // Bundle, plan, content-input, and prepared-publication validation.
+
+/**
+ * dec_E355A3715D7C65666E385C8339 CH2: the one document-volume judgment. Every canonical write
+ * validates here before any content is read, so no caller enforces its own copy of the limit.
+ *
+ * Entity declaration documents are canonical documents and are bounded here like every other
+ * document. Only entity-owned content admitted as a content object is exempt: its projection keeps
+ * the claim rather than a materialized body, so its own contract (RAW_ARTIFACT_MAX_BYTES,
+ * single-sourced as MAX_ENTITY_CONTENT_OBJECT_BYTES) remains authoritative for those bytes.
+ */
+function assertDocumentSizeLimit(
+  event: PersistedCanonicalEventV1,
+  claims: ReturnType<typeof canonicalDocumentClaims>,
+): void {
+  const oversized = claims.find(
+    (claim) => claim.size > LEDGER_DOCUMENT_MAX_BYTES && !(isEntityEvent(event) && isContentObjectClaim(claim)),
+  );
+  if (oversized === undefined) return;
+  throw new TaskEventStoreError(
+    "document_too_large",
+    `document ${oversized.path} is ${oversized.size} bytes, above the ${LEDGER_DOCUMENT_MAX_BYTES}-byte ` +
+      "single-document limit; store the bulk in external artifact storage and record it here by reference",
+  );
+}
+
 export function assertBundle(bundle: CanonicalEventWriteBundle): void {
   const { event, plan, blobs } = bundle;
   assertPublishableOpId(event.opId);
@@ -204,12 +236,14 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
         operation: "replace",
       },
     ],
-    claims = contentClaims(event);
+    claims = contentClaims(event),
+    documentClaims = canonicalDocumentClaims(event);
+  assertDocumentSizeLimit(event, documentClaims);
   if (required.some((target) => !plan.targets.some((candidate) => sameWriteTarget(candidate, target))))
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle must declare its event and head");
   const normalizedClaims = assertContentInputs(claims, blobs, "canonical bundle"),
     declaredAuthored = plan.targets.filter((target) => target.kind === "authored_file"),
-    expectedAuthored: WriteTarget[] = canonicalDocumentClaims(event).map((claim) => {
+    expectedAuthored: WriteTarget[] = documentClaims.map((claim) => {
       const reason = gitPathRejectionReason(claim.path, canonicalDocumentMode(event, claim.path) === "120000");
       if (reason !== null)
         throw new TaskEventStoreError(

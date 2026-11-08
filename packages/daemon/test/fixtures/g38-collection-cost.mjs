@@ -878,6 +878,10 @@ export const COLLECTION_PROBES = Object.freeze({
   },
   "task-submit:task-artifacts": { action: "task-submit", dimension: "task-artifacts", run: measureTaskSubmitArtifacts },
   "doc-submit:documents": { action: "doc-submit", dimension: "documents", run: measureDocuments },
+  // dec_E355A3715D7C65666E385C8339 CH2: event-bytes is G38's single-event-volume dimension for
+  // the 20MB document ceiling. The ceiling itself is judged once at the canonical write port
+  // (packages/kernel/src/ports/canonical-event-validation.ts); this probe measures the cost of the
+  // body the port is about to bound.
   "doc-submit:event-bytes": {
     action: "doc-submit",
     dimension: "event-bytes",

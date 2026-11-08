@@ -1,9 +1,11 @@
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
+import { RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { isRelationEvent, type RelationEventV1 } from "../domain/relation-event.ts";
 import { isEntityDeclarationEvent, isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
 import {
+  ENTITY_CONTENT_POLICY_ID,
   entityOwnedContentClaims,
   entityOwnedDirectories,
   entityOwnedDocumentClaims,
@@ -34,6 +36,8 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: string;
+  /** Present on entity/decorated claims; content-object policies are not materialized documents. */
+  readonly policyId?: string;
 }[] {
   if (isEntityDocumentEvent(event)) return event.payload.documentClaims;
   if (isEntityEvent(event))
@@ -84,6 +88,14 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
                   : isMigrationImportEvent(event)
                     ? migrationImportClaims(event)
                     : [];
+}
+/**
+ * A claim whose bytes are admitted as a content object, not materialized as a document body.
+ * `rebuildable-task-projection-event-application.ts` projects exactly these policies as an empty
+ * body, so the 20MB single-document ceiling never applies to them; everything else is a document.
+ */
+export function isContentObjectClaim(claim: { readonly policyId?: string }): boolean {
+  return claim.policyId === RAW_ARTIFACT_POLICY_ID || claim.policyId === ENTITY_CONTENT_POLICY_ID;
 }
 export function canonicalDocumentRetirements(
   event: PersistedCanonicalEventV1,
