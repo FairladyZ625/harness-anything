@@ -297,6 +297,10 @@ export async function fleetTaskRoute(
     ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,
   };
-  payload.action = await resolveFleetPacketAction(command, { ...action, fromFile, jsonInput }, descriptor.inputs);
+  payload.action = await resolveFleetPacketAction(
+    command,
+    { ...action, ...(command.pathCoordinate ? { pathCoordinate: command.pathCoordinate } : {}), fromFile, jsonInput },
+    descriptor.inputs,
+  );
   return payload;
 }

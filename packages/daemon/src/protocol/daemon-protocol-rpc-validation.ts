@@ -108,6 +108,12 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
   if (!errors.length && (value.method === "repo.task.run" || value.method === "repo.task.read"))
     errors.push(...validateCatalogActionPayload(value.params as JsonObject));
   if (!errors.length && value.method === "repo.task.run") {
+    const payload = (value.params as JsonObject).payload as JsonObject,
+      action = payload.action;
+    if (payload.pathCoordinate !== undefined && (!isJsonObject(action) || action.kind !== "task-artifact-add"))
+      errors.push("params.payload.pathCoordinate is only declared for task-artifact-add");
+  }
+  if (!errors.length && value.method === "repo.task.run") {
     const action = ((value.params as JsonObject).payload as JsonObject).action;
     if (isJsonObject(action) && action.kind === "settings-update") {
       const { kind: _kind, executor: _executor, ...settings } = action;

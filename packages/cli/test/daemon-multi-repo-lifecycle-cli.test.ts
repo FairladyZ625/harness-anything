@@ -435,6 +435,22 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       [...(startedEvent?.payload.documentClaims?.map((claim) => claim.path) ?? [])].sort(),
       ["tasks/task-alpha-alpha/INDEX.md", "tasks/task-alpha-alpha/executions/exec-doc.md"].sort(),
     );
+    writeFileSync(path.join(fixture.alpha, "cli-artifact.md"), "# CLI artifact\n");
+    const artifact = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "artifact",
+      "add",
+      "task-alpha",
+      "--source",
+      "cli-artifact.md",
+      "--destination",
+      "evidence/cli.md",
+    ]);
+    assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    assert.equal(artifact.destination, "harness/tasks/task-alpha-alpha/artifacts/evidence/cli.md");
+    assert.equal(Object.hasOwn(artifact, "pathCoordinate"), false);
+    settleFollower(fixture.alpha, fixture.userRoot, artifact);
+    assert.equal(readFileSync(path.join(fixture.alpha, String(artifact.destination)), "utf8"), "# CLI artifact\n");
     const progress = run(fixture.alpha, fixture.userRoot, [
       "task",
       "progress",

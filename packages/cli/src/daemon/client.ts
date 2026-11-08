@@ -455,7 +455,13 @@ function daemonRequestParams(command: ThinCommand, repoId: string, env: NodeJS.P
 }
 
 function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Readonly<Record<string, unknown>> {
-  const { kind: _kind, ...actionPayload } = command.action,
+  const artifactCoordinate =
+      command.method === "repo.task.run" &&
+      command.action.kind === "task-artifact-add" &&
+      command.pathCoordinate === "workspace"
+        ? "workspace"
+        : undefined,
+    { kind: _kind, ...actionPayload } = command.action,
     payload =
       command.method === "repo.script.run"
         ? Object.fromEntries(
@@ -468,7 +474,10 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
   // Task action methods carry the executor inside their open action envelope; every other method takes
   // payload.executor exactly where the daemon contract declares the field.
   return command.method === "repo.task.run" || command.method === "repo.task.read"
-    ? { action: executor ? { ...command.action, executor } : command.action }
+    ? {
+        action: executor ? { ...command.action, executor } : command.action,
+        ...(artifactCoordinate === undefined ? {} : { pathCoordinate: artifactCoordinate }),
+      }
     : executor && daemonMethodAcceptsPayloadExecutor(command.method)
       ? { ...payload, executor }
       : payload;

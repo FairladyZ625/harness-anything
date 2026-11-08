@@ -758,7 +758,7 @@ export const daemonProtocolMethods = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ action: shape({ kind: "string" }, true) }),
+      payload: shape({ action: shape({ kind: "string" }, true), pathCoordinate: optionalEnum(["workspace"] as const) }),
     }),
   },
   {
