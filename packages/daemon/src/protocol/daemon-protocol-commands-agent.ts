@@ -6,6 +6,7 @@ import {
   defineRepoReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   defineRuntimeLocalWriteCommand,
+  workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
@@ -15,9 +16,6 @@ const agentHistoryLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
 // object, and `kindId` may default from the file), so its path is relative to the selected root —
 // `--root` or the current directory — not to the center's workspace root that `workspacePathFormat`
 // names. Reusing that wording here told callers the wrong directory.
-const callerRootPathFormat =
-  "<path; relative paths resolve from the selected root (--root), defaulting to the current directory>";
-
 export const agentProtocolCommands = Object.freeze([
   // Artifact kind authoring is a CLI surface over the same center actions the GUI calls. The five
   // commands below are the thin projections of `repo.vertical.kind.*`: no second write path exists.
@@ -40,6 +38,7 @@ export const agentProtocolCommands = Object.freeze([
       "Show one declared Artifact kind, including every immutable schema version and its relations; retired kinds stay readable.",
     method: "repo.task.read",
     positional: "kindId",
+    positionalInputs: [{ name: "<kind>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineCenterForwardWriteCommand({
@@ -58,17 +57,26 @@ export const agentProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           field: "kindId",
+          pathKind: "non-path",
           description: "address an existing Kind by kindId, kindRef or qualified id; defaults to declaration.id",
         },
       ),
-      cliInput("--declaration", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
+      cliInput(
+        "--declaration",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", projection: "json-object" },
+      ),
       cliInput(
         "--from-file",
         "single",
         false,
         { code: "invalid_field" },
         {
-          format: callerRootPathFormat,
+          format: workspacePathFormat,
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
           conflictsWith: ["--declaration"],
           jsonFields: [
             "id",
@@ -102,7 +110,7 @@ export const agentProtocolCommands = Object.freeze([
         "single",
         true,
         { code: "missing_field" },
-        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
     ],
   }),
@@ -115,14 +123,21 @@ export const agentProtocolCommands = Object.freeze([
       "Publish the next immutable attribute schema version of one Artifact kind; published versions are never rewritten.",
     method: "repo.task.run",
     positional: "kindId",
+    positionalInputs: [{ name: "<kind-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--attributes", "single", true, { code: "missing_field" }, { projection: "json-object" }),
+      cliInput(
+        "--attributes",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", projection: "json-object" },
+      ),
       cliInput(
         "--expected-version",
         "single",
         true,
         { code: "missing_field" },
-        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
     ],
   }),
@@ -134,14 +149,21 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Retire one Artifact kind with a required reason while preserving its declaration and instances.",
     method: "repo.task.run",
     positional: "kindId",
+    positionalInputs: [{ name: "<kind-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--reason", "single", true, { code: "missing_field" }, { minLength: 1, maxLength: 199 }),
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", minLength: 1, maxLength: 199 },
+      ),
       cliInput(
         "--expected-version",
         "single",
         true,
         { code: "missing_field" },
-        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
     ],
   }),
@@ -164,12 +186,24 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
       ),
-      cliInput("--cursor", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--work", "single", false, { code: "invalid_field" }, { format: "<work root task id>" }),
+      cliInput(
+        "--cursor",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--work",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", format: "<work root task id>" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -185,25 +219,43 @@ export const agentProtocolCommands = Object.freeze([
         "single",
         true,
         { code: "missing_field" },
-        { enum: ["sqlite", "postgres", "pglite"], field: "from" },
+        { pathKind: "non-path", enum: ["sqlite", "postgres", "pglite"], field: "from" },
       ),
       cliInput(
         "--to",
         "single",
         true,
         { code: "missing_field" },
-        { enum: ["sqlite", "postgres", "pglite"], field: "to" },
+        { pathKind: "non-path", enum: ["sqlite", "postgres", "pglite"], field: "to" },
       ),
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "sourceLocation" }),
-      cliInput("--target", "single", true, { code: "missing_field" }, { field: "targetLocation" }),
-      cliInput("--run-id", "single", true, { code: "missing_field" }, { field: "runId" }),
-      cliInput("--export-directory", "single", true, { code: "missing_field" }, { field: "exportDirectory" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "sourceLocation", pathKind: "workspace-file", pathReader: "workspace-text" },
+      ),
+      cliInput(
+        "--target",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "targetLocation", pathKind: "workspace-file", pathReader: "workspace-text" },
+      ),
+      cliInput("--run-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "runId" }),
+      cliInput(
+        "--export-directory",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "exportDirectory", pathKind: "host-path" },
+      ),
       cliInput(
         "--mode",
         "single",
         false,
         { code: "invalid_field" },
-        { enum: ["preflight", "migrate", "resume", "abort"] },
+        { pathKind: "non-path", enum: ["preflight", "migrate", "resume", "abort"] },
       ),
     ],
   }),
@@ -226,7 +278,7 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "sourceRoots" },
+        { field: "sourceRoots", pathKind: "host-path" },
       ),
       cliInput(
         "--resolve",
@@ -235,7 +287,7 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^.+=(?:destination|source)$" },
+        { pathKind: "non-path", regex: "^.+=(?:destination|source)$" },
       ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
@@ -263,6 +315,7 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Read a durable Squad run and its leader and worker dispatches; --wait blocks until the run settles.",
     method: "repo.task.read",
     positional: "squadRunId",
+    positionalInputs: [{ name: "<squad-run-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [cliInput("--wait", "boolean", false, { code: "invalid_field" })],
   }),
   defineRuntimeLocalWriteCommand({
@@ -272,6 +325,7 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Durably cancel a Squad run and terminate its leader and worker runtimes.",
     method: "repo.task.run",
     positional: "squadRunId",
+    positionalInputs: [{ name: "<squad-run-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineRepoReadCommand({
@@ -280,7 +334,7 @@ export const agentProtocolCommands = Object.freeze([
     path: ["ledger", "reconcile"],
     summary: "Verify the SQLite ledger against its immutable import source, outcomes and required content.",
     method: "repo.task.read",
-    inputs: [cliInput("--generation", "single", true, { code: "missing_field" })],
+    inputs: [cliInput("--generation", "single", true, { code: "missing_field" }, { pathKind: "non-path" })],
   }),
   defineRepoReadCommand({
     id: "explain",
@@ -305,17 +359,24 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "entityKind" },
+        { pathKind: "non-path", field: "entityKind" },
       ),
-      cliInput("--locator", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--locator",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--mode",
         "single",
         false,
         { code: "invalid_field" },
         {
+          pathKind: "non-path",
           field: "mode",
           enum: ["reference", "snapshot"],
           description:
@@ -328,6 +389,7 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
+          pathKind: "non-path",
           field: "locatorKind",
           enum: ["repository-path", "url", "external-key", "local-path"],
           description:
@@ -340,6 +402,7 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
+          pathKind: "non-path",
           field: "contentVersion",
           description: "Optional caller-declared version for reference mode; never treated as observed content.",
         },
@@ -351,21 +414,45 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
-      cliInput("--title", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--entity-id", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--source-identity", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--title",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--entity-id",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--source-identity",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
       // One JSON object rather than a flag per attribute: the Kind declares its own attribute names at runtime,
       // so the CLI cannot enumerate them, and JSON is the only form that keeps a number a number.
-      cliInput("--attributes", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
+      cliInput(
+        "--attributes",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", projection: "json-object" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -375,22 +462,32 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Update mutable fields of one compiled vertical Artifact Entity.",
     method: "repo.task.run",
     positional: "entityKind",
+    positionalInputs: [{ name: "<entity-kind>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--id", "single", true, { code: "missing_field" }, { field: "entityId" }),
+      cliInput("--id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "entityId" }),
       cliInput(
         "--expected-version",
         "single",
         true,
         { code: "missing_field" },
-        {
-          regex: "^(?:0|[1-9][0-9]*)$",
-          projection: "number",
-        },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
-      cliInput("--title", "single", false, { code: "invalid_field" }),
-      cliInput("--locator", "single", false, { code: "invalid_field" }),
-      cliInput("--content-version", "single", false, { code: "invalid_field" }, { field: "contentVersion" }),
-      cliInput("--attributes", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
+      cliInput("--title", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--locator", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--content-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "contentVersion" },
+      ),
+      cliInput(
+        "--attributes",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", projection: "json-object" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -400,18 +497,16 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Delete one compiled vertical Artifact Entity and retire every file it owns.",
     method: "repo.task.run",
     positional: "entityKind",
+    positionalInputs: [{ name: "<entity-kind>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--id", "single", true, { code: "missing_field" }, { field: "entityId" }),
-      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput("--id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "entityId" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
       cliInput(
         "--expected-version",
         "single",
         true,
         { code: "missing_field" },
-        {
-          regex: "^(?:0|[1-9][0-9]*)$",
-          projection: "number",
-        },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
     ],
   }),
@@ -422,18 +517,16 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Archive one compiled vertical Artifact Entity without deleting its descriptor.",
     method: "repo.task.run",
     positional: "entityKind",
+    positionalInputs: [{ name: "<entity-kind>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--id", "single", true, { code: "missing_field" }, { field: "entityId" }),
-      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput("--id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "entityId" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
       cliInput(
         "--expected-version",
         "single",
         true,
         { code: "missing_field" },
-        {
-          regex: "^(?:0|[1-9][0-9]*)$",
-          projection: "number",
-        },
+        { pathKind: "non-path", regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
     ],
   }),
@@ -446,10 +539,17 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Read one canonical Entity declaration.",
     method: "repo.task.read",
     positional: "entityKind",
+    positionalInputs: [{ name: "<kind>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--id", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--id",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -460,6 +560,7 @@ export const agentProtocolCommands = Object.freeze([
     summary: "List canonical declarations for one registered Entity kind.",
     method: "repo.task.read",
     positional: "entityKind",
+    positionalInputs: [{ name: "<kind>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -477,6 +578,7 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Inspect one Agent identity including its instructions and runtime type.",
     method: "repo.task.read",
     positional: "agentId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineRepoReadCommand({
@@ -485,7 +587,15 @@ export const agentProtocolCommands = Object.freeze([
     path: ["agent", "validate"],
     summary: "Validate one Agent declaration package before installing it.",
     method: "repo.task.read",
-    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
+    inputs: [
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
+    ],
   }),
   // Version management reads the declaration history the ledger already keeps: every
   // entity_upserted carries its body digest, so a version is addressed by revision and read back
@@ -498,9 +608,16 @@ export const agentProtocolCommands = Object.freeze([
       "List the declaration versions of one Agent, newest first; each row names the revision, actor, body digest and a one-line summary.",
     method: "repo.task.read",
     positional: "agentId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--limit", "single", false, { code: "invalid_field" }, { regex: agentHistoryLimit }),
-      cliInput("--cursor", "single", false, { code: "invalid_field" }, { regex: "^[0-9]+$" }),
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: agentHistoryLimit },
+      ),
+      cliInput("--cursor", "single", false, { code: "invalid_field" }, { pathKind: "non-path", regex: "^[0-9]+$" }),
       cliInput("--no-summary", "boolean", false, { code: "invalid_field" }),
     ],
   }),
@@ -512,9 +629,22 @@ export const agentProtocolCommands = Object.freeze([
       "Compare two declaration versions of one Agent field by field; --to defaults to the current declaration revision.",
     method: "repo.task.read",
     positional: "agentId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--from", "single", true, { code: "missing_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
-      cliInput("--to", "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
+      cliInput(
+        "--from",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+      cliInput(
+        "--to",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
     ],
   }),
   // The single-version body read behind `ha agent rollback` and the GUI version tab. Internal
@@ -529,13 +659,13 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Read one retained Agent declaration version and its difference to the live declaration.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--id", "single", true, { code: "missing_field" }, { field: "agentId" }),
+      cliInput("--id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "agentId" }),
       cliInput(
         "--revision",
         "single",
         true,
         { code: "missing_field" },
-        { regex: "^[1-9][0-9]*$", projection: "number" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
     ],
   }),
@@ -549,14 +679,20 @@ export const agentProtocolCommands = Object.freeze([
       "Install an Agent declaration, or update an existing one in place; --expected-version guards the update against concurrent edits.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
       cliInput(
         "--expected-version",
         "single",
         false,
         { code: "invalid_field" },
-        { regex: "^[0-9]+$", projection: "number" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
       ),
     ],
   }),
@@ -567,9 +703,16 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Delete an Agent current view while retaining its canonical history.",
     method: "repo.task.run",
     positional: "agentId",
+    positionalInputs: [{ name: "<agent-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--reason", "single", true, { code: "missing_field" }),
-      cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", projection: "number" },
+      ),
     ],
   }),
   // Rollback composes existing surfaces rather than adding a write path: the CLI reads the
@@ -585,20 +728,21 @@ export const agentProtocolCommands = Object.freeze([
       "Restore one historical Agent declaration revision through agent-install; refuses to write when the target body is already live.",
     method: "repo.task.read",
     positional: "agentId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
       cliInput(
         "--to-revision",
         "single",
         true,
         { code: "missing_field" },
-        { regex: "^[1-9][0-9]*$", projection: "number" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
       cliInput(
         "--expected-version",
         "single",
         false,
         { code: "invalid_field" },
-        { regex: "^[0-9]+$", projection: "number" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
       ),
     ],
   }),
@@ -609,9 +753,10 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Retire an Agent while retaining its canonical history and deep-link identity.",
     method: "repo.task.run",
     positional: "agentId",
+    positionalInputs: [{ name: "<agent-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--reason", "single", true, { code: "missing_field" }),
-      cliInput("--successor", "single", false, { code: "invalid_field" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--successor", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -629,6 +774,7 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Inspect one Squad and its human-editable roster text.",
     method: "repo.task.read",
     positional: "squadId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineRuntimeLocalWriteCommand({
@@ -641,10 +787,17 @@ export const agentProtocolCommands = Object.freeze([
     ].join(""),
     method: "repo.task.run",
     positional: "squadId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--instance", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--instance",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--effort",
         "single",
@@ -652,11 +805,17 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
         },
-        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+        { pathKind: "non-path", enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
       ),
-      cliInput("--model", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--model",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--permission-mode",
         "single",
@@ -664,17 +823,35 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_permission",
         },
-        { enum: ["bypass", "workspace-write", "read-only"] },
+        { pathKind: "non-path", enum: ["bypass", "workspace-write", "read-only"] },
       ),
-      cliInput("--cwd", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--task", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--prompt", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--cwd",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "host-path" },
+      ),
+      cliInput(
+        "--task",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--prompt",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--detach", "boolean", false, { code: "invalid_field" }, { field: "detach" }),
     ],
   }),
@@ -684,7 +861,15 @@ export const agentProtocolCommands = Object.freeze([
     path: ["squad", "validate"],
     summary: "Validate one Squad declaration package before installing it.",
     method: "repo.task.read",
-    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
+    inputs: [
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "squad-install",
@@ -696,9 +881,21 @@ export const agentProtocolCommands = Object.freeze([
       "Install a Squad declaration, or update an existing one in place; --expected-version guards the update against concurrent edits.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
-      cliInput("--expected-version", "single", false, { code: "invalid_field" }, { projection: "number" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", projection: "number" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -708,9 +905,16 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Delete a Squad current view while retaining its canonical history.",
     method: "repo.task.run",
     positional: "squadId",
+    positionalInputs: [{ name: "<squad-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--reason", "single", true, { code: "missing_field" }),
-      cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", projection: "number" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -718,6 +922,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["edge", "join", "<link>"],
     positional: "link",
+    positionalInputs: [{ name: "<link>", pathKind: "non-path", pathReader: "none" }],
     summary: "Consume an edge invitation after TLS pin verification and signed-in device approval.",
     method: "daemon.rbac.manage",
     // One operation of the managed RBAC surface, like login; it declares no Action of its own.
@@ -729,17 +934,13 @@ export const agentProtocolCommands = Object.freeze([
       expires: "2026-12-07",
     },
     inputs: [
-      cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot" }),
+      cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot", pathKind: "host-path" }),
       cliInput(
         "--quota-bytes",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          field: "quotaBytes",
-          regex: "^[1-9][0-9]*$",
-          projection: "number",
-        },
+        { pathKind: "non-path", field: "quotaBytes", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
     ],
   }),
@@ -757,6 +958,7 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
+          pathKind: "non-path",
           enum: [
             "bootstrap",
             "health",
@@ -807,18 +1009,30 @@ export const agentProtocolCommands = Object.freeze([
       ),
       cliInput("--confirm", "boolean", false, { code: "invalid_field" }),
       cliInput("--force", "boolean", false, { code: "invalid_field" }),
-      cliInput("--mode", "single", false, { code: "invalid_field" }, { enum: ["managed", "external"] }),
-      cliInput("--url", "single", false, { code: "invalid_field" }),
-      cliInput("--realm", "single", false, { code: "invalid_field" }),
+      cliInput(
+        "--mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["managed", "external"] },
+      ),
+      cliInput("--url", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--realm", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--client-secret-stdin", "boolean", false, { code: "invalid_field" }, { field: "clientSecretStdin" }),
-      cliInput("--client-id", "single", false, { code: "invalid_field" }, { field: "clientId" }),
-      cliInput("--backup-dir", "single", false, { code: "invalid_field" }, { field: "backupDir" }),
+      cliInput("--client-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--backup-dir",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "backupDir", pathKind: "host-path" },
+      ),
       cliInput(
         "--seconds",
         "single",
         false,
         { code: "invalid_field" },
-        { field: "sessionLifetimeSeconds", regex: "^[1-9][0-9]*$", projection: "number" },
+        { pathKind: "non-path", field: "sessionLifetimeSeconds", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
       cliInput(
         "--expected-version",
@@ -826,6 +1040,7 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
+          pathKind: "non-path",
           field: "expectedVersion",
           description: "for session-lifetime-set, use the version returned by --operation session-lifetime",
         },
@@ -836,42 +1051,109 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
+          pathKind: "non-path",
           field: "operationId",
           description:
             "journal key for one access-administration write; generated when omitted, so pass it explicitly to retry the same operation",
         },
       ),
-      cliInput("--listen-address", "single", false, { code: "invalid_field" }, { field: "listenAddress" }),
-      cliInput("--hostname", "single", false, { code: "invalid_field" }),
-      cliInput("--port", "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
-      cliInput("--certificate-file", "single", false, { code: "invalid_field" }, { field: "certificateFile" }),
-      cliInput("--certificate-key-file", "single", false, { code: "invalid_field" }, { field: "certificateKeyFile" }),
-      cliInput("--team-id", "single", false, { code: "invalid_field" }, { field: "teamId" }),
-      cliInput("--team-name", "single", false, { code: "invalid_field" }, { field: "teamName" }),
-      cliInput("--node-id", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
-      cliInput("--system-name", "single", false, { code: "invalid_field" }, { field: "systemName" }),
-      cliInput("--platform", "single", false, { code: "invalid_field" }),
-      cliInput("--person-id", "single", false, { code: "invalid_field" }, { field: "personId" }),
-      cliInput("--group-id", "single", false, { code: "invalid_field" }, { field: "groupId" }),
-      cliInput("--resource", "single", false, { code: "invalid_field" }),
-      cliInput("--credential-file", "single", false, { code: "invalid_field" }, { field: "credentialFile" }),
+      cliInput(
+        "--listen-address",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "listenAddress" },
+      ),
+      cliInput("--hostname", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--port",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+      cliInput(
+        "--certificate-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "certificateFile", pathKind: "cli-local", pathReader: "cli-local" },
+      ),
+      cliInput(
+        "--certificate-key-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "certificateKeyFile", pathKind: "cli-local", pathReader: "cli-local" },
+      ),
+      cliInput("--team-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "teamId" }),
+      cliInput("--team-name", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "teamName" }),
+      cliInput("--node-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "nodeId" }),
+      cliInput(
+        "--system-name",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "systemName" },
+      ),
+      cliInput("--platform", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--person-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "personId" }),
+      cliInput("--group-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "groupId" }),
+      cliInput("--resource", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--credential-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "credentialFile", pathKind: "cli-local", pathReader: "cli-local" },
+      ),
       cliInput(
         "--join-mode",
         "single",
         false,
         { code: "invalid_field" },
-        { field: "joinMode", enum: ["invitation", "member-device"] },
+        { pathKind: "non-path", field: "joinMode", enum: ["invitation", "member-device"] },
       ),
-      cliInput("--join-id", "single", false, { code: "invalid_field" }, { field: "joinId" }),
-      cliInput("--join-repo", "repeated", false, { code: "invalid_field" }),
-      cliInput("--join-group", "repeated", false, { code: "invalid_field" }),
-      cliInput("--node-label", "single", false, { code: "invalid_field" }, { field: "nodeLabel" }),
-      cliInput("--transport", "single", false, { code: "invalid_field" }, { enum: ["direct", "ssh-reverse"] }),
-      cliInput("--ssh-target", "single", false, { code: "invalid_field" }, { field: "sshTarget" }),
-      cliInput("--username", "single", false, { code: "invalid_field" }, { field: "username" }),
-      cliInput("--email", "single", false, { code: "invalid_field" }, { field: "email" }),
-      cliInput("--display-name", "single", false, { code: "invalid_field" }, { field: "displayName" }),
-      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput("--join-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "joinId" }),
+      cliInput("--join-repo", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--join-group", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--node-label",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "nodeLabel" },
+      ),
+      cliInput(
+        "--transport",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["direct", "ssh-reverse"] },
+      ),
+      cliInput(
+        "--ssh-target",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "sshTarget" },
+      ),
+      cliInput("--username", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "username" }),
+      cliInput("--email", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "email" }),
+      cliInput(
+        "--display-name",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "displayName" },
+      ),
+      cliInput(
+        "--password-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "passwordFile", pathKind: "cli-local", pathReader: "cli-local" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -884,11 +1166,23 @@ export const agentProtocolCommands = Object.freeze([
       "Preview retirement of one node across all repositories. Pass --confirm and the preview's --expected-version to revoke credentials, disconnect sessions and remove replication slots. Busy nodes require --force. Force fences further writes; existing leases and executions remain for explicit recovery and are listed in the audit receipt. Rejoin with ha edge join to obtain a new node identity.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--node-id", "single", true, { code: "missing_field" }, { field: "nodeId" }),
-      cliInput("--expected-version", "single", false, { code: "invalid_field" }, { field: "expectedVersion" }),
+      cliInput("--node-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "nodeId" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "expectedVersion" },
+      ),
       cliInput("--confirm", "boolean", false, { code: "invalid_field" }),
       cliInput("--force", "boolean", false, { code: "invalid_field" }),
-      cliInput("--operation-id", "single", false, { code: "invalid_field" }, { field: "operationId" }),
+      cliInput(
+        "--operation-id",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "operationId" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -900,7 +1194,13 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Change the signed-in account password using a protected file or redirected stdin.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput(
+        "--password-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", pathReader: "cli-local", field: "passwordFile" },
+      ),
       cliInput("--password-stdin", "boolean", false, { code: "invalid_field" }, { field: "passwordStdin" }),
     ],
     actionConstraints: [["passwordFile", "passwordStdin"]],
@@ -913,8 +1213,14 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Reset an account password using a protected file or redirected stdin.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--person-id", "single", true, { code: "missing_field" }, { field: "personId" }),
-      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
+      cliInput("--person-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "personId" }),
+      cliInput(
+        "--password-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", pathReader: "cli-local", field: "passwordFile" },
+      ),
       cliInput("--password-stdin", "boolean", false, { code: "invalid_field" }, { field: "passwordStdin" }),
     ],
     actionConstraints: [["passwordFile", "passwordStdin"]],
@@ -931,9 +1237,9 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Create a versioned permission request.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--group-id", "single", true, { code: "missing_field" }, { field: "groupId" }),
-      cliInput("--resource", "single", true, { code: "missing_field" }),
-      cliInput("--rationale", "single", false, { code: "invalid_field" }),
+      cliInput("--group-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "groupId" }),
+      cliInput("--resource", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--rationale", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineHostAdminCommand({
@@ -945,15 +1251,21 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Approve or reject a versioned permission request.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--request-id", "single", true, { code: "missing_field" }, { field: "requestId" }),
+      cliInput("--request-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "requestId" }),
       cliInput(
         "--request-version",
         "single",
         true,
         { code: "missing_field" },
-        { field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
+        { pathKind: "non-path", field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
-      cliInput("--decision", "single", true, { code: "missing_field" }, { enum: ["approve", "reject"] }),
+      cliInput(
+        "--decision",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", enum: ["approve", "reject"] },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -965,13 +1277,13 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Withdraw a pending permission request.",
     method: "daemon.rbac.manage",
     inputs: [
-      cliInput("--request-id", "single", true, { code: "missing_field" }, { field: "requestId" }),
+      cliInput("--request-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "requestId" }),
       cliInput(
         "--request-version",
         "single",
         true,
         { code: "missing_field" },
-        { field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
+        { pathKind: "non-path", field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
     ],
   }),
@@ -987,15 +1299,33 @@ export const agentProtocolCommands = Object.freeze([
     ].join(""),
     method: "daemon.repo.bootstrap",
     inputs: [
-      cliInput("--repo-id", "single", false, {
-        code: "missing_field",
-      }),
-      cliInput("--person-id", "single", false, {
-        code: "missing_field",
-      }),
-      cliInput("--display-name", "single", false, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--repo-id",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--person-id",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--display-name",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--name",
         "single",
@@ -1003,7 +1333,7 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[^\\r\\n]+$" },
+        { pathKind: "non-path", regex: "^[^\\r\\n]+$" },
       ),
       cliInput("--configure-only", "boolean", false, {
         code: "invalid_field",

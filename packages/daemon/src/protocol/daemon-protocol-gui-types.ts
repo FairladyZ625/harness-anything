@@ -873,6 +873,8 @@ export type DaemonTaskDocumentListResult = {
 
 export type DaemonTaskDispatchesResultBase = {
   readonly ok: true;
+  /** Authored document rows stay canonical in daemon reads; the CLI uses this prefix at its output boundary. */
+  readonly workspacePathPrefix?: string;
   readonly status: "ready" | "pending";
   readonly dispatches: readonly TaskDispatchRow[];
   /** Daemon-authoritative aggregate terminal verdict over the returned dispatch rows. */

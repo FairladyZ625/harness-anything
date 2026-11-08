@@ -596,21 +596,15 @@ test("a CLI write returns its daemon receipt after one command round trip and ke
 
     methods.length = 0;
     actions.length = 0;
-    const bodyFile = path.join(parent, "pr-body.md"),
+    const bodyFile = path.join(root, "pr-body.md"),
       body = "# Repository convention\n\nLiteral `$()` and Unicode 交付.\n";
     writeFileSync(bodyFile, body);
-    const pushed = await spawnCli(root, userRoot, ["task", "push", "task-1", "--body-file", bodyFile]);
+    const pushed = await spawnCli(root, userRoot, ["task", "push", "task-1", "--body-file", "pr-body.md"]);
     assert.equal(pushed.status, 0, `${pushed.stderr}\n${pushed.stdout}`);
     assert.deepEqual(methods, ["repo.task.run"]);
     assert.deepEqual(actions, [{ kind: "task-push", taskId: "task-1", body }]);
     methods.length = 0;
-    const missing = await spawnCli(root, userRoot, [
-      "task",
-      "push",
-      "task-1",
-      "--body-file",
-      path.join(parent, "missing"),
-    ]);
+    const missing = await spawnCli(root, userRoot, ["task", "push", "task-1", "--body-file", "missing"]);
     assert.notEqual(missing.status, 0);
     assert.deepEqual(methods, [], "an unreadable local body never reaches the daemon");
 
@@ -739,7 +733,12 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
       createHash("sha256").update(raw.stdout).digest("hex"),
       createHash("sha256").update(readFileSync(target)).digest("hex"),
     );
-    assert.deepEqual(actions[0], { kind: "doc-show", path: "context/raw.md", raw: true });
+    assert.deepEqual(actions[0], {
+      kind: "doc-show",
+      path: "context/raw.md",
+      pathCoordinate: "workspace",
+      raw: true,
+    });
 
     const decorated = await spawnRaw(["doc", "show", "--path", "context/raw.md"]);
     assert.equal(decorated.status, 0, `${decorated.stderr}\n${decorated.stdout}`);
@@ -751,7 +750,11 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     assert.equal(decorated.stderr, "");
     assert.equal(existsSync(descriptorFiles[1]!), false, "plain consumption removes the sealed descriptor");
     assert.equal(existsSync(descriptorFiles[1]!.replace(/\.sealed$/u, ".json")), false);
-    assert.deepEqual(actions[1], { kind: "doc-show", path: "context/raw.md" });
+    assert.deepEqual(actions[1], {
+      kind: "doc-show",
+      path: "context/raw.md",
+      pathCoordinate: "workspace",
+    });
 
     const json = await spawnRaw(["--json", "doc", "show", "--path", "context/raw.md"]);
     assert.equal(json.status, 0, `${json.stderr}\n${json.stdout}`);
@@ -763,7 +766,11 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     assert.equal(receipt.versionWarning?.centerBuildCommit, "center-build");
     assert.equal(existsSync(descriptorFiles[2]!), true, "JSON mode hands the descriptor to its caller");
     assert.equal(existsSync(descriptorFiles[2]!.replace(/\.sealed$/u, ".json")), true);
-    assert.deepEqual(actions[2], { kind: "doc-show", path: "context/raw.md" });
+    assert.deepEqual(actions[2], {
+      kind: "doc-show",
+      path: "context/raw.md",
+      pathCoordinate: "workspace",
+    });
     const ranged = await spawnRaw([
       "doc",
       "show",
@@ -784,6 +791,7 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     assert.deepEqual(actions[3], {
       kind: "doc-show",
       path: "context/raw.md",
+      pathCoordinate: "workspace",
       raw: true,
       offset: 2,
       length: 3,

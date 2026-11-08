@@ -516,6 +516,15 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
         else if (value === null) add({ field, type: "string", required: false, wire: { nullable: true } });
         else if (record(value)) add({ field, type: "json-object", required: false });
         else if (typeof value === "boolean") add({ field, type: "boolean", required: false });
+    // The CLI marks a caller-typed path selection with its coordinate. It is a transport
+    // marker rather than a user input: the closed fleet frame must carry it so the center
+    // translates the selection exactly as a local daemon call does.
+    fields.set("pathCoordinate", {
+      field: "pathCoordinate",
+      type: "string",
+      required: false,
+      wire: { enum: ["workspace"] },
+    });
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
 // Declaration-derived patterns are static, so each compiles once per module instance.

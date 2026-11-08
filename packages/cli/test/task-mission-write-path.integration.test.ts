@@ -14,7 +14,7 @@ test("a scratchpad mission is published, edited, and dispatched by name without 
     { parent, root, env } = fixture;
   installIdentities(parent, root, env);
   const { taskId, executionId, packagePath } = seedTask(root, env, "mission-write"),
-    publishedMission = path.join(root, "harness", packagePath, "artifacts", "missions", "w1.md");
+    publishedMission = path.join(root, packagePath, "artifacts", "missions", "w1.md");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
 
   const scratchpad = path.join(parent, "scratch-w1.md");
@@ -71,7 +71,7 @@ test("task start returns non-blocking structured risk-tier advice for a low ligh
     ]),
     packagePath = String(created.packagePath);
   published(root, env, created);
-  writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedTaskPlan("Task start risk advice"));
+  writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedTaskPlan("Task start risk advice"));
   run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
 
   const started = run(root, env, ["task", "start", taskId, "--execution-id", "exec-start-risk-advice"]),

@@ -129,6 +129,8 @@ export type TaskCreateReceipt = WriteReceiptDraft & {
   readonly taskId: string;
   readonly taskStatus: "planned";
   readonly packagePath: string;
+  /** The same package address relative to the workspace root; CLI receipts print this spelling. */
+  readonly workspacePackagePath?: string;
   readonly generatedPaths: readonly string[];
   readonly presetDigest: string;
   readonly scaffoldDigest: string;

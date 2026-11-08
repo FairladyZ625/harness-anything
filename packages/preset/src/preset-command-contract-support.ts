@@ -18,6 +18,22 @@ export interface CommandTopology {
   readonly repoCellExecution?: "query-only" | "writer";
   readonly admission: CommandAdmission;
 }
+export type PathKind = "ledger-document" | "workspace-file" | "cli-local" | "host-path" | "non-path";
+/** A shared reader that owns one path coordinate; the gate probes each one's refusal boundary. */
+export type PathReader =
+  | "doc-action"
+  | "workspace-text"
+  | "prompt-file"
+  | "runtime-batch"
+  | "cli-local"
+  | "host"
+  | "none";
+/** A positional path token (`<batch-file>`), declared where the registry owns the syntax. */
+export interface CliPositionalInputFacet {
+  readonly name: string;
+  readonly pathKind: PathKind;
+  readonly pathReader: PathReader;
+}
 export interface CliInputFacet {
   readonly name: string;
   readonly description?: string;
@@ -35,6 +51,20 @@ export interface CliInputFacet {
   readonly jsonDefaultFields?: readonly string[];
   readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
   readonly format?: string;
+  /**
+   * Which coordinate a path input is read in. A flag whose name ends in `-file` (or is `--path`)
+   * must declare one so the CLI path-contract gate can evaluate every registered command; the
+   * value names the reader that owns the boundary, not a per-command choice. `cli-local` is the
+   * one exempt category: files on the machine running the CLI, such as credential material
+   * (fact F-0B58827E) and caller-local artifact sources, never repository content. It pairs with
+   * `pathReader: "cli-local"`.
+   */
+  readonly pathKind?: PathKind;
+  /**
+   * The shared reader that owns a `workspace-file` boundary. Required for every workspace file so
+   * the gate can prove a reader exists and probe its containment, instead of trusting a declaration.
+   */
+  readonly pathReader?: PathReader;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly lengthUnit?: "characters" | "bytes";

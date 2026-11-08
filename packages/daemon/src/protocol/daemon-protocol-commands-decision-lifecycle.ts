@@ -41,13 +41,31 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           : "Remove the current Decision assignment.",
       method: "repo.task.run",
       inputs: [
-        cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+        cliInput(
+          "--expected-version",
+          "single",
+          true,
+          { code: "missing_field" },
+          { pathKind: "non-path", projection: "number" },
+        ),
         ...(operation === "assign"
           ? [
-              cliInput("--person", "single", false, { code: "invalid_field" }, { field: "personId" }),
-              cliInput("--node", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
-              cliInput("--team", "single", false, { code: "invalid_field" }, { field: "teamId" }),
-              cliInput("--expires-at", "single", false, { code: "invalid_field" }, { field: "expiresAt" }),
+              cliInput(
+                "--person",
+                "single",
+                false,
+                { code: "invalid_field" },
+                { pathKind: "non-path", field: "personId" },
+              ),
+              cliInput("--node", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "nodeId" }),
+              cliInput("--team", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "teamId" }),
+              cliInput(
+                "--expires-at",
+                "single",
+                false,
+                { code: "invalid_field" },
+                { pathKind: "non-path", field: "expiresAt" },
+              ),
             ]
           : []),
       ],
@@ -103,7 +121,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "decisionId", conflictsWith: ["--all"] },
+        { pathKind: "non-path", field: "decisionId", conflictsWith: ["--all"] },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
@@ -128,7 +146,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^task/[^/]+/[^/]+$" },
+        { pathKind: "non-path", regex: "^task/[^/]+/[^/]+$" },
       ),
     ],
   }),
@@ -162,6 +180,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonFields: decisionProposalRequiredJsonFields,
           jsonAllowedFields: decisionProposalJsonFields,
           jsonDefaultFields: decisionProposalDefaultJsonFields,
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           conflictsWith: ["--json-input"],
         },
@@ -174,6 +194,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
+          pathKind: "non-path",
           jsonFields: decisionProposalRequiredJsonFields,
           jsonAllowedFields: decisionProposalJsonFields,
           jsonDefaultFields: decisionProposalDefaultJsonFields,
@@ -189,6 +210,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
+          pathKind: "non-path",
           requiresAny: ["--from-file", "--json-input"],
           conflictsWith: ["--body-file"],
           maxLength: 32 * 1024,
@@ -203,6 +225,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         },
         {
           requiresAny: ["--from-file", "--json-input"],
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           conflictsWith: ["--body"],
           wire: { omit: true },
@@ -218,9 +242,15 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     summary: "Bookkeeping transition of an in_effect Decision; adjudication uses decision accept/reject/defer.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--decided-at", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--decided-at",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),
@@ -241,6 +271,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
+          pathKind: "non-path",
           requiresAny: ["claim-to-evidence relation", "--judgment-only"],
           regex: "^[\\s\\S]{1,199}$",
         },
@@ -253,33 +284,35 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
+          pathKind: "non-path",
           requires: ["--rationale"],
           regex: "^[\\s\\S]{1,199}$",
           field: "judgmentOnlyRationale",
           wire: { nullable: true },
         },
       ),
-      cliInput("--review-id", "single", false, { code: "invalid_field" }),
-      cliInput("--expected-digest", "single", false, { code: "invalid_field" }),
+      cliInput("--review-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--expected-digest", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput(
         "--consent-by",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          requires: ["--consent-at", "--consent-channel"],
-        },
+        { pathKind: "non-path", requires: ["--consent-at", "--consent-channel"] },
       ),
-      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-at",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", requires: ["--consent-by"] },
+      ),
       cliInput(
         "--consent-channel",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          requires: ["--consent-by"],
-          regex: "^(chat|cli|gui)$",
-        },
+        { pathKind: "non-path", requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
       ),
     ],
   }),
@@ -297,27 +330,28 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "reason", regex: "^[\\s\\S]{1,199}$" },
+        { pathKind: "non-path", field: "reason", regex: "^[\\s\\S]{1,199}$" },
       ),
       cliInput(
         "--consent-by",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          requires: ["--consent-at", "--consent-channel"],
-        },
+        { pathKind: "non-path", requires: ["--consent-at", "--consent-channel"] },
       ),
-      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-at",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", requires: ["--consent-by"] },
+      ),
       cliInput(
         "--consent-channel",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          requires: ["--consent-by"],
-          regex: "^(chat|cli|gui)$",
-        },
+        { pathKind: "non-path", requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
       ),
     ],
   }),
@@ -335,22 +369,28 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "reason", regex: "^[\\s\\S]{1,199}$" },
+        { pathKind: "non-path", field: "reason", regex: "^[\\s\\S]{1,199}$" },
       ),
       cliInput(
         "--consent-by",
         "single",
         false,
         { code: "invalid_field" },
-        { requires: ["--consent-at", "--consent-channel"] },
+        { pathKind: "non-path", requires: ["--consent-at", "--consent-channel"] },
       ),
-      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-at",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", requires: ["--consent-by"] },
+      ),
       cliInput(
         "--consent-channel",
         "single",
         false,
         { code: "invalid_field" },
-        { requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
+        { pathKind: "non-path", requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
       ),
     ],
   }),
@@ -378,6 +418,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         { code: "invalid_field" },
         {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           jsonAllowedFields: [
             "reviewId",
@@ -410,11 +452,17 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       "reviewContentDigest and runtime to wait for.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--agent", "single", false, { code: "invalid_field" }, { field: "agentId" }),
-      cliInput("--instance", "single", false, { code: "invalid_field" }, { field: "runtimeInstanceId" }),
-      cliInput("--model", "single", false, { code: "invalid_field" }),
-      cliInput("--effort", "single", false, { code: "invalid_runtime_effort" }),
-      cliInput("--expected-digest", "single", false, { code: "invalid_field" }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "agentId" }),
+      cliInput(
+        "--instance",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "runtimeInstanceId" },
+      ),
+      cliInput("--model", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--effort", "single", false, { code: "invalid_runtime_effort" }, { pathKind: "non-path" }),
+      cliInput("--expected-digest", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -433,6 +481,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         { code: "invalid_field" },
         {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           jsonAllowedFields: ["responses"],
           jsonFields: ["responses"],
@@ -460,6 +510,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         { code: "invalid_field" },
         {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
           format: workspacePathFormat,
           jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
           jsonFields: ["reviewContentDigest", "reviewIds", "reason"],
@@ -470,15 +522,21 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { requires: ["--consent-at", "--consent-channel"] },
+        { pathKind: "non-path", requires: ["--consent-at", "--consent-channel"] },
       ),
-      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-at",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", requires: ["--consent-by"] },
+      ),
       cliInput(
         "--consent-channel",
         "single",
         false,
         { code: "invalid_field" },
-        { requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
+        { pathKind: "non-path", requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
       ),
     ],
   }),
@@ -496,7 +554,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[\\s\\S]{1,199}$" },
+        { pathKind: "non-path", regex: "^[\\s\\S]{1,199}$" },
       ),
     ],
   }),
@@ -521,10 +579,22 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     summary: "Replace or append declared Decision content with an audit reason; in_effect requires owner consent.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--reason", "single", true, { code: "invalid_field" }, { regex: "^[\\s\\S]{1,199}$" }),
-      cliInput("--title", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[\\s\\S]{1,199}$" },
+      ),
+      cliInput(
+        "--title",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput("--standing-policy", "boolean", false, {
         code: "invalid_field",
       }),
@@ -535,19 +605,41 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^C[A-Za-z0-9_-]+:(?:evidenced|delivered|standing_policy)$", wire: { omit: true } },
+        {
+          pathKind: "non-path",
+          regex: "^C[A-Za-z0-9_-]+:(?:evidenced|delivered|standing_policy)$",
+          wire: { omit: true },
+        },
       ),
-      cliInput("--load-bearing", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--non-load-bearing", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--set", "repeated", false, { code: "invalid_field" }, { field: "sets" }),
-      cliInput("--append", "repeated", false, { code: "invalid_field" }, { field: "appends" }),
-      cliInput("--body", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--load-bearing",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--non-load-bearing",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput("--set", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path", field: "sets" }),
+      cliInput("--append", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path", field: "appends" }),
+      cliInput(
+        "--body",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--body-file",
         "single",
@@ -555,22 +647,28 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { format: workspacePathFormat, wire: { omit: true } },
+        { pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat, wire: { omit: true } },
       ),
       cliInput(
         "--consent-by",
         "single",
         false,
         { code: "invalid_field" },
-        { requires: ["--consent-at", "--consent-channel"] },
+        { pathKind: "non-path", requires: ["--consent-at", "--consent-channel"] },
       ),
-      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-at",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", requires: ["--consent-by"] },
+      ),
       cliInput(
         "--consent-channel",
         "single",
         false,
         { code: "invalid_field" },
-        { requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
+        { pathKind: "non-path", requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",

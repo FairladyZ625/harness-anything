@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import {
@@ -8,6 +7,7 @@ import {
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 
 export async function fleetScheduleRoute(
   command: ThinCommand,
@@ -51,14 +51,11 @@ export function materializeScheduleMission(command: ThinCommand): ThinCommand {
     typeof command.action.missionFile !== "string"
   )
     return command;
-  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
-    relative = path.relative(command.rootDir, missionPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
-      code: "invalid_field",
-    });
-  const { missionFile: _missionFile, ...action } = command.action;
-  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
+  const { missionFile, ...action } = command.action;
+  return {
+    ...command,
+    action: { ...action, mission: readWorkspaceTextFile(command.rootDir, missionFile, "--mission-file") },
+  };
 }
 
 async function resolveFleetPacketAction(
@@ -70,16 +67,14 @@ async function resolveFleetPacketAction(
     jsonInput = action.jsonInput;
   const { fromFile: _fromFile, jsonInput: _jsonInput, ...directAction } = action;
   if (typeof fromFile !== "string" && typeof jsonInput !== "string") return directAction;
-  const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input",
-    file =
-      typeof fromFile === "string"
-        ? path.isAbsolute(fromFile)
-          ? fromFile
-          : path.join(command.rootDir, fromFile)
-        : null;
+  const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input";
   let packet: unknown;
   try {
-    packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput));
+    packet = JSON.parse(
+      typeof fromFile === "string"
+        ? readWorkspaceTextFile(command.rootDir, fromFile, "--from-file")
+        : String(jsonInput),
+    );
   } catch (error) {
     throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${cliErrorMessage(error)}`), {
       code: "invalid_field",
@@ -265,7 +260,7 @@ export async function fleetTaskRoute(
         code: "invalid_field",
       });
     try {
-      action.plan = readFileSync(path.isAbsolute(planFile) ? planFile : path.join(command.rootDir, planFile), "utf8");
+      action.plan = readWorkspaceTextFile(command.rootDir, planFile, "--plan-file");
     } catch (error) {
       throw Object.assign(
         new Error(`--plan-file ${planFile} could not be read on this edge: ${cliErrorMessage(error)}`),
@@ -279,21 +274,10 @@ export async function fleetTaskRoute(
   // the edge path, so the center's closed action schema and writer see the same body as a local
   // invocation. `--body-file` is declared only for Decision propose/amend and the CLI has already
   // rejected other action kinds before this route is selected.
-  if (typeof bodyFile === "string") {
-    try {
-      action.body = readFileSync(path.isAbsolute(bodyFile) ? bodyFile : path.join(command.rootDir, bodyFile), "utf8");
-    } catch (error) {
-      throw Object.assign(
-        new Error(`--body-file ${bodyFile} could not be read on this edge: ${cliErrorMessage(error)}`),
-        {
-          code: "invalid_field",
-        },
-      );
-    }
-  }
   // Source files belong to the addressed edge; only decoded authored values cross TLS.
+  if (typeof bodyFile === "string") action.body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
   if (typeof idsFile === "string")
-    action.factIds = readFileSync(path.resolve(command.rootDir, idsFile), "utf8")
+    action.factIds = readWorkspaceTextFile(command.rootDir, idsFile, "--ids-file")
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith("#"));
@@ -313,6 +297,10 @@ export async function fleetTaskRoute(
     ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,
   };
-  payload.action = await resolveFleetPacketAction(command, { ...action, fromFile, jsonInput }, descriptor.inputs);
+  payload.action = await resolveFleetPacketAction(
+    command,
+    { ...action, ...(command.pathCoordinate ? { pathCoordinate: command.pathCoordinate } : {}), fromFile, jsonInput },
+    descriptor.inputs,
+  );
   return payload;
 }

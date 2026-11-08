@@ -495,7 +495,10 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     await waitForWorktree(cell, authored);
     assert.match(String((authored as Record<string, unknown>).summary), /applied count: 1/u);
 
-    const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
+    const repoRelative = await cell.run(
+      { kind: "doc-submit", paths: ["harness/context/selected.md"], pathCoordinate: "workspace" },
+      binding,
+    );
     assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
     assert.equal(repoRelative.acceptance, null);
     assert.equal(repoRelative.proof, undefined);
@@ -533,7 +536,10 @@ test("repo-relative doc-sync selection works when the authored root is its own l
     await waitForWorktree(cell, authored);
     // The ledger authored prefix is empty here, so the repo-relative form carries the
     // product-visible harness/ segment; it must resolve to the same authored document.
-    const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
+    const repoRelative = await cell.run(
+      { kind: "doc-submit", paths: ["harness/context/selected.md"], pathCoordinate: "workspace" },
+      binding,
+    );
     assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
   } finally {
     await cell.close();

@@ -38,6 +38,7 @@ export const taskCreateDescriptorProjection = {
     "taskId",
     "taskStatus",
     "packagePath",
+    "workspacePackagePath",
     "generatedPaths",
     "presetDigest",
     "scaffoldDigest",

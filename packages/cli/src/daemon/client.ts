@@ -24,6 +24,7 @@ import {
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { materializeArtifactSource } from "../cli-artifact-source.ts";
 import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
+import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import {
   fleetRuntimeRoute,
@@ -454,7 +455,13 @@ function daemonRequestParams(command: ThinCommand, repoId: string, env: NodeJS.P
 }
 
 function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Readonly<Record<string, unknown>> {
-  const { kind: _kind, ...actionPayload } = command.action,
+  const artifactCoordinate =
+      command.method === "repo.task.run" &&
+      command.action.kind === "task-artifact-add" &&
+      command.pathCoordinate === "workspace"
+        ? "workspace"
+        : undefined,
+    { kind: _kind, ...actionPayload } = command.action,
     payload =
       command.method === "repo.script.run"
         ? Object.fromEntries(
@@ -467,7 +474,10 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
   // Task action methods carry the executor inside their open action envelope; every other method takes
   // payload.executor exactly where the daemon contract declares the field.
   return command.method === "repo.task.run" || command.method === "repo.task.read"
-    ? { action: executor ? { ...command.action, executor } : command.action }
+    ? {
+        action: executor ? { ...command.action, executor } : command.action,
+        ...(artifactCoordinate === undefined ? {} : { pathCoordinate: artifactCoordinate }),
+      }
     : executor && daemonMethodAcceptsPayloadExecutor(command.method)
       ? { ...payload, executor }
       : payload;
@@ -513,8 +523,9 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
 
 function materializeTaskPrBody(command: ThinCommand): ThinCommand {
   if (command.action.kind !== "task-push" || typeof command.action.bodyFile !== "string") return command;
-  const { bodyFile, ...action } = command.action;
-  return { ...command, action: { ...action, body: readFileSync(path.resolve(command.rootDir, bodyFile), "utf8") } };
+  const { bodyFile, ...action } = command.action,
+    body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
+  return { ...command, action: { ...action, body } };
 }
 
 async function settleRepoWarming(
