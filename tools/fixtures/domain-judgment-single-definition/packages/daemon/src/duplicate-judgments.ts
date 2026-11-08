@@ -8,3 +8,8 @@ export function queryPayloadValidation(): readonly string[] {
 }
 
 export const statusVocabularies = ["copied"] as const;
+
+// Positive-control fixture: a second bilingual closeout judgment in the daemon must fail the gate.
+export function missingChineseCloseoutSections(): readonly string[] {
+  return ["摘要", "验证"];
+}

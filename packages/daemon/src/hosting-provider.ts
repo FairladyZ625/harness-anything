@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { readSettingsFacet, resolveHarnessLayout } from "@harness-anything/kernel";
+import { runProcessText } from "./process-text.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,26 +45,52 @@ export async function detectHostingProvider(
     if (allowUnknown) return null as never;
     throw unknownHostingProvider();
   }
-  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
-  let settings = declaration;
-  const settingsPath = path.join(authoredRoot, "harness.yaml");
-  if (!settings && existsSync(settingsPath))
-    settings = (
-      readSettingsFacet(readFileSync(settingsPath, "utf8")) as unknown as {
-        hosting?: { provider?: "github" | "gitlab"; host?: string };
-      }
-    ).hosting;
+  const settings = declaration ?? hostingDeclaration(rootDir);
   try {
     return hostingProviderFromRemote(remote, settings);
   } catch (error) {
-    if (
-      allowUnknown &&
-      error instanceof Error &&
-      (error as Error & { code?: string }).code === "hosting_provider_unknown"
-    )
-      return null as never;
+    if (allowUnknown && isUnknownHostingProvider(error)) return null as never;
     throw error;
   }
+}
+
+/**
+ * Whether this repository publishes task deliveries as pull requests. The PR body generator only
+ * runs where a hosting origin exists, so `task submit` owes the bilingual closeout exactly there.
+ * Reads the same origin and declaration `detectHostingProvider` reads, synchronously because submit
+ * derivation is synchronous.
+ */
+export function publishesPublicPullRequest(rootDir: string): boolean {
+  let remote: string;
+  try {
+    remote = runProcessText("git", ["-C", rootDir, "remote", "get-url", "origin"], undefined, undefined, 10_000).trim();
+  } catch {
+    return false;
+  }
+  try {
+    hostingProviderFromRemote(remote, hostingDeclaration(rootDir));
+    return true;
+  } catch (error) {
+    if (isUnknownHostingProvider(error)) return false;
+    throw error;
+  }
+}
+
+function hostingDeclaration(
+  rootDir: string,
+): { readonly provider?: "github" | "gitlab"; readonly host?: string } | undefined {
+  const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");
+  return existsSync(settingsPath)
+    ? (
+        readSettingsFacet(readFileSync(settingsPath, "utf8")) as unknown as {
+          hosting?: { provider?: "github" | "gitlab"; host?: string };
+        }
+      ).hosting
+    : undefined;
+}
+
+function isUnknownHostingProvider(error: unknown): boolean {
+  return error instanceof Error && (error as Error & { readonly code?: string }).code === "hosting_provider_unknown";
 }
 
 export async function hasOriginRemote(rootDir: string): Promise<boolean> {

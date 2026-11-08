@@ -1466,3 +1466,78 @@ test("a same-execution amendment at its own merged tip keeps the manifest and it
   const lanes = reviewPathRules(["data-migration packages/storage/src/store/"]);
   assert.equal(reviewPathHits(packet, lanes).get("data-migration")?.length, 1);
 });
+
+// The PR body generator rejects a closeout without the two Chinese sections; submit is the writing
+// boundary that must reject the same cut, through the same kernel judgment, while the worker can
+// still see and fix the file. A recognized public hosting origin is what makes the delivery a PR.
+test("a public PR delivery refuses a closeout without Chinese summary and verification", (t) => {
+  const { root } = fixture(t);
+  git(root, "remote", "add", "origin", "https://github.com/acme/project.git");
+  put(root, "src/live.ts", "export const liveValue = 7;\n");
+  const sha = commit(root),
+    englishOnly = "# Closeout\n\n## Summary\n\nEnglish only.\n\n## Verification\n\n- exit 0.\n";
+  assert.throws(
+    () =>
+      derive(
+        root,
+        "Delivered.",
+        undefined,
+        ["lint"],
+        undefined,
+        undefined,
+        sha,
+        "repository-diff",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        englishOnly,
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { readonly code?: string }).code, "invalid_submission");
+      assert.match(error.message, /harness\/tasks\/task-1\/closeout\.md/u, "the rejection names the closeout path");
+      assert.match(error.message, /## 摘要/u, "the rejection names the missing Chinese summary");
+      assert.match(error.message, /## 验证/u, "the rejection names the missing Chinese verification");
+      return true;
+    },
+  );
+});
+
+test("a public PR delivery accepts a closeout carrying both Chinese sections", (t) => {
+  const { root } = fixture(t),
+    // `git remote get-url` still names a GitHub host, while the transport rewrite keeps the fetch
+    // inside the fixture instead of reaching the network.
+    origin = mkdtempSync(path.join(tmpdir(), "ha-closeout-public-origin-"));
+  t.after(() => rmSync(origin, { recursive: true, force: true }));
+  git(origin, "init", "--bare", "-q", "--initial-branch=main");
+  git(root, "remote", "add", "origin", "https://github.com/acme/project.git");
+  git(root, "config", `url.file://${origin}.insteadOf`, "https://github.com/acme/project.git");
+  git(root, "push", "-q", "--set-upstream", "origin", "main");
+  git(root, "fetch", "--quiet", "origin", "refs/heads/main:refs/remotes/origin/main");
+  git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  put(root, "src/live.ts", "export const liveValue = 8;\n");
+  const sha = commit(root),
+    bilingual =
+      "# Closeout\n\n## Summary\n\nDelivered English.\n\n## Verification\n\n- exit 0.\n\n" +
+      "## 摘要\n\n交付完成。\n\n## 验证\n\n- 退出码 0。\n",
+    packet = derive(
+      root,
+      "Delivered.",
+      undefined,
+      ["lint"],
+      undefined,
+      undefined,
+      sha,
+      "repository-diff",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      bilingual,
+    );
+  assert.equal(packet.commitSha, sha);
+  assert.equal(packet.completionClaim, "Delivered English.");
+});

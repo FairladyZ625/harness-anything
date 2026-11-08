@@ -10,7 +10,10 @@ import { checkPrBody } from "../../check-pr-body.mjs";
 import { checkPrGovernance } from "../../check-pr-governance.mjs";
 import { validateDependencyDeclaration } from "../dependency-policy.mjs";
 import { renderTaskPrBody } from "../render-task-pr-body.mjs";
-import { submissionFromCloseout } from "../../../packages/kernel/src/domain/transition-document-readiness.ts";
+import {
+  missingChineseCloseoutSections,
+  submissionFromCloseout,
+} from "../../../packages/kernel/src/domain/transition-document-readiness.ts";
 
 const taskId = "task-private-example",
   firstSha = "1".repeat(40),
@@ -701,6 +704,19 @@ test("an English-only closeout is rejected instead of publishing English under C
       }),
     /## 摘要 and ## 验证/u,
     "the writing boundary names the missing Chinese sections",
+  );
+});
+
+// The renderer must not carry a second required-section list: the exact list it reports is the
+// kernel judgment's verdict, which `ha task submit` also calls on the same closeout body.
+test("the renderer reports exactly the kernel judgment's missing Chinese sections", () => {
+  const partial = "# Closeout\n\n## Summary\n\nEnglish.\n\n## Verification\n\n- exit 0.\n\n## 摘要\n\n中文摘要。\n",
+    missing = missingChineseCloseoutSections(partial);
+  assert.deepEqual(missing, ["验证"], "the kernel understands the authored summary and wants only verification");
+  assert.throws(
+    () => render(codeSubmission, { closeout: partial }),
+    (error) => error instanceof Error && error.message.includes(`## ${missing.join(" and ## ")}`),
+    "the renderer reports the kernel's exact missing list",
   );
 });
 

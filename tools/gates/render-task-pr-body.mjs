@@ -11,7 +11,12 @@ import {
   readSubmissionFacts,
   renderSubmissionFacts,
 } from "../../packages/kernel/src/domain/submission-facts.ts";
-import { markdownSectionEntries } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
+import {
+  chineseCloseoutSectionBodies,
+  chineseCloseoutSections,
+  markdownSectionEntries,
+  missingChineseCloseoutSections,
+} from "../../packages/kernel/src/domain/transition-document-readiness.ts";
 import { hasDependencyChange, replaceDependencyDeclaration } from "./dependency-policy.mjs";
 import { repoRoot } from "./git.mjs";
 
@@ -31,14 +36,8 @@ const PR_SECTIONS = Object.freeze([
 // The review facts require a `# 中文` block with a Chinese verification heading. The renderer
 // emits that shape from the same closeout instead of a second authored template. The Chinese
 // closeout sections must carry the text: an English-only closeout is rejected rather than
-// publishing English prose under Chinese headings.
-const CHINESE_SECTIONS = Object.freeze([
-  { title: "摘要", aliases: Object.freeze(["摘要", "概要"]), source: "Summary" },
-  { title: "改动内容", aliases: Object.freeze(["改动内容", "改动"]), source: "What Changed" },
-  { title: "验证", aliases: Object.freeze(["验证", "验证记录", "验证结果"]), source: "Verification" },
-  { title: "残余风险", aliases: Object.freeze(["残余风险", "剩余风险"]), source: "Residual Risk" },
-]);
-
+// publishing English prose under Chinese headings. The aliases and the required-section judgment
+// live in the kernel, so `ha task submit` refuses the same cut at the same boundary.
 const CHINESE_HEADING = /^#\s+中文\s*$/mu;
 
 // The PR template keeps Dependency-Change on one machine-readable line, not as a `##` section.
@@ -123,9 +122,7 @@ function findSection(sections, aliases) {
 
 function authoredSources(closeout, profileId) {
   const sections = [...markdownSectionEntries(closeout)],
-    chinese = Object.fromEntries(
-      CHINESE_SECTIONS.map(({ aliases, source }) => [source, findSection(sections, aliases)]),
-    ),
+    chinese = chineseCloseoutSectionBodies(closeout),
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
   sources["What Changed"] ??= sources.Summary;
@@ -210,15 +207,15 @@ function chineseContent(content) {
 }
 
 /** Same closeout, second language block; no second template and no translated hand copy. */
-function chineseSection(chinese) {
-  const required = CHINESE_SECTIONS.filter(({ source }) => source === "Summary" || source === "Verification"),
-    missing = required.filter(({ source }) => !chinese[source]?.trim()).map(({ title }) => `## ${title}`);
+function chineseSection(closeout, chinese) {
+  // The kernel owns the judgment; the renderer only renders its verdict.
+  const missing = missingChineseCloseoutSections(closeout).map((title) => `## ${title}`);
   if (missing.length > 0)
     throw new Error(
       `closeout must include ${missing.join(" and ")} so the PR body carries Chinese summary and verification; ` +
         "English prose is never published under Chinese headings",
     );
-  const blocks = CHINESE_SECTIONS.flatMap(({ title, source }) => {
+  const blocks = chineseCloseoutSections.flatMap(({ title, source }) => {
     const content = chineseContent(chinese[source] ?? "");
     return content.length > 0 ? [`## ${title}\n\n${content}`] : [];
   });
@@ -297,7 +294,7 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
   rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest, decisionAuthority);
   const { start, end } = markerPair(rendered, "PR template"),
     published = `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
-  return `${published.replace(/\s+$/u, "")}\n\n${chineseSection(chinese)}\n`;
+  return `${published.replace(/\s+$/u, "")}\n\n${chineseSection(authored, chinese)}\n`;
 }
 
 function parseArgs(argv) {

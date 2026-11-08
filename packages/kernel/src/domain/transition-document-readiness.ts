@@ -238,6 +238,73 @@ export function submissionFromCloseout(
 
 const closeoutSectionPrefixes = Object.freeze(["summary", "verification", "residual risk", "same mechanism elsewhere"]);
 
+/** The Chinese mirror of each authored closeout section the public PR body publishes. */
+interface ChineseCloseoutSection {
+  readonly title: string;
+  readonly aliases: readonly string[];
+  readonly source: "Summary" | "What Changed" | "Verification" | "Residual Risk";
+  /** 摘要 and 验证 gate bilingual delivery; the other two ride along when the author kept them. */
+  readonly required: boolean;
+}
+
+/**
+ * The bilingual closeout contract is one datum, not a renderer convention: the PR body generator
+ * and `ha task submit` both read this table through `missingChineseCloseoutSections`, so a cut that
+ * cannot publish Chinese prose is refused before publication instead of at PR time.
+ */
+export const chineseCloseoutSections: readonly ChineseCloseoutSection[] = Object.freeze([
+  Object.freeze({ title: "摘要", aliases: Object.freeze(["摘要", "概要"]), source: "Summary", required: true }),
+  Object.freeze({
+    title: "改动内容",
+    aliases: Object.freeze(["改动内容", "改动"]),
+    source: "What Changed",
+    required: false,
+  }),
+  Object.freeze({
+    title: "验证",
+    aliases: Object.freeze(["验证", "验证记录", "验证结果"]),
+    source: "Verification",
+    required: true,
+  }),
+  Object.freeze({
+    title: "残余风险",
+    aliases: Object.freeze(["残余风险", "剩余风险"]),
+    source: "Residual Risk",
+    required: false,
+  }),
+]);
+
+/** The authored Chinese closeout text per English section it mirrors; absent means unauthored. */
+export function chineseCloseoutSectionBodies(closeout: string): Readonly<Record<string, string | undefined>> {
+  const entries = [...markdownSectionEntries(closeout)];
+  return Object.fromEntries(
+    chineseCloseoutSections.map(({ aliases, source }) => [source, authoredSection(entries, aliases)]),
+  );
+}
+
+/** The one bilingual-delivery judgment: which required Chinese closeout sections carry no authored text. */
+export function missingChineseCloseoutSections(closeout: string): readonly string[] {
+  const bodies = chineseCloseoutSectionBodies(closeout);
+  return chineseCloseoutSections
+    .filter(({ required, source }) => required && !bodies[source]?.trim())
+    .map(({ title }) => title);
+}
+
+function authoredSection(
+  entries: readonly (readonly [string, string])[],
+  aliases: readonly string[],
+): string | undefined {
+  const matched = entries
+    .filter(([heading]) =>
+      aliases.some(
+        (alias) =>
+          heading === alias || (heading.startsWith(alias) && /^[ \t(（—–\-:：]/u.test(heading.slice(alias.length))),
+      ),
+    )
+    .map(([, content]) => content);
+  return matched.length > 0 ? matched.join("\n\n") : undefined;
+}
+
 function missingMarkdownSections(
   body: string,
   contract: MarkdownDocumentContract,
