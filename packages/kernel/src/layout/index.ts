@@ -326,6 +326,44 @@ export function validateTaskIdSyntax(taskId: TaskId): void {
   }
 }
 
+/** A caller-typed document path after the one boundary translation: the ledger's authored key. */
+export type WorkspaceDocumentPath =
+  | { readonly ok: true; readonly documentPath: string }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * The one spelling rule for a document path a caller types at the CLI boundary: it is relative to
+ * the workspace repository root, so `harness/tasks/x.md`. There is no second accepted spelling —
+ * from the workspace root the ledger's authored key (`tasks/x.md`) is outside the authored root
+ * and is refused; that is the wanted behaviour for old authored-relative callers.
+ *
+ * When the process root is the ledger repository itself (`harness/`), the workspace spelling of
+ * that root is the authored key and the same in-authored-root check covers it. Daemon-internal
+ * callers pass authored keys and never use this boundary.
+ */
+export function resolveWorkspaceDocumentPath(rootDir: string, value: string): WorkspaceDocumentPath {
+  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot,
+    absolute = path.resolve(rootDir, value),
+    relative = path.relative(authoredRoot, absolute);
+  if (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative))
+    return { ok: true, documentPath: relative.split(path.sep).join("/") };
+  return {
+    ok: false,
+    reason:
+      `${value} is outside the authored ledger root ${authoredRoot}; ` +
+      `pass a path relative to the workspace root (for example harness/tasks/<task>/task_plan.md)`,
+  };
+}
+
+/** The inverse boundary translation: a receipt prints the path a caller would paste back in. */
+export function documentWorkspacePath(rootDir: string, document: string, layout?: HarnessLayout): string {
+  const authoredRoot = (layout ?? resolveHarnessLayout(rootDir)).authoredRoot;
+  return path
+    .relative(rootDir, path.join(authoredRoot, ...document.split("/")))
+    .split(path.sep)
+    .join("/");
+}
+
 export function taskPackagePath(input: HarnessLayoutInput, taskId: TaskId): string {
   return resolveHarnessLayout(input).taskPackagePath(taskId);
 }

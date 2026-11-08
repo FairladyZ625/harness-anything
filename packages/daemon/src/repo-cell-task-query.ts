@@ -4,6 +4,8 @@ import {
   admitTaskExecutionWip,
   allowsTaskStatusMove,
   deriveTaskRoot,
+  documentWorkspacePath,
+  resolveHarnessLayout,
   explainStatusTransition,
   hasCloseoutEvidence,
   isDomainStatus,
@@ -62,7 +64,7 @@ export interface TaskListReads {
 }
 
 export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
-  const { payload, read } = taskListPayload(
+  const { payload: canonicalPayload, read } = taskListPayload(
       {
         readTaskIndex: taskPresentationReads(cell.projection).readTaskIndex,
         readTaskChildCounts: cell.projection.readTaskChildCounts,
@@ -72,6 +74,7 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       action,
       cell.cellCodedError,
     ),
+    payload = withWorkspacePackagePaths(cell.rootDir, canonicalPayload),
     receipt = cell.readResult(
       cell.operationId(action, binding, cell.input.repoId, read.sourceRevision),
       payload,
@@ -80,6 +83,27 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       read,
     );
   return { ...receipt, ...payload } as WriteReceipt;
+}
+
+/** The read model keeps the ledger key; a caller-facing row carries both spellings so the CLI
+ * boundary can print the workspace one without inventing it. */
+function withWorkspacePackagePaths(
+  rootDir: string,
+  payload: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const rows = payload.rows;
+  if (!Array.isArray(rows) || typeof rootDir !== "string" || rootDir === "") return payload;
+  const layout = resolveHarnessLayout(rootDir);
+  return {
+    ...payload,
+    rows: rows.map((row) => {
+      const packagePath =
+        row !== null && typeof row === "object" ? (row as { packagePath?: unknown }).packagePath : null;
+      return typeof packagePath === "string"
+        ? { ...(row as object), workspacePackagePath: documentWorkspacePath(rootDir, packagePath, layout) }
+        : row;
+    }),
+  };
 }
 
 /** One `task list` answer computed from `reads`; presentation status is the caller's read choice. */

@@ -2,11 +2,6 @@
 // Counts may only decrease; every unregistered production source or symbol has zero allowance.
 // Slice 4 removes this baseline when forwarding is fully port-owned.
 export const fleetForwardingBoundaryBaseline = Object.freeze({
-  "packages/cli/src/daemon/client.ts": {
-    materializeTaskPrBody: {
-      bodyFileSpecialCase: 1,
-    },
-  },
   "packages/cli/src/daemon/control.ts": {
     flag: {
       readFleetEdgeConfig: 2,

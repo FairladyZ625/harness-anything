@@ -150,9 +150,11 @@ export async function fleetFixture(
   const created = await host.run(subject.repoId, { kind: "task-create", taskId: subject.taskId, title: "Fleet" }, auth);
   assert.equal(created.outcome, "applied");
   await waitForFleetPublication(host, subject.repoId, created.opId, auth);
+  const packagePath = String((created as Record<string, unknown>).packagePath);
+  const workspacePackagePath = String((created as Record<string, unknown>).workspacePackagePath);
   await realizeTaskPlanFixture(
     repo,
-    String((created as Record<string, unknown>).packagePath),
+    packagePath,
     (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
     "Fleet",
   );
@@ -168,6 +170,8 @@ export async function fleetFixture(
   return {
     root,
     repo,
+    packagePath,
+    workspacePackagePath,
     stateRoot,
     writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
     path: subject.paths[0]!,

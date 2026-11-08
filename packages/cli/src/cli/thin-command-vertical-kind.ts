@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import type { CliInputFacet } from "@harness-anything/preset/internal/preset-command-contract";
+import { readCliInputFile } from "../cli-input-codec.ts";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -71,7 +71,7 @@ function parseUpsert(
 ): ThinParseResult {
   const flags = readFlags(route.id, args.slice(3), inputs);
   if (!flags.ok) return normalizeVersionFailure(flags, json);
-  const declaration = declarationFrom(flags, rootDir, json);
+  const declaration = declarationFrom(route, flags, rootDir, json);
   if ("failure" in declaration) return declaration.failure;
   const declaredKindId = declaration.value.kindId,
     declaredId = declaration.value.id,
@@ -170,6 +170,7 @@ function normalizeVersionFailure(
 }
 
 function declarationFrom(
+  route: ProtocolCommand,
   flags: Extract<ReturnType<typeof readFlags>, { readonly ok: true }>,
   rootDir: SafePath,
   json: boolean,
@@ -187,7 +188,9 @@ function declarationFrom(
   let text = inline;
   if (fromFile !== undefined) {
     try {
-      text = readFileSync(path.resolve(rootDir, fromFile), "utf8");
+      const input = (route.inputs as readonly CliInputFacet[]).find((input) => input.name === "--from-file");
+      if (!input) throw new Error("--from-file is not declared.");
+      text = readCliInputFile(rootDir, fromFile, input);
     } catch (error) {
       return {
         failure: rejected(

@@ -2,6 +2,7 @@ import type {
   CliInputError,
   CliInputGroup,
   CliInputFacet,
+  CliPositionalInputFacet,
   CommandAdmission,
   CommandAdmissionRoute,
   CommandTopology,
@@ -18,6 +19,9 @@ export type {
   CliInputError,
   CliInputGroup,
   CliInputFacet,
+  CliPositionalInputFacet,
+  PathKind,
+  PathReader,
   CommandAdmission,
   CommandAdmissionRoute,
   CommandTopology,
@@ -170,6 +174,7 @@ export function defineCliCommand<
     readonly path: readonly string[];
     readonly syntaxPath?: readonly string[];
     readonly inputs: readonly CliInputFacet[];
+    readonly positionalInputs?: readonly CliPositionalInputFacet[];
     readonly inputGroups?: readonly CliInputGroup[];
     readonly commandClass: CommandTopology["commandClass"];
     readonly admission: CommandAdmission;
@@ -181,6 +186,9 @@ export function defineCliCommand<
     firstPositional = syntaxPath.findIndex((token) => token.includes("<") || token.startsWith("[")),
     path = Object.freeze(syntaxPath.slice(0, firstPositional < 0 ? syntaxPath.length : firstPositional)),
     inputs = Object.freeze(declaration.inputs.map((input) => Object.freeze(input))) as Command["inputs"],
+    positionalInputs = Object.freeze(
+      (declaration.positionalInputs ?? []).map((input) => Object.freeze(input)),
+    ) as readonly CliPositionalInputFacet[],
     usageInputs = inputs.map((input) => {
       const placeholder = input.enum?.join("|") ?? input.name.slice(2),
         suffix = input.kind === "repeated" && input.required ? "..." : "",
@@ -202,6 +210,7 @@ export function defineCliCommand<
     path,
     syntaxPath,
     inputs,
+    positionalInputs,
     flags: inputs,
     usage,
     help,
@@ -313,7 +322,14 @@ const taskCreateCliInputs = Object.freeze(
         ...(field.enum ? { enum: field.enum } : {}),
         ...(field.regex ? { regex: field.regex } : {}),
         ...cli,
-        ...(cli.name === "--from-file" || cli.name === "--plan-file" ? { format: workspacePathFormat } : {}),
+        ...(cli.kind === "boolean"
+          ? {}
+          : cli.name === "--from-file" || cli.name === "--plan-file"
+            ? {
+                pathKind: "workspace-file" as const,
+                format: workspacePathFormat,
+              }
+            : { pathKind: "non-path" as const }),
         ...(cli.name === "--profile" ? { format: taskCreateProfileFormat } : {}),
         ...(cli.name === "--title" ? { format: titleFocusFormat } : {}),
       }),
@@ -351,7 +367,13 @@ export const presetCommands = Object.freeze([
       taskDecisionGuidance,
     method: "repo.task.create",
     inputs: [
-      cliInput("--title", "single", true, { code: "missing_field" }, { field: "title", format: titleFocusFormat }),
+      cliInput(
+        "--title",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", field: "title", format: titleFocusFormat },
+      ),
       ...taskCreateCliInputs
         .filter(({ name }) =>
           [
@@ -381,7 +403,9 @@ export const presetCommands = Object.freeze([
     path: ["preset", "list"],
     summary: "List effective preset packages and blocked shadows.",
     method: "repo.preset.list",
-    inputs: [cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" })],
+    inputs: [
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "verticalId" }),
+    ],
   }),
   defineRepoReadCommand({
     id: "preset-inspect",
@@ -390,10 +414,11 @@ export const presetCommands = Object.freeze([
     summary: "Inspect one resolved preset snapshot.",
     method: "repo.preset.inspect",
     positional: "presetId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--profile", "single", false, { code: "invalid_field" }, { field: "profileId" }),
-      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
-      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale" }),
+      cliInput("--profile", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "profileId" }),
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "verticalId" }),
+      cliInput("--locale", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "locale" }),
     ],
   }),
   defineRepoReadCommand({
@@ -403,14 +428,15 @@ export const presetCommands = Object.freeze([
     summary: "Preflight one effective preset package or compare a frozen snapshot.",
     method: "repo.preset.check",
     positional: "presetId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "verticalId" }),
       cliInput(
         "--snapshot-digest",
         "single",
         false,
         { code: "invalid_field" },
-        { field: "snapshotDigest", regex: "^sha256:[0-9a-f]{64}$" },
+        { pathKind: "non-path", field: "snapshotDigest", regex: "^sha256:[0-9a-f]{64}$" },
       ),
     ],
   }),
@@ -420,7 +446,15 @@ export const presetCommands = Object.freeze([
     path: ["preset", "validate"],
     summary: "Validate one self-contained preset package.",
     method: "repo.preset.validate",
-    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
+    inputs: [
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
+    ],
   }),
   defineLedgerWriteCommand({
     id: "preset-install",
@@ -429,7 +463,13 @@ export const presetCommands = Object.freeze([
     summary: "Install a whole package behind an atomic active pointer.",
     method: "repo.preset.install",
     inputs: [
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "packageSource", pathKind: "host-path" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
@@ -447,7 +487,9 @@ export const presetCommands = Object.freeze([
     path: ["preset", "audit"],
     summary: "Audit the effective preset inventory and its issues.",
     method: "repo.preset.audit",
-    inputs: [cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" })],
+    inputs: [
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "verticalId" }),
+    ],
   }),
   defineLedgerWriteCommand({
     id: "preset-uninstall",
@@ -456,6 +498,7 @@ export const presetCommands = Object.freeze([
     summary: "Remove only the user active pointer.",
     method: "repo.preset.uninstall",
     positional: "presetId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineCenterForwardWriteCommand({
@@ -465,6 +508,7 @@ export const presetCommands = Object.freeze([
     summary: "Canonically upgrade one task to the current complete preset snapshot.",
     method: "repo.preset.upgrade",
     positional: "taskId",
+    positionalInputs: [{ name: "<task-id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineRepoReadCommand({
@@ -474,8 +518,14 @@ export const presetCommands = Object.freeze([
     summary: "Validate a vertical and an installed preset completion source catalog.",
     method: "repo.vertical.validate",
     inputs: [
-      cliInput("--source", "single", false, { code: "invalid_field" }, { field: "verticalSource" }),
-      cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
+      cliInput(
+        "--source",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "verticalSource", pathKind: "host-path" },
+      ),
+      cliInput("--preset", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "presetId" }),
     ],
   }),
   defineRepoReadCommand({
@@ -493,8 +543,15 @@ export const presetCommands = Object.freeze([
     summary: "Render one builtin template without writing it.",
     method: "repo.template.render",
     positional: "templateRef",
+    positionalInputs: [{ name: "<ref>", pathKind: "non-path", pathReader: "none" }],
     inputs: [
-      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
+      cliInput(
+        "--locale",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "locale", enum: ["zh-CN", "en-US"] },
+      ),
       cliInput("--raw", "boolean", false, { code: "invalid_field" }, { field: "raw" }),
     ],
   }),
@@ -513,6 +570,7 @@ export const presetCommands = Object.freeze([
     summary: "Inspect one builtin vertical script declaration and execution availability.",
     method: "repo.script.inspect",
     positional: "scriptId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     inputs: [],
   }),
   defineCenterForwardWriteCommand({
@@ -522,11 +580,18 @@ export const presetCommands = Object.freeze([
     summary: "Run one declared builtin vertical script through its typed RepoCell host.",
     method: "repo.script.run",
     positional: "scriptId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
     positionalRegex: "^vertical:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
     actionDefaults: { schema: "vertical-script-action/v1", taskId: null, inputs: {}, dryRun: false },
     inputs: [
-      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId" }),
-      cliInput("--inputs", "single", false, { code: "invalid_field" }, { field: "inputs", codec: "json" }),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "taskId" }),
+      cliInput(
+        "--inputs",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "inputs", codec: "json" },
+      ),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
@@ -537,11 +602,24 @@ export const presetCommands = Object.freeze([
     summary: "Run one declared user preset entrypoint through the resident daemon.",
     method: "repo.preset.run.start",
     positional: "presetTarget",
+    positionalInputs: [{ name: "preset:<id>/<entrypoint>", pathKind: "non-path", pathReader: "none" }],
     positionalFields: ["presetId", "entrypoint"],
     inputs: [
-      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId" }),
-      cliInput("--inputs", "single", false, { code: "invalid_field" }, { field: "inputs", codec: "json" }),
-      cliInput("--idempotency-key", "single", true, { code: "missing_field" }, { field: "idempotencyKey" }),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "taskId" }),
+      cliInput(
+        "--inputs",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "inputs", codec: "json" },
+      ),
+      cliInput(
+        "--idempotency-key",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", field: "idempotencyKey" },
+      ),
     ],
   }),
 ] as const);
@@ -597,7 +675,13 @@ export const presetMethods = Object.freeze([
         actionKind: command.id,
         commandClass: command.commandClass,
         admission: command.admission,
-        params: shape({ repo, payload: shape(fields) }),
+        params: shape({
+          repo,
+          payload: shape(fields),
+          // The CLI-read plan file's path is diagnostic metadata, not an action field. The daemon
+          // attaches it after the closed payload validators accept the create request.
+          ...(command.id === "task-create" ? { planSource: "string?" as const } : {}),
+        }),
       };
     }),
   {

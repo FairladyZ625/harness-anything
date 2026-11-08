@@ -572,12 +572,15 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
       requireAppliedCli(await cli(buildRoot, ["task", "show", taskId], env, workspace, identity), "created task show"),
       "created task show",
     ),
-    packagePath = createdPayload.packagePath;
-  if (typeof packagePath !== "string" || !/^tasks\/[A-Za-z0-9_-]+$/u.test(packagePath))
-    throw new Error(`medium task has an invalid package path: ${String(packagePath)}`);
-  const packageRoot = path.join(workspace, "harness", packagePath),
-    artifactRelative = `${packagePath}/artifacts/medium-submit-evidence.md`,
-    artifactPath = path.join(workspace, "harness", artifactRelative),
+    workspacePackagePath = createdPayload.workspacePackagePath;
+  // `ha task show` prints workspace-relative paths (`harness/tasks/...`) under
+  // `workspacePackagePath`; resolve from the copied workspace root once instead of re-joining the
+  // package under a second `harness/`.
+  if (typeof workspacePackagePath !== "string" || !/^harness\/tasks\/[A-Za-z0-9_-]+$/u.test(workspacePackagePath))
+    throw new Error(`medium task has an invalid package path: ${String(workspacePackagePath)}`);
+  const packageRoot = path.join(workspace, workspacePackagePath),
+    artifactRelative = `${workspacePackagePath}/artifacts/medium-submit-evidence.md`,
+    artifactPath = path.join(workspace, artifactRelative),
     closeoutPath = path.join(packageRoot, "closeout.md");
   mkdirSync(path.dirname(artifactPath), { recursive: true });
   writeFileSync(
@@ -604,9 +607,9 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
           "--task",
           taskId,
           "--path",
-          `harness/${packagePath}/closeout.md`,
+          `${workspacePackagePath}/closeout.md`,
           "--path",
-          `harness/${artifactRelative}`,
+          artifactRelative,
         ],
         env,
         workspace,
@@ -634,7 +637,7 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
   return {
     taskId,
     executionId: execution.executionId ?? null,
-    packagePath,
+    workspacePackagePath,
     create: created,
     start: started,
     documentSync: synced,

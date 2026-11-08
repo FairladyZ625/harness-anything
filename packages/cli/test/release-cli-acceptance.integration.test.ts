@@ -60,13 +60,13 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       "standard-task",
     ]);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
-    const packagePath = String(created.packagePath),
+    const packagePath = String(created.workspacePackagePath),
       settled = settle(root, userRoot, String(created.opId));
     assert.equal((settled.git as { state: string }).state, "verified");
     assert.equal((settled.worktree as { state: string }).state, "verified");
     assert.equal((settled.acceptance as { cut: { generation: number } }).cut.generation, 3, JSON.stringify(settled));
 
-    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Release Acceptance Chain"));
+    writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan("Release Acceptance Chain"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
       "fact",
@@ -80,7 +80,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     ]);
     run(root, userRoot, ["task", "start", taskId, "--execution-id", executionId], worker);
     writeCloseout(root, packagePath, "The chain fixture executed once.");
-    const reportFile = path.join(root, "harness", packagePath, "artifacts", "implementation.md");
+    const reportFile = path.join(root, packagePath, "artifacts", "implementation.md");
     mkdirSync(path.dirname(reportFile), { recursive: true });
     writeFileSync(reportFile, "# Release acceptance\n\nThe public probe is the delivery target.\n");
     // The probe below commits repo Git directly, so the daemon must finish publishing this cut first;
@@ -106,9 +106,9 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       ["task", "annotate", taskId, "--execution-id", executionId, "--note", `merge_commit_sha:${mergeCommitSha}`],
       worker,
     );
-    mkdirSync(path.join(root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
+    mkdirSync(path.join(root, packagePath, "artifacts", "reports"), { recursive: true });
     writeFileSync(
-      path.join(root, "harness", packagePath, "artifacts", "reports", "release-acc-approved.md"),
+      path.join(root, packagePath, "artifacts", "reports", "release-acc-approved.md"),
       "# Review review-release-acc-approved\n\nIndependent reviewer approved the chain fixture.\n",
     );
     const reviewed = run(
@@ -211,12 +211,13 @@ test("release acceptance: changes_requested rework keeps both same-named reports
         "--preset",
         "docs-task",
       ]),
-      packagePath = String(created.packagePath),
+      packagePath = String(created.workspacePackagePath),
       reportLogical = `${packagePath}/artifacts/reports/implementation.md`,
-      reportFile = path.join(root, "harness", reportLogical);
+      reportLedgerLogical = reportLogical.replace(/^harness\//u, ""),
+      reportFile = path.join(root, reportLogical);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
     settle(root, userRoot, String(created.opId));
-    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Release Acceptance Rework"));
+    writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan("Release Acceptance Rework"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
       "fact",
@@ -241,7 +242,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     writeCloseout(
       root,
       packagePath,
-      `First round: artifact:${reportLogical}@${firstPublication.revision}`,
+      `First round: artifact:${reportLedgerLogical}@${firstPublication.revision}`,
       "已知缺口：The report needs a second execution.",
     );
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", firstExecutionId], worker);
@@ -257,7 +258,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       ),
     );
     writeFileSync(
-      path.join(root, "harness", packagePath, "artifacts", "reports", "release-acc-rework.md"),
+      path.join(root, packagePath, "artifacts", "reports", "release-acc-rework.md"),
       "# Review review-release-acc-rework\n\nThe report needs a second execution.\n",
     );
     const returned = run(
@@ -320,16 +321,16 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     const secondPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
     assert.equal(secondPublication.status, "accepted_durable", JSON.stringify(secondPublication));
     settle(root, userRoot, String(secondPublication.opId), worker);
-    assert.deepEqual(gitBytes(root, `HEAD:harness/${reportLogical}`), Buffer.from(secondBody));
-    assert.deepEqual(gitBytes(root, `${firstCommit}:harness/${reportLogical}`), Buffer.from(firstBody));
+    assert.deepEqual(gitBytes(root, `HEAD:${reportLogical}`), Buffer.from(secondBody));
+    assert.deepEqual(gitBytes(root, `${firstCommit}:${reportLogical}`), Buffer.from(firstBody));
 
     const firstEvent = reader.readEvent(String(firstPublication.opId)),
       secondEvent = reader.readEvent(String(secondPublication.opId));
     assert.equal(firstEvent?.schema, "doc-event/v1");
     assert.equal(secondEvent?.schema, "doc-event/v1");
     if (firstEvent?.schema === "doc-event/v1" && secondEvent?.schema === "doc-event/v1") {
-      const firstClaim = firstEvent.payload.changes.find((change) => change.path === reportLogical)?.candidate,
-        secondClaim = secondEvent.payload.changes.find((change) => change.path === reportLogical)?.candidate;
+      const firstClaim = firstEvent.payload.changes.find((change) => change.path === reportLedgerLogical)?.candidate,
+        secondClaim = secondEvent.payload.changes.find((change) => change.path === reportLedgerLogical)?.candidate;
       assert.ok(firstClaim && secondClaim, "both rounds must carry content claims");
       assert.notEqual(firstClaim.sha256, secondClaim.sha256);
       assert.deepEqual(Buffer.from(reader.readContentBlob(firstClaim.sha256) ?? []), Buffer.from(firstBody));
@@ -337,7 +338,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       assert.equal(firstEvent.payload.executionId, firstExecutionId);
       assert.equal(secondEvent.payload.executionId, secondExecutionId);
     }
-    writeCloseout(root, packagePath, `Second round: artifact:${reportLogical}@${secondPublication.revision}`);
+    writeCloseout(root, packagePath, `Second round: artifact:${reportLedgerLogical}@${secondPublication.revision}`);
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", secondExecutionId], worker);
     const secondSubmission = reader
       .read()
@@ -347,7 +348,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     assert.ok(secondSubmission?.type === "execution_submitted");
     assert.ok(!secondSubmission.payload.execution.submission?.knownGaps.some((gap) => gap.includes("已知缺口")));
     writeFileSync(
-      path.join(root, "harness", packagePath, "artifacts", "reports", "release-acc-rework-2.md"),
+      path.join(root, packagePath, "artifacts", "reports", "release-acc-rework-2.md"),
       "# Review review-release-acc-rework-2\n\nThe second execution satisfied the requested changes.\n",
     );
     const approved = run(
@@ -425,13 +426,10 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
         "--preset",
         "docs-task",
       ]),
-      packagePath = String(created.packagePath);
+      packagePath = String(created.workspacePackagePath);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
     settle(root, userRoot, String(created.opId));
-    writeFileSync(
-      path.join(root, "harness", packagePath, "task_plan.md"),
-      realizedPlan("Release Acceptance Artifacts"),
-    );
+    writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan("Release Acceptance Artifacts"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     const artifactFact = run(root, userRoot, [
       "fact",
@@ -462,7 +460,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
       const added = run(
         root,
         userRoot,
-        ["task", "artifact", "add", taskId, "--source", source, "--destination", destination],
+        ["task", "artifact", "add", taskId, "--source", source, "--destination", `${packagePath}/${destination}`],
         worker,
       );
       assert.equal(added.outcome, "applied", `${destination}: ${JSON.stringify(added)}`);
@@ -471,12 +469,14 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
       assert.equal((settledAdd.worktree as { state: string }).state, "verified", `${destination}: worktree`);
       const logical = String(added.destination);
       assert.equal(logical, `${packagePath}/${destination}`, "the artifact keeps its real filename");
-      assert.deepEqual(readFileSync(path.join(root, "harness", ...logical.split("/"))), bytes);
-      assert.deepEqual(gitBytes(root, `HEAD:harness/${logical}`), bytes);
+      assert.deepEqual(readFileSync(path.join(root, ...logical.split("/"))), bytes);
+      assert.deepEqual(gitBytes(root, `HEAD:${logical}`), bytes);
       const event = reader.readEvent(String(added.opId));
       assert.equal(event?.schema, "doc-event/v1", `${destination}: must enter a doc event`);
       if (event?.schema === "doc-event/v1") {
-        const claim = event.payload.changes.find((change) => change.path === logical)?.candidate;
+        const claim = event.payload.changes.find(
+          (change) => change.path === logical.replace(/^harness\//u, ""),
+        )?.candidate;
         assert.ok(claim, `${destination}: content claim`);
         assert.deepEqual([claim.sha256, claim.size], [sha256Bytes(bytes), bytes.byteLength]);
         assert.deepEqual(Buffer.from(reader.readContentBlob(claim.sha256) ?? []), bytes);
@@ -487,7 +487,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
     // Routing: a raw file dropped under the task artifacts tree is directly eligible and published by doc sync.
     const unroutedBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]),
       unroutedLogical = `${packagePath}/artifacts/unrouted.png`;
-    writeFileSync(path.join(root, "harness", unroutedLogical), unroutedBytes);
+    writeFileSync(path.join(root, unroutedLogical), unroutedBytes);
     const status = run(root, userRoot, ["doc", "status", "--task", taskId], worker),
       rows = docStatusRows(status),
       unrouted = rows.find((row) => String(row.path) === unroutedLogical);
@@ -502,11 +502,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
     const settledSync = settle(root, userRoot, String(syncedReceipt.opId), worker);
     assert.equal((settledSync.git as { state: string }).state, "verified", "doc sync git cut");
     assert.equal((settledSync.worktree as { state: string }).state, "verified", "doc sync worktree");
-    assert.equal(
-      gitHasPath(root, `HEAD:harness/${unroutedLogical}`),
-      true,
-      "doc sync directly publishes the raw artifact",
-    );
+    assert.equal(gitHasPath(root, `HEAD:${unroutedLogical}`), true, "doc sync directly publishes the raw artifact");
 
     // Collision: republishing a destination with different bytes is refused; identical bytes replay.
     writeFileSync(
@@ -524,7 +520,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
         "--source",
         "release-evidence-v2.pdf",
         "--destination",
-        "artifacts/evidence/evidence.pdf",
+        `${packagePath}/artifacts/evidence/evidence.pdf`,
       ],
       worker,
     );
@@ -541,7 +537,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
         "--source",
         "release-evidence.pdf",
         "--destination",
-        "artifacts/evidence/evidence.pdf",
+        `${packagePath}/artifacts/evidence/evidence.pdf`,
       ],
       worker,
     );
@@ -571,7 +567,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
     assert.equal(drill.ok, true, JSON.stringify(drill));
     const shadowRoot = String(drill.shadowRoot);
     for (const { destination, bytes } of cases) {
-      const restored = readFileSync(path.join(shadowRoot, "harness", packagePath, destination));
+      const restored = readFileSync(path.join(shadowRoot, packagePath, destination));
       assert.deepEqual(restored, bytes, `${destination}: drill restore must return the original bytes`);
     }
     const restored = runOffline(root, restoredUserRoot, ["restore", backupDir, "--to", restoredRoot, "--json"]);
@@ -637,13 +633,10 @@ test("release acceptance: a relative artifact source names the caller's file, an
         "--preset",
         "docs-task",
       ]),
-      packagePath = String(created.packagePath);
+      packagePath = String(created.workspacePackagePath);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
     settle(root, userRoot, String(created.opId));
-    writeFileSync(
-      path.join(root, "harness", packagePath, "task_plan.md"),
-      realizedPlan("Release Acceptance Artifact Source"),
-    );
+    writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan("Release Acceptance Artifact Source"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, ["task", "start", taskId, "--execution-id", "execution-release-acc-artifact-source"], worker);
 
@@ -661,7 +654,7 @@ test("release acceptance: a relative artifact source names the caller's file, an
     const added = run(
       worktree,
       userRoot,
-      ["task", "artifact", "add", taskId, "--source", smallName, "--destination", "artifacts/probe.md"],
+      ["task", "artifact", "add", taskId, "--source", smallName, "--destination", `${packagePath}/artifacts/probe.md`],
       worker,
     );
     assert.equal(added.outcome, "applied", JSON.stringify(added));
@@ -669,7 +662,7 @@ test("release acceptance: a relative artifact source names the caller's file, an
     assert.equal(logical, `${packagePath}/artifacts/probe.md`);
     settle(root, userRoot, String(added.opId), worker);
     assert.deepEqual(
-      readFileSync(path.join(root, "harness", ...logical.split("/"))),
+      readFileSync(path.join(root, ...logical.split("/"))),
       smallBytes,
       "the selected worktree's bytes are the ones published",
     );
@@ -679,7 +672,16 @@ test("release acceptance: a relative artifact source names the caller's file, an
     const refused = runMaybe(
       worktree,
       userRoot,
-      ["task", "artifact", "add", taskId, "--source", oversizedName, "--destination", "artifacts/oversized.bin"],
+      [
+        "task",
+        "artifact",
+        "add",
+        taskId,
+        "--source",
+        oversizedName,
+        "--destination",
+        `${packagePath}/artifacts/oversized.bin`,
+      ],
       worker,
     );
     assert.notEqual(refused.status, 0, "an oversized source must be refused");
@@ -687,7 +689,7 @@ test("release acceptance: a relative artifact source names the caller's file, an
     assert.equal(receipt.code, "artifact_too_large", `${refused.stdout}\n${refused.stderr}`);
     assert.notEqual(receipt.outcome, "applied");
     assert.equal(
-      existsSync(path.join(root, "harness", packagePath, "artifacts", "oversized.bin")),
+      existsSync(path.join(root, packagePath, "artifacts", "oversized.bin")),
       false,
       "a refused source must not appear as an accepted artifact",
     );
@@ -723,9 +725,11 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
       locatorKinds: ["repository-path"],
     };
     // Kind authoring is the same CLI surface an Agent uses on deli-ai-lab: one declaration file,
-    // read by the CLI and submitted through the center's own `vertical-kind-upsert` action.
-    const kindFile = path.join(parent, "release-runbook-kind.json");
-    writeFileSync(kindFile, `${JSON.stringify(kindDeclaration, null, 2)}\n`);
+    // read by the CLI and submitted through the center's own `vertical-kind-upsert` action. The
+    // declaration is workspace-relative like every other --from-file input; an outside path is
+    // rejected before the daemon sees it.
+    const kindFile = "release-runbook-kind.json";
+    writeFileSync(path.join(root, kindFile), `${JSON.stringify(kindDeclaration, null, 2)}\n`);
     const upserted = run(root, userRoot, [
       "vertical",
       "kind",
