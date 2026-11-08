@@ -32,6 +32,7 @@ import type {
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { SqliteStorageBackendConfig } from "../storage-backend.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import { legacyDispatchLifecycleMigrationSessions } from "./dispatch-lifecycle-migration-index.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 import { createDurableFollowerPublisher } from "./durable-follower-publisher.ts";
 import { publishFollowerCut } from "./task-event-store-git-refs.ts";
@@ -131,15 +132,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       // candidates would silently lose old groups, so let the attach caller use its canonical
       // fallback unless this cache is a complete cut.
       if (projectionHead !== sqlite.revision()) return undefined;
-      const candidateSessions = db
-        .prepare(
-          "SELECT runtime_session_id FROM runtime_session WHERE " +
-            "json_extract(value_json, '$.outcome') IS NULL OR " +
-            "json_extract(value_json, '$.outcome.attempt.fallbackState') = 'scheduled' OR " +
-            "json_extract(value_json, '$.outcome.attempt.classification') = 'awaiting_ruling'",
-        )
-        .all()
-        .map((row) => String(row.runtime_session_id));
+      const candidateSessions = legacyDispatchLifecycleMigrationSessions(db);
       if (candidateSessions.length === 0) return [];
       const groupIds = db
         .prepare(

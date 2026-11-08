@@ -566,6 +566,21 @@ export interface AttachMigrationReport {
 
 const attachMigrationBatchSize = 256;
 
+function readAppliedMigrationNames(store: CanonicalEventStore): Set<EventShapeMigrationName> {
+  return new Set(
+    attachMigrationRegistry.flatMap((entry) => {
+      // `dispatch-lifecycle-import` has its own registry kind because it is derived from
+      // runtime history, but it records the same event-shape marker as every other attach
+      // migration. Keep it in this single marker lookup so a second attach is a no-op.
+      if (entry.kind === "read-conclusion") return [];
+      const event = store.readEvent(`upgrade-${entry.name.replaceAll(".", "-")}`);
+      return event !== null && isEventShapeMigrationEvent(event) && event.payload.migration === entry.name
+        ? [entry.name]
+        : [];
+    }),
+  );
+}
+
 /** Apply all pending historical shape upgrades before a projection is opened. */
 export function applyAttachMigrations(input: {
   readonly store: CanonicalEventStore;
@@ -573,14 +588,7 @@ export function applyAttachMigrations(input: {
   readonly actor?: ActorIdentity;
   readonly onProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }): AttachMigrationReport {
-  const applied = new Set(
-      attachMigrationRegistry.flatMap((entry) => {
-        if (entry.kind === "read-conclusion") return [];
-        const { name } = entry;
-        const event = input.store.readEvent(`upgrade-${name.replaceAll(".", "-")}`);
-        return event !== null && isEventShapeMigrationEvent(event) && event.payload.migration === name ? [name] : [];
-      }),
-    ),
+  const applied = readAppliedMigrationNames(input.store),
     pending = attachMigrationRegistry.filter(
       (entry): entry is Extract<AttachMigrationRegistryEntry, { readonly kind: "event-migration" }> =>
         entry.kind === "event-migration" && !applied.has(entry.name),
