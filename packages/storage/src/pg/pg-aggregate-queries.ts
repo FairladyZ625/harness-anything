@@ -10,7 +10,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/workspace-summary.ts";
 import { publicRuntimeSession } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
-import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
+import { canonicalJson, hashCanonicalJsonTextFieldChunksAsync } from "../projection/rebuildable-task-projection-sql.ts";
 import { decodePageCursor, encodePageCursor, checkedPageLimit } from "../projection/task-query-projection.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
@@ -22,6 +22,9 @@ import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
 export type PgAggregateQueries = AsyncQueries<"readWorkspaceSummary" | "readTaskRuntimeBatch" | "readStateDigest">;
+const stateDigestChunkBytes = 1024 * 1024;
+const stateDigestChunkCharacters = stateDigestChunkBytes / 4;
+
 export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAggregateQueries {
   const { scope, repoId } = options,
     readers = [...(scope.readers ?? [])],
@@ -121,6 +124,10 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
         let digest = sha256Text("pg-task-projection-state/v1");
         for (const table of PG_PROJECTION_AUDIT_TABLES.filter((name) => name !== "ha_projection_meta")) {
           digest = sha256Text(`${digest}\n${table}`);
+          if (table === "ha_projection_values") {
+            digest = await digestPgProjectionValues(client, scope, readers, digest);
+            continue;
+          }
           const stored = pgProjectionStoredRows(table);
           const result = await client.query<{ row_value: Record<string, unknown> }>(
             `SELECT (${stored.row}) - ARRAY['tenant_id','project_id','policy_epoch','readers'] AS row_value FROM ${stored.from}
@@ -142,4 +149,74 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
         return `sha256:${digest}` as ReturnType<TaskProjectionQueries["readStateDigest"]>;
       }),
   };
+}
+
+async function digestPgProjectionValues(
+  client: PoolClient,
+  scope: PgTaskProjectionSourceOptions["scope"],
+  readers: readonly string[],
+  previousDigest: string,
+): Promise<string> {
+  const rowWithoutScope = "to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers']",
+    rowWithoutScopeAndValue = `${rowWithoutScope} - 'value'`,
+    result = await client.query<{
+      row_value: Record<string, unknown>;
+      value_part: string | null;
+      value_bytes: number;
+      value_characters: number | null;
+      model: string;
+      owner_id: string;
+      entity_id: string;
+    }>(
+      `SELECT ${rowWithoutScopeAndValue} AS row_value,
+         CASE WHEN octet_length(projection.value) <= $5 THEN projection.value END AS value_part,
+         octet_length(projection.value) AS value_bytes,
+         CASE WHEN octet_length(projection.value) > $5 THEN char_length(projection.value) END AS value_characters,
+         projection.model, projection.owner_id, projection.entity_id
+       FROM ha_projection_values projection
+       WHERE projection.tenant_id=$1 AND projection.project_id=$2 AND projection.policy_epoch=$3
+         AND (cardinality($4::text[])=0 OR projection.readers && $4::text[])
+       ORDER BY (${rowWithoutScope})::text`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, readers, stateDigestChunkBytes],
+    );
+  let digest = previousDigest;
+  for (const row of result.rows) {
+    async function* readValueChunks(): AsyncIterable<Uint8Array> {
+      if (row.value_bytes <= stateDigestChunkBytes) {
+        yield Buffer.from(row.value_part ?? "", "utf8");
+        return;
+      }
+      for (let offset = 0; offset < (row.value_characters ?? 0); offset += stateDigestChunkCharacters) {
+        const chunk = await client.query<{ value_chunk: string }>(
+          `SELECT substring(value FROM $8 FOR $9) AS value_chunk
+           FROM ha_projection_values
+           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+             AND (cardinality($4::text[])=0 OR readers && $4::text[])
+             AND model=$5 AND owner_id=$6 AND entity_id=$7`,
+          [
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            readers,
+            row.model,
+            row.owner_id,
+            row.entity_id,
+            offset + 1,
+            stateDigestChunkBytes,
+          ],
+        );
+        const valueChunk = chunk.rows[0]?.value_chunk;
+        if (valueChunk === undefined)
+          throw new Error(`projection value ${row.model}/${row.entity_id} disappeared during state digest`);
+        yield Buffer.from(valueChunk, "utf8");
+      }
+    }
+    digest = await hashCanonicalJsonTextFieldChunksAsync(
+      digest,
+      { ...row.row_value, value: "" },
+      "value",
+      readValueChunks(),
+    );
+  }
+  return digest;
 }

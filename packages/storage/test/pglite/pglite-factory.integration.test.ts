@@ -11,6 +11,7 @@ import { assertCanonicalFactoryLifecycle } from "../canonical-factory.assertions
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
+import { docBundle } from "../store/task-event-store.fixtures.ts";
 
 pgliteIntegrationSuite("PGlite synchronous factories", () => {
   test("canonical, projection and independent readers share one durable owner", async () => {
@@ -103,6 +104,39 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
           scope: { tenantId: "epoch", projectId: "epoch", policyEpoch: 1 },
         },
       });
+    });
+  });
+  test("PGlite state digest streams document values larger than its read chunk", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      const repoId = "pglite-state-digest",
+        storage = {
+          backend: "pglite" as const,
+          dataDir: join(rootDir, "database"),
+          materialize: false,
+          scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1 },
+        },
+        store = makeTaskEventStore({ repoId, rootDir, storage }),
+        projection = makeTaskProjection({ rootDir, eventStore: store, storage });
+      try {
+        const revision = (store.readHead()?.revision ?? 0) + 1;
+        store.append(
+          docBundle(
+            store,
+            "😀".repeat(300_000),
+            revision,
+            "state-digest-large-document",
+            "tasks/task-digest/artifacts/large.md",
+          ),
+        );
+        const rebuilt = await projection.catchUpAsync!();
+        assert.equal(rebuilt.watermark, revision);
+        const digest = await projection.readStateDigest();
+        assert.match(digest!, /^sha256:[a-f0-9]{64}$/u);
+        assert.equal(await projection.readStateDigest(), digest);
+      } finally {
+        projection.close();
+        await store.drain();
+      }
     });
   });
 });
