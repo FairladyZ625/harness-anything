@@ -80,6 +80,7 @@ import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { statusWordRegister } from "./status-word-register.ts";
 import { authoredDocumentStatusVocabularies } from "./status-word-register-authored-document.ts";
+import { dispatchAttemptPhases, dispatchCapacityDispositions, dispatchGroupPhases } from "./dispatch-lifecycle.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 
@@ -151,6 +152,30 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/daemon/src/dispatch-stream.ts",
     anchor: "#fallbackState",
     words: ["scheduled", "exhausted"],
+  },
+  {
+    id: "dispatch.group-phase",
+    entity: "Dispatch",
+    field: "group phase",
+    module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
+    anchor: "dispatchGroupPhases",
+    words: dispatchGroupPhases,
+  },
+  {
+    id: "dispatch.attempt-phase",
+    entity: "Dispatch",
+    field: "attempt phase",
+    module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
+    anchor: "dispatchAttemptPhases",
+    words: dispatchAttemptPhases,
+  },
+  {
+    id: "dispatch.capacity-disposition",
+    entity: "Dispatch",
+    field: "capacity disposition",
+    module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
+    anchor: "dispatchCapacityDispositions",
+    words: dispatchCapacityDispositions,
   },
   {
     id: "runtime-session.fallbackState",

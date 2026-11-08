@@ -14,6 +14,7 @@ import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import type { LeaseV1 } from "../domain/execution.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
+import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "../domain/dispatch-lifecycle.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import type {
   ArtifactTimelineQuery,
@@ -359,6 +360,8 @@ export interface TaskProjection {
   readonly readSettingsEvent: () => SettingsEventV1 | null;
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
+  /** The single dispatch lifecycle read port (dec_AEB05951C69E47FCE53E53C341 CH2). */
+  readonly readDispatchLifecycle: (query: DispatchLifecycleQuery) => DispatchLifecycleRead;
   readonly admitFact: (event: FactEventV1) => void;
   readonly readFact: (factId: string) => FactProjectionRead;
   readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;
