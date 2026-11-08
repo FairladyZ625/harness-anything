@@ -74,6 +74,12 @@ function containsLoop(node, visitorKeys) {
 // files concurrently on 4-core runners where work units measured 3-4x their uncontended duration.
 const watchdogFloorMs = 20_000;
 
+// The squad fixture measured 4-11 s without contention and 47.6 s at the required 16-thread load.
+// Four times the 11 s uncontended maximum is the minimum hang guard (44 s); the fixture uses 60 s to
+// cover the measured contention envelope. This is a watchdog floor, never a correctness deadline.
+const contentionWatchdogFile = /packages\/daemon\/test\/task-squad-orchestration\.integration\.test\.(?:ts|mjs)$/u;
+const contentionWatchdogFloorMs = 44_000;
+
 // A watchdog is a timer whose callback only ends the test as failed: it rejects, throws, fails an
 // assertion or aborts. It bounds a hang and never decides what the process under test should be
 // doing. Any other timer callback (resolve a sleep, send the child a message, destroy a socket,
@@ -180,6 +186,14 @@ export default {
       },
       CallExpression(node) {
         const name = callName(node.callee);
+        if (integration && name === "test" && contentionWatchdogFile.test(normalized(context.filename, cwd))) {
+          const options = node.arguments.find((argument) => argument.type === "ObjectExpression");
+          const timeout = options?.properties.find(
+            (property) =>
+              property.type === "Property" && property.key.type === "Identifier" && property.key.name === "timeout",
+          )?.value;
+          if (milliseconds(timeout) < contentionWatchdogFloorMs) report(node, "contention-watchdog");
+        }
         if (integration && (name === "setInterval" || name === "setTimeout")) {
           // A fail-only timer whose delay resolves below the floor is a speed assertion, not a hang guard.
           if (!isWatchdog(node.arguments[0], context.sourceCode.visitorKeys)) report(node, "scheduled-timer");

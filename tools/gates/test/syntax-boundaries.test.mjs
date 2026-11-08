@@ -118,8 +118,8 @@ test("G3 rejects short timers and loop waits while accepting event-driven waits"
 test("G3 integration lane rejects wall-clock deadlines, scheduled timers and self-written polls", () => {
   const integration = { integration: true },
     filename = "packages/example/test/new.integration.test.mjs",
-    kinds = (source) =>
-      lint(noPollSpin, source, integration, filename).map((message) => /#([a-z-]+)$/u.exec(message.message)?.[1]);
+    kinds = (source, options = integration, name = filename) =>
+      lint(noPollSpin, source, options, name).map((message) => /#([a-z-]+)$/u.exec(message.message)?.[1]);
   assert.deepEqual(
     kinds(
       "async function run() { const deadline = performance.now() + 5000; while (!ready() && performance.now() < deadline) await next(); }",
@@ -147,6 +147,22 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
   ]);
   assert.deepEqual(kinds("setTimeout(() => controller.abort(), 60_000);"), []);
   assert.deepEqual(kinds("test('x', { timeout: 30_000 }, async () => { await child.exited; });"), []);
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: 30_000 }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: 60_000 }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    [],
+  );
   assert.deepEqual(kinds("async function waitForReady() { for (;;) { if (await ready()) return; } }"), ["self-poll"]);
   assert.deepEqual(
     kinds(

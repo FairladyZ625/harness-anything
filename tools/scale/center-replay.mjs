@@ -5,6 +5,7 @@ import { daemonHelloParams } from "../../packages/daemon/src/client/daemon-hello
 import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { requestAccumulator, replaySchedule } from "./center-model.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
+import { waitForArrival } from "../fixtures/event-arrival.ts";
 let nextReplayId = 0;
 
 // Bindings are workload choices, not copies of the action catalog. Unbound commands fail before load starts.
@@ -114,9 +115,18 @@ export async function replayTraffic({
   const sessions = new Map(),
     observeCursors = new Map(),
     observeBootstraps = new Map(),
-    observePolls = { history: 0, follow: 0 },
+    observeArrivals = [],
+    observeWakeups = new Set(),
     pending = new Set(),
     accumulator = requestAccumulator();
+  const subscribeObserve = (arrive) => {
+      observeWakeups.add(arrive);
+      return () => observeWakeups.delete(arrive);
+    },
+    recordObserveArrival = (node, direction) => {
+      observeArrivals.push({ node, direction });
+      for (const arrive of observeWakeups) arrive();
+    };
   const started = performance.now();
   const traceTag = `center-bench-trace-${++nextReplayId}`;
   let serial = 0,
@@ -133,6 +143,7 @@ export async function replayTraffic({
       key = `${row.node}:${row.connection}`;
     let ok = false,
       code = null,
+      observeDirection = null,
       releaseBootstrap = null,
       bootstrap = null;
     try {
@@ -174,13 +185,14 @@ export async function replayTraffic({
           });
           observeBootstraps.set(row.node, bootstrap);
         }
-        observePolls[params.payload.direction]++;
+        observeDirection = params.payload.direction;
       }
       const result =
         row.method === "protocol.hello" ? session.helloResult : await client.request(row.method, params, timeoutMs);
       if (managedObserve && result.liveCursor) observeCursors.set(row.node, result.liveCursor);
       ok = result.ok !== false && !["op_rejected", "indeterminate"].includes(result.outcome);
       code = ok ? null : (result.code ?? result.error?.code ?? result.outcome ?? "request_failed");
+      if (managedObserve && ok) recordObserveArrival(row.node, observeDirection);
     } catch (error) {
       code = error.code ?? error.message;
     } finally {
@@ -235,13 +247,30 @@ export async function replayTraffic({
       if (serial % 128 === 0) await new Promise((resolve) => setImmediate(resolve));
     }
     await Promise.all(pending);
+    const observeRequestsByNode = new Map();
+    for (const row of window) {
+      if (row.method !== "observe.tail" || (bindings[`${row.method}:${row.command}`] ?? bindings[row.method])) continue;
+      for (let node = 0; node < nodes; node++)
+        observeRequestsByNode.set(node, (observeRequestsByNode.get(node) ?? 0) + 1);
+    }
+    await Promise.all(
+      [...observeRequestsByNode].flatMap(([node, count]) =>
+        ["history", ...(count > 1 ? ["follow"] : [])].map((direction) =>
+          waitForArrival(
+            () =>
+              observeArrivals.some((arrival) => arrival.node === node && arrival.direction === direction) ? true : null,
+            subscribeObserve,
+          ),
+        ),
+      ),
+    );
     const elapsedMs = performance.now() - started;
     return {
       nodes,
       traceTag,
       elapsedMs,
       implicitHellos,
-      observePolls,
+      observeArrivals,
       maxInFlightObserved: highWater,
       plannedMethods: Object.fromEntries(
         [...new Set(window.map((row) => row.method))].map((method) => [

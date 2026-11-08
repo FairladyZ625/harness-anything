@@ -304,6 +304,24 @@
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
       },
       {
+        "key": "packages/daemon/test/daemon-diagnostics.integration.test.ts#until#clock-deadline",
+        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
+        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
+        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
+      },
+      {
+        "key": "packages/daemon/test/daemon-diagnostics.integration.test.ts#until#clock-loop",
+        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
+        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
+        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
+      },
+      {
+        "key": "packages/daemon/test/daemon-diagnostics.integration.test.ts#until#self-poll",
+        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
+        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
+        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
+      },
+      {
         "key": "packages/daemon/test/daemon-resident-readoption.integration.test.ts#<module>#scheduled-timer",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
