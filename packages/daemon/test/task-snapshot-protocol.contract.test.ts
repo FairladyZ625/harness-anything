@@ -549,6 +549,38 @@ test("task snapshot protocol keeps a writer-validated node review dispatch inten
   assert.equal(isolateDaemonTaskSnapshotRows([malformed]).invalidRows[0]?.field, "rows[0].snapshot.task");
 });
 
+test("task snapshot protocol carries a validated node review dispatch failure", () => {
+  const valid = {
+    ...row,
+    snapshot: {
+      ...row.snapshot,
+      task: {
+        ...gapTask,
+        reviewDispatchFailure: {
+          executionId: "execution-review-failure",
+          dispatchKey: "review-key-failure",
+          code: "runtime_spawn_failed",
+          message: "The edge node could not start the reviewer.",
+          failedAt: "2026-11-07T00:00:00.000Z",
+        },
+      },
+    },
+  };
+  assert.deepEqual(isolateDaemonTaskSnapshotRows([valid]), { rows: [valid], invalidRows: [] });
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [valid] }), []);
+  const malformed = {
+    ...valid,
+    snapshot: {
+      ...valid.snapshot,
+      task: {
+        ...valid.snapshot.task,
+        reviewDispatchFailure: { ...valid.snapshot.task.reviewDispatchFailure, failedAt: "not-a-date" },
+      },
+    },
+  };
+  assert.equal(isolateDaemonTaskSnapshotRows([malformed]).invalidRows[0]?.field, "rows[0].snapshot.task");
+});
+
 test("task snapshot protocol isolates a malformed presetSnapshotGap", () => {
   for (const [label, gap] of [
     ["wrong reason", { reason: "bytes-missing", sourceGeneration: 2, sourceRevision: 41344 }],

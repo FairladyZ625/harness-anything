@@ -76,11 +76,12 @@ export async function evaluateRepoCellAction(input: {
       policyAction,
     );
   const credential = input.binding.keycloakAuthorization;
-  if (!credential)
+  if (!credential) {
     return authorizeRepoCellAction({
       ...input,
       binding: { ...input.binding, authorizationDecision: undefined },
     });
+  }
   if (input.binding.executionPrincipal) {
     if (!credential.center) throw executionCredentialRejected();
     try {

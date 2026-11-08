@@ -91,7 +91,13 @@ export {
   taskClasses,
   validateTaskV2,
 } from "./domain/task.ts";
-export type { TaskClass, TaskMetadataV1, TaskReviewDispatchIntentV1, TaskV2 } from "./domain/task.ts";
+export type {
+  TaskClass,
+  TaskMetadataV1,
+  TaskReviewDispatchFailureV1,
+  TaskReviewDispatchIntentV1,
+  TaskV2,
+} from "./domain/task.ts";
 export {
   isTaskBootstrapEvent,
   taskBootstrapWritePlan,

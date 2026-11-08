@@ -74,6 +74,16 @@ test("Task/v2 does not store a worktree binding: every reader derives it", () =>
       reviewDispatchIntent: {
         executionId: "execution-review-intent",
         reviewerId: "reviewer-one",
+      },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    validateTaskV2({
+      ...task,
+      reviewDispatchIntent: {
+        executionId: "execution-review-intent",
+        reviewerId: "reviewer-one",
         fast: "yes",
       },
     }),

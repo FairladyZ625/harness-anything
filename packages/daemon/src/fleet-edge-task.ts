@@ -144,8 +144,8 @@ export async function forwardRegisteredFleetAction(input: {
   // center-authorized command adapter as the other authored writes.
   const descriptor = commandDescriptorForAction(input.action.kind);
   if ("path" in descriptor && descriptor.path[0] === "doc" && descriptor.id !== "doc-retire") return null;
-  // A verified runtime identity cannot be replaced by the person's interactive session.
-  // Its CLI already carries the execution secret through daemon.fleet.task.run.
+  // Keep the execution grant and the signed-in person together: the center enforces runtime
+  // scope and AuthorizationPort independently evaluates the person's policy grants.
   if (input.auth.executionPrincipal && !input.auth.executionCredential) throw executionCredentialRejected();
   if (getExecutableEntityAction(input.action.kind)?.target.kind === "schedule") {
     // This existing Schedule port binds an interactive person; it cannot relay a runtime secret.
@@ -157,8 +157,15 @@ export async function forwardRegisteredFleetAction(input: {
       action: input.action as JsonObject,
     })) as unknown as WriteReceiptDraft;
   }
-  const bound = input.auth.executionPrincipal ? input.auth : await input.oidc.bind(input.auth, workspaceRoot),
-    personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
+  const executionPersonId = input.auth.executionPrincipal?.personId,
+    bindPersonSession = async () => {
+      const session = await input.oidc.bind(input.auth, workspaceRoot),
+        personId = localDefaultBinding(session).actor.principal.personId;
+      if (executionPersonId && executionPersonId !== personId) throw executionCredentialRejected();
+      return session;
+    },
+    bound = await bindPersonSession(),
+    personId = executionPersonId ?? localDefaultBinding(bound).actor.principal.personId;
   const receipt = await runFleetEdgeTask(
     {
       payload: {
@@ -169,10 +176,7 @@ export async function forwardRegisteredFleetAction(input: {
         action: input.action as FleetTaskAction,
       },
     },
-    async () =>
-      input.auth.executionPrincipal
-        ? undefined
-        : (await input.oidc.bind(input.auth, workspaceRoot)).oidcPrincipal?.accessToken,
+    async () => (await bindPersonSession()).oidcPrincipal?.accessToken,
     "domain",
   );
   // The repository RPC assembles its own envelope around the center's domain receipt.

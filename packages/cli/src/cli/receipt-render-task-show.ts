@@ -7,6 +7,7 @@ export function renderTaskShow(
   if (!payload || !isRecord(payload.task)) return null;
   const gates = Array.isArray(payload.task.completionGateIds) ? payload.task.completionGateIds : [],
     blocker = isRecord(payload.completionBlocker) ? payload.completionBlocker : null,
+    reviewDispatchFailure = isRecord(payload.task.reviewDispatchFailure) ? payload.task.reviewDispatchFailure : null,
     // The same judgment task complete rejects with: the daemon already resolves reason and action
     // once, so the read side prints that guidance instead of a bare gate code. A ready cut keeps
     // `completionNext` while the blocker is null: that is its `ha task complete` step.
@@ -15,6 +16,9 @@ export function renderTaskShow(
     action = next === null ? null : nonEmptyText(next.action);
   return [
     `status: ${String(payload.task.status)}`,
+    ...(reviewDispatchFailure === null
+      ? []
+      : [`review dispatch failed: ${String(reviewDispatchFailure.code)}; ${String(reviewDispatchFailure.message)}`]),
     `graph cursor: ${String(payload.task.currentNode)}`,
     ...executionLines(payload),
     ...(Array.isArray(payload.reworkTargets)

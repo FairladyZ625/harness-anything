@@ -90,17 +90,20 @@ export function nodeReviewDispatchCandidate(
       : reviewSeatForCut({ cell, execution, taskReviewer: snapshot.task.reviewer });
   if (selection.kind === "escalated") return null;
   const { reviewerId } = selection.seat,
-    resolved = readAgentDeclarationResolution({
-      rootDir: cell.rootDir,
-      agentId: reviewerId,
-      entityStore: createEntityStore(cell.store),
-    });
+    dispatchKey = reviewDispatchKey(input.taskId, execution, reviewerId),
+    failure = snapshot.task.reviewDispatchFailure,
+    { key, ids, existing } = reviewDispatchAttempt(cell, dispatchKey);
+  if (failure?.executionId === execution.executionId && failure.dispatchKey === key) return null;
+  const resolved = readAgentDeclarationResolution({
+    rootDir: cell.rootDir,
+    agentId: reviewerId,
+    entityStore: createEntityStore(cell.store),
+  });
   if (!resolved) return null;
   const { declaration: agent, layer } = resolved,
     intentModel = intent?.model;
   if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof intentModel !== "string")
     return null;
-  const { key, ids, existing } = reviewDispatchAttempt(cell, reviewDispatchKey(input.taskId, execution, reviewerId));
   if (existing !== null || activeCutReviewDispatches(cell, input.taskId, execution).length > 0) return null;
   const seatPrompt = selection.seat.source === "path" ? `\n${reviewPathSeatPrompt({ seat: selection.seat })}` : "";
   const payload = {
@@ -1149,7 +1152,10 @@ export async function dispatchTaskReview(
         {
           kind: "task-amend",
           taskId,
-          patches: [{ field: "reviewDispatchIntent", value: JSON.stringify(intent) }],
+          patches: [
+            { field: "reviewDispatchIntent", value: JSON.stringify(intent) },
+            { field: "reviewDispatchFailure", value: "null" },
+          ],
         },
         binding,
       );
@@ -1161,7 +1167,13 @@ export async function dispatchTaskReview(
         );
         continue;
       }
-      steps.push({ taskId, executionId: execution.executionId, requiredNodeId: placement.nodeId, outcome: "pending" });
+      steps.push({
+        taskId,
+        executionId: execution.executionId,
+        requiredNodeId: placement.nodeId,
+        agentId: reviewerId,
+        outcome: "pending",
+      });
       warnings.push(`Task ${taskId} review is pending on implementation node ${placement.nodeId}.`);
       continue;
     }

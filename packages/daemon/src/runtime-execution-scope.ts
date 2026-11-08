@@ -107,7 +107,9 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     Array.isArray(action.patches) &&
     action.patches.some(
       (patch) =>
-        patch !== null && typeof patch === "object" && (patch as { readonly field?: unknown }).field === "surfaces",
+        patch !== null &&
+        typeof patch === "object" &&
+        ["surfaces", "reviewDispatchFailure"].includes(String((patch as { readonly field?: unknown }).field)),
     )
   )
     throw executionCredentialRejected("self-approval");

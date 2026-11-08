@@ -23,6 +23,8 @@ export interface IdentityAuthenticationContext {
   readonly localSessionAccessToken?: () => Promise<string>;
   /** Daemon-owned identity for an unreachable renewal, usable only in a server-selected edge replica read. */
   readonly replicaReadPrincipal?: { readonly personId: string; readonly sessionExpiresAt: number | null };
+  /** Current replica-read request's session was rejected or had reached its local deadline. */
+  readonly replicaReadDenied?: boolean;
   /** Center service authority for evaluating a person who holds no token here; attached by the host only. */
   readonly keycloakCenter?: (rejectedAccessToken?: string) => Promise<{
     readonly url: string;

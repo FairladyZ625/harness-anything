@@ -1,7 +1,13 @@
-import { createFleetMemberDeviceLink, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
+import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
+import { runFleetEdgeTask } from "./fleet-edge-task.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
-import type { FleetDeviceLoginNotice, IdentityManagementPort, IdentitySessionPort } from "@harness-anything/kernel";
+import type {
+  FleetDeviceLoginNotice,
+  IdentityManagementPort,
+  IdentitySessionPort,
+  TaskReviewDispatchFailureV1,
+} from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
@@ -148,8 +154,7 @@ import { createIdentitySession } from "./authorization-provider.ts";
 import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
-import { requestFleetReplicaToken, resolveFleetReplicaAuthority } from "./fleet/replica-token.ts";
-import { systemCaCertificates } from "./tls-ca-certificate.ts";
+import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
@@ -341,9 +346,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           "execution_credential_rejected",
           "Execution credential belongs to a different repository.",
         );
-      const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth, rootDir));
+      const {
+        executionCredential: _executionCredential,
+        executionPrincipal: _executionPrincipal,
+        ...operatorAuth
+      } = auth;
+      const deviceSession = await hostBinding(rootDir, operatorAuth, executor, undefined, replicaRead);
       if (deviceSession.actor.principal.personId !== execution.personId) throw executionCredentialRejected();
       const base = {
+        ...deviceSession,
         actor: runtimeExecutionActor(execution),
         source: execution.source,
         sourceNodeId:
@@ -354,11 +365,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         writerEpoch: auth.writerEpoch,
         withWriterEpochFence: auth.withWriterEpochFence,
         writerEpochFence: auth.writerEpochFence,
-        ...(cell.status().mode === "remote-edge"
-          ? {}
-          : {
-              keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
-            }),
       };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     }
@@ -535,9 +541,67 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           ),
           { code: typeof receipt.code === "string" ? receipt.code : "node_auto_dispatch_failed" },
         );
-      await runtime.awaitCanonicalRuntimeSessions({ runtimeSessionIds: [runtimeSessionId], mode: "all" }, signal);
+      return {
+        completion: runtime
+          .awaitCanonicalRuntimeSessions({ runtimeSessionIds: [runtimeSessionId], mode: "all" }, signal)
+          .then(() => undefined),
+      };
+    },
+    onFailure: async (candidate, error) => {
+      if (candidate.kind !== "review") return;
+      const rawCode = runtimeErrorCode(error),
+        failure = {
+          executionId: candidate.executionId,
+          dispatchKey: candidate.dispatchKey,
+          code: rawCode && /^[a-z][a-z0-9_]{0,79}$/u.test(rawCode) ? rawCode : "node_auto_dispatch_failed",
+          message:
+            `Node ${candidate.requiredNodeId} could not start the automatic reviewer. ` +
+            `Ask the task owner to retry with ha task dispatch-review ${candidate.taskId}.`,
+          failedAt: now(),
+        };
+      await writeNodeReviewDispatchFailure(candidate, failure);
+    },
+    onSuccess: async (candidate) => {
+      if (candidate.kind === "review") await writeNodeReviewDispatchFailure(candidate, null);
     },
   });
+  async function writeNodeReviewDispatchFailure(
+    candidate: NodeAutoDispatchCandidate,
+    failure: TaskReviewDispatchFailureV1 | null,
+  ): Promise<void> {
+    const repo = autoClaimRepos().find((value) => value.repoId === candidate.repoId);
+    if (!repo) throw new Error(`auto-dispatch repository ${candidate.repoId} is unavailable`);
+    const edge = readFleetEdgeConfig(repo.rootDir);
+    if (!edge || edge.repoId !== repo.repoId || edge.nodeId !== candidate.requiredNodeId)
+      throw new Error(`auto-dispatch node ${candidate.requiredNodeId} is unavailable`);
+    const owner = await hostBinding(repo.rootDir, { transportKind: "unix-socket" }),
+      session = await oidc.bind({ transportKind: "unix-socket" }, repo.rootDir),
+      accessToken = session.localSessionAccessToken
+        ? await session.localSessionAccessToken()
+        : session.oidcPrincipal?.accessToken;
+    if (!accessToken) throw new Error("The edge owner must sign in before recording review-dispatch state.");
+    const receipt = await runFleetEdgeTask(
+      {
+        payload: {
+          ...edge,
+          caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
+          viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
+          principalId: owner.actor.principal.personId,
+          action: {
+            kind: "task-amend",
+            taskId: candidate.taskId,
+            patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
+          },
+        },
+      },
+      async () => accessToken,
+      "domain",
+    );
+    if (!["applied", "no_changes"].includes(String(receipt.outcome)))
+      throw Object.assign(new Error(`The center rejected review-dispatch state for task ${candidate.taskId}.`), {
+        code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
+      });
+  }
   function edgeRuntimeFor(request: FleetEdgeRuntimeRequest["payload"]): ReturnType<typeof openFleetEdgeRuntime> {
     const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
       runtime =
@@ -1327,50 +1391,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       replicaSyncControllers.set(repo.repoId, { controller, config: connection });
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
-      let replicaLoginAuthority: ReturnType<typeof resolveFleetReplicaAuthority> | undefined;
-      const task = runFleetReplicaSync({
-        readAccessToken: async () => {
-          let userToken: string | undefined;
-          try {
-            const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
-            userToken = auth.localSessionAccessToken
-              ? await auth.localSessionAccessToken()
-              : auth.oidcPrincipal?.accessToken;
-          } catch (error) {
-            const errorCode =
-              typeof error === "object" && error !== null && "code" in error
-                ? (error as { readonly code?: unknown }).code
-                : undefined;
-            if (errorCode !== "authentication_required") throw error;
-            consumeKnownError(error);
-          }
-          if (userToken) return userToken;
-          if (replicaLoginAuthority === undefined) {
-            const centerAuthority =
-              config.loginUrl && !config.loginRealm
-                ? await readFleetLoginAuthorityClient({
-                    hostname: config.host,
-                    port: config.port,
-                    ca: readFileSync(caPath),
-                    ...(config.servername ? { servername: config.servername } : {}),
-                    nodeId: config.nodeId,
-                    credential: config.credential,
-                  })
-                : null;
-            replicaLoginAuthority = resolveFleetReplicaAuthority(config, centerAuthority);
-          }
-          const loginAuthority = replicaLoginAuthority;
-          if (loginAuthority)
-            return requestFleetReplicaToken({
-              url: loginAuthority.url,
-              realm: loginAuthority.realm,
-              nodeId: config.nodeId,
-              credential: config.credential,
-              ca: loginAuthority.certificate ?? config.loginCertificate ?? systemCaCertificates(),
-              ...(config.loginServername ? { servername: config.loginServername } : {}),
-            });
-          return undefined;
+      const readAccessToken = createFleetReplicaAccessTokenReader({
+        config,
+        workspaceRoot: rootDir,
+        readUserAccessToken: async () => {
+          const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
+          return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
         },
+      });
+      const task = runFleetReplicaSync({
+        readAccessToken,
         hostname: config.host,
         port: config.port,
         ca: readFileSync(caPath),

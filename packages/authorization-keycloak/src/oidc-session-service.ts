@@ -67,6 +67,8 @@ interface PendingDeviceLogin {
 interface SessionUse {
   readonly session: StoredSession | undefined;
   readonly unavailable?: Error;
+  readonly rejected?: boolean;
+  readonly expired?: boolean;
 }
 
 interface CenterToken {
@@ -617,9 +619,11 @@ export class OidcSessionService {
     }
     const { sessionStore } = await this.#centerIdentity(loginTarget),
       generation = this.#sessionGeneration,
-      { session, unavailable } = await this.#use(sessionStore);
+      { session, unavailable, rejected, expired } = await this.#use(sessionStore);
+    if (replicaRead && (rejected || expired)) return { ...auth, replicaReadDenied: true };
     if (!session || generation !== this.#sessionGeneration) return auth;
-    if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) return auth;
+    if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now())
+      return { ...auth, replicaReadDenied: true };
     if (unavailable) {
       if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
         return auth;
@@ -1116,11 +1120,14 @@ export class OidcSessionService {
         session:
           session.sessionExpiresAt === null || session.sessionExpiresAt > this.#ports.now() ? session : undefined,
         unavailable: response,
+        ...(session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()
+          ? { expired: true }
+          : {}),
       };
     // Keycloak answers 400 once the session sat idle past its lifetime, was signed out, or had its token revoked.
     if (response.status === 400) {
       sessionStore.delete();
-      return { session: undefined };
+      return { session: undefined, rejected: true };
     }
     if (!response.ok)
       return {
