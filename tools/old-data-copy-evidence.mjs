@@ -756,10 +756,35 @@ try {
     record("task-dispatches", { taskId: rows[0].taskId, count: dispatches.length ?? dispatchRows.length, sample: dispatchRows.slice(0, 3).map((row) => ({ dispatchId: row.dispatchId, outcome: row.outcome ?? null })) });
   }
   record("event-read", store.queryEvents({ limit: 3 }).map((event) => ({ schema: event.schema, type: event.type, revision: event.workspaceRevision })));
-  // Reads above may materialize a large in-memory catch-up state on a real ledger. Close that
-  // reader before the cold rebuild and open a fresh projection so the evidence run measures the
-  // production rebuild from a clean reader without retaining the first pass's event objects.
-  projection.close?.();
+} catch (error) {
+  record("fatal", { message: String(error instanceof Error ? error.message : error), stack: error instanceof Error ? (error.stack ?? null) : null });
+  process.exitCode = 1;
+} finally {
+  try {
+    projection?.close?.();
+  } catch (error) {
+    console.error(String(error instanceof Error ? error.message : error));
+  }
+}
+`;
+
+const COLD_REBUILD_RUNNER = String.raw`
+const { appendFileSync } = await import("node:fs");
+const path = await import("node:path");
+const { pathToFileURL } = await import("node:url");
+const toUrl = (p) => pathToFileURL(path.resolve(p)).href;
+const record = (step, value) => {
+  const line = JSON.stringify({ step, at: new Date().toISOString(), value });
+  appendFileSync(OUT_FILE, line + "\n");
+  console.log(line);
+};
+let projection = null;
+try {
+  const storage = await import(toUrl(path.join(BUILD_ROOT, "packages/storage/src/index.ts")));
+  const store = storage.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
+  // This runner is deliberately a fresh process: the direct production reads can retain a
+  // projection's event objects on a large ledger even after close(). A separate process keeps
+  // the cold rebuild's peak bounded without weakening the production rebuild path itself.
   projection = storage.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
   const startedAt = Date.now();
   const rebuilt = projection.rebuild();
@@ -771,8 +796,6 @@ try {
     metrics: rebuilt.metrics,
     elapsedMs: Date.now() - startedAt,
   });
-  const after = projection.readTaskIndex({ limit: 5 });
-  record("post-rebuild-task-index", { count: (after.rows ?? []).length, watermark: rebuilt.watermark });
 } catch (error) {
   record("fatal", { message: String(error instanceof Error ? error.message : error), stack: error instanceof Error ? (error.stack ?? null) : null });
   process.exitCode = 1;
@@ -792,6 +815,35 @@ async function runDirectEvidence(buildRoot, workspace, tempRoot, env, repoId) {
     runnerPath,
     `const OUT_FILE = ${JSON.stringify(outFile)};\nconst BUILD_ROOT = ${JSON.stringify(buildRoot)};\nconst WORKSPACE = ${JSON.stringify(workspace)};\nconst REPO_ID = ${JSON.stringify(repoId)};\n` +
       DIRECT_RUNNER,
+    "utf8",
+  );
+  const timeBinary = existsSync("/usr/bin/time") ? "/usr/bin/time" : null;
+  const command = timeBinary ?? process.execPath;
+  const args = timeBinary ? [process.platform === "darwin" ? "-l" : "-v", process.execPath, runnerPath] : [runnerPath];
+  const result = await run(command, args, { env, cwd: tempRoot });
+  const steps = existsSync(outFile)
+    ? readFileSync(outFile, "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    : [];
+  return {
+    status: result.status,
+    signal: result.signal ?? null,
+    steps,
+    peakRssBytes: timeBinary ? parsePeakRssBytes(result.stderr ?? "") : null,
+    stderr: result.stderr ?? "",
+  };
+}
+
+async function runColdRebuildEvidence(buildRoot, workspace, tempRoot, env, repoId) {
+  const outFile = path.join(tempRoot, "logs", "cold-rebuild.jsonl");
+  const runnerPath = path.join(tempRoot, "cold-rebuild-runner.mjs");
+  writeFileSync(
+    runnerPath,
+    `const OUT_FILE = ${JSON.stringify(outFile)};\nconst BUILD_ROOT = ${JSON.stringify(buildRoot)};\nconst WORKSPACE = ${JSON.stringify(workspace)};\nconst REPO_ID = ${JSON.stringify(repoId)};\n` +
+      COLD_REBUILD_RUNNER,
     "utf8",
   );
   const timeBinary = existsSync("/usr/bin/time") ? "/usr/bin/time" : null;
@@ -1026,16 +1078,27 @@ export async function main(argv, session = {}) {
       taskDispatches: byStep.get("task-dispatches")?.value ?? null,
       events: byStep.get("event-read")?.value ?? null,
     };
-    receipt.coldRebuild = byStep.get("cold-rebuild-receipt")?.value ?? null;
+    // Cold rebuild runs in a second process. The direct reader intentionally exercises the
+    // production read ports, while a fresh process prevents its large event graph from
+    // inflating the rebuild's peak RSS on the real ledger.
+    const cold = await runColdRebuildEvidence(build.root, workspace, tempRoot, env, receipt.source.repository);
+    const coldByStep = new Map(cold.steps.map((step) => [step.step, step]));
+    receipt.coldRebuild = coldByStep.get("cold-rebuild-receipt")?.value ?? null;
     receipt.peakRss = {
       daemonBytes: daemonPeakRss,
       daemonMethod: "ps -o rss= polled every 500ms",
-      rebuildBytes: direct.peakRssBytes,
-      rebuildMethod: direct.peakRssBytes === null ? null : "/usr/bin/time maximum resident set size",
+      directBytes: direct.peakRssBytes,
+      coldRebuildBytes: cold.peakRssBytes,
+      rebuildBytes: cold.peakRssBytes,
+      rebuildMethod: cold.peakRssBytes === null ? null : "/usr/bin/time maximum resident set size",
     };
     if (direct.status !== 0)
       receipt.failures.push({ phase: "direct-evidence-runner", exitCode: direct.status, signal: direct.signal });
     if (byStep.has("fatal")) receipt.failures.push({ phase: "direct-evidence", record: byStep.get("fatal").value });
+    if (cold.status !== 0)
+      receipt.failures.push({ phase: "cold-rebuild-runner", exitCode: cold.status, signal: cold.signal });
+    if (coldByStep.has("fatal"))
+      receipt.failures.push({ phase: "cold-rebuild", record: coldByStep.get("fatal").value });
     // The receipt must not be green about data the build never opened: if the build resolves a
     // different local root than the one the snapshot filled, the reads below came from an empty
     // directory and the run proves nothing.
@@ -1068,7 +1131,13 @@ export async function main(argv, session = {}) {
   // printed last so even a cleanup failure is part of it.
   if (args.out) {
     mkdirSync(path.resolve(args.out), { recursive: true });
-    for (const name of ["daemon-start.txt", "daemon-repo-register.txt", "daemon-status.txt", "direct-evidence.jsonl"]) {
+    for (const name of [
+      "daemon-start.txt",
+      "daemon-repo-register.txt",
+      "daemon-status.txt",
+      "direct-evidence.jsonl",
+      "cold-rebuild.jsonl",
+    ]) {
       const from = path.join(tempRoot, "logs", name);
       if (existsSync(from)) copyFileSync(from, path.join(args.out, name));
     }
