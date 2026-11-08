@@ -582,19 +582,27 @@ function sameReleasedLease(current: LeaseV1, released: LeaseV1): boolean {
 }
 function sameReplayTask(current: TaskLifecycleSnapshot["task"], recorded: TaskLifecycleSnapshot["task"]): boolean {
   if (!current || !recorded) return current === recorded;
-  return stableStringify(currentTaskForWrite(current)) === stableStringify(currentTaskForWrite(recorded));
+  // A superseded Task is terminal by contract. Historical writes after a supersede still recorded
+  // the live status they saw, so compare both sides through the same terminal transition instead
+  // of rejecting history the old writer legitimately accepted.
+  const normalize = (task: NonNullable<TaskLifecycleSnapshot["task"]>) =>
+    task.supersededBy ? supersededTaskState(task, task.supersededBy) : task;
+  return (
+    stableStringify(currentTaskForWrite(normalize(current))) ===
+    stableStringify(currentTaskForWrite(normalize(recorded)))
+  );
 }
 function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {
-  // A write that was accepted before the terminal supersede rule still recorded the task as it
-  // read then. Compare those event checks against the recorded historical task; the caller restores
-  // the normalized terminal task after this function returns.
+  // Replay checks compare the state the historical writer saw. When this task is already terminal
+  // through a supersede, use the task recorded on the event (same replacement lineage) but keep the
+  // pre-event iteration: review-return checks still need the iteration this event advances from.
   const recorded = (event.payload as { readonly task?: TaskV2 }).task;
   if (
     snapshot.task?.supersededBy !== undefined &&
     snapshot.task.supersededBy !== null &&
     recorded?.supersededBy === snapshot.task.supersededBy
   )
-    snapshot = { ...snapshot, task: recorded };
+    snapshot = { ...snapshot, task: { ...recorded, iteration: snapshot.task.iteration } };
   if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed") {
     // The retired envelope must still name its own task and execution; it owns no other state.
     if (event.payload.execution.taskId !== event.taskId || event.payload.task.taskId !== event.taskId)
