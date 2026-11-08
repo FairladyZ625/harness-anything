@@ -3,9 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+import { submissionDigest } from "../../src/domain/submission-digest.ts";
 import {
   dispatchAdmissionBlocker,
+  dispatchAdmissionRefusal,
   dispatchLifecycleAddress,
+  dispatchLifecycleTaskId,
+  isDispatchLifecycleInput,
+  taskLeaseAfter,
+  type DispatchLifecycleInput,
+  type DispatchTaskLease,
   dispatchLifecycleView,
   dispatchOwnerForNode,
   reduceDispatchLifecycle,
@@ -41,7 +48,14 @@ let revision = 0;
 function runtimeEvent(
   token: Token,
   ids: { readonly dispatchId: string; readonly runtimeSessionId: string; readonly attemptGroupId: string },
-  options: { readonly instanceId?: string; readonly source?: AgentRuntimeEventV1["source"] } = {},
+  options: {
+    readonly instanceId?: string;
+    readonly source?: AgentRuntimeEventV1["source"];
+    readonly dispatch?: Record<string, unknown>;
+    readonly launchGeneration?: number;
+    readonly eventId?: string;
+    readonly resetAt?: string;
+  } = {},
 ): AgentRuntimeEventV1 {
   revision += 1;
   const payload: Record<string, unknown> = { runtimeSessionId: ids.runtimeSessionId };
@@ -50,7 +64,9 @@ function runtimeEvent(
       dispatchId: ids.dispatchId,
       instanceId: options.instanceId ?? "instance-a",
       ...(ids.attemptGroupId === ids.dispatchId ? {} : { attemptGroupId: ids.attemptGroupId }),
+      ...options.dispatch,
     });
+  if (token.t === "S") payload.launchGeneration = options.launchGeneration ?? 1;
   if (token.t === "L") payload.liveness = token.liveness;
   if (token.t === "O") {
     payload.outcome = token.outcome;
@@ -59,11 +75,12 @@ function runtimeEvent(
         classification: token.classification ?? "worker_stop",
         reason: "fixture",
         ...(token.fallbackState ? { fallbackState: token.fallbackState } : {}),
+        ...(options.resetAt ? { resetAt: options.resetAt } : {}),
       };
   }
   return {
     schema: "agent-runtime-event/v1",
-    eventId: `event-${revision}`,
+    eventId: options.eventId ?? `event-${revision}`,
     workspaceRevision: revision,
     opId: `op-${revision}`,
     type: types[token.t],
@@ -74,20 +91,49 @@ function runtimeEvent(
   } as unknown as AgentRuntimeEventV1;
 }
 
-/** A minimal store: the same address resolution the projections perform. */
-function fold(events: readonly AgentRuntimeEventV1[]) {
+/** A minimal store: the same address resolution and lease bookkeeping the projections perform. */
+function fold(inputs: readonly (AgentRuntimeEventV1 | DispatchLifecycleInput)[]) {
+  const events = inputs.filter(isDispatchLifecycleInput) as DispatchLifecycleInput[];
   const groups = new Map<string, DispatchLifecycleGroup>(),
     groupBySession = new Map<string, string>(),
+    leases = new Map<string, DispatchTaskLease>(),
     steps: DispatchLifecycleStep[] = [];
   for (const event of events) {
-    const address = dispatchLifecycleAddress(event);
-    if (address === null) continue;
-    const groupId = address.by === "group" ? address.attemptGroupId : groupBySession.get(address.runtimeSessionId);
-    const step = reduceDispatchLifecycle(groupId === undefined ? null : (groups.get(groupId) ?? null), event);
-    steps.push(step);
-    if (step.kind !== "applied") continue;
-    groups.set(step.group.attemptGroupId, step.group);
-    for (const attempt of step.group.attempts) groupBySession.set(attempt.runtimeSessionId, step.group.attemptGroupId);
+    const taskId = dispatchLifecycleTaskId(event),
+      context = { taskLease: taskId === null ? null : (leases.get(taskId) ?? null) },
+      address = dispatchLifecycleAddress(event, context);
+    const groupIds =
+      address === null
+        ? []
+        : address.by === "group"
+          ? [address.attemptGroupId]
+          : address.by === "session"
+            ? [groupBySession.get(address.runtimeSessionId)]
+            : [...groups.values()]
+                .filter(
+                  (group) =>
+                    group.phase !== "closed" &&
+                    address.executionIds.includes(
+                      group.attempts.find(({ dispatchId }) => dispatchId === group.currentDispatchId)!.task
+                        ?.executionId ?? "",
+                    ),
+                )
+                .map(({ attemptGroupId }) => attemptGroupId);
+    for (const groupId of groupIds) {
+      const step = reduceDispatchLifecycle(
+        groupId === undefined ? null : (groups.get(groupId) ?? null),
+        event,
+        context,
+      );
+      steps.push(step);
+      if (step.kind !== "applied") continue;
+      groups.set(step.group.attemptGroupId, step.group);
+      for (const attempt of step.group.attempts)
+        groupBySession.set(attempt.runtimeSessionId, step.group.attemptGroupId);
+    }
+    const lease = taskLeaseAfter(event);
+    if (lease === null && taskId !== null) leases.delete(taskId);
+    else if (lease && taskId !== null) leases.set(taskId, lease);
   }
   return { groups, steps };
 }
@@ -263,4 +309,207 @@ test("a waiting fallback admits its successor and an awaiting ruling holds no sl
     runtimeEvent({ t: "R" }, { dispatchId: "d-5-next", runtimeSessionId: "s-5-next", attemptGroupId: "d-5" }),
   );
   assert.equal(fold(events).groups.get("d-5")!.currentDispatchId, "d-5-next");
+});
+
+let taskRevisionOffset = 0;
+function taskEvent(type: string, taskId: string, payload: Record<string, unknown>): DispatchLifecycleInput {
+  revision += 1;
+  taskRevisionOffset += 1;
+  return {
+    schema: "task-event/v1",
+    eventId: `task-event-${taskRevisionOffset}`,
+    workspaceRevision: revision,
+    opId: `task-op-${taskRevisionOffset}`,
+    type,
+    taskId,
+    actor: { principal: { personId: "owner" }, executor: null },
+    source: "local",
+    occurredAt: "2026-11-08T00:00:00.000Z",
+    payload: { documentClaims: [], ...payload },
+  } as unknown as DispatchLifecycleInput;
+}
+const execution = (executionId: string, submission: unknown = null) => ({ executionId, submission });
+const implementer = (taskId: string, executionId: string) => ({
+  dispatch: { taskId, executionId, role: "implementer", cwd: `/worktrees/${taskId}` },
+});
+
+test("an admitted attempt carries its owner fence, capacity reservation, task lease and workspace", () => {
+  const ids = { dispatchId: "d-auth", runtimeSessionId: "s-auth", attemptGroupId: "d-auth" },
+    node = { kind: "node", nodeId: "node-a" } as const,
+    events: DispatchLifecycleInput[] = [
+      taskEvent("execution_started", "task-a", { execution: execution("exe-a"), lease: { version: 3 } }),
+      runtimeEvent({ t: "R" }, ids, { source: node, ...implementer("task-a", "exe-a") }) as DispatchLifecycleInput,
+    ],
+    admittedAt = revision;
+  events.push(runtimeEvent({ t: "S" }, ids, { source: node, launchGeneration: 2 }) as DispatchLifecycleInput);
+  const view = dispatchLifecycleView(fold(events).groups.get("d-auth")!);
+  assert.deepEqual(view.attempt.fence, { owner: "node:node-a", verified: true, token: admittedAt, epoch: 2 });
+  assert.deepEqual(view.attempt.reservation, {
+    reservationId: "instance-a/d-auth",
+    instanceId: "instance-a",
+    owner: "node:node-a",
+  });
+  assert.deepEqual(view.attempt.task, {
+    taskId: "task-a",
+    executionId: "exe-a",
+    role: "implementer",
+    leaseVersion: 3,
+    leaseReleased: false,
+    reviewTargetDigest: null,
+  });
+  assert.equal(view.attempt.workspaceRef, "/worktrees/task-a");
+  assert.equal(view.policy.capacity, "held");
+});
+
+test("events from another owner, a stale launch epoch, or a redelivered event id cannot advance an attempt", () => {
+  const ids = { dispatchId: "d-fence", runtimeSessionId: "s-fence", attemptGroupId: "d-fence" },
+    node = { kind: "node", nodeId: "node-a" } as const,
+    events = [
+      runtimeEvent({ t: "R" }, ids, { source: node }),
+      runtimeEvent({ t: "S" }, ids, { source: node, launchGeneration: 2 }),
+      runtimeEvent({ t: "X" }, ids, { source: { kind: "node", nodeId: "node-b" } }),
+    ];
+  assert.equal((fold(events).steps.at(-1) as { code?: string }).code, "dispatch_owner_fence_mismatch");
+  events.push(runtimeEvent({ t: "X" }, ids, { source: "local" }));
+  assert.equal((fold(events).steps.at(-1) as { code?: string }).code, "dispatch_owner_fence_mismatch");
+  events.push(runtimeEvent({ t: "S" }, ids, { source: node, launchGeneration: 1 }));
+  assert.equal((fold(events).steps.at(-1) as { code?: string }).code, "dispatch_epoch_stale");
+  const before = fold(events).groups.get("d-fence")!;
+  events.push(runtimeEvent({ t: "X" }, ids, { source: node, eventId: before.attempts[0]!.eventIds[1]! }));
+  assert.equal(fold(events).steps.at(-1)!.kind, "ignored", "an event id is accepted once whatever its revision");
+  assert.equal(fold(events).groups.get("d-fence")!.attempts[0]!.phase, "running");
+  events.push(runtimeEvent({ t: "X" }, ids, { source: node }));
+  assert.equal(dispatchLifecycleView(fold(events).groups.get("d-fence")!).policy.capacity, "released");
+});
+
+test("an owner the center cannot verify is imported as settling and keeps its reservation and lease (F1)", () => {
+  const ids = { dispatchId: "d-unv", runtimeSessionId: "s-unv", attemptGroupId: "d-unv" },
+    events: DispatchLifecycleInput[] = [
+      taskEvent("execution_started", "task-u", { execution: execution("exe-u"), lease: { version: 7 } }),
+      runtimeEvent({ t: "R" }, ids, {
+        source: "migration-import/v1",
+        ...implementer("task-u", "exe-u"),
+      }) as DispatchLifecycleInput,
+    ];
+  let view = dispatchLifecycleView(fold(events).groups.get("d-unv")!);
+  assert.deepEqual(
+    [view.groupPhase, view.attempt.phase, view.attempt.fence.verified, view.policy.capacity],
+    ["settling", "settling", false, "held"],
+  );
+  assert.equal(view.attempt.task?.leaseVersion, 7, "the original task lease is preserved");
+  assert.deepEqual(
+    [view.policy.capacityDisposition, view.policy.canRecover, view.policy.canResolveRuling, view.policy.blockerCode],
+    ["recovering", false, false, "dispatch_owner_unverified"],
+  );
+  for (const owner of ["local", "node:node-a"])
+    assert.equal(
+      dispatchAdmissionBlocker([view], { instanceId: "instance-a", owner })?.code,
+      "dispatch_owner_unverified",
+      `admission by ${owner} fails closed`,
+    );
+  for (const token of [{ t: "X" }, { t: "O", outcome: "stopped", classification: "awaiting_ruling" }] as Token[]) {
+    events.push(runtimeEvent(token, ids, { source: "local" }) as DispatchLifecycleInput);
+    assert.equal((fold(events).steps.at(-1) as { code?: string }).code, "dispatch_owner_unverified");
+  }
+  events.push(taskEvent("lease_released", "task-u", { execution: execution("exe-u"), releasedLease: { version: 7 } }));
+  view = dispatchLifecycleView(fold(events).groups.get("d-unv")!);
+  assert.deepEqual(
+    [view.groupPhase, view.policy.capacity, view.policy.canResolveRuling, view.policy.canRecover],
+    ["settling", "held", false, false],
+    "a lease release alone neither releases capacity nor exposes a resolvable ruling",
+  );
+});
+
+test("a pending ruling becomes awaiting_ruling only after the stop is proven and the matching lease released", () => {
+  const ids = { dispatchId: "d-rule", runtimeSessionId: "s-rule", attemptGroupId: "d-rule" },
+    events: DispatchLifecycleInput[] = [
+      taskEvent("execution_started", "task-r", { execution: execution("exe-r"), lease: { version: 1 } }),
+      ...([{ t: "R" }, { t: "S" }, { t: "X" }] as Token[]).map(
+        (token) => runtimeEvent(token, ids, implementer("task-r", "exe-r")) as DispatchLifecycleInput,
+      ),
+      runtimeEvent({ t: "O", outcome: "stopped", classification: "awaiting_ruling" }, ids) as DispatchLifecycleInput,
+    ];
+  let view = dispatchLifecycleView(fold(events).groups.get("d-rule")!);
+  assert.deepEqual(
+    [view.groupPhase, view.ruling, view.policy.canResolveRuling],
+    ["settling", { dispatchId: "d-rule", status: "awaiting" }, false],
+  );
+  events.push(taskEvent("lease_renewed", "task-r", { execution: execution("exe-r"), lease: { version: 2 } }));
+  assert.equal(fold(events).groups.get("d-rule")!.attempts[0]!.task?.leaseVersion, 2);
+  events.push(taskEvent("lease_released", "task-r", { execution: execution("exe-r"), releasedLease: { version: 2 } }));
+  view = dispatchLifecycleView(fold(events).groups.get("d-rule")!);
+  assert.deepEqual(
+    [view.groupPhase, view.policy.capacity, view.policy.canResolveRuling],
+    ["awaiting_ruling", "released", true],
+  );
+});
+
+test("a scheduled fallback carries its due time and a delivery is registered against its target", () => {
+  const backoff = { dispatchId: "d-due", runtimeSessionId: "s-due", attemptGroupId: "d-due" },
+    review = { dispatchId: "d-rev", runtimeSessionId: "s-rev", attemptGroupId: "d-rev" },
+    submission = { commit: "abc" },
+    digest = submissionDigest(submission as never),
+    events: DispatchLifecycleInput[] = [
+      ...([{ t: "R" }, { t: "S" }, { t: "X" }] as Token[]).map(
+        (token) => runtimeEvent(token, backoff, implementer("task-d", "exe-d")) as DispatchLifecycleInput,
+      ),
+      runtimeEvent(
+        { t: "O", outcome: "failed", classification: "provider_quota", fallbackState: "scheduled" },
+        backoff,
+        { resetAt: "2026-11-08T01:00:00.000Z" },
+      ) as DispatchLifecycleInput,
+      taskEvent("execution_submitted", "task-d", { execution: execution("exe-d", submission) }),
+      runtimeEvent({ t: "R" }, review, {
+        dispatch: { taskId: "task-d", executionId: "exe-d", role: "reviewer", reviewTarget: { kind: "task", digest } },
+      }) as DispatchLifecycleInput,
+      runtimeEvent({ t: "S" }, review) as DispatchLifecycleInput,
+      taskEvent("review_recorded", "task-d", {
+        execution: execution("exe-d", submission),
+        review: { reviewId: "review-d-rev", executionId: "exe-d", submissionDigest: digest },
+      }),
+    ],
+    folded = fold(events),
+    waiting = dispatchLifecycleView(folded.groups.get("d-due")!),
+    reviewed = dispatchLifecycleView(folded.groups.get("d-rev")!);
+  assert.deepEqual(waiting.successor, { admissible: true, dueAt: "2026-11-08T01:00:00.000Z" });
+  assert.deepEqual(
+    [waiting.delivery.status, waiting.delivery.targetRef, waiting.delivery.targetDigest],
+    ["registered", "execution:exe-d", digest],
+  );
+  assert.deepEqual(
+    [reviewed.delivery.status, reviewed.delivery.targetRef, reviewed.groupPhase],
+    ["registered", "review:review-d-rev", "running"],
+    "a registered review is a delivery; the reviewer still runs until it stops",
+  );
+});
+
+test("the center writer refuses a second admission into a busy group and a successor from another owner", () => {
+  const ids = { dispatchId: "d-w", runtimeSessionId: "s-w", attemptGroupId: "d-w" },
+    events = [runtimeEvent({ t: "R" }, ids), runtimeEvent({ t: "S" }, ids)];
+  const busy = dispatchLifecycleView(fold(events).groups.get("d-w")!);
+  assert.equal(
+    dispatchAdmissionRefusal({ group: busy, instance: [busy], instanceId: "instance-a", owner: "local" })?.code,
+    "dispatch_group_busy",
+  );
+  events.push(
+    runtimeEvent({ t: "X" }, ids),
+    runtimeEvent({ t: "O", outcome: "failed", classification: "provider_fault", fallbackState: "scheduled" }, ids),
+  );
+  const waiting = dispatchLifecycleView(fold(events).groups.get("d-w")!);
+  assert.equal(
+    dispatchAdmissionRefusal({ group: waiting, instance: [], instanceId: "instance-a", owner: "node:node-a" })?.code,
+    "dispatch_owner_fence_mismatch",
+  );
+  assert.equal(
+    dispatchAdmissionRefusal({ group: waiting, instance: [], instanceId: "instance-a", owner: "local" }),
+    null,
+  );
+  events.push(
+    runtimeEvent(
+      { t: "R" },
+      { dispatchId: "d-w-node", runtimeSessionId: "s-w-node", attemptGroupId: "d-w" },
+      { source: { kind: "node", nodeId: "node-a" } },
+    ),
+  );
+  assert.equal((fold(events).steps.at(-1) as { code?: string }).code, "dispatch_owner_fence_mismatch");
 });

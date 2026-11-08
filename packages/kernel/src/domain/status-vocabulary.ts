@@ -80,7 +80,13 @@ import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { statusWordRegister } from "./status-word-register.ts";
 import { authoredDocumentStatusVocabularies } from "./status-word-register-authored-document.ts";
-import { dispatchAttemptPhases, dispatchCapacityDispositions, dispatchGroupPhases } from "./dispatch-lifecycle.ts";
+import {
+  dispatchAttemptPhases,
+  dispatchCapacityDispositions,
+  dispatchGroupPhases,
+  dispatchReservationStates,
+  dispatchStopProofs,
+} from "./dispatch-lifecycle.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 
@@ -176,6 +182,22 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
     anchor: "dispatchCapacityDispositions",
     words: dispatchCapacityDispositions,
+  },
+  {
+    id: "dispatch.reservation-state",
+    entity: "Dispatch",
+    field: "capacity reservation",
+    module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
+    anchor: "dispatchReservationStates",
+    words: dispatchReservationStates,
+  },
+  {
+    id: "dispatch.stop-proof",
+    entity: "Dispatch",
+    field: "stop proof",
+    module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
+    anchor: "dispatchStopProofs",
+    words: dispatchStopProofs,
   },
   {
     id: "runtime-session.fallbackState",
