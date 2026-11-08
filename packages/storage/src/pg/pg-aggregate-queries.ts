@@ -202,7 +202,7 @@ async function digestPgProjectionValues(
             row.owner_id,
             row.entity_id,
             offset + 1,
-            stateDigestChunkBytes,
+            stateDigestChunkCharacters,
           ],
         );
         const valueChunk = chunk.rows[0]?.value_chunk;
