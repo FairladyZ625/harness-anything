@@ -475,7 +475,6 @@ async function autoDeclareSubmittedExecutor(
 ): Promise<WriteReceiptDraft | null> {
   const snapshot = (await cell.service.read(taskId)).snapshot,
     execution = snapshot.executions.find((candidate) => candidate.executionId === executionId);
-  throw new Error("[auto-executor-debug] called");
   if (
     snapshot.task?.currentNode !== "review" ||
     snapshot.task.status !== "in_review" ||
@@ -484,6 +483,7 @@ async function autoDeclareSubmittedExecutor(
     execution.submission?.completionContract.closeoutGates.review !== true
   )
     return null;
+  throw new Error("[auto-executor-debug] called");
   // The submit may arrive from an edge immediately after the dispatch event was accepted by the
   // center. Read the execution's raw dispatch events directly so attribution does not depend on a
   // runtime-session row having completed projection yet; reviewer dispatches remain excluded by
