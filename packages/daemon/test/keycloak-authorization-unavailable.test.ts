@@ -144,7 +144,7 @@ test("a cold center token before execution-credential verification is a retryabl
   );
 });
 
-test("missing user authorization context names the repo-cell binding boundary", async () => {
+test("missing user authorization context requires sign-in", async () => {
   const decision = await evaluateRepoCellAction({
     action: { kind: "task-create", title: "Missing authorization context" },
     binding: {
@@ -158,9 +158,8 @@ test("missing user authorization context names the repo-cell binding boundary", 
   });
 
   assert.equal(decision.outcome, "denied");
-  assert.deepEqual(decision.reasonCodes, ["authorization_context_missing"]);
-  assert.match(decision.nextActions.join(" "), /signed-in user authorization context reached the repo-cell binding/u);
-  assert.match(decision.nextActions.join(" "), /daemon host binding and Fleet writer handoff/u);
+  assert.deepEqual(decision.reasonCodes, ["authentication_required"]);
+  assert.match(decision.nextActions.join(" "), /Sign in with the configured authorization provider/u);
   assert.ok(decision.bindingsUsed.some((binding) => binding.scope === "task-create"));
 });
 
