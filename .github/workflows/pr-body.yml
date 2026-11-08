@@ -9,9 +9,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The required job owns the blocking body checks. The manifest runner executes every gate
+  # declared for `pr-body-lint` before it decides the job verdict, so one run reports every
+  # missing section or declaration instead of exposing them one at a time. The gate set comes
+  # from tools/gate-manifest.json; adding a required body check is a manifest declaration here.
   pr-body-lint:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,40 +27,20 @@ jobs:
           node-version: 24
       - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
-      - name: Run PR body manifest gates
+      - name: Fetch the comparison base
+        run: git fetch --no-tags origin main
+      - name: Run every required PR body gate
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
         run: node tools/run-manifest-gates.mjs --workflow-job pr-body-lint
-  production-delta:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Compute production delta
-        run: |
-          git fetch --no-tags origin main
-          node tools/gates/production-delta.mjs --base origin/main
-  evidence-contract:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: node tools/gates/evidence-contract.mjs --event "$GITHUB_EVENT_PATH"
 
-  dependency-policy-declaration:
+  # Advisory body checks keep their existing non-blocking enforcement. They share one aggregate
+  # job for the same reason as the required lane: every advisory gate runs and reports before the
+  # job verdict, rather than letting an earlier failure hide the rest. No npm install is needed:
+  # these checks only read the checkout, the event payload and the live PR body.
+  pr-body-advisory:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -67,11 +53,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Verify dependency declaration
+      - name: Fetch the comparison base
+        run: git fetch --no-tags origin main
+      # The Dependency-Change declaration judges the pull request as it is now, so a rerun must
+      # fetch the live body instead of replaying the event payload captured at trigger time.
+      - name: Fetch the live PR body
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          git fetch --no-tags origin main
-          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
-          node tools/gates/dependency-policy.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"
+        run: gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
+      - name: Run every advisory PR body gate
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+        run: node tools/run-manifest-gates.mjs --workflow-job pr-body-advisory
