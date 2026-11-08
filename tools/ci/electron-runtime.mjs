@@ -105,17 +105,27 @@ function retryableStatus(status) {
   return status === 408 || status === 429 || status >= 500;
 }
 
-function retryableError(error) {
+const TRANSIENT_NETWORK_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EPIPE",
+  "ETIMEDOUT",
+]);
+
+function retryableTransportError(error) {
   if (typeof error?.retryable === "boolean") return error.retryable;
   if (typeof error?.status === "number") return retryableStatus(error.status);
   // fetch() rejects with TypeError for DNS/TLS/reset failures and AbortSignal.timeout with a
   // TimeoutError; both are transient transport failures this retry is for. A malformed
   // archive is marked non-retryable at the write boundary and never reaches this branch.
+  if (error instanceof TypeError) return true;
+  if (error?.name === "TimeoutError" || error?.name === "AbortError") return true;
   return (
-    error instanceof TypeError ||
-    typeof error?.code === "string" ||
-    error?.name === "TimeoutError" ||
-    error?.name === "AbortError"
+    typeof error?.code === "string" && (TRANSIENT_NETWORK_CODES.has(error.code) || error.code.startsWith("UND_ERR_"))
   );
 }
 
@@ -123,7 +133,7 @@ export function downloadAttemptDelayMs(attempt) {
   return Math.min(1_000 * 2 ** (attempt - 1), 8_000);
 }
 
-async function downloadArchive({ url, destination, attempts, fetchImpl, sleep, timeoutMs, log }) {
+async function fetchArchiveWithRetry({ url, attempts, fetchImpl, sleep, timeoutMs, log }) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -139,25 +149,40 @@ async function downloadArchive({ url, destination, attempts, fetchImpl, sleep, t
         error.retryable = false;
         throw error;
       }
-      mkdirSync(path.dirname(destination), { recursive: true });
-      const temporary = `${destination}.${process.pid}.tmp`;
-      try {
-        writeFileSync(temporary, archive);
-        renameSync(temporary, destination);
-      } finally {
-        rmSync(temporary, { force: true });
-      }
-      log(`electron-runtime: downloaded ${url} on attempt ${attempt}/${attempts}`);
-      return attempt;
+      return { archive, attempt };
     } catch (error) {
       lastError = error;
-      if (attempt === attempts || !retryableError(error)) break;
+      if (attempt === attempts || !retryableTransportError(error)) break;
       const delay = downloadAttemptDelayMs(attempt);
       log(`electron-runtime: attempt ${attempt}/${attempts} failed (${error.message}); retrying in ${delay}ms`);
       await sleep(delay);
     }
   }
   throw lastError;
+}
+
+async function downloadArchive({ url, destination, attempts, fetchImpl, sleep, timeoutMs, log }) {
+  // Only the transport phase is retried. Cache-directory and file-write failures are local
+  // configuration/disk errors: re-running the download cannot fix them and would turn a
+  // fail-closed error into repeated network traffic.
+  const { archive, attempt } = await fetchArchiveWithRetry({
+    url,
+    attempts,
+    fetchImpl,
+    sleep,
+    timeoutMs,
+    log,
+  });
+  mkdirSync(path.dirname(destination), { recursive: true });
+  const temporary = `${destination}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, archive);
+    renameSync(temporary, destination);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  log(`electron-runtime: downloaded ${url} on attempt ${attempt}/${attempts}`);
+  return attempt;
 }
 
 /**
@@ -207,6 +232,14 @@ export async function main(argv = process.argv.slice(2), overrides = {}) {
   }
   const result = await ensureElectronArchive(overrides);
   console.log(`electron-runtime: ${result.cacheHit ? "cache hit" : "archive ready"} for ${result.url}`);
+  // A check-run annotation is public evidence that this job did not need the releases
+  // endpoint. Job logs need repository credentials; the annotation is readable from the PR.
+  if (process.env.GITHUB_ACTIONS === "true") {
+    const outcome = result.cacheHit
+      ? "cache hit; no releases request"
+      : `cache miss; downloaded on attempt ${result.attempts}`;
+    console.log(`::notice title=electron-runtime-cache::${outcome} for ${result.url}`);
+  }
   return 0;
 }
 

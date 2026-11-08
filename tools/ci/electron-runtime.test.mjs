@@ -167,3 +167,30 @@ test("a non-archive cache entry is discarded and replaced by a fresh download", 
   assert.equal(result.cacheHit, false);
   assert.deepEqual(readFileSync(archivePath), zipBytes);
 });
+
+test("a local cache write failure is not retried as a network download", async (t) => {
+  const root = temporaryRoot(t);
+  const cacheRoot = path.join(root, "cache-root-is-a-file");
+  writeFileSync(cacheRoot, "not a directory");
+  let calls = 0;
+  let sleeps = 0;
+  await assert.rejects(
+    ensureElectronArchive({
+      cacheRoot,
+      version: "42.11.16",
+      platform: "linux",
+      arch: "x64",
+      fetchImpl: async () => {
+        calls += 1;
+        return response(200, zipBytes);
+      },
+      sleep: async () => {
+        sleeps += 1;
+      },
+      log: () => {},
+    }),
+    /ENOTDIR/u,
+  );
+  assert.equal(calls, 1);
+  assert.equal(sleeps, 0);
+});
