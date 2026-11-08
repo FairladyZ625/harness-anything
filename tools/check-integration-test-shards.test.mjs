@@ -10,22 +10,29 @@ import {
   validateIntegrationShardRequiredContexts,
   validateIntegrationShardWorkflowMatrix,
 } from "./check-integration-test-shards.mjs";
-import { assignIntegrationTestShards, validateIntegrationTestShards } from "./integration-test-shards.mjs";
+import {
+  assignIntegrationTestShards,
+  defaultIntegrationTestWeightMs,
+  integrationFileBudgetMs,
+  integrationShardCount,
+  integrationWeightOverruns,
+  validateIntegrationTestShards,
+} from "./integration-test-shards.mjs";
+import { integrationWeightsFromLogs } from "./refresh-integration-test-weights.mjs";
 
 test("integration shard declaration is non-overlapping and complete", () => {
   const result = checkIntegrationTestShards();
   assert.equal(result.ok, true, result.errors.join("\n"));
   assert.ok(result.currentCount > 0);
-  assert.deepEqual(result.workflowShards, [1, 2, 3, 4, 5, 6]);
-  assert.deepEqual(result.requiredContexts, [
-    "integration-shard (1)",
-    "integration-shard (2)",
-    "integration-shard (3)",
-    "integration-shard (4)",
-    "integration-shard (5)",
-    "integration-shard (6)",
-  ]);
-  assert.equal(result.summaries.length, 6);
+  assert.deepEqual(
+    result.workflowShards,
+    Array.from({ length: 14 }, (_, index) => index + 1),
+  );
+  assert.deepEqual(
+    result.requiredContexts,
+    Array.from({ length: 14 }, (_, index) => `integration-shard (${index + 1})`),
+  );
+  assert.equal(result.summaries.length, 14);
   assert.ok(result.summaries.every((summary) => summary.files > 0));
 });
 
@@ -55,10 +62,11 @@ test("a new inline-declared integration test is discovered without central regis
     for (let index = 1; index <= 7; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
+    writeShardPadding(testRoot);
     const result = checkIntegrationTestShards({
       repoRoot: root,
       weightOverrides: {},
-      previousTestCount: 6,
+      previousTestCount: 6 + integrationShardCount,
       deletionAllowlistText: deletionAllowlistText(),
     });
     assert.equal(result.ok, true, result.errors.join("\n"));
@@ -97,6 +105,7 @@ test("integration count ratchet rejects a real deleted test file from disk", () 
     for (let index = 1; index <= 7; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
+    writeShardPadding(testRoot);
     writeDeletionAllowlist(root);
 
     git(root, ["init", "-q"]);
@@ -111,12 +120,15 @@ test("integration count ratchet rejects a real deleted test file from disk", () 
       weightOverrides: {},
     });
     assert.equal(after.ok, false);
-    assert.equal(after.currentCount, 6);
-    assert.equal(after.previousCount, 7);
+    assert.equal(after.currentCount, 6 + integrationShardCount);
+    assert.equal(after.previousCount, 7 + integrationShardCount);
     assert.equal(after.delta, -1);
     assert.match(
       after.errors.join("\n"),
-      /integration test count decreased without path confirmation: current=6 previous=7 delta=-1/u,
+      new RegExp(
+        `integration test count decreased without path confirmation: current=${6 + integrationShardCount} previous=${7 + integrationShardCount} delta=-1`,
+        "u",
+      ),
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -131,6 +143,7 @@ test("integration count ratchet accepts an intentional deletion with a new exact
     for (let index = 1; index <= 7; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
+    writeShardPadding(testRoot);
     writeDeletionAllowlist(root);
 
     git(root, ["init", "-q"]);
@@ -169,6 +182,7 @@ test("integration deletion confirmations require exact real task ids", () => {
     for (let index = 1; index <= 7; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
+    writeShardPadding(testRoot);
     writeDeletionAllowlist(root);
     git(root, ["init", "-q"]);
     git(root, ["config", "user.name", "Harness Test"]);
@@ -208,6 +222,7 @@ test("an already-merged deletion confirmation does not burden an unrelated later
     for (let index = 1; index <= 6; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
+    writeShardPadding(testRoot);
     writeDeletionAllowlist(root, [
       {
         value: "tools/fixture-7.test.mjs",
@@ -249,6 +264,7 @@ test("a persisted deletion confirmation is rejected if its path reappears", () =
     for (let index = 1; index <= 6; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
+    writeShardPadding(testRoot);
     writeDeletionAllowlist(root, [
       {
         value: "tools/fixture-7.test.mjs",
@@ -393,3 +409,79 @@ test("integration shard checker rejects gate manifest required context drift", (
     ],
   });
 });
+
+test("a shard whose declared file weights exceed the budget fails the shard check", () => {
+  const files = Array.from(
+    { length: integrationShardCount },
+    (_, index) => `tools/${String.fromCharCode(97 + index)}.test.mjs`,
+  );
+  const weights = Object.fromEntries(files.map((file) => [file, 100_000]));
+  assert.equal(validateIntegrationTestShards(files, weights, { shardBudgetMs: 100_000 }).ok, true);
+  const over = validateIntegrationTestShards(
+    files,
+    { ...weights, "tools/a.test.mjs": 100_001 },
+    { shardBudgetMs: 100_000 },
+  );
+  assert.equal(over.ok, false);
+  assert.match(over.errors.join("\n"), /integration shard \d is over budget: 100001ms/u);
+});
+
+test("a file over the per-file budget needs a recorded exception, and a stale exception fails", () => {
+  const files = Array.from(
+    { length: integrationShardCount },
+    (_, index) => `tools/${String.fromCharCode(97 + index)}.test.mjs`,
+  );
+  const weights = { "tools/a.test.mjs": integrationFileBudgetMs + 100 };
+  const unexplained = validateIntegrationTestShards(files, weights);
+  assert.match(unexplained.errors.join("\n"), /over the \d+ms per-file budget .*tools\/a\.test\.mjs/u);
+  assert.equal(validateIntegrationTestShards(files, weights, { overBudgetFiles: ["tools/a.test.mjs"] }).ok, true);
+  const stale = validateIntegrationTestShards(files, weights, {
+    overBudgetFiles: ["tools/a.test.mjs", "tools/b.test.mjs"],
+  });
+  assert.deepEqual(stale.errors, [
+    "integration file budget exception is stale (the file is within budget or gone): tools/b.test.mjs",
+  ]);
+});
+
+test("a measured file far beyond its declared weight is an overrun; runner noise is not", () => {
+  const weights = { "tools/a.test.mjs": 40_000 };
+  const measured = new Map([
+    ["tools/a.test.mjs", 40_000 * 2 + 60_000],
+    ["tools/new-small.test.mjs", defaultIntegrationTestWeightMs * 2 + 60_000],
+    ["tools/new-large.test.mjs", defaultIntegrationTestWeightMs * 2 + 60_001],
+  ]);
+  assert.deepEqual(integrationWeightOverruns(measured, weights), [
+    { file: "tools/new-large.test.mjs", durationMs: 80_001, declaredMs: defaultIntegrationTestWeightMs },
+  ]);
+  measured.set("tools/a.test.mjs", 140_001);
+  assert.deepEqual(
+    integrationWeightOverruns(measured, weights).map((overrun) => overrun.file),
+    ["tools/a.test.mjs", "tools/new-large.test.mjs"],
+  );
+});
+
+test("weights refresh from runner duration lines takes each file's median across runs", () => {
+  const log = (a, b) =>
+    [
+      `integration-shard (1)\tRun node\t2026-11-08T01:00:00.0Z [node-test-duration] ${a} tools/a.test.mjs`,
+      `2026-11-08T01:00:00.0Z [node-test-duration] ${b} tools/b.test.mjs`,
+      "2026-11-08T01:00:00.0Z [node-test-duration] 5000 tools/not-integration.test.mjs",
+    ].join("\n");
+  const weights = integrationWeightsFromLogs(
+    [log(10_000, 40), log(30_040, 60), log(20_000, 80)],
+    ["tools/a.test.mjs", "tools/b.test.mjs", "tools/unmeasured.test.mjs"],
+  );
+  assert.deepEqual(weights, { "tools/a.test.mjs": 20_000, "tools/b.test.mjs": 100 });
+});
+
+// Every derived shard must hold a file, so a fixture tree needs at least one file per shard
+// beside the files a test is about.
+function writeShardPadding(testRoot) {
+  mkdirSync(path.join(testRoot, "padding"), { recursive: true });
+  for (let index = 1; index <= integrationShardCount; index += 1)
+    writeFileSync(
+      path.join(testRoot, "padding", `pad-${index}.test.mjs`),
+      "// harness-test-tier: integration\n",
+      "utf8",
+    );
+}

@@ -29,6 +29,14 @@
         "integration-shard (4)",
         "integration-shard (5)",
         "integration-shard (6)",
+        "integration-shard (7)",
+        "integration-shard (8)",
+        "integration-shard (9)",
+        "integration-shard (10)",
+        "integration-shard (11)",
+        "integration-shard (12)",
+        "integration-shard (13)",
+        "integration-shard (14)",
         "supply-chain",
         "gui-build",
         "node26-compatibility",
@@ -219,6 +227,14 @@
         "integration-shard (4)",
         "integration-shard (5)",
         "integration-shard (6)",
+        "integration-shard (7)",
+        "integration-shard (8)",
+        "integration-shard (9)",
+        "integration-shard (10)",
+        "integration-shard (11)",
+        "integration-shard (12)",
+        "integration-shard (13)",
+        "integration-shard (14)",
         "supply-chain",
         "gui-build",
         "pr-body-lint",
@@ -317,15 +333,33 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**/src/**", "tools/gates/authorization-provider-boundary.mjs", "tools/gates/test/authorization-provider-boundary.test.mjs", "tools/gate-allowlists/authorization-provider-boundary.json"],
+      "localPathGlobs": [
+        "packages/**/src/**",
+        "tools/gates/authorization-provider-boundary.mjs",
+        "tools/gates/test/authorization-provider-boundary.test.mjs",
+        "tools/gate-allowlists/authorization-provider-boundary.json"
+      ],
       "authoritySource": ["task_db161f5e92d9a6d2d414b462e4"],
-      "consumerScope": ["new Keycloak symbols, REST paths, errors, and realm-specific fields outside authorization-keycloak provider packages"],
+      "consumerScope": [
+        "new Keycloak symbols, REST paths, errors, and realm-specific fields outside authorization-keycloak provider packages"
+      ],
       "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
-      "allowlistPolicy": { "allowed": true, "location": "tools/gate-allowlists/authorization-provider-boundary.json", "adrOrDecisionRequired": true, "notes": "Existing subsystem debt is grandfathered only until its task-linked expiry; new provider-specific lines always fail." },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/authorization-provider-boundary.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Existing subsystem debt is grandfathered only until its task-linked expiry; new provider-specific lines always fail."
+      },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": ["tools/gates/authorization-provider-boundary.mjs", "tools/gates/test/authorization-provider-boundary.test.mjs", "tools/gate-allowlists/authorization-provider-boundary.json", "package.json:scripts.harness:check-authorization-provider-boundary", "tools/gate-manifest.json"]
+        "protectedSurfaces": [
+          "tools/gates/authorization-provider-boundary.mjs",
+          "tools/gates/test/authorization-provider-boundary.test.mjs",
+          "tools/gate-allowlists/authorization-provider-boundary.json",
+          "package.json:scripts.harness:check-authorization-provider-boundary",
+          "tools/gate-manifest.json"
+        ]
       },
       "bypassFixtureRequired": true,
       "executionSurfaces": {
@@ -335,7 +369,10 @@
         "classes": ["local", "pr"]
       },
       "deterministic": true,
-      "positiveControl": { "status": "covered", "evidence": ["tools/gates/test/authorization-provider-boundary.test.mjs"] }
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/authorization-provider-boundary.test.mjs"]
+      }
     },
     {
       "id": "check-entity-doc-contract",
@@ -1128,7 +1165,15 @@
           "integration-shard (3)",
           "integration-shard (4)",
           "integration-shard (5)",
-          "integration-shard (6)"
+          "integration-shard (6)",
+          "integration-shard (7)",
+          "integration-shard (8)",
+          "integration-shard (9)",
+          "integration-shard (10)",
+          "integration-shard (11)",
+          "integration-shard (12)",
+          "integration-shard (13)",
+          "integration-shard (14)"
         ],
         "workflowJobs": ["integration-shard", "windows-integration-shard"],
         "nodeVersions": [24]
@@ -1168,7 +1213,15 @@
             "integration-shard (3)",
             "integration-shard (4)",
             "integration-shard (5)",
-            "integration-shard (6)"
+            "integration-shard (6)",
+            "integration-shard (7)",
+            "integration-shard (8)",
+            "integration-shard (9)",
+            "integration-shard (10)",
+            "integration-shard (11)",
+            "integration-shard (12)",
+            "integration-shard (13)",
+            "integration-shard (14)"
           ]
         },
         "classes": ["local", "pr"]

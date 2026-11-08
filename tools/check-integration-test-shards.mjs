@@ -30,7 +30,13 @@ export function checkIntegrationTestShards({
   const testTierManifest = discoverTestTierManifest(repoRoot);
   const integrationFiles = testTierManifest.integration;
   const manifestValidation = validateManifest(testFiles, testTierManifest);
-  const shardValidation = validateIntegrationTestShards(integrationFiles, weightOverrides);
+  const allowlist = parseDeletionAllowlist(
+    deletionAllowlistText ?? readDeletionAllowlist(repoRoot),
+    deletionAllowlistRelativePath,
+  );
+  const shardValidation = validateIntegrationTestShards(integrationFiles, weightOverrides, {
+    overBudgetFiles: allowlist.overBudgetFiles,
+  });
   const workflowValidation = validateIntegrationShardWorkflowMatrix(workflowText, integrationShardCount);
   const gateValidation = validateIntegrationShardRequiredContexts(gateManifestText, integrationShardCount);
   const baseline =
@@ -282,17 +288,29 @@ function parseDeletionAllowlist(text, displayPath, { validateRefs = true } = {})
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    return { paths: [], errors: [`${displayPath} is not valid JSON: ${error.message}`] };
+    return { paths: [], overBudgetFiles: [], errors: [`${displayPath} is not valid JSON: ${error.message}`] };
   }
-  if (parsed.readError) return { paths: [], errors: [`unable to read ${displayPath}: ${parsed.readError}`] };
+  if (parsed.readError)
+    return { paths: [], overBudgetFiles: [], errors: [`unable to read ${displayPath}: ${parsed.readError}`] };
   if (parsed.schema !== "harness-anything/gate-allowlist/v1" || parsed.gateId !== "check-integration-test-shards") {
-    return { paths: [], errors: [`${displayPath} must be a check-integration-test-shards gate allowlist`] };
+    return {
+      paths: [],
+      overBudgetFiles: [],
+      errors: [`${displayPath} must be a check-integration-test-shards gate allowlist`],
+    };
   }
   const entries = parsed.entries?.intentionalTestDeletions;
   if (!Array.isArray(entries))
-    return { paths: [], errors: [`${displayPath} missing entries.intentionalTestDeletions`] };
+    return { paths: [], overBudgetFiles: [], errors: [`${displayPath} missing entries.intentionalTestDeletions`] };
   const paths = [];
   const errors = [];
+  const overBudgetFiles = [];
+  for (const [index, entry] of (parsed.entries.overBudgetFiles ?? []).entries()) {
+    const label = `${displayPath} entries.overBudgetFiles[${index}]`;
+    if (typeof entry?.value !== "string" || typeof entry.reason !== "string" || entry.reason.trim() === "")
+      errors.push(`${label} must name a test file and the reason it cannot be split`);
+    else overBudgetFiles.push(entry.value);
+  }
   for (const [index, entry] of entries.entries()) {
     const label = `${displayPath} entries.intentionalTestDeletions[${index}]`;
     if (
@@ -314,7 +332,7 @@ function parseDeletionAllowlist(text, displayPath, { validateRefs = true } = {})
     if (paths.includes(entry.value)) errors.push(`${label}.value is duplicated: ${entry.value}`);
     paths.push(entry.value);
   }
-  return { paths, errors };
+  return { paths, errors, overBudgetFiles };
 }
 
 function emptyDeletionAllowlistText() {

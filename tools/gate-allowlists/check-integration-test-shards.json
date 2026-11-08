@@ -998,6 +998,33 @@
         "ref": "task_799ca104a7af7b18432b2ded54",
         "reason": "Decision dec_E369B8616F50A6208B293997E7/CH5 retires the manual adjudicate forward/return surface this reviewer-instance lane exercised."
       }
+    ],
+    "overBudgetFiles": [
+      {
+        "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (252s median on main, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli-dispatch.integration.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (203s median on main, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli-lifecycle.integration.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (232s median on main, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+      },
+      {
+        "value": "packages/daemon/test/daemon-resident-readoption.integration.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (195s median on main, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+      },
+      {
+        "value": "packages/daemon/test/task-review-dispatch.integration.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (197s median on main, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+      }
     ]
   }
 }
