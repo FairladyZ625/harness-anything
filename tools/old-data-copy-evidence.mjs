@@ -573,11 +573,13 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
       "created task show",
     ),
     packagePath = createdPayload.packagePath;
-  if (typeof packagePath !== "string" || !/^tasks\/[A-Za-z0-9_-]+$/u.test(packagePath))
+  // `ha task show` prints workspace-relative paths (`harness/tasks/...`); resolve from the copied
+  // workspace root once instead of re-joining the package under a second `harness/`.
+  if (typeof packagePath !== "string" || !/^harness\/tasks\/[A-Za-z0-9_-]+$/u.test(packagePath))
     throw new Error(`medium task has an invalid package path: ${String(packagePath)}`);
-  const packageRoot = path.join(workspace, "harness", packagePath),
+  const packageRoot = path.join(workspace, packagePath),
     artifactRelative = `${packagePath}/artifacts/medium-submit-evidence.md`,
-    artifactPath = path.join(workspace, "harness", artifactRelative),
+    artifactPath = path.join(workspace, artifactRelative),
     closeoutPath = path.join(packageRoot, "closeout.md");
   mkdirSync(path.dirname(artifactPath), { recursive: true });
   writeFileSync(
@@ -604,9 +606,9 @@ async function createAndSubmitMediumEvidenceTask(buildRoot, workspace, env, iden
           "--task",
           taskId,
           "--path",
-          `harness/${packagePath}/closeout.md`,
+          `${packagePath}/closeout.md`,
           "--path",
-          `harness/${artifactRelative}`,
+          artifactRelative,
         ],
         env,
         workspace,

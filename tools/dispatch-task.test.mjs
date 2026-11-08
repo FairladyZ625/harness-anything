@@ -11,7 +11,10 @@ import { realizedTaskPlan } from "./fixtures/task-plan.mjs";
 
 const taskId = "task_receipt_truth",
   executionId = "exe_receipt_truth";
-const packagePath = "tasks/server-returned-path-no-guessed-slug";
+// `task create` prints the workspace spelling (`harness/tasks/...`) and keeps the authored key in
+// `ledgerPackagePath`; the driver must resolve the package from the workspace root, not rejoin it.
+const packagePath = "harness/tasks/server-returned-path-no-guessed-slug",
+  ledgerPackagePath = "tasks/server-returned-path-no-guessed-slug";
 const dispatchId = `dispatch_${"a".repeat(24)}`,
   runtimeSessionId = "runtime_receipt_truth";
 
@@ -21,8 +24,8 @@ function successfulRunner(workspaceRoot, overrides = {}) {
     calls.push({ step, args });
     if (overrides[step]) return overrides[step]({ step, args, calls });
     if (step === "task-create") {
-      mkdirSync(path.join(workspaceRoot, "harness", ...packagePath.split("/")), { recursive: true });
-      return { command: ["ha", ...args], receipt: { ok: true, taskId, packagePath } };
+      mkdirSync(path.join(workspaceRoot, ...packagePath.split("/")), { recursive: true });
+      return { command: ["ha", ...args], receipt: { ok: true, taskId, packagePath, ledgerPackagePath } };
     }
     if (step === "task-start") return { command: ["ha", ...args], receipt: { ok: true, taskId, executionId } };
     return {
@@ -45,7 +48,8 @@ test("dispatch driver walks create, returned package path, start, detach, and fo
     );
     assert.equal(readFileSync(receipt.planPath, "utf8"), readFileSync(planFile, "utf8"));
     assert.equal(receipt.packagePath, packagePath);
-    assert.equal(receipt.planPath, path.join(workspaceRoot, "harness", ...packagePath.split("/"), "task_plan.md"));
+    assert.equal(receipt.planPath, path.join(workspaceRoot, ...packagePath.split("/"), "task_plan.md"));
+    assert.equal(existsSync(path.join(workspaceRoot, "harness", "harness")), false);
     assert.equal(
       existsSync(path.join(workspaceRoot, "harness", "tasks", "a-title-whose-slug-must-not-be-guessed")),
       false,

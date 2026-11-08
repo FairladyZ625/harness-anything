@@ -212,14 +212,17 @@ export function benchContext(f, n, writes, samples) {
     },
     field: (metric, s, key) => deepFind(receiptOf(metric, s), [key])[key] ?? "missing",
     packagePath: (s, chain = "") => receiptOf(`task-create${chain}`, s)?.packagePath,
+    // CLI receipts carry the workspace spelling (`harness/tasks/...`), so every on-disk path below
+    // resolves from `f.root` directly; re-joining it under `harness/` would name a package that
+    // never exists (or silently create a double-prefixed one).
     realizePlan: (s, chain = "") => {
       const plan = `${receiptOf(`task-create${chain}`, s)?.packagePath}/task_plan.md`;
-      writeFileSync(path.join(f.root, "harness", plan), realizedTaskPlan(`Chain${chain} ${s}`));
+      writeFileSync(path.join(f.root, plan), realizedTaskPlan(`Chain${chain} ${s}`));
       return plan;
     },
     decisionBody: (s) => realizedDecisionBody(`Probe ${s}`),
     writeCloseout: (s, chain = "") => {
-      const root = path.join(f.root, "harness", receiptOf(`task-create${chain}`, s)?.packagePath ?? "missing");
+      const root = path.join(f.root, receiptOf(`task-create${chain}`, s)?.packagePath ?? "missing");
       mkdirSync(path.join(root, "artifacts"), { recursive: true });
       writeFileSync(path.join(root, "artifacts", "report.md"), `# Report ${s}\n`);
       writeFileSync(
@@ -232,11 +235,10 @@ export function benchContext(f, n, writes, samples) {
     },
     review: (s, chain = "") => {
       const reportPath = `${receiptOf(`task-create${chain}`, s)?.packagePath}/artifacts/report.md`;
-      assert.equal(readFileSync(path.join(f.root, "harness", reportPath), "utf8"), `# Report ${s}\n`);
+      assert.equal(readFileSync(path.join(f.root, reportPath), "utf8"), `# Report ${s}\n`);
       // review-execution requires the reviewer-authored report on disk at artifacts/reports/<stem>.md.
       const reviewReport = path.join(
         f.root,
-        "harness",
         receiptOf(`task-create${chain}`, s)?.packagePath ?? "missing",
         "artifacts",
         "reports",
