@@ -19,7 +19,12 @@ import { waitForArrival } from "../fixtures/event-arrival.ts";
 
 const status = (fixture) => requestDaemonJsonRpcAt(fixture.endpoint, "daemon.status", {}, 5000, 10_000);
 const event = (fixture, name, after = 0) =>
-  waitForArrival(() => fixture.events.slice(after).find((row) => row.event === name) ?? null, fixture.subscribeEvents);
+  waitForArrival(() => {
+    const observed = fixture.events.slice(after).find((row) => row.event === name);
+    if (observed) return observed;
+    if (fixture.processFailure) throw fixture.processFailure;
+    return null;
+  }, fixture.subscribeEvents);
 
 export async function measureCenter(fixture, operation, { captureError = false } = {}) {
   const samples = [],

@@ -34,6 +34,7 @@ export async function createCenterFixture({
   let owners,
     child,
     childExit,
+    processFailure,
     closed = false,
     closeResult;
   const waiters = new Map(),
@@ -210,6 +211,10 @@ export async function createCenterFixture({
           waiter.reject(new Error(`center exited ${code}/${signal}: ${stderr.join("")}`));
         waiters.clear();
         if (superseded && !closed) launch();
+        else if (!closed) {
+          processFailure = new Error(`center exited ${code}/${signal}: ${stderr.join("")}`);
+          for (const arrive of eventArrivals) arrive();
+        }
       });
     };
     launch();
@@ -271,6 +276,9 @@ export async function createCenterFixture({
       attachDiagnostics,
       diagnostics,
       events,
+      get processFailure() {
+        return processFailure;
+      },
       subscribeEvents: (arrive) => {
         eventArrivals.add(arrive);
         return () => eventArrivals.delete(arrive);
