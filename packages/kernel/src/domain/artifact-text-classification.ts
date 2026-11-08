@@ -12,6 +12,16 @@ export const RAW_ARTIFACT_POLICY_ID = "raw-artifact-bytes/v1";
 export const RAW_ARTIFACT_MEDIA_TYPE = "application/octet-stream";
 /** The <=50,000,000 byte blob contract in dec_776B4D61DF711D9F31126D375D, shared with entity-owned content. */
 export const RAW_ARTIFACT_MAX_BYTES = 50_000_000;
+/**
+ * dec_E355A3715D7C65666E385C8339 CH2: one ledger document is capped at 20,000,000 bytes at the
+ * single canonical write-validation port. The limit is decimal (matching the content-object
+ * contract) and inclusive: exactly 20,000,000 bytes is admitted, one byte more is refused.
+ *
+ * Entity-owned content keeps the dec_776B4D61 per-object ceiling. Those bytes are admitted as
+ * content objects and the projection stores only their claim, not a materialized document body,
+ * so the canonical write port exempts entity events from this document limit.
+ */
+export const LEDGER_DOCUMENT_MAX_BYTES = 20_000_000;
 
 export type RawArtifactClassification = Readonly<{
   kind: "raw-artifact";
