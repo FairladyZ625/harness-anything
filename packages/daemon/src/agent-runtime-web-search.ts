@@ -96,8 +96,9 @@ export interface RuntimeWebSearchGatewayProbe {
 
 /** The one real verification: a Responses API request carrying the same hosted tool the
  *  launch will enable, accepted only when the gateway reports a web_search_call item.
- *  A refused request, an unreachable gateway and a response without that item are all
- *  named refusals; none of them becomes a silently disabled tier. */
+ *  A refused request and a response without that item are named refusals. Transport,
+ *  credential and JSON failures keep their original error, so the operator sees the
+ *  cause instead of a rewritten one; none of these outcomes persists a search tier. */
 export async function verifyRuntimeWebSearchGateway(
   gateway: RuntimeWebSearchGatewayProbe,
   resolveCredential: (reference: string) => Promise<string>,
@@ -115,24 +116,16 @@ export async function verifyRuntimeWebSearchGateway(
     headers: Record<string, string> = { "content-type": "application/json", ...gateway.httpHeaders };
   if (gateway.credentialHeader) headers[gateway.credentialHeader] = secret;
   else headers.authorization = `Bearer ${secret}`;
-  let response: Response;
-  try {
-    response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: gateway.model,
-        input: "Use the web_search tool to look up the official Node.js website, then answer with its URL.",
-        tools: [{ type: "web_search" }],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch (error) {
-    consumeKnownError(error);
-    throw gatewayUnverified(
-      `Native web search could not be verified against ${gateway.baseUrl}: ${errorMessage(error)}.`,
-    );
-  }
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: gateway.model,
+      input: "Use the web_search tool to look up the official Node.js website, then answer with its URL.",
+      tools: [{ type: "web_search" }],
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!response.ok)
     throw gatewayUnverified(
       [
@@ -140,15 +133,7 @@ export async function verifyRuntimeWebSearchGateway(
         `The gateway must accept POST /responses with tools:[{"type":"web_search"}].`,
       ].join(""),
     );
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    consumeKnownError(error);
-    throw gatewayUnverified(
-      `Native web search could not be verified: ${gateway.baseUrl} did not return a JSON Responses payload.`,
-    );
-  }
+  const body: unknown = await response.json();
   if (!containsWebSearchCall(body))
     throw gatewayUnverified(
       [
@@ -163,15 +148,7 @@ async function gatewayCredential(
   reference: string,
   resolveCredential: (reference: string) => Promise<string>,
 ): Promise<string> {
-  let secret: string;
-  try {
-    secret = await resolveCredential(reference);
-  } catch (error) {
-    consumeKnownError(error);
-    throw gatewayUnverified(
-      `Native web search could not be verified because the gateway credential could not be resolved: ${errorMessage(error)}.`,
-    );
-  }
+  const secret = await resolveCredential(reference);
   if (!secret)
     throw gatewayUnverified("Native web search could not be verified because the gateway credential is unavailable.");
   return secret;
@@ -191,10 +168,6 @@ function containsWebSearchCall(body: unknown): boolean {
         item !== null && typeof item === "object" && (item as { readonly type?: unknown }).type === "web_search_call",
     )
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** Codex reports `supports_search_tool` in its bundled model catalog. The witness carries

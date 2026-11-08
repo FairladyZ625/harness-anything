@@ -418,6 +418,69 @@ test("a custom gateway update that cannot prove native search keeps the default 
   }
 });
 
+test("a failed gateway verification surfaces the original error instead of a rewritten one", async () => {
+  const transport = new Error("gateway connection reset"),
+    credential = new Error("credential backend unavailable");
+  const scenarios: readonly {
+    readonly label: string;
+    readonly resolveCredential: () => Promise<string>;
+    readonly fetchImpl: typeof fetch;
+    readonly expect: (error: unknown) => void;
+  }[] = [
+    {
+      label: "unreachable-gateway",
+      resolveCredential: async () => "gateway-secret",
+      fetchImpl: (async () => {
+        throw transport;
+      }) as typeof fetch,
+      expect: (error) => assert.equal(error, transport),
+    },
+    {
+      label: "credential-resolution",
+      resolveCredential: async () => {
+        throw credential;
+      },
+      fetchImpl: fakeGateway({ output: [{ type: "web_search_call" }] }, []),
+      expect: (error) => assert.equal(error, credential),
+    },
+    {
+      label: "non-json-response",
+      resolveCredential: async () => "gateway-secret",
+      fetchImpl: (async () => new Response("not a responses payload", { status: 200 })) as typeof fetch,
+      expect: (error) => assert.ok(error instanceof SyntaxError),
+    },
+  ];
+  for (const scenario of scenarios) {
+    const userRoot = mkdtempSync(path.join(tmpdir(), `ha-codex-gateway-${scenario.label}-`));
+    try {
+      const store = openRuntimeInstanceStore({
+        userRoot,
+        discover: () => [witness],
+        resolveCredential: scenario.resolveCredential,
+        managedPolicyTexts: () => [],
+        webSearchFetch: scenario.fetchImpl,
+      });
+      store.create(gatewayInstance());
+      await assert.rejects(
+        async () =>
+          await store.command({
+            kind: "runtime-instance-update",
+            instanceId: "codex-gateway",
+            webSearch: "live",
+          }),
+        (error: unknown) => {
+          scenario.expect(error);
+          assert.equal(codedAs(error, "runtime_web_search_gateway_unverified"), false);
+          return true;
+        },
+      );
+      assert.equal(runtimeWebSearchForConfig(store.read("codex-gateway")!), "disabled");
+    } finally {
+      rmSync(userRoot, { recursive: true, force: true });
+    }
+  }
+});
+
 test("a published dispatch receipt carries the effective tier but not account configuration", () => {
   const event = {
     schema: "agent-runtime-event/v1",
