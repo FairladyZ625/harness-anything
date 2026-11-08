@@ -70,6 +70,36 @@ function containsLoop(node, visitorKeys) {
   return found;
 }
 
+// Below this delay a fail-only timer judges how fast the process under test is: CI runs integration
+// files concurrently on 4-core runners where work units measured 3-4x their uncontended duration.
+const watchdogFloorMs = 20_000;
+
+// A watchdog is a timer whose callback only ends the test as failed: it rejects, throws, fails an
+// assertion or aborts. It bounds a hang and never decides what the process under test should be
+// doing. Any other timer callback (resolve a sleep, send the child a message, destroy a socket,
+// kill the child as a scripted step) schedules an observable state by the wall clock.
+function isWatchdog(callback, visitorKeys) {
+  if (!callback || !["ArrowFunctionExpression", "FunctionExpression"].includes(callback.type)) return false;
+  let fails = false;
+  function walk(current) {
+    if (!current || fails) return;
+    if (current.type === "ThrowStatement") fails = true;
+    if (current.type === "CallExpression") {
+      const name = callName(current.callee);
+      if (name === "reject" || name === "abort") fails = true;
+      if (name === "fail" && current.callee.type === "MemberExpression" && current.callee.object.name === "assert")
+        fails = true;
+    }
+    for (const key of visitorKeys[current.type] ?? []) {
+      const value = current[key];
+      if (Array.isArray(value)) value.forEach(walk);
+      else walk(value);
+    }
+  }
+  walk(callback.body);
+  return fails;
+}
+
 function insideLoop(node) {
   for (let current = node.parent; current; current = current.parent) {
     if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) return false;
@@ -150,8 +180,11 @@ export default {
       },
       CallExpression(node) {
         const name = callName(node.callee);
-        if (integration && (name === "setInterval" || name === "setTimeout")) report(node, "scheduled-timer");
-        else if ((name === "setInterval" || name === "setTimeout") && milliseconds(node.arguments[1]) < 250)
+        if (integration && (name === "setInterval" || name === "setTimeout")) {
+          // A fail-only timer whose delay resolves below the floor is a speed assertion, not a hang guard.
+          if (!isWatchdog(node.arguments[0], context.sourceCode.visitorKeys)) report(node, "scheduled-timer");
+          else if (milliseconds(node.arguments[1]) < watchdogFloorMs) report(node, "short-watchdog");
+        } else if ((name === "setInterval" || name === "setTimeout") && milliseconds(node.arguments[1]) < 250)
           report(node, "short-timer");
         if (integration && node.callee.type === "Identifier" && pollHelpers.has(node.callee.name))
           report(node, "poll-helper");

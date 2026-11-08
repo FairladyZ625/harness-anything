@@ -1,3 +1,41 @@
+/**
+ * check-poll-spin-boundary — the one ratchet gate for polling and wall-clock waits.
+ *
+ * Lanes. One ESLint rule (tools/gates/eslint-rules/no-poll-spin.js), one baseline file and one
+ * exact-sync check cover two lanes:
+ *   - production: packages/*\/src and tools/gates (dec_EF5F3820E81FB8A5266F1F3342 CH3);
+ *   - integration tests: every `*.integration.test.{ts,tsx,mjs,js}` under packages/ and tools/
+ *     (dec_25B3C380F6FB9D4D4A1E27921E CH1). A test joins the lane by its file name, the same name
+ *     the integration tier and its CI shards select; helpers it imports are covered through the
+ *     `poll-helper` kind at the call site.
+ *
+ * Integration kinds (AST, reported as file#enclosing-symbol#kind):
+ *   clock-deadline   a comparison against Date.now()/performance.now(), or `deadline - now()`;
+ *   clock-loop       a while/do-while whose test reads the clock;
+ *   await-in-loop    awaiting sleep/delay/setTimeout/setImmediate inside a loop;
+ *   scheduled-timer  setTimeout/setInterval whose callback does anything but fail the test
+ *                    (resolve a sleep, message the child, destroy a socket, a scripted kill);
+ *   short-watchdog   a fail-only timer whose delay resolves below 20 s: a speed assertion;
+ *   self-poll        a function named waitFor*, waitUntil*, poll*, eventually*, until*, retry*
+ *                    whose body loops;
+ *   poll-helper      a call to tools/fixtures/wait-for-condition.ts or an imported eventually*.
+ *
+ * Correctness wait vs hang guard. A correctness wait decides when the test may look again; it must
+ * be an event the process under test publishes: waitForArrival(read, subscribe) from
+ * tools/fixtures/event-arrival.ts, a child "message"/"exit" event, a stream line. A hang guard only
+ * ends a stuck test as failed and never asserts speed: the node:test `timeout` option, or a timer
+ * whose callback only rejects/throws/assert.fail()s/aborts and whose delay is a parameter or at
+ * least 20 s. Hang guards are not reported.
+ *
+ * Baseline. tools/gate-allowlists/check-poll-spin-boundary.json lists every reported key with
+ * event, ref and reason. The check is exact: a new key fails as `unlisted`, a key whose site was
+ * converted fails as `stale` until its entry is deleted, so the list only shrinks. `--update`
+ * rewrites it and is for intentional removals only.
+ *
+ * Fixtures. tools/gates/test/syntax-boundaries.test.mjs holds the positive fixtures (each kind is
+ * reported, a new now()+N deadline loop fails the gate) and the negative ones (waitForArrival,
+ * node:test timeout, fail-only watchdogs pass).
+ */
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ESLint } from "eslint";

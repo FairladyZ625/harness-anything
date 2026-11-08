@@ -129,6 +129,24 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
   assert.deepEqual(kinds("test('x', async () => { setTimeout(() => child.send('stop'), 2000); });"), [
     "scheduled-timer",
   ]);
+  assert.deepEqual(kinds("const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));"), [
+    "scheduled-timer",
+  ]);
+  // Negative fixtures: a watchdog that only fails the test bounds a hang and is not a correctness wait.
+  assert.deepEqual(
+    kinds(
+      "function guard(child, ms) { return new Promise((_resolve, reject) => { setTimeout(() => { child.kill('SIGKILL'); reject(new Error('hung')); }, ms); }); }",
+    ),
+    [],
+  );
+  assert.deepEqual(kinds("setTimeout(() => { throw new Error('hung'); }, 60_000);"), []);
+  // A fail-only timer with a short resolved delay asserts speed: it is reported, not exempted.
+  assert.deepEqual(kinds("setTimeout(() => reject(new Error('write was blocked')), 5_000);"), ["short-watchdog"]);
+  assert.deepEqual(kinds("const guardMs = 3_000; setTimeout(() => reject(new Error('slow')), guardMs);"), [
+    "short-watchdog",
+  ]);
+  assert.deepEqual(kinds("setTimeout(() => controller.abort(), 60_000);"), []);
+  assert.deepEqual(kinds("test('x', { timeout: 30_000 }, async () => { await child.exited; });"), []);
   assert.deepEqual(kinds("async function waitForReady() { for (;;) { if (await ready()) return; } }"), ["self-poll"]);
   assert.deepEqual(
     kinds(
