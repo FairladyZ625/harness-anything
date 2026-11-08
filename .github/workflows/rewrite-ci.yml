@@ -245,9 +245,7 @@ jobs:
           path: ${{ runner.temp }}
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - if: needs.install.outputs.code != 'false'
-        env:
-          HARNESS_TEST_CONCURRENCY: ${{ matrix.shard <= 2 && '3' || (matrix.shard <= 4 && '4' || '6') }}
-        run: nproc && node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
+        run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
 
   # dec_09C1CE4481EEF4096867FA034E: PGlite requires the repaired V8 in Node 26.
   # Node 24 integration shards exercise refusal; this lane runs all database assertions.
