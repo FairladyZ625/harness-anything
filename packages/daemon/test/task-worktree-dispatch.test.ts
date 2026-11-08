@@ -7,14 +7,13 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskV2, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
 import { prepareDispatchWorktree } from "../src/runtime-resume-admission.ts";
+import { repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
 import { prepareTaskStartWorktree, taskWorkspaceView } from "../src/task-worktree.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
-// Issue #4431: a task-bound dispatch must be refused when there is no default-branch commit to cut its worktree
-// from, even when an earlier explicit start already recorded an execution. A null checkout used to mean both "this
-// node cannot make a worktree" and "no worktree was requested", so the dispatch resolver fell back to the
-// repository root and the worker committed on main. A start may answer "no workspace here" without blocking its
-// lifecycle write, but that answer never authorizes a provider launch.
+// Issue #4431: a task-bound dispatch must be refused when its required worktree cannot be cut from a Git repository,
+// even when an earlier explicit start already recorded an execution. A start may answer "no workspace here" without
+// blocking its lifecycle write, but that answer never authorizes a provider launch.
 
 const taskId = "task_12345678",
   binding: TaskWorktreeBindingV1 = { branch: taskId, path: `.worktrees/${taskId}` },
@@ -28,8 +27,9 @@ test("a task-bound dispatch refuses an unborn repository before launch instead o
     prepareDispatchWorktree({ rootDir: root }, { taskId, prompt: "implement the task" }, () => binding),
     (error: Error & { code?: string }) => {
       assert.equal(error.code, "worktree_base_unavailable");
+      assert.equal((error as Error & { reason?: string }).reason, "unborn");
       assert.match(error.message, new RegExp(`Task ${taskId}'s worktree \\.worktrees/${taskId}`, "u"));
-      assert.match(error.message, /has no default-branch commit to cut it from/u);
+      assert.match(error.message, /no resolvable default base commit/u);
       return true;
     },
   );
@@ -58,6 +58,21 @@ test("after the first commit the same dispatch materializes the binding and neve
   assert.equal(taskWorkspaceView(root, boundTask("active"), "tasks/x", repositoryDiff, null)?.state, "materialized");
 });
 
+test("a task-bound runtime dispatch refuses a committed detached repository with no default base", async (t) => {
+  const { root } = detachedRepository(t);
+  assert.equal(repositoryBaseRef(root), null);
+  await assert.rejects(
+    prepareDispatchWorktree({ rootDir: root }, { taskId }, () => binding),
+    (error: Error & { code?: string }) => {
+      assert.equal(error.code, "worktree_base_unavailable");
+      assert.equal((error as Error & { reason?: string }).reason, "detached");
+      assert.match(error.message, /no resolvable default base commit/u);
+      return true;
+    },
+  );
+  assert.equal(existsSync(path.join(root, binding.path)), false);
+});
+
 test("a Git-less edge keeps the no-workspace answer instead of a missing-base failure", async (t) => {
   // dec_BBA713052997C3EF5F5D3DD952 CH3: an edge without Git records no workspace rather than failing.
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-dispatch-gitless-"));
@@ -79,13 +94,14 @@ test("a dispatch after an explicit start still refuses an unborn repository befo
     );
   assert.ok(annotate, "a task-bound start must still produce its receipt annotation");
   const started = annotate({ outcome: "applied", opId: "op-start" });
-  assert.match(String((started as { summary?: unknown }).summary), /has no default-branch commit/u);
+  assert.match(String((started as { summary?: unknown }).summary), /reason: unborn/u);
   // The start recorded no workspace. That answer must not authorize a provider launch later: the dispatch
   // still refuses rather than letting resolveDispatchCwd fall back to the repository root.
   await assert.rejects(
     prepareDispatchWorktree({ rootDir: root }, { taskId }, () => binding),
     (error: Error & { code?: string }) => {
       assert.equal(error.code, "worktree_base_unavailable");
+      assert.equal((error as Error & { reason?: string }).reason, "unborn");
       return true;
     },
   );
@@ -101,6 +117,13 @@ function unbornRepository(t: TestContext): { readonly base: string; readonly roo
   git(root, "config", "user.name", "Worktree Dispatch Test");
   git(root, "config", "user.email", "worktree-dispatch@example.invalid");
   return { base, root };
+}
+
+function detachedRepository(t: TestContext): { readonly base: string; readonly root: string } {
+  const fixture = unbornRepository(t);
+  git(fixture.root, "commit", "--allow-empty", "-qm", "first");
+  git(fixture.root, "checkout", "--quiet", "--detach");
+  return fixture;
 }
 
 /** The task whose binding the dispatcher resolves: a repository-diff standard task, still open. */

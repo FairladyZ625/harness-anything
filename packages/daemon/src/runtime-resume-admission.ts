@@ -16,10 +16,8 @@ import {
   openTaskWorktreeBinding,
   presetSnapshotReader,
   taskWorkspaceView,
-  worktreeBaseUnavailableError,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
-import { hasUnbornHead } from "./schedule-occurrence-workspace.ts";
 import { noWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 
@@ -214,7 +212,6 @@ export async function prepareDispatchWorktree(
     undefined,
     payload.role === "reviewer" ? (pinnedCommit === null ? { followPublishedBranch: false } : { pinnedCommit }) : {},
   );
-  if (!checkout && hasUnbornHead(input.rootDir)) throw worktreeBaseUnavailableError(input.rootDir, taskId, binding);
   if (checkout && !checkout.setup.ok)
     throw runtimeSpawnError(
       "worktree_setup_failed",

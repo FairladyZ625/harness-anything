@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deriveTaskWorktreeBinding } from "@harness-anything/kernel";
+import { repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
 import { prepareWorkerWorktree, resolveSquadCwd } from "../src/squad-worker-checkout.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
@@ -126,6 +127,7 @@ test("a task-bound squad run refuses an unborn repository before launch and keep
     resolveSquadCwd(rootDir, undefined, query, taskId, noWorktreeSetup()),
     (error: Error & { code?: string }) => {
       assert.equal(error.code, "worktree_base_unavailable");
+      assert.equal((error as Error & { reason?: string }).reason, "unborn");
       return true;
     },
   );
@@ -135,6 +137,53 @@ test("a task-bound squad run refuses an unborn repository before launch and keep
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-gitless-"));
   t.after(() => rmSync(gitless, { recursive: true, force: true }));
   assert.equal(await resolveSquadCwd(gitless, undefined, query, taskId, noWorktreeSetup()), gitless);
+});
+
+test("a task-bound squad run refuses a committed detached repository with no default base", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-detached-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q", "-b", "main", rootDir]);
+  execFileSync(
+    "git",
+    ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "--allow-empty", "-qm", "first"],
+    {
+      cwd: rootDir,
+    },
+  );
+  execFileSync("git", ["checkout", "--quiet", "--detach"], { cwd: rootDir });
+  assert.equal(repositoryBaseRef(rootDir), null);
+  const taskId = "task_child_detached",
+    binding = childBinding(taskId)!,
+    query = (() => binding) as unknown as Parameters<typeof resolveSquadCwd>[2];
+  await assert.rejects(
+    resolveSquadCwd(rootDir, undefined, query, taskId, noWorktreeSetup()),
+    (error: Error & { code?: string }) => {
+      assert.equal(error.code, "worktree_base_unavailable");
+      assert.equal((error as Error & { reason?: string }).reason, "detached");
+      assert.match(error.message, /no resolvable default base commit/u);
+      return true;
+    },
+  );
+  assert.equal(existsSync(path.join(rootDir, ".worktrees", taskId)), false);
+});
+
+test("a task-bound squad run uses its worktree when the repository has a default base", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-default-base-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q", "-b", "main", rootDir]);
+  execFileSync(
+    "git",
+    ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "--allow-empty", "-qm", "first"],
+    {
+      cwd: rootDir,
+    },
+  );
+  const taskId = "task_child_default_base",
+    binding = childBinding(taskId)!,
+    query = (() => binding) as unknown as Parameters<typeof resolveSquadCwd>[2],
+    cwd = await resolveSquadCwd(rootDir, undefined, query, taskId, noWorktreeSetup());
+  assert.equal(cwd, path.join(rootDir, binding.path));
+  assert.notEqual(cwd, rootDir);
 });
 
 function childBinding(taskId: string) {
