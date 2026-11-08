@@ -37,7 +37,7 @@ export const dispatchCapacityDispositions = ["busy", "recovering", "free"] as co
 /** The attempt's provider slot: reserved at admission, held while the process may run, released by a proven stop. */
 export const dispatchReservationStates = ["reserved", "held", "released"] as const;
 export const dispatchStopProofs = ["unproven", "proven_stopped"] as const;
-export const dispatchDeliveryStatuses = ["none", "registered"] as const;
+export const dispatchDeliveryStatuses = ["unregistered", "registered"] as const;
 export type DispatchGroupPhase = (typeof dispatchGroupPhases)[number];
 export type DispatchAttemptPhase = (typeof dispatchAttemptPhases)[number];
 export type DispatchCapacityDisposition = (typeof dispatchCapacityDispositions)[number];
@@ -379,7 +379,7 @@ function admit(
         attempts: [attempt],
         successor: { admissible: false, dueAt: null },
         ruling: null,
-        delivery: { status: "none", targetRef: null, targetDigest: null, registeredRevision: null },
+        delivery: { status: "unregistered", targetRef: null, targetDigest: null, registeredRevision: null },
         revision,
       },
     };

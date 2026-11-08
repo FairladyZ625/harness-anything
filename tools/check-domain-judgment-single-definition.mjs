@@ -14,7 +14,8 @@ import ts from "typescript";
 import { authoredReadinessFindings } from "./domain-judgment-authored-readiness.mjs";
 import { git, listWorktreeFiles, pathExistsAt, pullRequestBase } from "./gates/git.mjs";
 
-const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-observation.json";
+const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-observation.json",
+  OBSERVATION_BASELINE_SCHEMA = "harness-anything/gate-allowlist/v1";
 
 const judgments = Object.freeze([
   {
@@ -263,9 +264,9 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
 
 export function checkDispatchLifecycleObservationSites(sites, baseline, priorBaseline = null) {
   const findings = [],
-    baselineEntries = Array.isArray(baseline?.entries) ? baseline.entries : [],
+    baselineEntries = observationEntries(baseline) ?? [],
     allowed = countEntries(baselineEntries);
-  if (baseline?.schema !== "dispatch-lifecycle-observation-baseline/v1")
+  if (observationEntries(baseline) === null)
     findings.push(`${DISPATCH_OBSERVATION_BASELINE}: invalid or missing dispatch observation baseline`);
   for (const site of sites) {
     const key = observationKey(site),
@@ -288,6 +289,13 @@ export function checkDispatchLifecycleObservationSites(sites, baseline, priorBas
   return findings;
 }
 
+/** The baseline is a B13-classified gate allowlist; its one section lists the remaining sites. */
+function observationEntries(baseline) {
+  return baseline?.schema === OBSERVATION_BASELINE_SCHEMA && Array.isArray(baseline.entries?.observationSites)
+    ? baseline.entries.observationSites
+    : null;
+}
+
 function countEntries(entries) {
   const counts = new Map();
   for (const entry of entries) {
@@ -307,9 +315,7 @@ function readPreviousDispatchObservationEntries(root) {
   const base = process.env.PR_BASE_SHA || pullRequestBase(root);
   if (!pathExistsAt(root, base, DISPATCH_OBSERVATION_BASELINE)) return null;
   const previous = JSON.parse(git(root, ["show", `${base}:${DISPATCH_OBSERVATION_BASELINE}`]));
-  return previous?.schema === "dispatch-lifecycle-observation-baseline/v1" && Array.isArray(previous.entries)
-    ? previous.entries
-    : [];
+  return observationEntries(previous) ?? [];
 }
 
 function insideProcessObservedPayload(node) {
@@ -414,7 +420,7 @@ function read(root, rel) {
 async function main() {
   if (process.argv.includes("--print-dispatch-observation-baseline")) {
     const sliceOf = new Map(
-      (readDispatchObservationBaseline(process.cwd())?.entries ?? []).map((entry) => [
+      (observationEntries(readDispatchObservationBaseline(process.cwd())) ?? []).map((entry) => [
         observationKey(entry),
         entry.slice,
       ]),
@@ -422,14 +428,16 @@ async function main() {
     console.log(
       JSON.stringify(
         {
-          schema: "dispatch-lifecycle-observation-baseline/v1",
+          schema: OBSERVATION_BASELINE_SCHEMA,
           authority: "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
           policy: "entries may only be removed; each site is keyed by path, symbol, kind, and source fingerprint",
           // Regeneration keeps each surviving entry's reviewed migration slice; new sites stay unassigned.
-          entries: scanDispatchLifecycleObservationSites().map((site) => ({
-            ...site,
-            slice: sliceOf.get(observationKey(site)) ?? "unassigned",
-          })),
+          entries: {
+            observationSites: scanDispatchLifecycleObservationSites().map((site) => ({
+              ...site,
+              slice: sliceOf.get(observationKey(site)) ?? "unassigned",
+            })),
+          },
         },
         null,
         2,

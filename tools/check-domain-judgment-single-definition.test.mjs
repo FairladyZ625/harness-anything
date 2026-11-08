@@ -30,9 +30,13 @@ function fixtureFindings(t) {
 }
 
 test("domain judgment single-definition gate accepts the repository", () => {
+  // The shrink-only comparison against the pull request base is covered by the ratchet unit test
+  // below; here the checkout is its own base, so the run needs no fetched origin/main.
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).stdout.trim();
   const result = spawnSync("node", [path.join(repoRoot, "tools/check-domain-judgment-single-definition.mjs")], {
     cwd: repoRoot,
     encoding: "utf8",
+    env: { ...process.env, PR_BASE_SHA: head },
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(
@@ -246,8 +250,8 @@ test("dispatch observation ratchet rejects admission and terminal judgments but 
     spawnSync("git", args, { cwd: fixture });
   const sites = scanDispatchLifecycleObservationSites(fixture),
     findings = checkDispatchLifecycleObservationSites(sites, {
-      schema: "dispatch-lifecycle-observation-baseline/v1",
-      entries: [],
+      schema: "harness-anything/gate-allowlist/v1",
+      entries: { observationSites: [] },
     });
   assert.deepEqual(sites.map(({ symbol, kind }) => `${symbol}:${kind}`).sort(), [
     "admissionFromPid:runtimePidIsAlive",
@@ -269,11 +273,15 @@ test("dispatch observation baseline rejects additions and permits reductions", (
       kind: "runtimePidIsAlive",
       fingerprint: "fingerprint-a",
     },
-    current = { schema: "dispatch-lifecycle-observation-baseline/v1", entries: [] },
+    current = { schema: "harness-anything/gate-allowlist/v1", entries: { observationSites: [] } },
     prior = [entry],
     reduced = checkDispatchLifecycleObservationSites([], current, prior),
-    expanded = checkDispatchLifecycleObservationSites([entry], { ...current, entries: [entry] }, []),
-    stale = checkDispatchLifecycleObservationSites([], { ...current, entries: [entry] });
+    expanded = checkDispatchLifecycleObservationSites(
+      [entry],
+      { ...current, entries: { observationSites: [entry] } },
+      [],
+    ),
+    stale = checkDispatchLifecycleObservationSites([], { ...current, entries: { observationSites: [entry] } });
   assert.deepEqual(reduced, []);
   assert.ok(expanded.some((finding) => finding.includes("baseline may only shrink")));
   assert.ok(stale.some((finding) => finding.includes("stale baseline entry should be removed")));

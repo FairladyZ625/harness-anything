@@ -41,7 +41,7 @@ export const dispatchStatusWordRegister: readonly StatusWordRegistration[] = [
     word,
     entity: "Dispatch" as const,
     field: "delivery status",
-    meaning: `The dispatch group's delivery is ${word === "none" ? "not registered" : "registered"}.`,
+    meaning: `The dispatch group's delivery is ${word === "unregistered" ? "not registered" : "registered"}.`,
     divergence: "entity-scoped" as const,
   })),
 ];
