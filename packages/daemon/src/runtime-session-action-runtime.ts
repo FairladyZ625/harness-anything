@@ -4,6 +4,8 @@ import {
   MIGRATION_IMPORT_SOURCE,
   type TaskProjection,
   type AgentRuntimeEventV1,
+  isDispatchLifecycleEvent,
+  type DispatchLifecycleEvent,
   stableStringify,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -17,12 +19,26 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
       dispatch = projection().readRuntimeDispatch(runtimeSessionId),
       dispatchSource = dispatch?.source,
       ingressSource = binding.source,
-      localOwner = dispatchSource === "local" && ingressSource === "local";
+      localOwner = dispatchSource === "local" && ingressSource === "local",
+      lifecycle: DispatchLifecycleEvent | null =
+        action.kind === "runtime_dispatch_lifecycle_observed" && isDispatchLifecycleEvent(action.lifecycle)
+          ? action.lifecycle
+          : null,
+      rulingResolution = binding.dispatchRulingResolution,
+      centerRulingResolution =
+        lifecycle !== null &&
+        lifecycle.source === "center" &&
+        lifecycle.type === "ruling_resolved" &&
+        ingressSource === "local" &&
+        rulingResolution?.taskId === dispatch?.payload.taskId &&
+        rulingResolution?.dispatchId === dispatch?.payload.dispatchId &&
+        rulingResolution?.dispatchId === lifecycle.dispatchId &&
+        rulingResolution?.rulingId === lifecycle.rulingId;
     // Genesis replay imports a frozen source generation: its sessions have a creation event but no
     // dispatch. Only a terminal event from the same person on the local center can settle one; the
     // creation record is the ownership fence, so a remote node can never claim the session.
     if (!dispatch && importedSessionTerminalSettlement(projection(), runtimeSessionId, action, binding)) return action;
-    if (!localOwner) {
+    if (!localOwner && !centerRulingResolution) {
       if (
         !dispatch ||
         typeof dispatchSource !== "object" ||

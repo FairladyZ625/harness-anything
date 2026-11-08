@@ -105,6 +105,12 @@ export interface RepoCellBinding {
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
+  /** Internal authorization carried only from the checked owner-ruling resolve Action. */
+  readonly dispatchRulingResolution?: {
+    readonly taskId: string;
+    readonly dispatchId: string;
+    readonly rulingId: string;
+  };
 }
 
 export type RuntimeIngressAction =

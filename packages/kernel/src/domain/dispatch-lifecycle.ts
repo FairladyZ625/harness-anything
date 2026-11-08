@@ -59,6 +59,7 @@ export type DispatchLifecycleEvent =
   | (EventBase & { readonly type: "owner_fence_verified"; readonly verification: "center" })
   | (EventBase & { readonly type: "process_started" })
   | (EventBase & { readonly type: "process_exit" | "process_lost" })
+  | (EventBase & { readonly type: "result_registered" })
   | (EventBase & { readonly type: "process_stop_proven"; readonly proof: Exclude<DispatchStopProof, "unproven"> })
   | (EventBase & {
       readonly type: "backoff_scheduled";
@@ -67,6 +68,7 @@ export type DispatchLifecycleEvent =
       readonly successorDispatchId: string;
     })
   | (EventBase & { readonly type: "fallback_exhausted" })
+  | (EventBase & { readonly type: "ruling_submitted"; readonly rulingId: string })
   | (EventBase & {
       readonly type: "ruling_requested";
       readonly rulingId: string;
@@ -86,6 +88,7 @@ export interface DispatchLifecycleAttempt {
   readonly capacity: DispatchCapacity;
   readonly reservationId: string;
   readonly outcome: DispatchLifecycleOutcome | null;
+  readonly resultRegistered?: boolean;
   readonly taskLease?: { readonly taskId: string; readonly executionId: string; readonly version: number } | null;
   readonly workspaceRef?: string | null;
 }
@@ -137,8 +140,15 @@ export interface DispatchLifecycleView {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
   readonly attemptGroupId: string;
-  readonly attempt: Pick<DispatchLifecycleAttempt, "phase" | "process" | "stopProof" | "capacity" | "outcome">;
-  readonly group: Pick<DispatchLifecycleGroup, "phase" | "currentDispatchId" | "successorDispatchId" | "notBeforeAt">;
+  readonly attempt: Pick<DispatchLifecycleAttempt, "phase" | "process" | "stopProof" | "capacity" | "outcome"> & {
+    readonly resultRegistered: boolean;
+  };
+  readonly group: Pick<
+    DispatchLifecycleGroup,
+    "phase" | "currentDispatchId" | "successorDispatchId" | "notBeforeAt" | "rulingId"
+  >;
+  readonly groupVersion: number;
+  readonly ownerFence: DispatchOwnerFence | null;
   readonly policy: {
     readonly attemptSettled: boolean;
     readonly groupSettled: boolean;
@@ -365,8 +375,13 @@ export function reduceDispatchLifecycle(
       break;
     case "process_exit":
     case "process_lost":
-      if (currentAttempt.phase !== "starting" && currentAttempt.phase !== "running")
+      if (
+        currentAttempt.phase !== "starting" &&
+        currentAttempt.phase !== "running" &&
+        currentAttempt.phase !== "settling"
+      )
         invalidTransition(event, previous.phase);
+      if (currentAttempt.stopProof !== "unproven") invalidTransition(event, previous.phase);
       nextAttempt = {
         ...currentAttempt,
         phase: "settling",
@@ -374,6 +389,26 @@ export function reduceDispatchLifecycle(
         stopProof: "unproven",
       };
       phase = "settling";
+      break;
+    case "result_registered":
+      if (
+        (previous.phase !== "running" && previous.phase !== "settling") ||
+        (currentAttempt.phase !== "running" && currentAttempt.phase !== "settling")
+      )
+        invalidTransition(event, previous.phase);
+      nextAttempt = { ...currentAttempt, phase: "settling", resultRegistered: true };
+      phase = "settling";
+      break;
+    case "ruling_submitted":
+      if (
+        (previous.phase !== "running" && previous.phase !== "settling") ||
+        (currentAttempt.phase !== "running" && currentAttempt.phase !== "settling")
+      )
+        invalidTransition(event, previous.phase);
+      if (previous.rulingId !== null && previous.rulingId !== event.rulingId) invalidTransition(event, previous.phase);
+      nextAttempt = { ...currentAttempt, phase: "settling" };
+      phase = "settling";
+      rulingId = event.rulingId;
       break;
     case "process_stop_proven":
       requireAttempt(currentAttempt, "settling", event);
@@ -567,13 +602,17 @@ export function readDispatchLifecycle(
           stopProof: attempt.stopProof,
           capacity: attempt.capacity,
           outcome: attempt.outcome,
+          resultRegistered: attempt.resultRegistered === true,
         },
         group: {
           phase: group.phase,
           currentDispatchId: group.currentDispatchId,
           successorDispatchId: group.successorDispatchId,
           notBeforeAt: group.notBeforeAt,
+          rulingId: group.rulingId,
         },
+        groupVersion: group.version,
+        ownerFence: group.ownerFence,
         policy: {
           attemptSettled: attempt.phase === "closed",
           groupSettled: group.phase === "closed",
@@ -675,9 +714,11 @@ function validateEvent(event: DispatchLifecycleEvent): void {
       "process_started",
       "process_exit",
       "process_lost",
+      "result_registered",
       "process_stop_proven",
       "backoff_scheduled",
       "fallback_exhausted",
+      "ruling_submitted",
       "ruling_requested",
       "ruling_resolved",
       "cancel_requested",
@@ -740,7 +781,10 @@ function validateEvent(event: DispatchLifecycleEvent): void {
     (!outcomes.includes(event.outcome) || !event.successorDispatchId || !Number.isFinite(Date.parse(event.notBeforeAt)))
   )
     throw new DispatchLifecycleError("invalid_event", "dispatch backoff schedule is invalid");
-  if ((event.type === "ruling_requested" || event.type === "ruling_resolved") && !event.rulingId)
+  if (
+    (event.type === "ruling_submitted" || event.type === "ruling_requested" || event.type === "ruling_resolved") &&
+    !event.rulingId
+  )
     throw new DispatchLifecycleError("invalid_event", "dispatch ruling id is required");
   if (event.type === "settlement_committed" && !outcomes.includes(event.outcome))
     throw new DispatchLifecycleError("invalid_event", "dispatch settlement outcome is invalid");
@@ -807,6 +851,7 @@ function validImportedGroup(value: unknown): value is DispatchLifecycleGroup {
           ["succeeded", "failed", "cancelled", "stopped", "lost", "exhausted", "superseded", "unknown"].includes(
             row.outcome as DispatchLifecycleOutcome,
           )) &&
+        (row.resultRegistered === undefined || typeof row.resultRegistered === "boolean") &&
         (row.taskLease === undefined || row.taskLease === null || validTaskLease(row.taskLease)) &&
         (row.workspaceRef === undefined || row.workspaceRef === null || typeof row.workspaceRef === "string")
       );

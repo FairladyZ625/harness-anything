@@ -458,6 +458,7 @@ export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts
 export {
   DispatchLifecycleError,
   emptyDispatchLifecycleProjection,
+  isDispatchLifecycleEvent,
   migrateUnclosedDispatchGroup,
   readDispatchLifecycle,
   reduceDispatchLifecycle,

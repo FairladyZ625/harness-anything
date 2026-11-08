@@ -20,6 +20,7 @@ import {
   requireEntityTypeContract,
   type ExecutionAnnotationKind,
   type WriteReceiptDraft as WriteReceipt,
+  type DispatchLifecycleEvent,
 } from "@harness-anything/kernel";
 import { runPresetAction } from "@harness-anything/preset";
 import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-action.ts";
@@ -52,6 +53,12 @@ import { readWork } from "./work-read.ts";
 import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
 import { parseRulingArtifact, runtimeRulingPath, runtimeRulingResolutionPath } from "./runtime-ruling.ts";
+import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
+
+type DispatchLifecycleEventFields =
+  | { readonly type: "result_registered" }
+  | { readonly type: "ruling_submitted"; readonly rulingId: string }
+  | { readonly type: "ruling_resolved"; readonly rulingId: string };
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -336,7 +343,21 @@ export function executeRepoAction(
               return cell.archiveTasks(catalogAction, catalogBinding);
             if (catalogAction.kind === "task-supersede" && typeof catalogAction.title === "string")
               return cell.supersedeWithNewTask(catalogAction, catalogBinding);
-            return cell.taskSurfaceWrite(catalogAction, catalogBinding);
+            const receipt = await cell.taskSurfaceWrite(catalogAction, catalogBinding),
+              principal = catalogBinding.executionPrincipal;
+            if (
+              catalogAction.kind === "task-review-execution" &&
+              principal?.role === "reviewer" &&
+              principal.taskId === catalogAction.taskId &&
+              ["applied", "no_changes"].includes(receipt.outcome)
+            )
+              await publishDispatchLifecycleEvent(cell, {
+                runtimeSessionId: principal.runtimeSessionId,
+                dispatchId: principal.dispatchId,
+                binding: catalogBinding,
+                fields: { type: "result_registered" },
+              });
+            return receipt;
           }
           return contract.execution?.implementation === "task-completion"
             ? cell.completeTask(catalogAction, catalogBinding)
@@ -544,6 +565,12 @@ async function runTaskEscalation(
     now: cell.now,
     killpoint: cell.input.killpoint,
   });
+  await publishDispatchLifecycleEvent(cell, {
+    runtimeSessionId: principal.runtimeSessionId,
+    dispatchId,
+    binding,
+    fields: { type: "ruling_submitted", rulingId: dispatchId },
+  });
   // A center-forwarded edge action cannot cancel through the center's local spawner: the runtime
   // owner is the edge node. The edge RPC route performs the owner-local cancel after this artifact
   // is durably accepted. Local dispatches still stop through their resident spawner here.
@@ -560,6 +587,79 @@ async function runTaskEscalation(
       ...(remoteOwner ? { cancelOwner: "edge" } : {}),
     }),
   };
+}
+
+async function publishDispatchLifecycleEvent(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly runtimeSessionId: string;
+    readonly dispatchId: string;
+    readonly taskId?: string;
+    readonly binding: RepoCellBinding;
+    readonly fields: DispatchLifecycleEventFields;
+  },
+): Promise<void> {
+  const read = cell.projection.readDispatchLifecycle?.({ by: "dispatch", dispatchIds: [input.dispatchId] });
+  if (!read || read.status !== "ready")
+    throw cell.cellCodedError("dispatch_lifecycle_unavailable", `Dispatch ${input.dispatchId} lifecycle is not ready.`);
+  const row = read.rows.find(({ dispatchId }) => dispatchId === input.dispatchId);
+  if (!row)
+    throw cell.cellCodedError("dispatch_lifecycle_missing", `Dispatch ${input.dispatchId} lifecycle is missing.`);
+  const { type } = input.fields;
+  if (type === "result_registered" && row.attempt.resultRegistered) return;
+  if (type === "ruling_submitted" && row.group.rulingId === input.fields.rulingId) return;
+  if (type === "ruling_resolved" && row.group.phase === "closed" && row.group.rulingId === null) return;
+  if (row.ownerFence === null)
+    throw cell.cellCodedError("dispatch_lifecycle_fence_required", `Dispatch ${input.dispatchId} has no owner fence.`);
+  if (
+    type === "ruling_resolved" &&
+    (row.group.phase !== "awaiting_ruling" || row.group.rulingId !== input.fields.rulingId)
+  )
+    throw cell.cellCodedError(
+      "invalid_escalation_resolution",
+      `Dispatch ${input.dispatchId} has no matching lifecycle ruling.`,
+    );
+  const taskId = input.taskId ?? cell.projection.readRuntimeDispatch(input.runtimeSessionId)?.payload.taskId;
+  if (type === "ruling_resolved" && !taskId)
+    throw cell.cellCodedError("invalid_escalation_resolution", `Dispatch ${input.dispatchId} has no task binding.`);
+  const eventId = `dispatch-lifecycle-${input.dispatchId}-${type}-${row.groupVersion}`,
+    lifecycle: DispatchLifecycleEvent = {
+      schema: "dispatch-lifecycle-event/v1" as const,
+      source: "center" as const,
+      eventId,
+      repoId: cell.input.repoId,
+      attemptGroupId: row.attemptGroupId,
+      dispatchId: input.dispatchId,
+      expectedGroupVersion: row.groupVersion,
+      ownerFence: row.ownerFence,
+      ...input.fields,
+    },
+    binding =
+      type === "ruling_resolved"
+        ? {
+            ...input.binding,
+            dispatchRulingResolution: {
+              taskId: taskId!,
+              dispatchId: input.dispatchId,
+              rulingId: input.fields.rulingId,
+            },
+          }
+        : input.binding,
+    receipt = await commitRuntimeSessionAction(
+      cell,
+      {
+        kind: "event",
+        type: "runtime_dispatch_lifecycle_observed",
+        payload: { runtimeSessionId: input.runtimeSessionId, lifecycle },
+        opId: eventId,
+      },
+      binding,
+    );
+  if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+    throw cell.cellCodedError(
+      typeof receipt.code === "string" ? receipt.code : "dispatch_lifecycle_rejected",
+      `Dispatch ${input.dispatchId} lifecycle event ${type} was ${receipt.outcome}.`,
+    );
 }
 
 async function resolveTaskEscalation(
@@ -643,6 +743,14 @@ async function resolveTaskEscalation(
       killpoint: cell.input.killpoint,
     });
   }
+  const dispatchRuntimeSessionId = dispatch.payload.runtimeSessionId;
+  await publishDispatchLifecycleEvent(cell, {
+    runtimeSessionId: dispatchRuntimeSessionId,
+    dispatchId,
+    taskId,
+    binding,
+    fields: { type: "ruling_resolved", rulingId: dispatchId },
+  });
   const transitioned = await cell.lifecycleAction(
     { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
     binding,

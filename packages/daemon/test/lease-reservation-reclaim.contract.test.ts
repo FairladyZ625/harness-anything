@@ -435,12 +435,49 @@ test("the same principal reclaims a live-projected RuntimeSession only after its
       exitCode: null,
       resultRef: null,
       lastObservedAt: now,
-    },
-    reclaimCell = {
+    };
+  let lifecycleStopProof: "unproven" | "proven_stopped" = "unproven";
+  const reclaimCell = {
       ...cell,
       rootDir,
       projection: {
         readRuntimeSession: (id: string) => (id === runtimeSession.runtimeSessionId ? runtimeSession : null),
+        readDispatchLifecycle: () => ({
+          status: "ready" as const,
+          watermark: 1,
+          sourceRevision: 1,
+          rows: [
+            {
+              dispatchId,
+              runtimeSessionId,
+              attemptGroupId: dispatchId,
+              attempt: {
+                phase: "settling" as const,
+                process: "exited" as const,
+                stopProof: lifecycleStopProof,
+                capacity: lifecycleStopProof === "unproven" ? ("held" as const) : ("released" as const),
+                outcome: null,
+                resultRegistered: false,
+              },
+              group: {
+                phase: "settling" as const,
+                currentDispatchId: dispatchId,
+                successorDispatchId: null,
+                notBeforeAt: null,
+                rulingId: null,
+              },
+              groupVersion: 1,
+              ownerFence: null,
+              policy: {
+                attemptSettled: false,
+                groupSettled: false,
+                canRecover: false,
+                capacityDisposition: lifecycleStopProof === "unproven" ? ("recovering" as const) : ("free" as const),
+              },
+            },
+          ],
+          nextCursor: null,
+        }),
       },
     },
     heldSnapshot = { ...snapshot(), executions: [execution], lease: heldLease },
@@ -463,6 +500,7 @@ test("the same principal reclaims a live-projected RuntimeSession only after its
     );
 
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    lifecycleStopProof = "proven_stopped";
     const mutation = taskMutation(
       reclaimCell,
       { kind: "task-release", taskId: task.taskId, reason: "The bound dispatch process is gone." },

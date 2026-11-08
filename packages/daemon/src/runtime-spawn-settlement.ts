@@ -669,6 +669,21 @@ export async function publishExit(
       Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
         ? active.process.pid
         : undefined;
+    const stopProof =
+      processGroupPid === undefined
+        ? "launch_fenced_off"
+        : reconcileProcessGroup({
+              pid: processGroupPid,
+              pgid: processGroupPid,
+              dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
+            }) === "proven_stopped"
+          ? "proven_stopped"
+          : null;
+    if (stopProof !== null)
+      await publishActiveDispatchLifecycle(context, active, {
+        type: "process_stop_proven",
+        proof: stopProof,
+      });
     // Every sibling archives while the generation that authorized it is still held. The final
     // live sibling alone releases that generation, after all earlier siblings made their files visible.
     const leaseSettlement = await context
@@ -736,20 +751,19 @@ export async function publishExit(
       });
     if (leaseSettlement?.outcome === "lease_unproven")
       throw Object.assign(new Error(leaseSettlement.reason), { code: leaseSettlement.code });
-    const stopProof =
-      processGroupPid === undefined
-        ? "launch_fenced_off"
-        : reconcileProcessGroup({
-              pid: processGroupPid,
-              pgid: processGroupPid,
-              dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
-            }) === "proven_stopped"
-          ? "proven_stopped"
-          : null;
-    if (stopProof !== null)
+    if (stopProof !== null && ruling !== null)
       await publishActiveDispatchLifecycle(context, active, {
-        type: "process_stop_proven",
-        proof: stopProof,
+        type: "ruling_requested",
+        rulingId: active.dispatchId,
+        ...(active.task?.leaseVersion === null || active.task?.leaseVersion === undefined
+          ? {}
+          : {
+              releasedTaskLease: {
+                taskId: active.task.taskId,
+                executionId: active.task.executionId,
+                version: active.task.leaseVersion,
+              },
+            }),
       });
     const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
     if (stopProof !== null && fallbackState !== "scheduled" && ruling === null)

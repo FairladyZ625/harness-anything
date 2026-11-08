@@ -28,12 +28,6 @@
       "fingerprint": "7e6af973a43461143ee6f42094313fe1f6a2f93598438f97c57c53dcaf459328"
     },
     {
-      "path": "packages/daemon/src/repo-cell-task-mutation.ts",
-      "symbol": "dispatchProcessIsOrphaned",
-      "kind": "runtimePidIsAlive",
-      "fingerprint": "3af03c34079a37023683d4ff0d532d2e8e9e2333fb808438223f4101df97c92c"
-    },
-    {
       "path": "packages/daemon/src/runtime-handoff-native.ts",
       "symbol": "prepareRuntimeHandoff",
       "kind": "runtimePidIsAlive",

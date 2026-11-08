@@ -14,9 +14,7 @@ import {
   type TaskEventV1,
   type TaskV2,
 } from "@harness-anything/kernel";
-import { readDispatchLiveIndex, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
-import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { reconcileProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
@@ -188,27 +186,16 @@ function taskMutationWithStopResult(
         throw cell.cellCodedError("runtime_process_group_unproven", reason);
       }
     }
-    // An edge publishes the runtime archive before sending the existing task-release command.
-    // Read that canonical archive to carry the owner-wait intent through the same release event;
-    // this keeps the center's lease fence and blocked transition ordered without changing fleet
-    // command payloads.
-    const waitingOnOwner =
-      terminalRuntimeSessionId !== null &&
-      typeof binding.source === "object" &&
-      binding.source.kind === "node" &&
-      runtimeTerminalAwaitingOwner(cell, task.taskId, terminalRuntimeSessionId);
     return {
       type: "lease_released",
-      task: waitingOnOwner ? { ...task, status: "blocked" } : task,
+      task,
       ...(execution === undefined ? {} : { execution }),
       releasedLease: activeLease,
       authorizationDecision,
       audit: {
         command: "release",
-        reason: waitingOnOwner
-          ? `Worker is waiting for owner ruling: ${String(action.reason ?? "runtime escalation")}`
-          : reason,
-        fields: waitingOnOwner ? ["lease", "status"] : ["lease"],
+        reason,
+        fields: ["lease"],
       },
     };
   }
@@ -485,6 +472,16 @@ function terminalRuntimeStopProof(
   suppliedPid: unknown,
   source: RepoCellBinding["source"],
 ): ReturnType<typeof reconcileProcessGroup> {
+  const lifecycleRead = cell.projection.readDispatchLifecycle?.({ by: "session", runtimeSessionId });
+  if (lifecycleRead !== undefined) {
+    if (lifecycleRead.status !== "ready") return "unknown_unreachable";
+    return lifecycleRead.rows.some(
+      ({ attempt, runtimeSessionId: rowRuntimeSessionId }) =>
+        rowRuntimeSessionId === runtimeSessionId && attempt.stopProof !== "unproven",
+    )
+      ? "proven_stopped"
+      : "unknown_unreachable";
+  }
   const matchingHeaders = readDispatchStreamHeaders(cell.rootDir, true).filter(
     (candidate) => candidate.taskId === taskId && candidate.runtimeSessionId === runtimeSessionId,
   );
@@ -581,21 +578,6 @@ function optionalReleaseText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function runtimeTerminalAwaitingOwner(
-  cell: Pick<RepoCellActionContext, "projection">,
-  taskId: string,
-  runtimeSessionId: string,
-): boolean {
-  const dispatch = cell.projection.readRuntimeDispatch(runtimeSessionId),
-    packagePath = cell.projection.read(taskId).packagePath;
-  if (!dispatch || packagePath === null) return false;
-  const body = cell.projection.readDocument(`${packagePath}/artifacts/dispatches/${dispatch.payload.dispatchId}.json`)
-    .document?.body;
-  if (body === undefined || body === null || body.trim() === "") return false;
-  const value = JSON.parse(body) as Record<string, unknown>;
-  return value.schema === "runtime-dispatch/v1" && value.classification === "awaiting_ruling";
-}
-
 /** Whether walking `parentTaskId` up from `ancestorId` reaches `taskId`: the move would close a
  *  cycle, so it is refused at the write boundary instead of being tolerated by cycle-safe reads.
  *  Each round consumes one unseen ancestor; a legacy cycle ends the walk, never hangs it. */
@@ -622,45 +604,17 @@ function terminalExecutionRuntimeBinding(
   const actorRuntimeSessionId = runtimeSessionIdFromActor(lease.actor);
   if (actorRuntimeSessionId === null) return null;
   if (runtimeSessionId !== null && actorRuntimeSessionId !== runtimeSessionId) return null;
-  const inferredTerminalSessionIds =
-    runtimeSessionId === null
-      ? new Set(
-          readDispatchLiveIndex(cell.rootDir, [lease.taskId])
-            .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
-            .filter((stream) => stream?.header.runtimeSessionId === actorRuntimeSessionId)
-            .filter(
-              (stream) =>
-                stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
-            )
-            .map((stream) => stream!.header.runtimeSessionId),
-        )
-      : null;
+  const lifecycleRead = cell.projection.readDispatchLifecycle?.({
+      by: "session",
+      runtimeSessionId: actorRuntimeSessionId,
+    }),
+    lifecycleTerminal =
+      lifecycleRead?.status === "ready" && lifecycleRead.rows.some(({ attempt }) => attempt.stopProof !== "unproven");
   // The lease actor carries the session id, so this is a primary-key read, not the task's history.
   const session = cell.projection.readRuntimeSession(actorRuntimeSessionId);
   if (session === null) return null;
-  if (
-    (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") &&
-    !inferredTerminalSessionIds?.has(session.runtimeSessionId)
-  )
-    return null;
+  if (lifecycleRead !== undefined) {
+    if (!lifecycleTerminal) return null;
+  } else if (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") return null;
   return resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
-}
-
-function dispatchReachedTerminalAttempt(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
-  return (
-    stream.attemptOutcome !== null &&
-    stream.attemptOutcome !== undefined &&
-    (!isProviderFailureClassification(stream.attemptOutcome.classification) ||
-      stream.header.fallbackAttempt === undefined ||
-      stream.fallbackState === "exhausted")
-  );
-}
-
-function dispatchProcessIsOrphaned(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
-  return (
-    stream.fallbackState !== "scheduled" &&
-    stream.process !== null &&
-    stream.process !== undefined &&
-    (stream.process.exited || !runtimePidIsAlive(stream.process.pid))
-  );
 }

@@ -93,6 +93,95 @@ test("dispatch lifecycle rejects illegal transitions and keeps capacity until st
   assert.deepEqual(closed.activeReservationsByInstance["instance-a"], []);
 });
 
+test("registered delivery and submitted ruling keep the attempt settling until stop proof", () => {
+  const admitted = apply(emptyDispatchLifecycleProjection(), event("dispatch_admitted"), 1);
+  assert.throws(
+    () =>
+      reduceDispatchLifecycle(
+        admitted,
+        event("result_registered", { expectedGroupVersion: 1, eventId: "early-result" }),
+        2,
+      ),
+    { name: "DispatchLifecycleError", code: "invalid_transition" },
+  );
+  const running = apply(admitted, event("process_started", { expectedGroupVersion: 1, eventId: "started" }), 2),
+    registered = apply(running, event("result_registered", { expectedGroupVersion: 2, eventId: "result" }), 3),
+    attempt = registered.groups["group-a"]?.attempts[0];
+  assert.equal(attempt?.phase, "settling");
+  assert.equal(attempt?.process, "alive");
+  assert.equal(attempt?.capacity, "held");
+  assert.equal(attempt?.resultRegistered, true);
+  assert.throws(
+    () =>
+      reduceDispatchLifecycle(
+        registered,
+        event("dispatch_admitted", {
+          attemptGroupId: "sibling-group",
+          dispatchId: "sibling-dispatch",
+          eventId: "sibling-admit",
+          runtimeSessionId: "sibling-runtime",
+          reservationId: "sibling-reservation",
+        }),
+        4,
+      ),
+    { name: "DispatchLifecycleError", code: "instance_capacity_exhausted" },
+  );
+
+  const ruling = apply(
+      running,
+      event("ruling_submitted", {
+        expectedGroupVersion: 2,
+        eventId: "ruling-submitted",
+        rulingId: "dispatch-a",
+      }),
+      3,
+    ),
+    exited = apply(ruling, event("process_exit", { expectedGroupVersion: 3, eventId: "exit" }), 4),
+    stopped = apply(
+      exited,
+      event("process_stop_proven", {
+        expectedGroupVersion: 4,
+        eventId: "stopped",
+        proof: "proven_stopped",
+      }),
+      5,
+    ),
+    awaiting = apply(
+      stopped,
+      event("ruling_requested", {
+        expectedGroupVersion: 5,
+        eventId: "ruling-requested",
+        rulingId: "dispatch-a",
+      }),
+      6,
+    );
+  assert.equal(awaiting.groups["group-a"]?.phase, "awaiting_ruling");
+  assert.deepEqual(awaiting.activeReservationsByInstance["instance-a"], []);
+  assert.throws(
+    () =>
+      reduceDispatchLifecycle(
+        awaiting,
+        event("ruling_resolved", {
+          expectedGroupVersion: 6,
+          eventId: "wrong-ruling",
+          rulingId: "dispatch-other",
+        }),
+        7,
+      ),
+    { name: "DispatchLifecycleError", code: "invalid_transition" },
+  );
+  const resolved = apply(
+    awaiting,
+    event("ruling_resolved", {
+      expectedGroupVersion: 6,
+      eventId: "resolve-ruling",
+      rulingId: "dispatch-a",
+    }),
+    7,
+  );
+  assert.equal(resolved.groups["group-a"]?.phase, "closed");
+});
+
 test("dispatch lifecycle event ids are idempotent and reject conflicting reuse", () => {
   const first = event("dispatch_admitted", { eventId: "admit" }),
     projection = apply(emptyDispatchLifecycleProjection(), first, 1),
@@ -198,13 +287,17 @@ test("online projection, cold rebuild, and bounded lifecycle reads agree", () =>
       stopProof: "proven_stopped",
       capacity: "released",
       outcome: "succeeded",
+      resultRegistered: false,
     },
     group: {
       phase: "closed",
       currentDispatchId: "dispatch-a",
       successorDispatchId: null,
       notBeforeAt: null,
+      rulingId: null,
     },
+    groupVersion: 5,
+    ownerFence: fence,
     policy: {
       attemptSettled: true,
       groupSettled: true,
