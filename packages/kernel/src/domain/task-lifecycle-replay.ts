@@ -1,3 +1,4 @@
+import { reviewReverifyRoute } from "./review-reverify.ts";
 import { arrangeExecution, clearExecutionArrangement } from "./task-execution-arrangement.ts";
 import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
@@ -856,10 +857,24 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue("invalid_proof", "replayed consent is not content pinned"),
     ]);
+  // dec_BEFCF7D0484E901F187C2C8EC6 CH2: the one cross-submission disposition is the owner-verify
+  // citation of the previous round, admitted by the same kernel reverify route the write used.
+  const ownerVerifiedIds =
+    event.type === "review_consent_overridden"
+      ? (() => {
+          const route = reviewReverifyRoute({
+            reviews: snapshot.reviews,
+            reviewResponses: snapshot.reviewResponses,
+            execution: event.payload.execution,
+          });
+          return route.kind === "owner-verify" ? new Set(route.reviews.map((review) => review.reviewId)) : new Set();
+        })()
+      : new Set();
   if (
     event.type === "review_consent_overridden" &&
     event.payload.disposition.disposedReviewIds.some(
       (reviewId) =>
+        !(reviewId === event.payload.consent.reviewId && ownerVerifiedIds.has(reviewId)) &&
         !snapshot.reviews.some(
           (review) =>
             review.reviewId === reviewId &&

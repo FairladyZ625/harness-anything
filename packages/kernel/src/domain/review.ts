@@ -16,11 +16,21 @@ export const reviewFindingCategories = [
   "decision-break",
   "security-auth",
   "data-loss",
+  "evidence",
+  "wording",
+  "test-only",
   "style",
   "diagnostic",
   "cleanup",
 ] as const;
 export type ReviewFindingCategory = (typeof reviewFindingCategories)[number];
+/**
+ * How a blocking finding's fix is verified after rework (dec_BEFCF7D0484E901F187C2C8EC6 CH1):
+ * the task owner verifies it, or a scoped re-review does. An absent value reads as `re-review`;
+ * the category boundary lives in review-reverify.ts.
+ */
+export const reviewReverifyModes = ["owner-verify", "re-review"] as const;
+export type ReviewReverifyMode = (typeof reviewReverifyModes)[number];
 export const reviewFindingLabels = ["Important", "Nit", "Pre-existing"] as const;
 export type ReviewFindingLabel = (typeof reviewFindingLabels)[number];
 /** Historical owner ruling vocabulary retained only so admitted events remain readable. */
@@ -35,6 +45,7 @@ export const REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS = Object.freeze({
   label: { kind: "enum", values: reviewFindingLabels },
   evidenceDigest: { kind: "sha256-digest", pattern: /^sha256:[0-9a-f]{64}$/u },
   priorFindingRefs: { kind: "non-empty-string-array", minItems: 1 },
+  reverify: { kind: "enum", values: reviewReverifyModes },
 } as const);
 
 type ReviewFindingOptionalFieldContract =
@@ -313,7 +324,7 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
     if (hasInvalidOptionalField)
       issues.push(
         invalidReviewIssue(
-          "review finding category, label, evidence digest, or prior finding refs are invalid when present",
+          "review finding category, label, evidence digest, prior finding refs, or reverify are invalid when present",
         ),
       );
   }
@@ -434,17 +445,31 @@ export function consentedApprovedReviewForExecution(
   for (let index = consents.length - 1; index >= 0; index -= 1) {
     const consent = consents[index]!;
     if (consent.executionId !== execution.executionId || Date.parse(consent.consentedAt) < submittedAt) continue;
-    const review = currentReviews.find((value) => value.reviewId === consent.reviewId);
+    // dec_BEFCF7D0484E901F187C2C8EC6 CH2: the one cross-submission citation — a previous round's
+    // changes_requested review the owner verified on this cut. Only the owner-verify consent path
+    // can dispose an earlier round's review on the current submission, so the disposition proves it.
+    const current = currentReviews.find((value) => value.reviewId === consent.reviewId),
+      review =
+        current ??
+        reviews.find(
+          (value) =>
+            value.reviewId === consent.reviewId &&
+            value.taskId === execution.taskId &&
+            value.iteration < execution.iteration &&
+            value.verdict === "changes_requested",
+        );
     if (
       review &&
       reviewConsentConflicts({
         selectedReview: review,
         allowSelectedChangesRequested: true,
+        selectedOwnerVerified: current === undefined,
         reviews: currentReviews,
         dispositions,
         currentSubmissionDigest,
       }).length === 0 &&
-      (consent.submissionDigest === currentSubmissionDigest || consent.submissionDigest === undefined) &&
+      (consent.submissionDigest === currentSubmissionDigest ||
+        (consent.submissionDigest === undefined && current !== undefined)) &&
       consent.reviewDigest === reviewDigest(review) &&
       consent.contentDigest === review.contentDigest
     )

@@ -20,6 +20,7 @@ import {
   type TaskProjectionQueries,
   type TaskLifecycleSnapshot,
   type RepositorySettingsV1,
+  reviewReverifyRoute,
 } from "@harness-anything/kernel";
 import { locateTaskTransitionDocument } from "./transition-document-access.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
@@ -321,5 +322,30 @@ export function readTaskCompletion(
     completionNext: next,
     completionBlocker: blocker === null ? null : { code: blocker.code, gate: blocker.gate },
     factRetirement,
+    reviewReverify: read.snapshot.task ? reviewReverifyView(read.snapshot, read.snapshot.task.iteration) : null,
+  };
+}
+
+/** The kernel reverify route for the task's current round, shaped for CLI and GUI display. */
+function reviewReverifyView(
+  snapshot: Omit<Parameters<typeof reviewReverifyRoute>[0], "execution">,
+  iteration: number,
+): DaemonTaskCompletionResult["reviewReverify"] {
+  const route = reviewReverifyRoute({
+    reviews: snapshot.reviews,
+    reviewResponses: snapshot.reviewResponses,
+    execution: { iteration },
+  });
+  return {
+    route: route.kind,
+    findings:
+      route.kind === "full"
+        ? []
+        : route.findings.map(({ reviewId, finding, reverify, adopted }) => ({
+            reviewId,
+            findingId: finding.findingId,
+            reverify,
+            adopted,
+          })),
   };
 }

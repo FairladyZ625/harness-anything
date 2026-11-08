@@ -18,6 +18,7 @@ import {
   type ReviewV1,
 } from "./review.ts";
 import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
+import { reviewReverifyRoute } from "./review-reverify.ts";
 import { leaseIsEffective, submissionDigest, type ExecutionV1 } from "./execution.ts";
 import { isWorkRoot, type TaskV2 } from "./task.ts";
 
@@ -361,13 +362,41 @@ function evaluateCompletion(
   if (!includeReview) return [];
   // The assessment already carries the gate judgment; re-deriving review or consent here
   // would duplicate the one closeout-readiness decision.
-  if (assessment.blocker === "review_pending")
+  if (assessment.blocker === "review_pending") {
+    // dec_BEFCF7D0484E901F187C2C8EC6 CH2: who the cut waits on follows the previous round's reverify.
+    const route = reviewReverifyRoute({
+      reviews: snapshot.reviews,
+      reviewResponses: snapshot.reviewResponses,
+      execution,
+    });
+    if (route.kind === "owner-verify") {
+      const cited = route.reviews.at(-1)!.reviewId;
+      return one(
+        "review_pending",
+        "consent",
+        reviewDispositionCommand(task.taskId, executionId, cited).replace(
+          "--rationale <why>",
+          "--rationale <what the owner verified>",
+        ),
+        `Every blocking finding of review ${cited} is owner-verify and adopted; no reviewer is dispatched. ` +
+          "The cut waits on the owner to verify the fixes and consent citing that review.",
+      );
+    }
+    if (route.kind === "re-review")
+      return one(
+        "review_pending",
+        "review",
+        `ha task dispatch-review ${task.taskId}`,
+        `The cut waits on a scoped re-review of ${route.pending.map((item) => `${item.reviewId}/${item.finding.findingId}`).join(", ")} ` +
+          `against the diff since ${route.sinceCommit ?? "the previous review"}; wait for the dispatched reviewer's verdict or dispatch one.`,
+      );
     return one(
       "review_pending",
       "review",
       `ha task dispatch-review ${task.taskId}`,
       "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
     );
+  }
   if (assessment.blocker === "review_rejected") {
     const changes = changesRequestedReview(snapshot.reviews, execution, snapshot.reviewDispositions ?? []);
     if (changes) {

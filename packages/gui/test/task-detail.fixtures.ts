@@ -213,6 +213,7 @@ export function installBridge({
   completionBlocker = { code: "gate_witness_missing", gate: "lint" },
   planBody = "# Canonical plan body",
   explainer = false,
+  reviewReverify = null,
 }: {
   readonly uncommittedPlan?: boolean;
   /** `repo.tasks.completion.read` 的 next 动作原样透传;null = 无待办(next/blocker 均为 null)。 */
@@ -223,12 +224,23 @@ export function installBridge({
   readonly planBody?: string | null;
   /** 文档清单里带不带 living explainer(artifacts/explainer.html);默认不带。 */
   readonly explainer?: boolean;
+  /** 同一读结果的 kernel 复核路线(dec_BEFCF7D0);默认 null。 */
+  readonly reviewReverify?: {
+    readonly route: string;
+    readonly findings: readonly {
+      readonly reviewId: string;
+      readonly findingId: string;
+      readonly reverify: string;
+      readonly adopted: boolean;
+    }[];
+  } | null;
 } = {}) {
   const bridge = {
     getTaskCompletion: vi.fn(async ({ taskId }: { taskId: string }) => ({
       ok: true,
       taskId,
       factRetirement: null,
+      reviewReverify,
       ...(completionAction === null
         ? { completionNext: null, completionBlocker: null }
         : {

@@ -7,7 +7,9 @@ import {
   historicalReadConclusions,
   REPLAY_TASK_GRAPH,
   validateTaskV2,
+  reviewReverifyRoute,
   type ExecutionV1,
+  type ReviewV1,
 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
@@ -742,4 +744,60 @@ test("resolved fleet review packets preserve the local packet validation and dig
   assert.throws(() => reviewPacket("/unused", { ...resolved, principal: "client" }), /Review JSON requires exactly/u);
   const { evidenceChecked: _evidence, ...missing } = resolved;
   assert.throws(() => reviewPacket("/unused", missing), /Review JSON requires exactly/u);
+});
+
+// dec_BEFCF7D0484E901F187C2C8EC6 CH2/CH3: a re-review mission carries only the kernel route's
+// pending findings and the diff anchor; owner-verify findings and non-blocking notes stay out.
+test("a scoped re-review mission lists only the pending findings and refuses new non-blocking notes", () => {
+  const route = reviewReverifyRoute({
+      reviews: [
+        {
+          reviewId: "review-prior",
+          iteration: 0,
+          verdict: "changes_requested",
+          commitSha: "c".repeat(40),
+          reviewedAt: "2026-11-08T00:00:00.000Z",
+          findings: [
+            {
+              findingId: "F-count",
+              blocking: true,
+              text: "COUNT-TEXT",
+              category: "evidence",
+              reverify: "owner-verify",
+            },
+            {
+              findingId: "F-auth",
+              blocking: true,
+              text: "AUTH-TEXT",
+              category: "security-auth",
+              reverify: "re-review",
+            },
+            { findingId: "N-1", blocking: false, text: "NOTE-TEXT", category: "correctness" },
+          ],
+          resolutions: [],
+        } as unknown as ReviewV1,
+      ],
+      reviewResponses: [
+        { reviewId: "review-prior", findingId: "F-count", disposition: "adopt" },
+        { reviewId: "review-prior", findingId: "F-auth", disposition: "adopt" },
+      ] as unknown as Parameters<typeof reviewReverifyRoute>[0]["reviewResponses"],
+      execution: { iteration: 1 },
+    }),
+    prompt = reviewDispatchPrompt({
+      taskId: "task_scoped_rereview",
+      packagePath: "tasks/task-scoped-rereview",
+      dispatchId: "dispatch_scoped_rereview",
+      execution: { executionId: "exe_scoped_rereview", iteration: 1, submission: {} } as unknown as ExecutionV1,
+      gates: [],
+      reverify: route,
+    });
+  assert.equal(route.kind, "re-review");
+  assert.match(prompt, /This is a scoped re-review/u);
+  assert.match(prompt, /review-prior\/F-auth \(security-auth, re-review\): AUTH-TEXT/u);
+  assert.ok(prompt.includes(`since ${"c".repeat(40)}`));
+  assert.doesNotMatch(prompt, /COUNT-TEXT|NOTE-TEXT/u);
+  assert.match(prompt, /Do not raise new non-blocking findings/u);
+  assert.doesNotMatch(prompt, /On the first review/u);
+  assert.match(prompt, /Give every blocking finding a `reverify`/u);
+  assert.match(prompt, /When unsure, use re-review/u);
 });

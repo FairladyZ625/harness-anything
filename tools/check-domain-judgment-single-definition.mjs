@@ -4,6 +4,7 @@
  * Authority: dec_399F48E3547D831F1199F51E84 CH1 and the DDD blueprint;
  * dec_6B963E9B83AE4AC73FB0A61E81 CH2 for the projected fact `invalidated` field;
  * dec_6B912A63D279A922FA1288536D CH2 for authored-document readiness.
+ * dec_BEFCF7D0484E901F187C2C8EC6 CH1/CH2 for the review reverify route and owner-verify boundary.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -67,6 +68,18 @@ const judgments = Object.freeze([
     declaration: "function",
   },
   {
+    id: "reviewReverifyRoute",
+    symbol: "reviewReverifyRoute",
+    canonical: "packages/kernel/src/domain/review-reverify.ts",
+    declaration: "function",
+  },
+  {
+    id: "ownerVerifiableFindingCategories",
+    symbol: "ownerVerifiableFindingCategories",
+    canonical: "packages/kernel/src/domain/review-reverify.ts",
+    declaration: "const",
+  },
+  {
     id: "closeoutBilingualDelivery",
     symbol: "missingChineseCloseoutSections",
     canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
@@ -93,7 +106,15 @@ const requiredConsumers = new Map([
   ["tools/gates/render-task-pr-body.mjs", "missingChineseCloseoutSections("],
   ["packages/daemon/src/repo-cell-submit.ts", "missingChineseCloseoutSections("],
   ["packages/daemon/src/transition-document-access.ts", "assertTransitionDocumentReady("],
+  ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts#reverify", "reviewReverifyRoute("],
+  ["packages/kernel/src/domain/completion-readiness.ts#reverify", "reviewReverifyRoute("],
+  ["packages/daemon/src/task-review-dispatch.ts", "reviewReverifyRoute("],
 ]);
+/**
+ * Whether a finding is re-reviewed is judged only by the kernel route (dec_BEFCF7D0 CH1). Outside the
+ * kernel a finding's `reverify` value may be parsed, shape-checked, and displayed, never compared.
+ */
+const REVERIFY_COMPARISON = /\.reverify\s*(?:===|!==|==|!=|\?\?|\|\|)|(?:===|!==|==|!=)\s*[\w$.?]*\.reverify\b/u;
 
 export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
   const findings = [],
@@ -132,6 +153,15 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
       findings.push(`${file}: SQL infers Fact liveness instead of calling factLiveness`);
     if (/function\s+(?:coveragePath|firstFact|standingPolicy)\s*\(/u.test(body))
       findings.push(`${file}: carries a second Decision coverage algorithm`);
+  }
+  for (const file of files) {
+    if (
+      !/^packages\/(?:daemon|cli|gui|application|storage)\//u.test(file) ||
+      /^packages\/daemon\/src\/protocol\//u.test(file)
+    )
+      continue;
+    if (REVERIFY_COMPARISON.test(readFileSync(path.join(root, file), "utf8")))
+      findings.push(`${file}: judges a finding's reverify outside the kernel reviewReverifyRoute`);
   }
   const guiBodies = files
     .filter((file) => /^packages\/gui\//u.test(file))
@@ -181,7 +211,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Domain judgment single-definition check passed (ten judgments resolve to kernel domain services; authored-document reads use the projection port).",
+    "Domain judgment single-definition check passed (twelve judgments resolve to kernel domain services; authored-document reads use the projection port).",
   );
 }
 const invokedDirectly =

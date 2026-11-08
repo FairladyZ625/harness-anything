@@ -10,9 +10,11 @@ import {
   reviewFindingCategories,
   reviewsForExecution,
   reviewFindingLabels,
+  reviewReverifyModes,
   submissionDigest,
   type ReviewFindingCategory,
   type ReviewFindingLabel,
+  type ReviewReverifyMode,
   type ReviewFindingV1,
   type TaskLifecycleCommand,
 } from "@harness-anything/kernel";
@@ -238,9 +240,15 @@ export function buildCommand(
       executionId = selected.executionId,
       reviewId = selected.reviewId;
     // Derive both digests from the revision-pinned Review; kernel binding validation still runs.
+    // A disposed earlier-round review is the owner-verify citation (dec_BEFCF7D0484E901F187C2C8EC6
+    // CH2); the kernel consent transition decides whether that round may be cited.
     const executionReviews = snapshot.reviews.filter((value) => value.executionId === executionId),
-      recorded = executionReviews.find((value) => value.reviewId === reviewId);
-    if (!executionReviews.length)
+      recorded =
+        executionReviews.find((value) => value.reviewId === reviewId) ??
+        (Array.isArray(action.dispose) && action.dispose.includes(reviewId)
+          ? snapshot.reviews.find((value) => value.reviewId === reviewId)
+          : undefined);
+    if (!executionReviews.length && !recorded)
       throw cellCodedError(
         "invalid_transition",
         [
@@ -364,7 +372,8 @@ function reviewFindings(value: unknown, field: string): readonly ReviewFindingV1
     const category = optionalFindingCategory(row.category, `${field}[${index}].category`),
       label = optionalFindingLabel(row.label, `${field}[${index}].label`),
       evidenceDigest = optionalEvidenceDigest(row.evidenceDigest, `${field}[${index}].evidenceDigest`),
-      priorFindingRefs = optionalFindingRefs(row.priorFindingRefs, `${field}[${index}].priorFindingRefs`);
+      priorFindingRefs = optionalFindingRefs(row.priorFindingRefs, `${field}[${index}].priorFindingRefs`),
+      reverify = optionalFindingReverify(row.reverify, `${field}[${index}].reverify`);
     return {
       findingId,
       blocking: row.blocking,
@@ -374,8 +383,16 @@ function reviewFindings(value: unknown, field: string): readonly ReviewFindingV1
       ...(label === undefined ? {} : { label }),
       ...(evidenceDigest === undefined ? {} : { evidenceDigest }),
       ...(priorFindingRefs === undefined ? {} : { priorFindingRefs }),
+      ...(reverify === undefined ? {} : { reverify }),
     };
   });
+}
+
+function optionalFindingReverify(value: unknown, field: string): ReviewReverifyMode | undefined {
+  if (value === undefined) return undefined;
+  if (!reviewReverifyModes.includes(value as ReviewReverifyMode))
+    throw cellCodedError("invalid_command", `${field} must be one of ${reviewReverifyModes.join(", ")}.`);
+  return value as ReviewReverifyMode;
 }
 
 function optionalFindingCategory(value: unknown, field: string): ReviewFindingCategory | undefined {

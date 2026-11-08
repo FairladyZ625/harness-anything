@@ -274,6 +274,9 @@ export function taskShowFromProjection(
         : {}),
       returnBudget,
       rootAssessment,
+      // dec_BEFCF7D0484E901F187C2C8EC6: the kernel's reverify route for this round — how each previous
+      // blocking finding is verified; completionNext names who the cut waits on.
+      reviewReverify: completion.reviewReverify ?? null,
       completionNext: completion.completionNext,
       completionBlocker: completion.completionBlocker,
       progress: progress.rows,

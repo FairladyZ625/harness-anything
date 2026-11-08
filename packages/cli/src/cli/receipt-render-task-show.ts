@@ -34,6 +34,7 @@ export function renderTaskShow(
         ]
       : []),
     ...deliveryBaselineLines(payload),
+    ...reviewReverifyLines(payload),
     // Optional on the write-receipt schema: legacy receipts predate the field and render no line.
     ...(typeof receipt.expectedVersion === "number"
       ? [
@@ -126,4 +127,21 @@ function workspaceLine(workspace: Record<string, unknown>, setup: unknown): stri
     `workspace: ${String(workspace.path)} (worktree on branch ${String(workspace.branch)}, ` +
     `${String(workspace.state)}; setup: ${steps}; managed by Harness, no command needed)`
   );
+}
+
+/** dec_BEFCF7D0484E901F187C2C8EC6: each previous blocking finding with its daemon-derived reverify. */
+function reviewReverifyLines(payload: Record<string, unknown>): readonly string[] {
+  const view = isRecord(payload.reviewReverify) ? payload.reviewReverify : null;
+  if (view === null || !Array.isArray(view.findings) || view.findings.length === 0) return [];
+  return [
+    `review reverify route: ${String(view.route)}`,
+    ...view.findings.flatMap((finding) =>
+      isRecord(finding)
+        ? [
+            `review finding ${String(finding.reviewId)}/${String(finding.findingId)}: reverify ${String(finding.reverify)}` +
+              `, ${finding.adopted === true ? "adopted" : "not adopted"}`,
+          ]
+        : [],
+    ),
+  ];
 }

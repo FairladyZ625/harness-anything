@@ -6,6 +6,7 @@ import type {
   MaterializationState,
   ReviewFindingCategory,
   ReviewFindingLabel,
+  ReviewReverifyMode,
   TaskBoardColumnId,
   TaskCapabilityId,
   TaskCapabilityReason,
@@ -55,6 +56,9 @@ export const reviewFindingCategoryWords = Object.freeze([
   "decision-break",
   "security-auth",
   "data-loss",
+  "evidence",
+  "wording",
+  "test-only",
   "style",
   "diagnostic",
   "cleanup",
@@ -62,6 +66,14 @@ export const reviewFindingCategoryWords = Object.freeze([
 export const reviewFindingCategoryWordsAreExact: [ReviewFindingCategory] extends [
   (typeof reviewFindingCategoryWords)[number],
 ]
+  ? true
+  : never = true;
+
+export const reviewReverifyModeWords = Object.freeze([
+  "owner-verify",
+  "re-review",
+] as const satisfies readonly ReviewReverifyMode[]);
+export const reviewReverifyModeWordsAreExact: [ReviewReverifyMode] extends [(typeof reviewReverifyModeWords)[number]]
   ? true
   : never = true;
 
