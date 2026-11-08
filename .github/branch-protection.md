@@ -9,7 +9,7 @@ This repository accepts work through pull requests against `main`.
 3. Open a pull request with the full repository PR template.
 4. Wait for the required `rewrite-ci` pull request contexts to pass.
 5. Resolve or explicitly route open P0/P1/P2 findings before merge.
-6. After approval and passing required checks, enable GitHub auto-merge, then delete the merged PR branch.
+6. After approval and passing required checks, enqueue the PR with `node tools/pr-merge.mjs`; the helper enables merge-commit auto-merge, waits for the merge queue, and performs branch cleanup after GitHub reports the merge.
 
 ## Required Checks
 
@@ -52,11 +52,16 @@ its 25 real catches in 60 days was simultaneously caught by the Node 24
 typecheck lane (decision dec_F5B2CBF8B45042B6DA2824A7FA/CH3).
 
 The active GitHub repository ruleset is the sole enforcement surface for
-`main`. It requires pull requests, the `rewrite-ci` status checks, deletion
-blocking, and non-fast-forward/force-push blocking with no bypass actors. The
-`check-github-required-contexts` gate verifies the hosted branch rules against
-the structured gate manifest. GitHub auto-merge waits for the required checks
-and merges the pull request when the rules are satisfied.
+`main`. It currently requires pull requests, the `rewrite-ci` status checks,
+deletion blocking, and non-fast-forward/force-push blocking with no bypass
+actors. The `check-github-required-contexts` gate verifies the hosted branch
+rules against the structured gate manifest. After the owner enables the
+`merge_queue` rule on an eligible organization-owned repository, GitHub's merge
+queue will wait for the required checks on the temporary `merge_group` ref and
+merge each pull request when the rules are satisfied. Until that rollout step,
+the live ruleset has no `merge_queue` rule; this document describes the target
+queue behavior and must not be read as evidence that hosted queue enforcement
+is already active.
 
 The active GitHub ruleset enforcement for `main` requires these status contexts:
 
