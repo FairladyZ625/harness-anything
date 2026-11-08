@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { contractVersion } from "../../src/domain/contract-version.ts";
+import { scheduleEventTypes } from "../../src/domain/schedule.ts";
 import { entityKindContracts, explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import {
   getEntityKindContract,
@@ -139,6 +140,13 @@ test("one named kind-contract authority explains all registered entity kinds wit
     schedule?.transitions.actions.some((action) => Object.hasOwn(action, "admission")),
     false,
   );
+  const scheduleStore = getEntityKindContract("schedule")?.stateStores.find(
+    ({ id }) => id === "schedule.schedule-events",
+  );
+  assert.ok(scheduleStore);
+  assert.deepEqual(scheduleStore.projection?.types, scheduleEventTypes);
+  assert.deepEqual(scheduleStore.medium.types, scheduleEventTypes);
+  assert.ok(scheduleEventTypes.some((type) => type === "schedule_occurrence_claimed"));
   const settings = explanations.find(({ kind }) => kind === "settings");
   assert.deepEqual(settings?.residency, { authored: "ledger", current: "projection" });
   assert.deepEqual(settings?.statusVocabulary, []);

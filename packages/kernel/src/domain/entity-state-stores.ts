@@ -1,4 +1,5 @@
 import type { EntityKind } from "./base-entity.ts";
+import { scheduleEventTypes } from "./schedule.ts";
 
 export type StateStoreRole = "authority" | "replica" | "projection" | "spool" | "operational";
 export type StateStoreResidency = "canonical" | "runtime-local" | "host-local";
@@ -92,14 +93,6 @@ const taskEventTypes = [
   "task_completion_generation_retired",
   "task_completed",
   "lease_released",
-] as const;
-
-const scheduleEventTypes = [
-  "schedule_created",
-  "schedule_updated",
-  "schedule_paused",
-  "schedule_resumed",
-  "schedule_run_recorded",
 ] as const;
 
 export const hostStateStores: readonly StateStoreDeclaration[] = freeze([

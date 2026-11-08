@@ -806,6 +806,22 @@ const squadDoc: EntityKindDoc = {
   liveCount: "squads",
 };
 
+const hostDoc: EntityKindDoc = {
+  kind: "host",
+  ...kernelContract("host"),
+  storage: "host-local operational stores(host.process-lock / host.diagnostic-log);不随仓库同步",
+  definition:
+    "本机 host 进程的单例聚合:只承载固定的进程锁与诊断日志两种 operational 状态,不承载业务状态。外部工具配置归 runtime-instance,不在这里自由扩展 purpose。",
+  fields: [
+    field("hostId", true, "const", "固定为 singleton(每台 host 一份)。"),
+    field("process", true, "enum", "running / stopped。"),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: null,
+  liveCount: null,
+};
+
 const scheduleDoc: EntityKindDoc = {
   kind: "schedule",
   ...kernelContract("schedule"),
@@ -1044,7 +1060,7 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "runtime",
     title: "执行与运行时",
     summary: "工作怎么被执行、复核、会话化与编排。",
-    docs: [executionDoc, reviewDoc, runtimeSessionDoc, runtimeInstanceDoc, agentDoc, squadDoc, scheduleDoc],
+    docs: [executionDoc, reviewDoc, runtimeSessionDoc, runtimeInstanceDoc, agentDoc, squadDoc, scheduleDoc, hostDoc],
   },
   {
     id: "catalog",
