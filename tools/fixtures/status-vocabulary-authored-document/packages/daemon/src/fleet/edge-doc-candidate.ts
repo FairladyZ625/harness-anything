@@ -8,3 +8,5 @@ export interface EdgeDocumentReadinessRow {
 }
 
 export type Status = "complete" | "incomplete";
+
+export type PlanReadiness = "ready" | "not_ready";

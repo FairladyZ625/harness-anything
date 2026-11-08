@@ -41,7 +41,7 @@ const LOCAL_MIRROR_CONST =
   /const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
 const LOCAL_MIRROR_ALIAS = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/gu;
 export const KERNEL_DECLARATION_SUFFIX =
-  /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses)$/u;
+  /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses|Readiness)$/u;
 const STATUS_FIELD = /(?:status|state|phase|disposition|verdict|outcome|liveness)$/iu;
 const NAMED_CONST =
   /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;

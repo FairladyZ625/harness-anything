@@ -220,6 +220,7 @@ test("declaration suffix pattern keeps matching the vocabulary families", () => 
     "writeReceiptOutcomes",
     "runtimeLivenessStates",
     "closeoutReadinesses",
+    "PlanReadiness",
   ]) {
     assert.ok(KERNEL_DECLARATION_SUFFIX.test(name), name);
   }
@@ -264,6 +265,10 @@ test("positive fixture: an unregistered edge candidate or readiness word is refu
   );
   assert.ok(
     findings.some((finding) => finding.includes(`${module}#Status`) && finding.includes("complete")),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) => finding.includes(`${module}#PlanReadiness`) && finding.includes("not_ready")),
     findings.join("\n"),
   );
 });
