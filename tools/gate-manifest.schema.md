@@ -186,7 +186,7 @@ The registry records:
   non-PR `full-check` confirmation runs.
 - 26 GitHub branch-protection required contexts:
   `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
-  `integration-shard (1)` through `integration-shard (16)`, `supply-chain`,
+  `integration-shard (1)` through `integration-shard (24)`, `supply-chain`,
   `gui-build`, `pr-body-lint`, `crlf-checkout`,
   `windows-first-run (ubuntu-latest)`, and `windows-first-run (windows-latest)`.
   (`node26-compatibility` was removed by decision
