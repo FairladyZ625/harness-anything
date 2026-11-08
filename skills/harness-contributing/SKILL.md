@@ -348,11 +348,12 @@ prints one summary with every failure and its fix hint:
 npm run check:pr-body -- --body-file /tmp/harness-anything-pr-body.md
 ```
 
-Pass `--base <ref> --head <ref>` when `origin/main` is not the intended
-comparison, or use `--pr <number>` to read the body and comparison SHAs from a
-hosted pull request. The old practice of running `check-pr-body.mjs` and then
-only the `pr-body-lint` job is gone: it skipped the governance, production-delta,
-evidence and dependency declarations until CI exposed them one at a time.
+Pass `--base <ref>` when `origin/main` is not the intended comparison; the entry
+always inspects the current checkout HEAD and has no `--head` option. Use
+`--pr <number>` to read the body and comparison base from a hosted pull request.
+The old practice of running `check-pr-body.mjs` and then only the `pr-body-lint`
+job is gone: it skipped the governance, production-delta, evidence and dependency
+declarations until CI exposed them one at a time.
 
 For a manual merge train, combine the member bodies first and run the same
 preflight on the result:

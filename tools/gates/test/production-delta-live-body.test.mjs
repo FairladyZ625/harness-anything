@@ -13,6 +13,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 test("production-delta computes from the diff and reads no pull request body", () => {
   const manifest = JSON.parse(readFileSync(path.join(rootDir, "tools/gate-manifest.json"), "utf8"));
   const gate = manifest.gates.find((entry) => entry.id === "production-delta");
-  assert.match(gate.command, /--base "\$\{PR_BASE_SHA:-origin\/main\}"/u);
+  assert.match(gate.command, /--base "\$PR_BASE_SHA"/u);
+  assert.doesNotMatch(gate.command, /:-origin\/main/u);
   assert.doesNotMatch(gate.command, /--pr-body-file|--pr-body-env|gh pr view|GITHUB_EVENT_PATH/u);
 });

@@ -50,7 +50,7 @@ export default Object.freeze({
       phase: "P2",
       workflow: ".github/workflows/pr-body.yml",
       job: "pr-body-advisory",
-      command: 'node tools/gates/production-delta.mjs --base "${PR_BASE_SHA:-origin/main}"',
+      command: 'node tools/gates/production-delta.mjs --base "$PR_BASE_SHA"',
     },
     { id: "G34", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     {
@@ -66,8 +66,7 @@ export default Object.freeze({
       phase: "P2",
       workflow: ".github/workflows/pr-body.yml",
       job: "pr-body-advisory",
-      command:
-        'node tools/gates/dependency-policy.mjs --base "${PR_BASE_SHA:-origin/main}" --pr-body-file "$RUNNER_TEMP/pr-body.md"',
+      command: 'node tools/gates/dependency-policy.mjs --base "$PR_BASE_SHA" --pr-body-file "$RUNNER_TEMP/pr-body.md"',
     },
   ],
   schemas: [],

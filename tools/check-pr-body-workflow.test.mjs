@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { buildPrBodyWorkflowPlan, prBodyWorkflowJobs } from "./check-pr-body-workflow.mjs";
+import { commitAll, makeRepo, writeRepoFile } from "./gates/test/helpers.mjs";
 import { parseGateWorkflow } from "./gate-workflow-parser.mjs";
 import { runManifestGatePlan } from "./run-manifest-gates.mjs";
 
@@ -140,10 +141,82 @@ test("a custom --base applies to every derived gate that compares against a base
     "The check covers base selection, not hosted CI behavior.",
     "",
   ].join("\n");
-  const result = spawnSync(process.execPath, [entryPath, "--body", body, "--base", "HEAD", "--head", "HEAD"], {
+  const result = spawnSync(process.execPath, [entryPath, "--body", body, "--base", "HEAD"], {
     cwd: repoRoot,
     encoding: "utf8",
   });
 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
+
+const BASE_INPUT = /--base(?:-env)? (?:PR_BASE_SHA|"\$PR_BASE_SHA")/u;
+const RECORDER = [
+  'import { appendFileSync } from "node:fs";',
+  'import process from "node:process";',
+  "const argv = process.argv.slice(2);",
+  "let base = null;",
+  "for (let index = 0; index < argv.length; index += 1) {",
+  '  if (argv[index] === "--base") base = argv[index + 1];',
+  '  else if (argv[index] === "--base-env") base = process.env[argv[index + 1]] ?? null;',
+  "}",
+  'appendFileSync("received-base.jsonl", JSON.stringify({ argv, base }) + "\\n");',
+  "",
+].join("\n");
+
+function baseAwareGates(value = manifest()) {
+  return value.gates.filter((gate) => BASE_INPUT.test(gate.command));
+}
+
+test("every base-aware gate receives the entry's selected --base", () => {
+  // Derive the fixture from the live manifest so the set of base-aware gates is not hand-copied:
+  // the same three commands that consume a comparison base are wrapped with an argv recorder.
+  const gates = baseAwareGates();
+  assert.deepEqual(gates.map((gate) => gate.id).sort(), [
+    "dependency-policy-declaration",
+    "pr-governance-lint",
+    "production-delta",
+  ]);
+  const fixture = makeRepo({
+    ".github/workflows/pr-body.yml": fixtureWorkflow(["body-lane"]),
+    "record-args.mjs": RECORDER,
+    "tools/gate-manifest.json": JSON.stringify({
+      surfaces: { prBody: { pullRequestGateJobs: ["body-lane"], helperJobsNotRegisteredAsGates: [] } },
+      gates: gates.map((gate) => ({
+        id: gate.id,
+        command: `node record-args.mjs ${gate.id} ${gate.command.match(BASE_INPUT)[0]}`,
+        executionSurfaces: { prBody: { pullRequestJobs: ["body-lane"] } },
+      })),
+    }),
+  });
+  // Move HEAD past the selected base: an entry that ignored --base and fell back to HEAD would
+  // record a different commit in at least one gate.
+  writeRepoFile(fixture.rootDir, "fixture-head.txt", "head\n");
+  const head = commitAll(fixture.rootDir);
+  assert.notEqual(head, fixture.base);
+
+  const result = spawnSync(
+    process.execPath,
+    [entryPath, "--root", fixture.rootDir, "--body", "Body for the base propagation check.", "--base", fixture.base],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+
+  const received = readFileSync(path.join(fixture.rootDir, "received-base.jsonl"), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    received.map((entry) => entry.base),
+    gates.map(() => fixture.base),
+  );
+});
+
+test("--head is rejected as an unknown argument", () => {
+  const result = spawnSync(process.execPath, [entryPath, "--body", "Body", "--head", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /unknown argument: --head/u);
 });

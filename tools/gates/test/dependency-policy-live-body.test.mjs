@@ -10,7 +10,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 // The Dependency-Change declaration judges the pull request as it is now. Reruns must not replay
 // the stale event payload body, so the advisory job fetches the live body and the manifest command
 // reads that file rather than an environment copy of the event. The comparison base comes from the
-// same PR_BASE_SHA the local entry sets from --base, with origin/main as the CI fallback.
+// same PR_BASE_SHA the local entry constructs from --base; the command carries no per-gate default.
 test("dependency-policy-declaration reads the live PR body and diffs against the selected base", () => {
   const workflow = readFileSync(path.join(rootDir, ".github/workflows/pr-body.yml"), "utf8");
   const job = workflow.slice(workflow.indexOf("  pr-body-advisory:"));
@@ -23,7 +23,8 @@ test("dependency-policy-declaration reads the live PR body and diffs against the
 
   const manifest = JSON.parse(readFileSync(path.join(rootDir, "tools/gate-manifest.json"), "utf8"));
   const gate = manifest.gates.find((entry) => entry.id === "dependency-policy-declaration");
-  assert.match(gate.command, /--base "\$\{PR_BASE_SHA:-origin\/main\}"/);
+  assert.match(gate.command, /--base "\$PR_BASE_SHA"/u);
+  assert.doesNotMatch(gate.command, /:-origin\/main/u);
   assert.match(gate.command, /--pr-body-file "\$RUNNER_TEMP\/pr-body\.md"/);
   assert.doesNotMatch(gate.command, /--pr-body-env|GITHUB_EVENT_PATH/);
 });

@@ -73,7 +73,7 @@ function resolveCommit(rootDir, ref) {
     }).trim();
   } catch {
     throw new Error(
-      `cannot resolve ${JSON.stringify(ref)} to a commit in ${rootDir}; fetch the base/head refs or pass --base/--head explicitly`,
+      `cannot resolve ${JSON.stringify(ref)} to a commit in ${rootDir}; fetch the base ref or pass --base explicitly`,
     );
   }
 }
@@ -81,7 +81,7 @@ function resolveCommit(rootDir, ref) {
 function prBodyFromGh(rootDir, number) {
   let output;
   try {
-    output = execFileSync("gh", ["pr", "view", String(number), "--json", "body,baseRefOid,headRefOid"], {
+    output = execFileSync("gh", ["pr", "view", String(number), "--json", "body,baseRefOid"], {
       cwd: rootDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -91,19 +91,18 @@ function prBodyFromGh(rootDir, number) {
     throw new Error(`gh pr view ${number} failed (${detail.split(/\r?\n/u)[0]}); pass --body-file instead`);
   }
   const pr = JSON.parse(output);
-  return { body: pr.body ?? "", base: pr.baseRefOid, head: pr.headRefOid, label: `PR #${number}` };
+  return { body: pr.body ?? "", base: pr.baseRefOid, label: `PR #${number}` };
 }
 
 function resolveBody(rootDir, options) {
   if (options.body !== null) {
-    return { body: options.body, base: null, head: null, label: "--body" };
+    return { body: options.body, base: null, label: "--body" };
   }
   if (options.bodyFile !== null) {
     const absolute = path.resolve(rootDir, options.bodyFile);
     return {
       body: readFileSync(absolute, "utf8"),
       base: null,
-      head: null,
       label: options.bodyFile,
     };
   }
@@ -118,7 +117,6 @@ function parseCliArgs(argv) {
     bodyFile: null,
     body: null,
     base: null,
-    head: null,
     list: false,
     help: false,
   };
@@ -132,7 +130,7 @@ function parseCliArgs(argv) {
       options.list = true;
       continue;
     }
-    if (!["--root", "--pr", "--body-file", "--body", "--base", "--head"].includes(token)) {
+    if (!["--root", "--pr", "--body-file", "--body", "--base"].includes(token)) {
       throw new Error(`unknown argument: ${token}`);
     }
     const value = argv[index + 1];
@@ -143,7 +141,6 @@ function parseCliArgs(argv) {
     else if (token === "--body-file") options.bodyFile = value;
     else if (token === "--body") options.body = value;
     else if (token === "--base") options.base = value;
-    else options.head = value;
   }
   if (options.pr !== null && !/^\d+$/u.test(options.pr)) {
     throw new Error("--pr must be a pull request number");
@@ -158,18 +155,18 @@ function parseCliArgs(argv) {
 function printHelp() {
   process.stdout.write(
     [
-      "Usage: node tools/check-pr-body-workflow.mjs (--pr <number> | --body-file <path> | --body <text>) [--base <ref>] [--head <ref>]",
+      "Usage: node tools/check-pr-body-workflow.mjs (--pr <number> | --body-file <path> | --body <text>) [--base <ref>]",
       "       node tools/check-pr-body-workflow.mjs --list",
       "",
       "Runs every gate declared for the pull-request jobs in .github/workflows/pr-body.yml through",
       "tools/gate-manifest.json. Every gate runs even after an earlier one fails, then one summary",
       "lists all failures with their fix hints.",
       "",
-      "  --pr <number>        read the body and base/head SHAs from GitHub (requires gh auth)",
+      "  --pr <number>        read the body and comparison base from GitHub (requires gh auth)",
       "  --body-file <path>   read the body from a local file (used for rendered or combined trains)",
       "  --body <text>        pass the body inline",
-      "  --base <ref>         comparison base (default: merge-base of origin/main and HEAD)",
-      "  --head <ref>         comparison head (default: HEAD)",
+      "  --base <ref>         comparison base (default: merge-base of origin/main and current HEAD)",
+      "                       the entry always inspects the current checkout HEAD",
       "  --list               print the derived jobs, gates and commands without running them",
       "",
       "Exit codes: 0 all gates passed; 1 at least one gate failed; 2 the entry could not build a plan.",
@@ -210,7 +207,9 @@ function main(argv) {
 
   const source = resolveBody(rootDir, options);
   const baseSha = resolveCommit(rootDir, options.base ?? source.base ?? pullRequestBase(rootDir));
-  const headSha = resolveCommit(rootDir, options.head ?? source.head ?? "HEAD");
+  // The entry only ever inspects the current checkout: supporting a detached --head split the
+  // selected cut between governance (selected head) and the two diff gates (current HEAD).
+  const headSha = resolveCommit(rootDir, "HEAD");
   const hints = new Map(manifest.gates.map((gate) => [gate.id, gate.failureHint]));
   const plan = derived.commands.map((entry) =>
     hints.get(entry.id) ? { ...entry, failureHint: hints.get(entry.id) } : entry,
