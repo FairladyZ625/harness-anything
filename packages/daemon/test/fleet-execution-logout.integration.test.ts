@@ -378,7 +378,7 @@ test(
       "--source",
       "incoming.bin",
       "--destination",
-      "evidence.bin",
+      `${f.workspacePackagePath}/artifacts/evidence.bin`,
     ]);
     assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
     await waitForFleetPublication(f.host, repoId, String(artifact.opId), f.auth);

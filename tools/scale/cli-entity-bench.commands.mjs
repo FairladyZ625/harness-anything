@@ -86,7 +86,7 @@ export const commandTable = [
     "task-artifact-add",
     (c, s) => [
       ...["task", "artifact", "add", chain(s), "--source", c.repoFile(`src-${s}.md`, `# a ${s}\n`)],
-      ...["--destination", `artifacts/bench-${s}.md`],
+      ...["--destination", `${c.packagePath(s)}/artifacts/bench-${s}.md`],
     ],
     worker,
   ],

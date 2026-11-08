@@ -24,7 +24,7 @@ import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fi
 test("path-like or textual runtime missions produce an actionable receipt without exposing the input", (context) => {
   const expectation =
     "Expected a bare mission id. Publish the text as a mission document with " +
-    "ha task artifact add <task-id> --source <file> --destination artifacts/missions/<name>.md, " +
+    "ha task artifact add <task-id> --source <file> --destination <workspace-relative-task-package>/artifacts/missions/<name>.md, " +
     "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
     "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.";
   let error: unknown;

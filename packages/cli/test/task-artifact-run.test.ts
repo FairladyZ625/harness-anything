@@ -100,8 +100,16 @@ test("task artifact add selects exactly one input source", () => {
   assert.equal(parseThinCommand(["task", "artifact", "add", "task-proof", "--run"]).ok, false);
   assert.equal(parseThinCommand(["task", "artifact", "add", "task-proof", "--source", "proof.txt"]).ok, false);
   assert.equal(
-    parseThinCommand(["task", "artifact", "add", "task-proof", "--source", "proof.txt", "--destination", "proof.txt"])
-      .ok,
+    parseThinCommand([
+      "task",
+      "artifact",
+      "add",
+      "task-proof",
+      "--source",
+      "proof.txt",
+      "--destination",
+      "harness/tasks/task-proof/artifacts/proof.txt",
+    ]).ok,
     true,
   );
   assert.equal(

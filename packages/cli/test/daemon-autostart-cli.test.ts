@@ -1193,15 +1193,13 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     executor: { kind: "agent", id: "claude-code" },
   });
   assert.deepEqual(snapshot.reviews[0]?.actor, { principal: { personId: "owner" }, executor: null });
-  assert.equal(
-    run(
-      fixture.root,
-      fixture.userRoot,
-      ["task", "create", "--id", "task-source", "--admin", "--title", "Source"],
-      "agent:codex",
-    ).outcome,
-    "applied",
+  const sourceTaskCreated = run(
+    fixture.root,
+    fixture.userRoot,
+    ["task", "create", "--id", "task-source", "--admin", "--title", "Source"],
+    "agent:codex",
   );
+  assert.equal(sourceTaskCreated.outcome, "applied");
   const sourceTask = JSON.parse(
     String(run(fixture.root, fixture.userRoot, ["task", "show", "task-source"]).evidence),
   ) as { task: { createdBy: unknown } };
@@ -1219,7 +1217,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "--source",
       "artifact.md",
       "--destination",
-      "proof.md",
+      `${sourceTaskCreated.packagePath}/artifacts/proof.md`,
     ]).outcome,
     "applied",
   );

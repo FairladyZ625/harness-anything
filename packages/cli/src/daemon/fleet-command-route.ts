@@ -4,6 +4,7 @@ import {
   canonicalRoot,
   commandDescriptorForAction,
   daemonProtocolCommands,
+  hasCommandDescriptor,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { serializeFleetAction } from "./fleet-payload-serializer.ts";
@@ -103,12 +104,6 @@ const fleetRuntimeMethods = [
   "repo.agentRuntime.sessions.read",
   "repo.agentRuntime.sessions.await",
 ] as const;
-
-function hasCommandDescriptor(actionKind: string): boolean {
-  return daemonProtocolCommands.some(
-    (descriptor) => ("actionKind" in descriptor ? descriptor.actionKind : descriptor.id) === actionKind,
-  );
-}
 
 export async function fleetRuntimeRoute(
   command: ThinCommand,

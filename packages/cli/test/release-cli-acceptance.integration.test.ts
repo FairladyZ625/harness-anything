@@ -460,7 +460,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
       const added = run(
         root,
         userRoot,
-        ["task", "artifact", "add", taskId, "--source", source, "--destination", destination],
+        ["task", "artifact", "add", taskId, "--source", source, "--destination", `${packagePath}/${destination}`],
         worker,
       );
       assert.equal(added.outcome, "applied", `${destination}: ${JSON.stringify(added)}`);
@@ -520,7 +520,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
         "--source",
         "release-evidence-v2.pdf",
         "--destination",
-        "artifacts/evidence/evidence.pdf",
+        `${packagePath}/artifacts/evidence/evidence.pdf`,
       ],
       worker,
     );
@@ -537,7 +537,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
         "--source",
         "release-evidence.pdf",
         "--destination",
-        "artifacts/evidence/evidence.pdf",
+        `${packagePath}/artifacts/evidence/evidence.pdf`,
       ],
       worker,
     );
@@ -654,7 +654,7 @@ test("release acceptance: a relative artifact source names the caller's file, an
     const added = run(
       worktree,
       userRoot,
-      ["task", "artifact", "add", taskId, "--source", smallName, "--destination", "artifacts/probe.md"],
+      ["task", "artifact", "add", taskId, "--source", smallName, "--destination", `${packagePath}/artifacts/probe.md`],
       worker,
     );
     assert.equal(added.outcome, "applied", JSON.stringify(added));
@@ -672,7 +672,16 @@ test("release acceptance: a relative artifact source names the caller's file, an
     const refused = runMaybe(
       worktree,
       userRoot,
-      ["task", "artifact", "add", taskId, "--source", oversizedName, "--destination", "artifacts/oversized.bin"],
+      [
+        "task",
+        "artifact",
+        "add",
+        taskId,
+        "--source",
+        oversizedName,
+        "--destination",
+        `${packagePath}/artifacts/oversized.bin`,
+      ],
       worker,
     );
     assert.notEqual(refused.status, 0, "an oversized source must be refused");

@@ -334,7 +334,8 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         { code: "missing_field" },
         {
-          description: "Required with --source; with --run defaults to a unique artifacts/evidence path",
+          description:
+            "Workspace-relative artifact path; required with --source, while --run defaults to a unique task-local artifacts/evidence path",
           pathKind: "workspace-file",
           pathReader: "workspace-text",
         },

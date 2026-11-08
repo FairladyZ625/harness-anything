@@ -863,7 +863,7 @@ export function runtimeMissionName(value: unknown): string {
         actual: typeof value === "string" && /[/\\]/u.test(value) ? "path-like value" : "invalid mission id",
         expectation:
           "Expected a bare mission id. Publish the text as a mission document with " +
-          "ha task artifact add <task-id> --source <file> --destination artifacts/missions/<name>.md, " +
+          "ha task artifact add <task-id> --source <file> --destination <workspace-relative-task-package>/artifacts/missions/<name>.md, " +
           "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
           "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.",
       },
@@ -887,7 +887,7 @@ function readMissionDocument(
       "runtime_mission_unavailable",
       [
         `Task ${taskId} has no ready non-empty mission in the canonical projection at ${workspacePath}. `,
-        `Publish it with ha task artifact add ${taskId} --source <file> --destination artifacts/missions/${name}.md, ` +
+        `Publish it with ha task artifact add ${taskId} --source <file> --destination <workspace-relative-task-package>/artifacts/missions/${name}.md, ` +
           `or if ${workspacePath} exists, run ha doc sync --submit --path ${workspacePath}; then retry.`,
       ].join(""),
     );

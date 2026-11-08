@@ -63,7 +63,12 @@ function closureCli({ root, existingRows = [], onCreate } = {}) {
       return { ok: true, outcome: "applied", evidence: JSON.stringify({ rows: existingRows }) };
     if (args[0] === "task" && args[1] === "create") {
       onCreate?.(args, root);
-      return { ok: true, outcome: "applied", taskId: "task-e2eclosurefake" };
+      return {
+        ok: true,
+        outcome: "applied",
+        taskId: "task-e2eclosurefake",
+        packagePath: "harness/tasks/task-e2eclosurefake",
+      };
     }
     if (args[0] === "task" && args[1] === "artifact" && args[2] === "add") return { ok: true, outcome: "applied" };
     if (args[0] === "fact" && args[1] === "record") return { ok: true, outcome: "applied" };
@@ -87,7 +92,9 @@ test("probe closure archives the failing scenario screenshot in the task package
   );
   assert.ok(screenshotAttach, "the screenshot source must be attached before closure returns");
   assert.ok(
-    screenshotAttach.includes("artifacts/e2e-probe/gui-e2e-test-run-edge-invite-failure.png"),
+    screenshotAttach.includes(
+      "harness/tasks/task-e2eclosurefake/artifacts/e2e-probe/gui-e2e-test-run-edge-invite-failure.png",
+    ),
     "the screenshot must have a run-specific task artifact path",
   );
 });
@@ -98,7 +105,10 @@ test("probe closure archives a new screenshot when it reuses an existing failure
     bundlePath = writeFailureBundle(root, { screenshotPath });
   context.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(screenshotPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  const { calls, runCli } = closureCli({ root, existingRows: [{ taskId: "task-existing-probe" }] });
+  const { calls, runCli } = closureCli({
+    root,
+    existingRows: [{ taskId: "task-existing-probe", packagePath: "harness/tasks/task-existing-probe" }],
+  });
 
   const result = await recordE2EProbeFailure({ rootDir: root, workspaceRoot: root, bundlePath, runCli });
 
@@ -115,7 +125,7 @@ test("probe closure archives a new screenshot when it reuses an existing failure
         args[1] === "artifact" &&
         args[2] === "add" &&
         args.includes(screenshotPath) &&
-        args.includes("artifacts/e2e-probe/gui-e2e-test-run-edge-invite-failure.png"),
+        args.includes("harness/tasks/task-existing-probe/artifacts/e2e-probe/gui-e2e-test-run-edge-invite-failure.png"),
     ),
     "deduplication must not discard evidence from this occurrence",
   );
@@ -184,7 +194,12 @@ test("a rejected artifact attach fails the probe closure with its original error
     calls.push(args.slice(0, 3).join(" "));
     if (args[0] === "task" && args[1] === "list") return { ok: true, outcome: "applied", evidence: '{"rows":[]}' };
     if (args[0] === "task" && args[1] === "create")
-      return { ok: true, outcome: "applied", taskId: "task-e2eclosurefake" };
+      return {
+        ok: true,
+        outcome: "applied",
+        taskId: "task-e2eclosurefake",
+        packagePath: "harness/tasks/task-e2eclosurefake",
+      };
     if (args[0] === "task" && args[1] === "artifact" && args[2] === "add") {
       throw rejection;
     }

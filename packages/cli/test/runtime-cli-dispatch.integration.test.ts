@@ -653,7 +653,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     actual: "path-like value",
     expectation:
       "Expected a bare mission id. Publish the text as a mission document with " +
-      "ha task artifact add <task-id> --source <file> --destination artifacts/missions/<name>.md, " +
+      "ha task artifact add <task-id> --source <file> --destination <workspace-relative-task-package>/artifacts/missions/<name>.md, " +
       "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
       "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.",
   });

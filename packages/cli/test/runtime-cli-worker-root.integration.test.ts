@@ -32,13 +32,14 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
       'const prompt = fs.readFileSync(0, "utf8");',
       'const packageRoot = prompt.split("Task package root: ")[1].split("\\n")[0];',
       'const taskId = prompt.split("Canonical Task ID: ")[1].split("\\n")[0];',
+      'const destination = path.relative(process.cwd(), packageRoot).split(path.sep).join("/") + "/artifacts/worker-probe.json";',
       'const plan = fs.readFileSync(path.join(packageRoot, "task_plan.md"), "utf8");',
       // The CLI run from the worker root still reaches the registered repository, not the worktree as a repository.
       `const shown = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "show", taskId], { encoding: "utf8", env: process.env });`,
       "const probe = { cwd: process.cwd(), packageRoot, plan, prompt, shown: { status: shown.status, stdout: shown.stdout, stderr: shown.stderr } };",
       // New files in a worker-local task package are published through the artifact command. The command transcript
       // is the canonical artifact; its stdout carries the probe bytes without reaching into the canonical checkout.
-      `const publish = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "artifact", "add", taskId, "--run", "--destination", "artifacts/worker-probe.json", "--", process.execPath, "-e", "process.stdout.write(process.env.WORKER_PROBE)"], { encoding: "utf8", env: { ...process.env, WORKER_PROBE: JSON.stringify(probe) } });`,
+      `const publish = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "artifact", "add", taskId, "--run", "--destination", destination, "--", process.execPath, "-e", "process.stdout.write(process.env.WORKER_PROBE)"], { encoding: "utf8", env: { ...process.env, WORKER_PROBE: JSON.stringify(probe) } });`,
       'if (publish.status !== 0) { process.stderr.write("artifact publish failed: " + publish.stdout + publish.stderr); process.exit(8); }',
       'console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }));',
       'console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "final" } }));',

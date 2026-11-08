@@ -100,11 +100,14 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
  * `--plan-file` resolves against the workspace root here, exactly like a decision --body-file. */
 function withCreatePlanBody(rootDir: string, action: RepoTaskAction): RepoTaskAction {
   if (action.planFile === undefined) return action;
-  if (typeof action.planFile !== "string" || typeof action.plan === "string")
+  if (typeof action.planFile !== "string")
     throw cellCodedError(
       "invalid_command",
       "Use --plan-file <workspace-relative markdown path> as the only plan source.",
     );
+  // The CLI codec has already read this file when `plan` is present. Keep its relative label for
+  // validation diagnostics, but do not resolve it again from the daemon's root.
+  if (typeof action.plan === "string") return action;
   return { ...action, plan: workspaceText(rootDir, action.planFile, "planFile") };
 }
 

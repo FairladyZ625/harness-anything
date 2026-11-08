@@ -27,7 +27,7 @@ test("a scratchpad mission is published, edited, and dispatched by name without 
     "--source",
     scratchpad,
     "--destination",
-    "artifacts/missions/w1.md",
+    `${packagePath}/artifacts/missions/w1.md`,
   ]);
   assert.equal(added.outcome, "applied", JSON.stringify(added));
   published(root, env, added);

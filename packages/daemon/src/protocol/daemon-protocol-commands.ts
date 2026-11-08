@@ -266,6 +266,10 @@ export function commandDescriptorForAction(kind: string) {
   return descriptor;
 }
 
+export function hasCommandDescriptor(kind: string): boolean {
+  return commandDescriptorByActionKind.has(kind) || presetMethodByActionKind.has(kind);
+}
+
 export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
   const command = commandDescriptorByActionKind.get(kind),
     guiAction = guiActionDescriptorByKind.get(kind);

@@ -3,7 +3,10 @@ import {
   fleetActionPayloadIssue,
   type EntityActionInputField,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-fleet-validation";
-import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import {
+  commandDescriptorForAction,
+  hasCommandDescriptor,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import {
   generatedTaskActionProtocolDeclarations,
   type CliInputFacet,
@@ -257,7 +260,7 @@ export function serializeFleetAction(command: ThinCommand): Action {
     const sourceField = (input as CliInputFacet & { readonly field?: string }).field ?? fieldName(input.name);
     const source = action[sourceField];
     if (source === undefined) continue;
-    delete action[sourceField];
+    if (sourceField !== "planFile") delete action[sourceField];
     if (codec.kind === "json-object") {
       const text = codec.source === "file" ? readCliInputFile(command.rootDir, String(source), input) : String(source);
       const packet = parseJson(text, input.name, codec.maxBytes);
@@ -315,6 +318,7 @@ export function serializeFleetAction(command: ThinCommand): Action {
 /** Local execution uses the same declared file codecs as Fleet forwarding. JSON packets remain
  * on the daemon's command boundary; this materializes text targets without changing the action. */
 export function materializeCommandFileInputs(command: ThinCommand): ThinCommand {
+  if (!hasCommandDescriptor(command.action.kind)) return command;
   const action = { ...command.action };
   for (const input of inputsOf(descriptorFor(command))) {
     const codec = typeof input.codec === "object" ? input.codec : undefined;
@@ -322,7 +326,7 @@ export function materializeCommandFileInputs(command: ThinCommand): ThinCommand 
     const field = declaredField(input),
       source = action[field];
     if (source === undefined) continue;
-    delete action[field];
+    if (field !== "planFile") delete action[field];
     const text = readCliInputFile(command.rootDir, String(source), input);
     action[codec.target] =
       codec.kind === "line-list-file"

@@ -112,7 +112,7 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
     "--source",
     resolutionSource,
     "--destination",
-    `artifacts/rulings/${dispatchId}.resolution.md`,
+    `${task.packagePath}/artifacts/rulings/${dispatchId}.resolution.md`,
   ]);
   run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
   const shownAfterResolution = run(root, env, ["task", "show", task.taskId]);

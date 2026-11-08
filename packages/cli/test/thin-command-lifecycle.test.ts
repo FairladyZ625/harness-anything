@@ -607,7 +607,17 @@ test("artifact add resolves a relative source against the selected workspace roo
   ] as const)
     for (const selection of [[], ["--root", selected], ["--repo", "selected-repository"]]) {
       const parsed = parseThinCommand(
-        ["task", "artifact", "add", "task-1", "--source", source, "--destination", "reports/result.md", ...selection],
+        [
+          "task",
+          "artifact",
+          "add",
+          "task-1",
+          "--source",
+          source,
+          "--destination",
+          "harness/tasks/task-1/artifacts/reports/result.md",
+          ...selection,
+        ],
         caller,
       );
       assert.equal(parsed.ok, true, `${source}: ${JSON.stringify(parsed)}`);

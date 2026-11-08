@@ -9,7 +9,16 @@ import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 function parsedArtifactSource(root: string, source: string) {
   const parsed = parseThinCommand(
-    ["task", "artifact", "add", "task-1", "--source", source, "--destination", "artifacts/missions/w1.md"],
+    [
+      "task",
+      "artifact",
+      "add",
+      "task-1",
+      "--source",
+      source,
+      "--destination",
+      "harness/tasks/task-1/artifacts/missions/w1.md",
+    ],
     root,
   );
   assert.equal(parsed.ok, true, JSON.stringify(parsed));

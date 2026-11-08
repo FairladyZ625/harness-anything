@@ -82,12 +82,21 @@ export async function recordE2EProbeFailure({
     existing = cliRows(
       await runCli(workspaceRoot, rootDir, ["task", "list", "--search", title, "--updated-after", updatedAfter], env),
     )[0];
-  const attachScreenshot = async (taskId) => {
+  const attachScreenshot = async (taskId, packagePath) => {
     if (screenshotDestination === null || screenshotPath === null) return;
     await runCli(
       workspaceRoot,
       rootDir,
-      ["task", "artifact", "add", taskId, "--source", screenshotPath, "--destination", screenshotDestination],
+      [
+        "task",
+        "artifact",
+        "add",
+        taskId,
+        "--source",
+        screenshotPath,
+        "--destination",
+        `${requiredText(packagePath, "packagePath")}/${screenshotDestination}`,
+      ],
       env,
     );
   };
@@ -123,7 +132,7 @@ export async function recordE2EProbeFailure({
   };
   if (existing) {
     const taskId = String(existing.taskId);
-    await attachScreenshot(taskId);
+    await attachScreenshot(taskId, existing.packagePath);
     return {
       schema: "e2e-probe-result/v1",
       outcome: "failed",
@@ -171,14 +180,15 @@ export async function recordE2EProbeFailure({
     rmSync(planFile, { force: true });
   }
   const taskId = requiredText(created.taskId, "taskId"),
-    destination = `artifacts/e2e-probe/${path.basename(bundlePath)}`;
+    packagePath = requiredText(created.packagePath, "packagePath"),
+    destination = `${packagePath}/artifacts/e2e-probe/${path.basename(bundlePath)}`;
   await runCli(
     workspaceRoot,
     rootDir,
     ["task", "artifact", "add", taskId, "--source", bundlePath, "--destination", destination],
     env,
   );
-  await attachScreenshot(taskId);
+  await attachScreenshot(taskId, packagePath);
   return {
     schema: "e2e-probe-result/v1",
     outcome: "failed",
