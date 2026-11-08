@@ -4,6 +4,8 @@ import { openDaemonDiagnostics } from "../src/daemon-diagnostics.ts";
 import { withDaemonObservation, markDaemonOperationPhase } from "../src/daemon-operation.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { startDaemon } from "../src/runtime.ts";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 const userRoot = process.argv[2]!,
   endpoint = process.argv[3]!,
@@ -55,12 +57,13 @@ if (mode === "drain") {
             if (armed) {
               markDaemonOperationPhase(mode);
               process.send!({ blocking: true });
-              if (mode === "native") Atomics.wait(control, 0, 0, 2_500);
-              else {
-                const until = performance.now() + 2_500;
-                while (performance.now() < until) {
-                  /* fault injection */
-                }
+              // Fault injection: the stall lasts at least 2.5 s (the test asserts a stall of 2 s or more)
+              // and ends only after the test has observed it and written the release file, so the
+              // test never races a stall that the wall clock ended first.
+              const release = path.join(userRoot, "release-stall"),
+                minimumEnd = performance.now() + 2_500;
+              while (!existsSync(release) || performance.now() < minimumEnd) {
+                if (mode === "native") Atomics.wait(control, 0, 0, 50);
               }
               armed = false;
             }

@@ -41,19 +41,30 @@ import { pathToFileURL } from "node:url";
 
 /**
  * Extract failing tests from a node:test job log. The runner's summary block names each one as
- * `test at <file>:<line>:<column>` followed by `✖ <name> (<ms>ms)`.
+ * `test at <file>:<line>:<column>`, then `✖ <name> (<ms>ms)`, then the error. Only repository files
+ * count: a runner self-test prints its deliberately failing child (`test at ../../tmp/...`) into
+ * the same log, and that is evidence the runner reports failures, not a flaky test. `reason` keeps
+ * the first error line so a row can be classified by its raw failure text.
  */
 export function parseFailingTests(log) {
-  const lines = log.split(/\r?\n/u).map((line) => line.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z\s?/u, ""));
+  const lines = log.split(/\r?\n/u).map((line) => line.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z\s?/u, "").trim());
   const failures = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const at = /^test at (.+?):\d+:\d+$/u.exec(lines[index].trim());
+    const at = /^test at (.+?):\d+:\d+$/u.exec(lines[index]);
     if (!at) continue;
-    const name = /^✖ (.+?)(?: \([\d.]+m?s\))?$/u.exec(lines[index + 1]?.trim() ?? "");
-    const file = at[1].replace(/^(?:\.\.\/)+/u, "/").replace(/^.*?\/harness-anything\/harness-anything\//u, "");
-    failures.push({ file, test: name?.[1] ?? "(unnamed)" });
+    const file = at[1].replace(/^.*?\/harness-anything\/harness-anything\//u, "");
+    if (file.startsWith("/") || file.startsWith("../")) continue;
+    const name = /^✖ (.+?)(?: \([\d.]+m?s\))?$/u.exec(lines[index + 1] ?? "");
+    const next = lines[index + 2] ?? "",
+      reason = /^(?:test at |✖ )/u.test(next) ? "" : next.replace(/^'(.*)'$/u, "$1").slice(0, 200);
+    failures.push({ file, test: name?.[1] ?? "(unnamed)", reason });
   }
-  const unique = new Map(failures.map((failure) => [`${failure.file}\u0000${failure.test}`, failure]));
+  // The first report of a test carries its error; a later reprint must not replace it.
+  const unique = new Map();
+  for (const failure of failures) {
+    const key = `${failure.file}\u0000${failure.test}`;
+    if (!unique.has(key)) unique.set(key, failure);
+  }
   return [...unique.values()];
 }
 
@@ -62,11 +73,24 @@ export function attemptFailures(run, jobs) {
   const rows = jobs.flatMap((job) => {
     const tests = job.log === null ? [] : parseFailingTests(job.log);
     const status = job.log === null ? "log-unavailable" : tests.length ? "test" : "unparsed";
-    const failures = tests.length ? tests : [{ file: `(job:${job.name})`, test: "" }];
+    const failures = tests.length ? tests : [{ file: `(job:${job.name})`, test: "", reason: firstError(job.log) }];
     return failures.map((row) => ({ ...row, status, runId: run.id, date: run.createdAt.slice(0, 10), job: job.name }));
   });
   const unique = new Map(rows.map((row) => [`${row.runId}\u0000${row.file}\u0000${row.test}`, row]));
   return [...unique.values()];
+}
+
+/** The first GitHub `##[error]` annotation or `Error:` line of a log without a node:test summary. */
+function firstError(log) {
+  if (log === null) return "";
+  const line = log
+    .split(/\r?\n/u)
+    .map((text) => text.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z\s?/u, "").replace(/\u001b\[[\d;]*m/gu, ""))
+    .find((text) => /(?:AssertionError|Error:|FAIL )/u.test(text) && !/Process completed with exit code/u.test(text));
+  return (line ?? "")
+    .replace(/^##\[error\]/u, "")
+    .trim()
+    .slice(0, 200);
 }
 
 export function aggregate(rows) {
@@ -193,8 +217,10 @@ async function main() {
   writeFileSync(
     path.join(out, "flaky-ledger.tsv"),
     [
-      "run_id\tdate\tjob\tstatus\tfile\ttest",
-      ...rows.map((row) => [row.runId, row.date, row.job, row.status, row.file, row.test].join("\t")),
+      "run_id\tdate\tjob\tstatus\tfile\ttest\treason",
+      ...rows.map((row) =>
+        [row.runId, row.date, row.job, row.status, row.file, row.test, row.reason.replaceAll("\t", " ")].join("\t"),
+      ),
     ]
       .join("\n")
       .concat("\n"),

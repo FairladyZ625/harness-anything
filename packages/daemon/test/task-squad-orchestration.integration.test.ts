@@ -26,8 +26,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { eventually } from "./schedule-actions.fixtures.ts";
-import { waitForPromise } from "../../../tools/fixtures/wait-for-condition.ts";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 const identityRoot = mkdtempSync(path.join(tmpdir(), "ha-squad-identity-")),
   identityProvider = new BuiltinPolicyAdapter({ userRoot: identityRoot }),
@@ -399,8 +398,8 @@ test(
     t.after(async () => scheduler.close());
     await scheduler.start();
     await fixture.finish(state.leaderTurns[0]!.dispatchId, "Leader returned an invalid decision; retry this turn.");
-    await eventually(
-      () => latestSquadStates(fixture.root).get(state.squadRunId)?.leaderTurns.length === 2,
+    await fixture.until(
+      () => (latestSquadStates(fixture.root).get(state.squadRunId)?.leaderTurns.length === 2 ? true : null),
       "an invalid first decision dispatches a second leader under the same claim",
     );
     await scheduler.refresh();
@@ -418,11 +417,11 @@ test(
       secondLeader.dispatchId,
       JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "Schedule Squad converged." }),
     );
-    await eventually(
-      () => latestSquadStates(fixture.root).get(state.squadRunId)?.phase === "converged",
+    await fixture.until(
+      () => (latestSquadStates(fixture.root).get(state.squadRunId)?.phase === "converged" ? true : null),
       "the scheduled Squad reaches a terminal converged state",
     );
-    await eventually(async () => {
+    await fixture.until(async () => {
       const receipt = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
         readonly schedule: {
           readonly status: {
@@ -431,7 +430,9 @@ test(
           };
         };
       };
-      return receipt.schedule.status.activeRun === null && receipt.schedule.status.lastRun?.outcome === "succeeded";
+      return receipt.schedule.status.activeRun === null && receipt.schedule.status.lastRun?.outcome === "succeeded"
+        ? true
+        : null;
     }, "the Squad terminal state settles its occurrence claim");
     assert.equal(existsSync(occurrenceCwd), false, "settlement reclaims the remediation occurrence worktree");
   },
@@ -500,9 +501,11 @@ for (const restart of [false, true])
       // The child callback only proves the child outcome event projected. The targeting dispatch
       // settles on its own process exit (scheduled after provider.exit returns), so wait for its
       // canonical outcome before asserting the row or reading its settlement report.
-      await eventually(
+      await fixture.until(
         async () =>
-          ((await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches[0]?.outcome ?? null) !== null,
+          ((await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches[0]?.outcome ?? null) !== null
+            ? true
+            : null,
         "targeting dispatch records a terminal outcome",
       );
       await fixture.cell.settlePendingMaterialization("publication owner");
@@ -765,7 +768,16 @@ async function openFixture(
     repoId = workspaceId(`squad-e2e-${slug}`),
     taskId = `task-squad-e2e-${slug}`,
     providers: Provider[] = [],
-    outcomeWaiters = new Set<() => void>();
+    // Every runtime launch and outcome wakes the waiters; a waiter drains the writer queue before it
+    // reads, so a coordinator reaction scheduled by that event is visible to the read it triggers.
+    activityWaiters = new Set<() => void>(),
+    wakeActivity = () => {
+      for (const wake of activityWaiters) wake();
+    },
+    onActivity = (arrive: () => void) => {
+      activityWaiters.add(arrive);
+      return () => activityWaiters.delete(arrive);
+    };
   mkdirSync(root);
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Task Surface Test");
@@ -801,6 +813,7 @@ async function openFixture(
       process: child,
     };
     providers.push(provider);
+    queueMicrotask(wakeActivity);
     return {
       pid: child.pid,
       onOutput: (listener) => {
@@ -877,7 +890,7 @@ async function openFixture(
       }),
       runtimeLaunch,
       onRuntimeOutcome: () => {
-        for (const wake of outcomeWaiters) wake();
+        wakeActivity();
       },
     });
   let cell = await open();
@@ -1009,27 +1022,18 @@ async function openFixture(
     });
     if (!offline) provider.exit!(code);
   };
-  const waitStatus = async (predicate: (state: Status) => unknown): Promise<Status> => {
-    const deadline = performance.now() + 10_000;
-    for (;;) {
-      const changed = Promise.withResolvers<void>();
-      outcomeWaiters.add(changed.resolve);
-      try {
-        // Outcome notification schedules the coordinator on the same writer queue. Drain it
-        // before inspecting state; subscribing first also covers an outcome racing the drain.
-        await cell.settlePendingMaterialization("squad outcome waiter");
-        const current = await status();
-        if (predicate(current)) return current;
-        if (current.status === "failed") throw new Error(JSON.stringify(current));
-        await waitForPromise(changed.promise, `Squad ${squadRunId} outcome`, {
-          timeoutMs: Math.max(1, deadline - performance.now()),
-          describeLast: () => JSON.stringify(current),
-        });
-      } finally {
-        outcomeWaiters.delete(changed.resolve);
-      }
-    }
-  };
+  const until = <T>(read: () => T | null | Promise<T | null>, label: string): Promise<T> =>
+    waitForArrival(async () => {
+      await cell.settlePendingMaterialization(label);
+      return read();
+    }, onActivity);
+  const waitStatus = (predicate: (state: Status) => unknown): Promise<Status> =>
+    until(async () => {
+      const current = await status();
+      if (predicate(current)) return current;
+      if (current.status === "failed") throw new Error(JSON.stringify(current));
+      return null;
+    }, "squad outcome waiter");
   return {
     parent,
     root,
@@ -1045,6 +1049,7 @@ async function openFixture(
     task,
     finish,
     waitStatus,
+    until,
     parentDispatchId,
     reopen: async () => {
       await cell.close();

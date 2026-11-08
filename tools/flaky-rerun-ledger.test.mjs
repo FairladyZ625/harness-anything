@@ -12,23 +12,27 @@ const log = [
   "2026-11-05T15:56:18.2285230Z   'test timed out after 30000ms'",
   "2026-11-05T15:56:18.2286000Z test at ../../../../../tmp/ha-cleanup-control-37IHow/control.test.mjs:4:1",
   "2026-11-05T15:56:18.2287000Z ✖ cleanup control (52.75231ms)",
+  "2026-11-05T15:56:18.2287500Z   Error: intentional cleanup failure",
   "2026-11-05T15:56:18.2288000Z test at /home/runner/work/harness-anything/harness-anything/tools/scale/center-bench.integration.test.mjs:81:1",
   "2026-11-05T15:56:18.2289000Z ✖ center campaign measures real transports, replica reconnect, backup and controlled faults (29510.5ms)",
+  "2026-11-05T15:56:18.2289500Z   AssertionError [ERR_ASSERTION]: GUI calibration bootstraps history then follows the returned live cursor",
   // The summary repeats a failure when the runner reprints it; one run counts once.
   "2026-11-05T15:56:18.2290000Z test at packages/daemon/test/task-squad-orchestration.integration.test.ts:65:1",
   "2026-11-05T15:56:18.2291000Z ✖ squad children submit independently, resume one leader and integrate a verified local-remote delivery (32326.227435ms)",
 ].join("\n");
 
-test("first-attempt failures are read from the node:test summary block", () => {
+test("first-attempt failures are read from the node:test summary block, runner self-test output excluded", () => {
   assert.deepEqual(parseFailingTests(log), [
     {
       file: "packages/daemon/test/task-squad-orchestration.integration.test.ts",
       test: "squad children submit independently, resume one leader and integrate a verified local-remote delivery",
+      reason: "test timed out after 30000ms",
     },
-    { file: "/tmp/ha-cleanup-control-37IHow/control.test.mjs", test: "cleanup control" },
     {
       file: "tools/scale/center-bench.integration.test.mjs",
       test: "center campaign measures real transports, replica reconnect, backup and controlled faults",
+      reason:
+        "AssertionError [ERR_ASSERTION]: GUI calibration bootstraps history then follows the returned live cursor",
     },
   ]);
 });
@@ -39,10 +43,19 @@ test("a job without a parseable summary or without a readable log is marked, not
     { name: "windows-first-run (windows-latest)", log: null },
   ]);
   assert.deepEqual(rows, [
-    { file: "(job:gui-build)", test: "", status: "unparsed", runId: 1, date: "2026-11-05", job: "gui-build" },
+    {
+      file: "(job:gui-build)",
+      test: "",
+      reason: "FAIL test/overview-board.vitest.tsx",
+      status: "unparsed",
+      runId: 1,
+      date: "2026-11-05",
+      job: "gui-build",
+    },
     {
       file: "(job:windows-first-run (windows-latest))",
       test: "",
+      reason: "",
       status: "log-unavailable",
       runId: 1,
       date: "2026-11-05",

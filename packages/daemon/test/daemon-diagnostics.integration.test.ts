@@ -2,12 +2,17 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
+
+// Request deadlines are hang guards only: they are never shorter than the test's own timeout, so
+// they cannot decide a test that the process under test would pass given time.
+const hangGuardMs = 20_000;
 
 async function fixture(mode: string) {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-diag-")),
@@ -47,32 +52,41 @@ async function fixture(mode: string) {
   };
 }
 async function diagnostic(endpoint: string) {
-  return requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(endpoint), "daemon.status", {}, 500, 1_000);
+  return requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(endpoint), "daemon.status", {}, hangGuardMs, hangGuardMs);
 }
-async function until(endpoint: string, predicate: (value: Record<string, unknown>) => boolean) {
-  const deadline = performance.now() + 5_000;
-  let last: Record<string, unknown> | undefined;
-  do {
-    const value = await diagnostic(endpoint);
-    last = value;
-    if (predicate(value)) return value;
-  } while (performance.now() < deadline);
-  assert.fail(`diagnostics did not reach expected state: ${JSON.stringify(last)}`);
+// The diagnostics thread appends every metrics sample and stall record to the user-root log; each
+// append wakes the read, so the wait follows the diagnostics process instead of a deadline.
+async function observed(
+  f: { endpoint: string; userRoot: string },
+  predicate: (value: Record<string, unknown>) => boolean,
+) {
+  const logs = path.join(f.userRoot, "logs");
+  mkdirSync(logs, { recursive: true });
+  return waitForArrival(
+    async () => {
+      const value = await diagnostic(f.endpoint);
+      return predicate(value) ? value : null;
+    },
+    (arrive) => {
+      const watcher = watch(logs, arrive);
+      return () => watcher.close();
+    },
+  );
 }
 for (const mode of ["javascript", "native"]) {
   test(`independent diagnostics records an in-flight ${mode} stall and recovery`, { timeout: 20_000 }, async () => {
     const f = await fixture(mode);
     try {
-      const normal = await until(f.endpoint, (value) => value.metrics !== null);
+      const normal = await observed(f, (value) => value.metrics !== null);
       assert.equal(normal.state, "running");
       if (process.platform !== "win32")
         assert.equal(statSync(daemonDiagnosticsEndpoint(f.endpoint)).mode & 0o777, 0o600);
       const armed = f.message("armed");
       f.child.send("arm");
       await armed;
-      const request = requestDaemonJsonRpcAt(f.endpoint, "daemon.status", {}, 500, 5_000);
-      const stalled = await until(
-          f.endpoint,
+      const request = requestDaemonJsonRpcAt(f.endpoint, "daemon.status", {}, hangGuardMs, hangGuardMs);
+      const stalled = await observed(
+          f,
           (value) =>
             value.stalled === true &&
             (value.inFlight as { method: string; phase: string }[]).some(
@@ -87,9 +101,10 @@ for (const mode of ["javascript", "native"]) {
       assert.equal(inFlight[0]!.phase, mode);
       assert.equal(typeof stalled.rss, "number");
       await assert.rejects(
-        requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(f.endpoint), "daemon.stop", {}, 500, 1_000),
+        requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(f.endpoint), "daemon.stop", {}, hangGuardMs, hangGuardMs),
         /Read-only/u,
       );
+      writeFileSync(path.join(f.userRoot, "release-stall"), "");
       await request;
       const readRecords = () =>
         readdirSync(path.join(f.userRoot, "logs"))
@@ -100,7 +115,7 @@ for (const mode of ["javascript", "native"]) {
               .slice(0, -1)
               .map((line) => JSON.parse(line)),
           );
-      const recovered = await until(f.endpoint, (value) => {
+      const recovered = await observed(f, (value) => {
         const record = (value.recentStalls as Record<string, unknown>[])[0];
         return (
           (value.inFlight as unknown[]).length === 0 &&
