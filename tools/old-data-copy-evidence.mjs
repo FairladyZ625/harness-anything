@@ -756,6 +756,11 @@ try {
     record("task-dispatches", { taskId: rows[0].taskId, count: dispatches.length ?? dispatchRows.length, sample: dispatchRows.slice(0, 3).map((row) => ({ dispatchId: row.dispatchId, outcome: row.outcome ?? null })) });
   }
   record("event-read", store.queryEvents({ limit: 3 }).map((event) => ({ schema: event.schema, type: event.type, revision: event.workspaceRevision })));
+  // Reads above may materialize a large in-memory catch-up state on a real ledger. Close that
+  // reader before the cold rebuild and open a fresh projection so the evidence run measures the
+  // production rebuild from a clean reader without retaining the first pass's event objects.
+  projection.close?.();
+  projection = storage.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
   const startedAt = Date.now();
   const rebuilt = projection.rebuild();
   const sourceRevision = store.readHead()?.revision ?? 0;
