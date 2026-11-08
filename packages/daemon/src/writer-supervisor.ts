@@ -271,6 +271,7 @@ export async function openWriterSupervisor(
               message.executionStartedAtMs ?? message.startedAtMs,
               message.finishedAtMs,
             );
+          if (message.queueHead !== undefined) operation.operation?.noteQueueHead(message.queueHead);
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));

@@ -45,6 +45,13 @@ export type DaemonOperationBeginFields = Pick<DaemonOperation, "method" | "trace
     readonly startedAtMs: number;
     readonly phases?: readonly DaemonOperationPhaseSpan[];
   };
+/** The write that owned the repository's single-write chain when this request was appended. */
+export interface DaemonOperationQueueHead {
+  readonly requestId: string | null;
+  readonly command: string;
+  /** Milliseconds the head had already been executing at that append. */
+  readonly executingMs: number;
+}
 /** The closed/observed part of one request. Written to the conn log and the diagnostics worker. */
 export interface DaemonOperationTrace {
   readonly method: string;
@@ -57,6 +64,8 @@ export interface DaemonOperationTrace {
   readonly startedAtMs: number;
   readonly endedAtMs: number | null;
   readonly phases: readonly DaemonOperationPhaseSpan[];
+  /** Present for a write that waited behind another write; names that head. */
+  readonly queueHead?: DaemonOperationQueueHead;
 }
 export interface DaemonOperationObserver {
   readonly begin: (fields: DaemonOperationBeginFields) => {
@@ -71,6 +80,7 @@ export interface DaemonOperationHandle {
   readonly markPhase: (name: string) => void;
   readonly markPhaseAt: (name: string, atMs: number) => void;
   readonly phaseSpan: (name: string, startedAtMs: number, endedAtMs: number) => void;
+  readonly noteQueueHead: (head: DaemonOperationQueueHead) => void;
   readonly update: (fields: DaemonOperationUpdate) => void;
   readonly trace: () => DaemonOperationTrace;
 }
@@ -180,6 +190,11 @@ export function recordDaemonOperationPhaseSpan(phase: string, startedAtMs: numbe
   current.getStore()?.operation?.phaseSpan(phase, startedAtMs, endedAtMs);
 }
 
+/** Record the queue head a write waited behind, reported by the writer worker with its receipt. */
+export function recordDaemonOperationQueueHead(head: DaemonOperationQueueHead): void {
+  current.getStore()?.operation?.noteQueueHead(head);
+}
+
 /** Bind the current operation's phase port so a later transport callback can mark without ALS. */
 export function bindDaemonOperationPhase(): (phase: string) => void {
   if (!current.getStore()?.operation) return () => undefined;
@@ -248,6 +263,7 @@ class OperationTrackerImpl implements OperationTracker {
   private outcome: "ok" | "error" | null;
   private endedAtMs: number | null = null;
   private ended = false;
+  private queueHead: DaemonOperationQueueHead | null = null;
   private readonly fields: Pick<DaemonOperation, "method"> & DaemonOperationUpdate;
 
   constructor(observer: DaemonOperationObserver, fields: Pick<DaemonOperation, "method"> & DaemonOperationUpdate) {
@@ -281,6 +297,9 @@ class OperationTrackerImpl implements OperationTracker {
     this.closeOpen(start);
     this.phases.push({ name, startedAtMs: start, endedAtMs: end });
     this.raw.update({ phase: name, phaseMark: { name, startedAtMs: start, endedAtMs: end } });
+  }
+  noteQueueHead(head: DaemonOperationQueueHead): void {
+    this.queueHead = { requestId: head.requestId, command: head.command, executingMs: head.executingMs };
   }
   update(update: DaemonOperationUpdate): void {
     if (update.nodeId !== undefined) this.nodeId = update.nodeId;
@@ -338,6 +357,7 @@ class OperationTrackerImpl implements OperationTracker {
         startedAtMs: phase.startedAtMs,
         endedAtMs: phase.endedAtMs ?? observedEnd,
       })),
+      ...(this.queueHead === null ? {} : { queueHead: this.queueHead }),
     };
   }
 }

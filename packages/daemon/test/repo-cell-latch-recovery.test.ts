@@ -19,7 +19,8 @@ import {
   preflightConvertedGenerationActivation,
 } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { causeClassOf, type RepoCell } from "../src/repo-cell.ts";
+import { causeClassOf, chainRepoCellWrite, type RepoCell } from "../src/repo-cell.ts";
+import type { RepoCellQueueObservation } from "../src/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { cellCodedError } from "../src/repo-cell-errors.ts";
@@ -96,6 +97,53 @@ test("projection recovery names and carries the reachable rebuild command", () =
     causes: ["data-shape", "infrastructure"],
     settlesLatch: false,
   });
+});
+
+test("a runtime publication request names the queue head it waited behind", async () => {
+  const repoId = "runtime-publication-queue-head",
+    recoveryCalls = { count: 0 };
+  provisionPolicyTestRepository(repoId);
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  const context = runtimePublicationContext({
+    repoId,
+    causeClass: "infrastructure",
+    recoveryCalls,
+    cut: { status: "ready", watermark: 7, sourceRevision: 7 },
+    revision: 7,
+  });
+  let releaseQueueHead!: () => void;
+  const queueHeadGate = new Promise<void>((resolve) => {
+      releaseQueueHead = resolve;
+    }),
+    headTurn = chainRepoCellWrite(context.tail, () => queueHeadGate, {
+      queue: context.writeQueue,
+      label: { command: "task-review-execution", requestId: "writer-request-head" },
+    });
+  context.tail = headTurn.then(
+    () => undefined,
+    () => undefined,
+  );
+  for (let turn = 0; turn < 20 && context.writeQueue.waiting[0]?.startedAtMs === undefined; turn += 1)
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  const runtimeObservation: RepoCellQueueObservation = {
+      label: { command: "runtime-run", requestId: "writer-request-runtime" },
+    },
+    runtimePublication = enqueueRuntimePublication(
+      context,
+      "runtime-run",
+      { kind: "runtime-spawn", taskId: null },
+      binding,
+      () => ({ runtimeSessionId: "runtime_queued" }),
+      runtimeObservation,
+    );
+  assert.deepEqual(runtimeObservation.head, {
+    requestId: "writer-request-head",
+    command: "task-review-execution",
+    executingMs: 0,
+  });
+  releaseQueueHead();
+  await runtimePublication;
+  assert.equal(context.writeQueue.waiting.length, 0, "the runtime turn drains its queue entry");
 });
 
 test("an infrastructure latch admits only a local unbound runtime rescue on a complete cut", async () => {
@@ -442,6 +490,7 @@ function runtimePublicationContext(input: {
     causeClass: input.causeClass,
     queueDepth: 0,
     tail: Promise.resolve(),
+    writeQueue: { waiting: [], nowMs: () => 0 },
     activeWriter,
     writerToken: bindWriterGenerationToken(activeWriter),
     activeWriterEpochFence: null,

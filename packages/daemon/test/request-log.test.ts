@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { DaemonHost } from "../src/daemon-host.ts";
+import { recordDaemonOperationQueueHead } from "../src/daemon-operation.ts";
 import {
   daemonLifecycleLogPath,
   daemonStdioLogPath,
@@ -229,6 +230,60 @@ test("a parked sessions.await records wait while ordinary reads do not", async (
   assert.equal(records[0].wait, true);
   assert.equal(records[1].command, "task-show");
   assert.equal(records[1].wait, false);
+});
+
+test("a write records its write-queue wait separately from execution; a read records none", async (t) => {
+  const rootDir = tempRoot(t),
+    host = {
+      ...stubHost(rootDir),
+      // The writer worker reports the head it waited behind with the receipt; the request log
+      // must carry that attribution next to the wait, not just the duration.
+      run: async (_repo: string, action: { readonly kind?: string }) => {
+        if (action.kind === "fact-record")
+          recordDaemonOperationQueueHead({
+            requestId: "writer-request-head",
+            command: "builtin:ledger-backup",
+            executingMs: 592_000,
+          });
+        return { outcome: "applied" as const, opId: "op_test_0001", revision: 7 };
+      },
+    } as unknown as DaemonHost,
+    log = openDaemonRequestLog({ resolveRootDir: () => rootDir }),
+    // The daemon always observes requests; that operation trace carries the write-queue phase.
+    server = Object.assign(
+      createJsonRpcProtocolServer({
+        host,
+        build: daemonBuildStamp(),
+        authContext: {
+          transportKind: "unix-socket",
+          unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" },
+        },
+        emit: async () => undefined,
+        recordRequest: log.record,
+        operationObserver: { begin: () => ({ update: () => undefined, end: () => undefined }) },
+      }),
+      { requestLog: log },
+    );
+  await handshake(server);
+  for (const [id, method, action] of [
+    [2, "repo.task.run", { kind: "fact-record", statement: "queued write", source: "fixture" }],
+    [3, "repo.task.read", { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" }],
+  ] as const)
+    await server.handle({ jsonrpc: "2.0", id, method, params: { repo: { repoId: "logged" }, payload: { action } } });
+  server.close();
+  await server.requestLog.settle();
+  const [write, read] = readRecords(rootDir);
+  assert.equal(write.command, "fact-record");
+  assert.equal(typeof write.queueMs, "number", JSON.stringify(write));
+  assert.ok(write.queueMs! <= write.serviceMs, "the queue wait is part of the service time");
+  assert.deepEqual(write.queueHead, {
+    requestId: "writer-request-head",
+    command: "builtin:ledger-backup",
+    executingMs: 592_000,
+  });
+  assert.equal(read.command, "task-show");
+  assert.equal("queueMs" in read, false);
+  assert.equal("queueHead" in read, false);
 });
 
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {

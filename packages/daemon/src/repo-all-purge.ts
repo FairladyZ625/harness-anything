@@ -7,6 +7,8 @@ import {
   makeTaskProjection,
   openSqliteEventStore,
   restoreDrillRetentionFor,
+  type LedgerBackupCapture,
+  type LedgerBackupStage,
 } from "@harness-anything/storage";
 import { resolveHarnessLayout, type DaemonRegistryRepo } from "@harness-anything/kernel";
 import { removeHarnessIgnoreRules } from "./repo-bootstrap.ts";
@@ -44,7 +46,12 @@ export function validateBackupDestination(rootDir: string, backup: string): stri
 }
 
 export function backupRepo(
-  input: { readonly rootDir: string; readonly backupDir: string; readonly onSnapshotCaptured?: () => void } & (
+  input: {
+    readonly rootDir: string;
+    readonly backupDir: string;
+    readonly stage?: LedgerBackupStage;
+    readonly onSnapshotCaptured?: (capture: LedgerBackupCapture) => void;
+  } & (
     | { readonly registration: DaemonRegistryRepo; readonly writerEpoch: number }
     | { readonly registration?: never; readonly writerEpoch?: never }
   ),
@@ -52,6 +59,7 @@ export function backupRepo(
   return createLedgerBackup({
     rootInput: input.rootDir,
     backupDir: input.backupDir,
+    ...(input.stage ? { stage: input.stage } : {}),
     ...(input.onSnapshotCaptured ? { onSnapshotCaptured: input.onSnapshotCaptured } : {}),
     ...(input.registration
       ? {

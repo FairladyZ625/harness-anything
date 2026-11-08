@@ -1,4 +1,4 @@
-import type { ObserveRow, ObserveRowLog, ObserveRowMark } from "./daemon-observe-model.ts";
+import type { ObserveQueueHead, ObserveRow, ObserveRowLog, ObserveRowMark } from "./daemon-observe-model.ts";
 
 /**
  * 观察页分析面的纯数据统计:时序分桶、慢操作聚合、异常聚类、透镜候选,以及第二轮
@@ -91,6 +91,10 @@ export interface ObserveSmellStat {
   readonly label: string;
   readonly value: number;
   readonly matchText: string;
+  /** slow_write_request 的单写队列等待毫秒(value 减去它即执行);日志未记录时为 null。 */
+  readonly queueMs?: number | null;
+  /** slow_write_request 排队时占住队首的写请求;日志未记录时为 null。 */
+  readonly queueHead?: ObserveQueueHead | null;
 }
 
 /** 窗口内请求计数；耗时无法证明锁争用。 */
@@ -187,6 +191,8 @@ interface ObserveSlowWrite {
   readonly command: string;
   readonly atMs: number;
   readonly durationMs: number;
+  readonly queueMs: number | null;
+  readonly queueHead: ObserveQueueHead | null;
 }
 
 /** 窗口内失败行的命令归属记录(失败毛刺的下钻检索词来源)。 */
@@ -292,7 +298,13 @@ export class ObserveStatsState {
       row.durationMs > OBSERVE_SLOW_WRITE_MS &&
       row.atMs !== null
     ) {
-      this.slowWrites.push({ command: row.type, atMs: row.atMs, durationMs: row.durationMs });
+      this.slowWrites.push({
+        command: row.type,
+        atMs: row.atMs,
+        durationMs: row.durationMs,
+        queueMs: row.queueMs,
+        queueHead: row.queueHead,
+      });
       if (this.slowWrites.length > SLOW_WRITE_CAP) this.slowWrites.splice(0, this.slowWrites.length - SLOW_WRITE_CAP);
     }
   }
@@ -504,6 +516,8 @@ export class ObserveStatsState {
         label: worstSlow.command,
         value: worstSlow.durationMs,
         matchText: worstSlow.command,
+        ...(worstSlow.queueMs === null ? {} : { queueMs: worstSlow.queueMs }),
+        ...(worstSlow.queueHead === null ? {} : { queueHead: worstSlow.queueHead }),
       });
     if (burst !== null && burst.count > OBSERVE_POLL_BURST_PER_SEC * (OBSERVE_BUCKET_MS / 1_000))
       smells.push({
