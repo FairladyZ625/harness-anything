@@ -350,6 +350,7 @@ export function openFleetEdgeRuntime(input: {
     string,
     { credential: string; expiresAt: string; personId: string; surfaces: readonly string[] }
   >();
+  const runtimeControlReceipts = new Map<string, JsonObject>();
   const discardExpiredExecutionCredentials = () => {
     const nowMs = Date.now();
     for (const [runtimeSessionId, execution] of executionCredentials)
@@ -567,6 +568,7 @@ export function openFleetEdgeRuntime(input: {
             review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${runtimeSessionId}`,
         );
       },
+      runtimeControlReceipt: (runtimeSessionId) => runtimeControlReceipts.get(runtimeSessionId) ?? null,
       taskContext: async (taskId, missionName, review, onClaimed) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
@@ -889,8 +891,17 @@ export function openFleetEdgeRuntime(input: {
         // A returned dispatch is immediately usable by local status/foreground wait. This
         // acknowledgement belongs to write preparation; subsequent reads remain offline.
         if (draft.type === "runtime_session_started") await pullRuntimeReplica();
-        const { executionCredential, executionExpiresAt, executionPrincipalId, executionSurfaces, ...receipt } =
-          response.receipt;
+        // The fleet frame carries the authoritative event beside the command receipt. Keep that
+        // event on the internal publication result for the spawner, but never leak it into the
+        // runtime-spawn receipt validated by the daemon GUI/CLI protocol.
+        const {
+          event: _event,
+          executionCredential,
+          executionExpiresAt,
+          executionPrincipalId,
+          executionSurfaces,
+          ...receipt
+        } = response.receipt;
         discardExpiredExecutionCredentials();
         if (
           typeof executionCredential === "string" &&
@@ -907,12 +918,15 @@ export function openFleetEdgeRuntime(input: {
             surfaces: executionSurfaces,
           });
         }
+        const sanitizedReceipt = {
+          ...receipt,
+          ...(typeof executionPrincipalId === "string" ? { executionPrincipalId } : {}),
+        } as JsonObject;
+        if (draft.type === "runtime_session_cancelled" && typeof draft.payload.runtimeSessionId === "string")
+          runtimeControlReceipts.set(draft.payload.runtimeSessionId, sanitizedReceipt);
         return {
           event: response.event as unknown as AgentRuntimeEventV1 | null,
-          receipt: {
-            ...receipt,
-            ...(typeof executionPrincipalId === "string" ? { executionPrincipalId } : {}),
-          } as JsonObject,
+          receipt: sanitizedReceipt,
         };
       },
       archive: async (archive) => {

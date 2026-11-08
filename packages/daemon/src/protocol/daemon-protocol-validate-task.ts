@@ -148,13 +148,23 @@ function validateProjectedTaskActionInput(
   input: GeneratedTaskActionProtocolDeclaration["input"],
   record: Readonly<Record<string, unknown>>,
 ): readonly string[] {
-  const allowed = new Set(["kind", "executor", ...input.fields.map(({ field }) => field)]),
+  // A remote-edge serializer expands --from-file/--json-input packets before the action
+  // crosses the boundary. Those packet fields are declared on the CLI facet rather than as
+  // top-level action fields, but they remain part of the same generated ingress contract.
+  const packetFields = input.fields.flatMap((field) => field.cli?.jsonAllowedFields ?? []),
+    requiredPacketFields = input.fields.flatMap((field) => field.cli?.jsonFields ?? []),
+    allowed = new Set(["kind", "executor", ...input.fields.map(({ field }) => field), ...packetFields]),
     entityId = validationEntityId(record, ["taskId", "executionId"], `action:${ingress}`),
     errors = Object.keys(record)
       .filter((field) => !allowed.has(field))
       .map((field) =>
         validationError(entityId, `action.${field}`, record[field], "is not declared by the Action input schema"),
       );
+  const hasPacketSource = Object.hasOwn(record, "fromFile") || Object.hasOwn(record, "jsonInput");
+  if (!hasPacketSource)
+    for (const field of requiredPacketFields)
+      if (!Object.hasOwn(record, field))
+        errors.push(validationError(entityId, `action.${field}`, undefined, "field is required"));
   for (const field of input.fields) {
     const item = record[field.field],
       type = field.type;
@@ -188,6 +198,14 @@ function validateProjectedTaskActionInput(
       errors.push(validationError(entityId, `action.${field.field}`, item, "does not match its Action input pattern"));
   }
   for (const group of input.exactlyOneOf) {
+    // The edge serializer consumes a declared packet source and sends its fields expanded on
+    // the action. At daemon RPC ingress, require one source only when the source itself is still
+    // present; otherwise validate the expanded packet fields above.
+    if (
+      group.every((field) => input.fields.some((candidate) => candidate.field === field && candidate.cli?.codec)) &&
+      group.every((field) => record[field] === undefined)
+    )
+      continue;
     const present = group.filter((field) => record[field] !== undefined);
     if (present.length !== 1)
       errors.push(

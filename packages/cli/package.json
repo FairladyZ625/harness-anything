@@ -19,7 +19,7 @@
       ".": "./dist/cli/src/index.js",
       "./internal/cli/receipt-render-registry": "./dist/cli/src/cli/receipt-render-registry.js",
       "./internal/cli/thin-command": "./dist/cli/src/cli/thin-command.js",
-      "./internal/daemon/fleet-command-route": "./dist/cli/src/daemon/fleet-command-route.js",
+      "./internal/daemon/fleet-payload-serializer": "./dist/cli/src/daemon/fleet-payload-serializer.js",
       "./internal/daemon/control": "./dist/cli/src/daemon/control.js"
     }
   },
@@ -39,7 +39,7 @@
     ".": "./dist/cli/src/index.js",
     "./internal/cli/receipt-render-registry": "./src/cli/receipt-render-registry.ts",
     "./internal/cli/thin-command": "./src/cli/thin-command.ts",
-    "./internal/daemon/fleet-command-route": "./src/daemon/fleet-command-route.ts",
+    "./internal/daemon/fleet-payload-serializer": "./src/daemon/fleet-payload-serializer.ts",
     "./internal/daemon/control": "./src/daemon/control.ts"
   },
   "files": [

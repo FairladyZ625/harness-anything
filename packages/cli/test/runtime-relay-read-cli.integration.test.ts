@@ -139,7 +139,7 @@ async function startFakeDaemon(socketPath: string): Promise<FakeDaemon> {
               ? {
                   ok: true,
                   protocolVersion: currentDaemonProtocolVersion,
-                  methods: ["daemon.fleet.task.run"],
+                  methods: ["repo.task.read"],
                   build: { commit: null },
                 }
               : { ok: true, command: "task-list", outcome: "applied", opId: "read:relay-fleet" };
@@ -273,7 +273,7 @@ test("a relayed remote-edge fleet command forwards through the fixed relay, neve
     assert.equal((JSON.parse(result.stdout) as { readonly outcome?: string }).outcome, "applied");
     assert.deepEqual(
       relay.methods,
-      ["protocol.hello", "daemon.fleet.task.run"],
+      ["protocol.hello", "repo.task.read"],
       "the fleet payload must cross the injected relay",
     );
     assert.deepEqual(rawSocket.methods, [], "the implicit user socket must not be opened");

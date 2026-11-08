@@ -114,6 +114,10 @@ const requiredConsumers = new Map([
   ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts#reverify", "reviewReverifyRoute("],
   ["packages/kernel/src/domain/completion-readiness.ts#reverify", "reviewReverifyRoute("],
   ["packages/daemon/src/task-review-dispatch.ts", "reviewReverifyRoute("],
+  ["packages/daemon/src/fleet/forwarding-port.ts", "forwardingIntentIssue("],
+  ["packages/daemon/src/fleet/center-listener.ts", "forwardingIntentIssue("],
+  ["packages/daemon/src/daemon-host-repository-api.ts", "forwardingIntentForAction("],
+  ["packages/daemon/src/daemon-host-open.ts", "forwardingIntentForAction("],
 ]);
 /**
  * Whether a finding is re-reviewed is judged only by the kernel route (dec_BEFCF7D0 CH1). Outside the
@@ -452,7 +456,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Domain judgment single-definition check passed (twelve judgments resolve to kernel domain services; authored-document reads use the projection port; dispatch observation ratchet is active).",
+    "Domain judgment single-definition check passed (thirteen judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active).",
   );
 }
 const invokedDirectly =

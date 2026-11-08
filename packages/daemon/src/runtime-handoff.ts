@@ -22,6 +22,7 @@ export async function runRuntimeHandoff(input: {
   const dispatchKey = input.payload.dispatchKey ?? `handoff-${randomUUID()}`;
   const action: JsonObject = {
     kind: `runtime-handoff-${operation}`,
+    operation,
     dispatchId,
     ...(operation === "claim" ? { dispatchKey } : {}),
   };

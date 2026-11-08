@@ -23,3 +23,7 @@ export function assessAuthoredDocumentReadiness(): { readonly state: string } {
 export function assessTransitionDocument(): { readonly ready: boolean } {
   return { ready: true };
 }
+
+export function forwardingIntentIssue(): string | null {
+  return "duplicate";
+}

@@ -205,6 +205,8 @@ export function createDaemonHostRuntimeApi(
       );
     },
     awaitRuntimeSessions: async (repoId, payload, auth) => {
+      const edgeReceipt = await runRemoteEdgeRuntime(repoId, "repo.agentRuntime.sessions.await", payload, auth);
+      if (edgeReceipt) return edgeReceipt;
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-sessions-await"), auth);
       await context.attemptHostRecovery(repoId);
       context.requiredCell(context.cells, context.warming, context.unavailable, repoId);

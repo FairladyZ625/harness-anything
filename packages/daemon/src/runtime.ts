@@ -316,6 +316,21 @@ export async function startDaemon(input: {
             requireExecutionRequestScope(principal, method, params);
             return principal;
           },
+          sessionIndependentRead: (method, params) => {
+            if (
+              ![
+                "repo.agentRuntime.overview",
+                "repo.agentRuntime.sessions.read",
+                "repo.agentRuntime.sessions.await",
+              ].includes(method)
+            )
+              return false;
+            const repoId =
+              typeof params.repo === "object" && params.repo !== null && "repoId" in params.repo
+                ? String(params.repo.repoId)
+                : undefined;
+            return host!.status().repos.some((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
+          },
           edgeExecutionPrincipal: async (credential) => {
             const principal = host!
               .status()

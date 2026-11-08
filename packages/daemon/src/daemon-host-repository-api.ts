@@ -1,6 +1,8 @@
 import { readFleetOperationalClient } from "./fleet-edge-write.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { forwardRegisteredFleetAction } from "./fleet-edge-task.ts";
+import { forward } from "./fleet/forwarding-port.ts";
+import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
+import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
 import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
@@ -27,6 +29,7 @@ import {
   unbindDaemonRepo,
   updateDaemonConnection,
   updateDaemonRepo,
+  type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import {
   compileRepoRepositoryScaffold,
@@ -48,6 +51,7 @@ import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
+import type { SquadControlResult } from "./squad-control-result.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
@@ -757,23 +761,31 @@ export function createDaemonHostRepositoryApi(
     },
     run: async (repoId, action, auth) => {
       const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
-        modeAdmission = context.admitHostMode(repoId, command, auth);
-      if (!modeAdmission.ok) {
+        descriptor = commandDescriptorForAction(action.kind),
+        modeAdmission = context.admitHostMode(repoId, command, auth),
+        forwardThroughPort =
+          (!modeAdmission.ok && descriptor.admission["remote-edge"] === "via-center-forward") ||
+          (action.kind === "doc-show" && auth.executionCredential !== undefined);
+      if (!modeAdmission.ok && !forwardThroughPort)
+        return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      if (forwardThroughPort) {
         try {
-          const forwarded = await forwardRegisteredFleetAction({
+          const forwarded = await forward({
             userRoot: context.input.userRoot,
             repoId,
-            command,
-            action,
+            rootDir: context.cells.get(repoId)?.status().rootDir,
+            intent: forwardingIntentForAction(descriptor.method, action),
             auth,
             oidc: context.oidc,
-            runSchedule: (request) => context.host.fleet.edgeRuntime(request, auth),
+            runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
           });
-          if (forwarded) return forwarded;
+          if (forwarded) return forwarded as WriteReceiptDraft | SquadControlResult;
         } catch (error) {
           return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
         }
-        return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+        // No forwarding target: only the doc-show credential opt-in may still fall through to the
+        // local cell. A mode that was refused above keeps its admission rejection.
+        if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       }
       if (action.kind === "doctor-health") {
         const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
@@ -850,7 +862,17 @@ export function createDaemonHostRepositoryApi(
             evaluatedAtCut: `repository:${repoId}:current`,
           });
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction),
-          receipt = await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
+          receipt = edgeRead
+            ? ((await runFleetEdgeRepositoryRead(
+                {
+                  rootDir: cell.status().rootDir,
+                  repoId,
+                  action: resolvedAction as never,
+                },
+                async () =>
+                  (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
+              )) as Awaited<ReturnType<typeof cell.run>>)
+            : await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
         if (
           (command.commandClass !== "repo-read" &&
             getExecutableEntityAction(action.kind)?.target.kind === "schedule") ||
