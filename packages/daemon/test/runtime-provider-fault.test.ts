@@ -49,6 +49,25 @@ test("structured provider errors classify rate limits, server faults, quota, mod
   );
 });
 
+test("Claude permission denial is a named failed worker stop even when the provider exits zero", () => {
+  const fault = providerFaultFromFrame("claude", {
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: "This command requires approval",
+    permission_denials: [{ tool_name: "Bash", non_execution_kind: "user-rejected" }],
+  });
+  assert.equal(fault?.code, "permission_denied");
+  assert.match(fault?.reason ?? "", /^runtime_permission_denied:/u);
+  const result = classifyRuntimeExit(
+    active({ kindId: "claude", providerFault: fault, providerOutcome: "unknown", finalText: "denied" }),
+    0,
+  );
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.classification, "worker_stop");
+  assert.match(result.reason, /^runtime_permission_denied:/u);
+});
+
 test("request_unavailable is retryable only before tool activity; other startup errors stay task failures", () => {
   const fault = providerFaultFromFrame("codex", {
       type: "turn.failed",

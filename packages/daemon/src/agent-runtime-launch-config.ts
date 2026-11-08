@@ -2,7 +2,7 @@ import { commandInterceptionNeedsFiles } from "./runtime-command-interception-fi
 import { commandInterceptionHook, type CommandInterceptions } from "./runtime-command-interceptions.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { commandInterceptionIssues, consumeKnownError } from "@harness-anything/kernel";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type {
   RuntimeInstanceKind,
@@ -102,12 +102,27 @@ export function launchArgs(
       "runtime_command_interception_unsupported",
       `${declaration.displayName} does not support HA command interception. Rules: ${commandInterceptions.map(({ id }) => id).join(", ")}. Select a supported runtime.`,
     );
+  const commandIssues = commandInterceptionIssues(commandInterceptions);
+  if (commandIssues.length) throw runtimeInstanceError("runtime_approved_command_invalid", commandIssues.join("; "));
+  const approvedRules = commandInterceptions.filter(
+    (rule): rule is Extract<CommandInterceptions[number], { readonly approvedCommand: string }> =>
+      "approvedCommand" in rule,
+  );
+  if (approvedRules.length && config.kindId !== "claude")
+    throw runtimeInstanceError(
+      "runtime_approved_command_unsupported",
+      "Reviewed exact commands are only supported by Claude Code permissions.allow.",
+    );
   if (commandInterceptions.length && commandInterceptionNeedsFiles(config.kindId) && !commandInterceptionArgs.length)
     throw runtimeInstanceError(
       "runtime_command_interception_unprepared",
       "Native command interception requires the runtime instance launch preparer.",
     );
-  const hook = commandInterceptions.length ? commandInterceptionHook(commandInterceptions) : null,
+  const patternRules = commandInterceptions.filter(
+      (rule): rule is Extract<CommandInterceptions[number], { readonly pattern: string }> => "pattern" in rule,
+    ),
+    hook = patternRules.length ? commandInterceptionHook(patternRules) : null,
+    approvedCommands = approvedRules.map((rule) => `Bash(${rule.approvedCommand})`),
     hookSettings = hook
       ? { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: hook }] }] }
       : undefined;
@@ -116,6 +131,7 @@ export function launchArgs(
       return [
         JSON.stringify({
           attribution: { commit: "", pr: "", sessionUrl: false },
+          ...(approvedCommands.length ? { permissions: { allow: approvedCommands } } : {}),
           ...(hookSettings ? { hooks: hookSettings, disableAllHooks: false } : {}),
           ...(permissionMode === "workspace-write"
             ? {
@@ -171,7 +187,8 @@ export function launchArgs(
     if (token === "$effort-config") return effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : [];
     // Claude --bare disables settings hooks, including --settings. Keep it only on
     // launches with no project interception rather than silently dropping the policy.
-    if (token === "$api-auth") return config.auth.mode === "api-key" && !hook ? (launch.apiKeyArgs ?? []) : [];
+    if (token === "$api-auth")
+      return config.auth.mode === "api-key" && !hook && !approvedCommands.length ? (launch.apiKeyArgs ?? []) : [];
     if (token === "$fast") return fast ? (launch.fastArgs ?? []) : [];
     if (token === "$web-search") {
       const mode = runtimeWebSearchForConfig(config);
