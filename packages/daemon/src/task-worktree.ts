@@ -138,9 +138,10 @@ export interface TaskWorktreeCheckout {
  * one starts from the copy another node pushed before the default branch (CH3); with no pushed copy, an existing
  * one that never worked is advanced to the present default branch instead, so a checkout a refused or cancelled
  * dispatch left behind never pins its retry to a stale baseline. A Git-less edge has no worktree to give: null,
- * not a failure (dec_BBA713052997C3EF5F5D3DD952 CH3). An initialized repository with no default-branch commit is
- * different: it cannot materialize a binding, so the checkout is refused with `worktree_base_unavailable` instead
- * of letting a task that requires a worktree run at the repository root.
+ * not a failure (dec_BBA713052997C3EF5F5D3DD952 CH3). An initialized repository whose default branch is still
+ * unborn has no base to cut either, so the checkout answers null here; the dispatch boundary, which is the first
+ * place that actually runs a provider, refuses that unstarted case with `worktree_base_unavailable` (issue #4431).
+ * A start is not a provider launch and keeps recording the no-workspace answer.
  * An accepted handoff commit instead requires that exact, retrievable SHA and a clean checkout before and after
  * setup. An existing checkout at another commit is preserved and refused.
  */
@@ -238,19 +239,7 @@ export async function checkoutTaskWorktree(
     const fresh = !existsSync(cwd);
     if (fresh) await refreshDefaultBranch(rootDir);
     const defaultRef = repositoryBaseRef(rootDir);
-    if (fresh && !defaultRef) {
-      // A Git-less edge has no workspace to give (dec_BBA713052997C3EF5F5D3DD952 CH3). A Git repository whose
-      // default branch has no commit yet cannot cut the binding: there is no base to start from, and running the
-      // task at the repository root would silently change the task's workspace (issue #4431).
-      if (hasGitWorkTree(rootDir))
-        throw cellCodedError(
-          "worktree_base_unavailable",
-          `Task ${taskId}'s worktree ${binding.path} cannot be created: ${rootDir} has no default-branch commit ` +
-            "to cut it from. Create the repository's first commit (or push its default branch), then dispatch the " +
-            "task again.",
-        );
-      return null;
-    }
+    if (fresh && !defaultRef) return null;
     // A runtime that stopped mid-rebase or mid-merge leaves conflict residue; clear it before judging the branch.
     if (!fresh) await abortInterruptedWorktreeOperation(rootDir, cwd);
     // The delivery branch is the one the checkout holds; the task id only names the branch a fresh checkout is cut
@@ -734,19 +723,36 @@ async function checkoutOnStart(
       throw cellCodedError("invalid_proof", "A stacked task requires a managed worktree.");
     return { notes: [], warnings: [], cwd: null };
   }
-  const checkout = await checkoutTaskWorktree(
-    input.rootDir,
-    taskId,
-    binding,
-    input.readWorktree(),
-    undefined,
-    stackedCommit,
-  );
+  let checkout: TaskWorktreeCheckout | null;
+  try {
+    checkout = await checkoutTaskWorktree(
+      input.rootDir,
+      taskId,
+      binding,
+      input.readWorktree(),
+      undefined,
+      stackedCommit,
+    );
+  } catch (error) {
+    // A start is not a provider launch and must not block the lifecycle write on a workspace it did not get: an
+    // explicit start records the decision this node runs the task in, including "no checkout here". The dispatch
+    // boundary still refuses an unstarted task whose binding cannot be materialized (issue #4431).
+    if (stackedCommit !== undefined) throw error;
+    return {
+      notes: [],
+      warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`],
+      cwd: null,
+    };
+  }
   if (!checkout)
     return {
       notes: [
-        `No worktree on this node: it is not a Git work tree, so work stays in ${input.rootDir}. ` +
-          "dec_BBA713052997C3EF5F5D3DD952 CH3 records no workspace on a Git-less edge.",
+        hasGitWorkTree(input.rootDir)
+          ? `No worktree on this node: ${input.rootDir} has no default-branch commit, so work stays in ` +
+            `${input.rootDir}. Create the repository's first commit (or push its default branch) before dispatching ` +
+            "a task that needs a worktree."
+          : `No worktree on this node: it is not a Git work tree, so work stays in ${input.rootDir}. ` +
+            "dec_BBA713052997C3EF5F5D3DD952 CH3 records no workspace on a Git-less edge.",
       ],
       warnings: [],
       cwd: null,
