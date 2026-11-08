@@ -60,6 +60,11 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       repoId: workspaceId("runtime-spawn"),
       rootDir: canonicalRoot(root),
       ownerId: "spawn-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "runtime-spawn-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
       runtimeInstances: () => [
         {
           schemaVersion: 2,
@@ -227,19 +232,21 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       assert.equal(receipt.outcome, "applied");
       assert.equal(intentWasDurable, true);
       assert.equal(observerPreservedAcceptedLiveness, true);
-      assert.deepEqual(launched, {
+      const { env: firstEnv, ...firstLaunch } = launched as {
+        readonly env: NodeJS.ProcessEnv;
+        readonly [key: string]: unknown;
+      };
+      assert.deepEqual(firstLaunch, {
         definition,
         installation,
         executablePath: "/opt/witnessed/codex",
         args: ["exec", "--json", "--model", "gpt-5.6-sol", "-"],
-        env: {
-          HOME: "/isolated/codex-review/home",
-          OPENAI_API_KEY: "resolved-only-in-daemon",
-          HARNESS_WORKER_PERMISSION_MODE: "full",
-        },
         cwd: canonicalRoot(root),
         prompt: "Inspect the repository",
       });
+      assert.equal(firstEnv.HOME, "/isolated/codex-review/home");
+      assert.equal(firstEnv.OPENAI_API_KEY, "resolved-only-in-daemon");
+      assert.equal(firstEnv.HARNESS_WORKER_PERMISSION_MODE, "full");
       const events = makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root }).read().events,
         observed = events.find((candidate) => candidate.type === "runtime_installation_observed"),
         dispatch = events.find((candidate) => candidate.type === "runtime_dispatch_requested"),
@@ -359,19 +366,21 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         ),
       );
       assert.equal(alternate.outcome, "applied");
-      assert.deepEqual(launched, {
+      const { env: alternateEnv, ...alternateLaunch } = launched as {
+        readonly env: NodeJS.ProcessEnv;
+        readonly [key: string]: unknown;
+      };
+      assert.deepEqual(alternateLaunch, {
         definition: { ...definition, model: "gpt-5.6-terra" },
         installation,
         executablePath: "/opt/witnessed/codex",
         args: ["exec", "--json", "--model", "gpt-5.6-terra", "-"],
-        env: {
-          HOME: "/isolated/codex-review/home",
-          OPENAI_API_KEY: "resolved-only-in-daemon",
-          HARNESS_WORKER_PERMISSION_MODE: "full",
-        },
         cwd: canonicalRoot(root),
         prompt: "Inspect with alternate model",
       });
+      assert.equal(alternateEnv.HOME, "/isolated/codex-review/home");
+      assert.equal(alternateEnv.OPENAI_API_KEY, "resolved-only-in-daemon");
+      assert.equal(alternateEnv.HARNESS_WORKER_PERMISSION_MODE, "full");
       const low = await cell.spawnRuntime(
         {
           runtimeInstanceId: "codex-review",
@@ -390,19 +399,21 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         ),
       );
       assert.equal(low.outcome, "applied");
-      assert.deepEqual(launched, {
+      const { env: lowEnv, ...lowLaunch } = launched as {
+        readonly env: NodeJS.ProcessEnv;
+        readonly [key: string]: unknown;
+      };
+      assert.deepEqual(lowLaunch, {
         definition: { ...definition, reasoningEffort: "low" },
         installation,
         executablePath: "/opt/witnessed/codex",
         args: ["exec", "--json", "--model", "gpt-5.6-sol", "--config", 'model_reasoning_effort="low"', "-"],
-        env: {
-          HOME: "/isolated/codex-review/home",
-          OPENAI_API_KEY: "resolved-only-in-daemon",
-          HARNESS_WORKER_PERMISSION_MODE: "full",
-        },
         cwd: canonicalRoot(root),
         prompt: "Mechanical task",
       });
+      assert.equal(lowEnv.HOME, "/isolated/codex-review/home");
+      assert.equal(lowEnv.OPENAI_API_KEY, "resolved-only-in-daemon");
+      assert.equal(lowEnv.HARNESS_WORKER_PERMISSION_MODE, "full");
       const locked = await cell.spawnRuntime(
         {
           runtimeInstanceId: "codex-review",
@@ -421,6 +432,8 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         ),
       );
       assert.equal(locked.outcome, "applied");
+      const { env: lockedEnv } = launched as { readonly env: NodeJS.ProcessEnv };
+      assert.ok(lockedEnv.HARNESS_EXECUTION_CREDENTIAL, "read-only launch receives a daemon execution credential");
       assert.deepEqual((launched as { args: string[] }).args, [
         "exec",
         "--json",
@@ -448,19 +461,21 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         ),
       );
       assert.equal(xhigh.outcome, "applied");
-      assert.deepEqual(launched, {
+      const { env: xhighEnv, ...xhighLaunch } = launched as {
+        readonly env: NodeJS.ProcessEnv;
+        readonly [key: string]: unknown;
+      };
+      assert.deepEqual(xhighLaunch, {
         definition: { ...definition, reasoningEffort: "xhigh" },
         installation,
         executablePath: "/opt/witnessed/codex",
         args: ["exec", "--json", "--model", "gpt-5.6-sol", "--config", 'model_reasoning_effort="xhigh"', "-"],
-        env: {
-          HOME: "/isolated/codex-review/home",
-          OPENAI_API_KEY: "resolved-only-in-daemon",
-          HARNESS_WORKER_PERMISSION_MODE: "full",
-        },
         cwd: canonicalRoot(root),
         prompt: "Hard task",
       });
+      assert.equal(xhighEnv.HOME, "/isolated/codex-review/home");
+      assert.equal(xhighEnv.OPENAI_API_KEY, "resolved-only-in-daemon");
+      assert.equal(xhighEnv.HARNESS_WORKER_PERMISSION_MODE, "full");
       const current = await cell.read("repo.agentRuntime.overview", {});
       assert.deepEqual(
         current.instances,
@@ -667,7 +682,7 @@ test(
         models: ["codex-model"],
         defaultModel: "codex-model",
         enabled: true,
-        permissionMode: "read-only" as const,
+        permissionMode: "workspace-write" as const,
         codex: {},
         authMode: "subscription" as const,
         authState: "configured" as const,

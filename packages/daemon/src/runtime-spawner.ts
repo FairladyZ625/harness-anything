@@ -96,7 +96,7 @@ import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
 import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { taskExecutionSurfaces } from "./runtime-execution-scope.ts";
+import { runtimeExecutionRoleForLaunch, taskExecutionSurfaces } from "./runtime-execution-scope.ts";
 import {
   assertReviewerTarget,
   reviewerPinnedCommit,
@@ -483,12 +483,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // they do not determine whether the runtime needs a route or an authenticated principal.
     const unboundReadOnlyAgent =
         !taskId && !trustedSchedule && !reviewerBinding && agent !== null && agent.permissionMode === "read-only",
-      daemonRoute = input.runtimeDaemonRoute,
-      dispatchRole = unboundReadOnlyAgent ? "read-only" : role;
-    if ((taskId || trustedSchedule || reviewerBinding || unboundReadOnlyAgent) && !daemonRoute)
+      daemonRoute = input.runtimeDaemonRoute;
+    if (
+      (taskId || trustedSchedule || reviewerBinding || unboundReadOnlyAgent || permissionMode === "read-only") &&
+      !daemonRoute
+    )
       throw runtimeSpawnError(
         "runtime_preconditions_unavailable",
-        "Task-bound, scheduled, and read-only agent runtime spawn require a sealed daemon route before dispatch.",
+        "Task-bound, scheduled, and read-only runtime spawn require a sealed daemon route before dispatch.",
       );
     const requestedRuntimeInstanceId =
       inheritedFallback?.candidates[inheritedFallback.candidateIndex ?? inheritedFallback.attemptIndex]?.instance ??
@@ -855,6 +857,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,
       launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId);
+    const tasklessExecutionRole =
+        !taskId && !trustedSchedule && !reviewerBinding && !decisionReviewTarget
+          ? runtimeExecutionRoleForLaunch({
+              taskId: null,
+              role: role === "reviewer" ? "reviewer" : "session",
+              readOnlyCeiling: launchedPermissionMode === "read-only" || unboundReadOnlyAgent,
+            })
+          : null,
+      dispatchRole = tasklessExecutionRole === "read-only" ? "read-only" : role;
+    if (dispatchRole === "read-only" && !daemonRoute)
+      throw runtimeSpawnError(
+        "runtime_preconditions_unavailable",
+        "Read-only runtime spawn requires a sealed daemon route before dispatch.",
+      );
     const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition),
       definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
@@ -1094,8 +1110,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               },
             }
           : {}),
-        // Unbound sessions retain the spawning person and use ordinary repository RBAC.
-        // A declared read-only agent keeps its allowlist-only credential.
+        // The launch context narrows this session principal to read-only when required by its
+        // validated permission ceiling; execution-scope checks enforce the issued role.
         ...(!taskId && !reviewerBinding && !decisionReviewTarget && daemonRoute
           ? {
               execution: {
@@ -1106,7 +1122,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 dispatchId: newDispatchId,
                 taskId: null,
                 executionId: null,
-                role: unboundReadOnlyAgent ? ("read-only" as const) : ("session" as const),
+                role: dispatchRole === "read-only" ? "read-only" : "session",
               },
             }
           : {}),

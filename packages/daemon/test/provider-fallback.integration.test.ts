@@ -935,7 +935,10 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       instructions: "Exercise durable fallback adoption.",
       runtimes: [{ type: "codex", model: "provider-success-model" }],
     },
-    instances = [runtimeInstance("provider-adopt-first"), runtimeInstance("provider-adopt-next")],
+    instances = [runtimeInstance("provider-adopt-first"), runtimeInstance("provider-adopt-next")].map((instance) => ({
+      ...instance,
+      permissionMode: "workspace-write" as const,
+    })),
     schedule = (work: () => void | Promise<void>, scheduledBinding?: RuntimeBinding) => {
       scheduled = scheduled.then(async () => {
         if (afterRestart && scheduledBinding) {

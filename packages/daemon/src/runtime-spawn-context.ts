@@ -16,7 +16,7 @@ import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeAttemptTerminal } from "./runtime-spawn-types.ts";
 import type { launchExitNotification } from "./runtime-spawn-process.ts";
 import type { requiredRuntimeProjection, requiredRuntimeStore } from "./runtime-spawn-process.ts";
-import type { runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { isStructuredSuccessResult } from "./runtime-spawn-provider-frames.ts";
 

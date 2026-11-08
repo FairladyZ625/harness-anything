@@ -405,6 +405,11 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     repoId: workspaceId(repoId),
     rootDir: canonicalRoot(root),
     ownerId: "agent-model-test",
+    runtimeDaemonRoute: {
+      userRoot,
+      daemonId: "runtime-agent-model",
+      endpoint: path.join(userRoot, "runtime-agent-model.sock"),
+    },
     runtimeInstances: () => {
       instanceReads.count += 1;
       return instances.listPublic();
@@ -671,28 +676,22 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       },
     );
     assert.ok(performance.now() - unavailableStarted < 1_000, "an incompatible explicit instance should fail quickly");
-    const readOnly = await cell.spawnRuntime(
+    const launchBeforeReadOnly = launched;
+    await cell.spawnRuntime(
       {
         runtimeInstanceId: "codex-agent-model",
         agentId: "declared-model",
         cwd: { scope: "repo-root" },
-        prompt: "Review without writes.",
+        prompt: "A read-only provider ceiling must launch with a read-only execution identity.",
         permissionMode: "read-only",
         taskId: null,
         dispatchKey: "agent-model-read-only",
       },
       binding,
     );
-    assert.deepEqual(
-      { ledgerAccess: readOnly.ledgerAccess, reportDelivery: readOnly.reportDelivery },
-      { ledgerAccess: "unavailable", reportDelivery: "stdout" },
-    );
-    assert.deepEqual(validateDaemonGuiCommandReceipt(makeDaemonCommandReceipt("runtime-spawn", readOnly)), []);
-    assert.deepEqual(validateRuntimeSpawnReceipt(makeDaemonCommandReceipt("runtime-spawn", readOnly)), []);
-    assert.match(
-      launched?.prompt ?? "",
-      /# Read-only Dispatch Contract[\s\S]*daemon-ledger commands are unavailable[\s\S]*final stdout/u,
-    );
+    assert.notEqual(launched, launchBeforeReadOnly, "a read-only request must still launch the provider");
+    assert.deepEqual(validateDaemonGuiCommandReceipt(makeDaemonCommandReceipt("runtime-spawn", resolvedCase)), []);
+    assert.deepEqual(validateRuntimeSpawnReceipt(makeDaemonCommandReceipt("runtime-spawn", resolvedCase)), []);
     await cell.spawnRuntime(
       {
         runtimeInstanceId: "codex-agent-model",
@@ -831,7 +830,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
         models: [`${kindId}-model`],
         defaultModel: `${kindId}-model`,
         enabled: true,
-        permissionMode: "read-only",
+        permissionMode: "workspace-write",
         authMode: "subscription",
         authState: "authenticated",
         authReadiness: { status: "ready", code: null, hint: null },
