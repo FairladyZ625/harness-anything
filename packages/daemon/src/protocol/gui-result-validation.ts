@@ -476,8 +476,8 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
           ],
     ignored = errors.filter(isUnknownReadFieldError),
     fatal = errors.filter((error) => !isUnknownReadFieldError(error));
-  if (ignored.length) reportIgnoredReadFields(method, ignored);
   if (fatal.length) throw new DaemonProtocolContractError("invalid_result", fatal.join("; "));
+  if (ignored.length) reportIgnoredReadFields(method, ignored);
   return normalized as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
 }
 

@@ -69,6 +69,19 @@ test("client inbound ignores unknown nested retirement fields within the same wi
   assert.equal(parsed.ok, true);
 });
 
+test("an additive secret-shaped field stays fatal even when its name is unknown", (t) => {
+  const warn = t.mock.method(console, "warn", () => undefined);
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResponse("repo.agent.entities.list", {
+        ...futureCatalog,
+        agents: [{ ...futureAgentRow, access_token: "opaque" }],
+      }),
+    /forbidden credential-shaped key/u,
+  );
+  assert.equal(warn.mock.calls.length, 0, "a read that still fails must not claim the field was ignored");
+});
+
 test("the same client-inbound tolerance covers every read shape, not only Agent rows", (t) => {
   t.mock.method(console, "warn", () => undefined);
   const systemStatus = {
