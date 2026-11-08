@@ -4,7 +4,7 @@ import {
   dispatchCapacityDispositions,
   dispatchGroupPhases,
   dispatchReservationStates,
-  dispatchStopProofs,
+  dispatchDeliveryStatuses,
 } from "./dispatch-lifecycle.ts";
 
 /** Dispatch lifecycle vocabulary (dec_AEB05951C69E47FCE53E53C341 CH1); one meaning per field. */
@@ -37,11 +37,11 @@ export const dispatchStatusWordRegister: readonly StatusWordRegistration[] = [
     meaning: `The dispatch attempt's provider slot reservation is ${word}.`,
     divergence: "entity-scoped" as const,
   })),
-  ...dispatchStopProofs.map((word) => ({
+  ...dispatchDeliveryStatuses.map((word) => ({
     word,
     entity: "Dispatch" as const,
-    field: "stop proof",
-    meaning: `The dispatch attempt's provider process stop is ${word.replace("_", " ")}.`,
+    field: "delivery status",
+    meaning: `The dispatch group's delivery is ${word === "none" ? "not registered" : "registered"}.`,
     divergence: "entity-scoped" as const,
   })),
 ];

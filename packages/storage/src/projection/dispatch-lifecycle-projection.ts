@@ -173,10 +173,10 @@ function ensureDispatchLifecycleModel(db: DatabaseSync): void {
         )[0]?.model_version
       : -1;
   if (version !== undefined && version !== DISPATCH_LIFECYCLE_MODEL_VERSION) {
-    for (const table of LIFECYCLE_TABLES) db.exec(`DROP TABLE IF EXISTS ${table}`);
-    db.exec(DISPATCH_LIFECYCLE_TABLES_SQL);
+    for (const table of LIFECYCLE_TABLES) runSql(db, `DROP TABLE IF EXISTS ${table}`);
+    for (const statement of DISPATCH_LIFECYCLE_TABLES_SQL.split(";")) if (statement.trim()) runSql(db, statement);
   }
-  db.exec(LIFECYCLE_EXECUTION_INDEX_SQL);
+  runSql(db, LIFECYCLE_EXECUTION_INDEX_SQL);
 }
 
 function foldedThrough(db: DatabaseSync): number {

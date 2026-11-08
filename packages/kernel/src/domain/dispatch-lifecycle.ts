@@ -37,6 +37,7 @@ export const dispatchCapacityDispositions = ["busy", "recovering", "free"] as co
 /** The attempt's provider slot: reserved at admission, held while the process may run, released by a proven stop. */
 export const dispatchReservationStates = ["reserved", "held", "released"] as const;
 export const dispatchStopProofs = ["unproven", "proven_stopped"] as const;
+export const dispatchDeliveryStatuses = ["none", "registered"] as const;
 export type DispatchGroupPhase = (typeof dispatchGroupPhases)[number];
 export type DispatchAttemptPhase = (typeof dispatchAttemptPhases)[number];
 export type DispatchCapacityDisposition = (typeof dispatchCapacityDispositions)[number];
@@ -97,7 +98,7 @@ export interface DispatchTaskLease {
   readonly version: number;
 }
 
-export interface DispatchTaskBinding {
+export interface DispatchAttemptTask {
   readonly taskId: string;
   readonly executionId: string | null;
   /** A reviewer holds no task lease; it delivers a review of `reviewTargetDigest`. */
@@ -114,7 +115,7 @@ export interface DispatchLifecycleAttempt {
   readonly instanceId: string;
   readonly fence: DispatchOwnerFence;
   readonly reservation: DispatchCapacityReservation;
-  readonly task: DispatchTaskBinding | null;
+  readonly task: DispatchAttemptTask | null;
   /** The dispatch working directory as admitted; the group workspace a successor inherits. */
   readonly workspaceRef: string | null;
   readonly phase: DispatchAttemptPhase;
@@ -144,7 +145,7 @@ export interface DispatchGroupRuling {
 }
 
 export interface DispatchGroupDelivery {
-  readonly status: "none" | "registered";
+  readonly status: (typeof dispatchDeliveryStatuses)[number];
   /** `execution:<id>` for a submitted implementation, `review:<id>` for a recorded review. */
   readonly targetRef: string | null;
   readonly targetDigest: string | null;

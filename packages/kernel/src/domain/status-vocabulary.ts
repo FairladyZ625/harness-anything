@@ -85,7 +85,7 @@ import {
   dispatchCapacityDispositions,
   dispatchGroupPhases,
   dispatchReservationStates,
-  dispatchStopProofs,
+  dispatchDeliveryStatuses,
 } from "./dispatch-lifecycle.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
@@ -192,12 +192,12 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: dispatchReservationStates,
   },
   {
-    id: "dispatch.stop-proof",
+    id: "dispatch.delivery-status",
     entity: "Dispatch",
-    field: "stop proof",
+    field: "delivery status",
     module: "packages/kernel/src/domain/dispatch-lifecycle.ts",
-    anchor: "dispatchStopProofs",
-    words: dispatchStopProofs,
+    anchor: "dispatchDeliveryStatuses",
+    words: dispatchDeliveryStatuses,
   },
   {
     id: "runtime-session.fallbackState",
