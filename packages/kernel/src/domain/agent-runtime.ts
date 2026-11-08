@@ -82,6 +82,7 @@ export interface SessionIdentityResolverInput {
 export interface SessionIdentityResolver {
   readonly resolve: (input: SessionIdentityResolverInput) => SessionIdentity;
 }
+export type RuntimeWebSearchMode = "disabled" | "cached" | "live";
 export interface AgentDefinitionSnapshot {
   readonly schema: "agent-definition-snapshot/v1";
   readonly configVersion: 1;
@@ -92,6 +93,8 @@ export interface AgentDefinitionSnapshot {
   readonly model: string;
   readonly reasoningEffort: string | null;
   readonly fast?: boolean;
+  /** Effective Codex hosted-search tier; absent on kinds that do not declare one. */
+  readonly webSearch?: RuntimeWebSearchMode;
   readonly baseUrl: string | null;
   readonly authMode: "subscription" | "api-key";
 }
@@ -1054,7 +1057,7 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
       "baseUrl",
       "authMode",
     ],
-    allowed = [...required, "fast"];
+    allowed = [...required, "fast", "webSearch"];
   return (
     isRecord(value) &&
     required.every((field) => Object.hasOwn(value, field)) &&
@@ -1065,6 +1068,7 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
     isNonEmptyString(value.kindId) &&
     (value.reasoningEffort === null || isNonEmptyString(value.reasoningEffort)) &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
+    (value.webSearch === undefined || ["disabled", "cached", "live"].includes(String(value.webSearch))) &&
     (value.baseUrl === null || isNonEmptyString(value.baseUrl)) &&
     ["subscription", "api-key"].includes(String(value.authMode))
   );

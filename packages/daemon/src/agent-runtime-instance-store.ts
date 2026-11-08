@@ -83,7 +83,7 @@ import {
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
 import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
-import { runtimeVersionGate } from "./runtime-version.ts";
+import { runtimeVersionGate, runtimeWebSearchVersionGate } from "./runtime-version.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
@@ -242,6 +242,9 @@ export function openRuntimeInstanceStore(input: {
     const versionRefusal = runtimeVersionGate(installation.kindId, installation.version);
     if (versionRefusal)
       return rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
+    const webSearchRefusal = runtimeWebSearchVersionGate(config, installation.version);
+    if (webSearchRefusal)
+      return rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
@@ -347,6 +350,11 @@ export function openRuntimeInstanceStore(input: {
     if (versionRefusal) {
       rememberAuthReadiness(config.instanceId, unavailable(versionRefusal.code, versionRefusal.hint));
       throw runtimeInstanceError(versionRefusal.code, versionRefusal.hint);
+    }
+    const webSearchRefusal = runtimeWebSearchVersionGate(config, installation.version);
+    if (webSearchRefusal) {
+      rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
+      throw runtimeInstanceError(webSearchRefusal.code, webSearchRefusal.hint);
     }
     if (!path.isAbsolute(request.cwd) || !request.prompt)
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");
@@ -729,6 +737,7 @@ export function openRuntimeInstanceStore(input: {
         hasPermission = action.permissionMode !== undefined,
         hasIsolation = action.isolationState !== undefined,
         hasFast = action.fast !== undefined,
+        hasWebSearch = action.webSearch !== undefined,
         hasBaseUrl = action.baseUrl !== undefined,
         hasEffort = action.effort !== undefined,
         hasCredential = action.credentialRef !== undefined;
@@ -743,6 +752,7 @@ export function openRuntimeInstanceStore(input: {
         !hasPermission &&
         !hasIsolation &&
         !hasFast &&
+        !hasWebSearch &&
         !hasBaseUrl &&
         !hasEffort &&
         !hasCredential
@@ -751,7 +761,7 @@ export function openRuntimeInstanceStore(input: {
           "invalid_runtime_instance_update",
           [
             "Runtime instance update requires --name, --installation, --model, ",
-            "--default-model, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, --disable, or a new API key.",
+            "--default-model, --web-search, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, --disable, or a new API key.",
           ].join(""),
         );
       if (hasBaseUrl && current.kindId === "agy")
@@ -761,6 +771,11 @@ export function openRuntimeInstanceStore(input: {
         );
       if (hasFast && current.kindId !== "codex")
         throw runtimeInstanceError("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.");
+      if (hasWebSearch && !("webSearch" in runtimeKindForId(current.kindId).configuration.fields))
+        throw runtimeInstanceError(
+          "invalid_runtime_web_search",
+          `web search updates are not supported by ${current.kindId} runtime instances.`,
+        );
       if (hasEffort && runtimeEffortField(current.kindId) === undefined)
         throw runtimeInstanceError(
           "invalid_runtime_effort",
@@ -780,11 +795,13 @@ export function openRuntimeInstanceStore(input: {
         // same rule on every plane that declares an effort field, under that field's name.
         baseUrl = hasBaseUrl ? String(action.baseUrl).trim() : undefined,
         effort = hasEffort ? String(action.effort).trim() : undefined,
+        webSearch = hasWebSearch ? String(action.webSearch).trim() : undefined,
         kindConfig = runtimeInstanceKindConfig(
           current,
           baseUrl,
           hasFast ? requireBoolean(action.fast, "fast") : undefined,
           effort,
+          webSearch,
         );
       if (!models.includes(defaultModel))
         throw runtimeInstanceError(

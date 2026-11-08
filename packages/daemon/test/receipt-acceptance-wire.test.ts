@@ -188,6 +188,7 @@ test("runtime-spawn wire receipts accept the instance selection and reject undec
     evidence: "event-object:op-spawn-selection",
     visibility: "center",
     proof: { committedRevision: 3, appliedCut: 3, durable: true, canonicalVisible: true, worktreeVisible: null },
+    webSearch: "disabled",
     runtimeSelection: {
       instanceId: "ds-bailian",
       basis: "exact-model",

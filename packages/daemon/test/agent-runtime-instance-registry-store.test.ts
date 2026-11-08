@@ -483,6 +483,7 @@ test("runtime instance command receipts expose readiness metadata without creden
       configuration: {
         reasoningEffort: null,
         fast: false,
+        webSearch: "disabled",
         baseUrl: null,
         baseUrlConfigured: false,
         wire_api: null,
@@ -712,6 +713,7 @@ test("public instance projections expose one generic provider configuration", as
     assert.deepEqual(codex.configuration, {
       reasoningEffort: "high",
       fast: false,
+      webSearch: "disabled",
       baseUrl: "http://127.0.0.1:1/v1",
       baseUrlConfigured: true,
       wire_api: "responses",

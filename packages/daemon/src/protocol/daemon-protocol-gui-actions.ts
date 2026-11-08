@@ -668,6 +668,7 @@ export const runtimeInstanceMethods = Object.freeze([
         defaultModel: "string?",
         baseUrl: "string-or-empty?",
         effort: "string-or-empty?",
+        webSearch: "string-or-empty?",
         permissionMode: "string?",
         isolationState: "string?",
         fast: "boolean?",

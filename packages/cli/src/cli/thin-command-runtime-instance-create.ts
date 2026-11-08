@@ -41,6 +41,13 @@ export function parseRuntimeInstanceCreate(
     return rejected("invalid_field", `${kindId} runtime instances do not support ${String(authMode)} auth.`, json);
   if (declaration && !declaration.fast && flags.booleans.has("--fast"))
     return rejected("invalid_runtime_fast", `Fast mode is not supported by ${kindId} runtime instances.`, json);
+  const webSearch = flags.one.get("--web-search");
+  if (declaration && webSearch && !(declaration.fields as readonly string[]).includes("webSearch"))
+    return rejected(
+      "invalid_runtime_web_search",
+      `Native web search is not supported by ${kindId} runtime instances.`,
+      json,
+    );
   const wireApi = flags.one.get("--wire-api");
   if (declaration && "wireApiValues" in declaration && declaration.wireApiValues && authMode !== "api-key" && wireApi)
     return rejected("invalid_field", "--wire-api is available only for API-key runtime instances.", json);
@@ -56,7 +63,15 @@ export function parseRuntimeInstanceCreate(
   if (declaration && hasForeignAdapterOptions(declaration.fields, flags, header.value))
     return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);
   const baseUrl = flags.one.get("--base-url"),
-    kindConfig = runtimeInstanceKindConfig(kindId, flags.one, flags.booleans, baseUrl, header.value, credentialHeader);
+    kindConfig = runtimeInstanceKindConfig(
+      kindId,
+      flags.one,
+      flags.booleans,
+      baseUrl,
+      header.value,
+      credentialHeader,
+      webSearch,
+    );
   return accepted(
     rootDir,
     undefined,
@@ -91,6 +106,7 @@ function hasForeignAdapterOptions(
     (flags.one.has("--base-url") && !fields.includes("baseUrl")) ||
     (flags.booleans.has("--allow-insecure-http") && !fields.includes("allowInsecureHttp")) ||
     (flags.one.has("--wire-api") && !fields.includes("wireApi")) ||
+    (flags.one.has("--web-search") && !fields.includes("webSearch")) ||
     (flags.booleans.has("--requires-openai-auth") && !fields.includes("requiresOpenAiAuth")) ||
     (headers !== undefined && !fields.includes("httpHeaders")) ||
     (flags.one.has("--credential-header") && !fields.includes("credentialHeader"))
@@ -104,6 +120,7 @@ function runtimeInstanceKindConfig(
   baseUrl: string | undefined,
   headers: Readonly<Record<string, string>> | undefined,
   credentialHeader: string | undefined,
+  webSearch: string | undefined,
 ) {
   if (!kindId) return {};
   const declaration =
@@ -112,6 +129,7 @@ function runtimeInstanceKindConfig(
     configuration = {
       ...(one.get("--effort") ? { [effortField]: one.get("--effort") } : {}),
       ...(booleans.has("--fast") ? { fast: true } : {}),
+      ...(webSearch ? { webSearch } : {}),
       ...(baseUrl ? { baseUrl } : {}),
       ...(booleans.has("--allow-insecure-http") ? { allowInsecureHttp: true } : {}),
       ...(one.get("--wire-api") ? { wireApi: one.get("--wire-api") } : {}),

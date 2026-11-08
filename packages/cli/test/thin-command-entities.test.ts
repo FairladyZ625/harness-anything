@@ -1547,3 +1547,47 @@ test("Todo CLI supports one-line add, optional relation, filters, recovery and p
   assert.equal(parseThinCommand(["todo", "promote", "todo_a"]).ok, false);
   assert.equal(parseThinCommand(["todo", "delete", "todo_a"]).ok, false);
 });
+
+test("runtime instance create accepts a Codex search tier and rejects it on a kind without one", () => {
+  const codex = parseThinCommand([
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "codex-search",
+    "--name",
+    "Codex Search",
+    "--kind",
+    "codex",
+    "--provider",
+    "openai",
+    "--model",
+    "gpt-5.6-sol",
+    "--auth",
+    "subscription",
+    "--web-search",
+    "live",
+  ]);
+  assert.equal(codex.ok, true, JSON.stringify(codex));
+  if (codex.ok) assert.deepEqual(codex.command.action.codex, { webSearch: "live" });
+  const claude = parseThinCommand([
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "claude-search",
+    "--name",
+    "Claude Search",
+    "--kind",
+    "claude",
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-fable-5",
+    "--auth",
+    "subscription",
+    "--web-search",
+    "live",
+  ]);
+  assert.equal(claude.ok, false, JSON.stringify(claude));
+});
