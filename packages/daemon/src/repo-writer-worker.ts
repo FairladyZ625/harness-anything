@@ -386,21 +386,22 @@ async function startRepoWriterWorker(): Promise<void> {
           );
           break;
         case "spawnRuntime":
-          value = await cell.spawnRuntime(request.payload as never, binding!);
+          value = await cell.spawnRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "handoffRuntime":
-          value = await cell.handoffRuntime(request.payload as never, binding!);
+          value = await cell.handoffRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "cancelRuntime":
-          value = await cell.cancelRuntime(request.payload as never, binding!);
+          value = await cell.cancelRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "steerRuntime":
-          value = await cell.steerRuntime(request.payload as never, binding!);
+          value = await cell.steerRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "runtimeIngress":
           value = await cell.runtimeIngress(
             (request.payload as { action: Parameters<typeof cell.runtimeIngress>[0] }).action,
             binding!,
+            queueObservation,
           );
           break;
         case "settlePendingMaterialization":
@@ -413,7 +414,7 @@ async function startRepoWriterWorker(): Promise<void> {
           );
           break;
         case "pruneReplicationLog":
-          value = await cell.pruneReplicationLog!(Number(request.payload));
+          value = await cell.pruneReplicationLog!(Number(request.payload), queueObservation);
           break;
         case "catalog": {
           const payload = request.payload as { method: keyof typeof cell.catalog; args: unknown[] };
@@ -655,7 +656,7 @@ function postReceipt(
   } satisfies RepoWriterReceiptV1);
 }
 
-/** The request families that append a write turn; the queue fills the head at that append. */
+/** Every request family that can append a write turn; the queue fills the head at that append. */
 function writeQueueObservationFor(request: RepoWriterRequestV1): RepoCellQueueObservation | undefined {
   if (request.method === "backup") {
     const kind = (request.payload as { readonly kind?: unknown } | undefined)?.kind;
@@ -666,6 +667,8 @@ function writeQueueObservationFor(request: RepoWriterRequestV1): RepoCellQueueOb
       },
     };
   }
+  const fixedCommand = writeQueueCommandForMethod[request.method];
+  if (fixedCommand !== undefined) return { label: { requestId: request.requestId, command: fixedCommand } };
   if (request.method !== "run" && request.method !== "presetRun") return undefined;
   const action = (request.payload as { readonly action?: { readonly kind?: unknown } } | undefined)?.action;
   return {
@@ -675,6 +678,16 @@ function writeQueueObservationFor(request: RepoWriterRequestV1): RepoCellQueueOb
     },
   };
 }
+
+/** Writer methods whose queued turn has one stable command label rather than an action kind. */
+const writeQueueCommandForMethod: Partial<Record<RepoWriterRequestV1["method"], string>> = {
+  spawnRuntime: "runtime-run",
+  handoffRuntime: "runtime-handoff-claim",
+  cancelRuntime: "runtime-cancel",
+  steerRuntime: "runtime-steer",
+  runtimeIngress: "runtime-run",
+  pruneReplicationLog: "replication-prune",
+};
 
 function monotonicMs(): number {
   return Number(process.hrtime.bigint() / 1_000_000n);

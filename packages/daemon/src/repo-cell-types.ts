@@ -265,16 +265,36 @@ export interface RepoCell {
     onSettled?: () => void,
     queueObservation?: RepoCellQueueObservation,
   ) => Promise<PresetRunReceiptV1>;
-  readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
-  readonly handoffRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
-  readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
-  readonly steerRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
+  readonly spawnRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
+  readonly handoffRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
+  readonly cancelRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
+  readonly steerRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
   readonly runtimeSignalVersion: () => number;
   readonly awaitRuntimeSignal: (observedVersion?: number) => Promise<void>;
-  readonly runtimeIngress: (action: RuntimeIngressAction, binding: RepoCellBinding) => Promise<JsonObject>;
+  readonly runtimeIngress: (
+    action: RuntimeIngressAction,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
   readonly catalog: ReturnType<typeof openGuiCatalog>;
   readonly terminal: RepoCellTerminal;
   readonly read: <M extends RepoCellReadMethod>(
@@ -325,7 +345,7 @@ export interface RepoCell {
     ReturnType<typeof createLedgerBackup> | Awaited<ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>>
   >;
   /** Replication-log retention, run on this repository's single write chain. */
-  readonly pruneReplicationLog?: (beforeSequence: number) => Promise<void>;
+  readonly pruneReplicationLog?: (beforeSequence: number, queueObservation?: RepoCellQueueObservation) => Promise<void>;
   readonly close: () => Promise<void>;
 }
 

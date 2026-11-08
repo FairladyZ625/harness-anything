@@ -451,10 +451,11 @@ export async function openRepoWriterCell(
     );
     return pending;
   };
-  const pruneReplicationLog: NonNullable<RepoCell["pruneReplicationLog"]> = (beforeSequence) => {
+  const pruneReplicationLog: NonNullable<RepoCell["pruneReplicationLog"]> = (beforeSequence, queueObservation) => {
     const pending = chainRepoCellWrite(tail, () => store.pruneReplicationLog?.(beforeSequence), {
       queue: writeQueue,
-      label: { command: "replication-prune", requestId: null },
+      label: queueObservation?.label ?? { command: "replication-prune", requestId: null },
+      ...(queueObservation ? { observation: queueObservation } : {}),
     });
     tail = pending.then(
       () => undefined,

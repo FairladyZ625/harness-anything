@@ -142,3 +142,51 @@ test("a turn appended in the same tick behind a not-yet-started turn still names
   release();
   await Promise.all([first, second]);
 });
+
+test("a synchronous throw removes its turn so the next waiter names the real head", async () => {
+  let nowMs = 0,
+    release!: () => void;
+  const queue: RepoCellWriteQueueState = { waiting: [], nowMs: () => nowMs },
+    gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  let tail: Promise<void> = Promise.resolve();
+  const failing = chainRepoCellWrite(
+    tail,
+    () => {
+      throw new Error("prune failed synchronously");
+    },
+    { queue, label: { command: "replication-prune", requestId: "writer-request-1" } },
+  );
+  tail = failing.then(
+    () => undefined,
+    () => undefined,
+  );
+  const blocking = chainRepoCellWrite(tail, () => gate, {
+    queue,
+    label: { command: "task-review-execution", requestId: "writer-request-2" },
+  });
+  tail = blocking.then(
+    () => undefined,
+    () => undefined,
+  );
+  await assert.rejects(failing, /prune failed synchronously/u);
+  assert.deepEqual(
+    queue.waiting.map((entry) => entry.label.command),
+    ["task-review-execution"],
+    "the thrown turn must not stay at the head",
+  );
+  for (let turn = 0; turn < 20 && queue.waiting[0]?.startedAtMs === undefined; turn += 1)
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  nowMs = 700;
+  const behind: RepoCellQueueObservation = { label: { command: "task-create", requestId: "writer-request-3" } },
+    waiting = chainRepoCellWrite(tail, () => undefined, { queue, label: behind.label, observation: behind });
+  assert.deepEqual(behind.head, {
+    requestId: "writer-request-2",
+    command: "task-review-execution",
+    executingMs: 700,
+  });
+  release();
+  await Promise.all([blocking, waiting]);
+  assert.equal(queue.waiting.length, 0);
+});

@@ -3,7 +3,7 @@ import { commandDescriptorForAction } from "./protocol/daemon-protocol.contract.
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellQueueObservation, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 
@@ -35,6 +35,7 @@ export function enqueueRuntimePublication(
   policyAction: RepoTaskAction,
   binding: RepoCellBinding,
   execute: (authorizedBinding: RepoCellBinding, revision: number) => JsonObject | Promise<JsonObject>,
+  queueObservation?: RepoCellQueueObservation,
 ): Promise<JsonObject> {
   const command = commandDescriptorForAction(commandKind),
     admission = admitRepoMode(context.mode, command, binding.source);
@@ -90,7 +91,8 @@ export function enqueueRuntimePublication(
     },
     {
       queue: context.writeQueue,
-      label: { command: commandKind, requestId: null },
+      label: queueObservation?.label ?? { command: commandKind, requestId: null },
+      ...(queueObservation ? { observation: queueObservation } : {}),
     },
   );
   context.tail = pending.then(

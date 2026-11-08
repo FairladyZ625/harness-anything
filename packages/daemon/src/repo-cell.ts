@@ -284,11 +284,19 @@ export function chainRepoCellWrite<T>(
   return turn.then(() => {
     if (options === undefined || entry === null) return work();
     entry.startedAtMs = options.queue.nowMs();
-    return Promise.resolve(work()).finally(() => {
-      const index = options.queue.waiting.indexOf(entry);
-      if (index >= 0) options.queue.waiting.splice(index, 1);
-    });
+    // A synchronous throw would skip the finally and leave a settled turn as the head forever.
+    try {
+      return Promise.resolve(work()).finally(() => remove(entry, options.queue));
+    } catch (error) {
+      remove(entry, options.queue);
+      throw error;
+    }
   });
+}
+
+function remove(entry: RepoCellWriteQueueEntry, queue: RepoCellWriteQueueState): void {
+  const index = queue.waiting.indexOf(entry);
+  if (index >= 0) queue.waiting.splice(index, 1);
 }
 
 /** The oldest appended turn and how long it has run, or null when the queue is idle. */
