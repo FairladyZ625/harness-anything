@@ -156,7 +156,18 @@ async function mountApp(options: {
       schema: "gui-system-status/v1",
       ok: true,
       observedAt: AT,
-      daemon: { uptimeMs: 1 },
+      // `daemon.build` is required by `gui-system-status/v1` (daemon `validateSystemStatus`);
+      // the App reads its `commitSha` for the build-mismatch banner.
+      daemon: {
+        daemonId: "daemon-probe",
+        pid: 1,
+        startedAt: AT,
+        protocolVersion: { major: 1, minor: 0 },
+        uptimeMs: 1,
+        endpoint: "sock",
+        build: { version: "probe", commitSha: null },
+        activeControl: null,
+      },
       repos: [
         {
           repoId: REPO_ID,

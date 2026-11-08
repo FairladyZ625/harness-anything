@@ -128,7 +128,17 @@ async function mountApp(view: string, focusedEntityRef: string | null = null) {
       schema: "gui-system-status/v1",
       ok: true,
       observedAt: AT,
-      daemon: { uptimeMs: 1 },
+      // Full `gui-system-status/v1` daemon shape: `build` is required by the daemon contract.
+      daemon: {
+        daemonId: "daemon-probe",
+        pid: 1,
+        startedAt: AT,
+        protocolVersion: { major: 1, minor: 0 },
+        uptimeMs: 1,
+        endpoint: "sock",
+        build: { version: "probe", commitSha: null },
+        activeControl: null,
+      },
       repos: [
         {
           repoId: REPO_ID,
