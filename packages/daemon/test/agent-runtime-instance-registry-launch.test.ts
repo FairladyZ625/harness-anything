@@ -386,7 +386,17 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.equal(resolvedReference, "keychain:harness/codex-api");
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
-    assert.deepEqual(launch.args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "-"]);
+    assert.deepEqual(launch.args, [
+      "exec",
+      "--json",
+      "--sandbox",
+      "danger-full-access",
+      "--model",
+      "gpt-5.6-sol",
+      "--config",
+      'web_search="disabled"',
+      "-",
+    ]);
     assert.deepEqual(launch.env, expectedIsolatedEnvironment(stateRoot, "codex", { PATH: "/runtime/tools" }));
     const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"),
       text = readFileSync(codexConfig, "utf8");
