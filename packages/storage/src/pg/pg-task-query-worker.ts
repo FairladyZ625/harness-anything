@@ -14,6 +14,7 @@ import type { CanonicalEventV1, LeaseV1 } from "@harness-anything/kernel";
 import { changePgLease } from "./pg-lease-cas.ts";
 import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
+import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
@@ -46,6 +47,7 @@ interface PgQueryWorkerRequest {
     | "rebuild"
     | "warm-indexes"
     | "artifact-backfill"
+    | "dispatch-lifecycle-backfill"
     | "epoch"
     | "replication";
   readonly method?: string;
@@ -327,6 +329,19 @@ function startWorker(
           await withPostgresTransaction(
             pool,
             (client) => backfillPgArtifactDocuments(client, input.scope, input.repoId),
+            input.scope,
+          ),
+        );
+        return;
+      }
+      if (request.op === "dispatch-lifecycle-backfill") {
+        if (sessionClient) throw new Error("dispatch lifecycle backfill cannot run inside a projection read session");
+        respond(
+          request.id,
+          input.state,
+          await withPostgresTransaction(
+            pool,
+            (client) => backfillPgDispatchLifecycle(client, input.scope, input.repoId),
             input.scope,
           ),
         );

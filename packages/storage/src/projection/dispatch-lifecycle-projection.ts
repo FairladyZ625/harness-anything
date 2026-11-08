@@ -1,29 +1,46 @@
 // @write-boundary-exemption rebuildable-projection
-// Dispatch lifecycle read model: the kernel reducer folded over the runtime events this projection
-// already applies. It is derived state only. A cache written before these tables existed (or by an
-// older binary) is caught up from its own event rows on open through the same reducer, so the read
-// model always equals a cold replay of the accepted events; nothing is written to the ledger.
+// Dispatch lifecycle read model: the kernel reducer folded over the runtime and task events this
+// projection already applies. It is derived state only. A cache written before these tables existed
+// (or by a binary with another lifecycle model version) is refolded from its own event rows on open
+// through the same reducer, so the read model always equals a cold replay of the accepted events;
+// nothing is written to the ledger. Reducer rejections of historical events are audit no-ops here:
+// the center writer refuses a rejected admission before it is appended (see the runtime ingress).
 import type { DatabaseSync } from "node:sqlite";
-import type { AgentRuntimeEventV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import {
+  DISPATCH_LIFECYCLE_MODEL_VERSION,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
+  currentDispatchAttempt,
   dispatchLifecycleAddress,
   dispatchLifecycleEventTypes,
+  dispatchLifecycleTaskEventTypes,
+  dispatchLifecycleTaskId,
   dispatchLifecycleView,
+  isDispatchLifecycleInput,
   reduceDispatchLifecycle,
-  currentDispatchAttempt,
+  taskLeaseAfter,
+  type DispatchLifecycleContext,
   type DispatchLifecycleGroup,
+  type DispatchLifecycleInput,
   type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
   type DispatchLifecycleView,
+  type DispatchTaskLease,
 } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
+
+const LIFECYCLE_TABLES = [
+  "dispatch_lifecycle_group",
+  "dispatch_lifecycle_attempt",
+  "dispatch_lifecycle_task_lease",
+  "dispatch_lifecycle_cursor",
+] as const;
 
 export const DISPATCH_LIFECYCLE_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS dispatch_lifecycle_group (
       attempt_group_id TEXT PRIMARY KEY,
       phase TEXT NOT NULL,
       current_instance_id TEXT NOT NULL,
+      current_execution_id TEXT,
       revision INTEGER NOT NULL,
       group_json TEXT NOT NULL
     );
@@ -37,44 +54,84 @@ export const DISPATCH_LIFECYCLE_TABLES_SQL = `
       attempt_group_id TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS dispatch_lifecycle_attempt_dispatch ON dispatch_lifecycle_attempt(dispatch_id);
+    CREATE TABLE IF NOT EXISTS dispatch_lifecycle_task_lease (
+      task_id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL,
+      version INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS dispatch_lifecycle_cursor (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-      revision INTEGER NOT NULL
+      revision INTEGER NOT NULL,
+      model_version INTEGER NOT NULL
     );`;
 
-const lifecycleTypes = dispatchLifecycleEventTypes.map((type) => `'${type}'`).join(",");
+// Created after the model check: an older table shape lacks the column until it is refolded.
+const LIFECYCLE_EXECUTION_INDEX_SQL = `CREATE INDEX IF NOT EXISTS dispatch_lifecycle_active_execution
+      ON dispatch_lifecycle_group(current_execution_id) WHERE phase <> 'closed'`;
+
+const lifecycleTypes = [...dispatchLifecycleEventTypes, ...dispatchLifecycleTaskEventTypes]
+  .map((type) => `'${type}'`)
+  .join(",");
 const CATCH_UP_BATCH = 512;
 
-/** Fold one applied runtime event; called inside the projection's event transaction. */
-export function projectDispatchLifecycleEvent(db: DatabaseSync, event: AgentRuntimeEventV1): void {
-  const address = dispatchLifecycleAddress(event);
-  if (address === null) return;
-  const groupId =
-    address.by === "group"
-      ? address.attemptGroupId
-      : queryRows<{ attempt_group_id: string }>(
-          db,
-          "SELECT attempt_group_id FROM dispatch_lifecycle_attempt WHERE runtime_session_id = ?",
-          address.runtimeSessionId,
-        )[0]?.attempt_group_id;
-  const step = reduceDispatchLifecycle(groupId === undefined ? null : readGroup(db, groupId), event);
-  if (step.kind === "applied") writeGroup(db, step.group);
+/** Fold one applied event; called inside the projection's event transaction. */
+export function projectDispatchLifecycleEvent(
+  db: DatabaseSync,
+  event: { readonly schema: string; readonly type: string },
+): void {
+  if (!isDispatchLifecycleInput(event)) return;
+  const input = event as DispatchLifecycleInput,
+    taskId = dispatchLifecycleTaskId(input),
+    context: DispatchLifecycleContext = { taskLease: taskId === null ? null : readTaskLease(db, taskId) },
+    address = dispatchLifecycleAddress(input, context);
+  for (const groupId of address === null ? [] : addressedGroups(db, address)) {
+    const previous = groupId === null ? null : readGroup(db, groupId),
+      step = reduceDispatchLifecycle(previous, input, context);
+    if (step.kind === "applied") writeGroup(db, step.group);
+  }
+  const lease = taskLeaseAfter(input);
+  if (lease !== undefined && taskId !== null) writeTaskLease(db, taskId, lease);
   runSql(
     db,
-    `INSERT INTO dispatch_lifecycle_cursor(singleton, revision) VALUES (1, ?)
+    `INSERT INTO dispatch_lifecycle_cursor(singleton, revision, model_version) VALUES (1, ?, ?)
      ON CONFLICT(singleton) DO UPDATE SET revision = max(revision, excluded.revision)`,
-    event.workspaceRevision,
+    input.workspaceRevision,
+    DISPATCH_LIFECYCLE_MODEL_VERSION,
   );
 }
 
+function addressedGroups(
+  db: DatabaseSync,
+  address: NonNullable<ReturnType<typeof dispatchLifecycleAddress>>,
+): readonly (string | null)[] {
+  if (address.by === "group") return [address.attemptGroupId];
+  if (address.by === "session")
+    return [
+      queryRows<{ attempt_group_id: string }>(
+        db,
+        "SELECT attempt_group_id FROM dispatch_lifecycle_attempt WHERE runtime_session_id = ?",
+        address.runtimeSessionId,
+      )[0]?.attempt_group_id ?? null,
+    ];
+  return queryRows<{ attempt_group_id: string }>(
+    db,
+    `SELECT attempt_group_id FROM dispatch_lifecycle_group
+     WHERE phase <> 'closed' AND current_execution_id IN (${address.executionIds.map(() => "?").join(",")})
+     ORDER BY attempt_group_id`,
+    ...address.executionIds,
+  ).map(({ attempt_group_id }) => attempt_group_id);
+}
+
 /**
- * Replay lifecycle events this cache holds but has not folded (a cache that predates the tables,
- * or one an older binary advanced). O(unfolded runtime events) through the event-type index.
+ * Refold lifecycle events this cache holds but has not folded (a cache that predates the tables,
+ * one of another model version, or one an older binary advanced). O(unfolded lifecycle events)
+ * through the event-type index.
  */
 export function catchUpDispatchLifecycle(
   db: DatabaseSync,
   onProgress?: (progress: { applied: number; total: number }) => void,
 ): void {
+  ensureDispatchLifecycleModel(db);
   let applied = 0,
     total = 0;
   for (;;) {
@@ -97,14 +154,29 @@ export function catchUpDispatchLifecycle(
         )[0]!.count,
       );
     transaction(db, () => {
-      for (const row of rows) {
-        const event = JSON.parse(row.event_json) as AgentRuntimeEventV1;
-        if (event.schema === "agent-runtime-event/v1") projectDispatchLifecycleEvent(db, event);
-      }
+      for (const row of rows) projectDispatchLifecycleEvent(db, JSON.parse(row.event_json) as DispatchLifecycleInput);
     });
     applied += rows.length;
     onProgress?.({ applied, total });
   }
+}
+
+/** Lifecycle state of another model version is discarded and refolded from the event rows. */
+function ensureDispatchLifecycleModel(db: DatabaseSync): void {
+  const columns = queryRows<{ name: string }>(db, "PRAGMA table_info(dispatch_lifecycle_cursor)").map(
+      ({ name }) => name,
+    ),
+    version = columns.includes("model_version")
+      ? queryRows<{ model_version: number }>(
+          db,
+          "SELECT model_version FROM dispatch_lifecycle_cursor WHERE singleton = 1",
+        )[0]?.model_version
+      : -1;
+  if (version !== undefined && version !== DISPATCH_LIFECYCLE_MODEL_VERSION) {
+    for (const table of LIFECYCLE_TABLES) db.exec(`DROP TABLE IF EXISTS ${table}`);
+    db.exec(DISPATCH_LIFECYCLE_TABLES_SQL);
+  }
+  db.exec(LIFECYCLE_EXECUTION_INDEX_SQL);
 }
 
 function foldedThrough(db: DatabaseSync): number {
@@ -112,6 +184,28 @@ function foldedThrough(db: DatabaseSync): number {
     queryRows<{ revision: number }>(db, "SELECT revision FROM dispatch_lifecycle_cursor WHERE singleton = 1")[0]
       ?.revision ?? 0,
   );
+}
+
+function readTaskLease(db: DatabaseSync, taskId: string): DispatchTaskLease | null {
+  const row = queryRows<{ execution_id: string; version: number }>(
+    db,
+    "SELECT execution_id, version FROM dispatch_lifecycle_task_lease WHERE task_id = ?",
+    taskId,
+  )[0];
+  return row ? { executionId: row.execution_id, version: Number(row.version) } : null;
+}
+
+function writeTaskLease(db: DatabaseSync, taskId: string, lease: DispatchTaskLease | null): void {
+  if (lease === null) runSql(db, "DELETE FROM dispatch_lifecycle_task_lease WHERE task_id = ?", taskId);
+  else
+    runSql(
+      db,
+      `INSERT INTO dispatch_lifecycle_task_lease(task_id, execution_id, version) VALUES (?, ?, ?)
+       ON CONFLICT(task_id) DO UPDATE SET execution_id = excluded.execution_id, version = excluded.version`,
+      taskId,
+      lease.executionId,
+      lease.version,
+    );
 }
 
 function readGroup(db: DatabaseSync, attemptGroupId: string): DispatchLifecycleGroup | null {
@@ -124,20 +218,21 @@ function readGroup(db: DatabaseSync, attemptGroupId: string): DispatchLifecycleG
 }
 
 function writeGroup(db: DatabaseSync, group: DispatchLifecycleGroup): void {
+  const current = currentDispatchAttempt(group);
   runSql(
     db,
-    `INSERT INTO dispatch_lifecycle_group(attempt_group_id, phase, current_instance_id, revision, group_json)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO dispatch_lifecycle_group(attempt_group_id, phase, current_instance_id, current_execution_id, revision, group_json)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(attempt_group_id) DO UPDATE SET phase = excluded.phase,
-       current_instance_id = excluded.current_instance_id, revision = excluded.revision,
-       group_json = excluded.group_json`,
+       current_instance_id = excluded.current_instance_id, current_execution_id = excluded.current_execution_id,
+       revision = excluded.revision, group_json = excluded.group_json`,
     group.attemptGroupId,
     group.phase,
-    currentDispatchAttempt(group).instanceId,
+    current.instanceId,
+    current.task?.executionId ?? null,
     group.revision,
     JSON.stringify(group),
   );
-  const current = currentDispatchAttempt(group);
   runSql(
     db,
     `INSERT INTO dispatch_lifecycle_attempt(runtime_session_id, dispatch_id, attempt_group_id) VALUES (?, ?, ?)
@@ -154,7 +249,7 @@ export function readDispatchLifecycleRows(
   query: DispatchLifecycleQuery,
   cut: { readonly watermark: number; readonly sourceRevision: number },
 ): DispatchLifecycleRead {
-  if (!lifecycleTablesExist(db)) return { status: "pending", ...cut };
+  if (!lifecycleModelCurrent(db)) return { status: "pending", ...cut };
   if (query.by === "group") {
     const group = readGroup(db, query.attemptGroupId);
     return ready(cut, group ? [dispatchLifecycleView(group)] : [], null);
@@ -213,9 +308,18 @@ function ready(
   return { status: "ready", ...cut, rows, nextCursor };
 }
 
-/** A replica generation cut before these tables existed cannot answer; it is pending, never empty. */
-function lifecycleTablesExist(db: DatabaseSync): boolean {
-  return (
-    queryRows(db, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'dispatch_lifecycle_cursor'").length > 0
+/**
+ * A replica generation cut before these tables existed, or folded by another lifecycle model
+ * version, cannot answer: it is pending, never an empty ready page.
+ */
+function lifecycleModelCurrent(db: DatabaseSync): boolean {
+  const columns = queryRows<{ name: string }>(db, "PRAGMA table_info(dispatch_lifecycle_cursor)").map(
+    ({ name }) => name,
   );
+  if (!columns.includes("model_version")) return false;
+  const version = queryRows<{ model_version: number }>(
+    db,
+    "SELECT model_version FROM dispatch_lifecycle_cursor WHERE singleton = 1",
+  )[0]?.model_version;
+  return version === undefined || version === DISPATCH_LIFECYCLE_MODEL_VERSION;
 }

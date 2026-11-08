@@ -38,6 +38,7 @@ const stateDigestTables = [
   ["decision_review_event", "event_id"],
   ["dispatch_lifecycle_group", "attempt_group_id"],
   ["dispatch_lifecycle_attempt", "runtime_session_id"],
+  ["dispatch_lifecycle_task_lease", "task_id"],
 ] as const;
 
 /** Disposable lookup and derived columns added after a table's state fingerprint was defined. */

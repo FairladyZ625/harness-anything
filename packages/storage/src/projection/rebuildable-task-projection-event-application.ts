@@ -194,6 +194,7 @@ function applyEventProjection(
   event = normalizeHistoricalEvent(event);
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
+  projectDispatchLifecycleEvent(db, event);
   projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
     runSql(
@@ -558,7 +559,6 @@ function applyEventProjection(
   }
   if (isAgentRuntimeEvent(event)) {
     projectSquadRunEvent(db, event);
-    projectDispatchLifecycleEvent(db, event);
     const taskId = runtimeExecutionLinkForEvent(event)?.taskId ?? null;
     runSql(
       db,

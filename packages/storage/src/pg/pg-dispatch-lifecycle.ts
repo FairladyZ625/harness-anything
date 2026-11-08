@@ -1,17 +1,26 @@
 // Postgres half of the dispatch lifecycle read model: the same kernel reducer, folded in the
 // canonical event transaction into generic projection values. No lifecycle state is inferred in SQL.
+// On the append path a rejected admission throws inside the ledger transaction, so the caller
+// receives the refusal and nothing is appended. A projection written before this model existed (or
+// by another model version) has no current cursor: reads are pending until the backfill refolds it
+// from the canonical events through the same reducer.
 import type { Pool, PoolClient } from "pg";
-import type { AgentRuntimeEventV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import {
+  DISPATCH_LIFECYCLE_MODEL_VERSION,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   currentDispatchAttempt,
   dispatchGroupIsActive,
   dispatchLifecycleAddress,
+  dispatchLifecycleTaskId,
   dispatchLifecycleView,
+  isDispatchLifecycleInput,
   reduceDispatchLifecycle,
+  taskLeaseAfter,
   type DispatchLifecycleGroup,
+  type DispatchLifecycleInput,
   type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
+  type DispatchTaskLease,
 } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
 import { deletePgProjectionValue, getPgProjectionValue, putPgProjectionValue } from "./pg-projection-values.ts";
@@ -21,34 +30,143 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 const GROUP = "dispatch-lifecycle-group",
   SESSION = "dispatch-lifecycle-session",
   DISPATCH = "dispatch-lifecycle-dispatch",
-  ACTIVE = "dispatch-lifecycle-active";
+  ACTIVE = "dispatch-lifecycle-active",
+  EXECUTION = "dispatch-lifecycle-execution",
+  LEASE = "dispatch-lifecycle-task-lease",
+  CURSOR = "dispatch-lifecycle-cursor";
+const MODELS = [GROUP, SESSION, DISPATCH, ACTIVE, EXECUTION, LEASE, CURSOR] as const;
 
+/** Fold one event. `enforce` (the append path) turns a rejected admission into a thrown refusal. */
 export async function projectPgDispatchLifecycle(
   client: PoolClient,
   scope: PgProjectionScope,
-  event: AgentRuntimeEventV1,
+  event: { readonly schema: string; readonly type: string },
+  options: { readonly enforce?: boolean } = {},
 ): Promise<void> {
-  const address = dispatchLifecycleAddress(event);
-  if (address === null) return;
-  const groupId =
-      address.by === "group"
-        ? address.attemptGroupId
-        : await getPgProjectionValue<string>(client, scope, SESSION, address.runtimeSessionId),
-    previous =
-      groupId === null ? null : await getPgProjectionValue<DispatchLifecycleGroup>(client, scope, GROUP, groupId),
-    step = reduceDispatchLifecycle(previous, event);
-  if (step.kind !== "applied") return;
-  const group = step.group,
-    current = currentDispatchAttempt(group),
-    revision = event.workspaceRevision;
+  if (!isDispatchLifecycleInput(event)) return;
+  const input = event as DispatchLifecycleInput,
+    revision = input.workspaceRevision,
+    taskId = dispatchLifecycleTaskId(input),
+    context = {
+      taskLease: taskId === null ? null : await getPgProjectionValue<DispatchTaskLease>(client, scope, LEASE, taskId),
+    },
+    address = dispatchLifecycleAddress(input, context),
+    groupIds =
+      address === null
+        ? []
+        : address.by === "group"
+          ? [address.attemptGroupId]
+          : address.by === "session"
+            ? [await getPgProjectionValue<string>(client, scope, SESSION, address.runtimeSessionId)]
+            : await activeGroupsForExecutions(client, scope, address.executionIds);
+  for (const groupId of groupIds) {
+    const previous =
+        groupId === null ? null : await getPgProjectionValue<DispatchLifecycleGroup>(client, scope, GROUP, groupId),
+      step = reduceDispatchLifecycle(previous, input, context);
+    if (step.kind === "rejected" && options.enforce && input.type === "runtime_dispatch_requested")
+      throw Object.assign(new Error(step.reason), { code: step.code });
+    if (step.kind === "applied") await writeGroup(client, scope, previous, step.group, revision);
+  }
+  const lease = taskLeaseAfter(input);
+  if (lease === null && taskId !== null) await deletePgProjectionValue(client, scope, LEASE, taskId);
+  else if (lease && taskId !== null) await putPgProjectionValue(client, scope, LEASE, taskId, "", revision, lease);
+}
+
+async function activeGroupsForExecutions(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  executionIds: readonly string[],
+): Promise<readonly string[]> {
+  const result = await client.query<{ entity_id: string }>(
+    `SELECT entity_id FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+     AND model='${EXECUTION}' AND owner_id = ANY($4::text[]) ORDER BY entity_id COLLATE "C"`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, [...executionIds]],
+  );
+  return result.rows.map(({ entity_id }) => entity_id);
+}
+
+async function writeGroup(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  previous: DispatchLifecycleGroup | null,
+  group: DispatchLifecycleGroup,
+  revision: number,
+): Promise<void> {
+  const current = currentDispatchAttempt(group),
+    active = dispatchGroupIsActive(group);
   await putPgProjectionValue(client, scope, GROUP, group.attemptGroupId, "", revision, group);
   await putPgProjectionValue(client, scope, SESSION, current.runtimeSessionId, "", revision, group.attemptGroupId);
   await putPgProjectionValue(client, scope, DISPATCH, current.dispatchId, "", revision, group.attemptGroupId);
-  const previousInstance = previous ? currentDispatchAttempt(previous).instanceId : null;
-  if (previousInstance !== null && (previousInstance !== current.instanceId || !dispatchGroupIsActive(group)))
-    await deletePgProjectionValue(client, scope, ACTIVE, group.attemptGroupId, previousInstance);
-  if (dispatchGroupIsActive(group))
-    await putPgProjectionValue(client, scope, ACTIVE, group.attemptGroupId, current.instanceId, revision, group);
+  const before = previous ? currentDispatchAttempt(previous) : null;
+  if (before !== null && (before.instanceId !== current.instanceId || !active))
+    await deletePgProjectionValue(client, scope, ACTIVE, group.attemptGroupId, before.instanceId);
+  const beforeExecution = before?.task?.executionId ?? null,
+    execution = current.task?.executionId ?? null;
+  if (beforeExecution !== null && (beforeExecution !== execution || !active))
+    await deletePgProjectionValue(client, scope, EXECUTION, group.attemptGroupId, beforeExecution);
+  if (!active) return;
+  await putPgProjectionValue(client, scope, ACTIVE, group.attemptGroupId, current.instanceId, revision, group);
+  if (execution !== null)
+    await putPgProjectionValue(
+      client,
+      scope,
+      EXECUTION,
+      group.attemptGroupId,
+      execution,
+      revision,
+      group.attemptGroupId,
+    );
+}
+
+/** Mark the folded lifecycle state as complete for this model version. */
+export async function markPgDispatchLifecycleCurrent(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  revision: number,
+): Promise<void> {
+  await putPgProjectionValue(client, scope, CURSOR, "model", "", revision, {
+    version: DISPATCH_LIFECYCLE_MODEL_VERSION,
+  });
+}
+
+async function lifecycleModelCurrent(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
+  const cursor = await getPgProjectionValue<{ readonly version: number }>(client, scope, CURSOR, "model");
+  return cursor?.version === DISPATCH_LIFECYCLE_MODEL_VERSION;
+}
+
+/**
+ * Refold the lifecycle model of a projection that has no current cursor (written before this model
+ * existed, or by another model version): O(canonical events) once, under the repository head lock
+ * so no append interleaves; later calls are a single cursor read.
+ */
+export async function backfillPgDispatchLifecycle(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+): Promise<number> {
+  const keys = [scope.tenantId, scope.projectId, repoId];
+  const head = await client.query<{ revision: string }>(
+    "SELECT revision FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 FOR UPDATE",
+    keys,
+  );
+  if (await lifecycleModelCurrent(client, scope)) return 0;
+  await client.query(
+    "DELETE FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model = ANY($4::text[])",
+    [scope.tenantId, scope.projectId, scope.policyEpoch, [...MODELS]],
+  );
+  const events = await client.query<{ event_json: string; readers: string[] }>(
+    "SELECT event_json, readers FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ORDER BY revision",
+    keys,
+  );
+  let folded = 0;
+  for (const row of events.rows) {
+    const event = JSON.parse(row.event_json) as { readonly schema: string; readonly type: string };
+    if (!isDispatchLifecycleInput(event)) continue;
+    await projectPgDispatchLifecycle(client, { ...scope, readers: row.readers }, event);
+    folded++;
+  }
+  await markPgDispatchLifecycleCurrent(client, scope, Number(head.rows[0]?.revision ?? 0));
+  return folded;
 }
 
 export interface PgDispatchLifecycleQueries {
@@ -68,7 +186,7 @@ export function pgDispatchLifecycleQueries(options: {
         options.pool,
         async (client) => {
           const cut = await readCutInTransaction(client, scope, readers, options.repoId);
-          if (cut.status !== "ready")
+          if (cut.status !== "ready" || !(await lifecycleModelCurrent(client, scope)))
             return { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           const base = { status: "ready" as const, watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           if (query.by !== "active") {

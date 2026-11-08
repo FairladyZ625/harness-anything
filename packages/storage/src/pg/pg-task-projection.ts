@@ -32,6 +32,7 @@ export function makePgTaskProjection(
       // A projection written before the artifact timeline existed is completed before any read
       // claims readiness; the marker makes every later catch-up a single cheap check.
       reader.backfillArtifactTimeline();
+      reader.backfillDispatchLifecycle();
       const metrics = { storeTransactions: 0, reducedItems: 0, maxBatchItems: 0 };
       for (;;) {
         const page = reader.warmIndexes(limit);
@@ -58,6 +59,14 @@ export function makePgTaskProjection(
     };
   return {
     ...queries,
+    // A ready cut whose lifecycle model is missing (a projection from before the model, or of
+    // another model version) is refolded through the same reducer, never answered empty.
+    readDispatchLifecycle: (query) => {
+      const read = queries.readDispatchLifecycle(query);
+      if (read.status !== "pending" || read.watermark !== read.sourceRevision) return read;
+      reader.backfillDispatchLifecycle();
+      return queries.readDispatchLifecycle(query);
+    },
     path: reader.path,
     close: reader.close,
     apply: (event) => {

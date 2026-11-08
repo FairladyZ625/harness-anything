@@ -11,8 +11,7 @@ import {
   refreshPgRelationFreshnessForRefs,
 } from "./pg-relation-freshness.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
-import { projectPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
-import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { markPgDispatchLifecycleCurrent, projectPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
 import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
@@ -76,6 +75,8 @@ export interface PgProjectionEventInput {
   readonly sourceHeadRevision?: number;
   /** Canonical content objects are read by A2 and supplied to replay; declarations are never trusted from event metadata. */
   readonly readContentBlob?: (sha256: string) => Uint8Array | null | Promise<Uint8Array | null>;
+  /** The append path: a dispatch admission the lifecycle reducer rejects aborts the ledger transaction. */
+  readonly enforceDispatchAdmission?: boolean;
 }
 
 export interface PgProjectionMaterializationReceipt {
@@ -152,7 +153,7 @@ async function materializeProjectionEvent(
   } else if (isEntityEvent(event)) {
     await storeEntityEvent(client, scope, event, tables, input.readContentBlob);
   }
-  if (isAgentRuntimeEvent(event)) await projectPgDispatchLifecycle(client, scope, event);
+  await projectPgDispatchLifecycle(client, scope, event, { enforce: input.enforceDispatchAdmission === true });
   await storeEmbeddedRelations(client, scope, event, tables);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
   const searchOwners = new Set<string>();
@@ -198,6 +199,7 @@ export async function materializePgProjectionEvents(
       sourceHeadRevision: input.revision,
       readContentBlob,
       artifacts,
+      enforceDispatchAdmission: true,
     });
   await flushPgArtifactDocuments(
     client,
@@ -250,6 +252,7 @@ export async function rebuildPgProjection(
     ),
     stateDigest = input.stateDigest ?? projectionStateDigest(snapshots.rows.map(({ snapshot }) => snapshot));
   await updateProjectionMeta(client, scope, receipt.revision, sourceHeadRevision);
+  await markPgDispatchLifecycleCurrent(client, scope, receipt.revision);
   await client.query(
     `UPDATE ha_projection_meta SET state_digest = $1, source_revision = $2, schema_version = $3
      WHERE tenant_id = $4 AND project_id = $5 AND policy_epoch = $6 AND projection_name = 'task/v1'`,

@@ -36,6 +36,8 @@ export interface PgTaskQueryReader {
   readonly warmIndexes: (maxItems?: number) => import("./pg-entity-declaration-catchup.ts").EntityIndexPage;
   /** One-time artifact timeline expansion; returns the number of backfilled rows (0 when ready). */
   readonly backfillArtifactTimeline: () => number;
+  /** Refold the dispatch lifecycle model when the projection has no current lifecycle cursor. */
+  readonly backfillDispatchLifecycle: () => number;
   readonly writerEpoch: (request: PgEpochRequest) => WriterEpochLease | number | null;
   readonly replication: (operation: "head" | "page" | "slots", payload?: unknown) => unknown;
 }
@@ -160,6 +162,7 @@ export function createPgTaskQueryReader(
       | "rebuild"
       | "warm-indexes"
       | "artifact-backfill"
+      | "dispatch-lifecycle-backfill"
       | "epoch"
       | "replication",
     method?: string,
@@ -228,6 +231,10 @@ export function createPgTaskQueryReader(
     backfillArtifactTimeline: () => {
       if (activeSession) throw new Error("artifact backfill cannot run inside a projection read session");
       return request("artifact-backfill");
+    },
+    backfillDispatchLifecycle: () => {
+      if (activeSession) throw new Error("dispatch lifecycle backfill cannot run inside a projection read session");
+      return request("dispatch-lifecycle-backfill");
     },
     writerEpoch: (value) => request("epoch", undefined, [value]),
     replication: (operation, payload) => request("replication", operation, [payload]),
