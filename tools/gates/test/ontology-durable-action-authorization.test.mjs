@@ -95,8 +95,8 @@ test("a denial branch that no longer exits is a bypass, not an authorization", (
     edit(
       dir,
       queuedRoute,
-      'if (queuedDecision.outcome === "denied")\n            return withAuthorizationDecision(',
-      'if (queuedDecision.outcome === "denied")\n            void withAuthorizationDecision(',
+      'if (queuedDecision.outcome === "denied")\n              return withAuthorizationDecision(',
+      'if (queuedDecision.outcome === "denied")\n              void withAuthorizationDecision(',
     ),
   );
 });
@@ -269,8 +269,8 @@ test("an effect callback that runs before the authorization denial exit is red",
       const first = edit(
           dir,
           queuedRoute,
-          "if (durable) {\n          queuedDecision = await authorizeAtCurrentCut()!;",
-          "const alreadyExecuted = await execute(queuedDecision);\n        if (durable) {\n          queuedDecision = await authorizeAtCurrentCut()!;",
+          "if (durable) {\n            queuedDecision = await authorizeAtCurrentCut()!;",
+          "const alreadyExecuted = await execute(queuedDecision);\n          if (durable) {\n            queuedDecision = await authorizeAtCurrentCut()!;",
         ),
         second = edit(
           dir,
@@ -413,8 +413,8 @@ test("an authorization on only one branch of a test does not authorize the branc
       edit(
         dir,
         queuedRoute,
-        "if (durable) {\n          queuedDecision = await authorizeAtCurrentCut()!;",
-        'if (durable && binding.source !== "local") {\n          queuedDecision = await authorizeAtCurrentCut()!;',
+        "if (durable) {\n            queuedDecision = await authorizeAtCurrentCut()!;",
+        'if (durable && binding.source !== "local") {\n            queuedDecision = await authorizeAtCurrentCut()!;',
       ),
     { reason: /without the task-create authorization|effect callback runs before the authorization denial exit/ },
   );
