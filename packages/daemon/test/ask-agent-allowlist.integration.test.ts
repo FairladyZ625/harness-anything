@@ -18,10 +18,24 @@ import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 // The ask-agent tool boundary end to end: the dispatched agent's environment carries the
 // read-only execution credential, and the real CLI inside it finds allowlisted queries answered
 // while everything outside the allowlist — reads and writes — is rejected by the daemon.
-test(
-  "the dispatched ask agent reaches only its allowlisted ledger queries through the real CLI",
-  { timeout: 120_000 },
-  async (t) => {
+for (const scenario of [
+  {
+    name: "the dispatched ask agent reaches only its allowlisted ledger queries through the real CLI",
+    agentId: "ask-agent",
+  },
+  {
+    name: "#4401 taskless explicit read-only without an Agent is refused before launch",
+    requested: "read-only",
+    rejected: true,
+  },
+  {
+    name: "#4401 taskless instance read-only without an Agent is refused before launch",
+    configured: "read-only",
+    rejected: true,
+  },
+  { name: "#4401 ordinary taskless session retains repository writes under person RBAC", session: true },
+])
+  test(scenario.name, { timeout: 120_000 }, async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-ask-allowlist-")),
       root = path.join(parent, "repo"),
       userRoot = path.join(parent, "user"),
@@ -103,7 +117,7 @@ test(
         installationId: "codex-fixture",
         providerId: "openai",
         models: ["deepseek-flash"],
-        permissionMode: "bypass",
+        permissionMode: scenario.configured ?? "bypass",
         authMode: "subscription",
       },
     });
@@ -125,13 +139,20 @@ test(
       repo: { repoId },
       payload: {
         runtimeInstanceId: "codex-ask",
-        agentId: "ask-agent",
+        ...(scenario.agentId ? { agentId: scenario.agentId } : {}),
+        ...(scenario.requested ? { permissionMode: scenario.requested } : {}),
         taskId: null,
         cwd: { scope: "repo-root" },
         prompt: "重构组怎么样了？",
         dispatchKey: "ask-allowlist",
       },
-    })) as { readonly outcome: string; readonly runtimeSessionId?: string };
+    })) as { readonly outcome: string; readonly code?: string; readonly runtimeSessionId?: string };
+    if (scenario.rejected) {
+      assert.equal(spawned.outcome, "op_rejected", JSON.stringify(spawned));
+      assert.equal(spawned.code, "runtime_read_only_agent_required");
+      assert.equal(existsSync(envPath), false, "refused dispatch must not launch a provider with a credential");
+      return;
+    }
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
 
     const env = await eventuallyValue(() =>
@@ -154,6 +175,12 @@ test(
     assert.equal(receipt(agenda).ok, true, `allowlisted agenda read failed: ${agenda.stderr}${agenda.stdout}`);
     const workList = await cli(["work", "list"]);
     assert.equal(receipt(workList).ok, true, `allowlisted work list failed: ${workList.stderr}${workList.stdout}`);
+    if (scenario.session) {
+      const write = await cli(["task", "create", "--title", "Ordinary session write control"]);
+      assert.equal(receipt(write).ok, true, `ordinary session write failed: ${write.stderr}${write.stdout}`);
+      writeFileSync(path.join(parent, "ask-finish"), "");
+      return;
+    }
     for (const [label, response] of [
       ["outside allowlist read", await cli(["agent", "list"])],
       ["outside allowlist write", await cli(["agent", "install", "--source", path.join(parent, "nope")])],
@@ -168,5 +195,4 @@ test(
     }
     // Release the provider turn so the runtime settles and the test daemon can stop cleanly.
     writeFileSync(path.join(parent, "ask-finish"), "");
-  },
-);
+  });

@@ -16,7 +16,7 @@ import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeAttemptTerminal } from "./runtime-spawn-types.ts";
 import type { launchExitNotification } from "./runtime-spawn-process.ts";
 import type { requiredRuntimeProjection, requiredRuntimeStore } from "./runtime-spawn-process.ts";
-import type { runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { isStructuredSuccessResult } from "./runtime-spawn-provider-frames.ts";
 
@@ -115,6 +115,13 @@ export async function prepareBoundRuntimeLaunch(args: {
   readonly execution?: Omit<RuntimeExecutionPrincipal, "expiresAt">;
 }): Promise<PreparedRuntimeLaunch> {
   const { input, prepared, daemonRoute, callbackRelay, taskId, trustedSchedule } = args;
+  // A provider sandbox cannot narrow a session credential's repository authority. Require
+  // the existing allowlist-only identity before delivering any local or center-issued secret.
+  if (taskId === null && prepared.permissionMode === "read-only" && args.execution?.role !== "read-only")
+    throw runtimeSpawnError(
+      "runtime_read_only_agent_required",
+      "Taskless read-only runtime spawn requires a declared read-only Agent; use ha agent run ask-agent.",
+    );
   if (!daemonRoute) return prepared;
   const remote =
     args.execution && input.remote ? input.remote.executionCredential(args.execution.runtimeSessionId) : undefined;

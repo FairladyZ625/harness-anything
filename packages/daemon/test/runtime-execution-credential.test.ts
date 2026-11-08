@@ -1078,6 +1078,17 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
   );
 });
 
+test("the read-only identity rejects every declared repository write action", () => {
+  const p = readOnlyPrincipal();
+  for (const command of daemonProtocolCommands.filter((entry) => entry.commandClass === "repo-write")) {
+    const kind = "actionKind" in command ? command.actionKind : command.id;
+    assert.throws(() => requireExecutionActionScope(p, { kind }), {
+      code: "execution_credential_rejected",
+      message: /allowlisted ledger queries/u,
+    });
+  }
+});
+
 test("every repo-read protocol command resolves through the execution request precheck", () => {
   // The request precheck resolves every credential-bearing method through actionForDaemonMethod,
   // so a repo-read command whose method stops resolving dies as unsupported_command before the

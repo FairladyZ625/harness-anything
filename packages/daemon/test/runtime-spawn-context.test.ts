@@ -32,6 +32,26 @@ test("an unbound runtime inherits its spawning daemon route and runtime actor", 
   assert.equal(launch.env.PATH?.split(path.delimiter)[0], "/installation/bin");
 });
 
+test("a taskless read-only launch rejects broad or missing identity before touching credential providers", async () => {
+  for (const remote of [undefined, { executionCredential: () => assert.fail("must not read a center credential") }])
+    for (const daemonRoute of [undefined, { userRoot: "/state", daemonId: "test", endpoint: "/daemon.sock" }])
+      for (const role of [undefined, "session"] as const)
+        await assert.rejects(
+          prepareBoundRuntimeLaunch({
+            input: {
+              remote,
+              keycloakCenter: () => assert.fail("must not issue a credential"),
+            } as unknown as RuntimeSpawnerInput,
+            prepared: { permissionMode: "read-only" } as Parameters<typeof prepareBoundRuntimeLaunch>[0]["prepared"],
+            daemonRoute,
+            runtimeActor: "agent:runtime-session:readonly",
+            taskId: null,
+            ...(role ? { execution: { role } as never } : {}),
+          }),
+          { code: "runtime_read_only_agent_required" },
+        );
+});
+
 test("runtime CLI bin resolves from the nearest daemon installation", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-bin-")),
     modulePath = path.join(root, "packages", "daemon", "dist", "runtime-spawn-context.js"),
