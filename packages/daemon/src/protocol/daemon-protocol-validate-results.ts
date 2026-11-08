@@ -551,6 +551,8 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // runtime-spawn figures which instance serves the dispatch and which rule decided it; the GUI
     // is a named ingress onto that same spawn, so its envelope accepts the receipt's selection.
     "runtimeSelection",
+    // runtime-spawn also states the effective Codex hosted-search tier without credentials.
+    "webSearch",
     // runtime-steer locks its target (dispatch leaf, task binding, steer version) into the
     // receipt so a compare-and-steer caller can chain its next expectation (#4372).
     "steerTarget",

@@ -104,10 +104,19 @@ export function renderCliReceipt(
       // A dispatch receipt states which instance the selection rule chose and why; the reason is
       // the operator's only evidence that a same-kind sibling was skipped on purpose.
       ...(runtimeSelectionReason(receipt) === null ? [] : [runtimeSelectionReason(receipt)!]),
-    ];
-  return warnings.length
-    ? { ...rendered, text: `${rendered.text}\n${warnings.map((warning) => `warning: ${warning}`).join("\n")}` }
-    : rendered;
+    ],
+    searchLine = runtimeWebSearchLine(receipt),
+    extras = [...(searchLine === null ? [] : [searchLine]), ...warnings.map((warning) => `warning: ${warning}`)];
+  return extras.length ? { ...rendered, text: `${rendered.text}\n${extras.join("\n")}` } : rendered;
+}
+
+/** The effective native-search tier, in one line. Reads either a dispatch receipt (top-level)
+ *  or an instance receipt (`instance.configuration`) and never prints account configuration. */
+function runtimeWebSearchLine(receipt: Record<string, unknown>): string | null {
+  const instance = isRecord(receipt.instance) ? receipt.instance : null,
+    configuration = instance !== null && isRecord(instance.configuration) ? instance.configuration : null,
+    value = receipt.webSearch ?? configuration?.webSearch;
+  return typeof value === "string" && ["disabled", "cached", "live"].includes(value) ? `web search: ${value}` : null;
 }
 
 /** The dispatch receipt's instance-choice sentence, when the action selected a runtime instance. */
