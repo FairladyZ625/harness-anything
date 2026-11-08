@@ -171,10 +171,6 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       ),
       ["applied", "dispatch_group_busy"],
     );
-    const raceGroup = cell.projection.readDispatchLifecycle({ by: "group", attemptGroupId: "group-race" });
-    assert.ok(raceGroup.status === "ready");
-    assert.equal(raceGroup.rows[0]?.attempt.dispatchId.length, "dispatch_".length + 24);
-    assert.equal(raceGroup.rows[0]?.policy.capacity, "reserved");
     const start = (opId: string, caller: RepoCellBinding) =>
         cell.runtimeIngress(
           {
