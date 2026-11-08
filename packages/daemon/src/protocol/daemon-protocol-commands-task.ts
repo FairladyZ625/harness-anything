@@ -52,7 +52,6 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
                 : field.field === "fromFile"
                   ? {
                       pathKind: "workspace-file" as const,
-                      pathReader: "workspace-text" as const,
                       format: workspacePathFormat,
                     }
                   : { pathKind: "non-path" as const }),
@@ -184,7 +183,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { field: "body", codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 }, pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          field: "bodyFile",
+          codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 },
+          pathKind: "workspace-file",
+          format: workspacePathFormat,
+        },
       ),
     ],
     payloadFields: [{ field: "body", type: "string", required: false }],

@@ -328,7 +328,12 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { codec: { kind: "line-list-file", target: "factIds", maxBytes: 64 * 1024 }, field: "idsFile", pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          codec: { kind: "line-list-file", target: "factIds", maxBytes: 64 * 1024 },
+          field: "idsFile",
+          pathKind: "workspace-file",
+          format: workspacePathFormat,
+        },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",

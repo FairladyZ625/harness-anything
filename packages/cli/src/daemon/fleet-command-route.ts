@@ -7,7 +7,6 @@ import {
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { serializeFleetAction } from "./fleet-payload-serializer.ts";
-import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 
 export async function fleetScheduleRoute(
   command: ThinCommand,
@@ -39,20 +38,6 @@ export async function fleetScheduleRoute(
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
     action: { kind: "fleet-schedule", payload: action },
-  };
-}
-
-/** Resolve a Schedule mission file on the edge before either local or Fleet execution. */
-export function materializeScheduleMission(command: ThinCommand): ThinCommand {
-  if (
-    !["schedule-create", "schedule-update"].includes(command.action.kind) ||
-    typeof command.action.missionFile !== "string"
-  )
-    return command;
-  const { missionFile, ...action } = command.action;
-  return {
-    ...command,
-    action: { ...action, mission: readWorkspaceTextFile(command.rootDir, missionFile, "--mission-file") },
   };
 }
 

@@ -102,8 +102,8 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       false,
       { code: "invalid_field" },
       {
-        codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 }, pathKind: "workspace-file",
-        pathReader: "prompt-file",
+        codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 },
+        pathKind: "workspace-file",
         format: workspacePathFormat,
         conflictsWith: ["--mission", "--prompt"],
       },
@@ -300,7 +300,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     ].join(""),
     method: "repo.agentRuntime.batch",
     inputs: [],
-    positionalInputs: [{ name: "<batch-file>", pathKind: "workspace-file", pathReader: "runtime-batch" }],
+    positionalInputs: [
+      {
+        name: "<batch-file>",
+        pathKind: "workspace-file",
+        codec: { kind: "text-file", target: "declaration", maxBytes: Number.MAX_SAFE_INTEGER },
+      },
+    ],
   }),
   defineRepoReadCommand({
     id: "runtime-status",
@@ -371,8 +377,8 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         false,
         { code: "missing_field" },
         {
-          codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 }, pathKind: "workspace-file",
-          pathReader: "prompt-file",
+          codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 },
+          pathKind: "workspace-file",
           format: workspacePathFormat,
           conflictsWith: ["--prompt"],
         },
@@ -680,8 +686,8 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
     {
       jsonFields: requiredFields,
       jsonAllowedFields: allowedFields,
-      codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 }, pathKind: "workspace-file",
-      pathReader: "workspace-text",
+      codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
+      pathKind: "workspace-file",
       format: workspacePathFormat,
       conflictsWith: ["--json-input"],
     },
@@ -791,7 +797,11 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 }, pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 },
+          pathKind: "workspace-file",
+          format: workspacePathFormat,
+        },
       ),
       cliInput(
         "--effort",
@@ -943,7 +953,11 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 }, pathKind: "workspace-file", pathReader: "workspace-text", format: workspacePathFormat },
+        {
+          codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 },
+          pathKind: "workspace-file",
+          format: workspacePathFormat,
+        },
       ),
       cliInput(
         "--effort",

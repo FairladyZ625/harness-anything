@@ -22,16 +22,10 @@ import {
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { materializeCommandFileInputs } from "./fleet-payload-serializer.ts";
 import { materializeArtifactSource } from "../cli-artifact-source.ts";
-import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
-import { readWorkspaceTextFile } from "../cli-workspace-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
-import {
-  fleetRuntimeRoute,
-  fleetScheduleRoute,
-  fleetTaskRoute,
-  materializeScheduleMission,
-} from "./fleet-command-route.ts";
+import { fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
@@ -341,9 +335,7 @@ export async function runCommandThroughDaemon(
     });
   // Local daemon paths still consume file arguments here. Remote-edge commands have already
   // crossed the declaration-driven serializer above, so the center never receives a local path.
-  command = materializeArtifactSource(
-    materializePromptFile(materializeScheduleMission(materializeTaskPrBody(command))),
-  );
+  command = materializeArtifactSource(materializeCommandFileInputs(command));
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
@@ -521,13 +513,6 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
     throw Object.assign(new Error("The administrator password file could not be read."), { code: "invalid_field" });
   }
   return { ...params, password } as JsonObject;
-}
-
-function materializeTaskPrBody(command: ThinCommand): ThinCommand {
-  if (command.action.kind !== "task-push" || typeof command.action.bodyFile !== "string") return command;
-  const { bodyFile, ...action } = command.action,
-    body = readWorkspaceTextFile(command.rootDir, bodyFile, "--body-file");
-  return { ...command, action: { ...action, body } };
 }
 
 async function settleRepoWarming(

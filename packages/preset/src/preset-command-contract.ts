@@ -350,7 +350,6 @@ const taskCreateCliInputs = Object.freeze(
           : cli.name === "--from-file" || cli.name === "--plan-file"
             ? {
                 pathKind: "workspace-file" as const,
-                pathReader: "workspace-text" as const,
                 format: workspacePathFormat,
               }
             : { pathKind: "non-path" as const }),

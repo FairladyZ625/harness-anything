@@ -1,5 +1,6 @@
 import { cliErrorMessage } from "./cli-error.ts";
-import { readWorkspaceTextFile } from "./cli-workspace-file.ts";
+import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { readCliInputFile } from "./cli-input-codec.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 
 /** The batch declaration's parse and execution contract lives in the daemon; the transport only
@@ -12,7 +13,10 @@ export function readRuntimeBatchFile(command: ThinCommand): string {
       code: "missing_field",
     });
   try {
-    return readWorkspaceTextFile(command.rootDir, requested, "<batch-file>");
+    const descriptor = commandDescriptorForAction(command.action.kind);
+    if (!("positionalInputs" in descriptor) || !descriptor.positionalInputs?.[0])
+      throw new Error("runtime batch requires a declared file codec.");
+    return readCliInputFile(command.rootDir, requested, descriptor.positionalInputs[0]);
   } catch (error) {
     if ((error as { code?: unknown }).code === "invalid_field") throw error;
     throw new Error(`Could not read batch declaration: ${cliErrorMessage(error)}`);

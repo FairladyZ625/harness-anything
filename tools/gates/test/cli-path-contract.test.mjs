@@ -278,3 +278,43 @@ test("the path input set is exactly the registry's declarations, never a flag-na
   assert.equal(result.counts.pathInputs, declared);
   assert.ok(declared >= 64, "the declaration count must include the non-path-shaped flags");
 });
+
+test("a new repository file codec cannot evade containment by declaring non-path", () => {
+  const result = run([
+    {
+      id: "gate-probe-codec-coordinate",
+      path: ["probe", "codec-coordinate"],
+      commandClass: "repo-read",
+      inputs: [
+        pathInput({
+          kind: "single",
+          pathKind: "non-path",
+          codec: { kind: "text-file", target: "body", maxBytes: 1024 },
+        }),
+      ],
+    },
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /gate-probe-codec-coordinate --path: a repository file codec must declare pathKind workspace-file/u,
+  );
+});
+
+test("a new workspace file codec needs no second reader declaration", () => {
+  const result = run([
+    {
+      id: "gate-probe-codec-only",
+      path: ["probe", "codec-only"],
+      commandClass: "repo-read",
+      inputs: [
+        pathInput({
+          kind: "single",
+          pathKind: "workspace-file",
+          codec: { kind: "text-file", target: "body", maxBytes: 1024 },
+        }),
+      ],
+    },
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+});

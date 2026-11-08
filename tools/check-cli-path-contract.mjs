@@ -34,8 +34,7 @@ import { isDocAction } from "../packages/daemon/src/doc-sync-command-actions.ts"
 import { validateSelectedDocPaths } from "../packages/daemon/src/doc-sync-candidate-scanner.ts";
 import { daemonProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { parseThinCommand } from "../packages/cli/src/cli/thin-command.ts";
-import { materializePromptFile } from "../packages/cli/src/cli-runtime-prompt-file.ts";
-import { readRuntimeBatchFile } from "../packages/cli/src/cli-runtime-batch-input.ts";
+import { readCliInputFile } from "../packages/cli/src/cli-input-codec.ts";
 import { workspaceText } from "../packages/daemon/src/repo-cell-packets.ts";
 
 // CLI-host files: the one exempt coordinate. Credential material is the adjudicated case
@@ -43,18 +42,14 @@ import { workspaceText } from "../packages/daemon/src/repo-cell-packets.ts";
 // is repository content, so neither is normalized to a repository path.
 const CLI_LOCAL_PATH_KIND = "cli-local";
 const PATH_KINDS = new Set(["ledger-document", "workspace-file", CLI_LOCAL_PATH_KIND, "host-path", "non-path"]);
-const WORKSPACE_FILE_READERS = new Set(["workspace-text", "prompt-file", "runtime-batch"]);
+const WORKSPACE_FILE_READERS = new Set(["workspace-text"]);
 const WRITE_CLASSES = new Set(["repo-write", "arbiter", "admin"]);
 const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const CLI_SOURCE_ROOT = path.join(REPO_ROOT, "packages/cli/src");
 // The reader modules are the only places allowed to call `readFileSync` with a declared
 // workspace-file field. A command handler that raw-reads its own field bypasses the containment
 // boundary even when its registry declaration names the right reader.
-const WORKSPACE_FILE_READER_FILES = new Set([
-  "cli-workspace-file.ts",
-  "cli-runtime-prompt-file.ts",
-  "cli-runtime-batch-input.ts",
-]);
+const WORKSPACE_FILE_READER_FILES = new Set(["cli-input-codec.ts"]);
 // The registry is the only list. A path input is a path input because its declaration says so,
 // never because of what the flag is named: the gate requires a coordinate on every value-taking
 // input, so a name this file has never seen still has to make the choice explicit.
@@ -102,6 +97,8 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
         );
         continue;
       }
+      if (isFileCodec(input.codec) && input.pathKind !== "workspace-file")
+        violations.push(`${command.id} ${input.name}: a repository file codec must declare pathKind workspace-file`);
       if (input.pathKind === "non-path") {
         counts.nonPathInputs += 1;
         continue;
@@ -172,29 +169,28 @@ export function checkCliPathContract({ commands = daemonProtocolCommands, worksp
       violations.push(`the zero-hit guard did not name the unmatched path: ${String(error)}`);
   }
 
-  // Every shared workspace-file reader must refuse a path outside the selected root. A command can
-  // only declare one of these readers, so a new --from-file cannot be green by declaration alone.
-  const readerProbes = {
-    "workspace-text": () => workspaceText(root, "../outside-gate-probe.json", "gateProbe"),
-    "prompt-file": () =>
-      materializePromptFile({
-        rootDir: root,
-        action: { kind: "runtime-steer", promptFile: "../outside-gate-probe.txt" },
-      }),
-    "runtime-batch": () =>
-      readRuntimeBatchFile({
-        rootDir: root,
-        action: { kind: "runtime-batch", batchFile: "../outside-gate-probe.json" },
-      }),
-  };
-  for (const [reader, probe] of Object.entries(readerProbes)) {
-    try {
-      probe();
-      violations.push(`the ${reader} reader accepted a path outside the workspace root`);
-    } catch (error) {
-      if (!/outside the workspace|stay within|inside workspace root/iu.test(String(error?.message ?? "")))
-        violations.push(`the ${reader} reader refused an outside path for an unrelated reason: ${String(error)}`);
+  // Every registered file codec is exercised through the same IO port. This is registry-derived,
+  // including positional files; a newly declared codec is covered without editing a reader list.
+  for (const command of commands) {
+    for (const input of [...(command.inputs ?? []), ...(command.positionalInputs ?? [])]) {
+      if (!isFileCodec(input.codec) || input.pathKind !== "workspace-file") continue;
+      try {
+        readCliInputFile(root, "../outside-gate-probe.json", input);
+        violations.push(`${command.id} ${input.name}: file codec accepted a path outside the workspace root`);
+      } catch (error) {
+        if (!/stay within/iu.test(String(error?.message ?? "")))
+          violations.push(
+            `${command.id} ${input.name}: file codec refused an outside path for an unrelated reason: ${String(error)}`,
+          );
+      }
     }
+  }
+  try {
+    workspaceText(root, "../outside-gate-probe.json", "gateProbe");
+    violations.push("the workspace-text reader accepted a path outside the workspace root");
+  } catch (error) {
+    if (!/outside the workspace/iu.test(String(error?.message ?? "")))
+      violations.push(`the workspace-text reader refused an outside path for an unrelated reason: ${String(error)}`);
   }
 
   // The translation itself: the workspace spelling must produce the authored key, and the old
@@ -259,7 +255,7 @@ function checkRawWorkspaceFileReads(commands) {
     for (const field of findRawWorkspaceFileReads(source, fields))
       violations.push(
         `${path.relative(REPO_ROOT, file)}: raw read of declared workspace-file field ${field}; ` +
-          `use the shared cli-workspace-file.ts reader`,
+          `use the shared cli-input-codec.ts port`,
       );
   }
   return violations;
@@ -275,6 +271,10 @@ function cliSourceFiles(root) {
   return files;
 }
 
+function isFileCodec(codec) {
+  return codec && typeof codec === "object" && (codec.kind !== "json-object" || codec.source === "file");
+}
+
 function checkPathInput(command, label, input, counts, actionKind, root, known) {
   if (!PATH_KINDS.has(input.pathKind))
     return [
@@ -284,9 +284,9 @@ function checkPathInput(command, label, input, counts, actionKind, root, known) 
     ];
   if (input.pathKind === "workspace-file") {
     counts.workspaceFiles += 1;
-    if (!WORKSPACE_FILE_READERS.has(input.pathReader))
+    if (!isFileCodec(input.codec) && !WORKSPACE_FILE_READERS.has(input.pathReader))
       return [
-        `${command.id} ${label}: workspace-file input must declare a shared pathReader ` +
+        `${command.id} ${label}: workspace-file input must declare a shared pathReader or file codec ` +
           `(${[...WORKSPACE_FILE_READERS].join("|")}); a declaration without a reader is not checked`,
       ];
   }

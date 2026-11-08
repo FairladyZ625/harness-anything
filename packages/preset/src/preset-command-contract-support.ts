@@ -21,20 +21,14 @@ export interface CommandTopology {
   readonly admission: CommandAdmission;
 }
 export type PathKind = "ledger-document" | "workspace-file" | "cli-local" | "host-path" | "non-path";
-/** A shared reader that owns one path coordinate; the gate probes each one's refusal boundary. */
-export type PathReader =
-  | "doc-action"
-  | "workspace-text"
-  | "prompt-file"
-  | "runtime-batch"
-  | "cli-local"
-  | "host"
-  | "none";
+/** Non-codec paths name their daemon, document, host or CLI-local boundary. */
+export type PathReader = "doc-action" | "workspace-text" | "cli-local" | "host" | "none";
 /** A positional path token (`<batch-file>`), declared where the registry owns the syntax. */
 export interface CliPositionalInputFacet {
   readonly name: string;
   readonly pathKind: PathKind;
-  readonly pathReader: PathReader;
+  readonly pathReader?: PathReader;
+  readonly codec?: EntityCliInputCodec;
 }
 export interface CliInputFacet {
   readonly name: string;
@@ -63,8 +57,8 @@ export interface CliInputFacet {
    */
   readonly pathKind?: PathKind;
   /**
-   * The shared reader that owns a `workspace-file` boundary. Required for every workspace file so
-   * the gate can prove a reader exists and probe its containment, instead of trusting a declaration.
+   * Non-codec paths name their existing boundary here. File codecs own CLI file IO and
+   * containment directly; they do not declare a second reader.
    */
   readonly pathReader?: PathReader;
   readonly minLength?: number;
