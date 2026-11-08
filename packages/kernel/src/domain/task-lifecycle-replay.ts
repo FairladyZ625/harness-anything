@@ -399,7 +399,21 @@ export function reduceTaskEvent(
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue("invalid_transition", "event revision or aggregate identity is not replayable"),
     ]);
-  if (event.type === "gate_run_changed") return replayGateRunChange(snapshot, event);
+  // A gate write was admitted while the task still read submitted/in_review. The supersede
+  // transition now presents that task as terminal, so replay the gate history against the task
+  // the event recorded and restore the terminal state afterwards. Without this, a real ledger
+  // that received gate writes after a supersede can no longer cold-rebuild.
+  if (event.type === "gate_run_changed") {
+    const task = snapshot.task,
+      supersededReplay =
+        task?.status === "cancelled" &&
+        task.supersededBy !== null &&
+        task.supersededBy !== undefined &&
+        event.payload.task.supersededBy === task.supersededBy;
+    if (!supersededReplay) return replayGateRunChange(snapshot, event);
+    const replayed = replayGateRunChange({ ...snapshot, task: event.payload.task }, event);
+    return { ...replayed, task };
+  }
   let next: TaskLifecycleSnapshot;
   if (event.type === "task_created")
     next = {

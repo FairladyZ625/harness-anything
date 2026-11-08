@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  claimGateRun,
+  compileGateRunChange,
   emptyTaskLifecycleSnapshot,
   reduceTaskEvent,
+  supersededTaskState,
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
 import { serializeTaskEvent } from "../../src/domain/task-lifecycle.contract.ts";
+import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 type SupersededEvent = Extract<TaskEventV1, { readonly type: "task_superseded" }>;
 
@@ -50,6 +54,75 @@ test("current admission rejects the archived+active pair while historical replay
     "a new supersede event must not record archived+active",
   );
   assert.equal(reduceTaskEvent(beforeSupersede(fixture), fixture).task?.status, "cancelled");
+});
+
+test("a gate run recorded after a supersede still replays and leaves the task terminal", () => {
+  const gate = {
+      gateId: "artifact-check",
+      appliesTo: "artifacts" as const,
+      witness: {
+        kind: "manual" as const,
+        predicateType: "human/v1",
+        resultSchema: { type: "object" },
+        adapterId: "manual-attest",
+        adapterOptions: {},
+      },
+    },
+    fixture = lifecycleFixture({ gates: [gate], complete: false }),
+    submitted = fixture.snapshot,
+    execution = submitted.executions[0]!,
+    requirement = execution.submission!.completionContract.gates[0]!,
+    sourceActor = {
+      principal: implementer.principal,
+      executor: { kind: "agent" as const, id: "completion-source:manual-attest" },
+    },
+    run = claimGateRun({
+      execution,
+      repoId: "workspace-1",
+      requirement,
+      runId: "run-artifact-check",
+      claimFence: submitted.revision + 10,
+      actor: sourceActor,
+      occurredAt: "2026-08-11T00:10:00.000Z",
+      expiresAt: "2026-08-11T01:10:00.000Z",
+    }),
+    gateWrite = compileGateRunChange({
+      snapshot: submitted,
+      executionId: execution.executionId,
+      run,
+      operation: "claim",
+      actor: sourceActor,
+      source: "local",
+      opId: "op-gate-after-supersede",
+      eventId: "event-gate-after-supersede",
+      workspaceRevision: submitted.revision + 10,
+      occurredAt: "2026-08-11T00:10:00.000Z",
+      packagePath: null,
+      currentDocuments: [],
+    }),
+    supersedeEvent = {
+      ...gateWrite.event,
+      type: "task_superseded",
+      eventId: "event-supersede-before-gate",
+      opId: "op-supersede-before-gate",
+      workspaceRevision: submitted.revision + 9,
+      occurredAt: "2026-08-11T00:09:00.000Z",
+      payload: {
+        task: supersededTaskState(submitted.task!, "task-replacement"),
+        mutation: {
+          command: "supersede",
+          reason: "Replacement carries the future work",
+          fields: ["status", "supersededBy"],
+        },
+        documentClaims: [],
+      },
+    } as unknown as TaskEventV1,
+    afterSupersede = reduceTaskEvent(submitted, supersedeEvent),
+    replayed = reduceTaskEvent(afterSupersede, gateWrite.event);
+  assert.equal(afterSupersede.task?.status, "cancelled");
+  assert.equal(replayed.task?.status, "cancelled");
+  assert.equal(replayed.task?.supersededBy, "task-replacement");
+  assert.equal(replayed.executions[0]?.gateRuns.length, 1);
 });
 
 test("a supersede event that carries only the terminal status still derives its archived disposition", () => {
