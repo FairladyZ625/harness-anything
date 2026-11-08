@@ -191,6 +191,11 @@ for (const mission of ["implement", "review"] as const) {
       repoId: "missing-dispatch-ruling",
       daemonGeneration: 1,
       runtimeNode: { nodeId: "node-a" },
+      runtimeDaemonRoute: {
+        userRoot: path.join(f.rootDir, ".user"),
+        daemonId: "test",
+        endpoint: "/tmp/runtime-missing-dispatch-ruling.sock",
+      },
       now: () => now,
       stream: { publish: () => ({}) as never },
       runtimeInstances: () => [...ports.runtimeInstances(), { ...ports.runtimeInstances()[0]!, instanceId: healthyId }],
@@ -229,7 +234,7 @@ for (const mission of ["implement", "review"] as const) {
     assert.ok(diagnostics.some((entry) => (entry as { event?: string }).event === "runtime_recovery_failed"));
     const action = {
       prompt: "admit",
-      cwd: { scope: "repo-root", path: f.rootDir },
+      cwd: { scope: "repo-root" },
       dispatchKey: `probe-${mission}`,
       ...(mission === "review"
         ? {
