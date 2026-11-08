@@ -1,9 +1,10 @@
 // Postgres half of the dispatch lifecycle read model: the same kernel reducer, folded in the
 // canonical event transaction into generic projection values. No lifecycle state is inferred in SQL.
-// On the append path a rejected admission throws inside the ledger transaction, so the caller
-// receives the refusal and nothing is appended. A projection written before this model existed (or
-// by another model version) has no current cursor: reads are pending until the backfill refolds it
-// from the canonical events through the same reducer.
+// Admission is decided by the center writer before the append; the fold records a rejected event as
+// ignored, exactly like the SQLite fold, so canonical history (including imported or migrated
+// events) always replays. A projection written before this model existed (or by another model
+// version) carries an older `dispatch_lifecycle_version` in its meta row: reads are pending until
+// the backfill refolds it from the canonical events through the same reducer.
 import type { Pool, PoolClient } from "pg";
 import {
   DISPATCH_LIFECYCLE_MODEL_VERSION,
@@ -32,16 +33,14 @@ const GROUP = "dispatch-lifecycle-group",
   DISPATCH = "dispatch-lifecycle-dispatch",
   ACTIVE = "dispatch-lifecycle-active",
   EXECUTION = "dispatch-lifecycle-execution",
-  LEASE = "dispatch-lifecycle-task-lease",
-  CURSOR = "dispatch-lifecycle-cursor";
-const MODELS = [GROUP, SESSION, DISPATCH, ACTIVE, EXECUTION, LEASE, CURSOR] as const;
+  LEASE = "dispatch-lifecycle-task-lease";
+const MODELS = [GROUP, SESSION, DISPATCH, ACTIVE, EXECUTION, LEASE] as const;
 
-/** Fold one event. `enforce` (the append path) turns a rejected admission into a thrown refusal. */
+/** Fold one event; a rejected step leaves the group unchanged. */
 export async function projectPgDispatchLifecycle(
   client: PoolClient,
   scope: PgProjectionScope,
   event: { readonly schema: string; readonly type: string },
-  options: { readonly enforce?: boolean } = {},
 ): Promise<void> {
   if (!isDispatchLifecycleInput(event)) return;
   const input = event as DispatchLifecycleInput,
@@ -63,8 +62,6 @@ export async function projectPgDispatchLifecycle(
     const previous =
         groupId === null ? null : await getPgProjectionValue<DispatchLifecycleGroup>(client, scope, GROUP, groupId),
       step = reduceDispatchLifecycle(previous, input, context);
-    if (step.kind === "rejected" && options.enforce && input.type === "runtime_dispatch_requested")
-      throw Object.assign(new Error(step.reason), { code: step.code });
     if (step.kind === "applied") await writeGroup(client, scope, previous, step.group, revision);
   }
   const lease = taskLeaseAfter(input);
@@ -118,26 +115,22 @@ async function writeGroup(
     );
 }
 
-/** Mark the folded lifecycle state as complete for this model version. */
-export async function markPgDispatchLifecycleCurrent(
-  client: PoolClient,
-  scope: PgProjectionScope,
-  revision: number,
-): Promise<void> {
-  await putPgProjectionValue(client, scope, CURSOR, "model", "", revision, {
-    version: DISPATCH_LIFECYCLE_MODEL_VERSION,
-  });
-}
-
 async function lifecycleModelCurrent(client: PoolClient, scope: PgProjectionScope): Promise<boolean> {
-  const cursor = await getPgProjectionValue<{ readonly version: number }>(client, scope, CURSOR, "model");
-  return cursor?.version === DISPATCH_LIFECYCLE_MODEL_VERSION;
+  const meta = await client.query<{ dispatch_lifecycle_version: number }>(
+    `SELECT dispatch_lifecycle_version FROM ha_projection_meta
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch],
+  );
+  // No meta row yet means no events were folded: the (empty) model is current.
+  return (
+    (meta.rows[0]?.dispatch_lifecycle_version ?? DISPATCH_LIFECYCLE_MODEL_VERSION) === DISPATCH_LIFECYCLE_MODEL_VERSION
+  );
 }
 
 /**
- * Refold the lifecycle model of a projection that has no current cursor (written before this model
- * existed, or by another model version): O(canonical events) once, under the repository head lock
- * so no append interleaves; later calls are a single cursor read.
+ * Refold the lifecycle model of a projection whose meta row names an older model version (written
+ * before this model existed, or by another model version): O(canonical events) once, under the repository head lock
+ * so no append interleaves; later calls are a single meta read.
  */
 export async function backfillPgDispatchLifecycle(
   client: PoolClient,
@@ -145,7 +138,7 @@ export async function backfillPgDispatchLifecycle(
   repoId: string,
 ): Promise<number> {
   const keys = [scope.tenantId, scope.projectId, repoId];
-  const head = await client.query<{ revision: string }>(
+  await client.query(
     "SELECT revision FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 FOR UPDATE",
     keys,
   );
@@ -165,7 +158,11 @@ export async function backfillPgDispatchLifecycle(
     await projectPgDispatchLifecycle(client, { ...scope, readers: row.readers }, event);
     folded++;
   }
-  await markPgDispatchLifecycleCurrent(client, scope, Number(head.rows[0]?.revision ?? 0));
+  await client.query(
+    `UPDATE ha_projection_meta SET dispatch_lifecycle_version=$4
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, DISPATCH_LIFECYCLE_MODEL_VERSION],
+  );
   return folded;
 }
 

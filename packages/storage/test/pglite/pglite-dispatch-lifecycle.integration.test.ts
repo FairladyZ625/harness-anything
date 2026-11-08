@@ -20,7 +20,6 @@ const LIFECYCLE_MODELS = [
   "dispatch-lifecycle-active",
   "dispatch-lifecycle-execution",
   "dispatch-lifecycle-task-lease",
-  "dispatch-lifecycle-cursor",
 ];
 
 function append(store: ReturnType<typeof makeTaskEventStore>, event: AgentRuntimeEventV1): void {
@@ -29,6 +28,12 @@ function append(store: ReturnType<typeof makeTaskEventStore>, event: AgentRuntim
     plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId),
     blobs: runtimeEventContentClaims(event).map((claim) => ({ ...claim, body: "" })),
   });
+}
+
+function rowsOf(read: ReturnType<typeof snapshot>) {
+  return Object.fromEntries(
+    Object.entries(read).map(([key, page]) => [key, page.status === "ready" ? page.rows : page.status]),
+  );
 }
 
 pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
@@ -54,14 +59,13 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
             ["dispatch-b", "dispatch-b", "recovering"],
           ],
         );
-        // The append path refuses a second admission into the running group inside the ledger
-        // transaction: the caller receives the kernel's code and nothing is appended.
-        const head = first.store.readHead()?.revision;
-        assert.throws(() => append(first.store, requested("dispatch-a3", "session-a3", "dispatch-a")), {
-          code: "dispatch_group_busy",
-        });
-        assert.equal(first.store.readHead()?.revision, head);
-        assert.deepEqual(snapshot(first.projection), online);
+        // Admission is refused by the center writer, not by storage: a canonical event the reducer
+        // rejects (here a second admission into the running group, as legacy ledgers contain)
+        // still appends and replays, and the fold leaves the lifecycle unchanged on both backends.
+        append(first.store, requested("dispatch-a3", "session-a3", "dispatch-a"));
+        const after = snapshot(first.projection);
+        assert.deepEqual(rowsOf(after), rowsOf(online));
+        online = after;
       } finally {
         first.projection.close();
         await first.store.drain();
@@ -71,6 +75,7 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
       const backend = await createPGliteStorageBackend({ repoId, storage });
       try {
         await backend.pool.query("DELETE FROM ha_projection_values WHERE model = ANY($1::text[])", [LIFECYCLE_MODELS]);
+        await backend.pool.query("UPDATE ha_projection_meta SET dispatch_lifecycle_version=0");
         const read = await backend.projection.readDispatchLifecycle({ by: "active", limit: 10 });
         assert.equal(read.status, "pending", "a missing lifecycle model is never a ready empty page");
       } finally {
