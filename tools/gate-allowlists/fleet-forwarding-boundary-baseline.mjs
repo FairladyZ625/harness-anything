@@ -1,4 +1,4 @@
-// Initial inventory for the first ForwardingPort slice: 35 files / 75 file-symbol-fingerprint entries.
+// Initial inventory for the first ForwardingPort slice: 37 files / 81 file-symbol-fingerprint entries.
 // Counts may only decrease; every unregistered production source or symbol has zero allowance.
 // Slice 4 removes this baseline when forwarding is fully port-owned.
 export const fleetForwardingBoundaryBaseline = Object.freeze({
@@ -61,6 +61,14 @@ export const fleetForwardingBoundaryBaseline = Object.freeze({
       readFleetEdgeConfig: 4,
       forwardingCredentialAssembly: 5,
     },
+    writeNodeReviewDispatchFailure: {
+      edgeRuntimeFor: 1,
+      readFleetEdgeConfig: 1,
+    },
+    migrateEdgeWorkspace: {
+      edgeRuntimeFor: 1,
+      readFleetEdgeConfig: 1,
+    },
   },
   "packages/daemon/src/daemon-host-repository-api.ts": {
     createDaemonHostRepositoryApi: {
@@ -71,8 +79,18 @@ export const fleetForwardingBoundaryBaseline = Object.freeze({
   "packages/daemon/src/daemon-host-runtime-api.ts": {
     authorizeCenterConfiguration: {
       edgeRuntimeFor: 2,
-      readFleetEdgeConfig: 1,
+      readFleetEdgeConfig: 2,
       forwardingCredentialAssembly: 1,
+    },
+  },
+  "packages/daemon/src/fleet/replica-token.ts": {
+    createFleetReplicaAccessTokenReader: {
+      forwardingCredentialAssembly: 2,
+    },
+  },
+  "packages/daemon/src/fleet-edge-workspace-migration.ts": {
+    migrateFleetEdgeWorkspace: {
+      readFleetEdgeConfig: 1,
     },
   },
   "packages/daemon/src/edge-replica-doctor.ts": {
