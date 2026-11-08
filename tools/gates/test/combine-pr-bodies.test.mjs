@@ -134,3 +134,45 @@ test("the combined body preserves each member's required prose under its own hea
   assert.match(combined, /### PR #2\n\nSecond summary\./u);
   assert.ok(combined.indexOf("First summary.") < combined.indexOf("Second summary."));
 });
+
+test("a member with two Dependency-Change lines fails closed instead of merging them away", () => {
+  const first = body({ summary: "first" });
+  const second = replaceSection(
+    body({ summary: "second" }),
+    "Machine-Readable Declarations",
+    "Dependency-Change: bump effect\nDependency-Change: add package train-fixture",
+  );
+
+  assert.throws(
+    () =>
+      combinePrBodies({
+        sources: [
+          { label: "PR #1", body: first },
+          { label: "PR #2", body: second },
+        ],
+        template,
+      }),
+    /PR #2 has 2 Dependency-Change lines/u,
+  );
+});
+
+test("a member with two Event-Migration lines fails closed", () => {
+  const first = body({ summary: "first" });
+  const second = replaceSection(
+    body({ summary: "second" }),
+    "Machine-Readable Declarations",
+    "Dependency-Change: none\n\nEvent-Migration: ha migrate alpha\nEvent-Migration: ha migrate alpha",
+  );
+
+  assert.throws(
+    () =>
+      combinePrBodies({
+        sources: [
+          { label: "PR #1", body: first },
+          { label: "PR #2", body: second },
+        ],
+        template,
+      }),
+    /PR #2 has 2 Event-Migration lines/u,
+  );
+});

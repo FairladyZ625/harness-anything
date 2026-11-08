@@ -111,15 +111,31 @@ function combineProseSections({ sources, sections, required, language }) {
 }
 
 function dependencyDeclaration(sources) {
-  const values = sources
-    .flatMap((source) => readDependencyDeclarations(source.body))
+  const values = sources.flatMap((source) => {
+    const declarations = readDependencyDeclarations(source.body);
+    if (declarations.length > 1) {
+      throw new Error(
+        `${source.label} has ${declarations.length} Dependency-Change lines; a member PR body must carry exactly one before combining`,
+      );
+    }
+    return declarations;
+  });
+  const described = values
     .map((value) => value.trim())
     .filter((value) => value.length > 0 && !/^(?:none|n\/a)$/iu.test(value));
-  return [...new Set(values)].join("; ") || "none";
+  return [...new Set(described)].join("; ") || "none";
 }
 
 function eventMigrationDeclaration(sources) {
-  const declarations = sources.flatMap((source) => readEventMigrationDeclarations(source.body));
+  const declarations = sources.flatMap((source) => {
+    const values = readEventMigrationDeclarations(source.body);
+    if (values.length > 1) {
+      throw new Error(
+        `${source.label} has ${values.length} Event-Migration lines; a member PR body must carry at most one before combining`,
+      );
+    }
+    return values;
+  });
   const invalid = declarations.filter(
     (value) => !/^ha migrate [a-z0-9][a-z0-9-]*$/u.test(value) && !/^none(?:\s*[-—:]\s*|\s+)\S/u.test(value),
   );
