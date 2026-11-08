@@ -150,6 +150,53 @@ test("a later historical transition cannot reopen a superseded package", () => {
   assert.equal(replayed.task?.supersededBy, afterSupersede.task?.supersededBy);
 });
 
+test("a lease release recorded after a supersede replays against the historical task", () => {
+  const fixture = lifecycleFixture(),
+    preSupersede = fixture.events.slice(0, 2).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+    historical = {
+      ...preSupersede.task!,
+      packageDisposition: "archived" as const,
+      supersededBy: "task-replacement",
+    },
+    supersedeEvent = {
+      ...fixture.events[1]!,
+      type: "task_superseded",
+      eventId: "event-supersede-lease",
+      opId: "op-supersede-lease",
+      workspaceRevision: preSupersede.revision + 1,
+      occurredAt: "2026-08-11T00:20:00.000Z",
+      payload: {
+        task: supersededTaskState(preSupersede.task!, "task-replacement"),
+        mutation: {
+          command: "supersede",
+          reason: "Replacement carries the future work",
+          fields: ["status", "supersededBy"],
+        },
+        documentClaims: [],
+      },
+    } as unknown as TaskEventV1,
+    afterSupersede = reduceTaskEvent(preSupersede, supersedeEvent),
+    leaseRelease = {
+      ...fixture.events[1]!,
+      type: "lease_released",
+      eventId: "event-release-after-supersede",
+      opId: "op-release-after-supersede",
+      workspaceRevision: afterSupersede.revision + 1,
+      occurredAt: "2026-08-11T00:21:00.000Z",
+      payload: {
+        task: historical,
+        execution: preSupersede.executions[0]!,
+        releasedLease: preSupersede.lease!,
+        mutation: { command: "release", reason: "Lease retired with the package", fields: ["release"] },
+        documentClaims: [],
+      },
+    } as unknown as TaskEventV1,
+    replayed = reduceTaskEvent(afterSupersede, leaseRelease);
+  assert.equal(replayed.task?.status, "cancelled");
+  assert.equal(replayed.task?.supersededBy, "task-replacement");
+  assert.equal(replayed.lease, null);
+});
+
 test("a supersede event that carries only the terminal status still derives its archived disposition", () => {
   const event = {
       ...fixture,

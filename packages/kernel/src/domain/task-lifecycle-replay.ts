@@ -3,7 +3,7 @@ import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
-import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
+import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue, type TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
@@ -559,12 +559,14 @@ export function reduceTaskEvent(
       ...(event.payload.externalResolution ? { externalResolution: event.payload.externalResolution } : {}),
       lease: null,
     };
+  assertReplay(snapshot, event, next);
   // A superseded package is terminal. Historical events after a supersede can still carry the
   // same supersededBy beside a non-terminal status (a legacy transition/retirement/migration);
-  // normalize them so a rebuilt projection never shows archived+active.
+  // normalize them so a rebuilt projection never shows archived+active. This runs after the
+  // event-specific replay check, which compares the recorded historical task, not this normalized
+  // terminal view.
   if (next.task?.supersededBy !== undefined && next.task.supersededBy !== null && next.task.status !== "cancelled")
     next = { ...next, task: supersededTaskState(next.task, next.task.supersededBy) };
-  assertReplay(snapshot, event, next);
   return next;
 }
 function sameReleasedLease(current: LeaseV1, released: LeaseV1): boolean {
@@ -583,6 +585,16 @@ function sameReplayTask(current: TaskLifecycleSnapshot["task"], recorded: TaskLi
   return stableStringify(currentTaskForWrite(current)) === stableStringify(currentTaskForWrite(recorded));
 }
 function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {
+  // A write that was accepted before the terminal supersede rule still recorded the task as it
+  // read then. Compare those event checks against the recorded historical task; the caller restores
+  // the normalized terminal task after this function returns.
+  const recorded = (event.payload as { readonly task?: TaskV2 }).task;
+  if (
+    snapshot.task?.supersededBy !== undefined &&
+    snapshot.task.supersededBy !== null &&
+    recorded?.supersededBy === snapshot.task.supersededBy
+  )
+    snapshot = { ...snapshot, task: recorded };
   if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed") {
     // The retired envelope must still name its own task and execution; it owns no other state.
     if (event.payload.execution.taskId !== event.taskId || event.payload.task.taskId !== event.taskId)
