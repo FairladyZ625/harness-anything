@@ -726,6 +726,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
     "models",
     "name",
     "permissionMode",
+    "webSearch",
   ]);
   for (const field of declared.filter((name) => name !== "instanceId")) {
     const sample: Record<string, unknown> =
@@ -739,7 +740,9 @@ test("runtime update accepts exactly the fields the registry declares", () => {
               ? { permissionMode: "bypass" }
               : field === "isolationState"
                 ? { isolationState: "enforced" }
-                : { [field]: "value" };
+                : field === "webSearch"
+                  ? { webSearch: "disabled" }
+                  : { [field]: "value" };
     assert.equal(
       assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", ...sample }),
       true,
@@ -764,6 +767,13 @@ test("runtime update still rejects empty values, empty model lists, and secret-l
   assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a" }), /invalid/u);
   assert.throws(
     () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "  " }),
+    /invalid/u,
+  );
+  for (const webSearch of ["disabled", "cached", "live"])
+    assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", webSearch }), true);
+  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", webSearch: "" }), true);
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", webSearch: "live-ish" }),
     /invalid/u,
   );
   // No usage payload crosses the preload boundary, so string-valued token keys stay rejected

@@ -23,6 +23,9 @@ function payloadFieldNames(guiBridgeMethod: string): readonly string[] {
   return payload?.fields ? Object.keys(payload.fields) : [];
 }
 const runtimeInstanceUpdateFields = payloadFieldNames("updateRuntimeInstance");
+// The codex kind declaration owns the tier vocabulary; the preload restates only the values the
+// daemon already declares, so a new tier cannot be admitted on one side and refused on the other.
+const codexWebSearchChoices = runtimeKindForId("codex").configuration.choices?.webSearch ?? [];
 const instanceTargetMethods: ReadonlySet<PreloadApiMethod> = new Set(
   daemonGuiInvokeFacets
     .filter((facet) => facet.method.startsWith("daemon.runtimeInstance."))
@@ -333,7 +336,9 @@ function validRuntimeInstanceUpdate(value: unknown): boolean {
     (value.enabled === undefined || typeof value.enabled === "boolean") &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.effort === undefined || typeof value.effort === "string") &&
-    (value.webSearch === undefined || ["disabled", "cached", "live"].includes(String(value.webSearch))) &&
+    (value.webSearch === undefined ||
+      (typeof value.webSearch === "string" &&
+        (value.webSearch === "" || codexWebSearchChoices.includes(value.webSearch)))) &&
     (value.apiKey === undefined || (typeof value.apiKey === "string" && value.apiKey.trim().length > 0)) &&
     (value.permissionMode === undefined ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&

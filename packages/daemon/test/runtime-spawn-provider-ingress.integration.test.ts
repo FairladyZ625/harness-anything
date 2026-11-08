@@ -1002,6 +1002,8 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
       "gpt-5.6-sol",
       "--config",
       'service_tier="fast"',
+      "--config",
+      'web_search="disabled"',
       "-",
     ]);
     const unsupported = await spawnCli(
