@@ -338,12 +338,15 @@ test("PR renderer never emits none for a package.json change with no export or r
 
 test("an authored Dependency Change section cannot override the diff-derived declaration", () => {
   const { rootDir, submission } = exportChangeCut(),
-    authored = dependencyCloseout.replace(summary, "Observed problem.\nDependency-Change: hand-written override"),
+    authored = dependencyCloseout.replace(
+      "- Added the `./testing` exports subpath.\n- No dependency range changed; the lockfile stays in sync.",
+      "- Hand-written override prose.",
+    ),
     body = renderDependencyCut({ submission, rootDir, authoredCloseout: authored });
   assert.match(body, /^Dependency-Change: package\.json: exports \+"\.\/testing"$/mu);
-  assert.doesNotMatch(body, /hand-written override/u);
+  assert.doesNotMatch(body, /Hand-written override prose/u);
   assert.doesNotMatch(body, /## Dependency Change/u, "the closeout-only section is not injected as a new PR section");
-  assert.ok(body.includes("Observed problem."), "the author's Summary remains verbatim");
+  assert.ok(body.includes(summary), "the author's Summary remains verbatim");
   assertPassesDependencyGate(body, submission, rootDir);
 });
 
