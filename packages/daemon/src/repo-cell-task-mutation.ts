@@ -670,24 +670,17 @@ function dispatchProcessIsOrphaned(stream: NonNullable<ReturnType<typeof readDis
   );
 }
 
-/** Supersede retires a Task for good, so it must not race a dispatch that can still write to it.
- * A queued or running dispatch is in flight; a settled/terminal attempt or a process that already
- * exited is history. A scheduled/dispatched fallback keeps the dispatch live even after an exit,
- * because its successor still owns the task. */
-function taskDispatchIsSettled(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
-  if (stream.terminalOutcome !== null && stream.terminalOutcome !== undefined) return true;
-  if (dispatchReachedTerminalAttempt(stream)) return true;
-  if (stream.fallbackState === "scheduled" || stream.fallbackState === "dispatched") return false;
-  return dispatchProcessIsOrphaned(stream);
-}
-
 function unsettledTaskDispatch(
   cell: RepoCellActionContext,
   taskId: string,
 ): { readonly dispatchId: string; readonly runtimeSessionId: string } | null {
   for (const entry of readDispatchLiveIndex(cell.rootDir, [taskId]).entries) {
-    const stream = readDispatchStreamSummary(cell.rootDir, entry.dispatchId);
-    if (stream !== null && !taskDispatchIsSettled(stream)) return entry;
+    const lifecycle = cell.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [entry.dispatchId] });
+    // Supersede must wait for the aggregate projection to prove the whole group is closed. A
+    // pending projection or missing row is treated as unsettled so it cannot race a late write.
+    if (lifecycle.status !== "ready") return entry;
+    const row = lifecycle.rows.find(({ attempt }) => attempt.dispatchId === entry.dispatchId);
+    if (row === undefined || !row.policy.groupSettled) return entry;
   }
   return null;
 }

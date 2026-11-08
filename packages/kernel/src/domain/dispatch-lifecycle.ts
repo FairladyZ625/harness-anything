@@ -286,11 +286,28 @@ export function reduceDispatchLifecycle(
       "dispatch_owner_fence_mismatch",
       `Dispatch ${attempt.dispatchId} is owned by ${attempt.fence.owner}; ${source.owner} cannot publish ${input.type}.`,
     );
-  if (attempt.phase === "closed")
-    return reject(
-      "dispatch_attempt_closed",
-      `Dispatch ${attempt.dispatchId} is closed; a late ${input.type} cannot reopen it.`,
-    );
+  const rulingResolution = isRulingResolution(input, group, attempt);
+  if (attempt.phase === "closed") {
+    if (!rulingResolution)
+      return reject(
+        "dispatch_attempt_closed",
+        `Dispatch ${attempt.dispatchId} is closed; a late ${input.type} cannot reopen it.`,
+      );
+    // `ruling_resolved` is a second observation for the already closed attempt. It settles the
+    // group-level ruling and opens the successor slot; it does not reopen or mutate the attempt.
+    const resolvedAttempt = { ...attempt, eventIds: [...attempt.eventIds, input.eventId] };
+    return {
+      kind: "applied",
+      group: {
+        ...group,
+        attempts: group.attempts.map((entry) => (entry === attempt ? resolvedAttempt : entry)),
+        phase: "closed",
+        ruling: null,
+        successor: { admissible: true, dueAt: null },
+        revision,
+      },
+    };
+  }
   if (attempt.dispatchId !== group.currentDispatchId)
     return reject(
       "dispatch_attempt_superseded",
@@ -513,6 +530,19 @@ function rulingReady(attempt: DispatchLifecycleAttempt): boolean {
     attempt.fence.verified &&
     attempt.stopProof === "proven_stopped" &&
     (task === null || task.role === "reviewer" || task.leaseVersion === null || task.leaseReleased)
+  );
+}
+
+function isRulingResolution(
+  input: DispatchLifecycleInput,
+  group: DispatchLifecycleGroup,
+  attempt: DispatchLifecycleAttempt,
+): boolean {
+  return (
+    input.type === "runtime_session_outcome_observed" &&
+    input.payload.reasonCode === "ruling_resolved" &&
+    group.phase === "awaiting_ruling" &&
+    group.ruling?.dispatchId === attempt.dispatchId
   );
 }
 

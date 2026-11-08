@@ -26,6 +26,7 @@ type Token = {
   readonly outcome?: string;
   readonly classification?: string;
   readonly fallbackState?: string;
+  readonly reasonCode?: string;
 };
 interface LedgerShapes {
   readonly groups: readonly { readonly count: number; readonly sessions: readonly (readonly Token[])[] }[];
@@ -70,6 +71,7 @@ function runtimeEvent(
   if (token.t === "L") payload.liveness = token.liveness;
   if (token.t === "O") {
     payload.outcome = token.outcome;
+    if (token.reasonCode) payload.reasonCode = token.reasonCode;
     if (token.classification || token.fallbackState)
       payload.attempt = {
         classification: token.classification ?? "worker_stop",
@@ -442,6 +444,42 @@ test("a pending ruling becomes awaiting_ruling only after the stop is proven and
     [view.groupPhase, view.policy.capacity, view.policy.canResolveRuling],
     ["awaiting_ruling", "released", true],
   );
+});
+
+test("ruling resolution closes the group and admits its next attempt", () => {
+  const ids = { dispatchId: "d-resolve", runtimeSessionId: "s-resolve", attemptGroupId: "d-resolve" },
+    events: DispatchLifecycleInput[] = [
+      taskEvent("execution_started", "task-resolve", { execution: execution("exe-resolve"), lease: { version: 1 } }),
+      ...([{ t: "R" }, { t: "S" }, { t: "X" }] as Token[]).map(
+        (token) => runtimeEvent(token, ids, implementer("task-resolve", "exe-resolve")) as DispatchLifecycleInput,
+      ),
+      runtimeEvent({ t: "O", outcome: "stopped", classification: "awaiting_ruling" }, ids) as DispatchLifecycleInput,
+      taskEvent("lease_released", "task-resolve", {
+        execution: execution("exe-resolve"),
+        releasedLease: { version: 1 },
+      }),
+    ];
+  let view = dispatchLifecycleView(fold(events).groups.get(ids.attemptGroupId)!);
+  assert.equal(view.groupPhase, "awaiting_ruling");
+  events.push(
+    runtimeEvent({ t: "O", outcome: "unknown", reasonCode: "ruling_resolved" }, ids) as DispatchLifecycleInput,
+  );
+  view = dispatchLifecycleView(fold(events).groups.get(ids.attemptGroupId)!);
+  assert.deepEqual(
+    [view.groupPhase, view.ruling, view.successor.admissible, view.policy.canResolveRuling],
+    ["closed", null, true, false],
+  );
+  events.push(
+    runtimeEvent(
+      { t: "R" },
+      { ...ids, dispatchId: "d-resolve-next", runtimeSessionId: "s-resolve-next" },
+    ) as DispatchLifecycleInput,
+  );
+  const folded = fold(events),
+    next = folded.groups.get(ids.attemptGroupId)!;
+  assert.equal(folded.steps.at(-1)?.kind, "applied");
+  assert.equal(next.currentDispatchId, "d-resolve-next");
+  assert.equal(next.phase, "starting");
 });
 
 test("a scheduled fallback carries its due time and a delivery is registered against its target", () => {
