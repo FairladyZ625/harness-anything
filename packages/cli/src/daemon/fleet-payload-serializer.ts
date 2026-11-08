@@ -1,4 +1,5 @@
 import {
+  FLEET_PATH_COORDINATE_FIELD,
   fleetActionPayloadIssue,
   type EntityActionInputField,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-fleet-validation";
@@ -193,6 +194,7 @@ function validationFields(
     for (const field of descriptor.payloadFields as readonly EntityActionInputField[]) fields.set(field.field, field);
   addPathFields(fields, descriptor);
   addDefaultFields(fields, descriptor);
+  fields.set(FLEET_PATH_COORDINATE_FIELD.field, FLEET_PATH_COORDINATE_FIELD);
   return [...fields.values()].filter((field) => !field.wire?.omit);
 }
 

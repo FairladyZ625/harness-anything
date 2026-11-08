@@ -111,7 +111,15 @@ test("doc sync task selection serializes using the action taskId field", () => {
   const parsed = parseThinCommand(["doc", "sync", "--submit", "--task", "task-one"], process.cwd());
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
-  assert.deepEqual(serializeFleetAction(parsed.command), { kind: "doc-submit", taskId: "task-one" });
+  assert.deepEqual(serializeFleetAction(parsed.command), {
+    kind: "doc-submit",
+    taskId: "task-one",
+    pathCoordinate: "workspace",
+  });
+  assert.throws(
+    () => serializeFleetAction(command(process.cwd(), { ...parsed.command.action, pathCoordinate: "authored" })),
+    /action\.pathCoordinate does not match its Fleet declaration/u,
+  );
 });
 
 test(

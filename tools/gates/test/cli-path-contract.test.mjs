@@ -309,6 +309,7 @@ test("a new workspace file codec needs no second reader declaration", () => {
       commandClass: "repo-read",
       inputs: [
         pathInput({
+          name: "--codec-probe-file",
           kind: "single",
           pathKind: "workspace-file",
           codec: { kind: "text-file", target: "body", maxBytes: 1024 },

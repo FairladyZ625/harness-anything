@@ -11,7 +11,11 @@ import {
 } from "@harness-anything/kernel";
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { daemonProtocolCommands } from "../protocol/daemon-protocol-commands.ts";
-import { FLEET_ACTION_PAGE_ROWS, fleetActionPayloadIssue } from "../protocol/daemon-protocol-fleet-validation.ts";
+import {
+  FLEET_ACTION_PAGE_ROWS,
+  FLEET_PATH_COORDINATE_FIELD,
+  fleetActionPayloadIssue,
+} from "../protocol/daemon-protocol-fleet-validation.ts";
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
 
 export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
@@ -520,12 +524,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
     // The CLI marks a caller-typed path selection with its coordinate. It is a transport
     // marker rather than a user input: the closed fleet frame must carry it so the center
     // translates the selection exactly as a local daemon call does.
-    fields.set("pathCoordinate", {
-      field: "pathCoordinate",
-      type: "string",
-      required: false,
-      wire: { enum: ["workspace", "task-artifact"] },
-    });
+    fields.set(FLEET_PATH_COORDINATE_FIELD.field, FLEET_PATH_COORDINATE_FIELD);
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
 const checkFields = (fields: readonly EntityActionInputField[], value: RecordValue): boolean =>
