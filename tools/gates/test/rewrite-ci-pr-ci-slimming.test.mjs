@@ -59,7 +59,10 @@ test("CH2 keeps required path gates green when their expensive step is not selec
   assert.equal(sqlite.isPullRequestJob, true, "SQLite remains a conditional PR observer job");
   assert.match(sqlite.ifExpressions[0], /needs\.install\.outputs\.costBudgetReads != 'false'/u);
   assert.match(sqlite.ifExpressions[0], /github\.event_name == 'schedule'/u);
-  assert.match(workflowText, /G38_REQUIRED_BACKENDS:[^\n]*'pglite'/u);
+  assert.match(
+    workflowText,
+    /G38_REQUIRED_BACKENDS: \$\{\{ github\.event_name == 'pull_request' && needs\.install\.outputs\.costBudgetReads == 'false' && 'pglite' \|\| 'pglite,sqlite' \}\}/u,
+  );
   assert.match(workflowText, /run: node tools\/run-manifest-gates\.mjs --workflow-job quick-gates --github-groups/u);
 });
 
@@ -81,10 +84,7 @@ test("CH4 assigns all twelve light gates to the serial quick-gates runner", () =
   for (const id of gateIds) {
     const gate = manifest.gates.find((candidate) => candidate.id === id);
     assert.ok(gate, `${id} remains a registered check`);
-    assert.ok(
-      gate.executionSurfaces.rewriteCi.pullRequestJobs.includes("quick-gates"),
-      `${id} uses quick-gates`,
-    );
+    assert.ok(gate.executionSurfaces.rewriteCi.pullRequestJobs.includes("quick-gates"), `${id} uses quick-gates`);
   }
   for (const retiredJob of ["typecheck", "lint", "supply-chain", "dependency-policy", "test-selection"]) {
     assert.equal(workflow.has(retiredJob), false, `${retiredJob} no longer creates a standalone PR job`);

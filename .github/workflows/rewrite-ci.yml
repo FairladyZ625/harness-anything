@@ -429,6 +429,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: ./.github/actions/electron-runtime-cache
+        if: github.event_name == 'schedule'
       - uses: actions/download-artifact@v4
         if: github.event_name != 'schedule'
         with:
@@ -533,6 +535,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
+        if: github.event_name == 'schedule'
       - uses: actions/download-artifact@v4
         if: github.event_name != 'schedule'
         with:
@@ -621,6 +625,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
+        if: github.event_name == 'schedule'
       - uses: actions/download-artifact@v4
         if: github.event_name != 'schedule'
         with:
@@ -635,7 +641,7 @@ jobs:
           pattern: g38-read-*
           merge-multiple: true
           path: ${{ runner.temp }}/g38
-      - name: Require the complete dual-backend read matrix (G38)
+      - name: Require the selected G38 read matrix
         env:
           G38_PHASE: read-summary
           G38_RESULTS: ${{ runner.temp }}/g38
