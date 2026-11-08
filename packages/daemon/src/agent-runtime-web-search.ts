@@ -50,26 +50,151 @@ export function runtimeWebSearchForConfig(config: RuntimeInstanceConfig): Runtim
 }
 
 /** Native hosted search only exists on providers that actually honor the tool. A custom
- *  OpenAI-compatible endpoint may reject or ignore it, so enabling a non-default tier is a
- *  named configuration error rather than a launch that silently under-delivers. */
+ *  OpenAI-compatible endpoint may reject or ignore it, so an opt-in tier there is admitted
+ *  only by the write boundary that performed one real gateway verification. This launch-time
+ *  check therefore rejects only a provider with no endpoint at all: the persisted tier is
+ *  the record of that verification, and launch is not allowed to probe the network again. */
 export function assertRuntimeWebSearchSupported(config: RuntimeInstanceConfig): void {
   const declaration = declaredSearch(config);
   if (declaration === undefined) return;
   const mode = runtimeWebSearchForConfig(config);
   if (mode === null || mode === declaration.defaultMode) return;
   const provider = runtimeProviderConfig(config);
-  // A custom base URL is a routing policy the configured provider owns; HA cannot prove the
-  // gateway honors the native hosted tool, so an opt-in tier must fail closed there too.
-  if (!declaration.providers.includes(config.providerId) || provider.baseUrl !== undefined)
+  if (!declaration.providers.includes(config.providerId) && provider.baseUrl === undefined)
     throw runtimeInstanceError(
       "runtime_web_search_provider_unsupported",
       [
         `${runtimeKindForId(config.kindId).displayName} native web search is only supported on `,
-        `${declaration.providers.join(", ")} via its built-in endpoint; `,
-        `provider ${config.providerId}${provider.baseUrl === undefined ? "" : " with a custom base URL"} `,
-        `cannot use webSearch=${mode}. Set webSearch=disabled or use the built-in endpoint provider.`,
+        `${declaration.providers.join(", ")} via its built-in endpoint; provider ${config.providerId} `,
+        `declares no custom base URL, so webSearch=${mode} has no endpoint that could honor the tool. `,
+        "Set webSearch=disabled, use the built-in endpoint provider, or give this provider a base URL.",
       ].join(""),
     );
+}
+
+/** An opt-in tier on a custom base URL is the one configuration whose support cannot be
+ *  settled by the declaration alone: the gateway must answer a real request with a
+ *  web_search_call item. The instance write paths call this predicate before persisting. */
+export function runtimeWebSearchGatewayProbeRequired(config: RuntimeInstanceConfig): boolean {
+  const declaration = declaredSearch(config);
+  if (declaration === undefined) return false;
+  const mode = runtimeWebSearchForConfig(config);
+  return mode !== null && mode !== declaration.defaultMode && runtimeProviderConfig(config).baseUrl !== undefined;
+}
+
+/** What the gateway probe needs from the instance. It deliberately carries no `config`
+ *  object: the probe runs the same credential, header and wire-API policy the launch writes,
+ *  without importing the instance store or its launch path. */
+export interface RuntimeWebSearchGatewayProbe {
+  readonly baseUrl: string;
+  readonly model: string;
+  readonly credentialRef: string;
+  readonly credentialHeader?: string;
+  readonly httpHeaders?: Readonly<Record<string, string>>;
+  readonly wireApi?: string;
+}
+
+/** The one real verification: a Responses API request carrying the same hosted tool the
+ *  launch will enable, accepted only when the gateway reports a web_search_call item.
+ *  A refused request, an unreachable gateway and a response without that item are all
+ *  named refusals; none of them becomes a silently disabled tier. */
+export async function verifyRuntimeWebSearchGateway(
+  gateway: RuntimeWebSearchGatewayProbe,
+  resolveCredential: (reference: string) => Promise<string>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  if (gateway.wireApi !== undefined && gateway.wireApi !== "responses")
+    throw gatewayUnverified(
+      [
+        `Native web search requires the Responses API, but ${gateway.baseUrl} declares `,
+        `wireApi=${gateway.wireApi}. Set wireApi=responses or webSearch=disabled.`,
+      ].join(""),
+    );
+  const secret = await gatewayCredential(gateway.credentialRef, resolveCredential),
+    endpoint = new URL("responses", gateway.baseUrl.endsWith("/") ? gateway.baseUrl : `${gateway.baseUrl}/`),
+    headers: Record<string, string> = { "content-type": "application/json", ...gateway.httpHeaders };
+  if (gateway.credentialHeader) headers[gateway.credentialHeader] = secret;
+  else headers.authorization = `Bearer ${secret}`;
+  let response: Response;
+  try {
+    response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: gateway.model,
+        input: "Use the web_search tool to look up the official Node.js website, then answer with its URL.",
+        tools: [{ type: "web_search" }],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    consumeKnownError(error);
+    throw gatewayUnverified(
+      `Native web search could not be verified against ${gateway.baseUrl}: ${errorMessage(error)}.`,
+    );
+  }
+  if (!response.ok)
+    throw gatewayUnverified(
+      [
+        `${gateway.baseUrl} returned HTTP ${response.status} while verifying native web search. `,
+        `The gateway must accept POST /responses with tools:[{"type":"web_search"}].`,
+      ].join(""),
+    );
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    consumeKnownError(error);
+    throw gatewayUnverified(
+      `Native web search could not be verified: ${gateway.baseUrl} did not return a JSON Responses payload.`,
+    );
+  }
+  if (!containsWebSearchCall(body))
+    throw gatewayUnverified(
+      [
+        `${gateway.baseUrl} answered without a web_search_call item for model ${gateway.model}; `,
+        "the gateway does not perform native hosted search. Set webSearch=disabled or use a gateway that honors ",
+        'tools:[{"type":"web_search"}].',
+      ].join(""),
+    );
+}
+
+async function gatewayCredential(
+  reference: string,
+  resolveCredential: (reference: string) => Promise<string>,
+): Promise<string> {
+  let secret: string;
+  try {
+    secret = await resolveCredential(reference);
+  } catch (error) {
+    consumeKnownError(error);
+    throw gatewayUnverified(
+      `Native web search could not be verified because the gateway credential could not be resolved: ${errorMessage(error)}.`,
+    );
+  }
+  if (!secret)
+    throw gatewayUnverified("Native web search could not be verified because the gateway credential is unavailable.");
+  return secret;
+}
+
+function gatewayUnverified(hint: string): Error {
+  return runtimeInstanceError("runtime_web_search_gateway_unverified", hint);
+}
+
+function containsWebSearchCall(body: unknown): boolean {
+  if (body === null || typeof body !== "object" || !("output" in body)) return false;
+  const output = (body as { readonly output?: unknown }).output;
+  return (
+    Array.isArray(output) &&
+    output.some(
+      (item) =>
+        item !== null && typeof item === "object" && (item as { readonly type?: unknown }).type === "web_search_call",
+    )
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Codex reports `supports_search_tool` in its bundled model catalog. The witness carries

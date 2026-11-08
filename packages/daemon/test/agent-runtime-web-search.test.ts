@@ -17,6 +17,7 @@ import {
   allowedWebSearchModesInPolicy,
   decodeCodexManagedPolicyPreference,
   readCodexManagedPolicyFiles,
+  runtimeWebSearchForConfig,
   runtimeWebSearchModelGate,
   runtimeWebSearchPolicyConflict,
 } from "../src/agent-runtime-web-search.ts";
@@ -107,18 +108,16 @@ test("an unsupported provider and an unsupported tier fail closed with named err
     () => codexInstance("live", "codex_local_access"),
     (error: unknown) => codedAs(error, "runtime_web_search_provider_unsupported"),
   );
-  // A gateway URL is a routing policy HA cannot verify against the native hosted tool.
-  assert.throws(
-    () =>
-      runtimeInstanceConfig({
-        ...codexInstance("live"),
-        codex: {
-          ...((codexInstance("live") as unknown as { codex: object }).codex as object),
-          baseUrl: "https://gateway.example.test/v1",
-        },
-      }),
-    (error: unknown) => codedAs(error, "runtime_web_search_provider_unsupported"),
-  );
+  // A custom base URL is no longer refused by structure: the update write path proves the
+  // gateway honors the native tool before it persists the tier.
+  const gateway = runtimeInstanceConfig({
+    ...codexInstance("live"),
+    codex: {
+      ...((codexInstance("live") as unknown as { codex: object }).codex as object),
+      baseUrl: "https://gateway.example.test/v1",
+    },
+  });
+  assert.equal(runtimeWebSearchForConfig(gateway), "live");
   assert.throws(
     () =>
       runtimeInstanceConfig({
@@ -317,6 +316,103 @@ test("the instance write path persists the tier and the read receipt shows it", 
         }),
       (error: unknown) => codedAs(error, "invalid_runtime_kind_config"),
     );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+function gatewayInstance(): RuntimeInstanceConfig {
+  return runtimeInstanceConfig({
+    schemaVersion: 2,
+    instanceId: "codex-gateway",
+    name: "Codex Gateway",
+    kindId: "codex",
+    installationId: witness.installationId,
+    providerId: "openai-api",
+    models: ["gpt-5.6-sol"],
+    defaultModel: "gpt-5.6-sol",
+    enabled: true,
+    isolationState: "enforced",
+    auth: { mode: "api-key", credentialRef: "credential:v1:codex-gateway" },
+    codex: { baseUrl: "https://gateway.example.test/v1", wireApi: "responses" },
+  });
+}
+
+function fakeGateway(
+  body: unknown,
+  requests: { readonly url: string; readonly init?: RequestInit }[],
+  status = 200,
+): typeof fetch {
+  return async (input, init) => {
+    requests.push({ url: String(input), init });
+    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  };
+}
+
+test("a custom gateway update proves native search once and the later launch does not probe it again", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-gateway-live-")),
+    requests: { readonly url: string; readonly init?: RequestInit }[] = [];
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [witness],
+      resolveCredential: async () => "gateway-secret",
+      managedPolicyTexts: () => [],
+      webSearchFetch: fakeGateway(
+        { output: [{ type: "reasoning" }, { type: "web_search_call" }, { type: "message" }] },
+        requests,
+      ),
+    });
+    store.create(gatewayInstance());
+    const updated = await store.command({
+      kind: "runtime-instance-update",
+      instanceId: "codex-gateway",
+      webSearch: "live",
+    });
+    assert.equal((updated.instance as { configuration: Record<string, unknown> }).configuration.webSearch, "live");
+    assert.equal(requests.length, 1);
+    assert.match(requests[0]!.url, /\/v1\/responses$/u);
+    const headers = new Headers(requests[0]!.init?.headers),
+      requestBody = JSON.parse(String(requests[0]!.init?.body)) as { readonly model: string; readonly tools: unknown };
+    assert.equal(headers.get("authorization"), "Bearer gateway-secret");
+    assert.equal(requestBody.model, "gpt-5.6-sol");
+    assert.deepEqual(requestBody.tools, [{ type: "web_search" }]);
+
+    const launch = await store.prepareLaunch("codex-gateway", { cwd: "/workspace/repo", prompt: "search" });
+    assert.ok(launch.args.includes('web_search="live"'));
+    assert.equal(requests.length, 1);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a custom gateway update that cannot prove native search keeps the default tier and names the refusal", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-gateway-unverified-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [witness],
+      resolveCredential: async () => "gateway-secret",
+      managedPolicyTexts: () => [],
+      webSearchFetch: fakeGateway({ output: [{ type: "message" }] }, []),
+    });
+    store.create(gatewayInstance());
+    await assert.rejects(
+      async () =>
+        await store.command({
+          kind: "runtime-instance-update",
+          instanceId: "codex-gateway",
+          webSearch: "live",
+        }),
+      (error: unknown) => {
+        assert.equal(codedAs(error, "runtime_web_search_gateway_unverified"), true);
+        assert.match(String(error), /web_search_call/u);
+        assert.doesNotMatch(String(error), /gateway-secret/u);
+        return true;
+      },
+    );
+    const persisted = store.read("codex-gateway");
+    assert.equal(runtimeWebSearchForConfig(persisted!), "disabled");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

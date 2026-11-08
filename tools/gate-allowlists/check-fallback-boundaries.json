@@ -405,7 +405,9 @@
       "packages/storage/src/pglite/query-owner-worker.ts#startOwner",
       "packages/storage/src/pglite/query-owner-worker.ts#connect",
       "packages/storage/src/pglite/query-owner-worker.ts#dispatch",
-      "packages/daemon/src/agent-runtime-web-search.ts#readCodexManagedPolicyTexts"
+      "packages/daemon/src/agent-runtime-web-search.ts#readCodexManagedPolicyTexts",
+      "packages/daemon/src/agent-runtime-web-search.ts#gatewayCredential",
+      "packages/daemon/src/agent-runtime-web-search.ts#verifyRuntimeWebSearchGateway"
     ],
     "fullHistoryScans": [
       {
