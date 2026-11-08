@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { runProcessTextAsync } from "./process-port.ts";
 import type {
   RuntimeInstallationWitness,
   RuntimeProviderInstanceConfig,
@@ -123,7 +123,9 @@ export function allowedWebSearchModesInPolicy(text: string): readonly string[] |
 /** Reads local administrator policy on every platform Codex supports here. macOS MDM is
  *  read through the same `com.openai.codex` preference Codex uses; absence of the key is
  *  the normal "no managed policy" case, not an error. */
-export function readCodexManagedPolicyTexts(platform: NodeJS.Platform = process.platform): readonly string[] {
+export async function readCodexManagedPolicyTexts(
+  platform: NodeJS.Platform = process.platform,
+): Promise<readonly string[]> {
   const texts: string[] = [];
   for (const path of codexManagedPolicyPaths)
     if (existsSync(path)) {
@@ -138,12 +140,17 @@ export function readCodexManagedPolicyTexts(platform: NodeJS.Platform = process.
     }
   if (platform === "darwin") {
     try {
-      const encoded = execFileSync("/usr/bin/defaults", ["read", "com.openai.codex", "requirements_toml_base64"], {
-        encoding: "utf8",
-        timeout: 2_000,
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
+      const encoded = (
+        await runProcessTextAsync(
+          "/usr/bin/defaults",
+          ["read", "com.openai.codex", "requirements_toml_base64"],
+          undefined,
+          process.env,
+          undefined,
+          undefined,
+          { timeoutMs: 2_000 },
+        )
+      ).trim();
       if (encoded) texts.push(Buffer.from(encoded, "base64").toString("utf8"));
     } catch (error) {
       // No managed-preferences key is the expected state on an unmanaged host.
@@ -156,13 +163,13 @@ export function readCodexManagedPolicyTexts(platform: NodeJS.Platform = process.
 /** Refuses an opt-in tier that local administrator policy does not allow. The policy is
  *  checked at launch, not only at configuration time, because a managed profile can change
  *  between the two. */
-export function runtimeWebSearchPolicyConflict(
+export async function runtimeWebSearchPolicyConflict(
   config: RuntimeInstanceConfig,
-  policyTexts: readonly string[] | (() => readonly string[]) = readCodexManagedPolicyTexts,
-): { readonly code: "runtime_web_search_policy_conflict"; readonly hint: string } | null {
+  policyTexts: readonly string[] | (() => readonly string[] | Promise<readonly string[]>) = readCodexManagedPolicyTexts,
+): Promise<{ readonly code: "runtime_web_search_policy_conflict"; readonly hint: string } | null> {
   const mode = runtimeWebSearchForConfig(config);
   if (mode === null || mode === declaredSearch(config)?.defaultMode) return null;
-  const texts = typeof policyTexts === "function" ? policyTexts() : policyTexts;
+  const texts = typeof policyTexts === "function" ? await policyTexts() : policyTexts;
   for (const text of texts) {
     const allowed = allowedWebSearchModesInPolicy(text);
     if (allowed !== null && !allowed.includes(mode))

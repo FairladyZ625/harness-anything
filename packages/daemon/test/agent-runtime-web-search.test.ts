@@ -148,19 +148,21 @@ test("an unwitnessed or incapable model is refused for an opt-in tier", () => {
   assert.equal(runtimeWebSearchModelGate(codexInstance("disabled"), "gpt-5.6-sol", {}), null);
 });
 
-test("administrator managed requirements that exclude the tier are refused", () => {
+test("administrator managed requirements that exclude the tier are refused", async () => {
   assert.deepEqual(allowedWebSearchModesInPolicy('allowed_web_search_modes = ["disabled", "cached"]'), [
     "disabled",
     "cached",
   ]);
   assert.equal(allowedWebSearchModesInPolicy('# no policy here\nmodel = "x"'), null);
-  assert.equal(runtimeWebSearchPolicyConflict(codexInstance("live"), []), null);
+  assert.equal(await runtimeWebSearchPolicyConflict(codexInstance("live"), []), null);
   assert.equal(
-    runtimeWebSearchPolicyConflict(codexInstance("live"), ['allowed_web_search_modes = ["disabled"]'])?.code,
+    (await runtimeWebSearchPolicyConflict(codexInstance("live"), ['allowed_web_search_modes = ["disabled"]']))?.code,
     "runtime_web_search_policy_conflict",
   );
   assert.equal(
-    runtimeWebSearchPolicyConflict(codexInstance("cached"), ['allowed_web_search_modes = ["disabled", "cached"]']),
+    await runtimeWebSearchPolicyConflict(codexInstance("cached"), [
+      'allowed_web_search_modes = ["disabled", "cached"]',
+    ]),
     null,
   );
   assert.throws(

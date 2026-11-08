@@ -147,7 +147,7 @@ export function openRuntimeInstanceStore(input: {
   }) => RuntimeAuthReadiness | Promise<RuntimeAuthReadiness>;
   /** Test/embedded seam for Codex's managed requirements. Production reads the host's
    *  administrator policy through the same default source Codex loads. */
-  readonly managedPolicyTexts?: () => readonly string[];
+  readonly managedPolicyTexts?: () => readonly string[] | Promise<readonly string[]>;
 }) {
   const platform = input.platform ?? process.platform,
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
@@ -257,7 +257,7 @@ export function openRuntimeInstanceStore(input: {
     const modelSearchRefusal = runtimeWebSearchModelGate(config, selectRuntimeModel(config), installation);
     if (modelSearchRefusal)
       return rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
-    const policyRefusal = runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    const policyRefusal = await runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
     if (policyRefusal)
       return rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
     if (config.isolationState === "enforced") ensureStateRoot(config);
@@ -376,7 +376,7 @@ export function openRuntimeInstanceStore(input: {
       rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
       throw runtimeInstanceError(modelSearchRefusal.code, modelSearchRefusal.hint);
     }
-    const policyRefusal = runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    const policyRefusal = await runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
     if (policyRefusal) {
       rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
       throw runtimeInstanceError(policyRefusal.code, policyRefusal.hint);

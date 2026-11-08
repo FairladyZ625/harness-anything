@@ -175,22 +175,17 @@ const modelProbeParsers: Record<ModelProbeFormat, (output: string) => readonly s
 /** Codex's bundled catalog marks models that expose the native hosted search tool. Other
  *  json-model providers do not publish this field and yield an empty (unknown) subset. */
 function modelSearchCapableModels(output: string): string[] {
-  try {
-    const decoded = JSON.parse(output) as {
-      readonly models?: readonly {
-        readonly slug?: unknown;
-        readonly id?: unknown;
-        readonly supports_search_tool?: unknown;
-      }[];
-    };
-    return (decoded.models ?? [])
-      .filter((model) => model.supports_search_tool === true)
-      .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
-      .filter(Boolean);
-  } catch (error) {
-    consumeKnownError(error);
-    return [];
-  }
+  const decoded = JSON.parse(output) as {
+    readonly models?: readonly {
+      readonly slug?: unknown;
+      readonly id?: unknown;
+      readonly supports_search_tool?: unknown;
+    }[];
+  };
+  return (decoded.models ?? [])
+    .filter((model) => model.supports_search_tool === true)
+    .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
+    .filter(Boolean);
 }
 
 /** Merges models observed on the ACP `session/new` response into the catalog
