@@ -230,6 +230,21 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
     kinds("import { eventuallyValue } from './fixtures/runtime-ingress.ts'; await eventuallyValue(read);"),
     ["poll-helper"],
   );
+  // Promise.race against a resolving timer decides by the wall clock, not by an event. It is pinned
+  // explicitly so a refactor of scheduled-timer cannot quietly stop reporting this shape.
+  assert.deepEqual(
+    kinds(
+      "const outcome = await Promise.race([exited, new Promise((resolve) => setTimeout(() => resolve('hung'), 5_000))]);",
+    ),
+    ["scheduled-timer"],
+  );
+  // The same race with a fail-only timer at the hang-guard floor is a watchdog, not a judgment.
+  assert.deepEqual(
+    kinds(
+      "const outcome = await Promise.race([exited, new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hung')), 20_000))]);",
+    ),
+    [],
+  );
   const eventDriven =
     "import { waitForArrival } from '../../tools/fixtures/event-arrival.ts';\n" +
     "test('x', async () => { const value = await waitForArrival(() => store.read(), (arrive) => store.subscribe(arrive)); });";
@@ -239,6 +254,23 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
     lint(noPollSpin, "const deadline = Date.now() + 5000; if (Date.now() > deadline) stop(); setTimeout(stop, 2000);")
       .length,
     0,
+  );
+});
+
+// The ceiling is a shrink-only ratchet: every batch that deletes entries must lower it in the same
+// commit, so "the exemptions stopped shrinking" shows up here even though the gate's fixture runs
+// deliberately skip the ceiling. This is the exact-sync half of the ratchet.
+test("G3 poll-spin allowlist ceiling equals the current exception count", () => {
+  const source = readFileSync(path.join(repoRoot, "tools/check-poll-spin-boundary.mjs"), "utf8"),
+    ceiling = /const allowlistCeiling = (\d+);/u.exec(source)?.[1],
+    allowlist = JSON.parse(
+      readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-poll-spin-boundary.json"), "utf8"),
+    );
+  assert.ok(ceiling, "check-poll-spin-boundary.mjs must declare allowlistCeiling");
+  assert.equal(
+    Number(ceiling),
+    allowlist.entries.exceptions.length,
+    "lower allowlistCeiling to the new exception count in the same commit that deletes entries",
   );
 });
 

@@ -62,9 +62,10 @@ test(
           }
         }
       }
-      setTimeout(() => {
+      // Deliver after the caller has attached its stderr listener, without scheduling by wall clock.
+      queueMicrotask(() => {
         for (const line of lines) stderrListener?.(line);
-      }, 5);
+      });
       return emitter;
     };
     const sshTunnels = new EdgeJoinSshTunnelManager({

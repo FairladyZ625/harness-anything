@@ -47,6 +47,13 @@ const allowlistPath = `tools/gate-allowlists/${gateId}.json`;
 const update = process.argv.includes("--update");
 const rootArg = process.argv.slice(2).find((argument) => argument !== "--update");
 const root = path.resolve(rootArg ?? process.cwd());
+// Shrink-only ratchet. Keep this equal to the current exception count: a batch that converts waits
+// and deletes entries lowers it in the same commit, so "the exemptions stopped shrinking" is visible
+// as a number that did not move. Growth past the ceiling fails, which is the point: a new wait site
+// must be converted or carry an explicit decision, not a quiet append. Fixture runs pass an explicit
+// root and test exact-sync against their own allowlist, so they are not ratcheted.
+const allowlistCeiling = 183;
+const enforceCeiling = rootArg === undefined && !update;
 // Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and integration tests
 // (dec_25B3C380F6FB9D4D4A1E27921E CH1) share one rule, one baseline and one exact-sync ratchet; the
 // integration flag adds the wall-clock-as-correctness kinds only to test files.
@@ -102,6 +109,13 @@ if (update) {
 }
 const document = JSON.parse(await readFile(path.join(root, allowlistPath), "utf8"));
 const entries = document.entries.exceptions;
+if (enforceCeiling && entries.length !== allowlistCeiling)
+  throw new Error(
+    `poll-spin allowlist has ${entries.length} exceptions but the ceiling is ${allowlistCeiling}: ` +
+      (entries.length > allowlistCeiling
+        ? "the ceiling may only shrink; convert the wait instead of appending an entry"
+        : `lower allowlistCeiling in tools/check-poll-spin-boundary.mjs to ${entries.length} in the same commit`),
+  );
 for (const field of ["key", "event", "ref", "reason"]) {
   if (entries.some((entry) => typeof entry[field] !== "string" || !entry[field]))
     throw new Error(`poll-spin allowlist entry missing ${field}`);

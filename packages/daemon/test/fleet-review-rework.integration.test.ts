@@ -120,18 +120,9 @@ test(
     provider.output(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
     provider.exit(0);
 
-    const deadline = performance.now() + 30_000;
-    for (;;) {
-      const terminalObserved = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-        );
-      if (terminalObserved) break;
-      if (performance.now() >= deadline) throw new Error(`Edge reviewer ${runtimeSessionId} did not settle at center.`);
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    // The daemon-side parked wait is the settlement event: it returns when the center records the
+    // session's terminal outcome, so the ledger read below cannot miss the append it waits for.
+    await fixture.awaitRuntimeSessions([runtimeSessionId]);
     const events = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo }).read().events,
       review = events.find(
         (event) => event.type === "review_recorded" && event.payload.review.reviewId === `review-${dispatchId}`,

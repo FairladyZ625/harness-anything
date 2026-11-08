@@ -563,7 +563,7 @@ test("a snapshot can become a reference and reference entities support fenced up
   }
 });
 
-test("URL source resolution does not block a concurrent repository write", async () => {
+test("URL source resolution does not block a concurrent repository write", { timeout: 30_000 }, async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-url-artifact-import-")),
     repoId = workspaceId("url-artifact-import");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -610,12 +610,10 @@ test("URL source resolution does not block a concurrent repository write", async
       binding,
     );
     const started = Date.now();
-    const write = await Promise.race([
-      cell.run({ kind: "task-create", taskId: "url-import-concurrent-write", title: "Concurrent write" }, binding),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("concurrent write exceeded 2 seconds")), 2_000),
-      ),
-    ]);
+    const write = await cell.run(
+      { kind: "task-create", taskId: "url-import-concurrent-write", title: "Concurrent write" },
+      binding,
+    );
     assert.equal(write.outcome, "applied", JSON.stringify(write));
     assert.ok(Date.now() - started < 2_000);
     const imported = await importing;

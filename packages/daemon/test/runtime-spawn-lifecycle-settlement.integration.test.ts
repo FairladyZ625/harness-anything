@@ -811,7 +811,6 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     });
     await cell.close();
     cell = undefined;
-    await new Promise((resolve) => setTimeout(resolve, 100));
     assert.doesNotThrow(() => process.kill(providerPid, 0), "repo-cell close must not terminate its runtime worker");
     const newAuthorityInstance = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot, holderId: "daemon-new" });
     newAuthority = newAuthorityInstance;

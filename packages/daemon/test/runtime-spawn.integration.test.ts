@@ -15,7 +15,8 @@ import {
   type RuntimeInstanceSummary,
 } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
 import {
   canonicalRoot,
@@ -1362,15 +1363,15 @@ async function waitForDispatchRecord(
   dispatchId: string,
   predicate: (record: Record<string, unknown>) => boolean,
 ): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + 30_000;
-  for (;;) {
-    const stream = readDispatchStream(root, dispatchId),
-      match = stream?.records.find(predicate);
-    if (match) return match;
-    if (stream?.process?.exited)
-      throw new Error(`provider exited before recording the awaited event: ${JSON.stringify(stream.records)}`);
-    if (Date.now() >= deadline)
-      throw new Error(`dispatch ${dispatchId} did not record the awaited provider event within 30000ms`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+  return await waitForArrival(
+    () => {
+      const stream = readDispatchStream(root, dispatchId),
+        match = stream?.records.find(predicate);
+      if (match) return match;
+      if (stream?.process?.exited)
+        throw new Error(`provider exited before recording the awaited event: ${JSON.stringify(stream.records)}`);
+      return null;
+    },
+    watchFileArrival(dispatchStreamPath(root, dispatchId)),
+  );
 }
