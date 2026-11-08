@@ -398,17 +398,21 @@ export function openFleetEdgeRuntime(input: {
       authoredRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot,
       artifactBody = (logical: string) => {
         const relative = logical.split("/");
+        const authoredCandidate = path.join(authoredRoot, ...relative);
         for (const candidate of [
           path.join(artifact.cwd, "harness", ...relative),
           path.join(artifact.cwd, ...relative),
           path.join(artifact.cwd, "artifacts", "reports", path.basename(logical)),
-          path.join(authoredRoot, ...relative),
+          authoredCandidate,
         ]) {
-          if (candidate === path.join(authoredRoot, ...relative)) continue;
           if (!existsSync(candidate)) continue;
           const entry = lstatSync(candidate);
           if (!entry.isFile() || entry.isSymbolicLink() || entry.size > 2 * 1024 * 1024) continue;
-          return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(candidate));
+          return new TextDecoder("utf-8", { fatal: true }).decode(
+            candidate === authoredCandidate
+              ? readAuthoredDocumentBytes(authoredRoot, logical)
+              : readFileSync(candidate),
+          );
         }
         return readMirroredDocument(logical);
       },
