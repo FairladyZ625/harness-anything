@@ -8,6 +8,7 @@ import type { AgentRuntimeEventV1, DispatchLifecycleRead } from "@harness-anythi
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { readEdgeDispatchLifecycle } from "../src/fleet-edge-task-read.ts";
 
 const nodeA = { kind: "node", nodeId: "node-a" } as const,
   nodeB = { kind: "node", nodeId: "node-b" } as const,
@@ -118,4 +119,31 @@ test("a lifecycle read model behind its source fails admission closed", async (t
   const pending = async (): Promise<DispatchLifecycleRead> => ({ status: "pending", watermark: 4, sourceRevision: 9 });
   const probe = admission(t, [], pending);
   await assert.rejects(probe.spawn(), { code: "dispatch_lifecycle_pending", message: /revision 4 of 9/u });
+});
+
+test("an attempt whose owner the center cannot verify fails every launcher's admission on its instance closed", async (t) => {
+  const events = [lifecycleEvent("R", "imported", on("migration-import/v1"))];
+  const probe = admission(t, events);
+  await assert.rejects(probe.spawn(), { code: "dispatch_owner_unverified" });
+});
+
+test("a stale edge replica answers pending, so edge admission fails closed", async (t) => {
+  const fresh = { state: "fresh", ageMs: 0, lagRevisions: 0, maxAgeMs: 60_000, maxLagRevisions: 32, confirmedAt: "x" },
+    projection = {
+      readDispatchLifecycle: () => ({ status: "ready", watermark: 7, sourceRevision: 7, rows: [], nextCursor: null }),
+    },
+    query = { by: "active", limit: 100 } as const,
+    cut = { revision: 7, headDigest: "sha256:x" };
+  assert.equal(
+    readEdgeDispatchLifecycle(projection as never, { cut, freshness: fresh } as never, query).status,
+    "ready",
+  );
+  const stale = readEdgeDispatchLifecycle(
+    projection as never,
+    { cut, freshness: { ...fresh, state: "stale", ageMs: 120_000, lagRevisions: 3 } } as never,
+    query,
+  );
+  assert.deepEqual(stale, { status: "pending", watermark: 7, sourceRevision: 10 });
+  const probe = admission(t, [], async () => stale);
+  await assert.rejects(probe.spawn(), { code: "dispatch_lifecycle_pending" });
 });

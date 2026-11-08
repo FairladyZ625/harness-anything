@@ -7,6 +7,7 @@ import {
   type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
 } from "@harness-anything/kernel";
+import { isDispatchLifecycleInput } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 
 export const emptyDispatchLifecycleRead = async (): Promise<DispatchLifecycleRead> => ({
   status: "ready",
@@ -22,6 +23,7 @@ export function dispatchLifecycleReadOf(events: () => readonly AgentRuntimeEvent
     const groups = new Map<string, DispatchLifecycleGroup>(),
       bySession = new Map<string, string>();
     for (const event of events()) {
+      if (!isDispatchLifecycleInput(event)) continue;
       const address = dispatchLifecycleAddress(event);
       if (address === null) continue;
       const id = address.by === "group" ? address.attemptGroupId : bySession.get(address.runtimeSessionId),
@@ -72,6 +74,7 @@ export function lifecycleEvent(
     payload: {
       runtimeSessionId,
       ...(type === "R" ? { dispatchId: `dispatch-${runtimeSessionId}`, instanceId: options.instanceId } : {}),
+      ...(type === "S" ? { launchGeneration: 1 } : {}),
       ...(type === "L" ? { liveness: options.liveness ?? "live" } : {}),
       ...(type === "O" ? { outcome: "succeeded", exitCode: 0, resultRef: "artifact:none", result: null } : {}),
     },
