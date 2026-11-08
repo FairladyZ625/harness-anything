@@ -20,6 +20,17 @@ test("the shared install job is scoped to PR and push artifact consumers", () =>
   assert.match(section, /^    if: github\.event_name == 'pull_request' \|\| github\.event_name == 'push'/mu);
 });
 
+test("every npm ci job primes the version-keyed Electron cache before installing", () => {
+  const jobs = workflow.split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu).filter((section) => /^\s+- run: npm ci$/mu.test(section));
+  assert.ok(jobs.length > 0);
+  for (const job of jobs) {
+    const cache = job.indexOf("- uses: ./.github/actions/electron-runtime-cache");
+    const install = job.indexOf("- run: npm ci");
+    assert.notEqual(cache, -1, "job with npm ci must use ./.github/actions/electron-runtime-cache");
+    assert.ok(cache < install, "the Electron cache step must run before npm ci");
+  }
+});
+
 test("the dependency lockfile stays byte-stable in the CRLF checkout lane", () => {
   assert.match(attributes, /^package-lock\.json text eol=lf$/mu);
 });
