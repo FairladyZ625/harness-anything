@@ -25,6 +25,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - name: Fetch the comparison base
         run: git fetch --no-tags origin main
