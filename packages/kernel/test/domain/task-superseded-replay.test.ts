@@ -129,6 +129,27 @@ test("a gate run recorded after a supersede still replays and leaves the task te
   assert.equal(replayed.executions[0]?.gateRuns.length, 1);
 });
 
+test("a later historical transition cannot reopen a superseded package", () => {
+  const afterSupersede = reduceTaskEvent(beforeSupersede(fixture), fixture),
+    later = {
+      ...fixture,
+      type: "task_transitioned",
+      eventId: "event-later-transition",
+      opId: "op-later-transition",
+      workspaceRevision: afterSupersede.revision + 1,
+      occurredAt: "2026-09-01T11:00:00.000Z",
+      payload: {
+        task: { ...afterSupersede.task!, status: "planned" as const },
+        mutation: { command: "transition", reason: "Legacy reopen before the terminal rule", fields: ["status"] },
+        documentClaims: [],
+      },
+    } as unknown as TaskEventV1,
+    replayed = reduceTaskEvent(afterSupersede, later);
+  assert.equal(replayed.task?.status, "cancelled");
+  assert.equal(replayed.task?.packageDisposition, "archived");
+  assert.equal(replayed.task?.supersededBy, afterSupersede.task?.supersededBy);
+});
+
 test("a supersede event that carries only the terminal status still derives its archived disposition", () => {
   const event = {
       ...fixture,

@@ -559,6 +559,11 @@ export function reduceTaskEvent(
       ...(event.payload.externalResolution ? { externalResolution: event.payload.externalResolution } : {}),
       lease: null,
     };
+  // A superseded package is terminal. Historical events after a supersede can still carry the
+  // same supersededBy beside a non-terminal status (a legacy transition/retirement/migration);
+  // normalize them so a rebuilt projection never shows archived+active.
+  if (next.task?.supersededBy !== undefined && next.task.supersededBy !== null && next.task.status !== "cancelled")
+    next = { ...next, task: supersededTaskState(next.task, next.task.supersededBy) };
   assertReplay(snapshot, event, next);
   return next;
 }
