@@ -22,6 +22,10 @@ import {
   type WriteSource,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import {
+  isAgentRuntimeEvent,
+  type AgentRuntimeEventV1,
+} from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
@@ -463,13 +467,13 @@ function freezeCompletionContract(
   };
 }
 
-function autoDeclareSubmittedExecutor(
+async function autoDeclareSubmittedExecutor(
   cell: RepoCellOperationalContext,
   taskId: string,
   executionId: string,
   binding: RepoCellBinding,
-): WriteReceiptDraft | null {
-  const snapshot = cell.projection.read(taskId).snapshot,
+): Promise<WriteReceiptDraft | null> {
+  const snapshot = (await cell.service.read(taskId)).snapshot,
     execution = snapshot.executions.find((candidate) => candidate.executionId === executionId);
   if (
     snapshot.task?.currentNode !== "review" ||
@@ -479,16 +483,25 @@ function autoDeclareSubmittedExecutor(
     execution.submission?.completionContract.closeoutGates.review !== true
   )
     return null;
-  const rows = readTaskLineageDispatches({ projection: cell.projection, taskId }).filter(
-      (dispatch) => !isReviewerDispatch(cell.projection, dispatch.dispatchId),
-    ),
-    exact = rows.filter((dispatch) => dispatch.executionId === executionId),
-    candidates = new Map(
-      (exact.length > 0 ? exact : rows).map((dispatch) => [
-        dispatch.runtimeSessionId,
-        { executorId: `runtime-session:${dispatch.runtimeSessionId}` },
-      ]),
-    );
+  // The submit may arrive from an edge immediately after the dispatch event was accepted by the
+  // center. Read the execution's raw dispatch events directly so attribution does not depend on a
+  // runtime-session row having completed projection yet; reviewer dispatches remain excluded by
+  // the same canonical role predicate used by declaration candidates.
+  const exact = readSubmittedImplementationDispatches(cell, taskId, executionId),
+    projectedExact = cell.projection
+      .readRuntimeDispatchesByTaskExecution(taskId, executionId)
+      .filter(({ event }) => event.payload.role !== "reviewer" && event.payload.reviewTarget === undefined)
+      .map(({ event }) => event.payload),
+    rows = exact.length
+      ? exact
+      : projectedExact.length
+        ? projectedExact
+        : readTaskLineageDispatches({ projection: cell.projection, taskId }).filter(
+            (dispatch) => !isReviewerDispatch(cell.projection, dispatch.dispatchId),
+          );
+  const candidates = new Map(
+    rows.map((dispatch) => [dispatch.runtimeSessionId, { executorId: `runtime-session:${dispatch.runtimeSessionId}` }]),
+  );
   if (candidates.size !== 1) return null;
   const [candidate] = candidates.values();
   if (!candidate) return null;
@@ -502,6 +515,36 @@ function autoDeclareSubmittedExecutor(
     },
     binding,
   );
+}
+
+/**
+ * A node submit can be the first writer after its dispatch was accepted. The runtime projection
+ * is allowed to catch up asynchronously, while the canonical event store already contains the
+ * dispatch that proves attribution. Read that bounded task slice at the write boundary so submit
+ * does not leave a review cut with an avoidable executor gap.
+ */
+function readSubmittedImplementationDispatches(
+  cell: Pick<RepoCellOperationalContext, "store">,
+  taskId: string,
+  executionId: string,
+): readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>["payload"][] {
+  const events = cell.store.queryEvents?.({
+    type: "runtime_dispatch_requested",
+    entity: `task/${taskId}`,
+    limit: 500,
+  });
+  if (!events) return [];
+  return events
+    .filter(
+      (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
+        isAgentRuntimeEvent(event) &&
+        event.type === "runtime_dispatch_requested" &&
+        event.payload.taskId === taskId &&
+        event.payload.executionId === executionId &&
+        event.payload.role !== "reviewer" &&
+        event.payload.reviewTarget === undefined,
+    )
+    .map((event) => event.payload);
 }
 
 function submissionSteps(
@@ -869,7 +912,7 @@ export async function submitTask(
     const submitted = (await cell.service.read(taskId)).snapshot.executions.find(
         (execution) => execution.executionId === executionId,
       )?.submission,
-      executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
+      executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
     // The cut is already frozen. Refresh is a best-effort follow-up: no open PR, no hosting, or a
     // failed call leaves the submit receipt's outcome and steps untouched; only a named warning
@@ -976,7 +1019,7 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
+    const executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
     const warnings = [...anchorDriftWarnings, ...review.warnings];
     return {
@@ -990,7 +1033,7 @@ export async function submitTask(
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
+  const executor = await autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
     review = await submittedCutReview(cell, taskId, action, binding, receipt);
   // Same post-freeze, best-effort refresh as the carried-document path.
   const refreshWarning = await refreshSubmittedPullRequest(cell, taskId, submission, binding),

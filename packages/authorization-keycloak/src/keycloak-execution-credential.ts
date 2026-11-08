@@ -11,6 +11,8 @@ interface ExecutionCenter {
   readonly realm: string;
   readonly accessToken: string;
   readonly provider: Pick<AuthorizationProvider, "readNode">;
+  /** The policy adapter's one Admin REST boundary, including its 401 refresh policy. */
+  readonly request: (path: string, init?: RequestInit, allowNotFound?: boolean) => Promise<Response>;
 }
 const clientPrefix = "harness-execution-";
 
@@ -22,7 +24,7 @@ export async function issueRuntimeExecutionCredential(
 ): Promise<string> {
   const clientId = `${clientPrefix}${principal.dispatchId}`,
     secret = randomBytes(32).toString("base64url");
-  await adminRequest(center, "/clients", fetchPort, {
+  await center.request("/clients", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -72,7 +74,7 @@ export async function readRuntimeExecutionPrincipal(
 ): Promise<RuntimeExecutionPrincipal> {
   const clientId = `${clientPrefix}${dispatchId}`;
   const clients: unknown = await (
-    await adminRequest(center, `/clients?clientId=${encodeURIComponent(clientId)}&max=2`, fetchPort)
+    await center.request(`/clients?clientId=${encodeURIComponent(clientId)}&max=2`)
   ).json();
   if (!Array.isArray(clients) || clients.length !== 1) throw executionCredentialRejected("revoked");
   const client = clients[0];
@@ -123,19 +125,4 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
     typeof p.expiresAt === "string" &&
     Date.parse(p.expiresAt) <= Date.now() + runtimeExecutionLifetimeMs
   );
-}
-
-async function adminRequest(
-  center: ExecutionCenter,
-  suffix: string,
-  fetchPort: typeof fetch,
-  init: RequestInit = {},
-): Promise<Response> {
-  const response = await fetchPort(`${center.url}/admin/realms/${encodeURIComponent(center.realm)}${suffix}`, {
-    ...init,
-    headers: { authorization: `Bearer ${center.accessToken}`, "content-type": "application/json" },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw executionCredentialRejected("authentication");
-  return response;
 }

@@ -142,21 +142,36 @@ export class KeycloakPolicyAdapter
   readonly credentialCapabilities = Object.freeze({ changeOwn: true, resetOthers: true });
   issueExecutionCredential(token: string, principal: RuntimeExecutionPrincipal): Promise<string> {
     return issueRuntimeExecutionCredential(
-      { ...this.#config, accessToken: token, provider: this },
+      {
+        ...this.#config,
+        accessToken: token,
+        provider: this,
+        request: (path, init, allowNotFound) => this.#request(token, path, init, allowNotFound),
+      },
       principal,
       this.#fetch,
     );
   }
   authenticateExecutionCredential(token: string, credential: string): Promise<RuntimeExecutionPrincipal> {
     return authenticateRuntimeExecutionCredential(
-      { ...this.#config, accessToken: token, provider: this },
+      {
+        ...this.#config,
+        accessToken: token,
+        provider: this,
+        request: (path, init, allowNotFound) => this.#request(token, path, init, allowNotFound),
+      },
       credential,
       this.#fetch,
     );
   }
   readExecutionPrincipal(token: string, dispatchId: string): Promise<RuntimeExecutionPrincipal> {
     return readRuntimeExecutionPrincipal(
-      { ...this.#config, accessToken: token, provider: this },
+      {
+        ...this.#config,
+        accessToken: token,
+        provider: this,
+        request: (path, init, allowNotFound) => this.#request(token, path, init, allowNotFound),
+      },
       dispatchId,
       this.#fetch,
     );
