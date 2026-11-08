@@ -51,7 +51,16 @@ function scanFile(rel, body) {
   const source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel)),
     scopes = new Map(),
     scopeOf = (symbol) => {
-      if (!scopes.has(symbol)) scopes.set(symbol, { reads: false, calls: new Set(), kernel: [], derived: [] });
+      if (!scopes.has(symbol))
+        scopes.set(symbol, {
+          reads: false,
+          calls: new Set(),
+          kernel: [],
+          derived: [],
+          declarations: [],
+          returns: [],
+          conditionals: [],
+        });
       return scopes.get(symbol);
     };
   const visit = (node) => {
@@ -63,13 +72,18 @@ function scanFile(rel, body) {
       else if (callee !== null && ts.isIdentifier(node.expression)) scope.calls.add(callee);
     }
     if (ts.isCallExpression(node) && headingProbe(node)) scopeOf(enclosingSymbol(node)).derived.push(node);
-    if (
-      ts.isReturnStatement(node) &&
-      node.expression &&
-      (readinessLiteral(node.expression) ||
-        (readinessName(enclosingSymbol(node)) && verdictExpression(node.expression)))
-    )
-      scopeOf(enclosingSymbol(node)).derived.push(node);
+    if (ts.isReturnStatement(node) && node.expression) {
+      const scope = scopeOf(enclosingSymbol(node));
+      scope.returns.push(node);
+      if (
+        readinessLiteral(node.expression) ||
+        (readinessName(enclosingSymbol(node)) && verdictExpression(node.expression))
+      )
+        scope.derived.push(node);
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer)
+      scopeOf(enclosingSymbol(node)).declarations.push(node);
+    if (ts.isIfStatement(node)) scopeOf(enclosingSymbol(node)).conditionals.push(node);
     if (
       ts.isBinaryExpression(node) &&
       [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(
@@ -98,6 +112,30 @@ function scanFile(rel, body) {
         scope.reads = true;
         changed = true;
       }
+  }
+  // Follow values that originate in authored bytes through local aliases and same-file read
+  // helpers. This catches ordinary helper names and custom answer words such as complete/incomplete.
+  for (const [, scope] of scopes) {
+    if (!scope.reads) continue;
+    const readScopes = new Set([...scopes].filter(([, candidate]) => candidate.reads).map(([name]) => name)),
+      readBindings = new Set();
+    let bindingsChanged = true;
+    while (bindingsChanged) {
+      bindingsChanged = false;
+      for (const declaration of scope.declarations) {
+        if (
+          !readBindings.has(declaration.name.text) &&
+          expressionReferencesAuthored(declaration.initializer, readBindings, readScopes)
+        ) {
+          readBindings.add(declaration.name.text);
+          bindingsChanged = true;
+        }
+      }
+    }
+    for (const statement of scope.returns)
+      if (readinessDerivedExpression(statement.expression, readBindings)) scope.derived.push(statement);
+    for (const statement of scope.conditionals)
+      if (conditionReturnsVerdict(statement, readBindings)) scope.derived.push(statement);
   }
   const sites = [],
     add = (nodes, symbol, kind) =>
@@ -232,6 +270,64 @@ function booleanJudgment(node) {
     (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) ||
     (ts.isBinaryExpression(expression) && BOOLEAN_OPERATORS.has(expression.operatorToken.kind)) ||
     (ts.isCallExpression(expression) && BOOLEAN_PROBES.has(calleeName(expression.expression) ?? ""))
+  );
+}
+
+function expressionReferencesAuthored(node, readBindings, readScopes) {
+  if (node === undefined) return false;
+  if (ts.isIdentifier(node) && readBindings.has(node.text)) return true;
+  if (ts.isCallExpression(node)) {
+    const callee = calleeName(node.expression);
+    if (callee !== null && (FS_READS.has(callee) || readScopes.has(callee))) return true;
+  }
+  let found = false;
+  node.forEachChild((child) => {
+    if (!found && expressionReferencesAuthored(child, readBindings, readScopes)) found = true;
+  });
+  return found;
+}
+
+function readinessDerivedExpression(node, readBindings) {
+  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
+  if (ts.isConditionalExpression(expression))
+    return (
+      referencesReadBinding(expression.condition, readBindings) &&
+      stringVerdictExpression(expression.whenTrue) &&
+      stringVerdictExpression(expression.whenFalse)
+    );
+  return false;
+}
+
+function conditionReturnsVerdict(statement, readBindings) {
+  if (!referencesReadBinding(statement.expression, readBindings)) return false;
+  const returnedVerdict = (node) => {
+    if (ts.isReturnStatement(node)) return node.expression !== undefined && stringVerdictExpression(node.expression);
+    if (ts.isBlock(node)) return node.statements.some(returnedVerdict);
+    return false;
+  };
+  return (
+    returnedVerdict(statement.thenStatement) ||
+    (statement.elseStatement !== undefined && returnedVerdict(statement.elseStatement))
+  );
+}
+
+function referencesReadBinding(node, readBindings) {
+  if (node === undefined) return false;
+  if (ts.isIdentifier(node) && readBindings.has(node.text)) return true;
+  let found = false;
+  node.forEachChild((child) => {
+    if (!found && referencesReadBinding(child, readBindings)) found = true;
+  });
+  return found;
+}
+
+function stringVerdictExpression(node) {
+  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
+  if (ts.isStringLiteralLike(expression)) return true;
+  return (
+    ts.isConditionalExpression(expression) &&
+    stringVerdictExpression(expression.whenTrue) &&
+    stringVerdictExpression(expression.whenFalse)
   );
 }
 

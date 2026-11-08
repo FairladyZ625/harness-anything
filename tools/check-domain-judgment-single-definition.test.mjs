@@ -167,7 +167,7 @@ test("authored readiness baseline only shrinks and drops migrated sites", () => 
 
 test("positive fixture: readiness derived with custom words or without a ready literal is refused", (t) => {
   const findings = fixtureFindings(t);
-  for (const symbol of ["documentReadiness", "scaffoldState"])
+  for (const symbol of ["documentReadiness", "scaffoldState", "evaluate"])
     assert.ok(
       findings.some(
         (finding) =>

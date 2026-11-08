@@ -9,3 +9,10 @@ export function documentReadiness(file: string): "complete" | "incomplete" {
 export function scaffoldState(file: string): "authored" | "empty" {
   return readFileSync(file, "utf8").trim().length > 0 ? "authored" : "empty";
 }
+
+// Positive control (review F1): an ordinary helper name and custom answer words still derive a
+// readiness verdict from the bytes it read. The gate must not depend on `ready` appearing in names.
+export function evaluate(file: string): "complete" | "incomplete" {
+  const body = readFileSync(file, "utf8");
+  return body.trim().length > 0 ? "complete" : "incomplete";
+}
