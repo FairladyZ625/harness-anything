@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -75,10 +76,16 @@ test("an external scope parent cannot hide a workspace link", (t) => {
   assert.equal(check.ok, false);
   assert.equal(finding.physicalParent, externalScope);
   assert.equal(finding.target, path.resolve(externalScope, "../../packages/cli"));
-  assert.match(finding.repairCommand, /ln -sfn .*packages\/cli .*node_modules/u);
+  assert.match(
+    finding.repairCommand,
+    /rm -f .*node_modules\/@harness-anything && mkdir -p .*node_modules\/@harness-anything && ln -sfn \.\.\/\.\.\/packages\/cli/u,
+  );
   const doctor = workspaceLinkDoctorCheck(root);
   assert.equal(doctor.status, "fail");
-  assert.match(doctor.next, /ln -sfn .*packages\/cli/u);
+  assert.match(doctor.next, /rm -f .*node_modules\/@harness-anything/u);
+  execFileSync("sh", ["-c", finding.repairCommand], { cwd: root });
+  assert.deepEqual(checkWorkspaceLinks(root), { rootDir: root, checked: 1, findings: [], ok: true });
+  assert.equal(workspaceLinkDoctorCheck(root).status, "ok");
 });
 
 test("daemon startup refuses external workspace links before creating its pid", async (t) => {

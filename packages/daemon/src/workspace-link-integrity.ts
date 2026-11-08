@@ -38,13 +38,16 @@ export function checkWorkspaceLinks(rootDir: string): WorkspaceLinkCheck {
     if (!parentOutside && !targetOutside) continue;
     const expectedTarget = path.resolve(resolvedRoot, entry.relativePath),
       expectedLinkTarget = path.relative(path.dirname(linkPath), expectedTarget) || ".";
+    const externalAncestor = parentOutside ? findExternalAncestor(resolvedRoot, linkPath) : null;
     findings.push({
       packageName: entry.packageName,
       linkPath,
       target: resolvedTarget,
       physicalParent,
       expectedTarget,
-      repairCommand: `ln -sfn ${expectedLinkTarget} ${linkPath}`,
+      repairCommand: externalAncestor
+        ? `rm -f ${externalAncestor} && mkdir -p ${path.dirname(linkPath)} && ln -sfn ${expectedLinkTarget} ${linkPath}`
+        : `ln -sfn ${expectedLinkTarget} ${linkPath}`,
     });
   }
   return { rootDir: resolvedRoot, checked: packages.length, findings, ok: findings.length === 0 };
@@ -133,4 +136,17 @@ function workspacePackages(rootDir: string): readonly WorkspacePackage[] {
 
 function readJson(file: string): Record<string, unknown> | null {
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>) : null;
+}
+
+function findExternalAncestor(rootDir: string, linkPath: string): string | null {
+  for (let current = path.dirname(linkPath); current !== rootDir; current = path.dirname(current)) {
+    const stat = lstatSync(current, { throwIfNoEntry: false });
+    if (stat?.isSymbolicLink() && isOutside(rootDir, realpathSync(current))) return current;
+  }
+  return null;
+}
+
+function isOutside(rootDir: string, candidate: string): boolean {
+  const relative = path.relative(rootDir, candidate);
+  return relative === ".." || relative.startsWith(`..${path.sep}`);
 }
