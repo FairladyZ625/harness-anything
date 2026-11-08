@@ -1001,29 +1001,24 @@
     ],
     "overBudgetFiles": [
       {
-        "value": "packages/cli/test/daemon-autostart-cli.test.ts",
+        "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
         "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (193s measured in run 42444277410, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
-      },
-      {
-        "value": "packages/cli/test/runtime-cli-dispatch.integration.test.ts",
-        "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (200s measured in run 42444277410, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+        "reason": "Over the 180s per-file budget (215s median of runs 42444277410 and 42446109102, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
       },
       {
         "value": "packages/cli/test/runtime-cli-lifecycle.integration.test.ts",
         "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (181s measured in run 42444277410, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+        "reason": "Over the 180s per-file budget (197s median of runs 42444277410 and 42446109102, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
       },
       {
         "value": "packages/daemon/test/daemon-package.integration.test.mjs",
         "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (208s measured in run 42444277410, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+        "reason": "Over the 180s per-file budget (208s median of runs 42444277410 and 42446109102, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
       },
       {
         "value": "packages/daemon/test/daemon-resident-readoption.integration.test.ts",
         "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (205s measured in run 42444277410, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+        "reason": "Over the 180s per-file budget (203s median of runs 42444277410 and 42446109102, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
       }
     ]
   }

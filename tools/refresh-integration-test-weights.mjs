@@ -28,7 +28,9 @@ export function integrationWeightsFromLogs(logs, integrationFiles) {
   const weights = {};
   for (const file of [...samples.keys()].sort()) {
     const sorted = samples.get(file).sort((left, right) => left - right);
-    weights[file] = Math.max(100, Math.round(sorted[Math.floor(sorted.length / 2)] / 100) * 100);
+    const middle = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    weights[file] = Math.max(100, Math.round(median / 100) * 100);
   }
   return weights;
 }

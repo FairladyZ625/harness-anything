@@ -472,6 +472,10 @@ test("weights refresh from runner duration lines takes each file's median across
     ["tools/a.test.mjs", "tools/b.test.mjs", "tools/unmeasured.test.mjs"],
   );
   assert.deepEqual(weights, { "tools/a.test.mjs": 20_000, "tools/b.test.mjs": 100 });
+  // An even sample count takes the mean of the middle two, so neither run alone sets the weight.
+  assert.deepEqual(integrationWeightsFromLogs([log(10_000, 40), log(20_000, 60)], ["tools/a.test.mjs"]), {
+    "tools/a.test.mjs": 15_000,
+  });
 });
 
 // Every derived shard must hold a file, so a fixture tree needs at least one file per shard
