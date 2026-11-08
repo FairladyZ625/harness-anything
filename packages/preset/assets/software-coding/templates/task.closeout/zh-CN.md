@@ -1,6 +1,6 @@
 # Closeout
 
-这个文件是 issue 时物化的固定骨架，直接改写每一节的内容即可；提交只读取正文，不比较章节标题，也不检查是否还留着提示句。closeout 总结 verdict，但不能替代 fact 账本或 decision/relation。
+这个文件是 issue 时物化的固定骨架，直接改写每一节的内容即可；提交只读取正文，不比较章节标题，也不检查是否还留着提示句。以公开 PR 交付的任务（repository-diff，且仓库有托管 origin）还必须写 `## 摘要` 与 `## 验证` 两节：`ha task submit` 与 PR 正文生成器调用同一个判定，缺任一节即拒绝并给出 closeout 路径。closeout 总结 verdict，但不能替代 fact 账本或 decision/relation。
 
 ## Summary
 

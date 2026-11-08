@@ -80,6 +80,7 @@ const workerDiscipline = `# Worker Role
 - A Squad child hands its local commits to the Commander and stops; its branch is not published at settlement. For a task-bound delivery:
 ${taskDeliveryPublicationDiscipline}
 - Fill closeout.md and finish task-package edits before ha task submit. Submit accepts those documents and releases the implementation write lease. For later document changes, ask the CEO to sync them or return the task for rework; do not run a separate doc sync after submit. If automatic reviewer dispatch fails, give the submit receipt to the CEO; workers cannot run ha task dispatch-review.
+- A public PR delivery (repository-diff on a repository with a hosting origin) must author \`## 摘要\` and \`## 验证\` in closeout.md; \`ha task submit\` and the PR body renderer call the same kernel judgment, so a missing section is refused at submit with the closeout path rather than at the CEO's first render.
 - Hand back delivery, verification, residual risks and same-mechanism evidence in the package's closeout.md; use a separate report only for material it cannot hold.
 - Write each checkpoint's conclusions into the report or progress log, then continue; a checkpoint is not a stop. After three consecutive failures with no new evidence, report the blocker and attempted paths.`;
 

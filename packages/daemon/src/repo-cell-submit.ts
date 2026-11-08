@@ -9,6 +9,7 @@ import {
   isSameExecution,
   isSamePerson,
   isTaskEvent,
+  missingChineseCloseoutSections,
   resolveCompletionContract,
   productionDeltaFromNumstat,
   parseNumstatRecords,
@@ -35,7 +36,7 @@ import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktre
 import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
-import { detectHostingProvider } from "./hosting-provider.ts";
+import { detectHostingProvider, publishesPublicPullRequest } from "./hosting-provider.ts";
 import { updateTaskPullRequestBody } from "./runtime-task-publication.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 
@@ -87,6 +88,22 @@ function deriveCloseoutSubmissionData(
       document.packagePath,
       carried?.changes,
     );
+  // A public PR delivery publishes the closeout's Chinese mirror. The PR body generator judges this
+  // at publication time; submit calls the same kernel judgment so the worker sees the missing
+  // section next to the file it must fix instead of the CEO seeing it after the cut is frozen.
+  if (!privateDelivery && publishesPublicPullRequest(cell.rootDir)) {
+    const missing = missingChineseCloseoutSections(document.body),
+      listed = missing.map((title) => `## ${title}`).join(" and ");
+    if (missing.length > 0)
+      throw Object.assign(
+        cell.cellCodedError(
+          "invalid_submission",
+          `Closeout harness/${document.path} is missing ${listed}; a public PR delivery publishes ` +
+            "the closeout in Chinese and English, so both sections are required.",
+        ),
+        { nextAction: `Add ${listed} to harness/${document.path}, then run ha task submit ${taskId}.` },
+      );
+  }
   const carriedByPath = new Map<string, DocEventChange>(carried?.changes.map((change) => [change.path, change])),
     readArtifact = createSubmissionArtifactReader(cell);
   const freezeArtifact = (artifact: string) => {

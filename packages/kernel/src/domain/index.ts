@@ -97,6 +97,9 @@ export type { BlockingLabel } from "./task-blocking.ts";
 
 export {
   assessTransitionDocument,
+  chineseCloseoutSectionBodies,
+  chineseCloseoutSections,
+  missingChineseCloseoutSections,
   submissionFromCloseout,
   assertTransitionDocumentReady,
   requireTransitionDocumentKind,

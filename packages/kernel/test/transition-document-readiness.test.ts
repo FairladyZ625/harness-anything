@@ -5,6 +5,9 @@ import test from "node:test";
 import { markdownSections } from "../src/domain/transition-document-readiness.ts";
 import {
   assessTransitionDocument,
+  chineseCloseoutSectionBodies,
+  chineseCloseoutSections,
+  missingChineseCloseoutSections,
   submissionFromCloseout,
   assertTransitionDocumentReady,
   getTaskActionForTransition,
@@ -474,4 +477,38 @@ test("the lightweight closeout submits without risk sections and keeps its own V
   // The lightweight template itself is a valid authored body: its prompt sentences are content.
   const untouched = submissionFromCloseout(lightweightCloseoutTemplate, cut);
   assert.equal(untouched.completionClaim.startsWith("Summarize the completed behavior change."), true);
+});
+
+test("the bilingual closeout judgment reads authored aliases and names only missing required sections", () => {
+  assert.deepEqual(missingChineseCloseoutSections("# Closeout\n\n## Summary\n\nEnglish only.\n"), ["摘要", "验证"]);
+  const bilingual =
+    "# Closeout\n\n## 概要\n\n中文摘要。\n\n## 改动\n\n- 中文改动。\n\n## 验证记录\n\n- 退出码 0。\n\n## 剩余风险\n\n- 无。\n";
+  assert.deepEqual(missingChineseCloseoutSections(bilingual), []);
+  const bodies = chineseCloseoutSectionBodies(bilingual);
+  assert.equal(bodies.Summary, "中文摘要。");
+  assert.equal(bodies["What Changed"], "- 中文改动。");
+  assert.equal(bodies.Verification, "- 退出码 0。");
+  assert.equal(bodies["Residual Risk"], "- 无。");
+});
+
+test("an empty required Chinese section is missing even when its heading exists", () => {
+  assert.deepEqual(missingChineseCloseoutSections("# Closeout\n\n## 摘要\n\n## 验证\n\n- 退出码 0。\n"), ["摘要"]);
+  assert.deepEqual(missingChineseCloseoutSections("# Closeout\n\n## Summary\n\nEnglish.\n\n## 验证\n\n"), [
+    "摘要",
+    "验证",
+  ]);
+});
+
+test("the bilingual closeout table is the published Chinese section order and aliases", () => {
+  assert.deepEqual(
+    chineseCloseoutSections.map(({ title, required }) => [title, required]),
+    [
+      ["摘要", true],
+      ["改动内容", false],
+      ["验证", true],
+      ["残余风险", false],
+    ],
+  );
+  assert.deepEqual(chineseCloseoutSections[0]?.aliases, ["摘要", "概要"]);
+  assert.deepEqual(chineseCloseoutSections[2]?.aliases, ["验证", "验证记录", "验证结果"]);
 });

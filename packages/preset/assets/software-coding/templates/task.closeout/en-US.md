@@ -1,7 +1,10 @@
 # Closeout
 
 This file is the fixed skeleton materialized with the task; rewrite each section in place. Submit
-reads the prose and never compares headings or rejects retained prompt sentences. Closeout
+reads the prose and never compares headings or rejects retained prompt sentences. A public PR
+delivery (repository-diff on a repository with a hosting origin) must also author `## 摘要` and
+`## 验证`: `ha task submit` and the PR body renderer call the same judgment, so a missing section is
+refused at submit with the closeout path. Closeout
 summarizes the verdict, but it does not replace the fact ledger or decision/relation records.
 
 ## Summary

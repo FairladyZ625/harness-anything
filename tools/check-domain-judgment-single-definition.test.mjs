@@ -30,7 +30,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /seven judgments resolve to kernel domain services/u);
+  assert.match(result.stdout, /eight judgments resolve to kernel domain services/u);
 });
 
 test("positive fixture: a renderer readiness definition is refused", (t) => {
@@ -64,6 +64,28 @@ test("positive fixture: daemon start preview and CLI cancellation eligibility co
   );
   assert.ok(
     findings.some((finding) => finding.includes("cancellation eligibility")),
+    findings.join("\n"),
+  );
+});
+
+// The bilingual closeout judgment is the writing boundary `ha task submit` and the PR body
+// renderer share. A second implementation on either side — including a tool-side renderer copy —
+// must fail this gate, which is what makes "same exported function" enforced rather than trusted.
+test("positive fixture: a second bilingual closeout judgment in daemon or renderer is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("closeoutBilingualDelivery") && finding.includes("packages/daemon/src/duplicate-judgments.ts"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("closeoutBilingualDelivery") &&
+        finding.includes("tools/gates/duplicate-closeout-judgment.mjs"),
+    ),
     findings.join("\n"),
   );
 });

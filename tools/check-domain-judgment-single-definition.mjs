@@ -52,6 +52,12 @@ const judgments = Object.freeze([
     canonical: "packages/kernel/src/domain/status-vocabulary.ts",
     declaration: "const",
   },
+  {
+    id: "closeoutBilingualDelivery",
+    symbol: "missingChineseCloseoutSections",
+    canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
+    declaration: "function",
+  },
 ]);
 const requiredConsumers = new Map([
   ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts", "closeoutReadiness("],
@@ -70,11 +76,13 @@ const requiredConsumers = new Map([
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#task", "export const taskStatusWords = ["],
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#decision", "export const decisionStateWords = ["],
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#fact", "export const factLivenessWords = ["],
+  ["tools/gates/render-task-pr-body.mjs", "missingChineseCloseoutSections("],
+  ["packages/daemon/src/repo-cell-submit.ts", "missingChineseCloseoutSections("],
 ]);
 
 export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
   const findings = [],
-    files = listWorktreeFiles(root, ["packages"]).filter(
+    files = listWorktreeFiles(root, ["packages", "tools/gates"]).filter(
       (rel) =>
         /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(rel) &&
         !/(?:^|\/)(?:test|tests|fixtures)\//u.test(rel) &&
@@ -156,7 +164,7 @@ async function main() {
     for (const finding of findings) console.error(`- ${finding}`);
     process.exit(1);
   }
-  console.log("Domain judgment single-definition check passed (seven judgments resolve to kernel domain services).");
+  console.log("Domain judgment single-definition check passed (eight judgments resolve to kernel domain services).");
 }
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
