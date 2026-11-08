@@ -1234,7 +1234,12 @@ test(
         );
         assert.ok(stream.records.some((record) => record.kind === "process_lost"));
         assert.match(JSON.stringify(stream.records), /no longer alive/u);
-        process.kill(providerPid, "SIGKILL");
+        try {
+          process.kill(providerPid, "SIGKILL");
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+          consumeKnownError(error);
+        }
         providerPid = 0;
       }
     } finally {

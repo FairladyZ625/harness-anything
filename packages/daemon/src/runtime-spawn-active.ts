@@ -191,6 +191,7 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
   if (active.process.terminateTree) await active.process.terminateTree();
   else active.process.terminate();
   await consumeDurableOutput(context, active);
+  await publishActiveDispatchLifecycle(context, active, { type: "process_lost" });
   await context.publishExit(active, null);
 }
 
@@ -339,6 +340,7 @@ function retireObservationFault(
           reason: active.lossReason!,
         });
         await consumeDurableOutput(context, active);
+        await publishActiveDispatchLifecycle(context, active, { type: "process_lost" });
         await context.publishExit(active, null);
       }, active.binding);
     })

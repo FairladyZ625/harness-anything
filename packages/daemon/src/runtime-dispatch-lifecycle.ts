@@ -33,7 +33,7 @@ export async function publishDispatchLifecycle(
   const lifecycle = {
     schema: "dispatch-lifecycle-event/v1" as const,
     source: context.input.remote ? ("edge" as const) : ("center" as const),
-    eventId: input.eventId ?? `dispatch-lifecycle:${input.dispatchId}:${input.expectedGroupVersion}:${randomUUID()}`,
+    eventId: input.eventId ?? `dispatch-lifecycle-${input.dispatchId}-${input.expectedGroupVersion}-${randomUUID()}`,
     repoId: context.input.repoId,
     attemptGroupId: input.attemptGroupId,
     dispatchId: input.dispatchId,
@@ -58,7 +58,13 @@ export async function publishActiveDispatchLifecycle(
   >,
   fields: LifecycleEventFields,
 ): Promise<DispatchLifecycleEvent | null> {
-  if (active.lifecycleAttemptGroupId === null || active.lifecycleVersion === null) return null;
+  if (
+    active.lifecycleAttemptGroupId === null ||
+    active.lifecycleAttemptGroupId === undefined ||
+    active.lifecycleVersion === null ||
+    active.lifecycleVersion === undefined
+  )
+    return null;
   const event = await publishDispatchLifecycle(context, {
     runtimeSessionId: active.runtimeSessionId,
     dispatchId: active.dispatchId,
