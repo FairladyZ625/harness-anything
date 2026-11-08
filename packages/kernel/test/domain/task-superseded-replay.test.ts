@@ -8,6 +8,7 @@ import {
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
+import { serializeTaskEvent } from "../../src/domain/task-lifecycle.contract.ts";
 
 type SupersededEvent = Extract<TaskEventV1, { readonly type: "task_superseded" }>;
 
@@ -40,6 +41,15 @@ test("replay never accepts a superseded task as archived+active: legacy payloads
     "archived/active",
     "the archived+active pair must not survive replay",
   );
+});
+
+test("current admission rejects the archived+active pair while historical replay stays readable", () => {
+  assert.throws(
+    () => serializeTaskEvent(fixture),
+    /terminal cancelled status, not archived\+active/u,
+    "a new supersede event must not record archived+active",
+  );
+  assert.equal(reduceTaskEvent(beforeSupersede(fixture), fixture).task?.status, "cancelled");
 });
 
 test("a supersede event that carries only the terminal status still derives its archived disposition", () => {
