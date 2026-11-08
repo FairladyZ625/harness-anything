@@ -113,6 +113,11 @@ export function launchArgs(
       "runtime_approved_command_unsupported",
       "Reviewed exact commands are only supported by Claude Code permissions.allow.",
     );
+  if (approvedRules.length && permissionMode !== "workspace-write")
+    throw runtimeInstanceError(
+      "runtime_approved_command_permission_mode",
+      "Reviewed exact commands require Claude workspace-write; select that mode or remove the command declaration.",
+    );
   if (commandInterceptions.length && commandInterceptionNeedsFiles(config.kindId) && !commandInterceptionArgs.length)
     throw runtimeInstanceError(
       "runtime_command_interception_unprepared",

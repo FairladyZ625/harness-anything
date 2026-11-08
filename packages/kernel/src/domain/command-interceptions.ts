@@ -9,7 +9,7 @@ export type CommandInterception =
     }
   | {
       readonly id: string;
-      /** One host-reviewed, invocation-scoped command admitted to Claude's native Bash policy. */
+      /** One exact command admitted to Claude workspace-write for this repository and optional Agent. */
       readonly approvedCommand: string;
       readonly agent?: string;
     };

@@ -1,11 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { readSettingsFacet } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
@@ -17,15 +17,17 @@ const cli = (process.env.PATH ?? "")
     .find(existsSync),
   version = cli ? spawnSync(cli, ["--version"], { encoding: "utf8" }).stdout.trim() : "";
 
-test(
-  "real Claude launched through the runtime store and worker host refuses declared commands and executes others",
-  {
-    timeout: 90_000,
-    skip: !cli ? "requires installed Claude Code CLI" : false,
-  },
-  async (t) => {
+function claudeScenario(approved: boolean) {
+  return async (t: TestContext) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-claude-interception-")),
       cwd = path.join(root, "repo"),
+      bridge = path.join(cwd, "bridge.cjs"),
+      bridgePrefix = `"${process.execPath}" "${bridge}"`,
+      allowedCommand = approved
+        ? `${bridgePrefix} task-create '${JSON.stringify({ title: "bounded fixture ".repeat(128) })}' --instance-snapshot '{"id":"fixture"}'`
+        : "printf allowed > allowed.txt",
+      deniedCommand = approved ? `${bridgePrefix} unapproved` : "printf denied > denied.txt",
+      permissionMode = approved ? ("workspace-write" as const) : ("bypass" as const),
       outputs: { content: string; is_error?: boolean }[] = [],
       model = createServer(async (request, response) => {
         let raw = "";
@@ -45,12 +47,12 @@ test(
         const content = outputs.length
             ? [{ type: "text", text: "fixture complete" }]
             : [
-                { type: "tool_use", id: "tool_denied", name: "Bash", input: { command: "printf denied > denied.txt" } },
+                { type: "tool_use", id: "tool_denied", name: "Bash", input: { command: deniedCommand } },
                 {
                   type: "tool_use",
                   id: "tool_allowed",
                   name: "Bash",
-                  input: { command: "printf allowed > allowed.txt" },
+                  input: { command: allowedCommand },
                 },
               ],
           message = {
@@ -97,6 +99,11 @@ test(
         response.end();
       });
     mkdirSync(cwd);
+    if (approved)
+      writeFileSync(
+        bridge,
+        'const fs = require("node:fs"); fs.writeFileSync(process.argv[2] === "task-create" ? "allowed.txt" : "denied.txt", "allowed");',
+      );
     await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
     t.after(async () => {
       model.closeAllConnections();
@@ -126,14 +133,19 @@ test(
       models: ["claude-fable-5"],
       defaultModel: "claude-fable-5",
       enabled: true,
-      permissionMode: "bypass",
+      permissionMode,
       isolationState: "enforced",
       claude: { baseUrl: `http://127.0.0.1:${address.port}` },
       auth: { mode: "api-key", credentialRef: "credential:v1:claude-fixture" },
     });
-    const rules = readSettingsFacet(
-        "settings:\n  runtime:\n    commandInterceptions:\n      - id: no-denied-file\n        pattern: 'denied\\.txt'\n",
-      ).runtime.commandInterceptions,
+    const rules = approved
+        ? [
+            { id: "reviewed-bridge", approvedCommand: allowedCommand },
+            { id: "no-denied-file", pattern: " unapproved(?: |$)" },
+          ]
+        : readSettingsFacet(
+            "settings:\n  runtime:\n    commandInterceptions:\n      - id: no-denied-file\n        pattern: 'denied\\.txt'\n",
+          ).runtime.commandInterceptions,
       prepared = await store.prepareLaunch("claude-fixture", {
         cwd,
         prompt: "Execute the two fixture commands.",
@@ -149,7 +161,7 @@ test(
         startedAt: new Date().toISOString(),
         dispatchOpId: "fixture",
         kindId: "claude",
-        permissionMode: "bypass",
+        permissionMode,
         binding: { actor: { principal: { personId: "fixture" }, executor: null }, source: "local" },
         cwd,
         prompt: prepared.prompt,
@@ -201,5 +213,21 @@ test(
       outputs.some((output) => output.is_error && JSON.stringify(output.content).includes("no-denied-file")),
       JSON.stringify(outputs),
     );
-  },
-);
+  };
+}
+
+for (const approved of [false, true])
+  test(
+    approved
+      ? "real Claude workspace-write admits a reviewed bridge and denies a same-prefix unapproved command"
+      : "real Claude launched through the runtime store and worker host refuses declared commands and executes others",
+    {
+      timeout: 90_000,
+      skip: !cli
+        ? "requires installed Claude Code CLI"
+        : approved && !["darwin", "linux"].includes(process.platform)
+          ? "requires Claude native Bash sandbox on macOS/Linux"
+          : false,
+    },
+    claudeScenario(approved),
+  );
