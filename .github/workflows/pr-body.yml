@@ -69,16 +69,22 @@ jobs:
         with:
           script: core.info("Evidence and dependency declarations were already evaluated on each queued source PR.");
       - uses: actions/checkout@v4
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         with:
           node-version: 24
       - name: Fetch the comparison base
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         run: git fetch --no-tags origin main
+      # production-delta has no body input, so the merge group measures its own combined tree.
+      - name: Compute production delta for the merge group
+        if: github.event_name == 'merge_group'
+        env:
+          PR_BASE_SHA: ${{ github.event.merge_group.base_sha || 'origin/main' }}
+        run: node tools/gates/production-delta.mjs --base "$PR_BASE_SHA"
       # The Dependency-Change declaration judges the pull request as it is now, so a rerun must
       # fetch the live body instead of replaying the event payload captured at trigger time.
       - name: Fetch the live PR body
