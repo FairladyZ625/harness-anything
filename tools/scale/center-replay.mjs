@@ -119,6 +119,7 @@ export async function replayTraffic({
     observeWakeups = new Set(),
     pending = new Set(),
     accumulator = requestAccumulator();
+  let replayCompleted = false;
   const subscribeObserve = (arrive) => {
       observeWakeups.add(arrive);
       return () => observeWakeups.delete(arrive);
@@ -137,7 +138,11 @@ export async function replayTraffic({
     ["history", ...(count > 1 ? ["follow"] : [])].map((direction) =>
       waitForArrival(
         () =>
-          observeArrivals.some((arrival) => arrival.node === node && arrival.direction === direction) ? true : null,
+          observeArrivals.some((arrival) => arrival.node === node && arrival.direction === direction)
+            ? true
+            : replayCompleted
+              ? false
+              : null,
         subscribeObserve,
       ),
     ),
@@ -262,7 +267,6 @@ export async function replayTraffic({
       if (serial % 128 === 0) await new Promise((resolve) => setImmediate(resolve));
     }
     await Promise.all(pending);
-    await Promise.all(observeArrivalWaits);
     const elapsedMs = performance.now() - started;
     return {
       nodes,
@@ -282,6 +286,12 @@ export async function replayTraffic({
         "arrival-to-terminal-reply, including generator lag; percentiles include successful requests only",
     };
   } finally {
+    // A fault campaign can finish requests unsuccessfully (for example, during build supersession).
+    // Its terminal event releases missing-arrival waits without claiming those arrivals succeeded;
+    // the report retains the request errors and only successful history/follow replies.
+    replayCompleted = true;
+    for (const arrive of observeWakeups) arrive();
+    await Promise.all(observeArrivalWaits);
     const openings = await Promise.allSettled([...sessions.values()].map((session) => session.opening));
     for (const opened of openings) if (opened.status === "fulfilled") opened.value.close();
   }
