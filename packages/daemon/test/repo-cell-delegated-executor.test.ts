@@ -284,6 +284,8 @@ function contextFor(
       latched: () => "latched",
       latchWith: () => undefined,
       queueDepth: 0,
+      // The shared append tracker: every queued write records itself here, so the fixture keeps one.
+      writeQueue: { waiting: [], nowMs: () => 0 },
       get tail() {
         return currentTail;
       },

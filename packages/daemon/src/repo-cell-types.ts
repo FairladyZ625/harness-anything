@@ -154,6 +154,42 @@ export type TaskProgressReceipt = WriteReceiptDraft & {
 
 export type RepoCellAttachProgress = DaemonRepoAttachProgress;
 
+/** The write that currently owns the repository's single-write chain. */
+export interface RepoCellWriteQueueHead {
+  /** The writer request that owns this turn; null for daemon-internal work such as a builtin run. */
+  readonly requestId: string | null;
+  /** The command or builtin label this turn belongs to. */
+  readonly command: string;
+  /** Milliseconds the head had already been executing when the waiting request was appended. */
+  readonly executingMs: number;
+}
+
+/** Label a queued write turn carries while it is the head, so waiters can name what blocked them. */
+export interface RepoCellWriteQueueLabel {
+  readonly requestId: string | null;
+  readonly command: string;
+}
+
+export interface RepoCellWriteQueueEntry {
+  readonly label: RepoCellWriteQueueLabel;
+  /** Process-monotonic append time; a queued turn that has not started yet still blocks later appends. */
+  readonly appendedAtMs: number;
+  startedAtMs?: number;
+}
+
+export interface RepoCellWriteQueueState {
+  /** Appended turns not settled yet, oldest first; index 0 is the head a new append waits behind. */
+  readonly waiting: RepoCellWriteQueueEntry[];
+  /** Process-monotonic milliseconds; injected so queue tests do not read the wall clock. */
+  readonly nowMs: () => number;
+}
+
+/** Filled by the queue at the first append: the head live when this request started waiting. */
+export interface RepoCellQueueObservation {
+  readonly label: RepoCellWriteQueueLabel;
+  head?: RepoCellWriteQueueHead | null;
+}
+
 export interface RepoCellStatus {
   readonly repoId: string;
   readonly rootDir: string;
@@ -221,22 +257,44 @@ export interface RepoCell {
     binding: RepoCellBinding,
     signal?: AbortSignal,
     onExecutionStart?: () => void,
+    queueObservation?: RepoCellQueueObservation,
   ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (
     action: RepoTaskAction,
     binding: RepoCellBinding,
     onSettled?: () => void,
+    queueObservation?: RepoCellQueueObservation,
   ) => Promise<PresetRunReceiptV1>;
-  readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
-  readonly handoffRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
-  readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
-  readonly steerRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
+  readonly spawnRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
+  readonly handoffRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
+  readonly cancelRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
+  readonly steerRuntime: (
+    payload: JsonObject,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
   readonly runtimeSignalVersion: () => number;
   readonly awaitRuntimeSignal: (observedVersion?: number) => Promise<void>;
-  readonly runtimeIngress: (action: RuntimeIngressAction, binding: RepoCellBinding) => Promise<JsonObject>;
+  readonly runtimeIngress: (
+    action: RuntimeIngressAction,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<JsonObject>;
   readonly catalog: ReturnType<typeof openGuiCatalog>;
   readonly terminal: RepoCellTerminal;
   readonly read: <M extends RepoCellReadMethod>(
@@ -274,17 +332,20 @@ export interface RepoCell {
   readonly inFlightWork: () => Promise<readonly RepoInFlightWork[]>;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
   readonly settlePendingMaterialization: (context: string) => Promise<void>;
-  readonly backup?: (input: {
-    readonly kind: "backup" | "drill";
-    readonly backupDir: string;
-    readonly shadowParent?: string;
-    readonly registration: DaemonRegistryRepo;
-    readonly writerEpoch: number;
-  }) => Promise<
+  readonly backup?: (
+    input: {
+      readonly kind: "backup" | "drill";
+      readonly backupDir: string;
+      readonly shadowParent?: string;
+      readonly registration: DaemonRegistryRepo;
+      readonly writerEpoch: number;
+    },
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<
     ReturnType<typeof createLedgerBackup> | Awaited<ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>>
   >;
   /** Replication-log retention, run on this repository's single write chain. */
-  readonly pruneReplicationLog?: (beforeSequence: number) => Promise<void>;
+  readonly pruneReplicationLog?: (beforeSequence: number, queueObservation?: RepoCellQueueObservation) => Promise<void>;
   readonly close: () => Promise<void>;
 }
 

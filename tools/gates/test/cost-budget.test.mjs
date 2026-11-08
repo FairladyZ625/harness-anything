@@ -412,6 +412,32 @@ test("task-submit scaling measures the production orchestration and one acceptan
   assert.equal(evaluateCollectionCosts({ submit: measured }).ok, true);
 });
 
+test("a constant-growth probe rejects writer-held work that grows with the collection", () => {
+  const linear = {
+      small: { size: 100, counts: { captureCopiedFiles: 101 } },
+      large: { size: 2000, counts: { captureCopiedFiles: 2001 } },
+    },
+    result = evaluateCollectionCosts({
+      "schedule-run-now:unchanged-ledger-files": { ...linear, growth: "constant" },
+    });
+  assert.equal(result.ok, false);
+  assert.match(result.errors[0], /101 at 100 grew to 2001 at 2000 .*constant-cost limit/u);
+  // The same counts pass the default linear rule, which is why the backup probe declares constant growth.
+  assert.equal(evaluateCollectionCosts({ "linear:probe": linear }).ok, true);
+});
+
+test("the scheduled backup capture copies only changed ledger files while the writer is held", async () => {
+  const probe = COLLECTION_PROBES["schedule-run-now:unchanged-ledger-files"],
+    measured = {
+      small: await probe.run(process.cwd(), COLLECTION_SCALES.small),
+      large: await probe.run(process.cwd(), COLLECTION_SCALES.large),
+      growth: probe.growth,
+    };
+  assert.equal(probe.growth, "constant");
+  assert.deepEqual([measured.small.counts.captureCopiedFiles, measured.large.counts.captureCopiedFiles], [1, 1]);
+  assert.deepEqual(evaluateCollectionCosts({ "schedule-run-now:unchanged-ledger-files": measured }).errors, []);
+});
+
 test("task-witness-run scans the selected execution's frozen gate collection linearly", async () => {
   const measured = {
     small: await measureTaskWitnessGates(process.cwd(), 100),

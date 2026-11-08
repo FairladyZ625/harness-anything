@@ -120,25 +120,32 @@ export async function runCompletionSources(
     binding: RepoCellBinding,
   ): Promise<{ readonly receipt: WriteReceiptDraft; readonly execution?: ExecutionV1 }> {
     context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, async () => {
-      context.queueDepth -= 1;
-      if (context.state !== "attached")
-        throw context.cellCodedError("repo_unavailable", "The source host lost its attached RepoCell.");
-      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      context.activeWriterEpochFence = authority.withWriterEpochFence ?? null;
-      context.activeWriterEpochFenceDescriptor = authority.writerEpochFence ?? null;
-      try {
-        const receipt = await context.executeAction({ ...action, [centerWitnessAction]: true }, binding),
-          cut = context.projection
-            .read(taskId)
-            .snapshot.executions.find((value) => value.executionId === action.executionId);
-        context.replica.kick();
-        return { receipt, ...(cut?.schema === "execution/v1" ? { execution: cut } : {}) };
-      } finally {
-        context.activeWriterEpochFence = null;
-        context.activeWriterEpochFenceDescriptor = null;
-      }
-    });
+    const pending = chainRepoCellWrite(
+      context.tail,
+      async () => {
+        context.queueDepth -= 1;
+        if (context.state !== "attached")
+          throw context.cellCodedError("repo_unavailable", "The source host lost its attached RepoCell.");
+        assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+        context.activeWriterEpochFence = authority.withWriterEpochFence ?? null;
+        context.activeWriterEpochFenceDescriptor = authority.writerEpochFence ?? null;
+        try {
+          const receipt = await context.executeAction({ ...action, [centerWitnessAction]: true }, binding),
+            cut = context.projection
+              .read(taskId)
+              .snapshot.executions.find((value) => value.executionId === action.executionId);
+          context.replica.kick();
+          return { receipt, ...(cut?.schema === "execution/v1" ? { execution: cut } : {}) };
+        } finally {
+          context.activeWriterEpochFence = null;
+          context.activeWriterEpochFenceDescriptor = null;
+        }
+      },
+      {
+        queue: context.writeQueue,
+        label: { command: action.kind, requestId: null },
+      },
+    );
     context.tail = pending.then(
       () => undefined,
       () => undefined,

@@ -18,6 +18,9 @@ export type { ReplicationCommit, ReplicationPosition } from "./replication-log.t
 export { contentClaims as replicationContentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 export {
   createLedgerBackup,
+  stageLedgerBackup,
+  type LedgerBackupCapture,
+  type LedgerBackupStage,
   drillLedgerBackup,
   readOfflineLedgerEvents,
   readVerifiedLedgerBackup,

@@ -118,6 +118,8 @@ export function daemonRequestLogEntry(input: {
   readonly result: object;
   readonly dispatchDelayMs: number;
   readonly serviceMs: number;
+  readonly queueMs?: number;
+  readonly queueHead?: DaemonRequestLogEntry["queueHead"];
 }): DaemonRequestLogEntry {
   const ok = resultOk(input.result);
   return {
@@ -135,6 +137,8 @@ export function daemonRequestLogEntry(input: {
     ...(ok ? {} : { detail: resultErrorDetail(input.result) }),
     dispatchDelayMs: input.dispatchDelayMs,
     serviceMs: input.serviceMs,
+    ...(input.queueMs === undefined ? {} : { queueMs: input.queueMs }),
+    ...(input.queueHead === undefined ? {} : { queueHead: input.queueHead }),
     durationMs: input.serviceMs,
   };
 }

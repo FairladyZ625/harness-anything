@@ -21,7 +21,15 @@ import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
+import type {
+  RepoCellAttachProgress,
+  RepoCellBinding,
+  RepoCellQueueObservation,
+  RepoCellWriteQueueEntry,
+  RepoCellWriteQueueHead,
+  RepoCellWriteQueueLabel,
+  RepoCellWriteQueueState,
+} from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
@@ -255,7 +263,49 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   }
 }
 
-export function chainRepoCellWrite<T>(tail: Promise<void>, work: () => T | PromiseLike<T>): Promise<T> {
+export function chainRepoCellWrite<T>(
+  tail: Promise<void>,
+  work: () => T | PromiseLike<T>,
+  options?: {
+    readonly queue: RepoCellWriteQueueState;
+    readonly label: RepoCellWriteQueueLabel;
+    readonly observation?: RepoCellQueueObservation;
+  },
+): Promise<T> {
+  const entry: RepoCellWriteQueueEntry | null =
+    options === undefined ? null : { label: options.label, appendedAtMs: options.queue.nowMs() };
+  // Capture before pushing this turn: the head then is the write blocking this one. Pushing at append
+  // time (not at start) keeps a burst queued in one tick attributable to the turn ahead of it.
+  if (entry !== null && options?.observation !== undefined && options.observation.head === undefined)
+    options.observation.head = captureRepoCellWriteQueueHead(options.queue);
+  if (entry !== null && options !== undefined) options.queue.waiting.push(entry);
   // One event-loop turn between serialized writes, so timers and I/O are not starved by a write backlog.
-  return tail.then(() => new Promise<void>((resolve) => setImmediate(resolve))).then(work);
+  const turn = tail.then(() => new Promise<void>((resolve) => setImmediate(resolve)));
+  return turn.then(() => {
+    if (options === undefined || entry === null) return work();
+    entry.startedAtMs = options.queue.nowMs();
+    // A synchronous throw would skip the finally and leave a settled turn as the head forever.
+    try {
+      return Promise.resolve(work()).finally(() => remove(entry, options.queue));
+    } catch (error) {
+      remove(entry, options.queue);
+      throw error;
+    }
+  });
+}
+
+function remove(entry: RepoCellWriteQueueEntry, queue: RepoCellWriteQueueState): void {
+  const index = queue.waiting.indexOf(entry);
+  if (index >= 0) queue.waiting.splice(index, 1);
+}
+
+/** The oldest appended turn and how long it has run, or null when the queue is idle. */
+export function captureRepoCellWriteQueueHead(queue: RepoCellWriteQueueState): RepoCellWriteQueueHead | null {
+  const head = queue.waiting[0];
+  if (head === undefined) return null;
+  return {
+    requestId: head.label.requestId,
+    command: head.label.command,
+    executingMs: head.startedAtMs === undefined ? 0 : Math.max(0, Math.round(queue.nowMs() - head.startedAtMs)),
+  };
 }

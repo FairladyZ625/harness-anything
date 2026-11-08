@@ -5,6 +5,7 @@ import test from "node:test";
 import type { Worker } from "node:worker_threads";
 import type { RepoCellOpenInput } from "../src/repo-cell-open.ts";
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
+import { beginDaemonOperation, withDaemonObservation } from "../src/daemon-operation.ts";
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   type RepoWriterControlV1,
@@ -221,6 +222,35 @@ test("completed runtime restorations extend startup, but duplicate, older and st
   assert.equal(writer.terminateCalls, 1);
 });
 
+test("a writer receipt records the queue head a waiting request was behind", async () => {
+  const writer = new FakeWriter(),
+    opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker });
+  writer.publish(writerStatus("ready", attachedStatus()));
+  const supervisor = await opening;
+  try {
+    const trace = await withDaemonObservation(
+      { begin: () => ({ update: () => undefined, end: () => undefined }) },
+      async () => {
+        const scope = beginDaemonOperation({ method: "repo.task.run" });
+        assert.ok(scope !== null, "the observer establishes an operation for the request");
+        try {
+          await scope.run(() => supervisor.request("run", { action: { kind: "task-create" } }));
+          return scope.handle.trace();
+        } finally {
+          scope.end();
+        }
+      },
+    );
+    assert.deepEqual(trace.queueHead, {
+      requestId: "writer-request-head",
+      command: "builtin:ledger-backup",
+      executingMs: 592_000,
+    });
+  } finally {
+    await supervisor.close();
+  }
+});
+
 class FakeWriter extends EventEmitter {
   terminateCalls = 0;
   private readonly emitExitOnTerminate: boolean;
@@ -231,6 +261,24 @@ class FakeWriter extends EventEmitter {
   }
 
   postMessage(message: unknown): void {
+    if (isWriteRequest(message)) {
+      this.emit("message", {
+        schema: "harness-repo-writer-receipt/v1",
+        protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+        requestId: message.requestId,
+        outcome: "ok",
+        value: { outcome: "applied" },
+        startedAtMs: 100,
+        executionStartedAtMs: 500,
+        finishedAtMs: 600,
+        queueHead: {
+          requestId: "writer-request-head",
+          command: "builtin:ledger-backup",
+          executingMs: 592_000,
+        },
+      });
+      return;
+    }
     if (!isControl(message)) return;
     this.emit("message", {
       schema: "harness-repo-writer-receipt/v1",
@@ -294,5 +342,13 @@ function isControl(value: unknown): value is RepoWriterControlV1 {
     value !== null &&
     typeof value === "object" &&
     (value as { readonly schema?: unknown }).schema === "harness-repo-writer-control/v1"
+  );
+}
+
+function isWriteRequest(value: unknown): value is { readonly requestId: string } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { readonly schema?: unknown }).schema === "harness-repo-writer-request/v1"
   );
 }

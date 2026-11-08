@@ -22,7 +22,7 @@ import {
   withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellQueueObservation, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { compiledArtifactKinds, findArtifactKindContract } from "./artifact-entity-action.ts";
 import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "./repo-mode.ts";
@@ -135,6 +135,7 @@ export function makeRepoCellCommandRunner(
   binding: RepoCellBinding,
   signal?: AbortSignal,
   onExecutionStart?: () => void,
+  queueObservation?: RepoCellQueueObservation,
 ) => Promise<WriteReceipt | SquadControlResult> {
   let settlingRecovery: string | null = null;
   const run = async (
@@ -143,6 +144,7 @@ export function makeRepoCellCommandRunner(
     signal?: AbortSignal,
     resolveTargetAfterAuthorization = false,
     executionStarted?: () => void,
+    queueObservation?: RepoCellQueueObservation,
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
@@ -292,98 +294,106 @@ export function makeRepoCellCommandRunner(
         });
         return { ...receipt, opId: envelope.opId };
       };
-      const pending = chainRepoCellWrite(context.tail, async () => {
-        context.queueDepth -= 1;
-        executionStarted?.();
-        const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
-        if (claimRejected) return claimRejected;
-        if (durable) {
-          queuedDecision = await authorizeAtCurrentCut()!;
-          if (queuedDecision.outcome === "denied")
-            return withAuthorizationDecision(
-              context.rejected(
-                context.operationId(action, binding, context.input.repoId, context.store.readHead()?.revision ?? 0),
-                queuedDecision.reasonCodes.includes("entity_kind_not_found")
-                  ? "entity_kind_not_found"
-                  : "authorization_denied",
-              ),
-              queuedDecision,
-              [],
-              `Policy ${queuedDecision.policyRef} denied ${action.kind}: ${queuedDecision.reasonCodes.join(", ")}.`,
-            );
-        }
-        const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
-        if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
-        if (context.state === "closed" || (context.state !== "attached" && !recoveryCommandAllowed))
-          throw context.cellCodedError(
-            "repo_unavailable",
-            "RepoCell closed or changed state before this queued command could execute.",
-          );
-        assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-        context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
-        context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
-        if (resolveTargetAfterAuthorization) {
-          try {
-            action = resolveTaskWriteTarget(context, action).action;
-          } catch (error) {
-            // A target lookup rejection is still a durable queued outcome: record it and wake
-            // replicas through the same path as action-level no-event rejections.
-            const receipt = recordRejection(failAction(context, action, binding, error, queuedDecision));
-            context.replica.kick();
-            return receipt;
+      const pending = chainRepoCellWrite(
+        context.tail,
+        async () => {
+          context.queueDepth -= 1;
+          executionStarted?.();
+          const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
+          if (claimRejected) return claimRejected;
+          if (durable) {
+            queuedDecision = await authorizeAtCurrentCut()!;
+            if (queuedDecision.outcome === "denied")
+              return withAuthorizationDecision(
+                context.rejected(
+                  context.operationId(action, binding, context.input.repoId, context.store.readHead()?.revision ?? 0),
+                  queuedDecision.reasonCodes.includes("entity_kind_not_found")
+                    ? "entity_kind_not_found"
+                    : "authorization_denied",
+                ),
+                queuedDecision,
+                [],
+                `Policy ${queuedDecision.policyRef} denied ${action.kind}: ${queuedDecision.reasonCodes.join(", ")}.`,
+              );
           }
-        }
-        requireSquadBusinessAction(context.projection, action, binding);
-        // Ingested reads are their own accepted commands, recorded before the execution interval
-        // opens: a failed execution must never adopt one of them as its accepted outcome.
-        ingest?.(queuedDecision);
-        try {
-          if (isSquadControlCommand(action.kind)) {
-            const controlled = await executeSquadControl(
-              context.extracted,
-              action,
-              queuedDecision ? { ...binding, authorizationDecision: queuedDecision } : binding,
+          const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
+          if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
+          if (context.state === "closed" || (context.state !== "attached" && !recoveryCommandAllowed))
+            throw context.cellCodedError(
+              "repo_unavailable",
+              "RepoCell closed or changed state before this queued command could execute.",
             );
-            context.replica.kick();
-            return controlled;
-          }
-          const executed = context.withHumanSummary(await execute(queuedDecision)),
-            receipt = recordRejection(
-              queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt),
-            );
-          if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
-            if (action.kind === "migrate-import" && action.dryRun !== true) {
-              context.recoveryProbe.clear();
-              replaceAfterPublication = true;
-            } else {
-              context.state = "attached";
-              context.lastError = null;
-              context.causeClass = null;
-              context.recoveryUncertain = false;
-              context.recoveryProbe.clear();
+          assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+          context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
+          context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+          if (resolveTargetAfterAuthorization) {
+            try {
+              action = resolveTaskWriteTarget(context, action).action;
+            } catch (error) {
+              // A target lookup rejection is still a durable queued outcome: record it and wake
+              // replicas through the same path as action-level no-event rejections.
+              const receipt = recordRejection(failAction(context, action, binding, error, queuedDecision));
+              context.replica.kick();
+              return receipt;
             }
           }
-          context.replica.kick();
-          return receipt;
-        } catch (error) {
-          if (isSquadControlCommand(action.kind))
-            return squadControlRejected(action.kind, failAction(context, action, binding, error, queuedDecision));
-          // A coded rejection is this command's own determinate verdict, even after an earlier step
-          // (one of several ingested runs, a facade's witness) was accepted as its own command.
-          const code = cellErrorCode(error);
-          if (code === "publication_indeterminate" || (code !== "service_rejected" && context.fatalCellError(error)))
-            throw error;
-          if (
-            code === "service_rejected" &&
-            !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
-          )
-            throw error;
-          return recordRejection(failAction(context, action, binding, error, queuedDecision));
-        } finally {
-          context.activeWriterEpochFence = null;
-          context.activeWriterEpochFenceDescriptor = null;
-        }
-      });
+          requireSquadBusinessAction(context.projection, action, binding);
+          // Ingested reads are their own accepted commands, recorded before the execution interval
+          // opens: a failed execution must never adopt one of them as its accepted outcome.
+          ingest?.(queuedDecision);
+          try {
+            if (isSquadControlCommand(action.kind)) {
+              const controlled = await executeSquadControl(
+                context.extracted,
+                action,
+                queuedDecision ? { ...binding, authorizationDecision: queuedDecision } : binding,
+              );
+              context.replica.kick();
+              return controlled;
+            }
+            const executed = context.withHumanSummary(await execute(queuedDecision)),
+              receipt = recordRejection(
+                queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt),
+              );
+            if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
+              if (action.kind === "migrate-import" && action.dryRun !== true) {
+                context.recoveryProbe.clear();
+                replaceAfterPublication = true;
+              } else {
+                context.state = "attached";
+                context.lastError = null;
+                context.causeClass = null;
+                context.recoveryUncertain = false;
+                context.recoveryProbe.clear();
+              }
+            }
+            context.replica.kick();
+            return receipt;
+          } catch (error) {
+            if (isSquadControlCommand(action.kind))
+              return squadControlRejected(action.kind, failAction(context, action, binding, error, queuedDecision));
+            // A coded rejection is this command's own determinate verdict, even after an earlier step
+            // (one of several ingested runs, a facade's witness) was accepted as its own command.
+            const code = cellErrorCode(error);
+            if (code === "publication_indeterminate" || (code !== "service_rejected" && context.fatalCellError(error)))
+              throw error;
+            if (
+              code === "service_rejected" &&
+              !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
+            )
+              throw error;
+            return recordRejection(failAction(context, action, binding, error, queuedDecision));
+          } finally {
+            context.activeWriterEpochFence = null;
+            context.activeWriterEpochFenceDescriptor = null;
+          }
+        },
+        {
+          queue: context.writeQueue,
+          label: queueObservation?.label ?? { command: action.kind, requestId: null },
+          ...(queueObservation ? { observation: queueObservation } : {}),
+        },
+      );
       context.tail = pending.then(
         () => undefined,
         () => undefined,
@@ -511,6 +521,7 @@ export function makeRepoCellCommandRunner(
     binding: RepoCellBinding,
     signal?: AbortSignal,
     onExecutionStart?: () => void,
+    queueObservation?: RepoCellQueueObservation,
   ) => {
     let resolution: ReturnType<typeof resolveTaskWriteTarget>;
     try {
@@ -520,7 +531,7 @@ export function makeRepoCellCommandRunner(
       return rejected;
     }
     action = resolution.action;
-    const receipt = await run(action, binding, signal, !resolution.resolved, onExecutionStart);
+    const receipt = await run(action, binding, signal, !resolution.resolved, onExecutionStart, queueObservation);
     if (
       (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
       typeof action.taskId === "string" &&
