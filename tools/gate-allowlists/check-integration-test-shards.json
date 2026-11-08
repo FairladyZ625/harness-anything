@@ -1008,17 +1008,12 @@
       {
         "value": "packages/cli/test/runtime-cli-lifecycle.integration.test.ts",
         "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (197s median of runs 42444277410 and 42446109102, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+        "reason": "Over the 180s per-file budget (189.7s measured in rework run 42454681351, 2026-11-08); tolerated as baseline, may only shrink."
       },
       {
-        "value": "packages/daemon/test/daemon-package.integration.test.mjs",
+        "value": "packages/cli/test/runtime-cli-dispatch.integration.test.ts",
         "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (208s median of runs 42444277410 and 42446109102, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
-      },
-      {
-        "value": "packages/daemon/test/daemon-resident-readoption.integration.test.ts",
-        "ref": "task_34470c99bb4b77644b9ce3a246",
-        "reason": "Over the 180s per-file budget (203s median of runs 42444277410 and 42446109102, 2026-11-08) when the budget was introduced; tolerated as baseline, may only shrink."
+        "reason": "Over the 180s per-file budget (188.9s measured in rework run 42454681351); tolerated as baseline, may only shrink."
       }
     ]
   }
