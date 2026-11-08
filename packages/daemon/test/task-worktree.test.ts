@@ -649,7 +649,7 @@ test("a checkout whose directory was removed is restored onto its surviving bran
   }
 });
 
-test("a node without a default branch has no worktree to give, and forwarded writes leave checkouts alone", async (t) => {
+test("a Git-less node has no worktree to give, and forwarded writes leave checkouts alone", async (t) => {
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-gitless-")),
     fixture = repositoryFixture(t);
   try {
@@ -657,7 +657,7 @@ test("a node without a default branch has no worktree to give, and forwarded wri
     const gitlessStart = await lifecycle(gitless, () => boundTask("active"), { kind: "task-start", taskId }, {});
     assert.match(
       String((gitlessStart as { summary?: unknown }).summary),
-      /No worktree on this node: no default branch/u,
+      /No worktree on this node: it is not a Git work tree/u,
     );
     assert.equal(taskWorkspaceView(gitless, boundTask("planned"), "tasks/x", repositoryDiff, null)?.kind, "worktree");
     const receipt = applied(),

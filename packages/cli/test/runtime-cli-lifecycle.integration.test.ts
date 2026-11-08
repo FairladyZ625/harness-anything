@@ -148,6 +148,8 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
       "terra",
       "--prompt",
       "must acquire its lease",
+      "--cwd",
+      ".",
       "--task",
       automaticTaskId,
       "--detach",
@@ -372,7 +374,18 @@ test("rejected task resume stream cleanup follows the observed lease stop proof"
   const { root, env } = fixture,
     { taskId, executionId } = seedTask(root, env, "rejected-resume-stop-proof");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const detached = run(root, env, ["agent", "run", "terra", "--prompt", "hold", "--task", taskId, "--detach"]);
+  const detached = run(root, env, [
+    "agent",
+    "run",
+    "terra",
+    "--prompt",
+    "hold",
+    "--cwd",
+    ".",
+    "--task",
+    taskId,
+    "--detach",
+  ]);
   const sourceDispatchId = String(detached.dispatchId),
     sourceSessionId = String(detached.runtimeSessionId);
   await eventuallyValue(
@@ -558,6 +571,8 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     "any-worker",
     "--prompt",
     "wildcard prompt",
+    "--cwd",
+    ".",
     "--task",
     taskId,
     "--no-stream",
@@ -614,6 +629,8 @@ test("Concurrent fact writes preserve runtime progress attribution and task wait
         "terra",
         "--prompt",
         `progress-middle:${taskId}`,
+        "--cwd",
+        ".",
         "--task",
         taskId,
         "--no-stream",
@@ -874,7 +891,18 @@ for (const afterResult of [false, true])
     `,
       );
       const { taskId } = seedTask(root, env, `host-loss-${afterResult}`);
-      const spawned = run(root, env, ["agent", "run", "terra", "--prompt", "host loss", "--task", taskId, "--detach"]);
+      const spawned = run(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--prompt",
+        "host loss",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        "--detach",
+      ]);
       const sessionId = String(spawned.runtimeSessionId),
         dispatchId = String(spawned.dispatchId);
       await eventuallyFile(pidPath);

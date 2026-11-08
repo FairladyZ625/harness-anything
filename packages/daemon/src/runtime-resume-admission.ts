@@ -166,6 +166,10 @@ export function assertResumeAgent(
  * task-bound like an implementer here: relative writes from a review must land in its own checkout, never in the
  * canonical root the review is judging. A reviewer's checkout is pinned to the submission's frozen commit; submit
  * dispatches the review before the delivery order pushes that branch, so the published branch is not an anchor.
+ * A task-bound dispatch never acquires the repository-root fallback when its required worktree cannot be cut:
+ * an unborn repository is refused here before the provider launch, whether or not a start recorded an execution.
+ * A start may record "no workspace on this node" without blocking its own lifecycle write; that answer does not
+ * authorize a provider launch (issue #4431).
  */
 export async function prepareDispatchWorktree(
   input: { readonly rootDir: string; readonly readSettings?: () => SettingsV1 },
