@@ -470,7 +470,8 @@ test("dispatch lifecycle fallback reads runtime history in bounded pages and rep
     })) as unknown as PersistedCanonicalEventV1[],
     fixture = fakeStore(requests),
     base = fixture.store as unknown as Record<string, unknown>,
-    progress: { readonly applied: number; readonly total: number }[] = [];
+    progress: { readonly applied: number; readonly total: number }[] = [],
+    batchSizes: number[] = [];
   base.ledgerMetadata = () => ({ repoId: "legacy-repo", generation: 3, revision: requests.length });
   base.queryEvents = ({
     type,
@@ -494,6 +495,7 @@ test("dispatch lifecycle fallback reads runtime history in bounded pages and rep
     readonly event: PersistedCanonicalEventV1;
     readonly preceding?: readonly { readonly event: PersistedCanonicalEventV1 }[];
   }) => {
+    batchSizes.push((preceding?.length ?? 0) + 1);
     for (const bundle of preceding ?? []) fixture.events.push(bundle.event);
     fixture.events.push(event);
     return {};
@@ -506,6 +508,7 @@ test("dispatch lifecycle fallback reads runtime history in bounded pages and rep
 
   assert.deepEqual(result.applied, ["dispatch-lifecycle.import"]);
   assert.equal(fixture.events.filter((event) => event.type === "runtime_dispatch_lifecycle_observed").length, 501);
+  assert.deepEqual(batchSizes, [256, 245, 1], "lifecycle facts are committed in bounded batches before the marker");
   assert.ok(progress.length >= 4, "bounded event pages and group batches publish progress");
   assert.ok(progress.every((value, index) => index === 0 || value.applied > progress[index - 1]!.applied));
 });

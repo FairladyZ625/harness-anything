@@ -515,7 +515,9 @@ function makeDispatchLifecycleImportEvents(input: {
   const groups = historicalDispatchGroups(input.store, input.repoId, input.onProgress),
     baseRevision = input.store.readHead()?.revision ?? 0,
     preceding: CanonicalWriteBundle[] = [];
-  for (const [index, group] of groups.entries()) {
+  for (const group of groups) {
+    const opId = `dispatch-lifecycle-import-${group.attemptGroupId}`;
+    if (input.store.readEvent(opId) !== null) continue;
     const migrated = migrateUnclosedDispatchGroup({
         group: {
           ...group,
@@ -525,11 +527,10 @@ function makeDispatchLifecycleImportEvents(input: {
         lifecycleMigrationVersion: dispatchLifecycleMigrationVersion,
       }),
       lifecycle = migrated.events[0]!,
-      opId = `dispatch-lifecycle-import-${group.attemptGroupId}`,
       event = {
         schema: "agent-runtime-event/v1" as const,
         eventId: `event-${opId}`,
-        workspaceRevision: baseRevision + index + 1,
+        workspaceRevision: baseRevision + preceding.length + 1,
         opId,
         type: "runtime_dispatch_lifecycle_observed" as const,
         actor: defaultMigrationActor,
@@ -552,6 +553,7 @@ function applyDispatchLifecycleImport(input: {
   readonly sourceRevision: number;
   readonly onProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }): boolean {
+  let progressBase = 0;
   const now = input.now ?? (() => new Date().toISOString()),
     repoId = input.store.ledgerMetadata?.().repoId ?? "legacy-repository",
     { preceding, groups } = makeDispatchLifecycleImportEvents({
@@ -559,13 +561,20 @@ function applyDispatchLifecycleImport(input: {
       now,
       repoId,
       sourceRevision: input.sourceRevision,
-      onProgress: (processed) =>
-        input.onProgress?.({
-          applied: processed,
-          total: input.sourceRevision,
-        }),
-    }),
-    markerRevision = (input.store.readHead()?.revision ?? 0) + preceding.length + 1,
+      onProgress: (processed) => {
+        progressBase = processed;
+        input.onProgress?.({ applied: processed, total: input.sourceRevision });
+      },
+    });
+  // Each accepted batch is durable before progress is published. On another attach, stable
+  // import opIds skip those batches; the final marker certifies that all groups were imported.
+  for (let offset = 0; offset < preceding.length; offset += dispatchLifecycleImportBatchSize) {
+    const batch = preceding.slice(offset, offset + dispatchLifecycleImportBatchSize),
+      last = batch.at(-1)!;
+    input.store.append({ ...last, ...(batch.length > 1 ? { preceding: batch.slice(0, -1) } : {}) });
+    input.onProgress?.({ applied: progressBase + offset + batch.length, total: input.sourceRevision });
+  }
+  const markerRevision = (input.store.readHead()?.revision ?? 0) + 1,
     opId = "upgrade-dispatch-lifecycle-import",
     marker: EventShapeMigrationEventV1 = {
       schema: "event-shape-migration/v1",
@@ -587,7 +596,6 @@ function applyDispatchLifecycleImport(input: {
     event: marker,
     plan: eventShapeMigrationWritePlan(marker),
     blobs: [],
-    ...(preceding.length > 0 ? { preceding } : {}),
   });
   return true;
 }
@@ -598,6 +606,7 @@ export interface AttachMigrationReport {
 }
 
 const attachMigrationBatchSize = 256;
+const dispatchLifecycleImportBatchSize = 256;
 
 /** Apply all pending historical shape upgrades before a projection is opened. */
 export function applyAttachMigrations(input: {
