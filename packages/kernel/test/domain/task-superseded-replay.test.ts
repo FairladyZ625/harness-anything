@@ -59,7 +59,7 @@ test("current admission rejects the archived+active pair while historical replay
 test("a gate run recorded after a supersede still replays and leaves the task terminal", () => {
   const gate = {
       gateId: "artifact-check",
-      appliesTo: "artifacts" as const,
+      appliesTo: "submission" as const,
       witness: {
         kind: "manual" as const,
         predicateType: "human/v1",
@@ -86,8 +86,12 @@ test("a gate run recorded after a supersede still replays and leaves the task te
       occurredAt: "2026-08-11T00:10:00.000Z",
       expiresAt: "2026-08-11T01:10:00.000Z",
     }),
+    historicalSuperseded = {
+      ...submitted,
+      task: { ...submitted.task!, packageDisposition: "archived" as const, supersededBy: "task-replacement" },
+    },
     gateWrite = compileGateRunChange({
-      snapshot: submitted,
+      snapshot: historicalSuperseded,
       executionId: execution.executionId,
       run,
       operation: "claim",
