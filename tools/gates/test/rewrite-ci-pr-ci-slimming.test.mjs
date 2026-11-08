@@ -6,7 +6,12 @@ import test from "node:test";
 import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "../../..");
-const workflowText = readFileSync(path.join(rootDir, ".github/workflows/rewrite-ci.yml"), "utf8");
+// The crlf-checkout lane materialises this workflow with CRLF line endings; normalise once so
+// every contract below matches the same text shape on every checkout.
+const workflowText = readFileSync(path.join(rootDir, ".github/workflows/rewrite-ci.yml"), "utf8").replace(
+  /\r\n/gu,
+  "\n",
+);
 const workflow = parseGateWorkflow(workflowText);
 const manifest = JSON.parse(readFileSync(path.join(rootDir, "tools/gate-manifest.json"), "utf8"));
 
