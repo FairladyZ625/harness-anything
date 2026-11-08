@@ -14,7 +14,7 @@
 
 ## Machine-Readable Declarations
 
-<!-- These declarations are checked by jobs in `.github/workflows/pr-body.yml`; `tools/gate-manifest.json` is the authority for their workflow mapping. -->
+<!-- These declarations are checked by the aggregate pr-body job in `.github/workflows/pr-body.yml`; `tools/gate-manifest.json` is the authority for its gate mapping. -->
 <!-- Keep every uncommented keyword and its value on the same line, flush left, exactly once, without a Markdown list marker. -->
 <!-- Required only when any package.json or package-lock.json changes: replace the rejected `none` sentinel with a complete deterministic description; otherwise delete the entire next line. -->
 
@@ -26,7 +26,7 @@ Dependency-Change: none
 
 ### Optional Evidence Claims
 
-<!-- Evidence claims are checked by the `evidence-contract` job in `.github/workflows/pr-body.yml`. No claim means N/A. -->
+<!-- Evidence claims are checked by the aggregate pr-body job in `.github/workflows/pr-body.yml`. No claim means N/A. -->
 <!-- Keep every uncommented claim keyword, field, and value on the same line. Remove the comment markers from one complete block only when making that claim. -->
 <!-- `Evidence-Type: ci` may replace `CI-Attribution: ...`; `Evidence-Type: performance` may replace `Performance-Claim: ...`. -->
 <!-- CI-Attribution: <what this CI run proves> -->

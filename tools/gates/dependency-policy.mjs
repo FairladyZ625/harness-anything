@@ -74,14 +74,18 @@ export function validateDependencyDeclaration(paths, prBody, declarationRequired
   if (!hasDependencyChange(paths)) return [];
   const declarations = readDependencyDeclarations(prBody);
   if (declarations.length !== 1)
-    return [`dependency changes require exactly one Dependency-Change: declaration; found ${declarations.length}`];
+    return [
+      `dependency changes require exactly one \`Dependency-Change: <description>\` line under ## Machine-Readable Declarations; found ${declarations.length}`,
+    ];
   if (declarations[0].length === 0 || /^(?:none|n\/a)$/iu.test(declarations[0]))
-    return ["Dependency-Change: must describe the deterministic dependency change"];
+    return [
+      "Dependency-Change: must describe the deterministic dependency change; replace `none` with what changed (for example `bump effect to 2.0.0`)",
+    ];
   return [];
 }
 
 function parseArgs(argv) {
-  const options = { base: null, prBodyFile: null, sbom: false };
+  const options = { base: null, prBodyFile: null, prBodyEnv: null, sbom: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--lock") continue;
@@ -97,11 +101,18 @@ function parseArgs(argv) {
       options.prBodyFile = argv[(index += 1)] ?? null;
       continue;
     }
+    if (arg === "--pr-body-env") {
+      options.prBodyEnv = argv[(index += 1)] ?? null;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
-  if (options.prBodyFile !== null && options.base === null) {
+  if (options.prBodyFile !== null && options.prBodyEnv !== null) {
+    throw new Error("--pr-body-file and --pr-body-env are mutually exclusive");
+  }
+  if ((options.prBodyFile !== null || options.prBodyEnv !== null) && options.base === null) {
     throw new Error(
-      "usage: node tools/gates/dependency-policy.mjs [--lock] [--sbom] [--base <ref> --pr-body-file <path>]",
+      "usage: node tools/gates/dependency-policy.mjs [--lock] [--sbom] [--base <ref> (--pr-body-file <path> | --pr-body-env <name>)]",
     );
   }
   return options;
@@ -112,11 +123,16 @@ function parseArgs(argv) {
 // and also gates the rewrite-ci dependency-policy job.
 export function main(argv = process.argv.slice(2)) {
   try {
-    const { base, prBodyFile, sbom } = parseArgs(argv);
+    const { base, prBodyFile, prBodyEnv, sbom } = parseArgs(argv);
     const rootDir = repoRoot();
     const errors = [...validateLockfile(rootDir)];
-    if (prBodyFile !== null) {
-      const prBody = readFileSync(prBodyFile, "utf8");
+    const prBody =
+      prBodyFile !== null
+        ? readFileSync(prBodyFile, "utf8")
+        : prBodyEnv !== null
+          ? (process.env[prBodyEnv] ?? "")
+          : null;
+    if (prBody !== null) {
       errors.push(...validateDependencyDeclaration(changedFiles(rootDir, base), prBody));
     }
     console.log("dependency-policy: online advisory lookup skipped (non-required; deterministic gate is offline)");

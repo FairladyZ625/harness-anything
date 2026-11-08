@@ -110,3 +110,31 @@ test("G31 main judges the declaration against the supplied body file", () => {
     process.chdir(previous);
   }
 });
+
+test("G31 main reads the declaration from the named environment variable", () => {
+  const { rootDir, base } = makeRepo({
+    "package.json": JSON.stringify({ dependencies: { effect: "1.0.0" } }),
+    "package-lock.json": JSON.stringify({
+      lockfileVersion: 3,
+      packages: { "": { dependencies: { effect: "1.0.0" } } },
+    }),
+  });
+  writeRepoFile(rootDir, "package.json", JSON.stringify({ dependencies: { effect: "2.0.0" } }));
+  writeRepoFile(
+    rootDir,
+    "package-lock.json",
+    JSON.stringify({ lockfileVersion: 3, packages: { "": { dependencies: { effect: "2.0.0" } } } }),
+  );
+  commitAll(rootDir);
+  const previous = process.cwd();
+  process.chdir(rootDir);
+  try {
+    process.env.PR_BODY = "Dependency-Change: none";
+    assert.equal(captureGate(() => main(["--base", base, "--pr-body-env", "PR_BODY"])).code, 1);
+    process.env.PR_BODY = "Dependency-Change: bump effect to 2.0.0";
+    assert.equal(captureGate(() => main(["--base", base, "--pr-body-env", "PR_BODY"])).code, 0);
+  } finally {
+    delete process.env.PR_BODY;
+    process.chdir(previous);
+  }
+});

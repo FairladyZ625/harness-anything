@@ -9,9 +9,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # One job owns every body check. The manifest runner executes all gates declared for
+  # `pr-body-lint` before it decides the job verdict, so one run reports every missing section,
+  # declaration or evidence claim instead of exposing them one at a time. The gate set comes from
+  # tools/gate-manifest.json; adding a body check is a manifest declaration here, not a new job.
   pr-body-lint:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,57 +26,11 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - name: Run PR body manifest gates
+      - name: Fetch the comparison base
+        run: git fetch --no-tags origin main
+      - name: Run every PR body manifest gate
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
         run: node tools/run-manifest-gates.mjs --workflow-job pr-body-lint
-  production-delta:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Compute production delta
-        run: |
-          git fetch --no-tags origin main
-          node tools/gates/production-delta.mjs --base origin/main
-  evidence-contract:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: node tools/gates/evidence-contract.mjs --event "$GITHUB_EVENT_PATH"
-
-  dependency-policy-declaration:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Verify dependency declaration
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          git fetch --no-tags origin main
-          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
-          node tools/gates/dependency-policy.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"

@@ -39,9 +39,15 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
   }
   const prBodyWorkflow = readFileSync(path.join(repoRoot, ".github/workflows/pr-body.yml"), "utf8");
-  for (const job of ["pr-body-lint", "production-delta", "evidence-contract"]) {
-    assert.match(prBodyWorkflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain in the PR-body workflow`);
-  }
+  // One job owns every body check so a run reports all failures together. Splitting the checks
+  // back into separate jobs would re-expose them one at a time and cancel the rest on a fix push.
+  assert.match(prBodyWorkflow, /^  pr-body-lint:/mu, "the aggregate PR-body job must remain");
+  assert.match(prBodyWorkflow, /run: node tools\/run-manifest-gates\.mjs --workflow-job pr-body-lint/u);
+  assert.doesNotMatch(
+    prBodyWorkflow,
+    /^  (?:production-delta|evidence-contract|dependency-policy-declaration):/mu,
+    "body checks run inside the aggregate job, not as separate jobs",
+  );
 });
 
 test("rewrite CI dependency artifact includes the daemon output built by npm ci", () => {
