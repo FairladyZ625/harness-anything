@@ -32,6 +32,11 @@ import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
 import { materialize } from "./readonly-checkout.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Keep the forensic run on the same bounded batch size used by the production projection
+// default. A limit of 32 turns a real 250k-event ledger into thousands of SQLite transactions
+// and inflates the long-running cold rebuild without adding coverage; 4096 is the validated
+// upper bound of projectionCatchUpLimit and still leaves each transaction bounded.
+const EVIDENCE_CATCH_UP_LIMIT = 4096;
 // Derived dirs that attach and the cold rebuild never open; copying them is how earlier
 // hand-rolled runs walked into a 28G restore-drills copy.
 const HARNESS_COPY_DIRS = ["wal", "generated", "presets"];
@@ -745,7 +750,11 @@ try {
   });
   const store = storage.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
   record("store-head", store.readHead() ?? null);
-  projection = storage.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
+  projection = storage.makeTaskProjection({
+    rootDir: WORKSPACE,
+    eventStore: store,
+    catchUpLimit: ${EVIDENCE_CATCH_UP_LIMIT},
+  });
   record("attach-catch-up", projection.catchUp?.() ?? "async-only");
   const index = projection.readTaskIndex({ limit: 5 });
   const rows = index.rows ?? [];
@@ -785,7 +794,11 @@ try {
   // This runner is deliberately a fresh process: the direct production reads can retain a
   // projection's event objects on a large ledger even after close(). A separate process keeps
   // the cold rebuild's peak bounded without weakening the production rebuild path itself.
-  projection = storage.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
+  projection = storage.makeTaskProjection({
+    rootDir: WORKSPACE,
+    eventStore: store,
+    catchUpLimit: ${EVIDENCE_CATCH_UP_LIMIT},
+  });
   const startedAt = Date.now();
   const rebuilt = projection.rebuild();
   const sourceRevision = store.readHead()?.revision ?? 0;
@@ -1091,6 +1104,11 @@ export async function main(argv, session = {}) {
       coldRebuildBytes: cold.peakRssBytes,
       rebuildBytes: cold.peakRssBytes,
       rebuildMethod: cold.peakRssBytes === null ? null : "/usr/bin/time maximum resident set size",
+    };
+    receipt.runnerDiagnostics = {
+      directStderr: direct.stderr,
+      coldRebuildStderr: cold.stderr,
+      coldRebuildExit: { status: cold.status, signal: cold.signal },
     };
     if (direct.status !== 0)
       receipt.failures.push({ phase: "direct-evidence-runner", exitCode: direct.status, signal: direct.signal });
