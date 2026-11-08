@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { runtimeWebSearchVersionGate } from "../src/runtime-version.ts";
 import type { RuntimeWebSearchMode } from "../src/runtime-inventory.ts";
 import {
   allowedWebSearchModesInPolicy,
+  readCodexManagedPolicyFiles,
   runtimeWebSearchModelGate,
   runtimeWebSearchPolicyConflict,
 } from "../src/agent-runtime-web-search.ts";
@@ -165,10 +166,36 @@ test("administrator managed requirements that exclude the tier are refused", asy
     ]),
     null,
   );
-  assert.throws(
-    () => allowedWebSearchModesInPolicy("allowed_web_search_modes = [disabled]"),
-    (error: unknown) => codedAs(error, "runtime_web_search_policy_invalid"),
+  assert.deepEqual(
+    allowedWebSearchModesInPolicy('allowed_web_search_modes = [\n  "disabled", # local\n  "cached",\n]'),
+    ["disabled", "cached"],
   );
+  for (const malformed of [
+    "allowed_web_search_modes = [disabled]",
+    'allowed_web_search_modes = "live"',
+    'allowed_web_search_modes = ["disabled"',
+    'allowed_web_search_modes = ["disabled"] extra',
+  ])
+    assert.throws(
+      () => allowedWebSearchModesInPolicy(malformed),
+      (error: unknown) => codedAs(error, "runtime_web_search_policy_invalid"),
+      malformed,
+    );
+});
+
+test("a managed policy that exists but cannot be read is refused, while absence is no policy", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-codex-policy-read-"));
+  try {
+    const directory = path.join(root, "requirements.toml");
+    mkdirSync(directory);
+    assert.throws(
+      () => readCodexManagedPolicyFiles([directory]),
+      (error: unknown) => codedAs(error, "runtime_web_search_policy_unreadable"),
+    );
+    assert.deepEqual(readCodexManagedPolicyFiles([path.join(root, "missing.toml")]), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("prepareLaunch refuses a managed-policy conflict before any credential or process work", async () => {

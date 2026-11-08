@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { runProcessTextAsync } from "./process-port.ts";
+import { runProcessExitAsync } from "./process-port.ts";
 import type {
   RuntimeInstallationWitness,
   RuntimeProviderInstanceConfig,
@@ -104,57 +104,88 @@ export function runtimeWebSearchModelGate(
  *  managed_config.toml path is included because Codex still reads it as a fallback. */
 export const codexManagedPolicyPaths = ["/etc/codex/requirements.toml", "/etc/codex/managed_config.toml"] as const;
 
-/** Parses the one managed key this product acts on. A present but unreadable shape is a
- *  refusal, not "no policy": guessing would let an administrator's restriction be ignored. */
+/** Parses the one managed key this product acts on. A key that is present but not a
+ *  string array is a refusal, not "no policy": guessing would let an administrator's
+ *  restriction be ignored. */
 export function allowedWebSearchModesInPolicy(text: string): readonly string[] | null {
-  const match = /^[ \t]*allowed_web_search_modes[ \t]*=[ \t]*\[([\s\S]*?)\]/mu.exec(text);
-  if (!match) return null;
-  const body = match[1]!.replace(/#[^\n]*/gu, ""),
+  const key = /^[ \t]*allowed_web_search_modes[ \t]*=/mu.exec(text);
+  if (!key) return null;
+  const valueStart = key.index + key[0].length + /^[ \t]*/u.exec(text.slice(key.index + key[0].length))![0].length;
+  if (text[valueStart] !== "[") throw invalidPolicyShape();
+  const close = text.indexOf("]", valueStart + 1);
+  if (close < 0) throw invalidPolicyShape();
+  const trailing = text
+    .slice(close + 1)
+    .split(/\r?\n/u)[0]!
+    .replace(/#.*/u, "")
+    .trim();
+  if (trailing.length > 0) throw invalidPolicyShape();
+  const body = text.slice(valueStart + 1, close).replace(/#[^\n]*/gu, ""),
     values = [...body.matchAll(/["']([^"']+)["']/gu)].map((entry) => entry[1]!),
     residue = body.replace(/["'][^"']+["']/gu, "").replace(/[,\s]/gu, "");
-  if (residue.length > 0)
-    throw runtimeInstanceError(
-      "runtime_web_search_policy_invalid",
-      "Codex managed requirements allowed_web_search_modes is not a string array.",
-    );
+  if (residue.length > 0) throw invalidPolicyShape();
   return values;
 }
 
+function invalidPolicyShape(): Error {
+  return runtimeInstanceError(
+    "runtime_web_search_policy_invalid",
+    "Codex managed requirements allowed_web_search_modes is not a string array.",
+  );
+}
+
+/** Reads the two file-based managed-policy sources Codex loads. ENOENT is the only
+ *  absence; any other read failure is a refusal because it leaves the policy unknown. */
+export function readCodexManagedPolicyFiles(paths: readonly string[] = codexManagedPolicyPaths): readonly string[] {
+  const texts: string[] = [];
+  for (const path of paths) {
+    try {
+      texts.push(readFileSync(path, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw runtimeInstanceError(
+        "runtime_web_search_policy_unreadable",
+        `Codex managed requirements ${path} could not be read: ${error instanceof Error ? error.message : String(error)}.`,
+      );
+    }
+  }
+  return texts;
+}
+
 /** Reads local administrator policy on every platform Codex supports here. macOS MDM is
- *  read through the same `com.openai.codex` preference Codex uses; absence of the key is
- *  the normal "no managed policy" case, not an error. */
+ *  read through the same `com.openai.codex` preference Codex uses. Only the explicit
+ *  "key not found" verdict means no managed policy; every other failure is unreadable. */
 export async function readCodexManagedPolicyTexts(
   platform: NodeJS.Platform = process.platform,
 ): Promise<readonly string[]> {
-  const texts: string[] = [];
-  for (const path of codexManagedPolicyPaths)
-    if (existsSync(path)) {
-      try {
-        texts.push(readFileSync(path, "utf8"));
-      } catch (error) {
-        throw runtimeInstanceError(
-          "runtime_web_search_policy_unreadable",
-          `Codex managed requirements ${path} exist but could not be read: ${error instanceof Error ? error.message : String(error)}.`,
-        );
-      }
-    }
+  const texts: string[] = [...readCodexManagedPolicyFiles()];
   if (platform === "darwin") {
+    let result: Awaited<ReturnType<typeof runProcessExitAsync>>;
     try {
-      const encoded = (
-        await runProcessTextAsync(
-          "/usr/bin/defaults",
-          ["read", "com.openai.codex", "requirements_toml_base64"],
-          undefined,
-          process.env,
-          undefined,
-          undefined,
-          { timeoutMs: 2_000 },
-        )
-      ).trim();
-      if (encoded) texts.push(Buffer.from(encoded, "base64").toString("utf8"));
+      result = await runProcessExitAsync(
+        "/usr/bin/defaults",
+        ["read", "com.openai.codex", "requirements_toml_base64"],
+        undefined,
+        process.env,
+        undefined,
+        undefined,
+        { timeoutMs: 2_000 },
+      );
     } catch (error) {
-      // No managed-preferences key is the expected state on an unmanaged host.
       consumeKnownError(error);
+      throw runtimeInstanceError(
+        "runtime_web_search_policy_unreadable",
+        `macOS managed Codex requirements could not be read: ${error instanceof Error ? error.message : String(error)}.`,
+      );
+    }
+    if (result.exitCode === 0) {
+      const encoded = result.stdout.trim();
+      if (encoded) texts.push(Buffer.from(encoded, "base64").toString("utf8"));
+    } else if (!/Could not find key|does not exist/iu.test(result.stderr)) {
+      throw runtimeInstanceError(
+        "runtime_web_search_policy_unreadable",
+        `macOS managed Codex requirements could not be read: ${result.stderr.trim() || `exit ${result.exitCode}`}.`,
+      );
     }
   }
   return texts;
