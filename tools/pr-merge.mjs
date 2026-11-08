@@ -586,12 +586,15 @@ function finalizeMergedPr(pr, merged, prWorktree, root, preMergeEvidence) {
   return unfinished;
 }
 
-function reportUnfinished(pr, unfinished) {
+function reportUnfinished(pr, unfinished, phase = "merged") {
+  const prefix =
+    phase === "queue"
+      ? `PR #${pr.number} was not merged; ${unfinished.length} merge-queue step(s) did not finish:`
+      : `PR #${pr.number} is MERGED; ${unfinished.length} post-merge step(s) did not finish:`;
   process.stderr.write(
-    [
-      `PR #${pr.number} is MERGED; ${unfinished.length} post-merge step(s) did not finish:`,
-      ...unfinished.map(({ step, detail, remedy }) => `- ${step}: ${detail}\n  finish with: ${remedy}`),
-    ].join("\n") + "\n",
+    [prefix, ...unfinished.map(({ step, detail, remedy }) => `- ${step}: ${detail}\n  finish with: ${remedy}`)].join(
+      "\n",
+    ) + "\n",
   );
 }
 
@@ -616,8 +619,26 @@ function main(argv) {
   for (const { pr, prWorktree, mainWorktree } of entries) {
     console.log(`Finalizing PR #${pr.number} (${pr.headRefName} -> ${MAIN_BRANCH}).`);
     let merged = pr;
-    if (pr.state === "OPEN") merged = waitForMergedPr(pr, mainWorktree.path);
-    else console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
+    if (pr.state === "OPEN") {
+      try {
+        merged = waitForMergedPr(pr, mainWorktree.path);
+      } catch (error) {
+        // Queue entries fail independently. Continue with the remaining entries so one rejected
+        // or timed-out PR cannot abandon bookkeeping for PRs that did merge successfully.
+        unfinishedEntries.push({
+          pr,
+          phase: "queue",
+          unfinished: [
+            {
+              step: "wait for the merge queue to merge this PR",
+              remedy: `node tools/pr-merge.mjs ${pr.number}`,
+              detail: error instanceof Error ? error.message : String(error),
+            },
+          ],
+        });
+        continue;
+      }
+    } else console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
     try {
       const unfinished = finalizeMergedPr(
         pr,
@@ -626,10 +647,11 @@ function main(argv) {
         mainWorktree.path,
         evidenceByNumber.get(pr.number) ?? null,
       );
-      if (unfinished.length > 0) unfinishedEntries.push({ pr, unfinished });
+      if (unfinished.length > 0) unfinishedEntries.push({ pr, phase: "merged", unfinished });
     } catch (error) {
       unfinishedEntries.push({
         pr,
+        phase: "merged",
         unfinished: [
           {
             step: "post-merge bookkeeping",
@@ -640,7 +662,7 @@ function main(argv) {
       });
     }
   }
-  for (const { pr, unfinished } of unfinishedEntries) reportUnfinished(pr, unfinished);
+  for (const { pr, phase, unfinished } of unfinishedEntries) reportUnfinished(pr, unfinished, phase);
   if (unfinishedEntries.length > 0) {
     process.exitCode = 1;
     return;

@@ -420,6 +420,32 @@ test("enqueues every requested PR before waiting for the first merge", (t) => {
   assert.equal(existsSync(secondPrWorktree), false);
 });
 
+test("continues later PR bookkeeping when an earlier queue entry leaves the queue", (t) => {
+  const setup = fixture(t),
+    secondPrWorktree = addSecondPr(setup),
+    state = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  // The first read is the preflight snapshot; the queue then reports CLOSED on its first wait.
+  state.prs[123].stateSequence = ["OPEN", "CLOSED"];
+  writeFileSync(setup.statePath, JSON.stringify(state));
+
+  const result = run(process.execPath, [helper, "123", "124"], {
+    cwd: setup.main,
+    env: { ...setup.env, PR_MERGE_WAIT_MS: "1", PR_MERGE_MAX_POLLS: "1" },
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /PR #123 was not merged/u);
+  assert.match(result.stderr, /left the merge queue with state=CLOSED/u);
+  assert.match(result.stdout, /Finalizing PR #124/u);
+  const finalState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  assert.equal(finalState.prs[123].state, "CLOSED");
+  assert.equal(finalState.prs[124].state, "MERGED");
+  assert.equal(existsSync(secondPrWorktree), false);
+  assert.equal(git(setup.main, "branch", "--list", "codex/pr-124"), "");
+  assert.equal(git(setup.main, "ls-remote", "--heads", "origin", "refs/heads/codex/pr-124"), "");
+});
+
 test("synchronizes local main without git pull's shared FETCH_HEAD", (t) => {
   // #4048: `git pull` reads .git/FETCH_HEAD after its own fetch, and any concurrent fetch in the
   // repository rewrites that shared file. The helper must fetch into the remote-tracking ref and

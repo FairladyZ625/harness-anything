@@ -455,8 +455,12 @@ enabled by the owner on an eligible organization-owned repository before this
 step is used.
 
 > 中文：逐条处理 CI、human review 和 bot comment；P0/P1/P2 必须完成 triage。
-> 外部贡献者或 agent 在 PR 全绿、无冲突、review 完成后停下，由 maintainer 用普通
-> merge commit 合入。不得 squash、rebase merge、直推或 admin bypass。
+> 外部贡献者或 agent 在 PR 全绿、无冲突、review 完成后停下；仓库由 owner 启用
+> hosted merge queue 且满足 GitHub 资格后，maintainer 运行
+> `node tools/pr-merge.mjs <pr-number> [<another-pr-number> ...]` 入队。该命令启用
+> merge-commit auto-merge，等待队列逐个报告合入，再完成分支清理和台账补记。
+> hosted queue 尚未启用或仓库不具备资格时，不得把普通 merge commit 当作本流程的替代；交由
+> owner/CEO 按上线步骤处理。不得 squash、rebase merge、直推或 admin bypass。
 
 ## Agent contributor notes
 
