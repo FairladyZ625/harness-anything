@@ -145,6 +145,24 @@ test("a stale base revision is rejected and the canonical readiness stays", () =
   assert.equal(ready.readiness.state, "ready");
 });
 
+test("revise and retire commands for another document are rejected before mutation", () => {
+  const base = registered();
+  const mismatchedRevision = { ...revise(base, "op-other-revise", completePlan), documentId: "doc_other" };
+  const reviseDecision = decideAuthoredDocument(base, mismatchedRevision);
+  assert.equal(reviseDecision.outcome, "rejected");
+  assert.equal((reviseDecision as { code: string }).code, "identity_mismatch");
+
+  const mismatchedRetirement = {
+    ...meta("op-other-retire"),
+    documentId: "doc_other",
+    type: "retire" as const,
+    expectedRevision: base.revision,
+  };
+  const retireDecision = decideAuthoredDocument(base, mismatchedRetirement);
+  assert.equal(retireDecision.outcome, "rejected");
+  assert.equal((retireDecision as { code: string }).code, "identity_mismatch");
+});
+
 test("accepted content changes re-judge readiness both ways", () => {
   const base = registered(),
     ready = accept(base, revise(base, "op-a", completePlan)),

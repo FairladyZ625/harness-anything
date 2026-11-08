@@ -108,7 +108,12 @@ export type AuthoredDocumentEventV1 =
   | AuthoredDocumentEnvelope<"authored_document_revised", RevisedPayload>
   | AuthoredDocumentEnvelope<"authored_document_retired", RetiredPayload>;
 
-export type AuthoredDocumentRejectionCode = "not_registered" | "already_registered" | "stale_base" | "retired";
+export type AuthoredDocumentRejectionCode =
+  | "not_registered"
+  | "already_registered"
+  | "identity_mismatch"
+  | "stale_base"
+  | "retired";
 
 export type AuthoredDocumentDecision =
   | { readonly outcome: "accepted"; readonly events: readonly AuthoredDocumentEventV1[] }
@@ -139,6 +144,11 @@ export function decideAuthoredDocument(
   }
   if (state === null)
     return rejected("not_registered", `Authored document ${command.documentId} has not been registered.`);
+  if (command.documentId !== state.documentId)
+    return rejected(
+      "identity_mismatch",
+      `Authored document command targets ${command.documentId}, but the current state is ${state.documentId}.`,
+    );
   if (state.retirement !== null)
     return rejected(
       "retired",
