@@ -26,6 +26,7 @@ export function parseManifestGateArgs(args) {
     changed: null,
     changedPaths: null,
     eventName: null,
+    githubGroups: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -58,6 +59,10 @@ export function parseManifestGateArgs(args) {
     if (arg === "--changed") {
       options.changed = requireValue(args, index, arg);
       index += 1;
+      continue;
+    }
+    if (arg === "--github-groups") {
+      options.githubGroups = true;
       continue;
     }
     throw new Error(`unknown run-manifest-gates option: ${arg}`);
@@ -377,11 +382,17 @@ export function runCommand(label, command, failureHint = null, { cwd = repoRoot 
  * job exist so one run reports every failing check. Package aggregates keep their historical
  * short-circuit through `stopOnFailure`.
  */
-export function runManifestGatePlan(plan, { execute, stopOnFailure = false } = {}) {
+export function runManifestGatePlan(plan, { execute, stopOnFailure = false, githubGroups = false } = {}) {
   const run = execute ?? ((entry) => runCommand(entry.id, entry.command, entry.failureHint));
   const results = [];
   for (const entry of plan) {
-    const result = run(entry);
+    if (githubGroups) console.log(`::group::${entry.id}`);
+    let result;
+    try {
+      result = run(entry);
+    } finally {
+      if (githubGroups) console.log("::endgroup::");
+    }
     results.push({ id: entry.id, ...result });
     if (!result.ok && stopOnFailure) break;
   }
@@ -419,6 +430,7 @@ function main(argv) {
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
   const { failedGateIds } = runManifestGatePlan(planWithHints, {
     stopOnFailure: Boolean(options.packageSurface),
+    githubGroups: options.githubGroups,
   });
   if (failedGateIds.length > 0) {
     console.error(`\nManifest gate runner failed (${selector}): ${failedGateIds.join(", ")}.`);

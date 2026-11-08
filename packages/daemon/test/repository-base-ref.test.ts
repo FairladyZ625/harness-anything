@@ -40,7 +40,15 @@ test("an unresolved declared delivery ref refuses checkout instead of choosing o
     binding = { branch, path: `.worktrees/${branch}` };
   declareTarget(root, "refs/heads/missing");
   assert.throws(() => repositoryBaseRef(root), /delivery\.targetRef.*refs\/heads\/missing.*commit/u);
-  await assert.rejects(checkoutTaskWorktree(root, branch, binding, noWorktreeSetup()), /delivery\.targetRef/u);
+  await assert.rejects(
+    checkoutTaskWorktree(root, branch, binding, noWorktreeSetup()),
+    (error: Error & { code?: string; reason?: string }) => {
+      assert.equal(error.code, "worktree_base_unavailable");
+      assert.equal(error.reason, "no_resolvable_default_base");
+      assert.match(error.message, /delivery\.targetRef.*refs\/heads\/missing.*commit/u);
+      return true;
+    },
+  );
   assert.equal(existsSync(path.join(root, binding.path)), false);
   assert.equal(git(root, "branch", "--list", branch), "");
   assert.equal(remoteDefaultBranch(root), "origin/main");

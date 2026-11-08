@@ -31,6 +31,8 @@ import {
   reclaimManagedWorktree,
   remoteDefaultBranch,
   repositoryBaseRef,
+  hasGitWorkTree,
+  hasUnbornHead,
   type ManagedWorktree,
   type WorktreeReclaim,
 } from "./schedule-occurrence-workspace.ts";
@@ -119,6 +121,28 @@ export function taskWorkspaceView(
   return { kind: "task-package", path: path.relative(rootDir, packageRoot).split(path.sep).join("/") };
 }
 
+type WorktreeBaseUnavailableReason = "unborn" | "detached" | "no_resolvable_default_base";
+
+/** The one named failure for a binding that cannot be cut from a Git repository. */
+export function worktreeBaseUnavailableError(
+  rootDir: string,
+  taskId: string,
+  binding: TaskWorktreeBindingV1,
+  reason: WorktreeBaseUnavailableReason,
+  detail?: string,
+): Error {
+  return Object.assign(
+    cellCodedError(
+      "worktree_base_unavailable",
+      `Task ${taskId}'s worktree ${binding.path} cannot be created (reason: ${reason}): ${rootDir} has no ` +
+        "resolvable default base commit to cut it from. Create the repository's first commit or configure a " +
+        "reachable default branch, then dispatch the task again." +
+        (detail ? ` ${detail}` : ""),
+    ),
+    { reason },
+  );
+}
+
 export interface TaskWorktreeCheckout {
   readonly cwd: string;
   readonly branch: string;
@@ -136,8 +160,10 @@ export interface TaskWorktreeCheckout {
  * from the center (dec_57370FF2021DADF04E3B21724D CH2). A checkout continues the delivery branch it holds — a new
  * one starts from the copy another node pushed before the default branch (CH3); with no pushed copy, an existing
  * one that never worked is advanced to the present default branch instead, so a checkout a refused or cancelled
- * dispatch left behind never pins its retry to a stale baseline. A node without a default branch (a Git-less edge,
- * a repository before its first commit) has no worktree to give: null, not a failure.
+ * dispatch left behind never pins its retry to a stale baseline. A Git-less edge has no worktree to give: null,
+ * not a failure (dec_BBA713052997C3EF5F5D3DD952 CH3). A Git repository with no resolvable default base is
+ * refused here before a caller can select the repository root as a fallback (issue #4431).
+ * A start is not a provider launch and keeps recording the no-workspace answer.
  * An accepted handoff commit instead requires that exact, retrievable SHA and a clean checkout before and after
  * setup. An existing checkout at another commit is preserved and refused.
  */
@@ -234,8 +260,24 @@ export async function checkoutTaskWorktree(
     }
     const fresh = !existsSync(cwd);
     if (fresh) await refreshDefaultBranch(rootDir);
-    const defaultRef = repositoryBaseRef(rootDir);
-    if (fresh && !defaultRef) return null;
+    let defaultRef: string | null;
+    try {
+      defaultRef = repositoryBaseRef(rootDir);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("Configured delivery.targetRef")) throw error;
+      if (!hasGitWorkTree(rootDir)) throw error;
+      throw worktreeBaseUnavailableError(rootDir, taskId, binding, "no_resolvable_default_base", error.message);
+    }
+    if (fresh && !defaultRef) {
+      if (!hasGitWorkTree(rootDir)) return null;
+      const reason = hasUnbornHead(rootDir)
+        ? "unborn"
+        : (await runProcessExitAsync("git", ["-C", rootDir, "symbolic-ref", "--quiet", "--short", "HEAD"])).exitCode ===
+            0
+          ? "no_resolvable_default_base"
+          : "detached";
+      throw worktreeBaseUnavailableError(rootDir, taskId, binding, reason);
+    }
     // A runtime that stopped mid-rebase or mid-merge leaves conflict residue; clear it before judging the branch.
     if (!fresh) await abortInterruptedWorktreeOperation(rootDir, cwd);
     // The delivery branch is the one the checkout holds; the task id only names the branch a fresh checkout is cut
@@ -730,12 +772,28 @@ async function checkoutOnStart(
       stackedCommit,
     );
   } catch (error) {
+    // A start is not a provider launch and must not block the lifecycle write on a workspace it did not get: an
+    // explicit start records the decision this node runs the task in, including "no checkout here". The dispatch
+    // boundary still refuses an unstarted task whose binding cannot be materialized (issue #4431).
     if (stackedCommit !== undefined) throw error;
-    return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`], cwd: null };
+    if ((error as Error & { readonly code?: unknown })?.code === "worktree_base_unavailable")
+      return { notes: [`No worktree on this node: ${errorText(error)}`], warnings: [], cwd: null };
+    return {
+      notes: [],
+      warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`],
+      cwd: null,
+    };
   }
   if (!checkout)
     return {
-      notes: [`No worktree on this node: no default branch resolves here, so work stays in ${input.rootDir}.`],
+      notes: [
+        hasGitWorkTree(input.rootDir)
+          ? `No worktree on this node: ${input.rootDir} has no default-branch commit, so work stays in ` +
+            `${input.rootDir}. Create the repository's first commit (or push its default branch) before dispatching ` +
+            "a task that needs a worktree."
+          : `No worktree on this node: it is not a Git work tree, so work stays in ${input.rootDir}. ` +
+            "dec_BBA713052997C3EF5F5D3DD952 CH3 records no workspace on a Git-less edge.",
+      ],
       warnings: [],
       cwd: null,
     };

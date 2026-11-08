@@ -58,15 +58,17 @@ Each gate entry must declare:
   bypass fixture coverage under ADR-0022 D7.
 - `executionSurfaces`: machine-readable reconciliation with `package.json`,
   `rewrite-ci.yml`, `pr-body.yml`, and branch protection. Its `classes` array uses `local`,
-  `pr`, `main-full`, `nightly`, and `manual`. `rewriteCi.scheduleOnly: true`
+  `pr`, `main`, `main-full`, `nightly`, and `manual`. `main` denotes a dedicated
+  non-PR push/schedule job; `main-full` denotes the aggregate `full-check` job.
+  `rewriteCi.scheduleOnly: true`
   distinguishes a step inside the `full-check` job that runs only on schedule.
 
 ## Graph Invariants
 
 `tools/check-gate-manifest-invariants.mjs` fails closed when:
 
-1. a `deterministic: true` gate omits `pr` from
-   `executionSurfaces.classes`; or
+1. a `deterministic: true` gate omits every CI visibility class (`pr`, `main`,
+   `main-full`, or `nightly`) from `executionSurfaces.classes`; or
 2. a governance-required protected surface derives no rule that matches a
    tracked repository file; or
 3. canonical surface labels, declared workflow jobs, and the actual
@@ -184,11 +186,13 @@ The registry records:
   collisions remain covered by `npm run typecheck`.)
 - `check-gate-manifest-invariants` executes locally, in `boundaries`, and in
   non-PR `full-check` confirmation runs.
-- 24 GitHub branch-protection required contexts:
-  `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
-  `integration-shard (1)` through `integration-shard (14)`, `supply-chain`,
-  `gui-build`, `pr-body-lint`, `crlf-checkout`,
-  `windows-first-run (ubuntu-latest)`, and `windows-first-run (windows-latest)`.
+- 21 GitHub branch-protection required contexts:
+  `boundaries`, `package-policy`, `quick-gates`, `fast-contract`,
+  `integration-shard (1)` through `integration-shard (14)`, `gui-build`,
+  `pr-body-lint`, and `crlf-checkout`. `quick-gates` carries the former
+  `typecheck (24)` and `supply-chain` checks plus the Ubuntu first-run smoke;
+  the Windows smoke arms run on main pushes and the daily schedule under
+  decision dec_7467B04DD9EFC2D18A656D2FB3/CH1.
   (`node26-compatibility` was removed by decision
   dec_F5B2CBF8B45042B6DA2824A7FA/CH3: every one of its 25 real catches in 60
   days was simultaneously caught by the Node 24 typecheck lane, and the
