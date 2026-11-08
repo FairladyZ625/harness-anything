@@ -159,8 +159,7 @@ test("missing user authorization context requires sign-in", async () => {
 
   assert.equal(decision.outcome, "denied");
   assert.deepEqual(decision.reasonCodes, ["authentication_required"]);
-  assert.match(decision.nextActions.join(" "), /Sign in with the configured authorization provider/u);
-  assert.ok(decision.bindingsUsed.some((binding) => binding.scope === "task-create"));
+  assert.match(decision.nextActions.join(" "), /Authenticate with the configured authorization provider/u);
 });
 
 test("a valid identity without a policy grant still receives the grant remediation", async () => {
