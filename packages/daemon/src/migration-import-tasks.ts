@@ -521,7 +521,7 @@ export function taskTitleFromPackage(
   packageRoot: string | null,
   indexBody: string | null,
   authoredRoot: string,
-  planBody: string | null = null,
+  planBody: string | null,
 ): { readonly value: string; readonly source: string } | null {
   if (packageRoot === null) return null;
   const planPath = path.join(packageRoot, "task_plan.md"),
