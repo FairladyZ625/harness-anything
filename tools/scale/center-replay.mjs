@@ -4,7 +4,6 @@ import { JsonRpcLineClient } from "../../packages/daemon/src/client/local-json-r
 import { daemonHelloParams } from "../../packages/daemon/src/client/daemon-hello.ts";
 import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { requestAccumulator, replaySchedule } from "./center-model.mjs";
-import { withWatchdog } from "../stress/core/controller.mjs";
 let nextReplayId = 0;
 
 // Bindings are workload choices, not copies of the action catalog. Unbound commands fail before load starts.
@@ -73,22 +72,11 @@ export function syntheticParams(row, fixture, serial = 0, bindings = {}) {
   throw new Error(`synthetic binding required for ${row.method}:${row.command}`);
 }
 
-async function openSession(endpoint, timeoutMs) {
+async function openSession(endpoint) {
   const socket = net.createConnection(endpoint),
     client = new JsonRpcLineClient(socket, socket);
   try {
-    await withWatchdog(
-      async (signal) => {
-        const abort = () => socket.destroy();
-        signal.addEventListener("abort", abort, { once: true });
-        try {
-          await once(socket, "connect");
-        } finally {
-          signal.removeEventListener("abort", abort);
-        }
-      },
-      { timeoutMs, label: "replay connection" },
-    );
+    await once(socket, "connect");
     return client;
   } catch (error) {
     client.close();
@@ -103,7 +91,6 @@ export async function replayTraffic({
   speed = 1,
   durationMs = 10_000,
   maxInFlight = 4096,
-  timeoutMs = 10_000,
   bindings = {},
   onRequest = async () => undefined,
 }) {
@@ -114,7 +101,7 @@ export async function replayTraffic({
   const sessions = new Map(),
     observeCursors = new Map(),
     observeBootstraps = new Map(),
-    observePolls = { history: 0, follow: 0 },
+    observeArrivals = [],
     pending = new Set(),
     accumulator = requestAccumulator();
   const started = performance.now();
@@ -133,20 +120,20 @@ export async function replayTraffic({
       key = `${row.node}:${row.connection}`;
     let ok = false,
       code = null,
+      observeDirection = null,
       releaseBootstrap = null,
       bootstrap = null;
     try {
       if (!sessions.has(key)) {
-        const opening = openSession(fixture.endpoint, timeoutMs);
+        const opening = openSession(fixture.endpoint);
         const session = { opening, active: 0, lastIssued: false };
         // The trace may start mid-connection. Only that case adds an explicitly counted hello.
         session.ready = opening.then(async (client) => {
           if (row.method !== "protocol.hello") implicitHellos++;
-          session.helloResult = await client.request(
-            "protocol.hello",
-            { ...syntheticParams({ ...row, method: "protocol.hello" }, fixture, number), invokingCommand: traceTag },
-            timeoutMs,
-          );
+          session.helloResult = await client.request("protocol.hello", {
+            ...syntheticParams({ ...row, method: "protocol.hello" }, fixture, number),
+            invokingCommand: traceTag,
+          });
           return client;
         });
         sessions.set(key, session);
@@ -174,13 +161,16 @@ export async function replayTraffic({
           });
           observeBootstraps.set(row.node, bootstrap);
         }
-        observePolls[params.payload.direction]++;
+        observeDirection = params.payload.direction;
       }
-      const result =
-        row.method === "protocol.hello" ? session.helloResult : await client.request(row.method, params, timeoutMs);
+      // Record the actual reply/transport failure, including its measured latency. A per-request
+      // cutoff would turn CPU starvation into an invented RPC failure; the isolated test owns
+      // the hang guard for a replay that never receives a terminal event.
+      const result = row.method === "protocol.hello" ? session.helloResult : await client.request(row.method, params);
       if (managedObserve && result.liveCursor) observeCursors.set(row.node, result.liveCursor);
       ok = result.ok !== false && !["op_rejected", "indeterminate"].includes(result.outcome);
       code = ok ? null : (result.code ?? result.error?.code ?? result.outcome ?? "request_failed");
+      if (managedObserve && ok) observeArrivals.push({ node: row.node, direction: observeDirection });
     } catch (error) {
       code = error.code ?? error.message;
     } finally {
@@ -241,7 +231,7 @@ export async function replayTraffic({
       traceTag,
       elapsedMs,
       implicitHellos,
-      observePolls,
+      observeArrivals,
       maxInFlightObserved: highWater,
       plannedMethods: Object.fromEntries(
         [...new Set(window.map((row) => row.method))].map((method) => [

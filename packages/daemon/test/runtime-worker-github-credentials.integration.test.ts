@@ -170,6 +170,7 @@ async function exerciseTaskPush(
           runtimeInstanceId: instanceId,
           cwd: { scope: "repo-root" },
           prompt: "Inspect without a task binding",
+          permissionMode: "workspace-write",
           taskId: null,
           dispatchKey: "github-worker-unbound",
         },

@@ -88,7 +88,7 @@ test("G4 history-scan detection ignores runtimeQueryKeys builders but flags ledg
   assert.match(rejected.stderr, /unlisted: .*ledger-read\.ts#poll/u);
 });
 
-function lint(rule, source, options = {}) {
+function lint(rule, source, options = {}, filename = "packages/example/src/new.js") {
   const linter = new Linter({ configType: "flat" });
   return linter.verify(
     source,
@@ -97,7 +97,7 @@ function lint(rule, source, options = {}) {
       plugins: { ha: { rules: { rule } } },
       rules: { "ha/rule": ["error", options] },
     },
-    { filename: "packages/example/src/new.js" },
+    { filename },
   );
 }
 
@@ -112,6 +112,156 @@ test("G3 rejects short timers and loop waits while accepting event-driven waits"
     1,
   );
   assert.equal(lint(noPollSpin, "await completionEvent;").length, 0);
+});
+
+// dec_25B3C380F6FB9D4D4A1E27921E CH1: integration tests may not judge correctness by the wall clock.
+test("G3 integration lane rejects wall-clock deadlines, scheduled timers and self-written polls", () => {
+  const integration = { integration: true },
+    filename = "packages/example/test/new.integration.test.mjs",
+    kinds = (source, options = integration, name = filename) =>
+      lint(noPollSpin, source, options, name).map((message) => /#([a-z-]+)$/u.exec(message.message)?.[1]);
+  assert.deepEqual(
+    kinds(
+      "async function run() { const deadline = performance.now() + 5000; while (!ready() && performance.now() < deadline) await next(); }",
+    ),
+    ["clock-loop", "clock-deadline"],
+  );
+  assert.deepEqual(kinds("test('x', async () => { setTimeout(() => child.send('stop'), 2000); });"), [
+    "scheduled-timer",
+  ]);
+  assert.deepEqual(kinds("const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));"), [
+    "scheduled-timer",
+  ]);
+  // Negative fixtures: a watchdog that only fails the test bounds a hang and is not a correctness wait.
+  assert.deepEqual(
+    kinds(
+      "function guard(ms) { return new Promise((_resolve, reject) => { setTimeout(() => reject(new Error('hung')), ms); }); }",
+    ),
+    [],
+  );
+  // A process action plus a failure is still a scheduled timer; the failure does not make it a watchdog.
+  assert.deepEqual(kinds("setTimeout(() => { child.send('stop'); reject(new Error('hung')); }, 60_000);"), [
+    "scheduled-timer",
+  ]);
+  assert.deepEqual(kinds("setTimeout(() => { child.kill('SIGKILL'); reject(new Error('hung')); }, 60_000);"), [
+    "scheduled-timer",
+  ]);
+  for (const action of [
+    "child.stopped = true",
+    "child.stops++",
+    "delete child.state",
+    "new StopChild()",
+    "child.reject('hung')",
+    "child.fail('hung')",
+  ]) {
+    assert.deepEqual(
+      kinds(`setTimeout(() => { ${action}; reject(new Error('hung')); }, 60_000);`),
+      ["scheduled-timer"],
+      action,
+    );
+  }
+  assert.deepEqual(kinds("setTimeout(() => { clearTimeout(timer); reject(new Error('hung')); }, 60_000);"), []);
+  assert.deepEqual(kinds("setTimeout(() => { throw new Error('hung'); }, 60_000);"), []);
+  assert.deepEqual(kinds("setTimeout(() => fail('hung'), 60_000);"), []);
+  assert.deepEqual(kinds("setTimeout(() => assert.fail('hung'), 60_000);"), []);
+  // A fail-only timer with a short resolved delay asserts speed: it is reported, not exempted.
+  assert.deepEqual(kinds("setTimeout(() => reject(new Error('write was blocked')), 5_000);"), ["short-watchdog"]);
+  assert.deepEqual(kinds("const guardMs = 3_000; setTimeout(() => reject(new Error('slow')), guardMs);"), [
+    "short-watchdog",
+  ]);
+  assert.deepEqual(kinds("setTimeout(() => controller.abort(), 60_000);"), ["scheduled-timer"]);
+  assert.deepEqual(kinds("test('x', { timeout: 30_000 }, async () => { await child.exited; });"), []);
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: 30_000 }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: timeoutMs }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: 57_629 }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: 57_630 }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    [],
+  );
+  assert.deepEqual(kinds("async function waitForReady() { for (;;) { if (await ready()) return; } }"), ["self-poll"]);
+  assert.deepEqual(
+    kinds(
+      "import { waitForCondition } from '../../tools/fixtures/wait-for-condition.ts'; await waitForCondition(ready, 'ready');",
+    ),
+    ["poll-helper"],
+  );
+  assert.deepEqual(
+    kinds("import { eventuallyValue } from './fixtures/runtime-ingress.ts'; await eventuallyValue(read);"),
+    ["poll-helper"],
+  );
+  const eventDriven =
+    "import { waitForArrival } from '../../tools/fixtures/event-arrival.ts';\n" +
+    "test('x', async () => { const value = await waitForArrival(() => store.read(), (arrive) => store.subscribe(arrive)); });";
+  assert.deepEqual(kinds(eventDriven), []);
+  // The production lane keeps its narrower CH3 kinds: an elapsed-time read or a long timer is not a poll there.
+  assert.equal(
+    lint(noPollSpin, "const deadline = Date.now() + 5000; if (Date.now() > deadline) stop(); setTimeout(stop, 2000);")
+      .length,
+    0,
+  );
+});
+
+test("G3 integration exact-sync: a new now()+N deadline loop fails and its waitForArrival rewrite passes", (t) => {
+  const root = fixture(t),
+    file = path.join(root, "packages/example/test/flow.integration.test.ts");
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(path.join(root, "packages/example/src/clean.ts"), "export const clean = true;\n");
+  assert.equal(run("tools/check-poll-spin-boundary.mjs", root, "--update").status, 0);
+  writeFileSync(
+    file,
+    "test('flow', async () => {\n" +
+      "  const deadline = Date.now() + 10_000;\n" +
+      "  while (!(await child.ready()) && Date.now() < deadline) await delay(20);\n" +
+      "});\n",
+  );
+  const rejected = run("tools/check-poll-spin-boundary.mjs", root);
+  assert.notEqual(rejected.status, 0);
+  assert.match(
+    rejected.stderr,
+    /unlisted: packages\/example\/test\/flow\.integration\.test\.ts#<module>#clock-deadline/u,
+  );
+  writeFileSync(
+    file,
+    "import { waitForArrival } from '../../../tools/fixtures/event-arrival.ts';\n" +
+      "test('flow', async () => {\n" +
+      "  await waitForArrival(() => (child.readyNow() ? true : null), (arrive) => child.onMessage(arrive));\n" +
+      "});\n",
+  );
+  const accepted = run("tools/check-poll-spin-boundary.mjs", root);
+  assert.equal(accepted.status, 0, accepted.stderr);
 });
 
 test("G4 catch-and-substitute rejects another producer unless baselined", () => {

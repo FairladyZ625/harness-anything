@@ -15,13 +15,23 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
-// The ask-agent tool boundary end to end: the dispatched agent's environment carries the
-// read-only execution credential, and the real CLI inside it finds allowlisted queries answered
-// while everything outside the allowlist — reads and writes — is rejected by the daemon.
-test(
-  "the dispatched ask agent reaches only its allowlisted ledger queries through the real CLI",
-  { timeout: 120_000 },
-  async (t) => {
+// Read-only execution credentials are enforced by the daemon regardless of provider mode or Agent declaration.
+for (const scenario of [
+  {
+    name: "the dispatched ask agent reaches only its allowlisted ledger queries through the real CLI",
+    agentId: "ask-agent",
+  },
+  {
+    name: "#4401 taskless explicit read-only without an Agent launches with a restricted credential",
+    requested: "read-only",
+  },
+  {
+    name: "#4401 taskless instance read-only without an Agent launches with a restricted credential",
+    configured: "read-only",
+  },
+  { name: "#4401 ordinary taskless session retains repository writes under person RBAC", session: true },
+])
+  test(scenario.name, { timeout: 120_000 }, async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-ask-allowlist-")),
       root = path.join(parent, "repo"),
       userRoot = path.join(parent, "user"),
@@ -103,7 +113,7 @@ test(
         installationId: "codex-fixture",
         providerId: "openai",
         models: ["deepseek-flash"],
-        permissionMode: "bypass",
+        permissionMode: scenario.configured ?? "bypass",
         authMode: "subscription",
       },
     });
@@ -125,7 +135,8 @@ test(
       repo: { repoId },
       payload: {
         runtimeInstanceId: "codex-ask",
-        agentId: "ask-agent",
+        ...(scenario.agentId ? { agentId: scenario.agentId } : {}),
+        ...(scenario.requested ? { permissionMode: scenario.requested } : {}),
         taskId: null,
         cwd: { scope: "repo-root" },
         prompt: "重构组怎么样了？",
@@ -154,9 +165,18 @@ test(
     assert.equal(receipt(agenda).ok, true, `allowlisted agenda read failed: ${agenda.stderr}${agenda.stdout}`);
     const workList = await cli(["work", "list"]);
     assert.equal(receipt(workList).ok, true, `allowlisted work list failed: ${workList.stderr}${workList.stdout}`);
+    if (scenario.session) {
+      const write = await cli(["task", "create", "--title", "Ordinary session write control"]);
+      assert.equal(receipt(write).ok, true, `ordinary session write failed: ${write.stderr}${write.stdout}`);
+      writeFileSync(path.join(parent, "ask-finish"), "");
+      return;
+    }
     for (const [label, response] of [
       ["outside allowlist read", await cli(["agent", "list"])],
-      ["outside allowlist write", await cli(["agent", "install", "--source", path.join(parent, "nope")])],
+      ["task creation", await cli(["task", "create", "--title", "Read-only task write attempt"])],
+      ["task progress write", await cli(["task", "progress", "append", "task_4401_probe", "--text", "must be denied"])],
+      ["document sync write", await cli(["doc", "sync", "--submit", "--path", "README.md"])],
+      ["agent install write", await cli(["agent", "install", "--source", path.join(parent, "nope")])],
       ["ledger write", await cli(["settings", "update", "--runtime-allowed-instance", "codex-other"])],
     ]) {
       assert.match(
@@ -168,5 +188,4 @@ test(
     }
     // Release the provider turn so the runtime settles and the test daemon can stop cleanly.
     writeFileSync(path.join(parent, "ask-finish"), "");
-  },
-);
+  });

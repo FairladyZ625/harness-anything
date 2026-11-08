@@ -112,7 +112,10 @@ test("a publishing tag is contained in main or a release line", () => {
 });
 
 test("third-party actions are pinned to a commit", () => {
-  const actionReferences = [...workflow.matchAll(/^\s*(?:-\s*)?uses:\s*([^\s#]+)/gmu)].map((match) => match[1]);
+  // Local composite actions (./...) ship with the checked-out commit itself; only external references need a pin.
+  const actionReferences = [...workflow.matchAll(/^\s*(?:-\s*)?uses:\s*([^\s#]+)/gmu)]
+    .map((match) => match[1])
+    .filter((reference) => !reference.startsWith("./"));
   assert.ok(actionReferences.length > 0, "release workflow must use actions");
   for (const reference of actionReferences) {
     assert.match(

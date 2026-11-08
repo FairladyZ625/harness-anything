@@ -344,11 +344,11 @@ function readChangedPaths(revision) {
   return [...new Set(`${changed}${untracked}`.split("\0").filter(Boolean))].sort();
 }
 
-function runCommand(label, command) {
+export function runCommand(label, command, failureHint = null, { cwd = repoRoot } = {}) {
   console.log(`\n▶ ${label}  (${command})`);
   const started = Date.now();
   const result = spawnSync(command, {
-    cwd: repoRoot,
+    cwd,
     env: process.env,
     // The runner has to start before it can report anything, so a hardcoded POSIX shell made
     // every Windows lane fail at "spawnSync /bin/sh ENOENT" with no gate output at all.
@@ -358,14 +358,37 @@ function runCommand(label, command) {
   const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
   if (result.error) {
     console.error(`✖ ${label} failed to launch: ${result.error.message}`);
+    if (failureHint) console.error(`↳ Fix: ${failureHint}`);
     return { ok: false, durationMs: Date.now() - started };
   }
   if (result.status !== 0) {
     console.error(`✖ ${label} failed (exit ${result.status ?? "signal"}) after ${elapsedS}s`);
+    if (failureHint) console.error(`↳ Fix: ${failureHint}`);
     return { ok: false, durationMs: Date.now() - started };
   }
   console.log(`✓ ${label} (${elapsedS}s)`);
   return { ok: true, durationMs: Date.now() - started };
+}
+
+/**
+ * Run every gate in the plan and decide the aggregate verdict only at the end.
+ *
+ * A workflow job must not stop at the first red gate: the local PR-body entry and the single CI
+ * job exist so one run reports every failing check. Package aggregates keep their historical
+ * short-circuit through `stopOnFailure`.
+ */
+export function runManifestGatePlan(plan, { execute, stopOnFailure = false } = {}) {
+  const run = execute ?? ((entry) => runCommand(entry.id, entry.command, entry.failureHint));
+  const results = [];
+  for (const entry of plan) {
+    const result = run(entry);
+    results.push({ id: entry.id, ...result });
+    if (!result.ok && stopOnFailure) break;
+  }
+  return {
+    results,
+    failedGateIds: results.filter((result) => !result.ok).map((result) => result.id),
+  };
 }
 
 function main(argv) {
@@ -381,6 +404,10 @@ function main(argv) {
   else if (options.workflowJob) process.env.HARNESS_TEST_TIER ||= "contract";
   const manifest = readManifest();
   const plan = buildManifestGatePlan(manifest, options);
+  const hints = new Map(manifest.gates.map((gate) => [gate.id, gate.failureHint]));
+  const planWithHints = plan.map((entry) =>
+    hints.get(entry.id) ? { ...entry, failureHint: hints.get(entry.id) } : entry,
+  );
   const selector = options.packageSurface
     ? `package:${options.packageSurface}`
     : options.workflowJob
@@ -390,14 +417,9 @@ function main(argv) {
     console.log(`Changed path selection (${options.changed}): ${options.changedPaths.length} path(s).`);
   }
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
-  const failedGateIds = [];
-  for (const entry of plan) {
-    const result = runCommand(entry.id, entry.command);
-    if (!result.ok) {
-      failedGateIds.push(entry.id);
-      if (options.packageSurface) break;
-    }
-  }
+  const { failedGateIds } = runManifestGatePlan(planWithHints, {
+    stopOnFailure: Boolean(options.packageSurface),
+  });
   if (failedGateIds.length > 0) {
     console.error(`\nManifest gate runner failed (${selector}): ${failedGateIds.join(", ")}.`);
     process.exitCode = 1;

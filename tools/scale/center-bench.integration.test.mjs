@@ -152,9 +152,14 @@ test(
         );
         assert.equal(row.replication.connectedAfter, row.nodes);
         assert.ok(row.replication.commitsReceived > 0, "replica sinks decode incremental commits during replay");
-        assert.ok(
-          row.observePolls.history >= row.nodes && row.observePolls.follow >= row.nodes,
-          "GUI calibration bootstraps history then follows the returned live cursor",
+        const observed = new Set(row.observeArrivals.map(({ node, direction }) => `${node}:${direction}`)),
+          expected = new Set(
+            Array.from({ length: row.nodes }, (_, node) => [`${node}:history`, `${node}:follow`]).flat(),
+          );
+        assert.deepEqual(
+          [...observed].sort(),
+          [...expected].sort(),
+          "GUI calibration waits for one history and one follow arrival per node",
         );
       }
     }

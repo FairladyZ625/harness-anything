@@ -16,7 +16,7 @@ test("fleet status renders center-observed online time, build mismatch and times
       {
         ...node,
         online: { kind: "value", text: "disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z" },
-        build: { kind: "value", text: "abcdef (version mismatch; ha update)" },
+        build: { kind: "value", text: "abcdef (version mismatch; git pull --ff-only, then build CLI and daemon)" },
         watch: {
           kind: "value",
           text: "center phase=awaiting_ack since=2026-11-03T01:00:00.000Z; edge watch unavailable",
@@ -30,7 +30,7 @@ test("fleet status renders center-observed online time, build mismatch and times
   };
   const text = renderDaemonFleetStatus(result as unknown as Record<string, unknown>);
   assert.match(text, /online disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z/u);
-  assert.match(text, /build abcdef \(version mismatch; ha update\)/u);
+  assert.match(text, /build abcdef \(version mismatch; git pull --ff-only, then build CLI and daemon\)/u);
   assert.match(text, /watch center phase=awaiting_ack since=/u);
   assert.match(text, /lastFailure center_upgrade_required @ .*peer=edge; frame=backup/u);
 });
@@ -242,13 +242,13 @@ test("fleet status prints the center and local build identities with the upgrade
     versionWarning: {
       centerBuildCommit: "a".repeat(40),
       localBuildCommit: "b".repeat(40),
-      upgradeCommand: "ha update" as const,
+      upgradeCommand: "git pull --ff-only, then build CLI and daemon" as const,
     },
   };
   const text = renderDaemonFleetStatus(data as unknown as Record<string, unknown>);
   assert.match(
     text,
-    /WARNING version mismatch center=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa local=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; upgrade with ha update/u,
+    /WARNING version mismatch center=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa local=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; upgrade with git pull --ff-only, then build CLI and daemon/u,
   );
 });
 
@@ -267,7 +267,7 @@ test("ordinary successful CLI receipts retain the Fleet build warning", () => {
         versionWarning: {
           centerBuildCommit: "center-build",
           localBuildCommit: "edge-build",
-          upgradeCommand: "ha update",
+          upgradeCommand: "git pull --ff-only, then build CLI and daemon",
         },
       },
       false,
@@ -277,7 +277,7 @@ test("ordinary successful CLI receipts retain the Fleet build warning", () => {
   }
   assert.match(
     output.join("\n"),
-    /WARNING version mismatch center=center-build local=edge-build; upgrade with ha update/u,
+    /WARNING version mismatch center=center-build local=edge-build; upgrade with git pull --ff-only, then build CLI and daemon/u,
   );
 });
 

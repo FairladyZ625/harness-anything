@@ -894,13 +894,24 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
         const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
         const dispatch =
-          action.type === "runtime_session_started" && typeof action.payload.runtimeSessionId === "string"
-            ? context.projection.readRuntimeDispatch(action.payload.runtimeSessionId)
-            : null;
+            action.type === "runtime_session_started" && typeof action.payload.runtimeSessionId === "string"
+              ? context.projection.readRuntimeDispatch(action.payload.runtimeSessionId)
+              : null,
+          executionRole = !dispatch
+            ? null
+            : dispatch.payload.taskId
+              ? dispatch.payload.role === "reviewer"
+                ? ("reviewer" as const)
+                : ("implementation" as const)
+              : dispatch.payload.reviewTarget
+                ? null
+                : dispatch.payload.role === "read-only"
+                  ? "read-only"
+                  : "session";
         const execution: RuntimeExecutionPrincipal | null =
           receipt.outcome === "applied" &&
           dispatch &&
-          (dispatch.payload.taskId || !dispatch.payload.reviewTarget) &&
+          executionRole !== null &&
           typeof authorizedBinding.source === "object" &&
           authorizedBinding.source.kind === "node" &&
           authorizedBinding.keycloakAuthorization?.center
@@ -911,22 +922,10 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 dispatchId: dispatch.payload.dispatchId,
                 taskId: dispatch.payload.taskId ?? null,
                 executionId: dispatch.payload.executionId ?? null,
-                role: dispatch.payload.taskId
-                  ? dispatch.payload.role === "reviewer"
-                    ? "reviewer"
-                    : "implementation"
-                  : dispatch.payload.role === "read-only"
-                    ? "read-only"
-                    : "session",
+                role: executionRole,
                 surfaces: taskExecutionSurfaces(
                   dispatch.payload.taskId ? context.projection.read(dispatch.payload.taskId).snapshot.task : null,
-                  dispatch.payload.taskId
-                    ? dispatch.payload.role === "reviewer"
-                      ? "reviewer"
-                      : "implementation"
-                    : dispatch.payload.role === "read-only"
-                      ? "read-only"
-                      : "session",
+                  executionRole,
                 ),
                 source: dispatch.source,
                 ...(dispatch.payload.reviewTarget?.kind === "decision"

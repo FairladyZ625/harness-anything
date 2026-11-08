@@ -1,0 +1,29 @@
+name: Cache the Electron runtime
+description: >-
+  Restore the @electron/get download cache keyed by the locked Electron version and prime it
+  with one bounded-retry download, so npm installs and Electron launches never depend on a
+  single github.com/electron/electron/releases request.
+
+# Every job that installs dependencies or executes an Electron-importing suite uses this
+# action. `tools/gates/test/rewrite-ci-dependency-artifact.test.mjs` keeps the same-change
+# workflow fixture for the rewrite-ci inventory; the workflow references are the live surface.
+runs:
+  using: composite
+  steps:
+    - name: Point Electron's installer at the shared cache directory
+      shell: bash
+      # Resolve the same home directory actions/cache expands `~` from, so Windows bash's
+      # POSIX-looking HOME cannot point the installer at a different directory than the cache.
+      run: node -e "console.log('electron_config_cache=' + require('node:path').join(require('node:os').homedir(), '.cache', 'electron'))" >> "$GITHUB_ENV"
+    - name: Resolve the locked Electron version
+      id: electron-version
+      shell: bash
+      run: echo "version=$(node tools/ci/electron-runtime.mjs --version)" >> "$GITHUB_OUTPUT"
+    - name: Restore the Electron download cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/electron
+        key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron-version.outputs.version }}
+    - name: Download the Electron runtime once with bounded retries
+      shell: bash
+      run: node tools/ci/electron-runtime.mjs

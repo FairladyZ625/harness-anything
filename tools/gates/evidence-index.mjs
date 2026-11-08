@@ -41,6 +41,7 @@ export const EVIDENCE_INDEX = Object.freeze({
     "task_237d96e30287e4c2552826ef46",
     "task_2c42314f552452ad44d90f8dfe",
     "task_32e553b6c0ff5f31a6d914e5cb",
+    "task_34470c99bb4b77644b9ce3a246",
     "task_39cc8158d2f76a930bf4dcd0de",
     "task_427b738002d4d6c9c42a4cf010",
     "task_432d80554372b23108826e04d1",
@@ -69,6 +70,7 @@ export const EVIDENCE_INDEX = Object.freeze({
   decisions: Object.freeze([
     "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
     "dec_13FF6AEF3598AF34DC8F4A0558",
+    "dec_25B3C380F6FB9D4D4A1E27921E",
     "dec_2BF45FF7E52020380F5F35CE2D",
     "dec_57A9D27BA446C23759A08B1C13",
     "dec_585DB10A4218D9FA00F67B9537",

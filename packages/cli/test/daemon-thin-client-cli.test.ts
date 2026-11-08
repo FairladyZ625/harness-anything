@@ -691,7 +691,7 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
                     versionWarning: {
                       centerBuildCommit: "center-build",
                       localBuildCommit: "edge-build",
-                      upgradeCommand: "ha update",
+                      upgradeCommand: "git pull --ff-only, then build CLI and daemon",
                     },
                   };
                 })();
@@ -732,7 +732,10 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     const raw = await spawnRaw(["doc", "show", "--path", "context/raw.md", "--raw"]);
     assert.equal(raw.status, 0, `${raw.stderr}\n${raw.stdout}`);
     assert.equal(raw.stdout, body, "raw output must be the body byte-for-byte, no receipt decoration");
-    assert.match(raw.stderr, /WARNING version mismatch center=center-build local=edge-build; upgrade with ha update/u);
+    assert.match(
+      raw.stderr,
+      /WARNING version mismatch center=center-build local=edge-build; upgrade with git pull --ff-only, then build CLI and daemon/u,
+    );
     assert.equal(existsSync(descriptorFiles[0]!), false, "raw consumption removes the sealed descriptor");
     assert.equal(existsSync(descriptorFiles[0]!.replace(/\.sealed$/u, ".json")), false);
     assert.equal(
@@ -745,7 +748,7 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     assert.equal(decorated.status, 0, `${decorated.stderr}\n${decorated.stdout}`);
     assert.equal(
       decorated.stdout,
-      `${body}\nWARNING version mismatch center=center-build local=edge-build; upgrade with ha update\n`,
+      `${body}\nWARNING version mismatch center=center-build local=edge-build; upgrade with git pull --ff-only, then build CLI and daemon\n`,
       "plain doc show streams the body and keeps the version warning",
     );
     assert.equal(decorated.stderr, "");
