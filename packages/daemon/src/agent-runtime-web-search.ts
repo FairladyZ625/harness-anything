@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { parse as parseToml } from "smol-toml";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessExitAsync } from "./process-port.ts";
 import type {
@@ -104,33 +105,28 @@ export function runtimeWebSearchModelGate(
  *  managed_config.toml path is included because Codex still reads it as a fallback. */
 export const codexManagedPolicyPaths = ["/etc/codex/requirements.toml", "/etc/codex/managed_config.toml"] as const;
 
-/** Parses the one managed key this product acts on. A key that is present but not a
- *  string array is a refusal, not "no policy": guessing would let an administrator's
- *  restriction be ignored. */
+/** Reads the top-level managed key through a TOML parser, so quoted keys, comments and
+ *  table scoping follow the TOML document model Codex itself uses. A document that does not
+ *  parse, or a key that is present but not a string array, is a refusal, not "no policy":
+ *  guessing would let an administrator's restriction be ignored. */
 export function allowedWebSearchModesInPolicy(text: string): readonly string[] | null {
-  const key = /^[ \t]*allowed_web_search_modes[ \t]*=/mu.exec(text);
-  if (!key) return null;
-  const valueStart = key.index + key[0].length + /^[ \t]*/u.exec(text.slice(key.index + key[0].length))![0].length;
-  if (text[valueStart] !== "[") throw invalidPolicyShape();
-  const close = text.indexOf("]", valueStart + 1);
-  if (close < 0) throw invalidPolicyShape();
-  const trailing = text
-    .slice(close + 1)
-    .split(/\r?\n/u)[0]!
-    .replace(/#.*/u, "")
-    .trim();
-  if (trailing.length > 0) throw invalidPolicyShape();
-  const body = text.slice(valueStart + 1, close).replace(/#[^\n]*/gu, ""),
-    values = [...body.matchAll(/["']([^"']+)["']/gu)].map((entry) => entry[1]!),
-    residue = body.replace(/["'][^"']+["']/gu, "").replace(/[,\s]/gu, "");
-  if (residue.length > 0) throw invalidPolicyShape();
-  return values;
+  let document: Record<string, unknown>;
+  try {
+    document = parseToml(text) as Record<string, unknown>;
+  } catch {
+    throw invalidPolicyShape();
+  }
+  const value = document.allowed_web_search_modes;
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || !value.every((entry): entry is string => typeof entry === "string"))
+    throw invalidPolicyShape();
+  return value;
 }
 
 function invalidPolicyShape(): Error {
   return runtimeInstanceError(
     "runtime_web_search_policy_invalid",
-    "Codex managed requirements allowed_web_search_modes is not a string array.",
+    "Codex managed requirements are not valid TOML or allowed_web_search_modes is not a string array.",
   );
 }
 

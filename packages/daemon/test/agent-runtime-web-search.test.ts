@@ -184,6 +184,30 @@ test("administrator managed requirements that exclude the tier are refused", asy
     );
 });
 
+test("managed policy keys keep TOML quoting, scoping and comment semantics", () => {
+  for (const source of [
+    'allowed_web_search_modes = ["disabled"]',
+    '"allowed_web_search_modes" = ["disabled"]',
+    "'allowed_web_search_modes' = ['disabled']",
+    'allowed_web_search_modes = ["disabled"] # trailing comment',
+    'allowed_web_search_modes = ["disabled"]\n[other]\nkey = "value"',
+  ])
+    assert.deepEqual(allowedWebSearchModesInPolicy(source), ["disabled"], source);
+  // A same-named key inside a table is not the top-level managed key.
+  assert.equal(allowedWebSearchModesInPolicy('[other]\nallowed_web_search_modes = ["disabled"]'), null);
+  for (const malformed of [
+    'allowed_web_search_modes = "disabled"',
+    "allowed_web_search_modes = 1",
+    'allowed_web_search_modes = ["disabled", 1]',
+    '"allowed_web_search_modes" = true',
+  ])
+    assert.throws(
+      () => allowedWebSearchModesInPolicy(malformed),
+      (error: unknown) => codedAs(error, "runtime_web_search_policy_invalid"),
+      malformed,
+    );
+});
+
 test("a managed policy that exists but cannot be read is refused, while absence is no policy", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-codex-policy-read-"));
   try {
@@ -210,10 +234,11 @@ test("a managed policy that exists but cannot be read is refused, while absence 
 test("prepareLaunch refuses a managed-policy conflict before any credential or process work", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-policy-"));
   try {
+    let policy = 'allowed_web_search_modes = ["disabled"]';
     const store = openRuntimeInstanceStore({
       userRoot,
       discover: () => [witness],
-      managedPolicyTexts: () => ['allowed_web_search_modes = ["disabled"]'],
+      managedPolicyTexts: () => [policy],
       resolveCredential: async () => "redacted-test-key",
     });
     store.command({
@@ -229,10 +254,18 @@ test("prepareLaunch refuses a managed-policy conflict before any credential or p
       credentialRef: "credential:v1:codex-policy",
       codex: { webSearch: "live" },
     });
-    await assert.rejects(
-      store.prepareLaunch("codex-policy", { cwd: "/workspace/repo", prompt: "search" }),
-      (error: unknown) => codedAs(error, "runtime_web_search_policy_conflict"),
-    );
+    for (const declared of [
+      'allowed_web_search_modes = ["disabled"]',
+      '"allowed_web_search_modes" = ["disabled"]',
+      "'allowed_web_search_modes' = ['disabled']",
+    ]) {
+      policy = declared;
+      await assert.rejects(
+        store.prepareLaunch("codex-policy", { cwd: "/workspace/repo", prompt: "search" }),
+        (error: unknown) => codedAs(error, "runtime_web_search_policy_conflict"),
+        declared,
+      );
+    }
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
