@@ -67,9 +67,13 @@ export function cliInput<const Extra extends Readonly<Record<string, unknown>> =
   error: CliInputError,
   extra?: Extra,
 ): Readonly<CliInputFacet & Extra> {
-  return Object.freeze({ ...extra, name, kind, required, error: Object.freeze(error) }) as Readonly<
-    CliInputFacet & Extra
-  >;
+  return Object.freeze({
+    ...extra,
+    name,
+    kind,
+    required,
+    error: Object.freeze(error),
+  }) as Readonly<CliInputFacet & Extra>;
 }
 
 // The daemon's workspace file reads (readWorkspaceText) and every --from-file/--body-file help

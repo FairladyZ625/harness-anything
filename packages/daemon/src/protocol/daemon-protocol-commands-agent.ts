@@ -95,6 +95,7 @@ export const agentProtocolCommands = Object.freeze([
             "revision",
             "schemaVersions",
           ],
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
         },
       ),
       cliInput(

@@ -87,6 +87,7 @@ const packetSources = (schemaRef: string, fields: readonly EntityActionInputFiel
     {
       jsonSchema: packet(schemaRef, fields),
       conflictsWith: ["--json-input"],
+      codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
     },
     errorCode,
   ),
@@ -100,6 +101,7 @@ const packetSources = (schemaRef: string, fields: readonly EntityActionInputFiel
       jsonSchema: packet(schemaRef, fields),
       format: "<json|@->",
       conflictsWith: ["--from-file"],
+      codec: { kind: "json-object", source: "value", maxBytes: 64 * 1024 },
     },
     errorCode,
   ),
@@ -130,7 +132,12 @@ const createInput = input([
   }),
   cli("surfaces", "string-array", false, "--surface", "repeated"),
   cli("taskClass", "string", false, "--task-class", "single", { enum: taskClasses }),
-  wire(cli("planFile", "string", false, "--plan-file", "single"), { omit: true }),
+  wire(
+    cli("planFile", "string", false, "--plan-file", "single", {
+      codec: { kind: "markdown-file", target: "plan", maxBytes: 32 * 1024 },
+    }),
+    { omit: true },
+  ),
   cli("dryRun", "boolean", false, "--dry-run", "boolean"),
   cli("locale", "string", false, "--locale", "single", { enum: settingsLocales }),
   wire(cli("migration", "boolean", false, "--migration", "boolean"), { omit: true }),

@@ -74,9 +74,7 @@ export const docFactProtocolCommands = Object.freeze([
       "and task start still requires the scaffold headings.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId" }),
       cliInput(
         "--path",
         "repeated",
@@ -248,9 +246,15 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
-      cliInput("--ids-file", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--ids-file",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "idsFile", codec: { kind: "line-list-file", target: "factIds", maxBytes: 64 * 1024 } },
+      ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),
@@ -324,9 +328,15 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Register one controlled Fact domain type through an audited Fact event.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { field: "evidenceSource" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({

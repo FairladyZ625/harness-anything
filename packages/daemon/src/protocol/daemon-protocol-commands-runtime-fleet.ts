@@ -82,7 +82,16 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     cliInput("--cwd", "single", false, { code: "invalid_field" }),
     cliInput("--to", "single", false, { code: "invalid_field" }),
     cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt-file"] }),
-    cliInput("--prompt-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt"] }),
+    cliInput(
+      "--prompt-file",
+      "single",
+      false,
+      { code: "invalid_field" },
+      {
+        conflictsWith: ["--mission", "--prompt"],
+        codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 },
+      },
+    ),
     cliInput("--mission", "single", false, { code: "invalid_field" }, { conflictsWith: ["--prompt", "--prompt-file"] }),
     cliInput("--model", "single", false, { code: "invalid_field" }),
     cliInput(
@@ -122,7 +131,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       inputs:
         operation === "claim"
           ? [
-              cliInput("--instance", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
+              cliInput(
+                "--instance",
+                "single",
+                true,
+                { code: "missing_field" },
+                { field: "runtimeInstanceId", wire: { omit: true } },
+              ),
               cliInput("--prompt", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
               cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "dispatchKey" }),
             ]
@@ -269,7 +284,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     method: "repo.agentRuntime.steer",
     inputs: [
       cliInput("--prompt", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt-file"] }),
-      cliInput("--prompt-file", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt"] }),
+      cliInput(
+        "--prompt-file",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { conflictsWith: ["--prompt"], codec: { kind: "text-file", target: "prompt", maxBytes: 32 * 1024 } },
+      ),
       // Compare-and-steer (#4372): each stated expectation must still hold when the daemon appends.
       cliInput(
         "--expect-task",
@@ -488,6 +511,7 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
     {
       jsonFields: requiredFields,
       jsonAllowedFields: allowedFields,
+      codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
       format: workspacePathFormat,
       conflictsWith: ["--json-input"],
     },
@@ -500,6 +524,7 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
     {
       jsonFields: requiredFields,
       jsonAllowedFields: allowedFields,
+      codec: { kind: "json-object", source: "value", maxBytes: 64 * 1024 },
       format: "<json|@->",
       conflictsWith: ["--from-file"],
     },
@@ -545,9 +570,15 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--mission", "single", false, {
         code: "missing_field",
       }),
-      cliInput("--mission-file", "single", false, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--mission-file",
+        "single",
+        false,
+        {
+          code: "missing_field",
+        },
+        { codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 } },
+      ),
       cliInput(
         "--effort",
         "single",
@@ -652,9 +683,15 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--mission", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--mission-file", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--mission-file",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { codec: { kind: "markdown-file", target: "mission", maxBytes: 32 * 1024 } },
+      ),
       cliInput(
         "--effort",
         "single",

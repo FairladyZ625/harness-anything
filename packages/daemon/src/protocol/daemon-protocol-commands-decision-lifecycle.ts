@@ -162,6 +162,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonFields: decisionProposalRequiredJsonFields,
           jsonAllowedFields: decisionProposalJsonFields,
           jsonDefaultFields: decisionProposalDefaultJsonFields,
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           format: workspacePathFormat,
           conflictsWith: ["--json-input"],
         },
@@ -177,6 +178,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonFields: decisionProposalRequiredJsonFields,
           jsonAllowedFields: decisionProposalJsonFields,
           jsonDefaultFields: decisionProposalDefaultJsonFields,
+          codec: { kind: "json-object", source: "value", maxBytes: 64 * 1024 },
           format: "<json|@->",
           conflictsWith: ["--from-file"],
         },
@@ -206,6 +208,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           format: workspacePathFormat,
           conflictsWith: ["--body"],
           wire: { omit: true },
+          codec: { kind: "markdown-file", target: "body", maxBytes: 32 * 1024 },
         },
       ),
     ],
@@ -379,6 +382,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: [
             "reviewId",
             "reviewContentDigest",
@@ -434,6 +438,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["responses"],
           jsonFields: ["responses"],
         },
@@ -461,6 +466,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
           jsonFields: ["reviewContentDigest", "reviewIds", "reason"],
         },
@@ -545,9 +551,15 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       }),
       cliInput("--set", "repeated", false, { code: "invalid_field" }, { field: "sets" }),
       cliInput("--append", "repeated", false, { code: "invalid_field" }, { field: "appends" }),
-      cliInput("--body", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--body",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 } },
+      ),
       cliInput(
         "--body-file",
         "single",
@@ -555,7 +567,11 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { format: workspacePathFormat, wire: { omit: true } },
+        {
+          format: workspacePathFormat,
+          wire: { omit: true },
+          codec: { kind: "markdown-file", target: "body", maxBytes: 32 * 1024 },
+        },
       ),
       cliInput(
         "--consent-by",

@@ -1,5 +1,7 @@
 import type { EntityActionContract, EntityActionInputField } from "@harness-anything/kernel";
 
+type EntityCliInputCodec = NonNullable<NonNullable<EntityActionInputField["cli"]>["codec"]>;
+
 export interface CliInputError {
   readonly code: string;
 }
@@ -46,6 +48,8 @@ export interface CliInputFacet {
   readonly requires?: readonly string[];
   readonly requiresAny?: readonly string[];
   readonly conflictsWith?: readonly string[];
+  /** Wire encoding for an edge-local file/value before it enters a Fleet action. */
+  readonly codec?: EntityCliInputCodec;
 }
 export type RpcShape = {
   readonly fields: Readonly<

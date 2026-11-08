@@ -32,6 +32,7 @@ const peopleWriteTopology = {
       {
         jsonFields: requiredFields,
         jsonAllowedFields: allowedFields,
+        codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
         format: workspacePathFormat,
         conflictsWith: ["--json-input"],
       },
@@ -44,6 +45,7 @@ const peopleWriteTopology = {
       {
         jsonFields: requiredFields,
         jsonAllowedFields: allowedFields,
+        codec: { kind: "json-object", source: "value", maxBytes: 64 * 1024 },
         format: "<json|@->",
         conflictsWith: ["--from-file"],
       },

@@ -1,14 +1,26 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { fleetForwardingBoundaryBaseline } from "../gate-allowlists/fleet-forwarding-boundary-baseline.mjs";
 
 const FLEET_ROOT = "packages/daemon/src/fleet";
+const FORWARDING_ROOTS = Object.freeze(["packages/cli/src/daemon", "packages/daemon/src"]);
+const FORWARDING_BOUNDARY_SOURCES = new Set([
+  "packages/cli/src/daemon/fleet-payload-serializer.ts",
+  "packages/cli/src/daemon/forwarding-port.ts",
+  "packages/daemon/src/fleet/forwarding-port.ts",
+]);
+
+function portablePath(relative) {
+  return relative.split(path.sep).join("/");
+}
+
 function collectTypeScriptSources(rootDir, relativeRoot) {
   const absoluteRoot = path.join(rootDir, relativeRoot);
   if (!existsSync(absoluteRoot)) return [];
   const sources = [];
   for (const entry of readdirSync(absoluteRoot, { withFileTypes: true })) {
-    const relative = path.join(relativeRoot, entry.name);
+    const relative = portablePath(path.join(relativeRoot, entry.name));
     if (entry.isDirectory()) sources.push(...collectTypeScriptSources(rootDir, relative));
     else if (entry.isFile() && entry.name.endsWith(".ts")) sources.push(relative);
   }
@@ -17,6 +29,12 @@ function collectTypeScriptSources(rootDir, relativeRoot) {
 
 export function fleetSources(rootDir) {
   return collectTypeScriptSources(rootDir, FLEET_ROOT).concat("packages/daemon/src/daemon-host-repository-api.ts");
+}
+
+export function forwardingSources(rootDir) {
+  return [...new Set(FORWARDING_ROOTS.flatMap((root) => collectTypeScriptSources(rootDir, root)))].filter(
+    (relative) => !FORWARDING_BOUNDARY_SOURCES.has(relative),
+  );
 }
 
 function lineNumber(source, index) {
@@ -149,6 +167,65 @@ export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
   return violations;
 }
 
+/** Scan the forwarding construction inventory; production counts are ratcheted against baseline. */
+export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") {
+  const file = portablePath(fileName);
+  if (FORWARDING_BOUNDARY_SOURCES.has(file)) return [];
+  const source = String(sourceText),
+    patterns = [
+      ["edgeRuntimeFor", /\bedgeRuntimeFor\s*\(/gu],
+      ["readFleetEdgeConfig", /\breadFleetEdgeConfig\s*\(/gu],
+      [
+        "directFleetEdgeFileRead",
+        /\b(?:readFileSync|readFile)\s*\([^;\n]{0,180}fleet-edge\.json|fleet-edge\.json[^;\n]{0,180}\b(?:readFileSync|readFile)\s*\(/gu,
+      ],
+      ["fromFileSpecialCase", /\bif\s*\([^)]*\bfromFile\b[^)]*\)/gu],
+      ["bodyFileSpecialCase", /\bif\s*\([^)]*\bbodyFile\b[^)]*\)/gu],
+      ["idsFileSpecialCase", /\bif\s*\([^)]*\bidsFile\b[^)]*\)/gu],
+      ["fileInputConditional", /\b(?:fromFile|bodyFile|idsFile)\b\s*\?/gu],
+      [
+        "fleetRequestEnvelope",
+        /(?:=\s*\{|\breturn\s*\{|\b(?:request|send|call|post)\s*\(\s*\{)[^{}]{0,1000}?\bschema\s*:\s*["']fleet\.(?:task|doc|runtime|schedule)\.[^"']+["']|\bkind\s*:\s*["']fleet-(?:task|doc|runtime|schedule)["']/gu,
+      ],
+      [
+        "fleetMethodByDiscriminant",
+        /\b(?:action|command)(?:\.action)?\.kind\b[\s\S]{0,300}?\b(?:fleet[.-](?:task|doc|runtime|schedule)|fleet\.(?:task|doc|runtime|schedule)\.)/gu,
+      ],
+      [
+        "forwardingCredentialAssembly",
+        /\b(?:credential|accessToken|keycloakAuthorization|executionCredential)\s*:\s*[^,\n;}]*?(?:\.(?:credential|accessToken|keycloakAuthorization)|executor|principal)/gu,
+      ],
+    ];
+  return patterns.flatMap(([fingerprint, pattern]) =>
+    [...source.matchAll(pattern)].map((match) => {
+      const offset = match.index + (fingerprint === "fleetRequestEnvelope" ? match[0].lastIndexOf("schema") : 0);
+      return {
+        file,
+        line: lineNumber(source, offset),
+        symbol: symbolAt(source, offset),
+        fingerprint,
+        reason: `forwarding construction ${fingerprint} is outside ForwardingPort`,
+      };
+    }),
+  );
+}
+
+function symbolAt(source, index) {
+  const prefix = source.slice(0, index),
+    keywords = new Set(["if", "for", "while", "switch", "catch", "return", "throw", "try"]),
+    declarations = [
+      ...prefix.matchAll(/\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gu),
+      ...prefix.matchAll(
+        /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/gu,
+      ),
+      ...prefix.matchAll(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^;\n{}]*\)\s*(?::[^\n{}]+)?\{/gmu),
+    ]
+      .filter((match) => !keywords.has(match[1]))
+      .sort((left, right) => left.index - right.index),
+    name = declarations.at(-1)?.[1];
+  return name ?? "<module>";
+}
+
 export function checkFleetTransferBoundary(rootDir) {
   const errors = [];
   for (const relative of fleetSources(rootDir)) {
@@ -165,6 +242,21 @@ export function checkFleetTransferBoundary(rootDir) {
       errors.push(`${relative}: command writes must pass through encodeFleetFrames`);
     for (const violation of findFleetTransferBypasses(source, relative))
       errors.push(`${violation.file}:${violation.line}: ${violation.reason}`);
+  }
+  for (const relative of forwardingSources(rootDir)) {
+    const source = readFileSync(path.join(rootDir, relative), "utf8"),
+      violations = findFleetForwardingBypasses(source, relative),
+      counts = new Map();
+    for (const violation of violations) {
+      const key = `${violation.symbol}\0${violation.fingerprint}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    for (const [key, count] of counts) {
+      const [symbol, fingerprint] = key.split("\0"),
+        allowed = fleetForwardingBoundaryBaseline[relative]?.[symbol]?.[fingerprint] ?? 0;
+      if (count > allowed)
+        errors.push(`${relative}#${symbol}: ${fingerprint} count ${count} exceeds ratchet baseline ${allowed}`);
+    }
   }
   return errors;
 }

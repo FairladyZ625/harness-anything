@@ -13,6 +13,7 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/offline-storage-command.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
   "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+  "packages/daemon/src/protocol/daemon-protocol-fleet-validation.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-provider.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands-ci.ts",

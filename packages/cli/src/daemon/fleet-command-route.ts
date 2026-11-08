@@ -6,8 +6,8 @@ import {
   commandDescriptorForAction,
   daemonProtocolCommands,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
+import { serializeFleetAction } from "./fleet-payload-serializer.ts";
 
 export async function fleetScheduleRoute(
   command: ThinCommand,
@@ -26,9 +26,7 @@ export async function fleetScheduleRoute(
     return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
-  const { executor: _executor, ...action } = command.action;
-  const descriptor = commandDescriptorForAction(action.kind),
-    resolvedAction = await resolveFleetPacketAction(command, action, "inputs" in descriptor ? descriptor.inputs : []);
+  const { executor: _executor, ...action } = serializeFleetAction(command);
   return {
     host: config.host,
     port: config.port,
@@ -40,7 +38,7 @@ export async function fleetScheduleRoute(
     viewRoot: config.viewRoot,
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
-    action: { kind: "fleet-schedule", payload: resolvedAction },
+    action: { kind: "fleet-schedule", payload: action },
   };
 }
 
@@ -59,48 +57,6 @@ export function materializeScheduleMission(command: ThinCommand): ThinCommand {
     });
   const { missionFile: _missionFile, ...action } = command.action;
   return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
-}
-
-async function resolveFleetPacketAction(
-  command: ThinCommand,
-  action: Record<string, unknown>,
-  inputs: readonly { readonly name: string; readonly jsonAllowedFields?: readonly string[] }[],
-): Promise<Record<string, unknown>> {
-  const fromFile = action.fromFile,
-    jsonInput = action.jsonInput;
-  const { fromFile: _fromFile, jsonInput: _jsonInput, ...directAction } = action;
-  if (typeof fromFile !== "string" && typeof jsonInput !== "string") return directAction;
-  const source = typeof fromFile === "string" ? `--from-file ${fromFile}` : "--json-input",
-    file =
-      typeof fromFile === "string"
-        ? path.isAbsolute(fromFile)
-          ? fromFile
-          : path.join(command.rootDir, fromFile)
-        : null;
-  let packet: unknown;
-  try {
-    packet = JSON.parse(file ? readFileSync(file, "utf8") : String(jsonInput));
-  } catch (error) {
-    throw Object.assign(new Error(`${source} could not be read as JSON on this edge: ${cliErrorMessage(error)}`), {
-      code: "invalid_field",
-    });
-  }
-  if (packet === null || typeof packet !== "object" || Array.isArray(packet))
-    throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
-  const packetInput = inputs.find(
-      (input) => input.name === (typeof fromFile === "string" ? "--from-file" : "--json-input"),
-    ),
-    allowed = packetInput?.jsonAllowedFields;
-  if (allowed) {
-    const fields = packet as Record<string, unknown>,
-      unsupported = Object.keys(fields).filter((field) => !allowed.includes(field));
-    if (unsupported.length)
-      throw Object.assign(new Error(`${source} cannot carry ${unsupported.join(", ")} over the fleet channel.`), {
-        code: "invalid_field",
-      });
-    return { ...fields, ...directAction };
-  }
-  return { ...directAction, submission: packet };
 }
 
 // The registry-mode gate behind every fleet reroute: a workspace only takes a
@@ -189,7 +145,7 @@ export async function fleetRuntimeRoute(
     noStream: _noStream,
     detach: _detach,
     ...action
-  } = command.action as Record<string, unknown>;
+  } = serializeFleetAction(command);
   return {
     host: config.host,
     port: config.port,
@@ -230,73 +186,14 @@ export async function fleetTaskRoute(
     return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
-  const {
-    executor: _executor,
-    createMode,
-    verb: _verb,
-    commandType: _commandType,
-    fromFile,
-    jsonInput,
-    planFile,
-    bodyFile,
-    idsFile,
-    ...action
-  } = command.action as Record<string, unknown> & {
-    executor?: unknown;
-    createMode?: unknown;
-    verb?: unknown;
-    commandType?: unknown;
-    fromFile?: unknown;
-    jsonInput?: unknown;
-    planFile?: unknown;
-    bodyFile?: unknown;
-    idsFile?: unknown;
-  };
+  // Migration/import/admin creation stays on the local authority path; the Fleet action only
+  // carries ordinary task creation intent.
+  if (actionKind === "task-create" && Object.hasOwn(command.action, "createMode")) return null;
+  const action = serializeFleetAction(command);
   // Migration/import/admin creation is intentionally
   // outside the remote-edge surface. Falling through produces the existing,
   // explicit repo_mode_read_only receipt instead of silently dropping their
   // authority-bearing fields on the fleet route.
-  if (actionKind === "task-create" && createMode !== undefined) return null;
-  // The plan file is edge-local like --from-file: only its resolved body crosses the wire, so the
-  // center never re-reads a path against its own workspace root.
-  if (actionKind === "task-create" && planFile !== undefined) {
-    if (typeof planFile !== "string")
-      throw Object.assign(new Error("--plan-file must name one markdown file on this edge."), {
-        code: "invalid_field",
-      });
-    try {
-      action.plan = readFileSync(path.isAbsolute(planFile) ? planFile : path.join(command.rootDir, planFile), "utf8");
-    } catch (error) {
-      throw Object.assign(
-        new Error(`--plan-file ${planFile} could not be read on this edge: ${cliErrorMessage(error)}`),
-        {
-          code: "invalid_field",
-        },
-      );
-    }
-  }
-  // Decision prose sources are edge-local just like task plans. Send the authored bytes, never
-  // the edge path, so the center's closed action schema and writer see the same body as a local
-  // invocation. `--body-file` is declared only for Decision propose/amend and the CLI has already
-  // rejected other action kinds before this route is selected.
-  if (typeof bodyFile === "string") {
-    try {
-      action.body = readFileSync(path.isAbsolute(bodyFile) ? bodyFile : path.join(command.rootDir, bodyFile), "utf8");
-    } catch (error) {
-      throw Object.assign(
-        new Error(`--body-file ${bodyFile} could not be read on this edge: ${cliErrorMessage(error)}`),
-        {
-          code: "invalid_field",
-        },
-      );
-    }
-  }
-  // Source files belong to the addressed edge; only decoded authored values cross TLS.
-  if (typeof idsFile === "string")
-    action.factIds = readFileSync(path.resolve(command.rootDir, idsFile), "utf8")
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith("#"));
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,
@@ -313,6 +210,6 @@ export async function fleetTaskRoute(
     ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,
   };
-  payload.action = await resolveFleetPacketAction(command, { ...action, fromFile, jsonInput }, descriptor.inputs);
+  payload.action = action;
   return payload;
 }

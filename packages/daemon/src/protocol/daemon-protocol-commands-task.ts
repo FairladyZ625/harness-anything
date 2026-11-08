@@ -169,7 +169,18 @@ export const taskExecutionProtocolCommands = Object.freeze([
     summary:
       "Publish the task branch and create or update its submitted pull request through daemon-held hosting credentials.",
     method: "repo.task.run",
-    inputs: [cliInput("--body-file", "single", false, { code: "invalid_field" }, { field: "body" })],
+    inputs: [
+      cliInput(
+        "--body-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "body",
+          codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 },
+        },
+      ),
+    ],
     payloadFields: [{ field: "body", type: "string", required: false }],
     commandClass: "repo-write" as const,
     admission: {
