@@ -170,8 +170,16 @@ export interface RepoCellWriteQueueLabel {
   readonly command: string;
 }
 
+export interface RepoCellWriteQueueEntry {
+  readonly label: RepoCellWriteQueueLabel;
+  /** Process-monotonic append time; a queued turn that has not started yet still blocks later appends. */
+  readonly appendedAtMs: number;
+  startedAtMs?: number;
+}
+
 export interface RepoCellWriteQueueState {
-  head: (RepoCellWriteQueueLabel & { readonly startedAtMs: number }) | null;
+  /** Appended turns not settled yet, oldest first; index 0 is the head a new append waits behind. */
+  readonly waiting: RepoCellWriteQueueEntry[];
   /** Process-monotonic milliseconds; injected so queue tests do not read the wall clock. */
   readonly nowMs: () => number;
 }

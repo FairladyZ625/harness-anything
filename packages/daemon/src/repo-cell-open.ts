@@ -237,7 +237,7 @@ export async function openRepoWriterCell(
     queueDepth = 0,
     tail = Promise.resolve();
   const writeQueue: RepoCellWriteQueueState = {
-    head: null,
+    waiting: [],
     nowMs: () => Number(process.hrtime.bigint() / 1_000_000n),
   };
   const initialize = () =>

@@ -25,6 +25,7 @@ import type {
   RepoCellAttachProgress,
   RepoCellBinding,
   RepoCellQueueObservation,
+  RepoCellWriteQueueEntry,
   RepoCellWriteQueueHead,
   RepoCellWriteQueueLabel,
   RepoCellWriteQueueState,
@@ -271,29 +272,32 @@ export function chainRepoCellWrite<T>(
     readonly observation?: RepoCellQueueObservation;
   },
 ): Promise<T> {
-  // Capture at append time, before this turn waits: the head then is the write blocking this one.
-  if (options?.observation !== undefined && options.observation.head === undefined)
+  const entry: RepoCellWriteQueueEntry | null =
+    options === undefined ? null : { label: options.label, appendedAtMs: options.queue.nowMs() };
+  // Capture before pushing this turn: the head then is the write blocking this one. Pushing at append
+  // time (not at start) keeps a burst queued in one tick attributable to the turn ahead of it.
+  if (entry !== null && options?.observation !== undefined && options.observation.head === undefined)
     options.observation.head = captureRepoCellWriteQueueHead(options.queue);
+  if (entry !== null && options !== undefined) options.queue.waiting.push(entry);
   // One event-loop turn between serialized writes, so timers and I/O are not starved by a write backlog.
   const turn = tail.then(() => new Promise<void>((resolve) => setImmediate(resolve)));
   return turn.then(() => {
-    if (options === undefined) return work();
-    const entry = { ...options.label, startedAtMs: options.queue.nowMs() };
-    options.queue.head = entry;
+    if (options === undefined || entry === null) return work();
+    entry.startedAtMs = options.queue.nowMs();
     return Promise.resolve(work()).finally(() => {
-      if (options.queue.head === entry) options.queue.head = null;
+      const index = options.queue.waiting.indexOf(entry);
+      if (index >= 0) options.queue.waiting.splice(index, 1);
     });
   });
 }
 
-/** The live head plus how long it has run, or null when the queue is idle. */
+/** The oldest appended turn and how long it has run, or null when the queue is idle. */
 export function captureRepoCellWriteQueueHead(queue: RepoCellWriteQueueState): RepoCellWriteQueueHead | null {
-  const head = queue.head;
-  return head === null
-    ? null
-    : {
-        requestId: head.requestId,
-        command: head.command,
-        executingMs: Math.max(0, Math.round(queue.nowMs() - head.startedAtMs)),
-      };
+  const head = queue.waiting[0];
+  if (head === undefined) return null;
+  return {
+    requestId: head.label.requestId,
+    command: head.label.command,
+    executingMs: head.startedAtMs === undefined ? 0 : Math.max(0, Math.round(queue.nowMs() - head.startedAtMs)),
+  };
 }
