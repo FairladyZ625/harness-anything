@@ -322,12 +322,6 @@
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
       },
       {
-        "key": "packages/daemon/test/daemon-resident-readoption.integration.test.ts#<module>#scheduled-timer",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
         "key": "packages/daemon/test/daemon-resident-readoption.integration.test.ts#until#clock-deadline",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
@@ -335,12 +329,6 @@
       },
       {
         "key": "packages/daemon/test/daemon-resident-readoption.integration.test.ts#until#self-poll",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
-        "key": "packages/daemon/test/daemon-service-start-timeout.integration.test.ts#<module>#scheduled-timer",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
@@ -365,12 +353,6 @@
       },
       {
         "key": "packages/daemon/test/daemon-stop-deadline.integration.test.ts#waitUntil#self-poll",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
-        "key": "packages/daemon/test/daemon-supervised-supersession.integration.test.ts#<module>#scheduled-timer",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
@@ -964,12 +946,6 @@
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
       },
       {
-        "key": "packages/daemon/test/runtime-worker-detachment.integration.test.ts#<module>#short-watchdog",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
         "key": "packages/daemon/test/runtime-worker-github-credentials.integration.test.ts#runtimeOutcome#scheduled-timer",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
@@ -1036,12 +1012,6 @@
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
       },
       {
-        "key": "packages/daemon/test/terminal-host.integration.test.ts#<module>#scheduled-timer",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
         "key": "packages/daemon/test/terminal-relay.integration.test.ts#waitFor#clock-deadline",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
@@ -1097,12 +1067,6 @@
       },
       {
         "key": "packages/daemon/test/writer-request-cost.integration.test.ts#<module>#clock-deadline",
-        "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
-        "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
-        "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."
-      },
-      {
-        "key": "packages/daemon/test/writer-supervisor-queue-depth.integration.test.ts#<module>#short-watchdog",
         "event": "baseline-2026-11-08: integration test judges correctness by the wall clock",
         "ref": "dec_25B3C380F6FB9D4D4A1E27921E",
         "reason": "Existing wall-clock wait at the CH1 baseline; convert to waitForArrival and delete this entry."

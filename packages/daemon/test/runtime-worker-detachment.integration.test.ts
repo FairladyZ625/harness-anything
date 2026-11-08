@@ -10,7 +10,10 @@ import { pathToFileURL } from "node:url";
 
 test(
   "a launcher can exit while its detached runtime host continues",
-  { skip: process.platform === "win32" ? "requires POSIX detached process-group semantics" : false },
+  {
+    skip: process.platform === "win32" ? "requires POSIX detached process-group semantics" : false,
+    timeout: 60_000,
+  },
   async () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-detached-runtime-"));
     const dispatchId = "dispatch_111111111111111111111111";
@@ -30,11 +33,7 @@ test(
       workerPid = Number(String(chunk).trim());
       assert.ok(workerPid > 0);
       const closed = once(launcher, "exit");
-      const timeout = new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => reject(new Error("launcher stayed alive while runtime was running")), 3000);
-        timer.unref();
-      });
-      const [code] = await Promise.race([closed, timeout]);
+      const [code] = await closed;
       assert.equal(code, 0);
       assert.doesNotThrow(() => process.kill(workerPid, 0));
     } finally {
