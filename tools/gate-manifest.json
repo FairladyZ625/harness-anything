@@ -2174,7 +2174,8 @@
         "tools/check-domain-judgment-single-definition.mjs",
         "tools/check-domain-judgment-single-definition.test.mjs",
         "tools/domain-judgment-authored-readiness.mjs",
-        "tools/fixtures/domain-judgment-single-definition/**"
+        "tools/fixtures/domain-judgment-single-definition/**",
+        "tools/gate-allowlists/dispatch-lifecycle-observation.json"
       ],
       "authoritySource": [
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
@@ -2182,6 +2183,8 @@
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u5207\u7247-3--\u5224\u5b9a\u4e0b\u6c89",
         "harness/governance/standards/architecture-conformance-standard.md#\u9886\u57df\u6a21\u578b\u56db\u94c1\u5f8b\u4e0e-ddd-ratchet-\u95e82026-08-18-\u65b0\u589e",
         "harness/adr/ADR-0024-gui-renderer-state-management.md#d5\u786c-p4p5-are-enforced-through-cache-discipline",
+        "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
+        "task/task_fe48ff810926e57adcd587d74e/artifacts/design.md#F2",
         "decision/dec_6B912A63D279A922FA1288536D#CH2"
       ],
       "consumerScope": [
@@ -2189,7 +2192,8 @@
         "warm and cold Decision coverage projections",
         "Fact liveness projection and GUI DTO consumption",
         "daemon task blocking projection and GUI DTO consumption",
-        "authored-document bytes in daemon, application, and CLI production sources are read only through the AuthoredDocument projection port"
+        "authored-document bytes in daemon, application, and CLI production sources are read only through the AuthoredDocument projection port",
+        "dispatch lifecycle observations, admission, and terminal judgments across daemon producers and consumers"
       ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
@@ -2197,10 +2201,10 @@
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
-        "allowed": false,
-        "location": "tools/domain-judgment-authored-readiness.mjs",
+        "allowed": true,
+        "location": "tools/gate-allowlists/dispatch-lifecycle-observation.json",
         "adrOrDecisionRequired": true,
-        "notes": "CH1 named judgments remain single-definition. dec_6B912A63D279A922FA1288536D CH2 makes the authored-byte projection port the boundary invariant; direct filesystem reads of task-package authored documents are violations and have no allowlist."
+        "notes": "CH1 named judgments remain single-definition. dec_6B912A63D279A922FA1288536D CH2 makes the authored-byte projection port the boundary invariant; direct authored reads have no allowlist. CH4 adds an observation debt inventory keyed by file, symbol, and fingerprint; it only shrinks and never grants a new business judgment."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -2238,7 +2242,9 @@
           "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/rogue-plan-readiness.ts",
           "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/edge-plan-readiness.ts",
           "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/canonical-plan-readiness.ts",
-          "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/custom-word-readiness.ts"
+          "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/custom-word-readiness.ts",
+          "tools/fixtures/dispatch-lifecycle-observation/packages/daemon/src/positive-controls.ts",
+          "tools/gate-allowlists/dispatch-lifecycle-observation.json"
         ]
       }
     },
