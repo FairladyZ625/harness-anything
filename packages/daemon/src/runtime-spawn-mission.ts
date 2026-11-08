@@ -397,6 +397,7 @@ export async function prepareRuntimeInstance<T>(
   prepare: (instanceId: string) => Promise<T>,
 ): Promise<{ readonly instanceId: string; readonly launch: T }> {
   const reasons: string[] = [],
+    recoveryFailure: { error: unknown; count: number } = { error: null, count: 0 },
     candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons }),
     liveLoad = new Map<string, number>(),
     // Every non-load key of the one selection rule, read from the shared helper so prepare cannot
@@ -416,33 +417,35 @@ export async function prepareRuntimeInstance<T>(
       return { instanceId, launch: await prepare(instanceId) };
     } catch (error) {
       const code = (error as { readonly code?: string }).code;
-      if (
-        input.requested ||
-        input.providerSessionId ||
-        !code ||
-        ![
-          "runtime_instance_disabled",
-          "runtime_instance_not_found",
-          "runtime_installation_not_found",
-          "runtime_credential_unavailable",
-          "runtime_subscription_required",
-          "runtime_subscription_expired",
-          "runtime_authentication_failed",
-          "runtime_quota_unavailable",
-          "runtime_refresh_token_invalid",
-          "runtime_auth_in_progress",
-          "runtime_auth_probe_failed",
-          "invalid_runtime_model",
-          // A machine can host several installations of one kind; an old build is a
-          // per-installation unavailability, so automatic selection may try the next one.
-          "minimum_version_not_met",
-        ].includes(code)
-      )
+      const recoveryFailureCode = code === "runtime_recovery_missing_dispatch" || code === "runtime_recovery_pending";
+      const retryableInstanceError = [
+        "runtime_instance_disabled",
+        "runtime_instance_not_found",
+        "runtime_installation_not_found",
+        "runtime_credential_unavailable",
+        "runtime_subscription_required",
+        "runtime_subscription_expired",
+        "runtime_authentication_failed",
+        "runtime_quota_unavailable",
+        "runtime_refresh_token_invalid",
+        "runtime_auth_in_progress",
+        "runtime_auth_probe_failed",
+        "invalid_runtime_model",
+        // A machine can host several installations of one kind; an old build is a
+        // per-installation unavailability, so automatic selection may try the next one.
+        "minimum_version_not_met",
+      ].includes(code ?? "");
+      if (input.requested || input.providerSessionId || !code || (!retryableInstanceError && !recoveryFailureCode))
         throw error;
+      if (recoveryFailureCode) {
+        if (recoveryFailure.error === null) recoveryFailure.error = error;
+        recoveryFailure.count += 1;
+      }
       consumeKnownError(error);
       reasons.push(`${instanceId}: ${code}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+  if (recoveryFailure.error !== null && recoveryFailure.count === candidates.length) throw recoveryFailure.error;
   throw runtimeSpawnError(
     "agent_runtime_unavailable",
     `No runtime launch is available. Candidates: ${reasons.join("; ")}`,

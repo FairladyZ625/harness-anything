@@ -433,6 +433,6 @@ export function fleetVersionDoctorCheck(warnings: readonly string[]): DoctorChec
         status: "warn",
         count: observed.length,
         summary: observed.join(" | "),
-        next: "Run ha update on the center and edge, then reconnect the Fleet session.",
+        next: "Run git pull --ff-only, then build CLI and daemon on the center and edge, then reconnect the Fleet session.",
       };
 }

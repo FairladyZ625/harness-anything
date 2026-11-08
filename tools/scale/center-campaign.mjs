@@ -4,7 +4,6 @@ import { createServer } from "node:tls";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { once } from "node:events";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   FleetUtf8LineDecoder,
   FLEET_FRAME_BYTES,
@@ -16,19 +15,16 @@ import { openSyntheticReplica } from "./center-replica.mjs";
 import { syntheticJson } from "./center-ledger.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../packages/kernel/src/domain/artifact-text-classification.ts";
+import { waitForArrival } from "../fixtures/event-arrival.ts";
 
 const status = (fixture) => requestDaemonJsonRpcAt(fixture.endpoint, "daemon.status", {}, 5000, 10_000);
 const event = (fixture, name, after = 0) =>
-  withWatchdog(
-    async (signal) => {
-      for (;;) {
-        const observed = fixture.events.slice(after).find((row) => row.event === name);
-        if (observed) return observed;
-        await delay(25, undefined, { signal });
-      }
-    },
-    { timeoutMs: 30_000, label: `center ${name}` },
-  );
+  waitForArrival(() => {
+    const observed = fixture.events.slice(after).find((row) => row.event === name);
+    if (observed) return observed;
+    if (fixture.processFailure) throw fixture.processFailure;
+    return null;
+  }, fixture.subscribeEvents);
 
 export async function measureCenter(fixture, operation, { captureError = false } = {}) {
   const samples = [],

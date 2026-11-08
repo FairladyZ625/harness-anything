@@ -187,7 +187,7 @@ export interface FleetOverviewResult {
   readonly versionWarning?: {
     readonly centerBuildCommit: string;
     readonly localBuildCommit: string;
-    readonly upgradeCommand: "ha update";
+    readonly upgradeCommand: "git pull --ff-only, then build CLI and daemon";
   };
   /** 事件归属语义与读面限制的显式声明(渲染时如实展示,不隐含)。 */
   readonly notes: readonly string[];
@@ -274,7 +274,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
         : session?.buildCommit
           ? {
               kind: "value",
-              text: `${session.buildCommit}${input.center.commitSha !== null && session.buildCommit !== input.center.commitSha ? " (version mismatch; ha update)" : ""}`,
+              text: `${session.buildCommit}${input.center.commitSha !== null && session.buildCommit !== input.center.commitSha ? " (version mismatch; git pull --ff-only, then build CLI and daemon)" : ""}`,
             }
           : { kind: "unavailable", reason: "no-edge-build-observed" },
       online: isCenter
@@ -498,7 +498,8 @@ export function validateFleetOverview(value: unknown): readonly string[] {
       if (typeof warning.centerBuildCommit !== "string")
         errors.push("versionWarning.centerBuildCommit must be a string");
       if (typeof warning.localBuildCommit !== "string") errors.push("versionWarning.localBuildCommit must be a string");
-      if (warning.upgradeCommand !== "ha update") errors.push("versionWarning.upgradeCommand must be ha update");
+      if (warning.upgradeCommand !== "git pull --ff-only, then build CLI and daemon")
+        errors.push("versionWarning.upgradeCommand must be git pull --ff-only, then build CLI and daemon");
     }
   }
   for (const field of ["nodes", "links", "events", "notes", "warnings"] as const) {

@@ -160,6 +160,17 @@ before and at the moment it is resolved. Model matching is exact first,
 case-insensitive second; the launched model is always the spelling the chosen
 instance publishes.
 
+## Upgrade a source checkout
+
+The supported source-distribution upgrade path is:
+
+```bash
+git pull --ff-only
+npm run build
+```
+
+The installer performs the same pull-and-build sequence; see [source installation and upgrades](02-edge-join.md#upgrading-including-a-center-without-github-access) for offline-center and pinned-commit procedures.
+
 ## Dispatch record retention
 
 Every dispatch writes a full record (a JSONL stream of its transcript) on the

@@ -68,7 +68,7 @@ export const allowlistJsonPolicies = Object.freeze({
     nonPathSections: [],
   },
   "check-integration-test-shards.json": {
-    pathSections: {},
+    pathSections: { overBudgetFiles: "value" },
     nonPathSections: ["intentionalTestDeletions"],
   },
   "check-schema-field-coverage.json": {

@@ -37,8 +37,12 @@ test("Fleet sessions stay connected across build identities and return an upgrad
     });
   assert.equal(peer.centerBuildCommit, daemonBuildStamp().commit);
   assert.match(peer.versionWarning ?? "", /build differs/u);
-  assert.match(peer.versionWarning ?? "", /ha update/u);
-  assert.ok(center.status().versionWarnings.some((warning) => warning.includes("ha update")));
+  assert.match(peer.versionWarning ?? "", /git pull --ff-only, then build CLI and daemon/u);
+  assert.ok(
+    center
+      .status()
+      .versionWarnings.some((warning) => warning.includes("git pull --ff-only, then build CLI and daemon")),
+  );
 });
 test("version metadata stays outside the closed dispatch read result", async (t) => {
   const fixture = await fleetFixture(t);

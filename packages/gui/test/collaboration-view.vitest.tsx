@@ -569,7 +569,7 @@ describe("协作页舰队拓扑契约", () => {
     data.nodes[1] = {
       ...data.nodes[1]!,
       online: { kind: "value", text: "disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z" },
-      build: { kind: "value", text: "abcdef (version mismatch; ha update)" },
+      build: { kind: "value", text: "abcdef (version mismatch; git pull --ff-only, then build CLI and daemon)" },
       watch: {
         kind: "value",
         text: "center phase=awaiting_ack since=2026-11-03T01:00:00.000Z; edge watch unavailable",
@@ -580,7 +580,7 @@ describe("协作页舰队拓扑契约", () => {
     view.click(view.nodeCard("cc90-ubuntu"));
     const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
     expect(details.textContent).toContain("disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z");
-    expect(details.textContent).toContain("abcdef (version mismatch; ha update)");
+    expect(details.textContent).toContain("abcdef (version mismatch; git pull --ff-only, then build CLI and daemon)");
     expect(details.textContent).toContain("center phase=awaiting_ack since=2026-11-03T01:00:00.000Z");
     expect(details.textContent).toContain("invalid_frame @ 2026-11-03T01:00:00.000Z: peer=edge; frame=backup");
   });

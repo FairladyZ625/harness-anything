@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { extractTrafficModel, replaySchedule, summarizeRequests } from "./center-model.mjs";
 import { runCenterBenchmark, markdownReport, defaultTrafficModel } from "./center-bench.mjs";
-import { syntheticParams } from "./center-replay.mjs";
+import { replayTraffic, syntheticParams } from "./center-replay.mjs";
 import { validateDaemonRpcCall } from "../../packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts";
 import { measureCenter } from "./center-campaign.mjs";
 
@@ -85,6 +85,29 @@ test("calibration bindings satisfy the real RPC validator, including session sel
       row.method,
     );
 });
+
+test(
+  "replay finishes failed observe requests without inventing successful arrivals",
+  { timeout: 20_000 },
+  async (t) => {
+    const scratch = mkdtempSync(path.join(tmpdir(), "ha-center-replay-failure-"));
+    t.after(() => rmSync(scratch, { recursive: true, force: true }));
+    const model = extractTrafficModel([log(0, "observe.tail"), log(1, "observe.tail")]);
+    const result = await replayTraffic({
+      model,
+      fixture: {
+        endpoint: path.join(scratch, "missing.sock"),
+        repoId: "center-bench",
+        ledger: { sampleTasks: ["task_bench"] },
+      },
+    });
+    assert.equal(result.requests, 2);
+    assert.equal(result.successful, 0);
+    assert.equal(result.errorRate, 1);
+    assert.deepEqual(result.errors, { ENOENT: 2 });
+    assert.deepEqual(result.observeArrivals, []);
+  },
+);
 
 test("reports distinguish failed requests and generator lag from successful read/write latency", () => {
   const result = summarizeRequests(
