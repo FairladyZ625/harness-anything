@@ -83,6 +83,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - run: tar -cf "$RUNNER_TEMP/node-modules.tar" node_modules packages/daemon/dist
       - uses: actions/upload-artifact@v4
@@ -110,6 +111,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: git diff --check
@@ -148,6 +150,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: ./.github/actions/electron-runtime-cache
       - uses: actions/download-artifact@v4
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
@@ -180,6 +183,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - uses: actions/download-artifact@v4
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         with:
@@ -211,6 +215,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
+        if: runner.os == 'Windows'
       - run: npm ci
         if: runner.os == 'Windows' && needs.install.outputs.code != 'false'
       - uses: actions/download-artifact@v4
@@ -239,6 +245,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: ./.github/actions/electron-runtime-cache
       - uses: actions/download-artifact@v4
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
@@ -260,6 +267,7 @@ jobs:
         with:
           node-version: 26
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job pglite-node26
@@ -286,6 +294,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }}
 
@@ -304,6 +313,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       # The runner imports the shared hermetic preflight and applies it to the exact temporary
       # user-root and daemon id that it is about to use before it starts any daemon process.
@@ -340,6 +350,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       # The measured subject is the packaged CLI, not the TypeScript entry: process startup and
       # static module loading are most of what an ordinary command costs, and only the compiled
@@ -401,6 +412,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - name: Report Phase G0 ontology findings
         run: node tools/run-manifest-gates.mjs --workflow-job ontology-advisory
@@ -456,6 +468,8 @@ jobs:
         if: needs.install.outputs.gui != 'false'
         with:
           node-version: 24
+      - uses: ./.github/actions/electron-runtime-cache
+        if: needs.install.outputs.gui != 'false'
       - uses: actions/download-artifact@v4
         if: needs.install.outputs.gui != 'false'
         with:
@@ -479,6 +493,7 @@ jobs:
         with:
           node-version: 26
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job node26-compatibility
@@ -537,6 +552,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
+        if: runner.os == 'Windows'
       - run: npm ci
         if: runner.os == 'Windows'
       - uses: actions/download-artifact@v4
@@ -664,6 +681,7 @@ jobs:
         with:
           node-version: 26
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       # Follow pglite-node26: the shared dependency artifact contains Node 24 native modules.
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci

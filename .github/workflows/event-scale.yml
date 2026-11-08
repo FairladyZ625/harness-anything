@@ -23,6 +23,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
       - run: npm ci
       - name: Restore previous event-scale measurement
         uses: actions/cache/restore@v4
