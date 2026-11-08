@@ -15,11 +15,15 @@ it("shows both build identities and the upgrade command at the shared GUI shell 
   act(() => {
     createRoot(host).render(
       <FleetVersionWarningBanner
-        warning={{ centerBuildCommit: "center-build", localBuildCommit: "edge-build", upgradeCommand: "ha update" }}
+        warning={{
+          centerBuildCommit: "center-build",
+          localBuildCommit: "edge-build",
+          upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+        }}
       />,
     );
   });
   expect(host.textContent).toContain("center-build");
   expect(host.textContent).toContain("edge-build");
-  expect(host.textContent).toContain("ha update");
+  expect(host.textContent).toContain("git pull --ff-only, then build CLI and daemon");
 });

@@ -942,7 +942,13 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     list = parseThinCommand(["runtime", "status", "--task", "task-1"]),
     show = parseThinCommand(["runtime", "status", "runtime-1"]),
     wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]),
-    cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
+    cancel = parseThinCommand([
+      "runtime",
+      "cancel",
+      "runtime-1",
+      "--ruling",
+      "Owner abandons the unreachable dispatch.",
+    ]);
   const incidentDismiss = parseThinCommand([
       "runtime",
       "incident-dismiss",
@@ -1150,6 +1156,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     assert.deepEqual(cancel.command.action, {
       kind: "runtime-cancel",
       runtimeSessionId: "runtime-1",
+      ruling: "Owner abandons the unreachable dispatch.",
     });
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "batch"]).ok, false);

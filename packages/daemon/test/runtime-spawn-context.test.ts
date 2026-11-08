@@ -100,6 +100,12 @@ test("an artifact task resume discards an inherited canonical cwd and any explic
   assert.equal(resolveDispatchCwd(root, {}, root, null).cwd, root);
 });
 
+test("an artifact task rooted at the repository uses the repo-root cwd scope", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-package-root-cwd-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.equal(resolveDispatchCwd(root, {}, root, null, root).cwd, root);
+});
+
 test("runtime CLI bin stays absent when the daemon installation has no ha entry", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-missing-")),
     modulePath = path.join(root, "node_modules", "@harness-anything", "daemon", "dist", "runtime-spawn-context.js");

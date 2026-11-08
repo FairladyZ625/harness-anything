@@ -36,7 +36,7 @@ test("a successful Fleet task carries the handshake warning into CLI output", { 
   };
   assert.equal(typeof warning.centerBuildCommit, "string");
   assert.equal(typeof warning.localBuildCommit, "string");
-  assert.equal(warning.upgradeCommand, "ha update");
+  assert.equal(warning.upgradeCommand, "git pull --ff-only, then build CLI and daemon");
   const lines: string[] = [],
     originalLog = console.log,
     originalError = console.error;
@@ -56,5 +56,8 @@ test("a successful Fleet task carries the handshake warning into CLI output", { 
     console.log = originalLog;
     console.error = originalError;
   }
-  assert.match(lines.join("\n"), /WARNING version mismatch .* upgrade with ha update/u);
+  assert.match(
+    lines.join("\n"),
+    /WARNING version mismatch .* upgrade with git pull --ff-only, then build CLI and daemon/u,
+  );
 });

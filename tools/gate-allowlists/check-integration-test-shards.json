@@ -998,6 +998,23 @@
         "ref": "task_799ca104a7af7b18432b2ded54",
         "reason": "Decision dec_E369B8616F50A6208B293997E7/CH5 retires the manual adjudicate forward/return surface this reviewer-instance lane exercised."
       }
+    ],
+    "overBudgetFiles": [
+      {
+        "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (278.5s measured from run 42476112001 [node-test-duration] output, 2026-11-08); split is deferred from this shard-balancing rework."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli-lifecycle.integration.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (223.5s measured from run 42476112001 [node-test-duration] output, 2026-11-08); split is deferred from this shard-balancing rework."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli-dispatch.integration.test.ts",
+        "ref": "task_34470c99bb4b77644b9ce3a246",
+        "reason": "Over the 180s per-file budget (205.9s measured from run 42476112001 [node-test-duration] output, 2026-11-08); split is deferred from this shard-balancing rework."
+      }
     ]
   }
 }

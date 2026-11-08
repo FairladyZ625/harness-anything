@@ -128,7 +128,14 @@ function parseRuntimeControl(
 ): ThinParseResult {
   const kind = route.id;
   if (kind === "runtime-batch") return accepted(rootDir, repoId, json, { kind, batchFile: id }, route.method);
-  if (kind === "runtime-cancel") return accepted(rootDir, repoId, json, { kind, runtimeSessionId: id }, route.method);
+  if (kind === "runtime-cancel")
+    return accepted(
+      rootDir,
+      repoId,
+      json,
+      { kind, runtimeSessionId: id, ...(flags.one.has("--ruling") ? { ruling: flags.one.get("--ruling") } : {}) },
+      route.method,
+    );
   // Like agent run, --prompt-file rides the action and is materialized into
   // prompt client-side before the RPC; the daemon only ever sees prompt.
   const prompt = promptInput(flags.one),
