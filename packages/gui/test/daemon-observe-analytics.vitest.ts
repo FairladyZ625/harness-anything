@@ -35,6 +35,8 @@ function logItem(input: {
   method: string;
   command?: string | null;
   durationMs: number;
+  queueMs?: number;
+  queueHead?: { requestId: string | null; command: string; executingMs: number };
   wait?: boolean;
   ok?: boolean;
   code?: string | null;
@@ -56,6 +58,8 @@ function logItem(input: {
     ok: input.ok ?? true,
     code: input.code ?? null,
     durationMs: input.durationMs,
+    ...(input.queueMs === undefined ? {} : { queueMs: input.queueMs }),
+    ...(input.queueHead === undefined ? {} : { queueHead: input.queueHead }),
     ...(input.nodeId === undefined ? {} : { daemonId: input.nodeId }),
     ...(input.commandClass === undefined ? {} : { commandClass: input.commandClass }),
     ...(input.executorId === undefined ? {} : { executor: { kind: "agent", id: input.executorId } }),
@@ -570,6 +574,61 @@ describe("智能异味嗅探(慢写请求 / 频密轮询 / 失败毛刺)", () =>
       { kind: "slow_write_request", label: "doc.sync", value: 1_200, matchText: "doc.sync" },
     ]);
     expect(stats.windows["15m"]!.smells).toEqual([]);
+  });
+
+  it("慢写异味携带请求日志的排队毫秒,把排队与执行分开", () => {
+    const state = applyObserveTailPage(
+        initialObserveTail(),
+        logPage(
+          [
+            logItem({
+              method: "task-create",
+              durationMs: 574_247,
+              queueMs: 569_956,
+              atMs: T0,
+              commandClass: "repo-write",
+            }),
+          ],
+          "history",
+          0,
+        ),
+      ),
+      stats = observeStatsLog(state.rows, null).stats;
+    expect(stats.windows["1h"]!.smells).toEqual([
+      { kind: "slow_write_request", label: "task-create", value: 574_247, matchText: "task-create", queueMs: 569_956 },
+    ]);
+  });
+
+  it("慢写异味携带排队时占住队首的请求,而不只是排队毫秒", () => {
+    const queueHead = { requestId: "writer-request-head", command: "builtin:ledger-backup", executingMs: 592_000 },
+      state = applyObserveTailPage(
+        initialObserveTail(),
+        logPage(
+          [
+            logItem({
+              method: "task-create",
+              durationMs: 574_247,
+              queueMs: 569_956,
+              queueHead,
+              atMs: T0,
+              commandClass: "repo-write",
+            }),
+          ],
+          "history",
+          0,
+        ),
+      ),
+      stats = observeStatsLog(state.rows, null).stats;
+    expect(stats.windows["1h"]!.smells).toEqual([
+      {
+        kind: "slow_write_request",
+        label: "task-create",
+        value: 574_247,
+        matchText: "task-create",
+        queueMs: 569_956,
+        queueHead,
+      },
+    ]);
   });
 
   it("频密轮询:单方法单桶 >50 次(>5 req/s)触发,50 次整不触发", () => {

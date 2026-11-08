@@ -5,7 +5,13 @@ import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
-import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./repo-cell-types.ts";
+import type {
+  RepoCellAttachProgress,
+  RepoCellBinding,
+  RepoCellQueueObservation,
+  RepoCellStatus,
+  RepoCellWriteQueueHead,
+} from "./repo-cell-types.ts";
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   deserializeWriterError,
@@ -298,6 +304,9 @@ async function startRepoWriterWorker(): Promise<void> {
     const markExecutionStart = (): void => {
       executionStartedAtMs ??= monotonicMs();
     };
+    // Only the two socket write families append to the cell's single-write chain; the queue copies
+    // the live head into this object at that append, before the request waits.
+    const queueObservation = writeQueueObservationFor(request);
     activeRequests.set(request.requestId, abort);
     if ((bootstrap.role !== "reader" && !cell) || draining) {
       activeRequests.delete(request.requestId);
@@ -365,6 +374,7 @@ async function startRepoWriterWorker(): Promise<void> {
             binding!,
             abort.signal,
             markExecutionStart,
+            queueObservation,
           );
           break;
         case "presetRun":
@@ -372,34 +382,39 @@ async function startRepoWriterWorker(): Promise<void> {
             (request.payload as { action: Parameters<typeof cell.presetRun>[0] }).action,
             binding!,
             () => notify("releaseCurrentAccessToken", request.requestId),
+            queueObservation,
           );
           break;
         case "spawnRuntime":
-          value = await cell.spawnRuntime(request.payload as never, binding!);
+          value = await cell.spawnRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "handoffRuntime":
-          value = await cell.handoffRuntime(request.payload as never, binding!);
+          value = await cell.handoffRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "cancelRuntime":
-          value = await cell.cancelRuntime(request.payload as never, binding!);
+          value = await cell.cancelRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "steerRuntime":
-          value = await cell.steerRuntime(request.payload as never, binding!);
+          value = await cell.steerRuntime(request.payload as never, binding!, queueObservation);
           break;
         case "runtimeIngress":
           value = await cell.runtimeIngress(
             (request.payload as { action: Parameters<typeof cell.runtimeIngress>[0] }).action,
             binding!,
+            queueObservation,
           );
           break;
         case "settlePendingMaterialization":
           value = await cell.settlePendingMaterialization(String(request.payload));
           break;
         case "backup":
-          value = await cell.backup!(request.payload as Parameters<NonNullable<typeof cell.backup>>[0]);
+          value = await cell.backup!(
+            request.payload as Parameters<NonNullable<typeof cell.backup>>[0],
+            queueObservation,
+          );
           break;
         case "pruneReplicationLog":
-          value = await cell.pruneReplicationLog!(Number(request.payload));
+          value = await cell.pruneReplicationLog!(Number(request.payload), queueObservation);
           break;
         case "catalog": {
           const payload = request.payload as { method: keyof typeof cell.catalog; args: unknown[] };
@@ -409,11 +424,27 @@ async function startRepoWriterWorker(): Promise<void> {
       }
       // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
       if (cell) publishCellStatus("cut", (value as { readonly cut?: RepoWriterStatusV1["ledgerCut"] } | null)?.cut);
-      postReceipt(request.requestId, value, undefined, startedAtMs, monotonicMs(), executionStartedAtMs);
+      postReceipt(
+        request.requestId,
+        value,
+        undefined,
+        startedAtMs,
+        monotonicMs(),
+        executionStartedAtMs,
+        queueObservation?.head ?? undefined,
+      );
     } catch (error) {
       consumeKnownError(error);
       if (cell) publishCellStatus("status");
-      postReceipt(request.requestId, undefined, error, startedAtMs, monotonicMs(), executionStartedAtMs);
+      postReceipt(
+        request.requestId,
+        undefined,
+        error,
+        startedAtMs,
+        monotonicMs(),
+        executionStartedAtMs,
+        queueObservation?.head ?? undefined,
+      );
     } finally {
       activeRequests.delete(request.requestId);
     }
@@ -610,6 +641,7 @@ function postReceipt(
   startedAtMs?: number,
   finishedAtMs?: number,
   executionStartedAtMs?: number,
+  queueHead?: RepoCellWriteQueueHead,
 ): void {
   parentPort!.postMessage({
     schema: "harness-repo-writer-receipt/v1",
@@ -620,8 +652,42 @@ function postReceipt(
     ...(startedAtMs === undefined ? {} : { startedAtMs }),
     ...(executionStartedAtMs === undefined ? {} : { executionStartedAtMs }),
     ...(finishedAtMs === undefined ? {} : { finishedAtMs }),
+    ...(queueHead === undefined ? {} : { queueHead }),
   } satisfies RepoWriterReceiptV1);
 }
+
+/** Every request family that can append a write turn; the queue fills the head at that append. */
+function writeQueueObservationFor(request: RepoWriterRequestV1): RepoCellQueueObservation | undefined {
+  if (request.method === "backup") {
+    const kind = (request.payload as { readonly kind?: unknown } | undefined)?.kind;
+    return {
+      label: {
+        requestId: request.requestId,
+        command: kind === "drill" ? "ledger-restore-drill" : "ledger-backup",
+      },
+    };
+  }
+  const fixedCommand = writeQueueCommandForMethod[request.method];
+  if (fixedCommand !== undefined) return { label: { requestId: request.requestId, command: fixedCommand } };
+  if (request.method !== "run" && request.method !== "presetRun") return undefined;
+  const action = (request.payload as { readonly action?: { readonly kind?: unknown } } | undefined)?.action;
+  return {
+    label: {
+      requestId: request.requestId,
+      command: typeof action?.kind === "string" ? action.kind : request.method,
+    },
+  };
+}
+
+/** Writer methods whose queued turn has one stable command label rather than an action kind. */
+const writeQueueCommandForMethod: Partial<Record<RepoWriterRequestV1["method"], string>> = {
+  spawnRuntime: "runtime-run",
+  handoffRuntime: "runtime-handoff-claim",
+  cancelRuntime: "runtime-cancel",
+  steerRuntime: "runtime-steer",
+  runtimeIngress: "runtime-run",
+  pruneReplicationLog: "replication-prune",
+};
 
 function monotonicMs(): number {
   return Number(process.hrtime.bigint() / 1_000_000n);

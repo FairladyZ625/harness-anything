@@ -14,6 +14,7 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "duplicate_field",
   "invalid_field",
   "invalid_runtime_fast",
+  "invalid_runtime_web_search",
   "missing_field",
   // The CLI reads a caller's outside-repository --source itself; a missing, unreadable or binary
   // file is refused before the daemon sees the command.

@@ -25,6 +25,7 @@ export const builtInRuntimeProviderInputDeclaration = Object.freeze({
     fields: [
       "reasoningEffort",
       "fast",
+      "webSearch",
       "baseUrl",
       "allowInsecureHttp",
       "wireApi",
@@ -413,6 +414,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),
+      cliInput(
+        "--web-search",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_web_search",
+        },
+        { enum: ["disabled", "cached", "live"] },
+      ),
       cliInput("--base-url", "single", false, {
         code: "invalid_field",
       }),
@@ -499,7 +509,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     positional: "instanceId",
     summary: [
       "Update a runtime instance's installation, metadata, models, permissions, isolation, ",
-      "reasoning effort, enabled state, or API key via --api-key-stdin/--api-key-file.",
+      "reasoning effort, native web search tier, enabled state, or API key via --api-key-stdin/--api-key-file.",
     ].join(""),
     method: "daemon.runtimeInstance.update",
     inputs: [
@@ -526,6 +536,15 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),
+      cliInput(
+        "--web-search",
+        "single",
+        false,
+        {
+          code: "invalid_runtime_web_search",
+        },
+        { enum: ["disabled", "cached", "live"] },
+      ),
       cliInput(
         "--permission-mode",
         "single",

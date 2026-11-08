@@ -15,6 +15,8 @@ export interface BackupVerificationResult {
   readonly bytes: number;
   readonly backupMs: number;
   readonly captureMs: number;
+  /** Files the writer-held capture copied: the ones that changed after the pre-cut stage. */
+  readonly captureCopiedFiles: number;
   readonly drillMs: number;
   readonly cleanupMs: number;
   readonly retention: ReturnType<typeof applyLedgerBackupRetention>;
@@ -27,7 +29,10 @@ export type BackupWorkerMessage =
 // A builtin owns physical worker resources, not a renewable Schedule lease. Its lifetime is bounded by the
 // Settings `storage.backupExecutionLimitMs` execution limit (the supplied successful runs took about 8.5 minutes).
 
-/** Only live-source capture holds the writer queue; all validation reads the frozen payload. */
+/**
+ * Only live-source capture holds the writer queue: the worker stages the bulk copy before it reports
+ * `prepared`, so the held capture is a stat walk plus changed files. All validation reads the frozen payload.
+ */
 export function finishLedgerBackup(
   input: BackupVerification,
   runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>,

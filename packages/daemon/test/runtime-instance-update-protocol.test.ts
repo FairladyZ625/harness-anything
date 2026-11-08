@@ -19,12 +19,14 @@ test("runtime instance RPC accepts clearing endpoint and effort through the exis
   assert.equal(parse({ ...payload, baseUrl: "" }).ok, true);
   assert.equal(parse({ models: ["sonnet", "opus"] }).ok, true);
   assert.equal(parse({ baseUrl: "https://example.test/", effort: "high" }).ok, true);
+  assert.equal(parse({ webSearch: "live" }).ok, true);
+  assert.equal(parse({ webSearch: "" }).ok, true);
 });
 
 test("runtime instance RPC keeps non-clearable strings and clearable value types constrained", () => {
   for (const field of ["instanceId", "name", "installationId", "defaultModel"])
     assert.equal(parse({ [field]: "" }).ok, false, field);
-  for (const field of ["baseUrl", "effort"])
+  for (const field of ["baseUrl", "effort", "webSearch"])
     for (const value of [null, false, 0, [], {}])
       assert.equal(parse({ [field]: value }).ok, false, `${field}: ${JSON.stringify(value)}`);
   assert.equal(parse({ apiKey: "fake-key-must-only-enter-the-target-vault" }).ok, true);

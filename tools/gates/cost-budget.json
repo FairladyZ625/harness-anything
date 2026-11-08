@@ -324,6 +324,11 @@
             "schedule-unassign:assignment-history"
           ]
         },
+        "schedule-run-now": {
+          "measurements": [
+            "schedule-run-now:unchanged-ledger-files"
+          ]
+        },
         "squad-assign": {
           "measurements": [
             "squad-assign:assignment-history"
@@ -674,12 +679,6 @@
             "schedule-missed"
           ],
           "reason": "schedule missed runtime records one occurrence; no occurrence collection is traversed."
-        },
-        {
-          "actions": [
-            "schedule-run-now"
-          ],
-          "reason": "schedule run-now runtime targets one schedule occurrence; no schedule collection is traversed."
         },
         {
           "actions": [
