@@ -418,7 +418,7 @@ export async function openRepoWriterCell(
     );
     return pending;
   };
-  const backup: NonNullable<RepoCell["backup"]> = (request) => {
+  const backup: NonNullable<RepoCell["backup"]> = (request, queueObservation) => {
     queueDepth += 1;
     input.onQueueDepthChange?.(queueDepth);
     const pending = chainRepoCellWrite(
@@ -439,7 +439,11 @@ export async function openRepoWriterCell(
           ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
         });
       },
-      { queue: writeQueue, label: { command: "ledger-backup", requestId: null } },
+      {
+        queue: writeQueue,
+        label: queueObservation?.label ?? { command: "ledger-backup", requestId: null },
+        ...(queueObservation ? { observation: queueObservation } : {}),
+      },
     ).finally(() => input.onQueueDepthChange?.(queueDepth));
     tail = pending.then(
       () => undefined,

@@ -407,7 +407,10 @@ async function startRepoWriterWorker(): Promise<void> {
           value = await cell.settlePendingMaterialization(String(request.payload));
           break;
         case "backup":
-          value = await cell.backup!(request.payload as Parameters<NonNullable<typeof cell.backup>>[0]);
+          value = await cell.backup!(
+            request.payload as Parameters<NonNullable<typeof cell.backup>>[0],
+            queueObservation,
+          );
           break;
         case "pruneReplicationLog":
           value = await cell.pruneReplicationLog!(Number(request.payload));
@@ -652,8 +655,17 @@ function postReceipt(
   } satisfies RepoWriterReceiptV1);
 }
 
-/** The two request families that append a write turn; the queue fills the head at that append. */
+/** The request families that append a write turn; the queue fills the head at that append. */
 function writeQueueObservationFor(request: RepoWriterRequestV1): RepoCellQueueObservation | undefined {
+  if (request.method === "backup") {
+    const kind = (request.payload as { readonly kind?: unknown } | undefined)?.kind;
+    return {
+      label: {
+        requestId: request.requestId,
+        command: kind === "drill" ? "ledger-restore-drill" : "ledger-backup",
+      },
+    };
+  }
   if (request.method !== "run" && request.method !== "presetRun") return undefined;
   const action = (request.payload as { readonly action?: { readonly kind?: unknown } } | undefined)?.action;
   return {

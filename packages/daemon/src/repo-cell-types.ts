@@ -312,13 +312,16 @@ export interface RepoCell {
   readonly inFlightWork: () => Promise<readonly RepoInFlightWork[]>;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
   readonly settlePendingMaterialization: (context: string) => Promise<void>;
-  readonly backup?: (input: {
-    readonly kind: "backup" | "drill";
-    readonly backupDir: string;
-    readonly shadowParent?: string;
-    readonly registration: DaemonRegistryRepo;
-    readonly writerEpoch: number;
-  }) => Promise<
+  readonly backup?: (
+    input: {
+      readonly kind: "backup" | "drill";
+      readonly backupDir: string;
+      readonly shadowParent?: string;
+      readonly registration: DaemonRegistryRepo;
+      readonly writerEpoch: number;
+    },
+    queueObservation?: RepoCellQueueObservation,
+  ) => Promise<
     ReturnType<typeof createLedgerBackup> | Awaited<ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>>
   >;
   /** Replication-log retention, run on this repository's single write chain. */
