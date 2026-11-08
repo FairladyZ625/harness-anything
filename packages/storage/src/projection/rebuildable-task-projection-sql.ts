@@ -1,6 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 
 import { DatabaseSync } from "node:sqlite";
+import { createHash, type Hash } from "node:crypto";
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
@@ -44,6 +45,7 @@ const stateDigestColumns: Partial<Record<(typeof stateDigestTables)[number][0], 
   relation_edge:
     "relation_id,source_ref,target_ref,relation_type,state,target_observed_version,owner_ref,workspace_revision,updated_at,row_json",
 };
+const stateDigestChunkBytes = 1024 * 1024;
 
 export function watermark(db: DatabaseSync): number {
   const row = prepareQuery(db, "SELECT watermark FROM projection_meta WHERE singleton = 1", (sql) =>
@@ -93,6 +95,10 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
     let digest = sha256Text("task-projection-state/v1");
     for (const [table, order] of stateDigestTables) {
       digest = sha256Text(`${digest}\n${table}`);
+      if (table === "document") {
+        digest = digestDocumentRows(db, digest);
+        continue;
+      }
       // Disposable event lookup fields are not part of the pre-expansion state fingerprint.
       for (const row of prepareQuery(
         db,
@@ -102,6 +108,39 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
     }
     return `sha256:${digest}` as const;
   });
+}
+
+function digestDocumentRows(db: DatabaseSync, digest: string): string {
+  const documents = prepareQuery(
+      db,
+      "SELECT path, workspace_revision, length(CAST(value_json AS BLOB)) AS value_json_bytes FROM document ORDER BY path",
+    ).iterate() as Iterable<{
+      readonly path: string;
+      readonly workspace_revision: number;
+      readonly value_json_bytes: number;
+    }>,
+    chunkQuery = prepareQuery(
+      db,
+      "SELECT substr(CAST(value_json AS BLOB), ?, ?) AS chunk FROM document WHERE path = ?",
+    );
+  for (const { path, workspace_revision, value_json_bytes } of documents) {
+    function* readChunks(): Iterable<Uint8Array> {
+      for (let offset = 0; offset < value_json_bytes; offset += stateDigestChunkBytes) {
+        const row = chunkQuery.get(offset + 1, stateDigestChunkBytes, path) as
+          | { readonly chunk: Uint8Array }
+          | undefined;
+        if (row?.chunk === undefined) throw new Error(`document ${path} disappeared during state digest`);
+        yield row.chunk;
+      }
+    }
+    digest = hashCanonicalJsonTextFieldChunks(
+      digest,
+      { path, workspace_revision, value_json: "" },
+      "value_json",
+      readChunks(),
+    );
+  }
+  return digest;
 }
 export function transaction<A>(db: DatabaseSync, run: () => A): A {
   /* @gate-identity check-bypass-write-boundary/bypass-write-028 */
@@ -202,4 +241,50 @@ export function queryPreparedRows<Row extends ProjectionSqlRow = ProjectionSqlRo
 }
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalizeContractValue(value));
+}
+
+export function hashCanonicalJsonTextFieldChunks(
+  previousDigest: string,
+  row: Readonly<Record<string, unknown>>,
+  field: string,
+  chunks: Iterable<Uint8Array>,
+): string {
+  const { hash, suffix } = beginCanonicalJsonTextFieldHash(previousDigest, row, field),
+    decoder = new TextDecoder();
+  for (const chunk of chunks) hash.update(escapeJsonStringContent(decoder.decode(chunk, { stream: true })));
+  hash.update(escapeJsonStringContent(decoder.decode()));
+  return hash.update(suffix).digest("hex");
+}
+
+export async function hashCanonicalJsonTextFieldChunksAsync(
+  previousDigest: string,
+  row: Readonly<Record<string, unknown>>,
+  field: string,
+  chunks: AsyncIterable<Uint8Array>,
+): Promise<string> {
+  const { hash, suffix } = beginCanonicalJsonTextFieldHash(previousDigest, row, field),
+    decoder = new TextDecoder();
+  for await (const chunk of chunks) hash.update(escapeJsonStringContent(decoder.decode(chunk, { stream: true })));
+  hash.update(escapeJsonStringContent(decoder.decode()));
+  return hash.update(suffix).digest("hex");
+}
+
+function beginCanonicalJsonTextFieldHash(
+  previousDigest: string,
+  row: Readonly<Record<string, unknown>>,
+  field: string,
+): { readonly hash: Hash; readonly suffix: string } {
+  const serialized = canonicalJson({ ...row, [field]: "" }),
+    marker = `${JSON.stringify(field)}:""`,
+    markerStart = serialized.indexOf(marker);
+  if (markerStart === -1) throw new Error(`canonical JSON row is missing streamed field ${field}`);
+  const contentEnd = markerStart + marker.length - 1;
+  return {
+    hash: createHash("sha256").update(`${previousDigest}\n`).update(serialized.slice(0, contentEnd)),
+    suffix: serialized.slice(contentEnd),
+  };
+}
+
+function escapeJsonStringContent(value: string): string {
+  return JSON.stringify(value)!.slice(1, -1);
 }
