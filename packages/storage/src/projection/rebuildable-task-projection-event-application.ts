@@ -43,6 +43,7 @@ import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entit
 import { isLedgerLayoutMigrationEvent } from "@harness-anything/kernel/internal/domain/ledger-layout-migration-event.ts";
 import { isEventShapeMigrationEvent } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import { currentTaskForWrite } from "@harness-anything/kernel/internal/domain/task.ts";
+import { supersededTaskState } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
 import {
   isAgentRuntimeEvent,
   reduceRuntimeInstallation,
@@ -690,6 +691,16 @@ function applyEventProjection(
       // The task-bound closeout override set tracks the profile declaration on upgrade; a profile
       // that no longer declares one drops the field entirely rather than freezing a stale value.
       baseTask = { ...currentTaskForWrite(current.task) },
+      // This event writes its task snapshot directly instead of going through reduceTaskEvent, so
+      // preserve the one terminal supersede transition here too. Current data and the recorded
+      // payload can disagree on status only; the lineage is the same.
+      upgradedTask =
+        current.task.supersededBy || event.payload.task.supersededBy
+          ? supersededTaskState(
+              event.payload.task,
+              event.payload.task.supersededBy ?? current.task.supersededBy ?? null,
+            )
+          : event.payload.task,
       declaredCloseoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides,
       closeoutOverrides = withoutRetiredCloseoutOverrides(declaredCloseoutOverrides),
       archiveOnComplete = (snapshot.profile as { readonly archiveOnComplete?: unknown }).archiveOnComplete;
@@ -717,7 +728,7 @@ function applyEventProjection(
           : {}),
       },
       currentShape = { ...baseTask, ...changed };
-    if (canonicalJson(currentShape) !== canonicalJson(currentTaskForWrite(event.payload.task)))
+    if (canonicalJson(currentShape) !== canonicalJson(currentTaskForWrite(upgradedTask)))
       throw new Error(`preset snapshot upgrade changed immutable task fields for ${event.taskId}`);
     const contractBody = new TextDecoder("utf-8", { fatal: true }).decode(contractBytes),
       contract = event.payload.taskContractClaim,
@@ -746,13 +757,13 @@ function applyEventProjection(
       canonicalJson({
         ...current,
         revision: event.workspaceRevision,
-        task: currentTaskForWrite(event.payload.task),
+        task: currentTaskForWrite(upgradedTask),
       }),
-      event.payload.task.status,
+      upgradedTask.status,
       event.occurredAt,
     );
-    syncLeaseTaskActive(db, event.taskId, event.payload.task.status);
-    refreshTaskRelationProjection(db, event.taskId, event.payload.task, event.workspaceRevision, event.occurredAt);
+    syncLeaseTaskActive(db, event.taskId, upgradedTask.status);
+    refreshTaskRelationProjection(db, event.taskId, upgradedTask, event.workspaceRevision, event.occurredAt);
     upsertPresetSnapshot(
       db,
       event.payload.presetSnapshotClaim.digest,
