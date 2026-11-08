@@ -33,7 +33,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /ten judgments resolve to kernel domain services; authored-document reads use the projection port/u,
+    /twelve judgments resolve to kernel domain services; authored-document reads use the projection port/u,
   );
 });
 
@@ -206,6 +206,26 @@ test("a direct authored read is reported without a readiness heuristic", (t) => 
       (finding) =>
         finding.includes("packages/daemon/src/access.ts#assertPlanReady") &&
         finding.includes("direct-authored-document-read"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+// dec_BEFCF7D0484E901F187C2C8EC6: whether a fixed finding needs a re-review is judged only by the
+// kernel reverify route. A daemon copy — a second route or a raw `reverify` comparison — is refused.
+test("positive fixture: a daemon copy of the review reverify judgment is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("reviewReverifyRoute: expected one definition") &&
+        finding.includes("packages/daemon/src/duplicate-reverify.ts"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) =>
+      finding.startsWith("packages/daemon/src/duplicate-reverify.ts: judges a finding's reverify outside the kernel"),
     ),
     findings.join("\n"),
   );

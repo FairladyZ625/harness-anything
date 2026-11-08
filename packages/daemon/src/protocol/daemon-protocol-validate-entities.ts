@@ -6,6 +6,7 @@ import {
   reviewFindingCategoryWords,
   reviewFindingDispositionWords,
   reviewFindingLabelWords,
+  reviewReverifyModeWords,
   reviewVerdictWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
@@ -500,7 +501,7 @@ export function review(value: unknown): boolean {
   const validFinding = (finding: unknown): boolean => {
     if (!isJsonObject(finding)) return false;
     const fields = ["findingId", "blocking", "text"],
-      optionalFields = ["anchor", "category", "label", "evidenceDigest", "priorFindingRefs"],
+      optionalFields = ["anchor", "category", "label", "evidenceDigest", "priorFindingRefs", "reverify"],
       allowedFields = [...fields, ...optionalFields];
     return (
       recordWith(finding, fields) &&
@@ -516,7 +517,10 @@ export function review(value: unknown): boolean {
         (typeof finding.label === "string" &&
           reviewFindingLabelWords.includes(finding.label as (typeof reviewFindingLabelWords)[number]))) &&
       (finding.evidenceDigest === undefined || digest(finding.evidenceDigest)) &&
-      (finding.priorFindingRefs === undefined || stringArray(finding.priorFindingRefs))
+      (finding.priorFindingRefs === undefined || stringArray(finding.priorFindingRefs)) &&
+      (finding.reverify === undefined ||
+        (typeof finding.reverify === "string" &&
+          reviewReverifyModeWords.includes(finding.reverify as (typeof reviewReverifyModeWords)[number])))
     );
   };
   const validResolution = (resolution: unknown): boolean =>

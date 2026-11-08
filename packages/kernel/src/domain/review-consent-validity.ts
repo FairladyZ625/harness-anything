@@ -13,6 +13,12 @@ export interface ReviewDispositionRecord {
 export interface ReviewConsentValidityInput {
   readonly selectedReview: ReviewValidityRecord | undefined;
   readonly allowSelectedChangesRequested?: boolean;
+  /**
+   * dec_BEFCF7D0484E901F187C2C8EC6 CH2: the selected review is the previous round's owner-verify
+   * verdict the owner verified on this cut. It is bound to an earlier submission by construction;
+   * its disposition on the current submission is what makes it a valid selection.
+   */
+  readonly selectedOwnerVerified?: boolean;
   readonly reviews: readonly ReviewValidityRecord[];
   readonly dispositions: readonly ReviewDispositionRecord[];
   readonly currentSubmissionDigest: `sha256:${string}`;
@@ -37,15 +43,21 @@ export function disposedReviewIdsForSubmission(
 export function reviewConsentConflicts(input: ReviewConsentValidityInput): readonly ReviewConsentConflict[] {
   const selected = input.selectedReview,
     disposed = disposedReviewIdsForSubmission(input.dispositions, input.currentSubmissionDigest);
+  const ownerVerified =
+    selected !== undefined &&
+    input.selectedOwnerVerified === true &&
+    selected.verdict === "changes_requested" &&
+    disposed.has(selected.reviewId);
   if (
     !selected ||
-    (selected.verdict !== "approved" &&
+    (!ownerVerified &&
+      selected.verdict !== "approved" &&
       !(
         input.allowSelectedChangesRequested === true &&
         selected.verdict === "changes_requested" &&
         disposed.has(selected.reviewId)
       )) ||
-    selected.submissionDigest !== input.currentSubmissionDigest
+    (!ownerVerified && selected.submissionDigest !== input.currentSubmissionDigest)
   )
     return selected
       ? [

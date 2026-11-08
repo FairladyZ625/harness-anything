@@ -66,8 +66,10 @@ export {
 } from "./review.ts";
 export type { ReviewFindingV1, ReviewV1 } from "./review.ts";
 
-export { reviewFindingLabels, reviewFindingCategories } from "./review.ts";
-export type { ReviewFindingCategory, ReviewFindingLabel } from "./review.ts";
+export { reviewFindingLabels, reviewFindingCategories, reviewReverifyModes } from "./review.ts";
+export type { ReviewFindingCategory, ReviewFindingLabel, ReviewReverifyMode } from "./review.ts";
+export { ownerVerifiableFindingCategories, reviewReverifyRoute } from "./review-reverify.ts";
+export type { ReviewReverifyRoute } from "./review-reverify.ts";
 
 export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
 export type { DomainStatus } from "./lifecycle-status.ts";

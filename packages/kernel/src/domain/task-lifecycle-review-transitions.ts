@@ -6,6 +6,7 @@ import { reviewDigest } from "./review.ts";
 import { validateReviewFindings, validateReviewResolutions, validateTaskReviewResponseV1 } from "./review.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, TaskReviewResponseV1 } from "./review.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
+import { reviewFindingReverifyIssues, reviewReverifyRoute } from "./review-reverify.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -86,7 +87,7 @@ function reviewIssues(
     );
   if (!Array.isArray(command.findings))
     issues.push(lifecycleContractIssue("missing_field", "new Review records must include a findings array"));
-  else issues.push(...validateReviewFindings(command.findings));
+  else issues.push(...validateReviewFindings(command.findings), ...reviewFindingReverifyIssues(command.findings));
   if (command.resolutions !== undefined) issues.push(...validateReviewResolutions(command.resolutions));
   // Entry filter (dec_6A77D43B8523823ABA1F5E4D3C CH2): style, diagnostic, and cleanup notes never
   // settle, so they cannot be the blocking finding a changes_requested verdict rests on.
@@ -344,9 +345,25 @@ export const consent: Transition = {
       proof = rawProof as Partial<ReviewConsentProof>,
       issues = revisionIssues(snapshot, command),
       current = execution(snapshot, command.executionId),
-      recorded = snapshot.reviews.find(
+      sameExecutionReview = snapshot.reviews.find(
         (value) => value.reviewId === command.reviewId && value.executionId === command.executionId,
       ),
+      // dec_BEFCF7D0484E901F187C2C8EC6 CH2: the only cross-submission citation. When every blocking
+      // finding of the previous round is owner-verify and adopted, the owner cites that round's
+      // review, disposes it on this cut with the verification note, and no re-review is owed.
+      route =
+        sameExecutionReview === undefined && current?.state === "submitted"
+          ? reviewReverifyRoute({
+              reviews: snapshot.reviews,
+              reviewResponses: snapshot.reviewResponses,
+              execution: current,
+            })
+          : undefined,
+      ownerVerifiedReview =
+        route?.kind === "owner-verify" && command.disposedReviewIds?.includes(command.reviewId)
+          ? route.reviews.find((value) => value.reviewId === command.reviewId)
+          : undefined,
+      recorded = sameExecutionReview ?? ownerVerifiedReview,
       currentSubmissionDigest = current?.submission ? submissionDigest(current.submission) : undefined,
       hasDispositionAction = Boolean(command.disposedReviewIds?.length),
       consentAlreadyCurrent =
@@ -380,6 +397,7 @@ export const consent: Transition = {
         ? reviewConsentConflicts({
             selectedReview: recorded,
             allowSelectedChangesRequested: true,
+            selectedOwnerVerified: ownerVerifiedReview !== undefined,
             reviews: snapshot.reviews.filter(
               (value) => value.executionId === command.executionId && value.iteration === current.iteration,
             ),
@@ -390,8 +408,8 @@ export const consent: Transition = {
             currentSubmissionDigest: currentSubmissionDigest!,
           })
         : [],
-      dispositionEligibleReviews = new Set(
-        snapshot.reviews
+      dispositionEligibleReviews = new Set([
+        ...snapshot.reviews
           .filter(
             (value) =>
               value.executionId === command.executionId &&
@@ -400,6 +418,16 @@ export const consent: Transition = {
               value.verdict === "changes_requested",
           )
           .map((value) => value.reviewId),
+        ...(ownerVerifiedReview ? [ownerVerifiedReview.reviewId] : []),
+      ]);
+    if (recorded === undefined && snapshot.reviews.some((value) => value.reviewId === command.reviewId))
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          `review ${command.reviewId} belongs to an earlier submission; consent may cite it only when every ` +
+            "blocking finding of that round is owner-verify and adopted, with --dispose naming it and " +
+            "--rationale stating the owner's verification",
+        ),
       );
     if (hasDispositionAction && command.actor.principal.personId !== snapshot.task?.createdBy.principal.personId)
       issues.push(
@@ -410,7 +438,7 @@ export const consent: Transition = {
       current?.state !== "submitted" ||
       (recorded?.verdict !== "approved" &&
         !(recorded?.verdict === "changes_requested" && command.disposedReviewIds?.includes(recorded.reviewId))) ||
-      recorded?.iteration !== current?.iteration ||
+      (ownerVerifiedReview === undefined && recorded?.iteration !== current?.iteration) ||
       consentAlreadyCurrent
     )
       issues.push(
