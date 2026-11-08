@@ -38,7 +38,7 @@ function isClockNow(node) {
 // Integration tests (dec_25B3C380F6FB9D4D4A1E27921E CH1) may not judge correctness by the wall clock:
 // a deadline compared against now(), a timer that schedules what the process under test should be
 // seen doing, a self-written poll/waitFor loop, or the shared wall-clock poller. Waits go through
-// tools/fixtures/event-arrival.ts; the node:test `timeout` option is the only hang guard.
+// tools/fixtures/event-arrival.ts; node:test `timeout` and fail-only timers are hang guards.
 const comparisons = new Set(["<", "<=", ">", ">="]);
 const selfPollName = /^(?:waitFor|waitUntil|poll|eventually|until|retry)/iu;
 const pollHelperModule = /(?:^|\/)wait-for-condition(?:\.[cm]?[jt]s)?$/u;
@@ -81,20 +81,44 @@ const contentionWatchdogFile = /packages\/daemon\/test\/task-squad-orchestration
 const contentionWatchdogFloorMs = 11_526 * 5;
 
 // A watchdog is a timer whose callback only ends the test as failed: it rejects, throws, fails an
-// assertion or aborts. It bounds a hang and never decides what the process under test should be
-// doing. Any other timer callback (resolve a sleep, send the child a message, destroy a socket,
-// kill the child as a scripted step) schedules an observable state by the wall clock.
+// assertion, or clears its own timer before doing so. It bounds a hang and never decides what the
+// process under test should be doing. Any other timer callback (resolve a sleep, send the child a
+// message, destroy a socket, or kill the child as a scripted step) schedules an observable state
+// by the wall clock.
 function isWatchdog(callback, visitorKeys) {
   if (!callback || !["ArrowFunctionExpression", "FunctionExpression"].includes(callback.type)) return false;
-  let fails = false;
+  let hasFailure = false,
+    forbiddenAction = false;
   function walk(current) {
-    if (!current || fails) return;
-    if (current.type === "ThrowStatement") fails = true;
+    if (!current || forbiddenAction) return;
+    if (current.type === "ThrowStatement") hasFailure = true;
+    if (
+      [
+        "AssignmentExpression",
+        "UpdateExpression",
+        "TaggedTemplateExpression",
+        "AwaitExpression",
+        "YieldExpression",
+        "ImportExpression",
+      ].includes(current.type) ||
+      (current.type === "UnaryExpression" && current.operator === "delete") ||
+      (current.type === "NewExpression" &&
+        (current.callee.type !== "Identifier" ||
+          !/^(?:Error|TypeError|RangeError|ReferenceError|SyntaxError|URIError|EvalError|AggregateError)$/u.test(
+            current.callee.name,
+          )))
+    )
+      forbiddenAction = true;
     if (current.type === "CallExpression") {
-      const name = callName(current.callee);
-      if (name === "reject" || name === "abort") fails = true;
-      if (name === "fail" && current.callee.type === "MemberExpression" && current.callee.object.name === "assert")
-        fails = true;
+      const callee = current.callee;
+      const isAssertFail =
+        callee.type === "MemberExpression" &&
+        !callee.computed &&
+        callee.object.type === "Identifier" &&
+        callee.object.name === "assert" &&
+        callee.property.name === "fail";
+      if ((callee.type === "Identifier" && ["reject", "fail"].includes(callee.name)) || isAssertFail) hasFailure = true;
+      else if (callee.type !== "Identifier" || callee.name !== "clearTimeout") forbiddenAction = true;
     }
     for (const key of visitorKeys[current.type] ?? []) {
       const value = current[key];
@@ -103,7 +127,7 @@ function isWatchdog(callback, visitorKeys) {
     }
   }
   walk(callback.body);
-  return fails;
+  return hasFailure && !forbiddenAction;
 }
 
 function insideLoop(node) {

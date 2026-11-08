@@ -135,17 +135,41 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
   // Negative fixtures: a watchdog that only fails the test bounds a hang and is not a correctness wait.
   assert.deepEqual(
     kinds(
-      "function guard(child, ms) { return new Promise((_resolve, reject) => { setTimeout(() => { child.kill('SIGKILL'); reject(new Error('hung')); }, ms); }); }",
+      "function guard(ms) { return new Promise((_resolve, reject) => { setTimeout(() => reject(new Error('hung')), ms); }); }",
     ),
     [],
   );
+  // A process action plus a failure is still a scheduled timer; the failure does not make it a watchdog.
+  assert.deepEqual(kinds("setTimeout(() => { child.send('stop'); reject(new Error('hung')); }, 60_000);"), [
+    "scheduled-timer",
+  ]);
+  assert.deepEqual(kinds("setTimeout(() => { child.kill('SIGKILL'); reject(new Error('hung')); }, 60_000);"), [
+    "scheduled-timer",
+  ]);
+  for (const action of [
+    "child.stopped = true",
+    "child.stops++",
+    "delete child.state",
+    "new StopChild()",
+    "child.reject('hung')",
+    "child.fail('hung')",
+  ]) {
+    assert.deepEqual(
+      kinds(`setTimeout(() => { ${action}; reject(new Error('hung')); }, 60_000);`),
+      ["scheduled-timer"],
+      action,
+    );
+  }
+  assert.deepEqual(kinds("setTimeout(() => { clearTimeout(timer); reject(new Error('hung')); }, 60_000);"), []);
   assert.deepEqual(kinds("setTimeout(() => { throw new Error('hung'); }, 60_000);"), []);
+  assert.deepEqual(kinds("setTimeout(() => fail('hung'), 60_000);"), []);
+  assert.deepEqual(kinds("setTimeout(() => assert.fail('hung'), 60_000);"), []);
   // A fail-only timer with a short resolved delay asserts speed: it is reported, not exempted.
   assert.deepEqual(kinds("setTimeout(() => reject(new Error('write was blocked')), 5_000);"), ["short-watchdog"]);
   assert.deepEqual(kinds("const guardMs = 3_000; setTimeout(() => reject(new Error('slow')), guardMs);"), [
     "short-watchdog",
   ]);
-  assert.deepEqual(kinds("setTimeout(() => controller.abort(), 60_000);"), []);
+  assert.deepEqual(kinds("setTimeout(() => controller.abort(), 60_000);"), ["scheduled-timer"]);
   assert.deepEqual(kinds("test('x', { timeout: 30_000 }, async () => { await child.exited; });"), []);
   assert.deepEqual(
     kinds(

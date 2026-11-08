@@ -24,7 +24,7 @@
  * be an event the process under test publishes: waitForArrival(read, subscribe) from
  * tools/fixtures/event-arrival.ts, a child "message"/"exit" event, a stream line. A hang guard only
  * ends a stuck test as failed and never asserts speed: the node:test `timeout` option, or a timer
- * whose callback only rejects/throws/assert.fail()s/aborts and whose delay is a parameter or at
+ * whose callback only rejects/throws/assert.fail()s and whose delay is a parameter or at
  * least 20 s. Hang guards are not reported.
  *
  * Baseline. tools/gate-allowlists/check-poll-spin-boundary.json lists every reported key with

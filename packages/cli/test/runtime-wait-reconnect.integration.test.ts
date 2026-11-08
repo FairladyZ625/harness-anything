@@ -1251,12 +1251,15 @@ async function withTimeout(
     return await Promise.race([
       completion,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          child.kill("SIGKILL");
-          reject(new Error(`the CLI invocation hung: no exit within the ${guardMs}ms hang guard`));
-        }, guardMs);
+        timer = setTimeout(
+          () => reject(new Error(`the CLI invocation hung: no exit within the ${guardMs}ms hang guard`)),
+          guardMs,
+        );
       }),
     ]);
+  } catch (error) {
+    child.kill("SIGKILL");
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
   }
