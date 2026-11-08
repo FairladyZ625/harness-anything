@@ -27,7 +27,9 @@ const DOCUMENT_PATH_FIELDS = [
   "changedPaths",
   "destination",
   "documentPath",
+  "dispatchPath",
   "paths",
+  "reportPath",
   "unchangedPaths",
   "conflictPaths",
 ] as const;
@@ -88,6 +90,8 @@ function rewriteDocumentPathFields(value: unknown, translate: (document: string)
   for (const [key, nested] of Object.entries(value)) {
     // `ledgerPackagePath` is the canonical value the caller's machine readers may key by.
     if (key === "ledgerPackagePath") rewritten[key] = nested;
+    else if (key === "ruling" && isRecord(nested) && typeof nested.path === "string")
+      rewritten[key] = { ...nested, path: translate(nested.path) };
     else if ((DOCUMENT_PATH_FIELDS as readonly string[]).includes(key))
       rewritten[key] = rewritePathList(nested, translate);
     else rewritten[key] = rewriteDocumentPathFields(nested, translate);
