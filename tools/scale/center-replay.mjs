@@ -4,7 +4,6 @@ import { JsonRpcLineClient } from "../../packages/daemon/src/client/local-json-r
 import { daemonHelloParams } from "../../packages/daemon/src/client/daemon-hello.ts";
 import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { requestAccumulator, replaySchedule } from "./center-model.mjs";
-import { waitForArrival } from "../fixtures/event-arrival.ts";
 let nextReplayId = 0;
 
 // Bindings are workload choices, not copies of the action catalog. Unbound commands fail before load starts.
@@ -103,37 +102,8 @@ export async function replayTraffic({
     observeCursors = new Map(),
     observeBootstraps = new Map(),
     observeArrivals = [],
-    observeWakeups = new Set(),
     pending = new Set(),
     accumulator = requestAccumulator();
-  let replayCompleted = false;
-  const subscribeObserve = (arrive) => {
-      observeWakeups.add(arrive);
-      return () => observeWakeups.delete(arrive);
-    },
-    recordObserveArrival = (node, direction) => {
-      observeArrivals.push({ node, direction });
-      for (const arrive of observeWakeups) arrive();
-    };
-  const observeRequestsByNode = new Map();
-  for (const row of window) {
-    if (row.method !== "observe.tail" || (bindings[`${row.method}:${row.command}`] ?? bindings[row.method])) continue;
-    for (let node = 0; node < nodes; node++)
-      observeRequestsByNode.set(node, (observeRequestsByNode.get(node) ?? 0) + 1);
-  }
-  const observeArrivalWaits = [...observeRequestsByNode].flatMap(([node, count]) =>
-    ["history", ...(count > 1 ? ["follow"] : [])].map((direction) =>
-      waitForArrival(
-        () =>
-          observeArrivals.some((arrival) => arrival.node === node && arrival.direction === direction)
-            ? true
-            : replayCompleted
-              ? false
-              : null,
-        subscribeObserve,
-      ),
-    ),
-  );
   const started = performance.now();
   const traceTag = `center-bench-trace-${++nextReplayId}`;
   let serial = 0,
@@ -200,7 +170,7 @@ export async function replayTraffic({
       if (managedObserve && result.liveCursor) observeCursors.set(row.node, result.liveCursor);
       ok = result.ok !== false && !["op_rejected", "indeterminate"].includes(result.outcome);
       code = ok ? null : (result.code ?? result.error?.code ?? result.outcome ?? "request_failed");
-      if (managedObserve && ok) recordObserveArrival(row.node, observeDirection);
+      if (managedObserve && ok) observeArrivals.push({ node: row.node, direction: observeDirection });
     } catch (error) {
       code = error.code ?? error.message;
     } finally {
@@ -274,12 +244,6 @@ export async function replayTraffic({
         "arrival-to-terminal-reply, including generator lag; percentiles include successful requests only",
     };
   } finally {
-    // A fault campaign can finish requests unsuccessfully (for example, during build supersession).
-    // Its terminal event releases missing-arrival waits without claiming those arrivals succeeded;
-    // the report retains the request errors and only successful history/follow replies.
-    replayCompleted = true;
-    for (const arrive of observeWakeups) arrive();
-    await Promise.all(observeArrivalWaits);
     const openings = await Promise.allSettled([...sessions.values()].map((session) => session.opening));
     for (const opened of openings) if (opened.status === "fulfilled") opened.value.close();
   }
