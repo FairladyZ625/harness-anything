@@ -50,7 +50,12 @@ import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store.ts";
 import { TaskEventStoreError } from "./task-event-store.ts";
-import { canonicalDocumentClaims, canonicalDocumentMode, contentClaims } from "./canonical-document-claims.ts";
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentMode,
+  contentClaims,
+  isContentObjectClaim,
+} from "./canonical-document-claims.ts";
 
 // Bundle, plan, content-input, and prepared-publication validation.
 
@@ -58,16 +63,18 @@ import { canonicalDocumentClaims, canonicalDocumentMode, contentClaims } from ".
  * dec_E355A3715D7C65666E385C8339 CH2: the one document-volume judgment. Every canonical write
  * validates here before any content is read, so no caller enforces its own copy of the limit.
  *
- * Entity-owned content is the dec_776B4D61 exception: its bytes are admitted as content objects
- * and the projection keeps only the claim (never a materialized document body), so the 50MB
- * per-object contract stays authoritative for that channel.
+ * Entity declaration documents are canonical documents and are bounded here like every other
+ * document. Only entity-owned content admitted as a content object is exempt: its projection keeps
+ * the claim rather than a materialized body, so its own contract (RAW_ARTIFACT_MAX_BYTES,
+ * single-sourced as MAX_ENTITY_CONTENT_OBJECT_BYTES) remains authoritative for those bytes.
  */
 function assertDocumentSizeLimit(
   event: PersistedCanonicalEventV1,
   claims: ReturnType<typeof canonicalDocumentClaims>,
 ): void {
-  if (isEntityEvent(event)) return;
-  const oversized = claims.find((claim) => claim.size > LEDGER_DOCUMENT_MAX_BYTES);
+  const oversized = claims.find(
+    (claim) => claim.size > LEDGER_DOCUMENT_MAX_BYTES && !(isEntityEvent(event) && isContentObjectClaim(claim)),
+  );
   if (oversized === undefined) return;
   throw new TaskEventStoreError(
     "document_too_large",

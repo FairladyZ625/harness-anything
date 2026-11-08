@@ -1,7 +1,7 @@
 export const OPAQUE_TEXTUAL_POLICY_ID = "opaque-textual-whole-file/v1";
 export const OPAQUE_TEXTUAL_MEDIA_TYPE = "text/x-harness-opaque";
 // Doc sync is an inline prose channel capped by its 256 KiB descriptor frame.
-// Larger raw content belongs to the <=50,000,000 byte blob contract in dec_776B4D61DF711D9F31126D375D.
+// Larger raw content belongs to the <=50,000,000 byte content-object contract (`RAW_ARTIFACT_MAX_BYTES`).
 export const DOC_SYNC_INLINE_MAX_BYTES = 256 * 1024;
 /**
  * Task outputs that are not text at all — PDF, PNG, a compiled binary, a log with a lone 0x80 byte.
@@ -10,16 +10,17 @@ export const DOC_SYNC_INLINE_MAX_BYTES = 256 * 1024;
  */
 export const RAW_ARTIFACT_POLICY_ID = "raw-artifact-bytes/v1";
 export const RAW_ARTIFACT_MEDIA_TYPE = "application/octet-stream";
-/** The <=50,000,000 byte blob contract in dec_776B4D61DF711D9F31126D375D, shared with entity-owned content. */
+/** The <=50,000,000 byte content-object contract, shared with entity-owned content (`MAX_ENTITY_CONTENT_OBJECT_BYTES`). */
 export const RAW_ARTIFACT_MAX_BYTES = 50_000_000;
 /**
  * dec_E355A3715D7C65666E385C8339 CH2: one ledger document is capped at 20,000,000 bytes at the
  * single canonical write-validation port. The limit is decimal (matching the content-object
  * contract) and inclusive: exactly 20,000,000 bytes is admitted, one byte more is refused.
  *
- * Entity-owned content keeps the dec_776B4D61 per-object ceiling. Those bytes are admitted as
- * content objects and the projection stores only their claim, not a materialized document body,
- * so the canonical write port exempts entity events from this document limit.
+ * Entity declaration documents are canonical documents and stay inside this ceiling. Only bytes
+ * admitted as content objects (`RAW_ARTIFACT_POLICY_ID` / `ENTITY_CONTENT_POLICY_ID`) are exempt:
+ * their projection stores the claim, not a materialized body, and the content-object ceiling
+ * (`RAW_ARTIFACT_MAX_BYTES`, single-sourced as `MAX_ENTITY_CONTENT_OBJECT_BYTES`) governs them.
  */
 export const LEDGER_DOCUMENT_MAX_BYTES = 20_000_000;
 
