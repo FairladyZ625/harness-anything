@@ -301,6 +301,7 @@
   "collaboration.fleetSummary": "{nodes} 节点 · {executing} 执行中 · {events} 事件",
   "collaboration.readFailed": "舰队拓扑读取失败：{error}",
   "collaboration.versionWarning": "中心与本机构建版本不一致，请先升级：{command}。",
+  "gui.versionBehind": "GUI 构建 {gui} 落后于 daemon {daemon}。请重建 GUI：{command}，然后重启 Electron（运行中的窗口不会自动更换旧 bundle）。",
   "collaboration.topologyTitle": "舰队拓扑",
   "collaboration.topologyNote": "点击节点查看在做什么与内部状态",
   "collaboration.eventsTitle": "事件流",

@@ -55,6 +55,8 @@ npm run build -w @harness-anything/gui
 
 `node node_modules/electron/install.js` 是幂等的：已装好会直接退出，缺二进制才会下载。构建顺序有依赖：daemon 的 bin 是 CLI daemon autostart 的入口，CLI 的 bin 是 `ha`，GUI 的产物是 `ha gui` 加载的窗口。三步都必须成功；缺一步只会在后面启动时才报错。源码 CLI 的 daemon 自动启动入口来自 daemon 包的 bin（`dist/index.js`），所以 `--version` / `--help` 成功不能证明该入口存在。当前 Git 钩子不会替你构建。
 
+升级已有源码时，这三条构建仍是同一步：只重建 CLI 或 daemon 不会更新正在运行的 Electron 窗口，旧 GUI bundle 会继续用旧契约校验新 daemon 字段。三条都构建后，退出旧窗口再运行 `ha gui` 才会加载新 bundle；发现 GUI 与 daemon 构建不一致时，窗口顶部的提示会给出同一条重建命令。
+
 先验证 Electron 运行时真的落地。不要用 `require('electron')` 做这一步：它在 `path.txt` 缺失时会自己触发下载，把“安装脚本没跑”伪装成成功。直接读 `path.txt` 并检查二进制：
 
 ```bash

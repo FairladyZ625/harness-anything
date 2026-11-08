@@ -142,8 +142,18 @@ const SOCKET_ABSENT_CODES = new Set(["ENOENT", "ECONNREFUSED", "ENOTSOCK", "EACC
 // Only a socket-level miss means the daemon is absent; a slow or rejected answer came from a live
 // daemon and must keep its own code, otherwise every failure prints the attach-only advice.
 function failure(method: string, prefix: string, error: unknown): JsonObject {
-  const message = error instanceof Error ? error.message : String(error),
-    rawCode = error instanceof Error ? (error as { readonly code?: unknown }).code : undefined,
+  const message = error instanceof Error ? error.message : String(error);
+  if (isClientContractFailure(error)) {
+    // The transport answered; this validation ran inside the GUI bundle. Reporting it as a daemon
+    // request failure sent operators to restart the daemon while the actual stale side was the GUI.
+    const hint =
+      `The GUI rejected the daemon answer during client-side contract validation, so the request did not fail in the daemon. ` +
+      `Cause: ${message} The running GUI bundle may predate the daemon: rebuild it with ` +
+      "`npm run build -w @harness-anything/gui` and restart Electron (a running window keeps its old bundle).";
+    const receipt = daemonProtocolError(method, "gui_result_contract_mismatch", hint);
+    return { ...receipt, error: { ...receipt.error, hint } } as unknown as JsonObject;
+  }
+  const rawCode = error instanceof Error ? (error as { readonly code?: unknown }).code : undefined,
     raw = typeof rawCode === "string" ? rawCode : null,
     code =
       message === "daemon_unavailable" || (raw !== null && SOCKET_ABSENT_CODES.has(raw))
@@ -165,6 +175,13 @@ function failure(method: string, prefix: string, error: unknown): JsonObject {
         : `${prefix}. Cause: ${message}`;
   const receipt = daemonProtocolError(method, code, hint);
   return { ...receipt, error: { ...receipt.error, hint } } as unknown as JsonObject;
+}
+function isClientContractFailure(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "DaemonProtocolContractError" &&
+    (error as { readonly code?: unknown }).code === "invalid_result"
+  );
 }
 
 export function reportInvalidTaskSnapshotRows(

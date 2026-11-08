@@ -301,6 +301,7 @@
   "collaboration.fleetSummary": "{nodes} nodes · {executing} executing · {events} events",
   "collaboration.readFailed": "The fleet overview could not be read: {error}",
   "collaboration.versionWarning": "Center and local builds differ. Upgrade before continuing: {command}.",
+  "gui.versionBehind": "GUI build {gui} is behind daemon {daemon}. Rebuild the GUI: {command}, then restart Electron (a running window keeps its old bundle).",
   "collaboration.topologyTitle": "Fleet topology",
   "collaboration.topologyNote": "Click a node to see what it is doing and its internal state",
   "collaboration.eventsTitle": "Event stream",
