@@ -2,11 +2,13 @@
 /**
  * Cross-aggregate judgment single-definition ratchet (DDD slice 3).
  * Authority: dec_399F48E3547D831F1199F51E84 CH1 and the DDD blueprint;
- * dec_6B963E9B83AE4AC73FB0A61E81 CH2 for the projected fact `invalidated` field.
+ * dec_6B963E9B83AE4AC73FB0A61E81 CH2 for the projected fact `invalidated` field;
+ * dec_6B912A63D279A922FA1288536D CH2 for authored-document readiness.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { authoredReadinessFindings } from "./domain-judgment-authored-readiness.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
 const judgments = Object.freeze([
@@ -53,6 +55,18 @@ const judgments = Object.freeze([
     declaration: "const",
   },
   {
+    id: "authoredDocumentReadiness",
+    symbol: "assessAuthoredDocumentReadiness",
+    canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
+    declaration: "function",
+  },
+  {
+    id: "transitionDocumentReadiness",
+    symbol: "assessTransitionDocument",
+    canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
+    declaration: "function",
+  },
+  {
     id: "closeoutBilingualDelivery",
     symbol: "missingChineseCloseoutSections",
     canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
@@ -78,6 +92,7 @@ const requiredConsumers = new Map([
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#fact", "export const factLivenessWords = ["],
   ["tools/gates/render-task-pr-body.mjs", "missingChineseCloseoutSections("],
   ["packages/daemon/src/repo-cell-submit.ts", "missingChineseCloseoutSections("],
+  ["packages/daemon/src/transition-document-access.ts", "assertTransitionDocumentReady("],
 ]);
 
 export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
@@ -147,6 +162,7 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     findings.push(
       "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
     );
+  findings.push(...authoredReadinessFindings(root));
   return findings;
 }
 
@@ -164,7 +180,9 @@ async function main() {
     for (const finding of findings) console.error(`- ${finding}`);
     process.exit(1);
   }
-  console.log("Domain judgment single-definition check passed (eight judgments resolve to kernel domain services).");
+  console.log(
+    "Domain judgment single-definition check passed (ten judgments resolve to kernel domain services; authored-document reads use the projection port).",
+  );
 }
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;

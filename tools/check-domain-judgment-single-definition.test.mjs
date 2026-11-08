@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { checkDomainJudgmentSingleDefinition } from "./check-domain-judgment-single-definition.mjs";
+import { checkAuthoredReadinessSites, scanAuthoredReadinessSites } from "./domain-judgment-authored-readiness.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -30,7 +31,10 @@ test("domain judgment single-definition gate accepts the repository", () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /eight judgments resolve to kernel domain services/u);
+  assert.match(
+    result.stdout,
+    /ten judgments resolve to kernel domain services; authored-document reads use the projection port/u,
+  );
 });
 
 test("positive fixture: a renderer readiness definition is refused", (t) => {
@@ -85,6 +89,123 @@ test("positive fixture: a second bilingual closeout judgment in daemon or render
       (finding) =>
         finding.includes("closeoutBilingualDelivery") &&
         finding.includes("tools/gates/duplicate-closeout-judgment.mjs"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+// dec_6B912A63D279A922FA1288536D CH2: authored-document readiness is judged once, by the kernel,
+// over the body the canonical read port supplies. Each control runs the real gate function.
+test("positive fixture: a daemon reading task_plan and deciding readiness itself is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/rogue-plan-readiness.ts#rogueTaskPlanReadiness") &&
+        finding.includes("direct-authored-document-read"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("positive fixture: a local plan read handed to the kernel judgment is still refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/edge-plan-readiness.ts#edgePlanReadiness") &&
+        finding.includes("direct-authored-document-read"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("negative fixture: the kernel judgment over a projection body passes", (t) => {
+  const findings = fixtureFindings(t);
+  assert.deepEqual(
+    findings.filter((finding) => finding.includes("canonical-plan-readiness.ts")),
+    [],
+  );
+});
+
+test("positive fixture: a second authored-document readiness definition is refused", (t) => {
+  const findings = fixtureFindings(t);
+  for (const judgment of ["authoredDocumentReadiness", "transitionDocumentReadiness"]) {
+    const symbol =
+      judgment === "authoredDocumentReadiness" ? "assessAuthoredDocumentReadiness" : "assessTransitionDocument";
+    assert.ok(
+      findings.some(
+        (finding) =>
+          finding.includes(`${judgment}: expected one definition of ${symbol}`) &&
+          finding.includes("packages/daemon/src/duplicate-judgments.ts"),
+      ),
+      findings.join("\n"),
+    );
+  }
+});
+
+test("positive fixture: direct authored reads are refused regardless of verdict shape", (t) => {
+  const findings = fixtureFindings(t);
+  for (const symbol of [
+    "documentReadiness",
+    "scaffoldState",
+    "evaluate",
+    "ordinaryBoolean",
+    "aliasedVerdict",
+    "promiseBoolean",
+    "namespaceBoolean",
+    "listedFileRead",
+  ])
+    assert.ok(
+      findings.some(
+        (finding) =>
+          finding.includes(`packages/daemon/src/custom-word-readiness.ts#${symbol}`) &&
+          finding.includes("direct-authored-document-read"),
+      ),
+      findings.join("\n"),
+    );
+});
+
+test("positive fixture: an authored task artifact read through a workspace wrapper is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/wrapped-authored-read.ts#readPacketThroughHelper") &&
+        finding.includes("wrapped-authored-document-read"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("a direct authored read is reported without a readiness heuristic", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authored-readiness-scope-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+  spawnSync("git", ["init", "--quiet"], { cwd: root });
+  const file = path.join(root, "packages/daemon/src/access.ts"),
+    write = (extra) =>
+      writeFileSync(
+        file,
+        [
+          'import { readFileSync } from "node:fs";',
+          'import path from "node:path";',
+          'import { assertTransitionDocumentReady } from "@harness-anything/kernel";',
+          "export function assertPlanReady(authoredRoot: string, contract: unknown): void {",
+          '  const body = readFileSync(path.join(authoredRoot, "tasks/example/task_plan.md"), "utf8");',
+          extra,
+          '  assertTransitionDocumentReady("task.plan", body, contract as never);',
+          "}",
+          "",
+        ].join("\n"),
+      );
+  write('  const planReady = body.includes("## Goal");');
+  const findings = checkAuthoredReadinessSites(scanAuthoredReadinessSites(root));
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/access.ts#assertPlanReady") &&
+        finding.includes("direct-authored-document-read"),
     ),
     findings.join("\n"),
   );

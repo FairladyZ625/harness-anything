@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, sha256Text } from "@harness-anything/kernel";
 import {
@@ -9,6 +9,7 @@ import {
 import { decodeLegacyExecution, destinationLinkConflict, symlinkTarget, utf8File } from "./migration-import-legacy.ts";
 import { isMigrationImportRecord, nonEmpty } from "@harness-anything/storage";
 import type { AuthoredDisposition, Prepared } from "./migration-import-types.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export function classifyAuthored(
   root: string,
@@ -214,7 +215,7 @@ export function referencedContent(
     const source = path.join(authoredRoot, "objects", "sha256", match[1]!, match[2]!);
     let bytes: Buffer;
     try {
-      bytes = readFileSync(source);
+      bytes = Buffer.from(readAuthoredDocumentBytes(authoredRoot, path.relative(authoredRoot, source)));
     } catch (error) {
       consumeKnownError(error);
       return {

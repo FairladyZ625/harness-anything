@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import {
   SETTINGS_ID,
@@ -16,6 +16,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { runPresetAction } from "@harness-anything/preset";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { SETTINGS_DECLARATION_RUNTIME, SettingsDeclarationError, type LocalSettingsV1 } from "@harness-anything/kernel";
 import {
   settingsLastChanged,
@@ -206,7 +207,11 @@ function localSettingsFromAction(
 
 function readAuthoredDocument(cell: RepoCellRuntimeContext): string | undefined {
   const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
-  return existsSync(configPath) ? readFileSync(configPath, "utf8") : undefined;
+  return existsSync(configPath)
+    ? new TextDecoder("utf-8", { fatal: true }).decode(
+        readAuthoredDocumentBytes(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
+      )
+    : undefined;
 }
 
 function authoredGateMappings(

@@ -13,12 +13,12 @@ import {
   type TaskProjectionQueries,
   type MarkdownDocumentContract,
   type TaskProjection,
-  type TransitionDocumentMissingSection,
 } from "@harness-anything/kernel";
 import { loadCanonicalAssets } from "@harness-anything/preset/internal/preset-assets";
 import { safeTemplatePath } from "@harness-anything/preset/internal/preset-materialization";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import type { CatalogSource } from "@harness-anything/preset/internal/preset-resolver-types";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout";
 
@@ -227,7 +227,8 @@ export function assertTaskTransitionDocumentReady(input: {
     assertTransitionDocumentReady(kind, document.body, document.contract);
   } catch (error) {
     if (error && typeof error === "object") {
-      const projectedMissing = transitionMissingSections(error),
+      // The kernel judgment is pure: re-assessing the same body yields the sections the throw carried.
+      const projectedMissing = assessTransitionDocument(kind, document.body, document.contract).missingSections,
         diskBody = document.source === "canonical projection" ? readOnDiskBody(input.rootDir, document.path) : null,
         diskDiffers = diskBody !== null && diskBody !== document.body,
         actionableMissing =
@@ -262,23 +263,10 @@ export function assertTaskTransitionDocumentReady(input: {
 export function readOnDiskBody(rootDir: string, documentPath: string): string | null {
   const target = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...documentPath.split("/"));
   return existsSync(target) && !lstatSync(target).isSymbolicLink() && lstatSync(target).isFile()
-    ? readFileSync(target, "utf8")
-    : null;
-}
-
-function transitionMissingSections(error: object): readonly TransitionDocumentMissingSection[] {
-  return "missingSections" in error && Array.isArray(error.missingSections)
-    ? error.missingSections.filter(
-        (value): value is TransitionDocumentMissingSection =>
-          value !== null &&
-          typeof value === "object" &&
-          "section" in value &&
-          typeof value.section === "string" &&
-          "reason" in value &&
-          (value.reason === "empty" || value.reason === "scaffold") &&
-          (value.reason === "empty" || ("retainedScaffold" in value && typeof value.retainedScaffold === "string")),
+    ? new TextDecoder("utf-8", { fatal: true }).decode(
+        readAuthoredDocumentBytes(resolveHarnessLayout(rootDir).authoredRoot, documentPath),
       )
-    : [];
+    : null;
 }
 
 function transitionDocumentAccessError(code: string, message: string): Error {

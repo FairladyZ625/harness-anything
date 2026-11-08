@@ -13,3 +13,13 @@ export const statusVocabularies = ["copied"] as const;
 export function missingChineseCloseoutSections(): readonly string[] {
   return ["摘要", "验证"];
 }
+
+// Positive-control fixture: a second aggregate authored-document readiness judgment must fail.
+export function assessAuthoredDocumentReadiness(): { readonly state: string } {
+  return { state: "ready" };
+}
+
+// Positive-control fixture: a second section-level authored-document readiness judgment must fail.
+export function assessTransitionDocument(): { readonly ready: boolean } {
+  return { ready: true };
+}

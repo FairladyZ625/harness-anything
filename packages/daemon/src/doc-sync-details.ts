@@ -18,6 +18,7 @@ import {
 } from "@harness-anything/kernel";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { localProseSource } from "./doc-sync-files.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 interface BlockedCandidate {
   readonly path: string;
@@ -169,7 +170,9 @@ export function observe(
   const authored = resolveHarnessLayout(rootDir).authoredRoot;
   return documents.every((document) => {
     const target = path.join(authored, document!.path);
-    return existsSync(target) && sha256Bytes(readFileSync(target)) === document!.blobSha256;
+    return (
+      existsSync(target) && sha256Bytes(readAuthoredDocumentBytes(authored, document!.path)) === document!.blobSha256
+    );
   });
 }
 

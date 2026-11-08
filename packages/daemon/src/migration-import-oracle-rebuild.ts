@@ -44,6 +44,7 @@ import { readMigrationProjectionOracleAtPath, type MigrationProjectionOracle } f
 import { isMigrationImportRecord, migrationImportError } from "@harness-anything/storage";
 import { timestamp } from "./migration-import-report.ts";
 import { restateTaskContract } from "./migration-import-task-restatement.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import type { MigrationFormatObservation } from "./migration-import-types.ts";
 
 export interface MigrationEventInspection {
@@ -635,7 +636,9 @@ function legacyExecutions(authoredRoot: string): readonly {
   return files(path.join(authoredRoot, "tasks"))
     .filter((file) => /\/executions\/[^/]+\.md$/u.test(portable(file)))
     .flatMap((file) => {
-      const body = readFileSync(file, "utf8");
+      const body = new TextDecoder("utf-8", { fatal: true }).decode(
+        readAuthoredDocumentBytes(authoredRoot, path.relative(authoredRoot, file)),
+      );
       try {
         const fields = JSON.parse(body) as unknown;
         if (!isMigrationImportRecord(fields)) return [];
@@ -668,7 +671,10 @@ function files(root: string): readonly string[] {
 
 function readHeadRevision(eventsRoot: string): number | null {
   try {
-    const value = JSON.parse(readFileSync(path.join(eventsRoot, "head.json"), "utf8")) as unknown;
+    const authoredRoot = path.dirname(eventsRoot),
+      value = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, "events/head.json")),
+      ) as unknown;
     return isMigrationImportRecord(value) && Number.isSafeInteger(value.revision) ? (value.revision as number) : null;
   } catch (error) {
     consumeKnownError(error);

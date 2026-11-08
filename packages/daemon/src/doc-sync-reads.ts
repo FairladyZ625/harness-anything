@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   consumeKnownError,
@@ -45,6 +45,7 @@ import {
   taskWorktreeBinding,
 } from "./task-worktree.ts";
 import { taskWorktreeRoot } from "./task-worktree-candidates.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import {
   readSubmissionArtifact,
   readSubmissionArtifactRange,
@@ -919,7 +920,7 @@ function readWorktreeDocument(
   if (target === null) return null;
   const stat = statFileSync(target);
   if (stat === null || !stat.isFile() || stat.size > worktreeDocumentMaxBytes) return null;
-  const bytes = readFileSync(target);
+  const bytes = Buffer.from(readAuthoredDocumentBytes(packageRoot!, relative));
   return {
     body: binary ? null : bytes.toString("utf8"),
     bytes,
@@ -964,7 +965,7 @@ function worktreeDocumentIndex(packageRoot: string | null, packagePath: string):
         stat = mediaType === undefined || !entry.isFile() ? null : statFileSync(target);
       if (mediaType === undefined || mediaType === null || stat === null || stat.size > worktreeDocumentMaxBytes)
         continue;
-      const bytes = readFileSync(target);
+      const bytes = Buffer.from(readAuthoredDocumentBytes(root, relative));
       rows.push({
         path: relative,
         blobSha256: sha256Bytes(bytes),

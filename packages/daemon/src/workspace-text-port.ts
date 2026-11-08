@@ -1,20 +1,34 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { workspacePathResolutionRule } from "@harness-anything/preset/internal/preset-command-contract";
 
 /** Physical workspace text reads stay in the daemon adapter layer. */
 export function readWorkspaceText(rootDir: string, requested: string, field: string): string {
+  return readWorkspaceFileText(rootDir, requested, field);
+}
+
+function readWorkspaceFileText(rootDir: string, requested: string, field: string): string {
   let root = rootDir,
+    tasksRoot: string | null,
     requestedPath: string,
     candidate: string,
     bytes: Uint8Array;
   try {
     root = realpathSync(rootDir);
+    const tasksRootPath = resolveHarnessLayout(root).tasksRoot;
+    tasksRoot = existsSync(tasksRootPath) ? realpathSync(tasksRootPath) : null;
     requestedPath = path.resolve(root, requested);
     requestedPath = path.join(realpathSync(path.dirname(requestedPath)), path.basename(requestedPath));
     if (requestedPath !== root && !requestedPath.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
     candidate = realpathSync(requestedPath);
     if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
+    if (tasksRoot && (candidate === tasksRoot || candidate.startsWith(`${tasksRoot}${path.sep}`)))
+      throw boundaryError(
+        field,
+        tasksRoot,
+        "is an authored document path; use readAuthoredDocumentBytes from authored-document-read-port",
+      );
     bytes = readFileSync(candidate);
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {
@@ -25,8 +39,8 @@ export function readWorkspaceText(rootDir: string, requested: string, field: str
   }
 }
 
-function boundaryError(field: string, workspaceRoot: string): Error {
-  return portError(`${field} is outside the workspace boundary.`, { field, workspaceRoot });
+function boundaryError(field: string, workspaceRoot: string, reason = "is outside the workspace boundary"): Error {
+  return portError(`${field} ${reason}.`, { field, workspaceRoot });
 }
 
 function isBoundaryError(error: unknown): error is Error & { readonly field: string; readonly workspaceRoot: string } {

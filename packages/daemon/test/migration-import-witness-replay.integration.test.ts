@@ -1180,17 +1180,19 @@ test("Task/v1 title witness prefers task_plan.md H1 and falls back to INDEX.md H
     packageRoot = path.join(authoredRoot, "tasks/task_legacy");
   try {
     mkdirSync(packageRoot, { recursive: true });
-    writeFileSync(path.join(packageRoot, "task_plan.md"), "# Plan title\n");
-    assert.deepEqual(taskTitleFromPackage(packageRoot, "# Index title\n", authoredRoot), {
+    // Callers pass plan bytes they read through the authored port; the witness itself reads no file.
+    const planBody = "# Plan title\n";
+    writeFileSync(path.join(packageRoot, "task_plan.md"), planBody);
+    assert.deepEqual(taskTitleFromPackage(packageRoot, "# Index title\n", authoredRoot, planBody), {
       value: "Plan title",
       source: "tasks/task_legacy/task_plan.md",
     });
     writeFileSync(path.join(packageRoot, "task_plan.md"), "No heading\n");
-    assert.deepEqual(taskTitleFromPackage(packageRoot, "# Index title\n", authoredRoot), {
+    assert.deepEqual(taskTitleFromPackage(packageRoot, "# Index title\n", authoredRoot, "No heading\n"), {
       value: "Index title",
       source: "tasks/task_legacy/INDEX.md",
     });
-    assert.equal(taskTitleFromPackage(packageRoot, "No heading\n", authoredRoot), null);
+    assert.equal(taskTitleFromPackage(packageRoot, "No heading\n", authoredRoot, "No heading\n"), null);
   } finally {
     rmSync(authoredRoot, { recursive: true, force: true });
   }

@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 import { makeTaskEventStore } from "@harness-anything/storage";
 import {
   approvedReviewHistoryForExecution,
   consentedApprovedReviewForExecution,
   documentWorkspacePath,
   getExecutableEntityAction,
+  resolveHarnessLayout,
   reviewDigest,
   taskCompletionAction,
   type WriteReceiptDraft as WriteReceipt,
@@ -18,6 +20,7 @@ import { gateChecks } from "./repo-cell-proof.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { PublicPublication, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { workRootOf } from "./workspace-scope-read.ts";
 
@@ -62,7 +65,18 @@ export function packetJson(
 }
 
 export function workspaceText(rootDir: string, requestedValue: unknown, field: string): string {
-  return readWorkspaceText(rootDir, requiredCellText(requestedValue, field), field);
+  const requested = requiredCellText(requestedValue, field),
+    layout = resolveHarnessLayout(rootDir),
+    absolute = path.resolve(rootDir, requested),
+    relativeToTasks = path.relative(layout.tasksRoot, absolute);
+  if (
+    relativeToTasks === "" ||
+    (!path.isAbsolute(relativeToTasks) && relativeToTasks !== ".." && !relativeToTasks.startsWith(`..${path.sep}`))
+  )
+    return new TextDecoder("utf-8", { fatal: true }).decode(
+      readAuthoredDocumentBytes(layout.authoredRoot, path.relative(layout.authoredRoot, absolute)),
+    );
+  return readWorkspaceText(rootDir, requested, field);
 }
 
 export function readPacketSource(rootDir: string, action: Readonly<Record<string, unknown>>): string {

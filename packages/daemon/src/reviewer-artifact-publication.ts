@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
@@ -14,7 +14,7 @@ import { claimBytes } from "./doc-sync-details.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { readWorkspaceText } from "./workspace-text-port.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { decisionWritePlan } from "@harness-anything/kernel/internal/domain/decision-event";
 
@@ -74,7 +74,11 @@ export function assertPhysicalReviewReport(input: {
   }
   let body: string;
   try {
-    body = input.carriedReport?.body ?? new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(absolute));
+    body =
+      input.carriedReport?.body ??
+      new TextDecoder("utf-8", { fatal: true }).decode(
+        readAuthoredDocumentBytes(resolveHarnessLayout(input.rootDir).authoredRoot, report),
+      );
   } catch {
     throw cellCodedError(
       "review_report_invalid",
@@ -199,7 +203,7 @@ export function reviewerArtifactsForReview(
     const classification = classifyTextualArtifactPath(candidate);
     if (!classification)
       throw cell.cellCodedError("invalid_command", `Reviewer artifact is not textual: ${candidate}.`);
-    const body = readWorkspaceText(cell.rootDir, `harness/${candidate}`, "reviewArtifact"),
+    const body = new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, candidate)),
       sha256 = sha256Text(body),
       size = Buffer.byteLength(body) as DocEventChange["candidate"]["size"];
     return {
@@ -352,6 +356,7 @@ export function decisionReviewerArtifact(input: {
       "Decision review does not match the dispatch's persisted review target.",
     );
   const packagePath = `decisions/decision-${decisionId}`,
+    authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
     expected = reviewReportRelativePath(packagePath, reviewId),
     packetRef = `${packagePath}/artifacts/reports/${dispatchId}.json`,
     requestedPacket =
@@ -375,7 +380,7 @@ export function decisionReviewerArtifact(input: {
       requestedPacket === packetRef
         ? {
             path: documentPath(packetRef),
-            body: readWorkspaceText(input.rootDir, `harness/${packetRef}`, "reviewPacket"),
+            body: new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, packetRef)),
           }
         : null,
     packetClassification = packet === null ? null : classifyTextualArtifactPath(packetRef);
