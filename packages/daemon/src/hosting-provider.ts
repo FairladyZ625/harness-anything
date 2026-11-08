@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import path from "node:path";
 import { promisify } from "node:util";
 import { readSettingsFacet, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -82,7 +83,11 @@ function hostingDeclaration(
   const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");
   return existsSync(settingsPath)
     ? (
-        readSettingsFacet(readFileSync(settingsPath, "utf8")) as unknown as {
+        readSettingsFacet(
+          new TextDecoder("utf-8", { fatal: true }).decode(
+            readAuthoredDocumentBytes(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml"),
+          ),
+        ) as unknown as {
           hosting?: { provider?: "github" | "gitlab"; host?: string };
         }
       ).hosting

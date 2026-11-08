@@ -2,7 +2,7 @@ import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
   execFileSync,
 } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { findCanonicalLedgerGitLayout, localGitWorktreeSettlement } from "@harness-anything/storage";
 import {
@@ -33,6 +33,7 @@ import {
 } from "@harness-anything/kernel";
 import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
 export interface DocCandidateRow {
@@ -187,7 +188,7 @@ export function scanDocCandidates(input: {
         fileSize,
         projected.document?.policyId ?? null,
         projected.document !== null,
-        () => (inventoried ? inventoried.bytes : safe && existsSync(target) ? readCandidate(target) : null),
+        () => (inventoried ? inventoried.bytes : safe && existsSync(target) ? readCandidate(logical) : null),
       ),
       route = inspection.route,
       rawBytes = inspection.bytes,
@@ -705,11 +706,12 @@ function candidateByteReader(store: CanonicalEventStore, cut: LedgerCutIdentity,
     previous = candidateBytes.get(store),
     files = new Map<string, { readonly identity: string; readonly bytes: Uint8Array }>();
   candidateBytes.set(store, { key, files });
-  return (target: string): Uint8Array => {
+  return (logical: string): Uint8Array => {
+    const target = path.join(authoredRoot, ...logical.split("/"));
     const stat = lstatSync(target, { bigint: true }),
       identity = [stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs].join(":"),
       cached = previous?.key === key ? previous.files.get(target) : undefined,
-      bytes = cached?.identity === identity ? cached.bytes : readFileSync(target);
+      bytes = cached?.identity === identity ? cached.bytes : readAuthoredDocumentBytes(authoredRoot, logical);
     files.set(target, { identity, bytes });
     return bytes;
   };

@@ -79,6 +79,7 @@ import { closeoutGateStatuses } from "./status-word-register-closeout.ts";
 import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { statusWordRegister } from "./status-word-register.ts";
+import { authoredDocumentStatusVocabularies } from "./status-word-register-authored-document.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 
@@ -665,6 +666,9 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["active", "archived", "tombstoned"],
     mirrorOf: "package.disposition",
   },
+
+  // dec_6B912A63D279A922FA1288536D CH2: authored-document vocabularies outside the kernel domain.
+  ...authoredDocumentStatusVocabularies,
 
   // Daemon wire-protocol vocabularies are build-time projections because their eager
   // CLI path cannot load the kernel barrel. The ratchet rejects a stale generated region.

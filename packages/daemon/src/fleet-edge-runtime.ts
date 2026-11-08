@@ -4,6 +4,7 @@ import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import {
   canStartExecution,
+  consumeKnownError,
   isNativeExecution,
   type RepositorySettingsV1,
   type RuntimeProviderUnreachable,
@@ -17,6 +18,7 @@ import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, watch } from "node:fs";
@@ -303,6 +305,41 @@ export function openFleetEdgeRuntime(input: {
         ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
       }));
   let replicaOwner: string | undefined;
+  const readMirroredDocument = (logicalPath: string): string | null => {
+    if (replicaOwner === undefined) return null;
+    return withEdgeReadModel(
+      { ...request, principalId: replicaOwner, includeEntries: true },
+      (projection) => projection.readDocument(logicalPath).document?.body ?? null,
+    );
+  };
+  const readMirroredEscalationAnswer = (packagePath: string): string | null => {
+    if (replicaOwner === undefined) return null;
+    const documents = withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: true }, (projection) =>
+      projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents.map((document) => ({
+        ...document,
+        body: projection.readDocument(document.path).document?.body ?? "",
+      })),
+    );
+    const answers = documents
+      .filter((document) => document.path.endsWith(".resolution.md"))
+      .flatMap((document) => {
+        try {
+          const value = JSON.parse(document.body) as Record<string, unknown>;
+          return value.schema === "worker-escalation-resolution/v1" &&
+            typeof value.dispatchId === "string" &&
+            typeof value.answer === "string" &&
+            value.answer.trim() !== "" &&
+            typeof value.answeredAt === "string"
+            ? [{ dispatchId: value.dispatchId, answer: value.answer, answeredAt: value.answeredAt }]
+            : [];
+        } catch {
+          return [];
+        }
+      })
+      .sort((left, right) => left.answeredAt.localeCompare(right.answeredAt))
+      .at(-1);
+    return answers ? `Owner answer to worker escalation ${answers.dispatchId}: ${answers.answer}` : null;
+  };
   const readReplica = async (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) =>
     readEdgeRuntimeRepository(
       { ...request, principalId: (await input.readBinding()).actor.principal.personId },
@@ -344,38 +381,41 @@ export function openFleetEdgeRuntime(input: {
     if (!view) return null;
     const packagePaths = fleetMirrorTaskPaths(view, artifact.taskId)
       .filter((logical) => logical.startsWith("tasks/") && logical.endsWith("/INDEX.md"))
-      .map((logical) => logical.slice(0, -"/INDEX.md".length))
-      .filter((packagePath) => {
+      .filter((logical) => {
         try {
-          const index = readFileSync(
-            path.join(resolveHarnessLayout(request.workspaceRoot).authoredRoot, ...packagePath.split("/"), "INDEX.md"),
-            "utf8",
-          );
+          const index = readMirroredDocument(logical);
+          if (index === null) return false;
           return index
             .split(/\r?\n/u)
             .some((line) => line === `task_id: ${artifact.taskId}` || line === `taskId: ${artifact.taskId}`);
         } catch {
           return false;
         }
-      });
+      })
+      .map((logical) => logical.slice(0, -"/INDEX.md".length));
     if (packagePaths.length !== 1) return null;
     const reportPath = `${packagePaths[0]}/artifacts/reports/${artifact.dispatchId}.md`,
       packetPath = `${packagePaths[0]}/artifacts/reports/${artifact.dispatchId}.json`,
       authoredRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot,
       artifactBody = (logical: string) => {
         const relative = logical.split("/");
+        const authoredCandidate = path.join(authoredRoot, ...relative);
         for (const candidate of [
           path.join(artifact.cwd, "harness", ...relative),
           path.join(artifact.cwd, ...relative),
           path.join(artifact.cwd, "artifacts", "reports", path.basename(logical)),
-          path.join(authoredRoot, ...relative),
+          authoredCandidate,
         ]) {
           if (!existsSync(candidate)) continue;
           const entry = lstatSync(candidate);
           if (!entry.isFile() || entry.isSymbolicLink() || entry.size > 2 * 1024 * 1024) continue;
-          return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(candidate));
+          return new TextDecoder("utf-8", { fatal: true }).decode(
+            candidate === authoredCandidate
+              ? readAuthoredDocumentBytes(authoredRoot, logical)
+              : readFileSync(candidate),
+          );
         }
-        return null;
+        return readMirroredDocument(logical);
       },
       packet = artifactBody(packetPath),
       report = artifactBody(reportPath);
@@ -618,11 +658,21 @@ export function openFleetEdgeRuntime(input: {
           entriesPrefix: `tasks/${taskId}`,
         });
         const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
+        const readLocalAuthoredDocument = (logicalPath: string): string | null => {
+          try {
+            return new TextDecoder("utf-8", { fatal: true }).decode(
+              readAuthoredDocumentBytes(materializedRoot, logicalPath),
+            );
+          } catch (error) {
+            consumeKnownError(error);
+            return null;
+          }
+        };
         const packagePathsFor = (logical: string): string[] => {
           const packagePath = logical.slice(0, -"/INDEX.md".length);
-          const indexPath = path.join(materializedRoot, ...logical.split("/"));
           try {
-            const body = readFileSync(indexPath, "utf8");
+            const body = readLocalAuthoredDocument(logical);
+            if (body === null) return [];
             return body.split(/\r?\n/u).some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`)
               ? [packagePath]
               : [];
@@ -643,51 +693,58 @@ export function openFleetEdgeRuntime(input: {
               " run ha daemon fleet edge sync, then retry.",
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
-          planPath = path.join(packageRoot, "task_plan.md"),
           // Causal context, risk tier, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
           { causalContext, riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
         let plan: string;
         try {
-          plan = readFileSync(planPath, "utf8");
+          plan = readLocalAuthoredDocument(`${candidates[0]!}/task_plan.md`) ?? "";
+          if (!plan) throw new Error("task plan unavailable");
         } catch {
           throw edgeRuntimeError(
             "runtime_task_package_unavailable",
             `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
           );
         }
-        const { planContract } = mirroredPlanContract(packageRoot, taskId);
+        const { planContract } = mirroredPlanContract(
+          readLocalAuthoredDocument(`${candidates[0]!}/task-contract.json`),
+          taskId,
+        );
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
         // A re-dispatched worker answers the latest owner return: the mirrored managed
         // `returns/iteration-N.md` of iteration N rides verbatim in the mission and in the
         // remote task context, exactly like the local projection paths inject it.
         const priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
           ownerReturnBody =
-            priorIteration === null
-              ? null
-              : (() => {
-                  const logicalPath = `${candidates[0]!}/returns/iteration-${String(priorIteration)}.md`;
-                  if (!view.entries.has(logicalPath)) return null;
-                  let body: string;
-                  try {
-                    body = readFileSync(
-                      path.join(packageRoot, "returns", `iteration-${String(priorIteration)}.md`),
-                      "utf8",
-                    );
-                  } catch {
-                    throw edgeRuntimeError(
-                      "runtime_task_package_unavailable",
-                      `Task ${taskId} has an unreadable mirrored owner return at ${logicalPath}; ` +
-                        "run ha daemon fleet edge sync, then retry.",
-                    );
-                  }
-                  return body.trim() ? body.trim() : null;
-                })();
+            [
+              priorIteration === null
+                ? null
+                : (() => {
+                    const logicalPath = `${candidates[0]!}/returns/iteration-${String(priorIteration)}.md`;
+                    if (!view.entries.has(logicalPath)) return null;
+                    let body: string;
+                    try {
+                      body =
+                        readLocalAuthoredDocument(`${candidates[0]!}/returns/iteration-${String(priorIteration)}.md`) ??
+                        "";
+                      if (!body) throw new Error("owner return unavailable");
+                    } catch {
+                      throw edgeRuntimeError(
+                        "runtime_task_package_unavailable",
+                        `Task ${taskId} has an unreadable mirrored owner return at ${logicalPath}; ` +
+                          "run ha daemon fleet edge sync, then retry.",
+                      );
+                    }
+                    return body.trim() ? body.trim() : null;
+                  })(),
+              readMirroredEscalationAnswer(candidates[0]!),
+            ]
+              .filter((value): value is string => value !== null)
+              .join("\n\n") || null;
         const mission = missionName
             ? (() => {
                 const name = runtimeMissionName(missionName),
-                  logicalPath = `${candidates[0]!}/artifacts/missions/${name}.md`,
-                  missionPath = path.join(packageRoot, "artifacts", "missions", `${name}.md`);
+                  logicalPath = `${candidates[0]!}/artifacts/missions/${name}.md`;
                 if (!view.entries.has(logicalPath))
                   throw edgeRuntimeError(
                     "runtime_mission_unavailable",
@@ -695,7 +752,8 @@ export function openFleetEdgeRuntime(input: {
                   );
                 let body: string;
                 try {
-                  body = readFileSync(missionPath, "utf8");
+                  body = readLocalAuthoredDocument(logicalPath) ?? "";
+                  if (!body) throw new Error("mission unavailable");
                 } catch {
                   throw edgeRuntimeError(
                     "runtime_mission_unavailable",
@@ -1450,7 +1508,11 @@ function mirroredAgentDeclaration(
     locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId)?.entries.has(logical)
   )
     return parseAgentDeclarationV1(
-      JSON.parse(readFileSync(path.join(resolveHarnessLayout(request.workspaceRoot).authoredRoot, logical), "utf8")),
+      JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(
+          readAuthoredDocumentBytes(resolveHarnessLayout(request.workspaceRoot).authoredRoot, logical),
+        ),
+      ),
     );
   const bundled = readBundledAgentDeclaration(agentId);
   if (bundled) return bundled;
@@ -1486,10 +1548,11 @@ function scheduleResult(
  * materialized before descriptors carried it resolve through the bundled catalog their
  * templateRef names. An unresolvable contract fails closed here.
  */
-function mirroredPlanContract(packageRoot: string, taskId: string) {
+function mirroredPlanContract(contractBody: string | null, taskId: string) {
   let contractJson: unknown;
   try {
-    contractJson = JSON.parse(readFileSync(path.join(packageRoot, "task-contract.json"), "utf8"));
+    if (contractBody === null) throw new Error("task contract unavailable");
+    contractJson = JSON.parse(contractBody);
   } catch {
     throw edgeRuntimeError(
       "runtime_task_package_unavailable",
