@@ -11,6 +11,8 @@ import {
   refreshPgRelationFreshnessForRefs,
 } from "./pg-relation-freshness.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
+import { projectPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
+import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
 import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
@@ -150,6 +152,7 @@ async function materializeProjectionEvent(
   } else if (isEntityEvent(event)) {
     await storeEntityEvent(client, scope, event, tables, input.readContentBlob);
   }
+  if (isAgentRuntimeEvent(event)) await projectPgDispatchLifecycle(client, scope, event);
   await storeEmbeddedRelations(client, scope, event, tables);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
   const searchOwners = new Set<string>();

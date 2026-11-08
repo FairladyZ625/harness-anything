@@ -43,6 +43,7 @@ import {
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
 import { readRelationProjectionRow } from "./relation-entity-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
+import { readDispatchLifecycleRows } from "./dispatch-lifecycle-projection.ts";
 export type {
   ProjectionPage,
   TaskProjectionListQuery,
@@ -141,6 +142,7 @@ export function taskQueryApi(
   | "taskIdForDocumentPath"
   | "readPresetSnapshot"
   | "readProgress"
+  | "readDispatchLifecycle"
 > {
   const { eventStore, limit, now, projectionPath, readHead } = context;
   return {
@@ -386,6 +388,13 @@ export function taskQueryApi(
         ),
       ),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, eventStore, digest, limit),
+    readDispatchLifecycle: (query) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return cut.status === "ready"
+          ? readDispatchLifecycleRows(db, query, cut)
+          : { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
+      }),
     readProgress: (taskId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
