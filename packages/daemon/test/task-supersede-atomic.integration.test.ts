@@ -142,6 +142,15 @@ test("supersede lands an active task in cancelled and points the receipt at the 
     assert.equal(
       (
         await cell.run(
+          { kind: "task-transition", taskId: oldTaskId, status: "blocked", reason: "Park before starting" },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
           { kind: "task-transition", taskId: oldTaskId, status: "active", reason: "Start the work" },
           binding,
         )
