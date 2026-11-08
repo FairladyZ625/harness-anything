@@ -5,14 +5,16 @@ description: >-
   single github.com/electron/electron/releases request.
 
 # Every job that installs dependencies or executes an Electron-importing suite uses this
-# action. `tools/check-electron-ci-cache.mjs` fails the boundaries lane when a workflow job
-# needs Electron but omits the action, or places it after the command that needs the cache.
+# action. `tools/gates/test/rewrite-ci-dependency-artifact.test.mjs` keeps the same-change
+# workflow fixture for the rewrite-ci inventory; the workflow references are the live surface.
 runs:
   using: composite
   steps:
     - name: Point Electron's installer at the shared cache directory
       shell: bash
-      run: echo "electron_config_cache=$HOME/.cache/electron" >> "$GITHUB_ENV"
+      # Resolve the same home directory actions/cache expands `~` from, so Windows bash's
+      # POSIX-looking HOME cannot point the installer at a different directory than the cache.
+      run: node -e "console.log('electron_config_cache=' + require('node:path').join(require('node:os').homedir(), '.cache', 'electron'))" >> "$GITHUB_ENV"
     - name: Resolve the locked Electron version
       id: electron-version
       shell: bash
