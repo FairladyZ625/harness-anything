@@ -188,9 +188,11 @@ test("guidance arguments keep the descriptor shape their renderer reads", () => 
   assert.equal(translated.ledgerPackagePath, canonical);
 });
 
-test("a receipt without the workspace spelling is unchanged", () => {
-  const receipt = { ok: true, evidence: JSON.stringify({ packagePath: canonical }) };
-  assert.deepEqual(translateReceiptPathCoordinates(receipt), receipt);
+test("a receipt without the workspace pair drops the old packagePath name", () => {
+  const translated = translateReceiptPathCoordinates({ ok: true, packagePath: canonical });
+  assert.equal(Object.hasOwn(translated, "packagePath"), false);
+  assert.equal(Object.hasOwn(translated, "workspacePackagePath"), false);
+  assert.equal(Object.hasOwn(translated, "ledgerPackagePath"), false);
 });
 
 test("malformed evidence fails closed instead of printing a half-translated receipt", () => {

@@ -175,9 +175,8 @@ function rewritePackagePaths(value: unknown, pairs: readonly PackagePathPair[], 
         rewritten.workspacePackagePath = workspace;
         if (typeof nested === "string") rewritten.ledgerPackagePath = nested;
       } else if (pairs.length > 0) rewritten.workspacePackagePath = workspace;
-      // With no workspace spelling anywhere in the receipt there is nothing to translate; keeping the
-      // field byte-for-byte is the only honest answer for a receipt this boundary did not produce.
-      else rewritten.packagePath = nested;
+      // With no workspace pair the boundary did not produce this field, so the old name is dropped
+      // rather than resurrected; a consumer that still reads `packagePath` sees undefined.
     } else if (key === "path" && translatePathFields && typeof nested === "string")
       rewritten[key] = rewritePath(nested, pairs);
     else if (key === "resultDocumentClaim" || key === "artifacts")

@@ -931,6 +931,11 @@ export function createJsonRpcProtocolServer(options: {
         commandParams.payload.pathCoordinate === "task-artifact"
       )
         action = { ...action, pathCoordinate: commandParams.payload.pathCoordinate };
+      // The CLI-read plan file's path is a diagnostic label, not a declared action field. Attach it
+      // after validation exactly like pathCoordinate; the task-create action strips it before the
+      // create plan is compiled.
+      if (action.kind === "task-create" && typeof commandParams.planSource === "string")
+        action = { ...action, planSource: commandParams.planSource };
     } catch (error) {
       return reply(commandMethod, protocolFailure(commandMethod, error));
     }

@@ -675,7 +675,13 @@ export const presetMethods = Object.freeze([
         actionKind: command.id,
         commandClass: command.commandClass,
         admission: command.admission,
-        params: shape({ repo, payload: shape(fields) }),
+        params: shape({
+          repo,
+          payload: shape(fields),
+          // The CLI-read plan file's path is diagnostic metadata, not an action field. The daemon
+          // attaches it after the closed payload validators accept the create request.
+          ...(command.id === "task-create" ? { planSource: "string?" as const } : {}),
+        }),
       };
     }),
   {

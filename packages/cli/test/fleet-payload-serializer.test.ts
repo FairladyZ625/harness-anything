@@ -81,6 +81,17 @@ test("the declaration serializer sends file contents and rejects undeclared JSON
   );
 });
 
+test("a contract-omitted planFile leaves the fleet action and only the plan body crosses", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-plan-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, "plan.md"), "# Edge plan\n\n## Brief\n\nAuthored on the edge.\n");
+  const action = serializeFleetAction(
+    command(root, { kind: "task-create", title: "Edge authored plan", planFile: "plan.md" }),
+  );
+  assert.equal(action.plan, "# Edge plan\n\n## Brief\n\nAuthored on the edge.\n");
+  assert.equal(Object.hasOwn(action, "planFile"), false, "the wire must not carry the omitted source path");
+});
+
 test("line-list declarations become content arrays and missing packet fields fail closed", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-lines-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

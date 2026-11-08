@@ -67,9 +67,17 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
     jsonInput = typeof action.jsonInput === "string";
   const unsupported = Object.keys(action).filter(
     (field) =>
-      !["kind", "fromFile", "jsonInput", "dryRun", "planFile", "plan", "requirePlan", ...taskCreateFields].includes(
-        field,
-      ),
+      ![
+        "kind",
+        "fromFile",
+        "jsonInput",
+        "dryRun",
+        "planFile",
+        "plan",
+        "planSource",
+        "requirePlan",
+        ...taskCreateFields,
+      ].includes(field),
   );
   if (unsupported.length)
     throw cellCodedError("invalid_command", `Remove unsupported task create fields: ${unsupported.join(", ")}.`);
@@ -100,14 +108,14 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
  * `--plan-file` resolves against the workspace root here, exactly like a decision --body-file. */
 function withCreatePlanBody(rootDir: string, action: RepoTaskAction): RepoTaskAction {
   if (action.planFile === undefined) return action;
-  if (typeof action.planFile !== "string")
+  // A direct daemon caller may send `planFile` alone; the CLI codec sends the body as `plan` and
+  // carries the path beside the action (`planSource`) only for the diagnostic. Both plan sources
+  // at once are ambiguous, because the two could disagree.
+  if (typeof action.planFile !== "string" || typeof action.plan === "string")
     throw cellCodedError(
       "invalid_command",
       "Use --plan-file <workspace-relative markdown path> as the only plan source.",
     );
-  // The CLI codec has already read this file when `plan` is present. Keep its relative label for
-  // validation diagnostics, but do not resolve it again from the daemon's root.
-  if (typeof action.plan === "string") return action;
   return { ...action, plan: workspaceText(rootDir, action.planFile, "planFile") };
 }
 

@@ -264,7 +264,10 @@ export function serializeFleetAction(command: ThinCommand): Action {
     const sourceField = (input as CliInputFacet & { readonly field?: string }).field ?? fieldName(input.name);
     const source = action[sourceField];
     if (source === undefined) continue;
-    if (sourceField !== "planFile") delete action[sourceField];
+    // The declared file source is edge-local input and the action contract can mark it `omit` on the
+    // wire (`planFile`). The codec target replaces it before the frame leaves this edge; leaving the
+    // source name behind makes the center's closed schema reject the whole command.
+    delete action[sourceField];
     if (codec.kind === "json-object") {
       const text = codec.source === "file" ? readCliInputFile(command.rootDir, String(source), input) : String(source);
       const packet = parseJson(text, input.name, codec.maxBytes);
@@ -324,13 +327,18 @@ export function serializeFleetAction(command: ThinCommand): Action {
 export function materializeCommandFileInputs(command: ThinCommand): ThinCommand {
   if (!hasCommandDescriptor(descriptorKey(command))) return command;
   const action = { ...command.action };
+  let planSource = command.planSource;
   for (const input of inputsOf(descriptorFor(command))) {
     const codec = typeof input.codec === "object" ? input.codec : undefined;
     if (!codec || codec.kind === "json-object") continue;
     const field = declaredField(input),
       source = action[field];
     if (source === undefined) continue;
-    if (field !== "planFile") delete action[field];
+    delete action[field];
+    // The source path is a caller-facing diagnostic label, not an action field: the contract omits
+    // `planFile` from the action, so it travels beside the action like `pathCoordinate` and the
+    // daemon re-attaches it only to name the file in a plan_placeholder rejection.
+    if (field === "planFile") planSource = String(source);
     const text = readCliInputFile(command.rootDir, String(source), input);
     action[codec.target] =
       codec.kind === "line-list-file"
@@ -340,5 +348,5 @@ export function materializeCommandFileInputs(command: ThinCommand): ThinCommand 
             .filter((line) => line.length > 0 && !line.startsWith("#"))
         : text;
   }
-  return { ...command, action };
+  return { ...command, action, ...(planSource === undefined ? {} : { planSource }) };
 }

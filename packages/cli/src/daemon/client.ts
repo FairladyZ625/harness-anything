@@ -445,6 +445,9 @@ function daemonRequestParams(command: ThinCommand, repoId: string, env: NodeJS.P
     ...(daemonMethodAcceptsPayload(command.method)
       ? { payload: daemonRequestPayload(command, env) as JsonObject }
       : {}),
+    // The CLI-read plan file's path is diagnostic metadata, not a declared payload field: the
+    // daemon attaches it to the action only after the closed validators accept the request.
+    ...(command.planSource === undefined ? {} : { planSource: command.planSource }),
   };
 }
 
