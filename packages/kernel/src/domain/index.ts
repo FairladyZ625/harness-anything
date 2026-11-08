@@ -105,7 +105,7 @@ export {
   requireTransitionDocumentKind,
   transitionDocumentContract,
 } from "./transition-document-readiness.ts";
-export type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
+export type { MarkdownDocumentContract } from "./transition-document-readiness.ts";
 
 export { freshnessReasonOf } from "./decision-coverage.ts";
 export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";

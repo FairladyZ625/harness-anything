@@ -13,3 +13,8 @@ export const statusVocabularies = ["copied"] as const;
 export function missingChineseCloseoutSections(): readonly string[] {
   return ["摘要", "验证"];
 }
+
+// Positive-control fixture: a second authored-document readiness judgment in the daemon must fail.
+export function assessTransitionDocument(): { readonly ready: boolean } {
+  return { ready: true };
+}

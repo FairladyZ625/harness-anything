@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { checkDomainJudgmentSingleDefinition } from "./check-domain-judgment-single-definition.mjs";
+import { checkAuthoredReadinessSites } from "./domain-judgment-authored-readiness.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -30,7 +31,10 @@ test("domain judgment single-definition gate accepts the repository", () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /eight judgments resolve to kernel domain services/u);
+  assert.match(
+    result.stdout,
+    /nine judgments resolve to kernel domain services; authored-document readiness ratchet holds/u,
+  );
 });
 
 test("positive fixture: a renderer readiness definition is refused", (t) => {
@@ -87,5 +91,76 @@ test("positive fixture: a second bilingual closeout judgment in daemon or render
         finding.includes("tools/gates/duplicate-closeout-judgment.mjs"),
     ),
     findings.join("\n"),
+  );
+});
+
+// dec_6B912A63D279A922FA1288536D CH2: authored-document readiness is judged once, by the kernel,
+// over the body the canonical read port supplies. Each control runs the real gate function.
+test("positive fixture: a daemon reading task_plan and deciding readiness itself is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/rogue-plan-readiness.ts#rogueTaskPlanReadiness") &&
+        finding.includes("local-readiness-derivation"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("positive fixture: a local plan read handed to the kernel judgment is still refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/edge-plan-readiness.ts#edgePlanReadiness") &&
+        finding.includes("local-read-kernel-readiness"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("negative fixture: the kernel judgment over a projection body passes", (t) => {
+  const findings = fixtureFindings(t);
+  assert.deepEqual(
+    findings.filter((finding) => finding.includes("canonical-plan-readiness.ts")),
+    [],
+  );
+});
+
+test("positive fixture: a second authored-document readiness definition is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("authoredDocumentReadiness") && finding.includes("packages/daemon/src/duplicate-judgments.ts"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("authored readiness baseline only shrinks and drops migrated sites", () => {
+  const site = {
+      path: "packages/daemon/src/legacy.ts",
+      symbol: "taskContext",
+      kind: "local-read-kernel-readiness",
+      fingerprint: "a",
+    },
+    edited = { ...site, fingerprint: "b" },
+    baseline = (entries) => ({ schema: "authored-document-readiness-baseline/v1", entries });
+  assert.deepEqual(checkAuthoredReadinessSites([], baseline([]), [site]), []);
+  assert.deepEqual(checkAuthoredReadinessSites([edited], baseline([edited]), [site]), []);
+  assert.ok(
+    checkAuthoredReadinessSites([site, edited], baseline([site, edited]), [site]).some((finding) =>
+      finding.includes("baseline may only shrink"),
+    ),
+  );
+  assert.ok(
+    checkAuthoredReadinessSites([], baseline([site]), [site]).some((finding) =>
+      finding.includes("stale baseline entry should be removed"),
+    ),
+  );
+  assert.ok(
+    checkAuthoredReadinessSites([site], { entries: [site] }).some((finding) => finding.includes("invalid or missing")),
   );
 });

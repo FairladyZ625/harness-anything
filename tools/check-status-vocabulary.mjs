@@ -20,6 +20,10 @@
  *      `unknown` where the GUI convention adds it), and the unknown fallback
  *      stays deleted: unrecognised decision states map to "unknown", never to a
  *      plausible neighbour.
+ *   5. Authored-document vocabularies declared outside the kernel domain (daemon,
+ *      application, CLI production sources) are registered too: a readiness,
+ *      candidate, or replica sync word cannot be invented at an adapter
+ *      (dec_6B912A63D279A922FA1288536D CH2).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -57,6 +61,23 @@ const NAMED_CONST =
 // packages/kernel/src/domain/agent-runtime.ts under task_2c909af2cae0b23abd1e34a2e2.
 const NAMED_TYPE = /export\s+type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\|?\s*("(?:[^"]*)"(?:\s*\|\s*"[^"]*")*)\s*;/gu;
 const INLINE_FIELD = /readonly\s+([A-Za-z_][A-Za-z0-9_]*)\??:\s*("[^"]+"(?:\s*\|\s*"[^"]+")+)/gu;
+const NAMED_TYPE_ANY_EXPORT =
+  /(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\|?\s*("(?:[^"]*)"(?:\s*\|\s*"[^"]*")*)\s*;/gu;
+export const AUTHORED_DOCUMENT_SCOPES = Object.freeze([
+  "packages/daemon/src",
+  "packages/application/src",
+  "packages/cli/src",
+]);
+// The authored-document families: content readiness, local candidate disposition, and replica sync
+// state. Names are matched by camelCase token, so `DoctorCheckStatus` or the fleet-wide
+// `ReplicaSyncPhase` stay outside the family while `DocCandidateState` and `#syncState` fall in.
+const AUTHORED_DOCUMENT_TOKENS = new Set(["doc", "document", "candidate", "readiness", "ready", "visibility", "plan"]);
+const AUTHORED_DOCUMENT_FIELDS = new Set(["#syncState"]);
+export function isAuthoredDocumentVocabulary(anchor) {
+  if (AUTHORED_DOCUMENT_FIELDS.has(anchor)) return true;
+  const tokens = anchor.replace(/^#/u, "").match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/gu) ?? [];
+  return tokens.some((token) => AUTHORED_DOCUMENT_TOKENS.has(token.toLowerCase()));
+}
 const KERNEL_DECISION_FALLBACK = /function\s+decisionState\s*\([^)]*\)[^}]*return\s+"(?!unknown)[a-z_]+"/u;
 
 function literalWords(fragment) {
@@ -177,7 +198,7 @@ export function checkKernelVocabularyBijection(register, modulesByFile, sites, f
   return findings;
 }
 
-export function collectKernelDeclarationSites(sourcesByFile) {
+export function collectKernelDeclarationSites(sourcesByFile, { exportedTypesOnly = true } = {}) {
   const sites = [];
   for (const [module, text] of sourcesByFile) {
     for (const match of text.matchAll(NAMED_CONST)) {
@@ -185,7 +206,7 @@ export function collectKernelDeclarationSites(sourcesByFile) {
       const words = literalWords(match[2]);
       if (words.length > 0) sites.push({ module, anchor: match[1], kind: "const", words });
     }
-    for (const match of text.matchAll(NAMED_TYPE)) {
+    for (const match of text.matchAll(exportedTypesOnly ? NAMED_TYPE : NAMED_TYPE_ANY_EXPORT)) {
       if (!KERNEL_DECLARATION_SUFFIX.test(match[1])) continue;
       sites.push({ module, anchor: match[1], kind: "type", words: literalWords(match[1 + 1]) });
     }
@@ -199,10 +220,28 @@ export function collectKernelDeclarationSites(sourcesByFile) {
   return sites;
 }
 
-export function checkKernelDeclarationCoverage(register, sites, findings = []) {
-  const registered = register.statusVocabularies.filter((vocabulary) =>
-    vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`),
+/** Authored-document vocabulary declarations in daemon, application, and CLI production sources. */
+export function collectAuthoredDocumentVocabularySites(sourcesByFile) {
+  return collectKernelDeclarationSites(sourcesByFile, { exportedTypesOnly: false }).filter((site) =>
+    isAuthoredDocumentVocabulary(site.anchor),
   );
+}
+
+export function checkAuthoredDocumentVocabularyCoverage(register, sites, findings = []) {
+  return checkKernelDeclarationCoverage(register, sites, findings, {
+    inScope: (vocabulary) =>
+      AUTHORED_DOCUMENT_SCOPES.some((scope) => vocabulary.module.startsWith(`${scope}/`)) &&
+      isAuthoredDocumentVocabulary(vocabulary.anchor),
+  });
+}
+
+export function checkKernelDeclarationCoverage(
+  register,
+  sites,
+  findings = [],
+  { inScope = (vocabulary) => vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`) } = {},
+) {
+  const registered = register.statusVocabularies.filter(inScope);
   for (const site of sites) {
     const match = registered.find(
       (vocabulary) =>
@@ -331,9 +370,14 @@ async function loadModules(files) {
   return modules;
 }
 
-function readKernelDomainSources(root) {
+function readSources(root, scopes) {
   const sources = new Map();
-  for (const rel of listWorktreeFiles(root, [KERNEL_DOMAIN]).filter((entry) => entry.endsWith(".ts"))) {
+  for (const rel of listWorktreeFiles(root, scopes).filter(
+    (entry) =>
+      /\.(?:ts|tsx|mts)$/u.test(entry) &&
+      !/(?:^|\/)(?:test|tests|fixtures)\//u.test(entry) &&
+      !/\.(?:test|spec|vitest)\.[cm]?tsx?$/u.test(entry),
+  )) {
     sources.set(rel, readFileSync(path.join(root, rel), "utf8"));
   }
   return sources;
@@ -342,7 +386,8 @@ function readKernelDomainSources(root) {
 async function main() {
   const root = process.cwd();
   const register = await import(pathToFileURL(path.resolve(import.meta.dirname, REGISTER)).href);
-  const kernelSources = readKernelDomainSources(root);
+  const kernelSources = readSources(root, [KERNEL_DOMAIN]);
+  const authoredSites = collectAuthoredDocumentVocabularySites(readSources(root, AUTHORED_DOCUMENT_SCOPES));
   const sites = collectKernelDeclarationSites(kernelSources);
   const kernelModules = await loadModules([
     ...new Set(
@@ -358,6 +403,7 @@ async function main() {
     ...checkRegisterShape(register),
     ...checkKernelVocabularyBijection(register, kernelModules, sites),
     ...checkKernelDeclarationCoverage(register, sites),
+    ...checkAuthoredDocumentVocabularyCoverage(register, authoredSites),
     ...checkGuiMirrorAgreement(register, guiModelText, guiAdapterText),
     ...checkDaemonMirrorAgreement(register, daemonText),
   ];
@@ -367,7 +413,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Status vocabulary check passed (register, kernel vocabularies, generated daemon mirrors, and GUI mirrors agree).",
+    "Status vocabulary check passed (register, kernel vocabularies, authored-document vocabularies, generated daemon mirrors, and GUI mirrors agree).",
   );
 }
 
