@@ -525,6 +525,18 @@ export function taskCompletionAction(
   context: CompletionReadinessContext,
   requestedExecutionId?: string,
 ): CompletionNext | null {
+  const task = snapshot.task,
+    // A superseded Task is terminal and already names the owner of its future work. Deriving the
+    // next step from that terminal state keeps every consumer (receipt, task detail, agenda) from
+    // offering `ha task start` on a package the ledger archived.
+    replacement = task?.status === "cancelled" ? (task.supersededBy ?? null) : null;
+  if (task !== null && task !== undefined && replacement !== null)
+    return completionGuidance(
+      snapshot,
+      "",
+      `ha task show ${replacement}`,
+      `Task ${task.taskId} was superseded; the replacement recorded in its lineage carries the future work.`,
+    );
   const judged = taskCompletionNext(snapshot, context, requestedExecutionId);
   if (judged.next || snapshot.task?.status === "done") return judged.next;
   // `submitted` reaches this point only after evaluateCompletion let it past the review gate, so

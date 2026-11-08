@@ -719,6 +719,24 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
   assert.match(index(submitted, lightweight), /ha task complete task-1/u);
 });
 
+test("a superseded terminal task points completion next at its recorded replacement", () => {
+  const active = at(2),
+    superseded = {
+      ...active,
+      lease: null,
+      task: {
+        ...active.task!,
+        status: "cancelled" as const,
+        packageDisposition: "archived" as const,
+        supersededBy: "task-replacement",
+      },
+    },
+    action = taskCompletionAction(superseded, context);
+  assert.equal(action?.action, "ha task show task-replacement");
+  assert.match(action?.reason ?? "", /superseded/u);
+  assert.doesNotMatch(action?.action ?? "", /ha task start/u);
+});
+
 test("a ready submitted low-risk cut names complete and the reason review is absent", () => {
   const lightContext = {
       ...context,
