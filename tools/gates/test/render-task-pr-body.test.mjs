@@ -8,8 +8,9 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { checkPrBody } from "../../check-pr-body.mjs";
 import { checkPrGovernance } from "../../check-pr-governance.mjs";
-import { validateDependencyDeclaration } from "../dependency-policy.mjs";
+import { main as dependencyPolicyMain, validateDependencyDeclaration } from "../dependency-policy.mjs";
 import { renderTaskPrBody } from "../render-task-pr-body.mjs";
+import { captureGate, commitAll, makeRepo, writeRepoFile } from "./helpers.mjs";
 import {
   missingChineseCloseoutSections,
   submissionFromCloseout,
@@ -144,6 +145,75 @@ function assertPassesPrBodyCheck(body, submission = codeSubmission) {
   assert.equal(result.ok, true, result.issues.join("\n"));
 }
 
+const DEPENDENCY_SECTIONS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+
+/** One consistent lock entry for a fixture manifest; G31 validates exactly these sections. */
+function lockFor(manifest) {
+  const workspace = { name: manifest.name, version: manifest.version };
+  for (const section of DEPENDENCY_SECTIONS)
+    if (manifest[section] !== undefined) workspace[section] = manifest[section];
+  return { name: manifest.name, version: manifest.version, lockfileVersion: 3, packages: { "": workspace } };
+}
+
+function dependencyRepo(beforeFiles, afterFiles) {
+  const { rootDir, base } = makeRepo(beforeFiles);
+  for (const [filePath, body] of Object.entries(afterFiles)) writeRepoFile(rootDir, filePath, body);
+  return { rootDir, base, head: commitAll(rootDir, "fixture dependency cut") };
+}
+
+function dependencySubmissionFor({ base, head, changedFiles }) {
+  return {
+    commitSha: head,
+    deliverables: changedFiles,
+    changedFiles,
+    outputs: [],
+    productionDelta: { baseSha: base, added: 1, deleted: 0, changed: [], unclassified: [] },
+  };
+}
+
+function renderDependencyCut({ submission, rootDir, authoredCloseout = closeout, body = template }) {
+  return renderTaskPrBody({
+    taskId,
+    receipt: receipt(submission),
+    template,
+    body,
+    closeout: authoredCloseout,
+    rootDir,
+  });
+}
+
+/** A frozen cut whose only manifest change is one added exports subpath. */
+function exportChangeCut() {
+  const before = { name: "fixture", version: "1.0.0", exports: { ".": "./index.js" } },
+    after = { ...before, exports: { ".": "./index.js", "./testing": "./testing.js" } },
+    { rootDir, base, head } = dependencyRepo(
+      { "package.json": JSON.stringify(before), "package-lock.json": JSON.stringify(lockFor(before)) },
+      { "package.json": JSON.stringify(after) },
+    );
+  return {
+    rootDir,
+    base,
+    head,
+    submission: dependencySubmissionFor({ base, head, changedFiles: ["package.json"] }),
+  };
+}
+
+/** Run the generated body through G31's real CLI, not a re-implementation of its declaration check. */
+function assertPassesDependencyGate(body, submission, rootDir) {
+  const bodyFile = path.join(rootDir, "pr-body.md"),
+    previous = process.cwd();
+  writeFileSync(bodyFile, body);
+  process.chdir(rootDir);
+  try {
+    const result = captureGate(() =>
+      dependencyPolicyMain(["--base", submission.productionDelta.baseSha, "--pr-body-file", bodyFile]),
+    );
+    assert.equal(result.code, 0, result.stderr);
+  } finally {
+    process.chdir(previous);
+  }
+}
+
 test("PR renderer fills the four authored sections from closeout and passes check-pr-body", () => {
   const body = render();
   assert.match(body, new RegExp(`## Summary\\n\\n${summary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
@@ -192,34 +262,89 @@ test("PR renderer preserves interleaved repeated risk sections in source order",
   assertPassesPrBodyCheck(body);
 });
 
-test("PR renderer replaces only the generated dependency declaration and preserves the authored Summary", () => {
-  const authoredSummary = "Observed problem:\nDependency-Change: unpinned production package",
-    authored = dependencyCloseout.replace(summary, authoredSummary),
-    body = render(dependencySubmission, { closeout: authored });
-  assert.ok(body.includes(authoredSummary), "the author's complete Summary remains verbatim");
-  assert.match(
-    body,
-    /^Dependency-Change: Added the `\.\/testing` exports subpath\. No dependency range changed; the lockfile stays in sync\.$/mu,
-  );
-  assert.notDeepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, body), []);
-  const refreshed = render(dependencySubmission, { closeout: authored, body });
-  assert.ok(refreshed.includes(authoredSummary), "re-rendering also preserves the author's complete Summary");
-});
-
-test("PR renderer describes a package.json change instead of the rejected none sentinel", () => {
-  const body = render(dependencySubmission, { closeout: dependencyCloseout });
-  assert.match(
-    body,
-    /^Dependency-Change: Added the `\.\/testing` exports subpath\. No dependency range changed; the lockfile stays in sync\.$/mu,
-  );
+test("PR renderer describes an added package export from the frozen diff and passes G31", () => {
+  const { rootDir, submission } = exportChangeCut(),
+    body = renderDependencyCut({ submission, rootDir });
+  assert.match(body, /^Dependency-Change: package\.json: exports \+"\.\/testing"$/mu);
   assert.doesNotMatch(body, /^Dependency-Change: none$/mu);
-  assert.doesNotMatch(body, /## Dependency Change/u, "the closeout-only section is not injected as a new PR section");
   assert.deepEqual(
-    validateDependencyDeclaration(dependencySubmission.changedFiles, body),
+    validateDependencyDeclaration(submission.changedFiles, body),
     [],
     "the rendered body passes G31's own declaration check",
   );
-  assertPassesPrBodyCheck(body, dependencySubmission);
+  assertPassesDependencyGate(body, submission, rootDir);
+  assertPassesPrBodyCheck(body, submission);
+});
+
+test("PR renderer adds the declaration when the author deleted the template sentinel", () => {
+  const { rootDir, submission } = exportChangeCut(),
+    body = renderDependencyCut({
+      submission,
+      rootDir,
+      body: template.replace("Dependency-Change: none\n", ""),
+    });
+  assert.match(body, /^Dependency-Change: package\.json: exports \+"\.\/testing"$/mu);
+  assert.equal((body.match(/^Dependency-Change:/gmu) ?? []).length, 1);
+  assertPassesDependencyGate(body, submission, rootDir);
+});
+
+test("PR renderer describes a changed dependency range and the lockfile from the frozen diff", () => {
+  const before = { name: "fixture", version: "1.0.0", dependencies: { effect: "1.0.0" } },
+    after = { ...before, dependencies: { effect: "2.0.0" } },
+    { rootDir, base, head } = dependencyRepo(
+      { "package.json": JSON.stringify(before), "package-lock.json": JSON.stringify(lockFor(before)) },
+      { "package.json": JSON.stringify(after), "package-lock.json": JSON.stringify(lockFor(after)) },
+    ),
+    submission = dependencySubmissionFor({ base, head, changedFiles: ["package.json", "package-lock.json"] }),
+    body = renderDependencyCut({ submission, rootDir });
+  assert.match(
+    body,
+    /^Dependency-Change: package\.json: dependencies\.effect "1\.0\.0" -> "2\.0\.0"; package-lock\.json changed$/mu,
+  );
+  assert.deepEqual(validateDependencyDeclaration(submission.changedFiles, body), []);
+  assertPassesDependencyGate(body, submission, rootDir);
+  assertPassesPrBodyCheck(body, submission);
+});
+
+test("PR renderer keeps the none sentinel for a cut with no dependency surface change", () => {
+  const manifest = { name: "fixture", version: "1.0.0", dependencies: { effect: "1.0.0" } },
+    { rootDir, base } = makeRepo({
+      "package.json": JSON.stringify(manifest),
+      "package-lock.json": JSON.stringify(lockFor(manifest)),
+    });
+  writeRepoFile(rootDir, "docs/change.md", "Documentation only.\n");
+  const head = commitAll(rootDir, "fixture docs cut"),
+    submission = dependencySubmissionFor({ base, head, changedFiles: ["docs/change.md"] }),
+    body = renderDependencyCut({ submission, rootDir });
+  assert.match(body, /^Dependency-Change: none$/mu);
+  assert.deepEqual(validateDependencyDeclaration(submission.changedFiles, body), []);
+  assertPassesDependencyGate(body, submission, rootDir);
+  assertPassesPrBodyCheck(body, submission);
+});
+
+test("PR renderer never emits none for a package.json change with no export or range delta", () => {
+  const before = { name: "fixture", version: "1.0.0" },
+    after = { ...before, version: "1.0.1" },
+    { rootDir, base, head } = dependencyRepo(
+      { "package.json": JSON.stringify(before), "package-lock.json": JSON.stringify(lockFor(before)) },
+      { "package.json": JSON.stringify(after) },
+    ),
+    submission = dependencySubmissionFor({ base, head, changedFiles: ["package.json"] }),
+    body = renderDependencyCut({ submission, rootDir });
+  assert.match(body, /^Dependency-Change: package\.json: no exports or dependency range changes$/mu);
+  assert.doesNotMatch(body, /^Dependency-Change: none$/mu);
+  assertPassesDependencyGate(body, submission, rootDir);
+});
+
+test("an authored Dependency Change section cannot override the diff-derived declaration", () => {
+  const { rootDir, submission } = exportChangeCut(),
+    authored = dependencyCloseout.replace(summary, "Observed problem.\nDependency-Change: hand-written override"),
+    body = renderDependencyCut({ submission, rootDir, authoredCloseout: authored });
+  assert.match(body, /^Dependency-Change: package\.json: exports \+"\.\/testing"$/mu);
+  assert.doesNotMatch(body, /hand-written override/u);
+  assert.doesNotMatch(body, /## Dependency Change/u, "the closeout-only section is not injected as a new PR section");
+  assert.ok(body.includes("Observed problem."), "the author's Summary remains verbatim");
+  assertPassesDependencyGate(body, submission, rootDir);
 });
 
 function protectedSubmission() {
@@ -505,23 +630,34 @@ test("a non-derived or inactive decision is not generated as governance authorit
 });
 
 test("PR renderer treats a lockfile-only cut as a dependency change", () => {
-  const body = render(
-    { ...dependencySubmission, changedFiles: ["package-lock.json"] },
-    { closeout: dependencyCloseout },
-  );
-  assert.match(body, /^Dependency-Change: Added the `\.\/testing` exports subpath\./mu);
+  const manifest = { name: "fixture", version: "1.0.0", dependencies: { effect: "1.0.0" } },
+    beforeLock = lockFor(manifest),
+    afterLock = {
+      ...beforeLock,
+      packages: { ...beforeLock.packages, "node_modules/effect": { version: "1.0.0" } },
+    },
+    { rootDir, base, head } = dependencyRepo(
+      { "package.json": JSON.stringify(manifest), "package-lock.json": JSON.stringify(beforeLock) },
+      { "package-lock.json": JSON.stringify(afterLock) },
+    ),
+    submission = dependencySubmissionFor({ base, head, changedFiles: ["package-lock.json"] }),
+    body = renderDependencyCut({ submission, rootDir });
+  assert.match(body, /^Dependency-Change: package-lock\.json changed$/mu);
   assert.deepEqual(validateDependencyDeclaration(["package-lock.json"], body), []);
+  assertPassesDependencyGate(body, submission, rootDir);
 });
 
-test("PR renderer leaves dependency lint to its independent publication check", () => {
-  const body = render(dependencySubmission);
-  assert.match(body, /^Dependency-Change: none$/mu);
-  assert.notDeepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, body), []);
-  const duplicated = render(dependencySubmission, {
-    closeout: dependencyCloseout.replace(summary, `${summary}\nDependency-Change: extra`),
+test("a dependency cut never leaves none, and a duplicated authored declaration still fails G31", () => {
+  const { rootDir, submission } = exportChangeCut(),
+    body = renderDependencyCut({ submission, rootDir });
+  assert.doesNotMatch(body, /^Dependency-Change: none$/mu);
+  const duplicated = renderDependencyCut({
+    submission,
+    rootDir,
+    authoredCloseout: closeout.replace(summary, `${summary}\nDependency-Change: extra`),
   });
   assert.equal((duplicated.match(/^Dependency-Change:/gmu) ?? []).length, 2);
-  assert.notDeepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, duplicated), []);
+  assert.notDeepEqual(validateDependencyDeclaration(submission.changedFiles, duplicated), []);
 });
 
 test("PR renderer maps a lightweight closeout onto the four template sections", () => {

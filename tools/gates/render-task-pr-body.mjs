@@ -17,7 +17,11 @@ import {
   markdownSectionEntries,
   missingChineseCloseoutSections,
 } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
-import { hasDependencyChange, replaceDependencyDeclaration } from "./dependency-policy.mjs";
+import {
+  describeDependencyChange,
+  readDependencyDeclarations,
+  replaceDependencyDeclaration,
+} from "./dependency-policy.mjs";
 import { repoRoot } from "./git.mjs";
 
 const START = SUBMISSION_FACTS_START,
@@ -42,11 +46,9 @@ const CHINESE_HEADING = /^#\s+中文\s*$/mu;
 
 // The PR template keeps Dependency-Change on one machine-readable line, not as a `##` section.
 // G31 rejects the `none` sentinel whenever the cut touches a package.json or the lockfile, so the
-// renderer takes the description from this closeout section and renders it on the template declaration line. G31 validates the published body separately.
-const DEPENDENCY_CHANGE = Object.freeze({
-  title: "Dependency Change",
-  aliases: Object.freeze(["dependency change", "dependency-change", "依赖变更", "依赖改动", "依赖变化"]),
-});
+// renderer phrases G31's own dependency-surface predicate from the frozen cut. The closeout cannot
+// supply this text: a forgotten section must not force a red gate and a manual repair.
+const MACHINE_READABLE_DECLARATIONS = "Machine-Readable Declarations";
 
 // A closeout materialized before the What Changed scaffold existed keeps that shape for the life of
 // the task package and is frozen at submit, so map its authored Summary onto the PR template's What
@@ -124,7 +126,6 @@ function authoredSources(closeout, profileId) {
   const sections = [...markdownSectionEntries(closeout)],
     chinese = chineseCloseoutSectionBodies(closeout),
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
-  sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
   sources["What Changed"] ??= sources.Summary;
   if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
   return { sources, chinese };
@@ -222,14 +223,21 @@ function chineseSection(closeout, chinese) {
   return `# 中文\n\n${blocks.join("\n\n")}`;
 }
 
-/** Collapse closeout prose onto the one machine-readable line G31 parses. */
-function dependencyDescription(content) {
+/** Collapse generated text onto the one machine-readable line G31 parses. */
+function declarationLine(content) {
   return content
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => line.replace(/^(?:[-*+]|\d+\.)[ \t]+/u, ""))
     .join(" ");
+}
+
+/** Keep exactly one declaration line, adding it when the author deleted the template sentinel. */
+function setDependencyDeclaration(section, description) {
+  if (readDependencyDeclarations(section).length > 0) return replaceDependencyDeclaration(section, description);
+  const newline = section.includes("\r\n") ? "\r\n" : "\n";
+  return `${newline}${newline}Dependency-Change: ${description}${section}`;
 }
 
 // The system owns this entire section. Manual exceptions live in a separate section that this
@@ -265,23 +273,26 @@ function declareProtectedSurfaces(body, taskId, changedFiles, manifest, decision
   return `${stripped.slice(0, verification.index)}${section}${stripped.slice(verification.index)}`;
 }
 
-export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
+export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest, rootDir }) {
   const { submission, profileId, decisionAuthority } = taskProjection(receipt, taskId),
     submissionFacts = readSubmissionFacts(submission),
     delivery = renderSubmissionFacts(submission, submissionFacts),
     authored = typeof closeout === "string" ? closeout : "",
     stripped = withoutFacts(withoutChineseSection(body)),
     baseline = withoutFacts(template),
-    { sources, chinese } = authoredSources(authored, profileId);
+    { sources, chinese } = authoredSources(authored, profileId),
+    dependencyDescription = describeDependencyChange({
+      paths: submissionFacts.changedFiles,
+      rootDir,
+      base: submissionFacts.productionDelta?.baseSha,
+      head: submission.commitSha,
+    });
   let rendered = stripped;
-  if (hasDependencyChange(submissionFacts.changedFiles) && sources[DEPENDENCY_CHANGE.title]?.trim()) {
-    const { start, end } = sectionBounds(rendered, "Machine-Readable Declarations");
+  if (new RegExp(`^##[ \\t]+${MACHINE_READABLE_DECLARATIONS}[ \\t]*$`, "mu").test(rendered)) {
+    const { start, end } = sectionBounds(rendered, MACHINE_READABLE_DECLARATIONS);
     rendered =
       rendered.slice(0, start) +
-      replaceDependencyDeclaration(
-        rendered.slice(start, end),
-        authoredContent(dependencyDescription(sources[DEPENDENCY_CHANGE.title])),
-      ) +
+      setDependencyDeclaration(rendered.slice(start, end), authoredContent(declarationLine(dependencyDescription))) +
       rendered.slice(end);
   }
   for (const { title } of PR_SECTIONS) {
@@ -366,6 +377,7 @@ export function main(argv = process.argv.slice(2)) {
         body: input,
         closeout,
         manifest,
+        rootDir,
       });
     process.stdout.write(body);
     return 0;
