@@ -118,9 +118,9 @@ function taskChain(f, reader, index) {
     "docs-task",
   ]);
   f.publish(created, "task.create");
-  const packagePath = created.packagePath,
-    ledgerPackagePath = packagePath.replace(/^harness\//u, ""),
-    planPath = `${packagePath}/task_plan.md`,
+  const workspacePackagePath = created.workspacePackagePath,
+    ledgerPackagePath = created.ledgerPackagePath,
+    planPath = `${workspacePackagePath}/task_plan.md`,
     ledgerPlanPath = `${ledgerPackagePath}/task_plan.md`;
   f.check("task.create.initial-content", () =>
     assertBytes(f.root, ledgerPlanPath, readFileSync(path.join(f.root, planPath)), created, reader),
@@ -139,7 +139,7 @@ function taskChain(f, reader, index) {
     "test:entity-cli-calibration",
   ]);
   f.invoke("task.start", ["task", "start", taskId, "--execution-id", `execution-${f.seed}-${index}`], { actor });
-  const reportPath = `${packagePath}/artifacts/report.md`,
+  const reportPath = `${workspacePackagePath}/artifacts/report.md`,
     ledgerReportPath = `${ledgerPackagePath}/artifacts/report.md`;
   const reportBody = Buffer.from(`# Calibration ${f.seed}/${index}\n\n${"durable bytes\n".repeat(32)}`);
   mkdirSync(path.dirname(path.join(f.root, reportPath)), { recursive: true });
@@ -151,15 +151,15 @@ function taskChain(f, reader, index) {
   f.publish(report, "task.report", actor);
   f.check("task.report.same-cut-bytes", () => assertBytes(f.root, ledgerReportPath, reportBody, report, reader));
   writeFileSync(
-    path.join(f.root, packagePath, "closeout.md"),
+    path.join(f.root, workspacePackagePath, "closeout.md"),
     `# Closeout\n\n## Summary\n\nReport delivered: artifact:${reportPath}@${report.revision}\n\n` +
       "## Verification\n\nExact bytes checked.\n\n## Residual Risk\n\nPilot only.\n\n" +
       "## Same Mechanism Elsewhere\n\nTask report ownership.\n",
   );
   f.invoke("task.submit", ["task", "submit", taskId], { actor });
-  mkdirSync(path.join(f.root, packagePath, "artifacts", "reports"), { recursive: true });
+  mkdirSync(path.join(f.root, workspacePackagePath, "artifacts", "reports"), { recursive: true });
   writeFileSync(
-    path.join(f.root, packagePath, "artifacts", "reports", `${f.seed}-${index}.md`),
+    path.join(f.root, workspacePackagePath, "artifacts", "reports", `${f.seed}-${index}.md`),
     `# Review review-${f.seed}-${index}\n\nCanonical artifact bytes checked.\n`,
   );
   const reviewed = f.invoke(

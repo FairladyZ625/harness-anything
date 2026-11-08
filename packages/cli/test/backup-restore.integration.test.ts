@@ -168,7 +168,7 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
     "--timeout-ms",
     "10000",
   ]);
-  const packagePath = String(created.packagePath),
+  const packagePath = String(created.workspacePackagePath),
     planPath = path.join(source.root, packagePath, "task_plan.md");
   writeFileSync(planPath, "# Plan\n\nCenter restore probe plan body.\n");
   const published = applied(source, [

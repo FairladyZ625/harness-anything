@@ -270,7 +270,7 @@ test("Runtime report is archived after the worker submits its execution", async 
       "--title",
       "Submitted runtime archive",
     ]),
-    submittedPackagePath = String(submittedTask.packagePath),
+    submittedPackagePath = String(submittedTask.workspacePackagePath),
     submittedPlanPath = `${submittedPackagePath}/task_plan.md`;
   published(root, env, submittedTask);
   writeFileSync(path.join(root, submittedPlanPath), realizedPlan("Submitted runtime archive"));

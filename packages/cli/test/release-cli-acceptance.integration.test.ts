@@ -60,7 +60,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       "standard-task",
     ]);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
-    const packagePath = String(created.packagePath),
+    const packagePath = String(created.workspacePackagePath),
       settled = settle(root, userRoot, String(created.opId));
     assert.equal((settled.git as { state: string }).state, "verified");
     assert.equal((settled.worktree as { state: string }).state, "verified");
@@ -211,7 +211,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
         "--preset",
         "docs-task",
       ]),
-      packagePath = String(created.packagePath),
+      packagePath = String(created.workspacePackagePath),
       reportLogical = `${packagePath}/artifacts/reports/implementation.md`,
       reportLedgerLogical = reportLogical.replace(/^harness\//u, ""),
       reportFile = path.join(root, reportLogical);
@@ -426,7 +426,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
         "--preset",
         "docs-task",
       ]),
-      packagePath = String(created.packagePath);
+      packagePath = String(created.workspacePackagePath);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
     settle(root, userRoot, String(created.opId));
     writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan("Release Acceptance Artifacts"));
@@ -633,7 +633,7 @@ test("release acceptance: a relative artifact source names the caller's file, an
         "--preset",
         "docs-task",
       ]),
-      packagePath = String(created.packagePath);
+      packagePath = String(created.workspacePackagePath);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
     settle(root, userRoot, String(created.opId));
     writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan("Release Acceptance Artifact Source"));

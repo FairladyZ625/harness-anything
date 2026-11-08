@@ -120,7 +120,7 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
       "--title",
       "Resident Squad",
     ]),
-    residentPackage = String(residentTask.packagePath);
+    residentPackage = String(residentTask.workspacePackagePath);
   published(root, env, residentTask);
   writeFileSync(path.join(root, residentPackage, "task_plan.md"), realizedPlan("Resident Squad"));
   run(root, env, ["doc", "sync", "--submit", "--path", `${residentPackage}/task_plan.md`]);
@@ -379,7 +379,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     ["mixed-negative-task", "Mixed negative"],
   ] as const) {
     const created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", title]),
-      packagePath = String(created.packagePath);
+      packagePath = String(created.workspacePackagePath);
     published(root, env, created);
     writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan(title));
     run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
@@ -612,7 +612,7 @@ test(
     ]);
     assert.equal(placeholderPlan.status, 1, JSON.stringify(placeholderPlan));
     assert.equal(placeholderPlan.receipt.code, "plan_placeholder");
-    const apiPackage = String(apiTask.packagePath);
+    const apiPackage = String(apiTask.workspacePackagePath);
     writeFileSync(path.join(root, apiPackage, "task_plan.md"), realizedPlan("Squad API run"));
     run(root, env, ["doc", "sync", "--submit", "--path", `${apiPackage}/task_plan.md`]);
     const started = run(root, env, [

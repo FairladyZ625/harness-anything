@@ -73,7 +73,7 @@ test(
       const created = run(fixture, "center", ["task", "create", "--id", "task-fleet", "--admin", "--title", "Fleet"]);
       assert.equal(created.outcome, "applied");
       published(fixture, "center", created);
-      const planPath = `${String(created.packagePath)}/task_plan.md`;
+      const planPath = `${String(created.workspacePackagePath)}/task_plan.md`;
       writeFileSync(path.join(fixture.repo, planPath), realizedTaskPlan("Fleet"));
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
       assert.equal(
@@ -373,7 +373,7 @@ test(
       assert.equal(edgeCreated.outcome, "applied", JSON.stringify(edgeCreated));
       published(fixture, "center", edgeCreated);
       assert.equal(
-        readFileSync(path.join(fixture.repo, String(edgeCreated.packagePath), "task_plan.md"), "utf8"),
+        readFileSync(path.join(fixture.repo, String(edgeCreated.workspacePackagePath), "task_plan.md"), "utf8"),
         edgePlan,
         "the edge-authored 950-character plan body lands at the center byte-for-byte",
       );
@@ -451,7 +451,7 @@ test(
       register(fixture);
       const created = run(fixture, "center", ["task", "create", "--id", "task-fleet", "--admin", "--title", "Fleet"]);
       published(fixture, "center", created);
-      const planPath = `${String(created.packagePath)}/task_plan.md`;
+      const planPath = `${String(created.workspacePackagePath)}/task_plan.md`;
       writeFileSync(path.join(fixture.repo, planPath), realizedTaskPlan("Fleet"));
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
       const center = run(fixture, "center", [

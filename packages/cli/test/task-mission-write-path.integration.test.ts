@@ -69,7 +69,7 @@ test("task start returns non-blocking structured risk-tier advice for a low ligh
       "--risk-tier",
       "low",
     ]),
-    packagePath = String(created.packagePath);
+    packagePath = String(created.workspacePackagePath);
   published(root, env, created);
   writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedTaskPlan("Task start risk advice"));
   run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);

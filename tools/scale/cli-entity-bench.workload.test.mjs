@@ -15,7 +15,7 @@ test("benchmark helpers write plan, report and review bytes under the workspace 
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-bench-workload-"));
   try {
     const context = benchContext({ root, parent: root }, 1, [], 1);
-    context.got.set("task-create#0", { packagePath: "harness/tasks/task-bench-cli" });
+    context.got.set("task-create#0", { workspacePackagePath: "harness/tasks/task-bench-cli" });
     const packageDir = path.join(root, "harness", "tasks", "task-bench-cli");
     mkdirSync(packageDir, { recursive: true });
 

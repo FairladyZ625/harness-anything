@@ -132,7 +132,7 @@ export async function recordE2EProbeFailure({
   };
   if (existing) {
     const taskId = String(existing.taskId);
-    await attachScreenshot(taskId, existing.packagePath);
+    await attachScreenshot(taskId, existing.workspacePackagePath);
     return {
       schema: "e2e-probe-result/v1",
       outcome: "failed",
@@ -180,7 +180,7 @@ export async function recordE2EProbeFailure({
     rmSync(planFile, { force: true });
   }
   const taskId = requiredText(created.taskId, "taskId"),
-    packagePath = requiredText(created.packagePath, "packagePath"),
+    packagePath = requiredText(created.workspacePackagePath, "workspacePackagePath"),
     destination = `${packagePath}/artifacts/e2e-probe/${path.basename(bundlePath)}`;
   await runCli(
     workspaceRoot,

@@ -33,7 +33,7 @@ test("submitted contract migration continues through the CLI without losing hist
     "low",
   );
   published(fixture.root, fixture.userRoot, created);
-  const packagePath = String(created.packagePath);
+  const packagePath = String(created.workspacePackagePath);
   writeFileSync(path.join(fixture.root, packagePath, "task_plan.md"), realizedTaskPlan("Contract lifecycle"));
   assert.equal(cli("doc", "sync", "--submit", "--task", taskId).outcome, "applied");
   assert.equal(cli("task", "start", taskId, "--execution-id", "execution-original").outcome, "applied");

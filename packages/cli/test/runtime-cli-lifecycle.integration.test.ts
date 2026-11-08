@@ -137,7 +137,7 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
     "--title",
     "Automatic lease",
   ]);
-  const automaticPackagePath = String(automaticTask.packagePath),
+  const automaticPackagePath = String(automaticTask.workspacePackagePath),
     automaticPlanPath = `${automaticPackagePath}/task_plan.md`,
     oneSectionMissing = realizedPlan("Automatic lease").replace(/\n\n## Constraints\n\n[^\n]+/u, "");
   published(root, env, automaticTask);

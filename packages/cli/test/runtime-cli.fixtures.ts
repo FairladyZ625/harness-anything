@@ -214,7 +214,7 @@ export function seedTask(root: string, env: NodeJS.ProcessEnv, scenario: string)
   const taskId = `task-runtime-${scenario}`,
     executionId = `exec-runtime-${scenario}`,
     created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", scenario]),
-    packagePath = String(created.packagePath),
+    packagePath = String(created.workspacePackagePath),
     artifactRoot = path.join(root, packagePath, "artifacts");
   published(root, env, created);
   writeFileSync(path.join(root, packagePath, "task_plan.md"), realizedPlan(scenario));

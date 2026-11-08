@@ -1087,7 +1087,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     ]).outcome,
     "applied",
   );
-  const packagePath = String(created.packagePath),
+  const packagePath = String(created.workspacePackagePath),
     closeoutPath = `${packagePath}/closeout.md`;
   const planPath = `${packagePath}/task_plan.md`;
   writeFileSync(path.join(fixture.root, planPath), realizedTaskPlan("Executor Axis"));
@@ -1217,7 +1217,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "--source",
       "artifact.md",
       "--destination",
-      `${sourceTaskCreated.packagePath}/artifacts/proof.md`,
+      `${sourceTaskCreated.workspacePackagePath}/artifacts/proof.md`,
     ]).outcome,
     "applied",
   );

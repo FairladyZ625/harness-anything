@@ -95,7 +95,7 @@ async function runChain(
       ],
       workerEnvironment,
     ),
-    packagePath = String(created.packagePath),
+    packagePath = String(created.workspacePackagePath),
     packageRoot = path.join(fixture.root, packagePath),
     planPath = path.join(packageRoot, "task_plan.md"),
     closeoutPath = path.join(packageRoot, "closeout.md"),

@@ -13,9 +13,9 @@ test("a receipt whose evidence carries the workspace spelling is translated", ()
   };
   const translated = translateReceiptPathCoordinates(receipt);
   const payload = JSON.parse(String(translated.evidence));
-  assert.equal(payload.packagePath, workspace);
+  assert.equal(payload.workspacePackagePath, workspace);
   assert.equal(payload.ledgerPackagePath, canonical);
-  assert.equal(Object.hasOwn(payload, "workspacePackagePath"), false);
+  assert.equal(Object.hasOwn(payload, "packagePath"), false);
 });
 
 test("task-list translates every row and the human summary, and leaves the rest alone", () => {
@@ -34,9 +34,11 @@ test("task-list translates every row and the human summary, and leaves the rest 
   const translated = translateReceiptPathCoordinates(receipt);
   assert.equal(translated.revision, 7);
   const payload = JSON.parse(String(translated.evidence));
-  assert.equal(payload.rows[0].packagePath, workspace);
+  assert.equal(payload.rows[0].workspacePackagePath, workspace);
   assert.equal(payload.rows[0].ledgerPackagePath, canonical);
-  assert.equal(payload.rows[1].packagePath, null);
+  assert.equal(Object.hasOwn(payload.rows[0], "packagePath"), false);
+  assert.equal(payload.rows[1].workspacePackagePath, null);
+  assert.equal(Object.hasOwn(payload.rows[1], "packagePath"), false);
   assert.equal(translated.summary, `task_b  task_a  packagePath=${canonical}`);
 });
 
@@ -55,8 +57,10 @@ test("task show nests the same package under task, progress and artifacts; all a
     summary: `task: taskId=task_a  packagePath=${canonical}\npackagePath=${canonical}  workspacePackagePath=${workspace}`,
   });
   const payload = JSON.parse(String(translated.evidence));
-  assert.equal(payload.task.packagePath, workspace);
-  assert.equal(payload.packagePath, workspace);
+  assert.equal(payload.task.workspacePackagePath, workspace);
+  assert.equal(Object.hasOwn(payload.task, "packagePath"), false);
+  assert.equal(payload.workspacePackagePath, workspace);
+  assert.equal(Object.hasOwn(payload, "packagePath"), false);
   assert.equal(payload.ledgerPackagePath, canonical);
   assert.equal(payload.progress[0].payload.resultDocumentClaim.path, `${workspace}/progress.md`);
   assert.equal(payload.executions[0].submission.artifacts[0].path, `${workspace}/artifacts/report.md`);
@@ -124,9 +128,9 @@ test("task-create translates the receipt field, not an evidence payload", () => 
     workspacePackagePath: workspace,
     taskId: "task_a",
   });
-  assert.equal(translated.packagePath, workspace);
+  assert.equal(translated.workspacePackagePath, workspace);
   assert.equal(translated.ledgerPackagePath, canonical);
-  assert.equal(Object.hasOwn(translated, "workspacePackagePath"), false);
+  assert.equal(Object.hasOwn(translated, "packagePath"), false);
 });
 
 test("task-create dry-run translates the JSON evidence payload as well as the receipt field", () => {
@@ -136,11 +140,52 @@ test("task-create dry-run translates the JSON evidence payload as well as the re
     workspacePackagePath: workspace,
     evidence: JSON.stringify({ packagePath: canonical, workspacePackagePath: workspace, dryRun: true }),
   });
-  assert.equal(translated.packagePath, workspace);
+  assert.equal(translated.workspacePackagePath, workspace);
   const payload = JSON.parse(String(translated.evidence));
-  assert.equal(payload.packagePath, workspace);
+  assert.equal(payload.workspacePackagePath, workspace);
   assert.equal(payload.ledgerPackagePath, canonical);
+  assert.equal(Object.hasOwn(payload, "packagePath"), false);
   assert.equal(payload.dryRun, true);
+});
+
+test("no create, show or list receipt carries the removed packagePath key", () => {
+  for (const receipt of [
+    { ok: true, packagePath: canonical, workspacePackagePath: workspace, taskId: "task_a" },
+    {
+      ok: true,
+      packagePath: canonical,
+      workspacePackagePath: workspace,
+      evidence: JSON.stringify({
+        task: { taskId: "task_a", packagePath: canonical },
+        rows: [{ taskId: "task_a", packagePath: canonical, workspacePackagePath: workspace }],
+        packagePath: canonical,
+        workspacePackagePath: workspace,
+      }),
+    },
+  ]) {
+    const translated = translateReceiptPathCoordinates(receipt);
+    assert.equal(Object.hasOwn(translated, "packagePath"), false);
+    if (typeof translated.evidence === "string") {
+      const payload = JSON.parse(translated.evidence);
+      assert.equal(Object.hasOwn(payload, "packagePath"), false);
+      assert.equal(Object.hasOwn(payload.task ?? {}, "packagePath"), false);
+      for (const row of payload.rows ?? []) assert.equal(Object.hasOwn(row, "packagePath"), false);
+    }
+  }
+});
+
+test("guidance arguments keep the descriptor shape their renderer reads", () => {
+  const translated = translateReceiptPathCoordinates({
+    ok: true,
+    packagePath: canonical,
+    workspacePackagePath: workspace,
+    guidance: [{ kind: "task-create:edit-plan", args: { packagePath: workspace, ledgerPackagePath: canonical } }],
+  });
+  assert.deepEqual(translated.guidance, [
+    { kind: "task-create:edit-plan", args: { packagePath: workspace, ledgerPackagePath: canonical } },
+  ]);
+  assert.equal(translated.workspacePackagePath, workspace);
+  assert.equal(translated.ledgerPackagePath, canonical);
 });
 
 test("a receipt without the workspace spelling is unchanged", () => {

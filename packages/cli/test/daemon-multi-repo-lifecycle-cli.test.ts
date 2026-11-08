@@ -126,7 +126,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "--dry-run",
     ]);
     assert.equal(alphaPreview.dryRun, true);
-    assert.equal(alphaPreview.packagePath, "harness/tasks/task-alpha-alpha");
+    assert.equal(alphaPreview.workspacePackagePath, "harness/tasks/task-alpha-alpha");
     assert.equal(alphaPreview.ledgerPackagePath, "tasks/task-alpha-alpha");
     assert.equal(existsSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha")), false);
     // A low-risk create selects the short profile automatically when the preset declares it.
@@ -237,7 +237,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task)\nnext: ha work list",
     );
     settleFollower(fixture.alpha, fixture.userRoot, alpha);
-    const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
+    const alphaPlan = `${String(alpha.workspacePackagePath)}/task_plan.md`;
     writeFileSync(path.join(fixture.alpha, alphaPlan), realizedTaskPlan("Alpha"));
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", alphaPlan]).outcome,
@@ -421,7 +421,10 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     // The caller reads the workspace spelling in both the path list and the semicolon evidence.
     assert.deepEqual(
       [...(started.changedPaths as readonly string[])].sort(),
-      [`${String(alpha.packagePath)}/INDEX.md`, `${String(alpha.packagePath)}/executions/exec-doc.md`].sort(),
+      [
+        `${String(alpha.workspacePackagePath)}/INDEX.md`,
+        `${String(alpha.workspacePackagePath)}/executions/exec-doc.md`,
+      ].sort(),
     );
     assert.equal(
       started.evidence,
@@ -766,7 +769,7 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     );
     const children = JSON.parse(
       String(run(fixture.alpha, fixture.userRoot, ["task", "list", "--parent", workId]).evidence),
-    ) as { rows: Array<{ taskId: string; packagePath?: string; ledgerPackagePath?: string }> };
+    ) as { rows: Array<{ taskId: string; workspacePackagePath?: string; ledgerPackagePath?: string }> };
     assert.deepEqual(
       children.rows.map(({ taskId }) => taskId),
       ["task-child"],
@@ -774,8 +777,8 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     // The CLI prints the workspace spelling and keeps the ledger key beside it: a row path pastes
     // back into a path flag from the same repository root.
     const childRow = children.rows[0]!;
-    assert.match(String(childRow.packagePath), /^harness\/tasks\//u, JSON.stringify(childRow));
-    assert.equal(childRow.packagePath, `harness/${String(childRow.ledgerPackagePath)}`);
+    assert.match(String(childRow.workspacePackagePath), /^harness\/tasks\//u, JSON.stringify(childRow));
+    assert.equal(childRow.workspacePackagePath, `harness/${String(childRow.ledgerPackagePath)}`);
     const works = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["work", "list"]).evidence)) as {
         rows: Array<{ taskId: string; root: string; taskCount: number }>;
       },

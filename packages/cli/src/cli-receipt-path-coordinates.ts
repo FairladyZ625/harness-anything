@@ -3,9 +3,9 @@
  *
  * The daemon read model keeps the ledger's canonical `packagePath` and adds the workspace spelling
  * beside it (`workspacePackagePath`) so GUI consumers that need canonical keys are unaffected. This
- * boundary swaps the two on the CLI receipt and keeps the canonical value under `ledgerPackagePath`
- * for machine readers, matching the input rule: a path copied from a receipt pastes back into an
- * input flag from the same root.
+ * boundary prints only `workspacePackagePath` plus `ledgerPackagePath`; the canonical `packagePath`
+ * name is deleted from the caller's receipt, matching the input rule: a path copied from a receipt
+ * pastes back into an input flag from the same root.
  *
  * The swap is driven by the daemon-added field, not by a command list: a new receipt that carries the
  * workspace spelling gets the same translation without editing this file. The rewrite is recursive
@@ -160,17 +160,32 @@ function rewritePackagePaths(value: unknown, pairs: readonly PackagePathPair[], 
   const pair = packagePathPair(value),
     rewritten: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value)) {
-    if (key === "workspacePackagePath") continue;
-    if (key === "ledgerPackagePath") rewritten[key] = nested;
-    else if (key === "packagePath" && typeof nested === "string")
-      rewritten[key] = pair?.workspace ?? rewritePath(nested, pairs);
-    else if (key === "path" && translatePathFields && typeof nested === "string")
+    // Guidance descriptors are already resolved to the caller's coordinate by their producer and are
+    // read by argument name (`textArg(args, "packagePath")`), so the receipt rename must not reach
+    // inside them.
+    if (key === "guidance") rewritten[key] = nested;
+    else if (key === "workspacePackagePath") rewritten[key] = nested;
+    else if (key === "ledgerPackagePath") rewritten[key] = nested;
+    else if (key === "packagePath") {
+      // The old name carried the canonical key into the caller's coordinate before this boundary
+      // swapped it. It is deleted, not aliased: a consumer that still reads `packagePath` now gets
+      // undefined and fails at its own call site instead of silently resolving the wrong root.
+      const workspace = typeof nested === "string" ? (pair?.workspace ?? rewritePath(nested, pairs)) : nested;
+      if (nested === null || (typeof nested === "string" && workspace !== nested)) {
+        rewritten.workspacePackagePath = workspace;
+        if (typeof nested === "string") rewritten.ledgerPackagePath = nested;
+      } else if (pairs.length > 0) rewritten.workspacePackagePath = workspace;
+      // With no workspace spelling anywhere in the receipt there is nothing to translate; keeping the
+      // field byte-for-byte is the only honest answer for a receipt this boundary did not produce.
+      else rewritten.packagePath = nested;
+    } else if (key === "path" && translatePathFields && typeof nested === "string")
       rewritten[key] = rewritePath(nested, pairs);
     else if (key === "resultDocumentClaim" || key === "artifacts")
       rewritten[key] = rewritePackagePaths(nested, pairs, true);
     else rewritten[key] = rewritePackagePaths(nested, pairs, translatePathFields);
   }
   if (pair !== null) {
+    rewritten.workspacePackagePath = pair.workspace;
     rewritten.ledgerPackagePath = pair.canonical;
   }
   return rewritten;

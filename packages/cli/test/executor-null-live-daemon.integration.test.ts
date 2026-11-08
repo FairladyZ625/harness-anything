@@ -95,7 +95,7 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
         "--title",
         "Executor null live",
       ]),
-      packagePath = String(created.packagePath),
+      packagePath = String(created.workspacePackagePath),
       planPath = `${packagePath}/task_plan.md`,
       closeoutPath = `${packagePath}/closeout.md`;
     assert.equal(created.outcome, "applied", JSON.stringify(created));

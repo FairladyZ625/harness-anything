@@ -86,14 +86,14 @@ export const commandTable = [
     "task-artifact-add",
     (c, s) => [
       ...["task", "artifact", "add", chain(s), "--source", c.repoFile(`src-${s}.md`, `# a ${s}\n`)],
-      ...["--destination", `${c.packagePath(s)}/artifacts/bench-${s}.md`],
+      ...["--destination", `${c.workspacePackagePath(s)}/artifacts/bench-${s}.md`],
     ],
     worker,
   ],
   ["doc-status", (c, s) => ["doc", "status", "--task", chain(s)]],
   ["doc-sync-dry-run", (c, s) => (c.writeCloseout(s), ["doc", "sync", "--dry-run", "--task", chain(s)])],
   ["doc-sync-submit", (c, s) => ["doc", "sync", "--submit", "--task", chain(s)], worker],
-  ["doc-show", (c, s) => ["doc", "show", "--path", `${c.packagePath(s)}/closeout.md`]],
+  ["doc-show", (c, s) => ["doc", "show", "--path", `${c.workspacePackagePath(s)}/closeout.md`]],
   [
     "fact-record~chain",
     (c, s) => ["fact", "record", chain(s), "--statement", c.text(`chain fact ${s}`), "--source", "bench"],
@@ -380,7 +380,10 @@ export const commandTable = [
   ["ledger-reconcile", () => ["ledger", "reconcile", "--generation", "1"]],
   ["daemon-status", () => ["daemon", "status"]],
   ["doc-materialize", () => ["doc", "materialize"]],
-  ["doc-retire", (c, s) => ["doc", "retire", "--path", `${c.packagePath(s)}/artifacts/bench-${s}.md`, "--reason", "b"]],
+  [
+    "doc-retire",
+    (c, s) => ["doc", "retire", "--path", `${c.workspacePackagePath(s)}/artifacts/bench-${s}.md`, "--reason", "b"],
+  ],
   // Client-local and offline commands (not daemon routes).
   ["capabilities", () => ["capabilities"]],
   ["version", () => ["--version"]],

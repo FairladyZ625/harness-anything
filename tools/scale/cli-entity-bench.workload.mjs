@@ -211,18 +211,18 @@ export function benchContext(f, n, writes, samples) {
       return `bench-src/${name}`;
     },
     field: (metric, s, key) => deepFind(receiptOf(metric, s), [key])[key] ?? "missing",
-    packagePath: (s, chain = "") => receiptOf(`task-create${chain}`, s)?.packagePath,
-    // CLI receipts carry the workspace spelling (`harness/tasks/...`), so every on-disk path below
-    // resolves from `f.root` directly; re-joining it under `harness/` would name a package that
-    // never exists (or silently create a double-prefixed one).
+    workspacePackagePath: (s, chain = "") => receiptOf(`task-create${chain}`, s)?.workspacePackagePath,
+    // CLI receipts carry the workspace spelling (`harness/tasks/...`) under `workspacePackagePath`,
+    // so every on-disk path below resolves from `f.root` directly; re-joining it under `harness/`
+    // would name a package that never exists (or silently create a double-prefixed one).
     realizePlan: (s, chain = "") => {
-      const plan = `${receiptOf(`task-create${chain}`, s)?.packagePath}/task_plan.md`;
+      const plan = `${receiptOf(`task-create${chain}`, s)?.workspacePackagePath}/task_plan.md`;
       writeFileSync(path.join(f.root, plan), realizedTaskPlan(`Chain${chain} ${s}`));
       return plan;
     },
     decisionBody: (s) => realizedDecisionBody(`Probe ${s}`),
     writeCloseout: (s, chain = "") => {
-      const root = path.join(f.root, receiptOf(`task-create${chain}`, s)?.packagePath ?? "missing");
+      const root = path.join(f.root, receiptOf(`task-create${chain}`, s)?.workspacePackagePath ?? "missing");
       mkdirSync(path.join(root, "artifacts"), { recursive: true });
       writeFileSync(path.join(root, "artifacts", "report.md"), `# Report ${s}\n`);
       writeFileSync(
@@ -234,12 +234,12 @@ export function benchContext(f, n, writes, samples) {
       );
     },
     review: (s, chain = "") => {
-      const reportPath = `${receiptOf(`task-create${chain}`, s)?.packagePath}/artifacts/report.md`;
+      const reportPath = `${receiptOf(`task-create${chain}`, s)?.workspacePackagePath}/artifacts/report.md`;
       assert.equal(readFileSync(path.join(f.root, reportPath), "utf8"), `# Report ${s}\n`);
       // review-execution requires the reviewer-authored report on disk at artifacts/reports/<stem>.md.
       const reviewReport = path.join(
         f.root,
-        receiptOf(`task-create${chain}`, s)?.packagePath ?? "missing",
+        receiptOf(`task-create${chain}`, s)?.workspacePackagePath ?? "missing",
         "artifacts",
         "reports",
         `rev${chain.replace("~", "-")}-${s}.md`,

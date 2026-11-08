@@ -67,7 +67,7 @@ function closureCli({ root, existingRows = [], onCreate } = {}) {
         ok: true,
         outcome: "applied",
         taskId: "task-e2eclosurefake",
-        packagePath: "harness/tasks/task-e2eclosurefake",
+        workspacePackagePath: "harness/tasks/task-e2eclosurefake",
       };
     }
     if (args[0] === "task" && args[1] === "artifact" && args[2] === "add") return { ok: true, outcome: "applied" };
@@ -107,7 +107,7 @@ test("probe closure archives a new screenshot when it reuses an existing failure
   writeFileSync(screenshotPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   const { calls, runCli } = closureCli({
     root,
-    existingRows: [{ taskId: "task-existing-probe", packagePath: "harness/tasks/task-existing-probe" }],
+    existingRows: [{ taskId: "task-existing-probe", workspacePackagePath: "harness/tasks/task-existing-probe" }],
   });
 
   const result = await recordE2EProbeFailure({ rootDir: root, workspaceRoot: root, bundlePath, runCli });
@@ -198,7 +198,7 @@ test("a rejected artifact attach fails the probe closure with its original error
         ok: true,
         outcome: "applied",
         taskId: "task-e2eclosurefake",
-        packagePath: "harness/tasks/task-e2eclosurefake",
+        workspacePackagePath: "harness/tasks/task-e2eclosurefake",
       };
     if (args[0] === "task" && args[1] === "artifact" && args[2] === "add") {
       throw rejection;

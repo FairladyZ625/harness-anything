@@ -167,7 +167,7 @@ test("ha explain reports submit availability for the same actor that can submit"
       actorId,
     );
     assert.equal(created.status, 0, created.stderr);
-    const packagePath = String(created.value.packagePath);
+    const packagePath = String(created.value.workspacePackagePath);
     await realizeTaskPlanFixture(root, packagePath, async () => {
       const synced = runJson(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], actorId);
       assert.equal(synced.status, 0, synced.stderr);
