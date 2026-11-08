@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { act } from "react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   agentLanesOf,
   awaitsByTask,
@@ -489,6 +489,14 @@ describe("总览:左下「关注的工作」", () => {
   });
 
   it("近期变化收进行悬停:关注工作的任务在,别人的任务不在", async () => {
+    // 近期变化按本地日期收束:事件在「现在」前 55 与 40 分钟,零点后 55 分钟内运行时「开始」会落到
+    // 前一天、今天的路径只剩「提交评审」(CI 2026-11-05 00:57Z、2026-11-08 00:47Z 两次红)。
+    // 时钟固定在当地正午,用例只验收归属与悬停,不随运行时刻变化。
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => vi.useRealTimers());
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    vi.setSystemTime(noon);
     const startedAt = Date.now(),
       occurredAt = (minutes: number) => new Date(startedAt - minutes * 60_000).toISOString();
     const item = (patch: Record<string, unknown>) => ({

@@ -254,12 +254,17 @@
       "tierReason": null,
       "localPathGlobs": [
         "packages/**/src/**",
+        "packages/**/*.integration.test.*",
+        "tools/**/*.integration.test.*",
         "tools/gates/**",
         "tools/check-poll-spin-boundary.mjs",
         "tools/gate-allowlists/check-poll-spin-boundary.json"
       ],
-      "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH3"],
-      "consumerScope": ["polling and spin syntax in production package sources and gate scripts"],
+      "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH3", "dec_25B3C380F6FB9D4D4A1E27921E#CH1"],
+      "consumerScope": [
+        "polling and spin syntax in production package sources and gate scripts",
+        "wall-clock deadlines, scheduled timers, self-written polls and the shared wall-clock poller in integration tests"
+      ],
       "githubContext": {
         "requiredContexts": ["crlf-checkout"],
         "workflowJobs": ["crlf-checkout"],

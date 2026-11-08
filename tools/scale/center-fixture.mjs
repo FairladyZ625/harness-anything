@@ -15,6 +15,7 @@ import { readDaemonLifecycleRecords } from "../../packages/daemon/src/lifecycle-
 import { generateCenterLedger, ledgerProfile } from "./center-ledger.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
 import { countRecordedTraffic } from "./center-model.mjs";
+import { waitForArrival } from "../fixtures/event-arrival.ts";
 
 export async function createCenterFixture({
   nodes = 1,
@@ -33,10 +34,12 @@ export async function createCenterFixture({
   let owners,
     child,
     childExit,
+    processFailure,
     closed = false,
     closeResult;
   const waiters = new Map(),
     events = [],
+    eventArrivals = new Set(),
     attachSamples = [],
     attachDiagnostics = [],
     stderr = [];
@@ -194,6 +197,7 @@ export async function createCenterFixture({
           if (message.event === "build_superseded") superseded = true;
           events.push(message);
           if (message.endpoint) endpoint = message.endpoint;
+          for (const arrive of eventArrivals) arrive();
         }
         const waiter = waiters.get(message.id);
         if (waiter) {
@@ -207,18 +211,30 @@ export async function createCenterFixture({
           waiter.reject(new Error(`center exited ${code}/${signal}: ${stderr.join("")}`));
         waiters.clear();
         if (superseded && !closed) launch();
+        else if (!closed) {
+          processFailure = new Error(`center exited ${code}/${signal}: ${stderr.join("")}`);
+          for (const arrive of eventArrivals) arrive();
+        }
       });
     };
     launch();
-    await withWatchdog(
-      async () => {
-        while (!endpoint) {
-          if (child.exitCode !== null || child.signalCode !== null)
-            throw new Error(`center startup: ${stderr.join("")}`);
-          await once(child, "message");
-        }
+    // Cold module loading slows down under CPU contention. Wait for the child's published
+    // endpoint (or its exit), leaving the integration test's timeout as the hang guard.
+    await waitForArrival(
+      () => {
+        if (endpoint) return endpoint;
+        if (child.exitCode !== null || child.signalCode !== null) throw new Error(`center startup: ${stderr.join("")}`);
+        return null;
       },
-      { timeoutMs: 30_000, label: "center socket bind" },
+      (arrive) => {
+        const current = child;
+        current.on("message", arrive);
+        current.on("exit", arrive);
+        return () => {
+          current.off("message", arrive);
+          current.off("exit", arrive);
+        };
+      },
     );
     const waitReady = () =>
       withWatchdog(
@@ -260,6 +276,13 @@ export async function createCenterFixture({
       attachDiagnostics,
       diagnostics,
       events,
+      get processFailure() {
+        return processFailure;
+      },
+      subscribeEvents: (arrive) => {
+        eventArrivals.add(arrive);
+        return () => eventArrivals.delete(arrive);
+      },
       request,
       waitReady,
       close,

@@ -1697,12 +1697,15 @@ function spawnWaitClient(input: {
         return await Promise.race([
           completion,
           new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => {
-              child.kill("SIGKILL");
-              reject(new Error(`runtime status --wait did not return within ${String(timeoutMs)}ms`));
-            }, timeoutMs);
+            timer = setTimeout(
+              () => reject(new Error(`runtime status --wait did not return within ${timeoutMs}ms`)),
+              timeoutMs,
+            );
           }),
         ]);
+      } catch (error) {
+        child.kill("SIGKILL");
+        throw error;
       } finally {
         clearTimeout(timer);
       }
