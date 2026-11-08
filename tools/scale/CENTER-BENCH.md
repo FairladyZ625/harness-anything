@@ -154,7 +154,10 @@ metadata probe; it cannot prove the original crash occurred in that binary.
 
 Read/write p50 and p99 cover successful requests from scheduled arrival to terminal reply,
 including generator lag. Error rate includes all scheduled requests, including overload drops.
-Throughput uses successful terminal replies. Failed-request exposure is reported separately from
+Throughput uses successful terminal replies. Replay awaits terminal replies or transport failure rather than converting a slow reply
+into a request timeout. The isolated test's timeout bounds a replay that never terminates. Startup
+and lifecycle waits subscribe to published events rather than imposing shorter correctness deadlines.
+Failed-request exposure is reported separately from
 unavailability, which is measured by ready-state `repo.tasks.list(limit=1)` probes at 250 ms cadence. CPU, RSS and event
 loop delay are sampled in the dedicated daemon process, not the generator. Monitor IPC adds one
 sample/s; probes add four requests/s plus their hellos.
