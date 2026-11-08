@@ -695,7 +695,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: Object.freeze([] as readonly CommandInterception[]),
     description: "Named shell deny patterns or reviewed exact commands, optionally scoped to an Agent id.",
     effect:
-      "Deny patterns use native hooks. Reviewed commands require Claude workspace-write and retain its sandbox and HA authorization.",
+      "Deny patterns use native hooks; reviewed commands need Claude workspace-write and keep sandbox and HA checks.",
     group: "worker-permissions",
   }),
   defineSettingsField({
