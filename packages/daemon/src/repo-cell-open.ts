@@ -83,6 +83,7 @@ import type {
   RepoCellBinding,
   RepoCellStatus,
   RepoCellTerminal,
+  RepoCellWriteQueueState,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
 import type { EntityActionCatalogPreparer, EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
@@ -235,6 +236,10 @@ export async function openRepoWriterCell(
     activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null = null,
     queueDepth = 0,
     tail = Promise.resolve();
+  const writeQueue: RepoCellWriteQueueState = {
+    head: null,
+    nowMs: () => Number(process.hrtime.bigint() / 1_000_000n),
+  };
   const initialize = () =>
     initializeRepoCell({
       input,
@@ -386,16 +391,20 @@ export async function openRepoWriterCell(
     const releaseAuthorization = binding?.retainAuthorization?.();
     queueDepth += 1;
     input.onQueueDepthChange?.(queueDepth);
-    const pending = chainRepoCellWrite(tail, async () => {
-      queueDepth -= 1;
-      input.onQueueDepthChange?.(queueDepth);
-      // Runtime terminal work (exit publication, Schedule settlement) queued here must survive the
-      // latched window: the durable SQLite ledger still accepts appends while Git publication and
-      // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
-      // a replacement already superseded. Only a closed cell skips the work entirely.
-      if (state !== "closed")
-        await recoveryWork.queued(() => (binding ? withWriterEpochBinding(binding, work) : work()));
-    }).finally(() => {
+    const pending = chainRepoCellWrite(
+      tail,
+      async () => {
+        queueDepth -= 1;
+        input.onQueueDepthChange?.(queueDepth);
+        // Runtime terminal work (exit publication, Schedule settlement) queued here must survive the
+        // latched window: the durable SQLite ledger still accepts appends while Git publication and
+        // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
+        // a replacement already superseded. Only a closed cell skips the work entirely.
+        if (state !== "closed")
+          await recoveryWork.queued(() => (binding ? withWriterEpochBinding(binding, work) : work()));
+      },
+      { queue: writeQueue, label: { command: "runtime-settlement", requestId: null } },
+    ).finally(() => {
       releaseAuthorization?.();
       input.onQueueDepthChange?.(queueDepth);
     });
@@ -412,22 +421,26 @@ export async function openRepoWriterCell(
   const backup: NonNullable<RepoCell["backup"]> = (request) => {
     queueDepth += 1;
     input.onQueueDepthChange?.(queueDepth);
-    const pending = chainRepoCellWrite(tail, async () => {
-      queueDepth -= 1;
-      input.onQueueDepthChange?.(queueDepth);
-      if (request.kind === "backup")
-        return backupRepo({
+    const pending = chainRepoCellWrite(
+      tail,
+      async () => {
+        queueDepth -= 1;
+        input.onQueueDepthChange?.(queueDepth);
+        if (request.kind === "backup")
+          return backupRepo({
+            rootDir,
+            backupDir: request.backupDir,
+            registration: request.registration,
+            writerEpoch: request.writerEpoch,
+          });
+        return await drillRepoBackup({
           rootDir,
           backupDir: request.backupDir,
-          registration: request.registration,
-          writerEpoch: request.writerEpoch,
+          ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
         });
-      return await drillRepoBackup({
-        rootDir,
-        backupDir: request.backupDir,
-        ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
-      });
-    }).finally(() => input.onQueueDepthChange?.(queueDepth));
+      },
+      { queue: writeQueue, label: { command: "ledger-backup", requestId: null } },
+    ).finally(() => input.onQueueDepthChange?.(queueDepth));
     tail = pending.then(
       () => undefined,
       () => undefined,
@@ -435,7 +448,10 @@ export async function openRepoWriterCell(
     return pending;
   };
   const pruneReplicationLog: NonNullable<RepoCell["pruneReplicationLog"]> = (beforeSequence) => {
-    const pending = chainRepoCellWrite(tail, () => store.pruneReplicationLog?.(beforeSequence));
+    const pending = chainRepoCellWrite(tail, () => store.pruneReplicationLog?.(beforeSequence), {
+      queue: writeQueue,
+      label: { command: "replication-prune", requestId: null },
+    });
     tail = pending.then(
       () => undefined,
       () => undefined,
@@ -1099,6 +1115,7 @@ export async function openRepoWriterCell(
     set tail(value) {
       tail = value;
     },
+    writeQueue,
     activeWriter,
     writerToken,
     get activeWriterEpochFence() {

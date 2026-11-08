@@ -21,7 +21,14 @@ import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
+import type {
+  RepoCellAttachProgress,
+  RepoCellBinding,
+  RepoCellQueueObservation,
+  RepoCellWriteQueueHead,
+  RepoCellWriteQueueLabel,
+  RepoCellWriteQueueState,
+} from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
@@ -255,7 +262,38 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   }
 }
 
-export function chainRepoCellWrite<T>(tail: Promise<void>, work: () => T | PromiseLike<T>): Promise<T> {
+export function chainRepoCellWrite<T>(
+  tail: Promise<void>,
+  work: () => T | PromiseLike<T>,
+  options?: {
+    readonly queue: RepoCellWriteQueueState;
+    readonly label: RepoCellWriteQueueLabel;
+    readonly observation?: RepoCellQueueObservation;
+  },
+): Promise<T> {
+  // Capture at append time, before this turn waits: the head then is the write blocking this one.
+  if (options?.observation !== undefined && options.observation.head === undefined)
+    options.observation.head = captureRepoCellWriteQueueHead(options.queue);
   // One event-loop turn between serialized writes, so timers and I/O are not starved by a write backlog.
-  return tail.then(() => new Promise<void>((resolve) => setImmediate(resolve))).then(work);
+  const turn = tail.then(() => new Promise<void>((resolve) => setImmediate(resolve)));
+  return turn.then(() => {
+    if (options === undefined) return work();
+    const entry = { ...options.label, startedAtMs: options.queue.nowMs() };
+    options.queue.head = entry;
+    return Promise.resolve(work()).finally(() => {
+      if (options.queue.head === entry) options.queue.head = null;
+    });
+  });
+}
+
+/** The live head plus how long it has run, or null when the queue is idle. */
+export function captureRepoCellWriteQueueHead(queue: RepoCellWriteQueueState): RepoCellWriteQueueHead | null {
+  const head = queue.head;
+  return head === null
+    ? null
+    : {
+        requestId: head.requestId,
+        command: head.command,
+        executingMs: Math.max(0, Math.round(queue.nowMs() - head.startedAtMs)),
+      };
 }

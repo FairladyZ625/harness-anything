@@ -154,6 +154,34 @@ export type TaskProgressReceipt = WriteReceiptDraft & {
 
 export type RepoCellAttachProgress = DaemonRepoAttachProgress;
 
+/** The write that currently owns the repository's single-write chain. */
+export interface RepoCellWriteQueueHead {
+  /** The writer request that owns this turn; null for daemon-internal work such as a builtin run. */
+  readonly requestId: string | null;
+  /** The command or builtin label this turn belongs to. */
+  readonly command: string;
+  /** Milliseconds the head had already been executing when the waiting request was appended. */
+  readonly executingMs: number;
+}
+
+/** Label a queued write turn carries while it is the head, so waiters can name what blocked them. */
+export interface RepoCellWriteQueueLabel {
+  readonly requestId: string | null;
+  readonly command: string;
+}
+
+export interface RepoCellWriteQueueState {
+  head: (RepoCellWriteQueueLabel & { readonly startedAtMs: number }) | null;
+  /** Process-monotonic milliseconds; injected so queue tests do not read the wall clock. */
+  readonly nowMs: () => number;
+}
+
+/** Filled by the queue at the first append: the head live when this request started waiting. */
+export interface RepoCellQueueObservation {
+  readonly label: RepoCellWriteQueueLabel;
+  head?: RepoCellWriteQueueHead | null;
+}
+
 export interface RepoCellStatus {
   readonly repoId: string;
   readonly rootDir: string;
@@ -221,11 +249,13 @@ export interface RepoCell {
     binding: RepoCellBinding,
     signal?: AbortSignal,
     onExecutionStart?: () => void,
+    queueObservation?: RepoCellQueueObservation,
   ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (
     action: RepoTaskAction,
     binding: RepoCellBinding,
     onSettled?: () => void,
+    queueObservation?: RepoCellQueueObservation,
   ) => Promise<PresetRunReceiptV1>;
   readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly handoffRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;

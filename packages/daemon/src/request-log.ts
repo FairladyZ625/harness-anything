@@ -6,6 +6,7 @@ import { daemonLogDefaultMaxBytes } from "./lifecycle-log.ts";
 // protocol server as a writer, so schema-closure imports it without node_modules and it must stay
 // clear of anything that reaches into the kernel.
 import { commandClassForAction } from "./protocol/daemon-protocol.contract.ts";
+import type { DaemonOperationQueueHead } from "./daemon-operation.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
 // Observability, not accountability. Write receipts are the accountability record and live in the
@@ -36,6 +37,8 @@ export interface DaemonRequestLogEntry {
   readonly serviceMs?: number;
   /** Time a write waited in the repository's single write queue before it executed. */
   readonly queueMs?: number;
+  /** The write that held the queue when this request was appended. */
+  readonly queueHead?: DaemonOperationQueueHead;
   readonly durationMs: number;
 }
 
@@ -63,6 +66,8 @@ export interface DaemonRequestLogRecord {
   readonly serviceMs: number;
   /** Present for writes: the write-queue wait inside serviceMs; the rest of serviceMs is execution. */
   readonly queueMs?: number;
+  /** The request at the head of the write queue when this write was appended. */
+  readonly queueHead?: DaemonOperationQueueHead;
   readonly durationMs: number;
 }
 
@@ -257,6 +262,7 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     dispatchDelayMs: entry.dispatchDelayMs ?? 0,
     serviceMs: entry.serviceMs ?? entry.durationMs,
     ...(entry.queueMs === undefined ? {} : { queueMs: entry.queueMs }),
+    ...(entry.queueHead === undefined ? {} : { queueHead: entry.queueHead }),
     durationMs: entry.durationMs,
   };
 }

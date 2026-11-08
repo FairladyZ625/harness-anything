@@ -97,7 +97,9 @@ import type {
   DaemonGuiReadHandlers,
   RepoCell,
   RepoCellBinding,
+  RepoCellQueueObservation,
   RepoCellReadMethod,
+  RepoCellWriteQueueState,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
 import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
@@ -154,6 +156,8 @@ export interface RepoCellApiContext {
   readonly latchWith: (error: unknown) => void;
   queueDepth: number;
   tail: Promise<void>;
+  /** Head tracker shared by every append to `tail`; names who a waiting write is behind. */
+  readonly writeQueue: RepoCellWriteQueueState;
   readonly activeWriter: Parameters<typeof assertCurrentWriter>[0];
   readonly writerToken: Parameters<typeof assertCurrentWriter>[1];
   activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
@@ -222,7 +226,11 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   // another builtin's in-progress snapshot. A replay shares the same claim's execution.
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
   const context = apiContext;
-  const bindExecutorClaimAtWriterCut = (action: RepoTaskAction, binding: RepoCellBinding) => {
+  const bindExecutorClaimAtWriterCut = (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    queueObservation?: RepoCellQueueObservation,
+  ) => {
     if (
       action.executor == null ||
       (!(durableActionKinds as readonly string[]).includes(action.kind) && !isArtifactActionIngressKind(action.kind))
@@ -232,10 +240,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         result: bindVerifiedExecutorClaim({ action, binding, projection: context.projection, now: context.now() }),
       };
     context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, () => {
-      context.queueDepth -= 1;
-      return bindVerifiedExecutorClaim({ action, binding, projection: context.projection, now: context.now() });
-    });
+    const pending = chainRepoCellWrite(
+      context.tail,
+      () => {
+        context.queueDepth -= 1;
+        return bindVerifiedExecutorClaim({ action, binding, projection: context.projection, now: context.now() });
+      },
+      {
+        queue: context.writeQueue,
+        label: queueObservation?.label ?? { command: action.kind, requestId: null },
+        ...(queueObservation ? { observation: queueObservation } : {}),
+      },
+    );
     context.tail = pending.then(
       () => undefined,
       () => undefined,
@@ -243,8 +259,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     return { queued: true as const, result: pending };
   };
   const run = makeRepoCellCommandRunner(context);
-  const presetRun: RepoCell["presetRun"] = async (action, binding, onSettled) => {
-    const bound = bindExecutorClaimAtWriterCut(action, binding);
+  const presetRun: RepoCell["presetRun"] = async (action, binding, onSettled, queueObservation) => {
+    const bound = bindExecutorClaimAtWriterCut(action, binding, queueObservation);
     ({ action, binding } = bound.queued ? await bound.result : bound.result);
     const command = commandDescriptorForAction(action.kind),
       authorizationDecision =
@@ -306,7 +322,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                   }
                 },
                 publish: async (produced: RepoTaskAction) => {
-                  const receipt = await run(produced, binding);
+                  const receipt = await run(produced, binding, undefined, undefined, queueObservation);
                   if (isSquadControlResult(receipt))
                     throw context.cellCodedError(
                       "invalid_preset_receipt",
@@ -975,7 +991,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     if (schedule?.spec.target.kind !== "builtin" || !active) return Promise.resolve(receipt);
     const running = builtinRuns.get(active.claimFence);
     if (running) return action.scheduledFor === undefined ? running : Promise.resolve(receipt);
-    const writerFence = binding.withWriterEpochFence ?? context.activeWriterEpochFence,
+    const builtinCommand = `builtin:${schedule.spec.target.builtinId}`,
+      writerFence = binding.withWriterEpochFence ?? context.activeWriterEpochFence,
       writerDescriptor = binding.writerEpochFence ?? context.activeWriterEpochFenceDescriptor;
     const executorCell: BuiltinExecutorCell = {
       rootDir: context.rootDir,
@@ -983,32 +1000,39 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       backupExecutionLimitMs: context.settings.read().storage.backupExecutionLimitMs,
       runSnapshot: <T>(work: () => T | PromiseLike<T>): Promise<T> => {
         context.queueDepth += 1;
-        const snapshot = chainRepoCellWrite(context.tail, async () => {
-          context.queueDepth -= 1;
-          // Await the existing follower before worker IO yields this event loop.
-          await context.store.settlePendingMaterialization?.("backup capture");
-          if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-          assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-          const current = context.projection.getEntity("schedule", schedule.scheduleId)?.value as
-            | ScheduleV1
-            | undefined;
-          if (current?.status.activeRun?.claimFence !== active.claimFence)
-            throw context.cellCodedError("schedule_claim_stale", "Builtin occurrence claim is no longer current.");
-          if (writerDescriptor) assertWriterEpochFenceDescriptor(writerDescriptor);
-          // Each canonical append owns its epoch transaction; nesting an outer epoch
-          // transaction here would reject a valid append. Bind this executor's fence
-          // to the store for the synchronous accept turn, not another command's fence.
-          const previousFence = context.activeWriterEpochFence,
-            previousDescriptor = context.activeWriterEpochFenceDescriptor;
-          context.activeWriterEpochFence = writerFence;
-          context.activeWriterEpochFenceDescriptor = writerDescriptor;
-          try {
-            return work();
-          } finally {
-            context.activeWriterEpochFence = previousFence;
-            context.activeWriterEpochFenceDescriptor = previousDescriptor;
-          }
-        });
+        const snapshot = chainRepoCellWrite(
+          context.tail,
+          async () => {
+            context.queueDepth -= 1;
+            // Await the existing follower before worker IO yields this event loop.
+            await context.store.settlePendingMaterialization?.("backup capture");
+            if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+            assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+            const current = context.projection.getEntity("schedule", schedule.scheduleId)?.value as
+              | ScheduleV1
+              | undefined;
+            if (current?.status.activeRun?.claimFence !== active.claimFence)
+              throw context.cellCodedError("schedule_claim_stale", "Builtin occurrence claim is no longer current.");
+            if (writerDescriptor) assertWriterEpochFenceDescriptor(writerDescriptor);
+            // Each canonical append owns its epoch transaction; nesting an outer epoch
+            // transaction here would reject a valid append. Bind this executor's fence
+            // to the store for the synchronous accept turn, not another command's fence.
+            const previousFence = context.activeWriterEpochFence,
+              previousDescriptor = context.activeWriterEpochFenceDescriptor;
+            context.activeWriterEpochFence = writerFence;
+            context.activeWriterEpochFenceDescriptor = writerDescriptor;
+            try {
+              return work();
+            } finally {
+              context.activeWriterEpochFence = previousFence;
+              context.activeWriterEpochFenceDescriptor = previousDescriptor;
+            }
+          },
+          {
+            queue: context.writeQueue,
+            label: { command: builtinCommand, requestId: null },
+          },
+        );
         context.tail = snapshot.then(
           () => undefined,
           () => undefined,
@@ -1050,8 +1074,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     }
     return pending;
   };
-  const runCommand: RepoCell["run"] = async (action, binding, signal, onExecutionStart) => {
-    const receipt = await run(action, binding, signal, onExecutionStart);
+  const runCommand: RepoCell["run"] = async (action, binding, signal, onExecutionStart, queueObservation) => {
+    const receipt = await run(action, binding, signal, onExecutionStart, queueObservation);
     if (isSquadControlResult(receipt)) return receipt;
     if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
     const completed = await continueBuiltin(action, binding, receipt);

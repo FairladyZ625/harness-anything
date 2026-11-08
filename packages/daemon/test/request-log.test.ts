@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { DaemonHost } from "../src/daemon-host.ts";
+import { recordDaemonOperationQueueHead } from "../src/daemon-operation.ts";
 import {
   daemonLifecycleLogPath,
   daemonStdioLogPath,
@@ -233,7 +234,19 @@ test("a parked sessions.await records wait while ordinary reads do not", async (
 
 test("a write records its write-queue wait separately from execution; a read records none", async (t) => {
   const rootDir = tempRoot(t),
-    host = stubHost(rootDir),
+    host = {
+      ...stubHost(rootDir),
+      // The writer worker reports the head it waited behind with the receipt; the request log
+      // must carry that attribution next to the wait, not just the duration.
+      run: async () => {
+        recordDaemonOperationQueueHead({
+          requestId: "writer-request-head",
+          command: "builtin:ledger-backup",
+          executingMs: 592_000,
+        });
+        return { outcome: "applied" as const, opId: "op_test_0001", revision: 7 };
+      },
+    } as unknown as DaemonHost,
     log = openDaemonRequestLog({ resolveRootDir: () => rootDir }),
     // The daemon always observes requests; that operation trace carries the write-queue phase.
     server = Object.assign(
@@ -262,8 +275,14 @@ test("a write records its write-queue wait separately from execution; a read rec
   assert.equal(write.command, "fact-record");
   assert.equal(typeof write.queueMs, "number", JSON.stringify(write));
   assert.ok(write.queueMs! <= write.serviceMs, "the queue wait is part of the service time");
+  assert.deepEqual(write.queueHead, {
+    requestId: "writer-request-head",
+    command: "builtin:ledger-backup",
+    executingMs: 592_000,
+  });
   assert.equal(read.command, "task-show");
   assert.equal("queueMs" in read, false);
+  assert.equal("queueHead" in read, false);
 });
 
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {

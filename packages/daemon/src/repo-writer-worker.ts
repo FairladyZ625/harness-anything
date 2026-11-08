@@ -5,7 +5,13 @@ import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
-import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./repo-cell-types.ts";
+import type {
+  RepoCellAttachProgress,
+  RepoCellBinding,
+  RepoCellQueueObservation,
+  RepoCellStatus,
+  RepoCellWriteQueueHead,
+} from "./repo-cell-types.ts";
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   deserializeWriterError,
@@ -298,6 +304,9 @@ async function startRepoWriterWorker(): Promise<void> {
     const markExecutionStart = (): void => {
       executionStartedAtMs ??= monotonicMs();
     };
+    // Only the two socket write families append to the cell's single-write chain; the queue copies
+    // the live head into this object at that append, before the request waits.
+    const queueObservation = writeQueueObservationFor(request);
     activeRequests.set(request.requestId, abort);
     if ((bootstrap.role !== "reader" && !cell) || draining) {
       activeRequests.delete(request.requestId);
@@ -365,6 +374,7 @@ async function startRepoWriterWorker(): Promise<void> {
             binding!,
             abort.signal,
             markExecutionStart,
+            queueObservation,
           );
           break;
         case "presetRun":
@@ -372,6 +382,7 @@ async function startRepoWriterWorker(): Promise<void> {
             (request.payload as { action: Parameters<typeof cell.presetRun>[0] }).action,
             binding!,
             () => notify("releaseCurrentAccessToken", request.requestId),
+            queueObservation,
           );
           break;
         case "spawnRuntime":
@@ -409,11 +420,27 @@ async function startRepoWriterWorker(): Promise<void> {
       }
       // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
       if (cell) publishCellStatus("cut", (value as { readonly cut?: RepoWriterStatusV1["ledgerCut"] } | null)?.cut);
-      postReceipt(request.requestId, value, undefined, startedAtMs, monotonicMs(), executionStartedAtMs);
+      postReceipt(
+        request.requestId,
+        value,
+        undefined,
+        startedAtMs,
+        monotonicMs(),
+        executionStartedAtMs,
+        queueObservation?.head ?? undefined,
+      );
     } catch (error) {
       consumeKnownError(error);
       if (cell) publishCellStatus("status");
-      postReceipt(request.requestId, undefined, error, startedAtMs, monotonicMs(), executionStartedAtMs);
+      postReceipt(
+        request.requestId,
+        undefined,
+        error,
+        startedAtMs,
+        monotonicMs(),
+        executionStartedAtMs,
+        queueObservation?.head ?? undefined,
+      );
     } finally {
       activeRequests.delete(request.requestId);
     }
@@ -610,6 +637,7 @@ function postReceipt(
   startedAtMs?: number,
   finishedAtMs?: number,
   executionStartedAtMs?: number,
+  queueHead?: RepoCellWriteQueueHead,
 ): void {
   parentPort!.postMessage({
     schema: "harness-repo-writer-receipt/v1",
@@ -620,7 +648,20 @@ function postReceipt(
     ...(startedAtMs === undefined ? {} : { startedAtMs }),
     ...(executionStartedAtMs === undefined ? {} : { executionStartedAtMs }),
     ...(finishedAtMs === undefined ? {} : { finishedAtMs }),
+    ...(queueHead === undefined ? {} : { queueHead }),
   } satisfies RepoWriterReceiptV1);
+}
+
+/** The two request families that append a write turn; the queue fills the head at that append. */
+function writeQueueObservationFor(request: RepoWriterRequestV1): RepoCellQueueObservation | undefined {
+  if (request.method !== "run" && request.method !== "presetRun") return undefined;
+  const action = (request.payload as { readonly action?: { readonly kind?: unknown } } | undefined)?.action;
+  return {
+    label: {
+      requestId: request.requestId,
+      command: typeof action?.kind === "string" ? action.kind : request.method,
+    },
+  };
 }
 
 function monotonicMs(): number {

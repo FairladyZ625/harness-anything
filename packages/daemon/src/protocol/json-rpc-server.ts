@@ -5,6 +5,7 @@ import {
   observeDaemonRequest,
   updateDaemonOperation,
   type DaemonOperationObserver,
+  type DaemonOperationQueueHead,
 } from "../daemon-operation.ts";
 import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
@@ -1173,14 +1174,23 @@ export function createJsonRpcProtocolServer(options: {
 }
 
 // The same write-queue phase the connection log records, so request statistics can split a slow
-// write into queueing behind another write and its own execution.
+// write into queueing behind another write and its own execution. The writer receipt also reports
+// which write was at the head while this one waited; both come from the same operation trace.
 // Phases run on the monotonic clock and serviceMs on wall-clock milliseconds; clamp so the wait
 // never reads longer than the service time it is part of.
-function writeQueueWait(serviceMs: number): { readonly queueMs?: number } {
-  const phase = currentDaemonOperationTrace()?.phases.find(({ name }) => name === "write-queue");
-  return phase === undefined
-    ? {}
-    : { queueMs: Math.min(serviceMs, Math.max(0, Math.round(phase.endedAtMs - phase.startedAtMs))) };
+function writeQueueWait(serviceMs: number): {
+  readonly queueMs?: number;
+  readonly queueHead?: DaemonOperationQueueHead;
+} {
+  const trace = currentDaemonOperationTrace();
+  if (trace === null) return {};
+  const phase = trace.phases.find(({ name }) => name === "write-queue");
+  return {
+    ...(phase === undefined
+      ? {}
+      : { queueMs: Math.min(serviceMs, Math.max(0, Math.round(phase.endedAtMs - phase.startedAtMs))) }),
+    ...(trace.queueHead === undefined ? {} : { queueHead: trace.queueHead }),
+  };
 }
 
 function encodeAndAttach(response: JsonRpcResponse): number {

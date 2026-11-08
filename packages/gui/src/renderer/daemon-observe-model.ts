@@ -24,6 +24,14 @@ export interface ObserveRefChip {
   readonly label: string;
 }
 
+/** 写请求排队时占住单写队列的队首请求(请求日志 queueHead);日志未记录时为 null。 */
+export interface ObserveQueueHead {
+  readonly requestId: string | null;
+  readonly command: string;
+  /** 该请求在等待者入队时已执行的毫秒数。 */
+  readonly executingMs: number;
+}
+
 export interface ObserveRow {
   readonly key: string;
   readonly at: string | null;
@@ -47,6 +55,8 @@ export interface ObserveRow {
   readonly durationMs: number | null;
   /** 写请求在单写队列里的等待毫秒(请求日志 queueMs;其余 durationMs 为执行);无则 null。 */
   readonly queueMs: number | null;
+  /** 排队时占住队首的写请求;日志未记录或未等待时为 null。 */
+  readonly queueHead: ObserveQueueHead | null;
   /** 请求/连接日志自带的节点标识(daemonId/nodeId 字段;多节点透镜区分归属用)。 */
   readonly nodeId: string | null;
   /** 日志行的失败码(outcome ?? code;异常聚类按 类型+失败码 去重)。 */
@@ -509,6 +519,7 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     atMs: null,
     durationMs: null,
     queueMs: null,
+    queueHead: null,
     nodeId: null,
     code: null,
     subject: null,
@@ -554,6 +565,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       atMs: epochMsOf(at),
       durationMs: null as number | null,
       queueMs: null as number | null,
+      queueHead: null as ObserveQueueHead | null,
       nodeId: null as string | null,
       code: null as string | null,
       // 主体归属:taskId 优先,无 taskId 的事件退到运行时会话(Top Talkers 的提取位)。
@@ -587,6 +599,7 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       durationMs:
         typeof record.durationMs === "number" && Number.isFinite(record.durationMs) ? record.durationMs : null,
       queueMs: typeof record.queueMs === "number" && Number.isFinite(record.queueMs) ? record.queueMs : null,
+      queueHead: observeQueueHeadOf(record.queueHead),
       nodeId: stringOf(record.daemonId) ?? stringOf(record.nodeId),
       code: outcome,
       // 主体归属:executor 调用方(代理/运行时身份)优先,无执行者退到连接标识。
@@ -596,6 +609,20 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       opClass: observeLogOpClass(command ?? method ?? event ?? "", stringOf(record.commandClass)),
     };
   return { ...base, searchText: searchTextOf(base) };
+}
+
+/** 解析请求日志的 queueHead;命令名缺失的记录视为没有队首证据。 */
+function observeQueueHeadOf(value: unknown): ObserveQueueHead | null {
+  const head = recordOf(value);
+  if (head === null) return null;
+  const command = stringOf(head.command);
+  if (command === null) return null;
+  return {
+    requestId: stringOf(head.requestId),
+    command,
+    executingMs:
+      typeof head.executingMs === "number" && Number.isFinite(head.executingMs) ? Math.max(0, head.executingMs) : 0,
+  };
 }
 
 /**

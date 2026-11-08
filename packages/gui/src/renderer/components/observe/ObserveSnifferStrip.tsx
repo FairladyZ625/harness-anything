@@ -31,15 +31,23 @@ const SMELL_TONE: Record<ObserveSmellStat["kind"], string> = {
 
 const smellText = (smell: ObserveSmellStat): string => {
   switch (smell.kind) {
-    case "slow_write_request":
-      return smell.queueMs == null
-        ? t("views.daemonObserve.smellSlowWrite", { method: smell.label, ms: String(Math.round(smell.value)) })
-        : t("views.daemonObserve.smellSlowWriteQueued", {
-            method: smell.label,
-            ms: String(Math.round(smell.value)),
-            queueMs: String(Math.round(smell.queueMs)),
-            executionMs: String(Math.round(Math.max(0, smell.value - smell.queueMs))),
+    case "slow_write_request": {
+      if (smell.queueMs == null)
+        return t("views.daemonObserve.smellSlowWrite", { method: smell.label, ms: String(Math.round(smell.value)) });
+      const queued = {
+        method: smell.label,
+        ms: String(Math.round(smell.value)),
+        queueMs: String(Math.round(smell.queueMs)),
+        executionMs: String(Math.round(Math.max(0, smell.value - smell.queueMs))),
+      };
+      return smell.queueHead == null
+        ? t("views.daemonObserve.smellSlowWriteQueued", queued)
+        : t("views.daemonObserve.smellSlowWriteQueuedHead", {
+            ...queued,
+            head: smell.queueHead.command,
+            headMs: String(Math.round(smell.queueHead.executingMs)),
           });
+    }
     case "spinloop_polling":
       return t("views.daemonObserve.smellPolling", {
         method: smell.label,

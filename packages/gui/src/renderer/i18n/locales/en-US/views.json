@@ -535,6 +535,7 @@
   "views.daemonObserve.sniffHealthyTip": "No slow write requests or polling bursts; failure rate within threshold. Not a performance or lock-health verdict.",
   "views.daemonObserve.smellSlowWrite": "Slow write request: {method} {ms}ms",
   "views.daemonObserve.smellSlowWriteQueued": "Slow write request: {method} {ms}ms (queued {queueMs}ms · executed {executionMs}ms)",
+  "views.daemonObserve.smellSlowWriteQueuedHead": "Slow write request: {method} {ms}ms (queued {queueMs}ms · executed {executionMs}ms · head {head} running {headMs}ms)",
   "views.daemonObserve.smellPolling": "Dense polling: {method} {rate}/s",
   "views.daemonObserve.smellFailures": "Failure spike: {pct}%",
   "views.daemonObserve.smellFocusTip": "Click to lens the stream to this culprit",

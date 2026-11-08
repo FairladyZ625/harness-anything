@@ -74,6 +74,34 @@ describe("等待耗时与执行耗时", () => {
     expect(strip).not.toMatch(/慢锁|锁争用|Contended|Lock holder/);
   });
 
+  it.each(["zh-CN", "en-US"] as const)("%s: 慢写异味显示排队时占住队首的写请求", (locale) => {
+    setActiveLocale(locale);
+    const stats = statsFor([
+        {
+          event: "request",
+          method: "repo.task.run",
+          command: "task-create",
+          at: "2026-11-08T03:17:30.800Z",
+          durationMs: 574_247,
+          queueMs: 569_956,
+          queueHead: { requestId: "writer-request-head", command: "builtin:ledger-backup", executingMs: 592_000 },
+          commandClass: "repo-write",
+        },
+      ]),
+      strip = renderToStaticMarkup(
+        createElement(ObserveSnifferStrip, {
+          testId: "sniff",
+          stats,
+          window: "1h",
+          isLogPane: true,
+          onFocusSmell: () => {},
+        }),
+      );
+    expect(strip).toContain("builtin:ledger-backup");
+    expect(strip).toContain(locale === "zh-CN" ? "队首" : "head");
+    expect(strip).toContain("592000ms");
+  });
+
   it("等待失败仍计入异常，截图中的七条失败按真实错误码聚类", () => {
     const codes = [
       ...Array(4).fill("execution_credential_rejected"),
