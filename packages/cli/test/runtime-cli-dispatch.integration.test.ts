@@ -687,7 +687,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     "run",
     "terra",
     "--prompt-file",
-path.join(packagePath, "artifacts", "missions", "existing-mission.md"),
+    path.join(packagePath, "artifacts", "missions", "existing-mission.md"),
     "--cwd",
     ".",
     "--task",
