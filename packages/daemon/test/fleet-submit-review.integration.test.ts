@@ -207,6 +207,12 @@ test(
       readonly task?: { readonly reviewDispatchFailure?: { readonly code?: string } };
     };
     assert.equal(recordedTask.task?.reviewDispatchFailure?.code, "runtime_spawn_failed");
+    const agenda = await f.host.read(repoId, "repo.agenda.read", { limit: 50 }, f.auth);
+    assert.match(
+      String((agenda as { readonly summary?: unknown }).summary),
+      /runtime_spawn_failed/u,
+      "agenda must expose the automatic reviewer failure reason",
+    );
     assert.equal(
       (await readCandidates(new AbortController().signal)).some((candidate) => candidate.taskId === taskId),
       false,

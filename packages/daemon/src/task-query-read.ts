@@ -795,11 +795,18 @@ export function makeTaskQueryReadModel(input: {
               activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
             )
               return [];
+            const failure =
+              snapshot.task?.reviewDispatchFailure?.executionId === row.executionId
+                ? snapshot.task.reviewDispatchFailure
+                : undefined;
             return [
               {
                 taskId: row.taskId,
                 since: row.submittedAt,
-                title: `${row.title} — CEO: required review has no active dispatch; run ha task dispatch-review ${row.taskId}.`,
+                title:
+                  `${row.title} — CEO: required review has no active dispatch` +
+                  (failure ? `; last attempt failed (${failure.code}): ${failure.message}` : "") +
+                  `; run ha task dispatch-review ${row.taskId}.`,
               },
             ];
           }),
