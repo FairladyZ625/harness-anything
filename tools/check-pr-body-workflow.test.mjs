@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -118,4 +118,32 @@ test("--list prints every derived job and gate without requiring a body", () => 
   const plan = buildPrBodyWorkflowPlan(manifest(), workflowText());
   for (const job of plan.jobs) assert.match(output, new RegExp(`^${job}:$`, "mu"));
   for (const entry of plan.commands) assert.match(output, new RegExp(`^  ${entry.id}  `, "mu"));
+});
+
+test("a custom --base applies to every derived gate that compares against a base", () => {
+  // HEAD..HEAD has no dependency change, so the declaration gate must agree with production-delta
+  // that the selected cut is empty. A gate pinned to origin/main instead would reject this body
+  // for a dependency change the requested base does not contain.
+  const body = [
+    "## Summary",
+    "A custom-base body used to check that every base-aware gate shares one comparison.",
+    "",
+    "## What Changed",
+    "No repository paths are compared against the selected base.",
+    "",
+    "## Machine-Readable Declarations",
+    "",
+    "## Verification",
+    "The local entry ran every derived gate against HEAD..HEAD.",
+    "",
+    "## Residual Risk",
+    "The check covers base selection, not hosted CI behavior.",
+    "",
+  ].join("\n");
+  const result = spawnSync(process.execPath, [entryPath, "--body", body, "--base", "HEAD", "--head", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 });

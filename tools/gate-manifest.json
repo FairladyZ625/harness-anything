@@ -677,7 +677,7 @@
     },
     {
       "id": "dependency-policy-declaration",
-      "command": "node tools/gates/dependency-policy.mjs --base origin/main --pr-body-file \"$RUNNER_TEMP/pr-body.md\"",
+      "command": "node tools/gates/dependency-policy.mjs --base \"${PR_BASE_SHA:-origin/main}\" --pr-body-file \"$RUNNER_TEMP/pr-body.md\"",
       "failureHint": "When package.json or package-lock.json changes, replace `Dependency-Change: none` with exactly one line describing what changed.",
       "category": "release-policy",
       "tier": "pr-advisory",
