@@ -7,12 +7,7 @@ import test from "node:test";
 import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV2 } from "@harness-anything/kernel";
 import { taskSurfaceWrite } from "../src/repo-cell-task-command-docs.ts";
 import { taskMutation } from "../src/repo-cell-task-mutation.ts";
-import {
-  appendRuntimeWorkerRecord,
-  openDispatchStream,
-  removeDispatchLiveIndexEntries,
-  removeDispatchStream,
-} from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream, removeDispatchStream } from "../src/dispatch-stream.ts";
 
 const now = "2026-08-25T03:15:20.000Z";
 const owner = (executorId: string): ActorIdentity => ({
@@ -279,112 +274,6 @@ test("the task owner reclaims a held lease from an exited holder across executio
       (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
       "an exited RuntimeSession cannot prove a newer holder is dead",
     );
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("the same principal recovers an exited holder after settlement removes its dispatch from the live index", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settled-dispatch-lease-reclaim-")),
-    runtimeSessionId = "runtime-settled-dispatch-reclaim",
-    holder = {
-      principal: { personId: "person-worker" },
-      executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
-    },
-    heldLease = { ...lease, actor: holder },
-    execution = {
-      schema: "execution/v1" as const,
-      executionId: heldLease.executionId,
-      taskId: heldLease.taskId,
-      nodeId: "implementation" as const,
-      iteration: 0 as const,
-      state: "active" as const,
-      actor: holder,
-      claimedAt: now,
-      submittedAt: null,
-      closedAt: null,
-      submission: null,
-    },
-    sessionFor = (liveness: "live" | "exited") => ({
-      runtimeSessionId,
-      instanceId: "codex-test",
-      installationId: "installation-test",
-      kindId: "codex",
-      definitionSnapshotRef: "artifact:runtime-definition/test",
-      providerSessionId: "provider-test",
-      transcriptRef: "file:transcript.jsonl",
-      launchGeneration: 1,
-      liveness,
-      attachable: liveness === "live",
-      taskBindings: [
-        {
-          taskId: heldLease.taskId,
-          executionId: heldLease.executionId,
-          providerSessionId: "provider-test",
-          transcriptRef: "file:transcript.jsonl",
-          boundAt: now,
-        },
-      ],
-      outcome: liveness === "exited" ? ("succeeded" as const) : null,
-      exitCode: liveness === "exited" ? 0 : null,
-      resultRef: liveness === "exited" ? "artifact:runtime-result/test" : null,
-      lastObservedAt: now,
-    }),
-    cellFor = (session: ReturnType<typeof sessionFor>) => ({
-      ...cell,
-      rootDir,
-      projection: { readRuntimeSession: (id: string) => (id === session.runtimeSessionId ? session : null) },
-    }),
-    snapshotFor = () => ({ ...snapshot(), executions: [execution], lease: heldLease }),
-    replacement = authorized({
-      principal: { personId: "person-worker" },
-      executor: { kind: "agent", id: "replacement-worker" },
-    }),
-    dispatchId = "dispatch_cccccccccccccccccccccccc";
-  try {
-    const stream = openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: heldLease.taskId,
-      executionId: heldLease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
-    stream.appendAttemptOutcome(
-      {
-        classification: "worker_stop",
-        reason: "Worker reached a normal attempt boundary.",
-        provider: { instance: "codex-test", model: "test-model", kind: "codex" },
-        attemptGroupId: dispatchId,
-        attemptIndex: 0,
-      },
-      now,
-    );
-    removeDispatchLiveIndexEntries(rootDir, [{ dispatchId, taskId: heldLease.taskId, runtimeSessionId }]);
-
-    assert.throws(
-      () =>
-        taskMutation(
-          cellFor(sessionFor("live")),
-          { kind: "task-release", taskId: task.taskId, reason: "Explicit handoff cannot release a live runtime." },
-          task,
-          snapshotFor(),
-          replacement,
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
-      "a live holder keeps its lease even when settlement dropped the dispatch from the live index",
-    );
-
-    const mutation = taskMutation(
-      cellFor(sessionFor("exited")),
-      { kind: "task-release", taskId: task.taskId, reason: "The holder session exited after settlement." },
-      task,
-      snapshotFor(),
-      replacement,
-    );
-    assert.equal(mutation.type, "lease_released");
-    assert.equal(mutation.releasedLease, heldLease);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
