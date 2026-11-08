@@ -263,10 +263,13 @@ function isUnknownReadFieldError(error: string): boolean {
 const ignoredReadFields = new Set<string>();
 function reportIgnoredReadFields(method: DaemonGuiRpcReadMethod, errors: readonly string[]): void {
   for (const error of errors) {
-    const key = `${method}\u0000${error}`;
+    // Row indexes are not part of the ignored field's identity: agents[0..8] carrying the same
+    // additive field produce one diagnostic, not one per row.
+    const fieldIdentity = error.replace(/\[\d+\]/gu, "[]"),
+      key = `${method}\u0000${fieldIdentity}`;
     if (ignoredReadFields.has(key)) continue;
     ignoredReadFields.add(key);
-    console.warn(`[gui-read-compat] ${method} ignored an additive daemon field: ${error}`);
+    console.warn(`[gui-read-compat] ${method} ignored an additive daemon field: ${fieldIdentity}`);
   }
 }
 

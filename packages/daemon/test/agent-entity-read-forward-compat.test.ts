@@ -25,8 +25,12 @@ const futureCatalog = { schema: "agent-entity-catalog/v1", ok: true, agents: [fu
 
 test("client inbound ignores an additive Agent read field and logs it once", (t) => {
   const warn = t.mock.method(console, "warn", () => undefined),
-    first = parseDaemonGuiReadResponse("repo.agent.entities.list", futureCatalog),
-    second = parseDaemonGuiReadResponse("repo.agent.entities.list", futureCatalog);
+    multiRowCatalog = {
+      ...futureCatalog,
+      agents: [futureAgentRow, { ...futureAgentRow, id: "luna", name: "Luna" }],
+    },
+    first = parseDaemonGuiReadResponse("repo.agent.entities.list", multiRowCatalog),
+    second = parseDaemonGuiReadResponse("repo.agent.entities.list", multiRowCatalog);
 
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
