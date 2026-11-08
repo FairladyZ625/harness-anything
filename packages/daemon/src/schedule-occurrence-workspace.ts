@@ -178,6 +178,15 @@ export function remoteDefaultBranch(rootDir: string): string | null {
 }
 
 /**
+ * Whether this directory is inside a Git work tree at all. An initialized repository with an unborn branch is
+ * one (its HEAD names a branch but no commit); a Git-less edge is not, and dec_BBA713052997C3EF5F5D3DD952 CH3
+ * records no workspace there instead of failing.
+ */
+export function hasGitWorkTree(rootDir: string): boolean {
+  return gitOrNull(rootDir, "rev-parse", "--is-inside-work-tree") === "true";
+}
+
+/**
  * An explicit delivery.targetRef is the repository's work baseline, regardless of origin's history. An unavailable
  * declaration fails rather than choosing a different history. Without one, dec_8B3FCCD256CAC5B0BF3CCEDE58 CH2 uses
  * the repository's default branch: its published copy, else the main checkout's branch. Null when none resolves.
