@@ -497,6 +497,35 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     meaning: "Edge was retired in place; kept as audit history.",
     divergence: "entity-scoped",
   },
+  // ---- AuthoredDocument.readiness (dec_6B912A63D279A922FA1288536D CH1) ----
+  {
+    word: "missing",
+    entity: "AuthoredDocument",
+    field: "readiness",
+    meaning: "The document has no canonical content: not yet authored, or retired.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "contract_unavailable",
+    entity: "AuthoredDocument",
+    field: "readiness",
+    meaning: "The document's readiness contract (its materialized scaffold) is absent; readiness is not guessed.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "not_ready",
+    entity: "AuthoredDocument",
+    field: "readiness",
+    meaning: "Canonical content exists but a required section is empty or still scaffold.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "ready",
+    entity: "AuthoredDocument",
+    field: "readiness",
+    meaning: "Every required section of the canonical content is authored.",
+    divergence: "entity-scoped",
+  },
   // ---- Package.disposition (task package lifecycle) ----
   {
     word: "active",

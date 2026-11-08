@@ -88,6 +88,37 @@ test("positive control: a task_* construction site outside the allowlist fails",
   }
 });
 
+// dec_6B912A63D279A922FA1288536D CH1: authored_document_* events have one entry, the aggregate.
+test("positive control: authored_document_* events are constructed only by the AuthoredDocument aggregate", () => {
+  const root = makeGateRoot("ha-authored-document-entry-");
+  try {
+    const aggregate = path.join(root, "packages/kernel/src/domain/authored-document.ts"),
+      decide = 'authoredDocumentEnvelope(command, "authored_document_revised", {});\n',
+      builder = 'const e = { schema: "authored-document-event/v1", type, payload };\n';
+    mkdirSync(path.dirname(aggregate), { recursive: true });
+    writeFileSync(aggregate, decide + builder);
+    assert.deepEqual(checkTaskEventConstructionSites(scanTaskEventConstructionSites(root)), []);
+    writeFileSync(aggregate, decide.repeat(2) + builder);
+    assert.match(
+      checkTaskEventConstructionSites(scanTaskEventConstructionSites(root)).join("\n"),
+      /authored_document_revised: found 2 construction sites, allowlist ceiling is 1/u,
+    );
+    writeFileSync(aggregate, decide + builder);
+    const rogue = path.join(root, "packages/daemon/src/edge-plan-ready.ts");
+    mkdirSync(path.dirname(rogue), { recursive: true });
+    writeFileSync(
+      rogue,
+      'export const event = { schema: "authored-document-event/v1", type: "authored_document_revised", payload: {} };\n',
+    );
+    assert.match(
+      checkTaskEventConstructionSites(scanTaskEventConstructionSites(root)).join("\n"),
+      /edge-plan-ready.ts\|literal-type\|authored_document_revised: aggregate event construction is outside the aggregate-entry allowlist/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 import { spawnSync as runGate } from "node:child_process";
 import { mkdirSync as makeGateDir, writeFileSync as writeGateFile, rmSync as removeGateRoot } from "node:fs";
 

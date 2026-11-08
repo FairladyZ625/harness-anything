@@ -28,7 +28,8 @@ export type StatusEntity =
   | "DaemonWire"
   | "CiTest"
   | "CiFile"
-  | "CiMeasurement";
+  | "CiMeasurement"
+  | "AuthoredDocument";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 
@@ -132,6 +133,16 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["complete", "partial", "unknown", "no-test-artifact"],
   },
 
+  // dec_6B912A63D279A922FA1288536D CH1: content readiness of the kernel AuthoredDocument aggregate.
+  {
+    id: "authored-document.readiness",
+    entity: "AuthoredDocument",
+    field: "readiness",
+    module: "packages/kernel/src/domain/transition-document-readiness.ts",
+    anchor: "authoredDocumentReadinessStates",
+    words: ["missing", "contract_unavailable", "not_ready", "ready"],
+    note: "Content readiness only; candidate disposition and replica visibility are separate axes.",
+  },
   {
     id: "dispatch.fallbackState",
     entity: "Dispatch",

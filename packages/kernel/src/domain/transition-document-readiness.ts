@@ -14,7 +14,7 @@ function taskActionReadinessDocumentSlot(transitionId: string): string | undefin
     : undefined;
 }
 
-type TransitionDocumentKind = "task.plan" | "decision.body" | "agent.instructions" | "squad.roster";
+export type TransitionDocumentKind = "task.plan" | "decision.body" | "agent.instructions" | "squad.roster";
 type TransitionDocumentPlaceholderCode =
   | "plan_placeholder"
   | "body_placeholder"
@@ -151,12 +151,12 @@ export function assessTransitionDocument(
   body: string,
   contract?: MarkdownDocumentContract,
 ): TransitionDocumentReadiness {
-  const missingSections =
-    kind === "task.plan"
-      ? missingMarkdownSections(body, requireDocumentContract(kind, contract), kind)
-      : kind === "decision.body"
-        ? decisionBodyMissingSections(body)
-        : declarationMissingSection(kind, body);
+  const missingSections = transitionDocumentMissingSections(kind, body, contract);
+  if (missingSections === null)
+    throw transitionDocumentAccessLikeError(
+      "scaffold_unavailable",
+      `${kind} readiness requires the document's materialized scaffold.`,
+    );
   return Object.freeze({
     ready: missingSections.length === 0,
     code: placeholderCodes[kind],
@@ -164,16 +164,44 @@ export function assessTransitionDocument(
   });
 }
 
-function requireDocumentContract(
+/** Content readiness of an authored document (dec_6B912A63D279A922FA1288536D CH1). */
+export const authoredDocumentReadinessStates = ["missing", "contract_unavailable", "not_ready", "ready"] as const;
+export type AuthoredDocumentReadinessState = (typeof authoredDocumentReadinessStates)[number];
+
+export interface AuthoredDocumentReadiness {
+  readonly state: AuthoredDocumentReadinessState;
+  readonly missingSections: readonly TransitionDocumentMissingSection[];
+}
+
+/**
+ * The one content-readiness judgment for an authored document. `body: null` is a document with no
+ * canonical content; a kind whose readiness is defined by its materialized scaffold answers
+ * `contract_unavailable` instead of guessing when that contract is absent. The section verdict is
+ * the same one every transition gate reads through `assessTransitionDocument`.
+ */
+export function assessAuthoredDocumentReadiness(
   kind: TransitionDocumentKind,
+  body: string | null,
+  contract?: MarkdownDocumentContract,
+): AuthoredDocumentReadiness {
+  if (body === null) return Object.freeze({ state: "missing", missingSections: Object.freeze([]) });
+  const missingSections = transitionDocumentMissingSections(kind, body, contract);
+  if (missingSections === null)
+    return Object.freeze({ state: "contract_unavailable", missingSections: Object.freeze([]) });
+  return Object.freeze({
+    state: missingSections.length === 0 ? "ready" : "not_ready",
+    missingSections: Object.freeze(missingSections),
+  });
+}
+
+/** Missing sections per kind; `null` when the kind's readiness needs a scaffold contract that is absent. */
+function transitionDocumentMissingSections(
+  kind: TransitionDocumentKind,
+  body: string,
   contract: MarkdownDocumentContract | undefined,
-): MarkdownDocumentContract {
-  if (contract === undefined)
-    throw transitionDocumentAccessLikeError(
-      "scaffold_unavailable",
-      `${kind} readiness requires the document's materialized scaffold.`,
-    );
-  return contract;
+): readonly TransitionDocumentMissingSection[] | null {
+  if (kind === "task.plan") return contract === undefined ? null : missingMarkdownSections(body, contract, kind);
+  return kind === "decision.body" ? decisionBodyMissingSections(body) : declarationMissingSection(kind, body);
 }
 
 function transitionDocumentAccessLikeError(code: string, message: string): Error {

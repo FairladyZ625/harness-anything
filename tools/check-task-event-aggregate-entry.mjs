@@ -5,15 +5,32 @@
  * Authorization: dec_399F48E3547D831F1199F51E84 CH1. Existing construction
  * sites are tolerated at their current counts; a new site or an extra event
  * constructor at an allowed site is refused.
+ *
+ * The same scan covers authored_document_* events (dec_6B912A63D279A922FA1288536D
+ * CH1): only the AuthoredDocument aggregate may construct them.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { listWorktreeFiles } from "./gates/git.mjs";
-import { TASK_EVENT_CONSTRUCTION_ALLOWLIST } from "./gate-allowlists/task-event-aggregate-entry.mjs";
+import {
+  AUTHORED_DOCUMENT_EVENT_CONSTRUCTION_ALLOWLIST,
+  TASK_EVENT_CONSTRUCTION_ALLOWLIST,
+} from "./gate-allowlists/task-event-aggregate-entry.mjs";
 
-export { TASK_EVENT_CONSTRUCTION_ALLOWLIST };
+export { AUTHORED_DOCUMENT_EVENT_CONSTRUCTION_ALLOWLIST, TASK_EVENT_CONSTRUCTION_ALLOWLIST };
+
+const EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
+  ...TASK_EVENT_CONSTRUCTION_ALLOWLIST,
+  ...AUTHORED_DOCUMENT_EVENT_CONSTRUCTION_ALLOWLIST,
+});
+
+// Each aggregate's event family: its type prefix, envelope schema, and envelope constructor name.
+const EVENT_FAMILIES = Object.freeze([
+  { prefix: "task_", schema: "task-event/v1", constructor: "envelope" },
+  { prefix: "authored_document_", schema: "authored-document-event/v1", constructor: "authoredDocumentEnvelope" },
+]);
 
 const SOURCE_FILE = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;
 
@@ -36,7 +53,7 @@ export function scanTaskEventConstructionSites(root = process.cwd()) {
         ts.isPropertyAssignment(node) &&
         propertyName(node.name) === "type" &&
         ts.isStringLiteralLike(node.initializer) &&
-        node.initializer.text.startsWith("task_")
+        familyOfType(node.initializer.text)
       ) {
         add(node, "literal-type", node.initializer.text);
       }
@@ -44,7 +61,7 @@ export function scanTaskEventConstructionSites(root = process.cwd()) {
         ts.isPropertyAssignment(node) &&
         propertyName(node.name) === "schema" &&
         ts.isStringLiteralLike(node.initializer) &&
-        node.initializer.text === "task-event/v1" &&
+        EVENT_FAMILIES.some((family) => family.schema === node.initializer.text) &&
         ts.isObjectLiteralExpression(node.parent)
       ) {
         const typeProperty = node.parent.properties.find(
@@ -58,9 +75,13 @@ export function scanTaskEventConstructionSites(root = process.cwd()) {
         )
           add(node, "dynamic-task-event", "<dynamic>");
       }
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "envelope") {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
         const eventType = node.arguments[1];
-        if (eventType && ts.isStringLiteralLike(eventType) && eventType.text.startsWith("task_"))
+        if (
+          eventType &&
+          ts.isStringLiteralLike(eventType) &&
+          familyOfType(eventType.text)?.constructor === node.expression.text
+        )
           add(node, "envelope-call", eventType.text);
       }
       ts.forEachChild(node, visit);
@@ -70,7 +91,7 @@ export function scanTaskEventConstructionSites(root = process.cwd()) {
   return sites;
 }
 
-export function checkTaskEventConstructionSites(sites, allowlist = TASK_EVENT_CONSTRUCTION_ALLOWLIST) {
+export function checkTaskEventConstructionSites(sites, allowlist = EVENT_CONSTRUCTION_ALLOWLIST) {
   const grouped = new Map();
   for (const site of sites) {
     const key = siteKey(site);
@@ -83,7 +104,7 @@ export function checkTaskEventConstructionSites(sites, allowlist = TASK_EVENT_CO
     const ceiling = allowlist[key];
     if (ceiling === undefined)
       findings.push(
-        `${key}: task_* event construction is outside the aggregate-entry allowlist at ${locations(values)}`,
+        `${key}: aggregate event construction is outside the aggregate-entry allowlist at ${locations(values)}`,
       );
     else if (values.length > ceiling)
       findings.push(
@@ -102,9 +123,14 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log(`Task event aggregate-entry check passed (${sites.length} allowlisted task_* construction sites).`);
+  console.log(
+    `Task event aggregate-entry check passed (${sites.length} allowlisted task_* and authored_document_* construction sites).`,
+  );
 }
 
+function familyOfType(eventType) {
+  return EVENT_FAMILIES.find((family) => eventType.startsWith(family.prefix));
+}
 function siteKey(site) {
   return `${site.path}|${site.form}|${site.eventType}`;
 }
