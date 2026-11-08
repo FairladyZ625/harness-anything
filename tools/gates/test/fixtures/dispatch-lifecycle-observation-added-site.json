@@ -1,0 +1,16 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "authority": "decision/dec_AEB05951C69E47FCE53E53C341#CH4",
+  "policy": "fixture: the added observation site below must be refused by the shrink-only dispatch lifecycle ratchet",
+  "entries": {
+    "observationSites": [
+      {
+        "path": "packages/daemon/src/fixture-new-observation.ts",
+        "symbol": "admitFromProcessProbe",
+        "kind": "runtimePidIsAlive",
+        "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+        "slice": "2"
+      }
+    ]
+  }
+}
