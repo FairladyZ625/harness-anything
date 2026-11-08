@@ -73,7 +73,7 @@ test("one byte above the 20,000,000-byte document limit is refused by the canoni
   );
 });
 
-test("exactly 20,000,000 bytes is accepted and replayed as the document claim", () => {
+test("exactly 20,000,000 bytes is accepted by the canonical write port", () => {
   const body = Buffer.alloc(LEDGER_DOCUMENT_MAX_BYTES, 0x78),
     bundle = documentBundle(body);
   assert.equal(bundle.event.payload.entity.kind, "repo-document");
