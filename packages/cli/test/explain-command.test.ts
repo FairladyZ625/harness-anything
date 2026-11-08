@@ -225,6 +225,7 @@ test("explain receipts exit non-zero exactly when the explanation mode is failur
   assert.equal(receiptExitCode({ schema: "entity-action-explanation/v1", mode: "object" }), 0);
   assert.equal(receiptExitCode({ schema: "entity-action-explanation/v1", mode: "catalog" }), 0);
   assert.equal(receiptExitCode({ ok: true }), 0);
+  assert.equal(receiptExitCode({ ok: false, code: "edge_join_sync_failed" }), 1);
   assert.equal(receiptExitCode({ code: "missing_field" }), 2);
   assert.equal(receiptExitCode({}), 1);
   assert.equal(receiptExitCode({ exitCode: 3 }), 3);

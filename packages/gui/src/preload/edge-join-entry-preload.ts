@@ -14,7 +14,7 @@ export function edgeJoinEntryPreloadApi(
   on: (channel: string, listener: (payload: unknown) => void) => () => void,
 ): EdgeJoinEntryApi {
   return {
-    begin: (input) => invoke(EDGE_JOIN_ENTRY_CHANNEL, { kind: "join", link: input.link }),
+    begin: (input) => invoke(EDGE_JOIN_ENTRY_CHANNEL, { kind: "join", ...input }),
     poll: () => invoke(EDGE_JOIN_ENTRY_CHANNEL, { kind: "poll" }),
     progress: () => invoke(EDGE_JOIN_ENTRY_CHANNEL, { kind: "progress" }),
     openLogin: () => invoke(EDGE_JOIN_ENTRY_CHANNEL, { kind: "open-login" }),

@@ -49,7 +49,11 @@ export function registerEdgeJoinEntryIpc(
     }
     const reply =
       request.kind === "join"
-        ? await ports.daemonRequest({ operation: "edge-join", link: request.link })
+        ? await ports.daemonRequest({
+            operation: "edge-join",
+            link: request.link,
+            ...(request.originUrls === undefined ? {} : { originUrls: request.originUrls }),
+          })
         : await ports.daemonRequest({ operation: request.kind === "poll" ? "login-poll" : "edge-join-progress" });
     if (typeof reply.verificationUri === "string" && reply.verificationUri !== "") {
       // Only an https page the daemon's device login named is ever opened; renderer input cannot pick a URL.
@@ -64,10 +68,11 @@ export function registerEdgeJoinEntryIpc(
 export function edgeJoinEntryParams(input: unknown): EdgeJoinEntryRequest {
   const request = (typeof input === "object" && input !== null ? input : {}) as Readonly<Record<string, unknown>>,
     kind = String(request.kind);
-  const unknown = Object.keys(request).filter((key) => key !== "kind" && key !== "link");
+  const unknown = Object.keys(request).filter((key) => !["kind", "link", "originUrls"].includes(key));
   if (unknown.length > 0) throw new Error(`Edge join does not take ${unknown.join(", ")}.`);
   if (kind === "poll" || kind === "progress" || kind === "open-login") {
-    if (Object.hasOwn(request, "link")) throw new Error(`Edge join ${kind} does not take a link.`);
+    if (Object.hasOwn(request, "link") || Object.hasOwn(request, "originUrls"))
+      throw new Error(`Edge join ${kind} does not take join details.`);
     return { kind };
   }
   if (kind !== "join") throw new Error(`Edge join does not offer ${kind}.`);
@@ -80,5 +85,27 @@ export function edgeJoinEntryParams(input: unknown): EdgeJoinEntryRequest {
     link.length > EDGE_JOIN_LINK_MAX
   )
     throw new Error("Paste a harness-edge://join/ invitation link.");
-  return { kind: "join", link };
+  const originUrls = readOriginUrls(request.originUrls);
+  return { kind: "join", link, ...(originUrls === undefined ? {} : { originUrls }) };
+}
+
+function readOriginUrls(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Edge join origin addresses must be a repository-to-address map.");
+  const entries = Object.entries(value);
+  if (
+    entries.length > 64 ||
+    entries.some(
+      ([repoId, address]) =>
+        !repoId ||
+        repoId.length > 128 ||
+        typeof address !== "string" ||
+        !address.trim() ||
+        address.length > 2_048 ||
+        /[\0\r\n]/u.test(address),
+    )
+  )
+    throw new Error("Edge join origin addresses contain an invalid repository or address.");
+  return Object.fromEntries(entries) as Record<string, string>;
 }

@@ -154,6 +154,9 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
       }),
+      cliInput("--root", "single", false, {
+        code: "invalid_field",
+      }),
       cliInput("--display-name", "single", false, {
         code: "invalid_field",
       }),

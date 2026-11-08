@@ -204,6 +204,7 @@ export interface EdgeJoinAdmission {
     readonly repoId: string;
     readonly harnessYaml: string;
     readonly originUrl: string | null;
+    readonly originAddress?: string | null;
     readonly originPushUrls: readonly string[];
     readonly defaultBranch: string | null;
     readonly defaultBranchCommit: string | null;

@@ -9,7 +9,10 @@ import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 
 /** The joiner's typed channel to the daemon's existing edge join; the wizard is its only consumer. */
 type EdgeJoinBridge = {
-  readonly begin: (input: { readonly link: string }) => Promise<unknown>;
+  readonly begin: (input: {
+    readonly link: string;
+    readonly originUrls?: Readonly<Record<string, string>>;
+  }) => Promise<unknown>;
   readonly poll: () => Promise<unknown>;
   readonly progress: () => Promise<unknown>;
   readonly openLogin: () => Promise<unknown>;
@@ -63,8 +66,11 @@ function readProgressRepository(value: unknown): EdgeJoinProgress["repositories"
 }
 
 /** Calls the daemon's edge join once: without a session it returns the device login, with one the joined receipt. */
-export async function beginEdgeJoin(link: string): Promise<EdgeJoinDeviceLogin | EdgeJoinJoined | EdgeJoinRejection> {
-  const value = await edgeJoinBridge().begin({ link });
+export async function beginEdgeJoin(
+  link: string,
+  originUrls?: Readonly<Record<string, string>>,
+): Promise<EdgeJoinDeviceLogin | EdgeJoinJoined | EdgeJoinRejection> {
+  const value = await edgeJoinBridge().begin({ link, ...(originUrls === undefined ? {} : { originUrls }) });
   if (isRendererRecord(value) && value.ok === false) return readRejection(value);
   if (isRendererRecord(value) && value.pending === true) {
     if (
@@ -74,6 +80,15 @@ export async function beginEdgeJoin(link: string): Promise<EdgeJoinDeviceLogin |
       typeof value.expiresAt !== "number"
     )
       throw rendererReadError(value, "Edge join sign-in returned an invalid result.");
+    const browserApprovalUri = typeof value.browserApprovalUri === "string" ? value.browserApprovalUri : undefined;
+    if (browserApprovalUri !== undefined) {
+      try {
+        if (new URL(browserApprovalUri).protocol !== "https:")
+          throw rendererReadError(value, "Edge join returned an invalid center browser sign-in page.");
+      } catch {
+        throw rendererReadError(value, "Edge join returned an invalid center browser sign-in page.");
+      }
+    }
     return {
       pending: true,
       verificationUri: value.verificationUri,
@@ -81,6 +96,7 @@ export async function beginEdgeJoin(link: string): Promise<EdgeJoinDeviceLogin |
       interval: value.interval,
       expiresAt: value.expiresAt,
       ...(value.transport === "ssh-reverse" ? { transport: "ssh-reverse" as const } : {}),
+      ...(browserApprovalUri === undefined ? {} : { browserApprovalUri }),
     };
   }
   return readJoined(value);
@@ -109,7 +125,14 @@ export function readJoined(value: unknown): EdgeJoinJoined {
         repoId: repository.repoId,
         ok: repository.ok,
         ...(typeof repository.code === "string" ? { code: repository.code } : {}),
-        ...(typeof repository.error === "string" ? { error: repository.error } : {}),
+        ...(typeof repository.error === "string"
+          ? { error: repository.error }
+          : isRendererRecord(repository.error) && typeof repository.error.hint === "string"
+            ? { error: repository.error.hint }
+            : {}),
+        ...(repository.needsOrigin === true ? { needsOrigin: true } : {}),
+        ...(typeof repository.defaultBranch === "string" ? { defaultBranch: repository.defaultBranch } : {}),
+        ...(typeof repository.centerOrigin === "string" ? { centerOrigin: repository.centerOrigin } : {}),
       };
     }),
     ...(typeof value.nodeId === "string" ? { nodeId: value.nodeId } : {}),

@@ -180,6 +180,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
   readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
+  readonly migrateEdgeWorkspace: (repoId: string, oldRoot: string, newRoot: string) => Promise<void>;
   readonly instances: ReturnType<typeof openRuntimeInstanceStore>;
   readonly decisionProviders: ReturnType<typeof openDecisionProviderService>;
   readonly requiredText: typeof import("./daemon-host-status.ts").requiredText;
@@ -188,7 +189,10 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly openings: Map<string, Promise<void>>;
   /** Every replica task stays owned until its abort path and confirmation tail have settled. */
   readonly replicaSyncTasks: Set<Promise<void>>;
-  readonly replicaSyncControllers: Map<string, { readonly controller: AbortController; readonly config: string }>;
+  readonly replicaSyncControllers: Map<
+    string,
+    { readonly controller: AbortController; readonly config: string; task: Promise<void> }
+  >;
   /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */
   readonly startReplicaSyncs: () => void;
   readonly fleetVersionWarnings: Map<string, FleetVersionWarning>;

@@ -292,15 +292,39 @@ test("a stale humanClientId cannot override the node-derived azp during edge syn
 });
 
 test(
-  "edge sync refuses a workspace whose origin differs from the center repository",
+  "edge sync refuses an origin whose default branch history does not contain the center head",
   { timeout: 180_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true),
-      centerOrigin = path.join(f.root, "center-origin.git");
+      centerOrigin = path.join(f.root, "center-origin.git"),
+      centerBranch = execFileSync("git", ["-C", f.repo, "symbolic-ref", "--short", "HEAD"], {
+        encoding: "utf8",
+      }).trim();
+    execFileSync("git", ["init", "--bare", "-q", centerOrigin]);
     execFileSync("git", ["-C", f.repo, "remote", "add", "origin", centerOrigin]);
+    execFileSync("git", ["-C", f.repo, "push", "-q", "-u", "origin", centerBranch]);
+    execFileSync("git", ["--git-dir", centerOrigin, "symbolic-ref", "HEAD", `refs/heads/${centerBranch}`]);
+    const wrongSource = path.join(f.root, "wrong-source"),
+      wrongOrigin = path.join(f.root, "wrong-origin.git");
+    execFileSync("git", ["init", "-q", "-b", centerBranch, wrongSource]);
+    execFileSync("git", [
+      "-C",
+      wrongSource,
+      "-c",
+      "user.name=Edge Test",
+      "-c",
+      "user.email=edge@example.invalid",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "unrelated repository",
+    ]);
+    execFileSync("git", ["clone", "--quiet", "--bare", wrongSource, wrongOrigin]);
+    execFileSync("git", ["--git-dir", wrongOrigin, "symbolic-ref", "HEAD", `refs/heads/${centerBranch}`]);
     const e = await fleetEdgeHostFixture(t, f),
       { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
-    execFileSync("git", ["-C", e.edgeRoot, "remote", "add", "origin", path.join(f.root, "wrong-origin.git")]);
+    execFileSync("git", ["-C", e.edgeRoot, "branch", "-M", centerBranch]);
+    execFileSync("git", ["-C", e.edgeRoot, "remote", "add", "origin", wrongOrigin]);
     const response = await e.rpc.handle({
       jsonrpc: "2.0",
       id: 301,
@@ -309,6 +333,9 @@ test(
     });
     assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
     assert.equal((response.result as Record<string, unknown>).code, "edge_origin_mismatch", JSON.stringify(response));
-    assert.match(String((response.result as Record<string, unknown>).rejectionExplanation), /origin does not match/u);
+    assert.match(
+      String((response.result as Record<string, unknown>).rejectionExplanation),
+      new RegExp(`origin's ${centerBranch} default branch history`, "u"),
+    );
   },
 );

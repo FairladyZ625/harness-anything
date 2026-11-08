@@ -18,6 +18,7 @@ import {
 } from "../src/fleet/command-protocol.ts";
 import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "../src/fleet/command-transfer.ts";
 import { createResourceBudget } from "../src/fleet/resource-budget.ts";
+import { edgeRuntimeCacheKey } from "../src/daemon-host-open.ts";
 
 const cut = {
   revision: 7,
@@ -26,6 +27,21 @@ const cut = {
 } as const;
 const ledgerCut = { repoId: "repo", revision: cut.revision, headDigest: cut.headDigest } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
+
+test("edge runtime cache identity changes with a migrated workspace, view, or CA path", () => {
+  const base = {
+    repoId: "edge",
+    nodeId: "node-a",
+    host: "center.example",
+    port: 8443,
+    workspaceRoot: "/edge/old",
+    viewRoot: "/edge/old-view",
+    caPath: "/edge/old-ca.pem",
+  } as const;
+  assert.notEqual(edgeRuntimeCacheKey(base), edgeRuntimeCacheKey({ ...base, workspaceRoot: "/edge/new" }));
+  assert.notEqual(edgeRuntimeCacheKey(base), edgeRuntimeCacheKey({ ...base, viewRoot: "/edge/new-view" }));
+  assert.notEqual(edgeRuntimeCacheKey(base), edgeRuntimeCacheKey({ ...base, caPath: "/edge/new-ca.pem" }));
+});
 test("large logical frames use ordered digest-checked envelopes and reassemble atomically", async () => {
   const frame = {
       schema: "fleet.operational.read.result/v1" as const,

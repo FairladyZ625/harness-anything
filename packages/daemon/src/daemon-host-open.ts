@@ -156,6 +156,24 @@ import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
+import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
+
+export function edgeRuntimeCacheKey(
+  request: Pick<
+    FleetEdgeRuntimeRequest["payload"],
+    "repoId" | "nodeId" | "host" | "port" | "workspaceRoot" | "viewRoot" | "caPath"
+  >,
+): string {
+  return JSON.stringify([
+    request.repoId,
+    request.nodeId,
+    request.host,
+    request.port,
+    request.workspaceRoot,
+    request.viewRoot,
+    request.caPath,
+  ]);
+}
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
   readonly daemonId: string;
@@ -213,7 +231,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       endpoint: input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId),
     },
     remoteProxy = openRemoteProxyManager(input.userRoot),
-    replicaSyncControllers = new Map<string, { readonly controller: AbortController; readonly config: string }>();
+    replicaSyncControllers = new Map<
+      string,
+      { readonly controller: AbortController; readonly config: string; task: Promise<void> }
+    >();
   const unavailable = new Map<string, RepoCellStatus>(),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
@@ -603,7 +624,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       });
   }
   function edgeRuntimeFor(request: FleetEdgeRuntimeRequest["payload"]): ReturnType<typeof openFleetEdgeRuntime> {
-    const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
+    const key = edgeRuntimeCacheKey(request),
       runtime =
         fleetEdgeRuntimes.get(key) ??
         openFleetEdgeRuntime({
@@ -652,6 +673,26 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         });
     fleetEdgeRuntimes.set(key, runtime);
     return runtime;
+  }
+  async function migrateEdgeWorkspace(repoId: string, oldRoot: string, newRoot: string): Promise<void> {
+    const running = replicaSyncControllers.get(repoId);
+    if (running) {
+      running.controller.abort();
+      await running.task;
+      replicaSyncControllers.delete(repoId);
+    }
+    const runtimeKeyPrefix = `[${JSON.stringify(repoId)},`;
+    for (const [key, runtime] of fleetEdgeRuntimes) {
+      if (!key.startsWith(runtimeKeyPrefix)) continue;
+      fleetEdgeRuntimes.delete(key);
+      runtime.close();
+    }
+    try {
+      migrateFleetEdgeWorkspace(oldRoot, newRoot, repoId, input.userRoot);
+    } catch (error) {
+      startReplicaSyncs();
+      throw error;
+    }
   }
   const scheduleScheduler = makeScheduleScheduler({
     cells,
@@ -1024,6 +1065,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimeDaemonRoute,
     scheduleScheduler,
     edgeRuntimeFor,
+    migrateEdgeWorkspace,
     instances,
     decisionProviders,
     requiredText,
@@ -1209,11 +1251,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           }
         }
         if (request.operation === "edge-join") {
+          const originUrls = edgeJoinOriginUrls(request.originUrls);
           return joinFleetEdge(
             {
               link: String(request.link ?? ""),
               ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {}),
               ...(request.quotaBytes === undefined ? {} : { quotaBytes: request.quotaBytes }),
+              ...(originUrls === undefined ? {} : { originUrls }),
             },
             {
               session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
@@ -1383,12 +1427,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       activeRemoteEdges.add(repo.repoId);
       // A stream follows its fleet-edge.json: an edge sync that changed the connection restarts it.
       const running = replicaSyncControllers.get(repo.repoId),
-        connection = JSON.stringify(config);
+        connection = JSON.stringify([rootDir, config]);
       if (running?.config === connection) continue;
       fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
-      const controller = new AbortController();
-      replicaSyncControllers.set(repo.repoId, { controller, config: connection });
+      const controller = new AbortController(),
+        replicaSync = { controller, config: connection, task: Promise.resolve() };
+      replicaSyncControllers.set(repo.repoId, replicaSync);
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
       const readAccessToken = createFleetReplicaAccessTokenReader({
@@ -1448,6 +1493,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             error: error instanceof Error ? error.message : String(error),
           }),
       });
+      replicaSync.task = task;
       replicaSyncTasks.add(task);
       void task.then(
         () => replicaSyncTasks.delete(task),
@@ -1598,4 +1644,25 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void {
     return settleControlImpl(extracted, pending, ok, error);
   }
+}
+
+function edgeJoinOriginUrls(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw hostCodedError("edge_origin_invalid", "Edge join origin addresses must be a repository-to-address map.");
+  const entries = Object.entries(value);
+  if (
+    entries.length > 64 ||
+    entries.some(
+      ([repoId, address]) =>
+        !repoId ||
+        repoId.length > 128 ||
+        typeof address !== "string" ||
+        !address.trim() ||
+        address.length > 2_048 ||
+        /[\0\r\n]/u.test(address),
+    )
+  )
+    throw hostCodedError("edge_origin_invalid", "Edge join origin addresses contain an invalid repository or address.");
+  return Object.fromEntries(entries) as Record<string, string>;
 }

@@ -62,6 +62,7 @@ export async function runDaemonRepoControl(
   }
   if (subcommand === "update") {
     const repoId = daemonOption(argv, "--repo-id"),
+      root = daemonOption(argv, "--root"),
       mode = daemonOption(argv, "--mode"),
       state = daemonOption(argv, "--state"),
       displayName = daemonOption(argv, "--display-name"),
@@ -80,6 +81,7 @@ export async function runDaemonRepoControl(
       "daemon.repo.update",
       {
         repoId,
+        ...(root ? { rootDir: path.resolve(root) } : {}),
         ...(mode ? { mode } : {}),
         ...(state ? { state } : {}),
         ...(displayName ? { displayName } : {}),

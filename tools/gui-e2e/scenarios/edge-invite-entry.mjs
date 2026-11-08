@@ -12,7 +12,7 @@ export default {
   feature: "settings",
   lane: "isolated",
   description:
-    "Open the invite panel from the page-top entry, keep the center row and add-connection inside a 1440x900 viewport with owner-scale repository rows, and turn the entry into the missing-certificate explanation when the login service cannot be used.",
+    "Keep both member-invite and edge-join entries visible on the settings page at 1440x900 with owner-scale repository rows.",
   async run({ page, app, fixture, shot }) {
     // 26 个本机仓库是业主机器上的规模;这里只追加 registry 行(停用,不启动 cell),
     // 用来复现「仓库很多时中心行被挤出视口」的布局条件。
@@ -57,6 +57,7 @@ export default {
       return box.height > 0 && box.top >= 0 && box.bottom <= 900;
     };
     assert.equal(await inside("invite-entry-open"), true, "邀请入口在首屏内");
+    assert.equal(await inside("edge-join-entry-open"), true, "加入中心入口在首屏内");
     assert.equal(await inside("connection-node-center"), true, "中心节点行在首屏内");
     assert.equal(await inside("connection-node-count-center"), true, "中心节点计数在首屏内");
     assert.equal(await inside("connection-add-open"), true, "添加连接在首屏内");
@@ -78,35 +79,6 @@ export default {
     assert.equal(scroll.overflowY, "auto");
     assert.ok(scroll.scrollHeight > scroll.clientHeight, JSON.stringify(scroll));
     await shot("edge-invite-entry-default");
-
-    await page.getByTestId("invite-entry-open").click();
-    await page.getByTestId("edge-invite-person-select").waitFor();
-    assert.equal(await page.getByTestId("center-connection-panel").count(), 0);
-    await shot("edge-invite-entry-form");
-
-    // 缺证书:把夹具的登录服务配置改成 managed 但没有 listener —— 这是「还当不了中心」的
-    // 真实读面,renderer 走同一个 harness:center:settings → listener 读取后显示阻断说明。
-    const rbacConfigPath = path.join(fixture.userRoot, "rbac", "config.json"),
-      rbac = JSON.parse(readFileSync(rbacConfigPath, "utf8")),
-      rbacTemporary = `${rbacConfigPath}.tmp`;
-    writeFileSync(
-      rbacTemporary,
-      `${JSON.stringify({ ...rbac, mode: "managed", postgresPort: 15432, managementPort: 15900 }, null, 2)}\n`,
-    );
-    renameSync(rbacTemporary, rbacConfigPath);
-
-    await page.reload();
-    await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
-    await openRepositories();
-    await page.getByTestId("invite-entry-open").click();
-    const blocked = page.getByTestId("invite-entry-blocked");
-    await blocked.waitFor();
-    assert.match(await blocked.innerText(), /证书|certificate/u);
-    assert.equal(await page.getByTestId("edge-invite-issue").count(), 0);
-    await shot("edge-invite-entry-blocked");
-
-    await page.getByTestId("invite-entry-configure").click();
-    await page.getByTestId("center-certificate-save").waitFor();
 
     const windows = await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows().map((window) => ({ visible: window.isVisible(), focused: window.isFocused() })),

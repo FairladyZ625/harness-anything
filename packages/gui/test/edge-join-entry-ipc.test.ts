@@ -44,6 +44,10 @@ function fixture(replies: readonly JsonObject[] = [{ ok: true }]) {
 
 test("the renderer request is narrowed to one join link, one poll, or one read-only progress query", () => {
   assert.deepEqual(edgeJoinEntryParams({ kind: "join", link: LINK }), { kind: "join", link: LINK });
+  assert.deepEqual(
+    edgeJoinEntryParams({ kind: "join", link: LINK, originUrls: { "repo-a": "ssh://edge/repo-a.git" } }),
+    { kind: "join", link: LINK, originUrls: { "repo-a": "ssh://edge/repo-a.git" } },
+  );
   assert.deepEqual(edgeJoinEntryParams({ kind: "poll" }), { kind: "poll" });
   assert.deepEqual(edgeJoinEntryParams({ kind: "progress" }), { kind: "progress" });
   assert.deepEqual(edgeJoinEntryParams({ kind: "open-login" }), { kind: "open-login" });
@@ -52,6 +56,8 @@ test("the renderer request is narrowed to one join link, one poll, or one read-o
     { kind: "join", link: `${EDGE_JOIN_LINK_PREFIX}` },
     { kind: "join", link: `${EDGE_JOIN_LINK_PREFIX}${"a".repeat(4096)}` },
     { kind: "join", link: LINK, rootDir: "/tmp/elsewhere" },
+    { kind: "join", link: LINK, originUrls: { "repo-a": "" } },
+    { kind: "join", link: LINK, originUrls: { "repo-a": "x".repeat(2049) } },
     { kind: "poll", link: LINK },
     { kind: "delete" },
     {},
@@ -80,11 +86,13 @@ test("join, poll, and progress reach the daemon's existing operations unchanged"
   ]);
 
   await invoke({ kind: "join", link: LINK });
+  await invoke({ kind: "join", link: LINK, originUrls: { "repo-a": "ssh://edge/repo-a.git" } });
   await invoke({ kind: "poll" });
   await invoke({ kind: "progress" });
 
   assert.deepEqual(sent, [
     { operation: "edge-join", link: LINK },
+    { operation: "edge-join", link: LINK, originUrls: { "repo-a": "ssh://edge/repo-a.git" } },
     { operation: "login-poll" },
     { operation: "edge-join-progress" },
   ]);
