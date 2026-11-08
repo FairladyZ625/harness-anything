@@ -218,6 +218,9 @@ function main(argv) {
 
   const tempDir = mkdtempSync(path.join(tmpdir(), "pr-body-workflow-"));
   const eventPath = path.join(tempDir, "event.json");
+  // The dependency gate reads the live body by path in CI; give the same manifest command the
+  // same path locally instead of inventing a second input mode.
+  writeFileSync(path.join(tempDir, "pr-body.md"), source.body, "utf8");
   writeFileSync(
     eventPath,
     JSON.stringify({ pull_request: { body: source.body, base: { sha: baseSha }, head: { sha: headSha } } }),
@@ -230,12 +233,14 @@ function main(argv) {
     PR_HEAD_SHA: process.env.PR_HEAD_SHA,
     GITHUB_EVENT_PATH: process.env.GITHUB_EVENT_PATH,
     GITHUB_EVENT_NAME: process.env.GITHUB_EVENT_NAME,
+    RUNNER_TEMP: process.env.RUNNER_TEMP,
   };
   process.env.PR_BODY = source.body;
   process.env.PR_BASE_SHA = baseSha;
   process.env.PR_HEAD_SHA = headSha;
   process.env.GITHUB_EVENT_PATH = eventPath;
   process.env.GITHUB_EVENT_NAME = "pull_request";
+  process.env.RUNNER_TEMP = tempDir;
 
   try {
     console.log(

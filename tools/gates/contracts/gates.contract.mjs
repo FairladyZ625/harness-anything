@@ -66,7 +66,7 @@ export default Object.freeze({
       phase: "P2",
       workflow: ".github/workflows/pr-body.yml",
       job: "pr-body-advisory",
-      command: 'node tools/gates/dependency-policy.mjs --base "${PR_BASE_SHA:-origin/main}" --pr-body-env PR_BODY',
+      command: 'node tools/gates/dependency-policy.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"',
     },
   ],
   schemas: [],
