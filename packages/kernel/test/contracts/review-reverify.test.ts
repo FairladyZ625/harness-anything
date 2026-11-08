@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCompletionContract } from "../domain/completion.fixtures.ts";
-import { implementer, reviewer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
+import { implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
 import { taskCompletionNext } from "../../src/domain/completion-readiness.ts";
 import { submissionDigest } from "../../src/domain/execution.ts";
@@ -101,11 +101,16 @@ function resubmittedAfter(
   return { snapshot, executionId: second.executionId };
 }
 
-function ownerVerifyConsent(snapshot: TaskLifecycleSnapshot, executionId: string, reviewId = "review-round-one") {
+function ownerVerifyConsent(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string,
+  actor: Parameters<typeof normalizeTaskLifecycleCommand>[0]["actor"] = owner,
+  reviewId = "review-round-one",
+) {
   const review = snapshot.reviews.find((value) => value.reviewId === reviewId)!;
   return lifecycleCommand(
     snapshot,
-    owner,
+    actor,
     {
       type: "RecordReviewConsent",
       taskId: snapshot.task!.taskId,
@@ -251,11 +256,10 @@ test("a cut without a previous changes_requested round owes one full review", ()
   // A non-owner cannot release the cut through owner verification.
   const { snapshot, executionId } = resubmittedAfter([countFinding]),
     stranger = { principal: { personId: "person-reviewer" }, executor: null } as const,
-    command = { ...ownerVerifyConsent(snapshot, executionId), actor: stranger };
+    command = ownerVerifyConsent(snapshot, executionId, stranger),
+    issues = validateTransition(snapshot, command, { ...consentProof, actorBinding: stranger });
   assert.ok(
-    validateTransition(snapshot, command, { ...consentProof, actorBinding: stranger }).some((issue) =>
-      /task owner's principal/u.test(issue.message),
-    ),
+    issues.some((issue) => /task owner's principal/u.test(issue.message)),
+    JSON.stringify(issues),
   );
-  void reviewer;
 });

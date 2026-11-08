@@ -159,6 +159,23 @@ export function TaskCloseoutTab({
                   <p>{completionNext.authority}</p>
                 </div>
               ) : null}
+              {completion.data?.reviewReverify?.findings.length ? (
+                <ul data-testid="task-review-reverify">
+                  {completion.data.reviewReverify.findings.map((finding) => (
+                    <li key={`${finding.reviewId}/${finding.findingId}`}>
+                      {t("components.taskCloseout.reviewReverifyFinding", {
+                        finding: `${finding.reviewId}/${finding.findingId}`,
+                        reverify: finding.reverify,
+                        response: t(
+                          finding.adopted
+                            ? "components.taskCloseout.reviewReverifyAdopted"
+                            : "components.taskCloseout.reviewReverifyNotAdopted",
+                        ),
+                      })}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {task.snapshotAvailability ? (
                 <span className="ml-auto font-mono ui-micro text-text-faint">
                   availability · consent {task.snapshotAvailability.consents} · gates{" "}

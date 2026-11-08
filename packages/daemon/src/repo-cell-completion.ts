@@ -15,7 +15,6 @@ import {
   isTaskEvent,
   repositorySettings,
   resolveHarnessLayout,
-  reviewReverifyRoute,
   SETTINGS_ID,
   type EventPublicationKillpoint,
   type RepositorySettingsV1,
@@ -277,7 +276,7 @@ export function taskShowFromProjection(
       rootAssessment,
       // dec_BEFCF7D0484E901F187C2C8EC6: the kernel's reverify route for this round — how each previous
       // blocking finding is verified; completionNext names who the cut waits on.
-      reviewReverify: task ? reviewReverifyView(read.snapshot, task.iteration) : null,
+      reviewReverify: completion.reviewReverify ?? null,
       completionNext: completion.completionNext,
       completionBlocker: completion.completionBlocker,
       progress: progress.rows,
@@ -312,25 +311,4 @@ export function taskShowFromProjection(
 function projectedWorktreeSetup(projection: Pick<TaskProjectionQueries, "getEntity">): readonly string[] {
   const projected = projection.getEntity("settings", SETTINGS_ID)?.value;
   return projected === undefined ? [] : repositorySettings(projected as unknown as RepositorySettingsV1).worktree.setup;
-}
-
-function reviewReverifyView(snapshot: Snapshot, iteration: number) {
-  const route = reviewReverifyRoute({
-    reviews: snapshot.reviews,
-    reviewResponses: snapshot.reviewResponses,
-    execution: { iteration },
-  });
-  return {
-    route: route.kind,
-    findings:
-      route.kind === "full"
-        ? []
-        : route.findings.map(({ reviewId, finding, reverify, adopted }) => ({
-            reviewId,
-            findingId: finding.findingId,
-            category: finding.category ?? null,
-            reverify,
-            adopted,
-          })),
-  };
 }

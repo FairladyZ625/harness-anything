@@ -77,7 +77,7 @@ export type ReviewReverifyRoute =
 
 export function reviewReverifyRoute(input: {
   readonly reviews: readonly ReviewV1[];
-  readonly reviewResponses: readonly TaskReviewResponseV1[] | undefined;
+  readonly reviewResponses?: readonly TaskReviewResponseV1[] | undefined;
   readonly execution: Pick<ExecutionV1, "iteration">;
 }): ReviewReverifyRoute {
   const earlier = input.reviews.filter((review) => review.iteration < input.execution.iteration);

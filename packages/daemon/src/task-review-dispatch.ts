@@ -75,10 +75,7 @@ export function reviewSeatForCut(input: {
  * dispatch path reads it here; the daemon never judges whether a re-review is owed itself.
  */
 function cutReverifyRoute(
-  snapshot: {
-    readonly reviews: readonly ReviewV1[];
-    readonly reviewResponses?: Parameters<typeof reviewReverifyRoute>[0]["reviewResponses"];
-  },
+  snapshot: Omit<Parameters<typeof reviewReverifyRoute>[0], "execution">,
   execution: ExecutionV1,
 ): ReviewReverifyRoute {
   return reviewReverifyRoute({ reviews: snapshot.reviews, reviewResponses: snapshot.reviewResponses, execution });
