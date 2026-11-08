@@ -315,10 +315,11 @@ Declaration and the Dependency-Change line are required only when their
 trigger applies — a manifest-derived protected surface is touched, or a
 package manifest or lockfile changes. The renderer also owns both machine
 sections: it writes the governance declaration from ledger authorization and
-replaces `Dependency-Change:` from the closeout's Dependency Change section when
-the cut touches a package manifest or lockfile; otherwise the template sentinel
-stays. Do not hand-delete or hand-edit either one. Do not claim CI, human
-review, or a test that has not happened.
+derives `Dependency-Change:` from the frozen cut's package manifests and
+lockfile using the same predicate G31 applies; the closeout cannot supply or
+override it. When the cut touches no dependency surface the template's `none`
+sentinel stays. Do not hand-delete or hand-edit either one. Do not claim CI,
+human review, or a test that has not happened.
 
 Reference the public issue number in the Summary section, for example
 `#1234`. Never put a private task ID, local planning ID, or private evidence
@@ -378,11 +379,11 @@ always copy the live repository template for a real PR.
 > 手抄或重算 SHA、基线、文件清单和 production delta。PR body 按模板填写人写的节；
 > renderer 同时生成 `# 中文` 的 `## 摘要`/`## 验证` 等节；closeout 是同一份文档，必须带
 > `## 摘要` 与 `## 验证`，只有英文的 closeout 会被拒绝，不会把英文塞进中文标题下。手写或
-> 补粘贴的中文段会被下次渲染替换。治理声明与 `Dependency-Change:` 也由 renderer 按台账与
-> closeout 生成，不要手工删除或改写。预检统一用 `npm run check:pr-body -- --body-file <path>`：
-> 它按 workflow 与 gate-manifest 派生全部正文检查，逐项跑完再汇总，不再分几条命令逐项暴露。
-> 手工合体列车先用 `tools/gates/combine-pr-bodies.mjs` 汇总各 PR 的声明与必需节，再对生成物
-> 跑同一入口。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID。Verification
+> 补粘贴的中文段会被下次渲染替换。治理声明按台账授权生成，`Dependency-Change:` 按冻结
+> cut 的 package manifest 与 lockfile 派生（与 G31 同一判定），都不要手工删除或改写。预检统一用
+> `npm run check:pr-body -- --body-file <path>`：它按 workflow 与 gate-manifest 派生全部正文检查，
+> 逐项跑完再汇总，不再分几条命令逐项暴露。手工合体列车先用 `tools/gates/combine-pr-bodies.mjs`
+> 汇总各 PR 的声明与必需节，再对生成物跑同一入口。外部贡献者在 Summary 里引用公开 issue 号，不要放私有 ID。Verification
 > 只记录直接通过、或由 runner 明确打印并通过的命令，其余写明未运行与原因。不得把未发生
 > 的 CI、人工 review 或测试写成已完成。
 
