@@ -39,6 +39,7 @@ import {
 } from "./doc-sync-files.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import { acceptTaskWorktreeDocumentBase } from "./worktree-setup.ts";
@@ -415,8 +416,12 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
       throw docSyncError("projection_pending", "retry after the canonical projection catches up");
     const document = read.document;
     if (document === null) throw docSyncError("document_not_found", `canonical document does not exist: ${target}`);
-    const authoredTarget = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...target.split("/"));
-    if (existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) !== document.blobSha256)
+    const authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
+      authoredTarget = path.join(authoredRoot, ...target.split("/"));
+    if (
+      existsSync(authoredTarget) &&
+      sha256Bytes(readAuthoredDocumentBytes(authoredRoot, target)) !== document.blobSha256
+    )
       throw docSyncError(
         "retirement_local_modified",
         `restore or sync the locally modified document before retiring it: ${target}`,
@@ -560,11 +565,13 @@ function publishTaskArtifactBytes(
     tracked,
     sameUntrackedSource,
   } = target;
-  const authored = path.relative(input.rootDir, authoredTarget).split(path.sep).join("/");
+  const authored = path.relative(input.rootDir, authoredTarget).split(path.sep).join("/"),
+    authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
+    authoredLogical = path.relative(authoredRoot, authoredTarget).split(path.sep).join("/");
   const projectedEdit =
     projected.document !== null &&
     existsSync(authoredTarget) &&
-    sha256Bytes(readFileSync(authoredTarget)) !== projected.document.blobSha256;
+    sha256Bytes(readAuthoredDocumentBytes(authoredRoot, authoredLogical)) !== projected.document.blobSha256;
   if (projectedEdit || (tracked && gitModified(ledgerRootDir, gitTarget)))
     throw docSyncError(
       "artifact_tracked_edit",
@@ -575,7 +582,9 @@ function publishTaskArtifactBytes(
       document = projected.document,
       // The projection names the revision that last wrote this path, so a same-bytes republish reads that one event.
       replay =
-        document?.blobSha256 === sha && existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) === sha
+        document?.blobSha256 === sha &&
+        existsSync(authoredTarget) &&
+        sha256Bytes(readAuthoredDocumentBytes(authoredRoot, authoredLogical)) === sha
           ? input.store.readEventAtRevision?.(document.workspaceRevision)
           : undefined;
     if (

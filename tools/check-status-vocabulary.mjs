@@ -73,10 +73,23 @@ export const AUTHORED_DOCUMENT_SCOPES = Object.freeze([
 // `ReplicaSyncPhase` stay outside the family while `DocCandidateState` and `#syncState` fall in.
 const AUTHORED_DOCUMENT_TOKENS = new Set(["doc", "document", "candidate", "readiness", "ready", "visibility", "plan"]);
 const AUTHORED_DOCUMENT_FIELDS = new Set(["#syncState"]);
-export function isAuthoredDocumentVocabulary(anchor) {
+const AUTHORED_DOCUMENT_WORDS = new Set([
+  "ready",
+  "not_ready",
+  "complete",
+  "incomplete",
+  "authored",
+  "empty",
+  "candidate",
+  "synced",
+  "unsynced",
+  "awaiting_center",
+]);
+export function isAuthoredDocumentVocabulary(anchor, words = []) {
   if (AUTHORED_DOCUMENT_FIELDS.has(anchor)) return true;
   const tokens = anchor.replace(/^#/u, "").match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/gu) ?? [];
-  return tokens.some((token) => AUTHORED_DOCUMENT_TOKENS.has(token.toLowerCase()));
+  if (tokens.some((token) => AUTHORED_DOCUMENT_TOKENS.has(token.toLowerCase()))) return true;
+  return /^(?:Status|State)$/u.test(anchor) && words.some((word) => AUTHORED_DOCUMENT_WORDS.has(word));
 }
 const KERNEL_DECISION_FALLBACK = /function\s+decisionState\s*\([^)]*\)[^}]*return\s+"(?!unknown)[a-z_]+"/u;
 
@@ -223,7 +236,7 @@ export function collectKernelDeclarationSites(sourcesByFile, { exportedTypesOnly
 /** Authored-document vocabulary declarations in daemon, application, and CLI production sources. */
 export function collectAuthoredDocumentVocabularySites(sourcesByFile) {
   return collectKernelDeclarationSites(sourcesByFile, { exportedTypesOnly: false }).filter((site) =>
-    isAuthoredDocumentVocabulary(site.anchor),
+    isAuthoredDocumentVocabulary(site.anchor, site.words),
   );
 }
 
@@ -231,7 +244,7 @@ export function checkAuthoredDocumentVocabularyCoverage(register, sites, finding
   return checkKernelDeclarationCoverage(register, sites, findings, {
     inScope: (vocabulary) =>
       AUTHORED_DOCUMENT_SCOPES.some((scope) => vocabulary.module.startsWith(`${scope}/`)) &&
-      isAuthoredDocumentVocabulary(vocabulary.anchor),
+      isAuthoredDocumentVocabulary(vocabulary.anchor, vocabulary.words),
   });
 }
 

@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
@@ -15,6 +15,7 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { decisionWritePlan } from "@harness-anything/kernel/internal/domain/decision-event";
 
@@ -74,7 +75,11 @@ export function assertPhysicalReviewReport(input: {
   }
   let body: string;
   try {
-    body = input.carriedReport?.body ?? new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(absolute));
+    body =
+      input.carriedReport?.body ??
+      new TextDecoder("utf-8", { fatal: true }).decode(
+        readAuthoredDocumentBytes(resolveHarnessLayout(input.rootDir).authoredRoot, report),
+      );
   } catch {
     throw cellCodedError(
       "review_report_invalid",

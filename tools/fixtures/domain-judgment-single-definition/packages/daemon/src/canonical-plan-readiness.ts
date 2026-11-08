@@ -4,9 +4,9 @@ import { assessTransitionDocument, type MarkdownDocumentContract } from "@harnes
 // it. The single-definition gate must accept this consumer.
 export function canonicalPlanReadiness(
   projection: { readDocument(path: string): { readonly document: { readonly body: string } | null } },
-  planPath: string,
+  taskPlanPath: string,
   contract: MarkdownDocumentContract,
 ): boolean {
-  const document = projection.readDocument(planPath).document;
+  const document = projection.readDocument(taskPlanPath).document;
   return document !== null && assessTransitionDocument("task.plan", document.body, contract).ready;
 }

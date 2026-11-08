@@ -4,6 +4,10 @@ import { workspacePathResolutionRule } from "@harness-anything/preset/internal/p
 
 /** Physical workspace text reads stay in the daemon adapter layer. */
 export function readWorkspaceText(rootDir: string, requested: string, field: string): string {
+  return new TextDecoder("utf-8", { fatal: true }).decode(readWorkspaceBytes(rootDir, requested, field));
+}
+
+function readWorkspaceBytes(rootDir: string, requested: string, field: string): Uint8Array {
   let root = rootDir,
     requestedPath: string,
     candidate: string,
@@ -16,7 +20,7 @@ export function readWorkspaceText(rootDir: string, requested: string, field: str
     candidate = realpathSync(requestedPath);
     if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
     bytes = readFileSync(candidate);
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return bytes;
   } catch (error) {
     if (isBoundaryError(error)) throw error;
     throw portError(

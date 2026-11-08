@@ -17,6 +17,7 @@ import { loadCanonicalAssets } from "@harness-anything/preset/internal/preset-as
 import { safeTemplatePath } from "@harness-anything/preset/internal/preset-materialization";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import type { CatalogSource } from "@harness-anything/preset/internal/preset-resolver-types";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout";
 
@@ -261,7 +262,9 @@ export function assertTaskTransitionDocumentReady(input: {
 export function readOnDiskBody(rootDir: string, documentPath: string): string | null {
   const target = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...documentPath.split("/"));
   return existsSync(target) && !lstatSync(target).isSymbolicLink() && lstatSync(target).isFile()
-    ? readFileSync(target, "utf8")
+    ? new TextDecoder("utf-8", { fatal: true }).decode(
+        readAuthoredDocumentBytes(resolveHarnessLayout(rootDir).authoredRoot, documentPath),
+      )
     : null;
 }
 

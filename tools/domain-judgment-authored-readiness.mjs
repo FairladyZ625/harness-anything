@@ -1,43 +1,36 @@
 /**
- * Authored-document readiness ratchet for the domain-judgment single-definition gate.
- * Authority: dec_6B912A63D279A922FA1288536D CH2 — readiness of a task plan or other authored
- * document is judged once, in the kernel (`assessTransitionDocument` and its asserting form in
- * packages/kernel/src/domain/transition-document-readiness.ts), over the canonical body a read
- * port supplies. An adapter in daemon, application, or CLI production code that reads the
- * authored file itself and then judges it — with the kernel function or with a predicate of its
- * own — is a second readiness authority.
+ * Authored-document read boundary for the domain-judgment gate.
  *
- * The scan is per named scope. A scope "reads authored bytes" when it calls a filesystem read
- * directly, or calls a same-file function that does (transitively). Two site kinds are recorded:
- *   - `local-read-kernel-readiness`: the scope reads bytes and hands them to the kernel judgment.
- *   - `local-readiness-derivation`: the scope reads bytes and decides readiness without the kernel.
- * Existing sites are frozen in the baseline and may only be removed.
+ * Authority: dec_6B912A63D279A922FA1288536D CH2 and the AuthoredDocument
+ * design. A task-package authored document is read through the document
+ * projection port. A direct filesystem read of a path rooted at the authored
+ * task tree is therefore a boundary violation, regardless of the value
+ * returned by the caller or the name of its helper.
+ *
+ * This scanner deliberately does not identify readiness predicates. It
+ * follows path provenance into filesystem IO calls and reports the IO call
+ * itself. `projection.readDocument(...)` is the port and is not a filesystem
+ * call, so projection consumers are the negative control by construction.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { runInNewContext } from "node:vm";
 import ts from "typescript";
-import { authoredDocumentReadinessBaseline } from "./gate-allowlists/authored-document-readiness-baseline.mjs";
-import { git, listWorktreeFiles } from "./gates/git.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
-export const AUTHORED_READINESS_BASELINE = "tools/gate-allowlists/authored-document-readiness-baseline.mjs";
-const BASELINE_SCHEMA = "authored-document-readiness-baseline/v1";
-const SCOPES = Object.freeze(["packages/daemon/src", "packages/application/src", "packages/cli/src"]);
-const FS_READS = new Set(["readFileSync", "readFile"]);
-const KERNEL_READINESS = new Set(["assessTransitionDocument", "assertTransitionDocumentReady"]);
-const READINESS_WORDS = new Set(["ready", "not_ready"]);
-const READINESS_BINDING = /^(?:is|plan|doc|document|content)?ready$/iu;
-// A scope or binding named for readiness is a judgment whatever words it answers with.
-const READINESS_NAME_TOKENS = new Set(["ready", "readiness", "placeholder", "scaffold"]);
-// Markdown structure probes: a heading looked up in locally read bytes decides a document verdict.
-const HEADING_PATTERN = /(?:^|\\n|\n|\^|\/)\s*#{1,6}[ \t\\[(]/u;
-const BOOLEAN_PROBE_CALLS = new Set(["includes", "test", "startsWith", "endsWith"]);
-const CONDITION_PROBE_CALLS = new Set(["match", "exec", "search"]);
+export const SCOPES = Object.freeze(["packages/daemon/src", "packages/application/src", "packages/cli/src"]);
+export const AUTHORED_READ_KIND = "direct-authored-document-read";
+
+const DIRECT_READS = new Set(["readFileSync", "readFile"]);
+const AUTHORED_ROOT_MEMBER = /(?:^|\.)authoredRoot$/u;
+const TASK_PATH_NAME = /^(?:task(?:Package|Plan|_plan)|packagePath|sourcePackageRoot|taskRoot|documentPath)$/iu;
+const ROOT_PATH_NAME = /^(?:authoredRoot|destinationRoot|materializedRoot)$/iu;
+const TASK_SEGMENT =
+  /(?:^|[/\\])(?:tasks|task_plan\.md|task-contract\.json|INDEX\.md|closeout\.md|review\.md|artifacts|returns|missions)(?:[/\\]|$)/iu;
 
 export function scanAuthoredReadinessSites(root = process.cwd()) {
   const sites = [];
-  for (const rel of listWorktreeFiles(root, [...SCOPES]).filter(
+  for (const rel of listWorktreeFiles(root, SCOPES).filter(
     (file) =>
       /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(file) &&
       !/(?:^|\/)(?:test|tests|fixtures)\//u.test(file) &&
@@ -47,353 +40,286 @@ export function scanAuthoredReadinessSites(root = process.cwd()) {
   return sites.sort((left, right) => siteKey(left).localeCompare(siteKey(right)));
 }
 
+/** Compatibility name retained for the existing single-definition gate. */
+export const scanAuthoredDocumentReads = scanAuthoredReadinessSites;
+
 function scanFile(rel, body) {
-  const source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel)),
-    scopes = new Map(),
-    scopeOf = (symbol) => {
-      if (!scopes.has(symbol))
-        scopes.set(symbol, {
-          reads: false,
-          calls: new Set(),
-          kernel: [],
-          derived: [],
-          declarations: [],
-          returns: [],
-          conditionals: [],
-        });
-      return scopes.get(symbol);
-    };
+  const source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel));
+  const scopes = new Map(),
+    directReadAliases = new Set(),
+    callbackBindings = [];
+  const scopeOf = (symbol) => {
+    if (!scopes.has(symbol))
+      scopes.set(symbol, {
+        calls: [],
+        declarations: [],
+        parameters: new Map(),
+        parameterNames: [],
+        returns: [],
+        directReads: [],
+      });
+    return scopes.get(symbol);
+  };
   const visit = (node) => {
-    if (ts.isCallExpression(node)) {
-      const callee = calleeName(node.expression),
-        scope = scopeOf(enclosingSymbol(node));
-      if (callee !== null && FS_READS.has(callee)) scope.reads = true;
-      else if (callee !== null && KERNEL_READINESS.has(callee)) scope.kernel.push(node);
-      else if (callee !== null && ts.isIdentifier(node.expression)) scope.calls.add(callee);
+    const scope = scopeOf(enclosingSymbol(node));
+    if (ts.isFunctionLike(node) && node.parent && ts.isCallExpression(node.parent)) {
+      const call = node.parent,
+        callbackIndex = call.arguments.findIndex((argument) => argument === node),
+        callbackSource = callbackIndex >= 0 ? callbackSourceExpression(call, callbackIndex) : undefined,
+        callbackKind = callbackSource === undefined ? null : pathKindExpression(callbackSource, scope, scopes);
+      if (node.parameters.length > 0 && ts.isIdentifier(node.parameters[0].name)) {
+        const parameter = node.parameters[0];
+        callbackBindings.push({
+          scope,
+          parameter: parameter.name.text,
+          source: callbackSource,
+          outerScope: scopeOf(enclosingSymbol(call)),
+        });
+        if (callbackKind !== null) scope.parameters.set(parameter.name.text, callbackKind);
+      }
     }
-    if (ts.isCallExpression(node) && headingProbe(node)) scopeOf(enclosingSymbol(node)).derived.push(node);
-    if (ts.isReturnStatement(node) && node.expression) {
-      const scope = scopeOf(enclosingSymbol(node));
-      scope.returns.push(node);
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const moduleName = node.moduleSpecifier.text;
+      if (moduleName === "node:fs" || moduleName === "node:fs/promises") {
+        const named = node.importClause?.namedBindings;
+        if (named && ts.isNamedImports(named))
+          for (const element of named.elements)
+            if (
+              (element.propertyName?.text ?? element.name.text) === "readFileSync" ||
+              (element.propertyName?.text ?? element.name.text) === "readFile"
+            )
+              directReadAliases.add(element.name.text);
+      }
+    }
+    if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+      scope.parameterNames.push(node.name.text);
+      const kind = pathNameKind(node.name.text);
+      if (kind !== null) scope.parameters.set(node.name.text, kind);
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) scope.declarations.push(node);
+    if (ts.isForOfStatement(node) && ts.isVariableDeclarationList(node.initializer)) {
+      const declaration = node.initializer.declarations[0];
       if (
-        readinessLiteral(node.expression) ||
-        (readinessName(enclosingSymbol(node)) && verdictExpression(node.expression))
+        declaration &&
+        ts.isIdentifier(declaration.name) &&
+        ts.isCallExpression(node.expression) &&
+        (calleeName(node.expression.expression) === "fleetMirrorTaskPaths" ||
+          pathKindExpression(node.expression.arguments[0], scope, scopes) === "task")
       )
-        scope.derived.push(node);
+        scope.parameters.set(declaration.name.text, "task");
     }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer)
-      scopeOf(enclosingSymbol(node)).declarations.push(node);
-    if (ts.isIfStatement(node)) scopeOf(enclosingSymbol(node)).conditionals.push(node);
-    if (
-      ts.isBinaryExpression(node) &&
-      [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(
-        node.operatorToken.kind,
-      ) &&
-      ((readinessLiteral(node.left) && !projectionReadStatus(node.right)) ||
-        (readinessLiteral(node.right) && !projectionReadStatus(node.left)))
-    )
-      scopeOf(enclosingSymbol(node)).derived.push(node);
-    if (
-      (ts.isVariableDeclaration(node) || ts.isPropertyAssignment(node)) &&
-      node.initializer &&
-      booleanJudgment(node.initializer) &&
-      READINESS_BINDING.test(propertyName(node.name) ?? "")
-    )
-      scopeOf(enclosingSymbol(node)).derived.push(node);
+    if (ts.isCallExpression(node)) {
+      const callee = calleeName(node.expression);
+      if (callee !== null && !isDirectRead(callee, directReadAliases)) scope.calls.push(node);
+      if (callee !== null && isDirectRead(callee, directReadAliases)) {
+        scope.directReads.push(node);
+      }
+    }
+    if (ts.isReturnStatement(node) && node.expression) scope.returns.push(node.expression);
     ts.forEachChild(node, visit);
   };
   visit(source);
-  // A scope reads authored bytes when it reads the filesystem itself or through a same-file helper.
+
+  // Same-file helper calls carry path provenance just as they carry file-read
+  // provenance. An authored path passed into a helper remains authored until
+  // the helper returns.
   let changed = true;
   while (changed) {
     changed = false;
-    for (const scope of scopes.values())
-      if (!scope.reads && [...scope.calls].some((callee) => scopes.get(callee)?.reads)) {
-        scope.reads = true;
+    for (const [symbol, scope] of scopes) {
+      for (const declaration of scope.declarations) {
+        const kind = pathKindExpression(declaration.initializer, scope, scopes);
+        if (kind === null || scope.parameters.has(declaration.name.text)) continue;
+        if (pathNameKind(declaration.name.text) !== null && scope.parameters.has(declaration.name.text)) continue;
+        if (pathNameKind(declaration.name.text) !== null) {
+          scope.parameters.set(declaration.name.text, pathNameKind(declaration.name.text));
+          changed = true;
+          continue;
+        }
+        if (scope.parameters.get(declaration.name.text) === kind) continue;
+        scope.parameters.set(declaration.name.text, kind);
         changed = true;
       }
-  }
-  // Follow values that originate in authored bytes through local aliases and same-file read
-  // helpers. This catches ordinary helper names and custom answer words such as complete/incomplete.
-  for (const [, scope] of scopes) {
-    if (!scope.reads) continue;
-    const readScopes = new Set([...scopes].filter(([, candidate]) => candidate.reads).map(([name]) => name)),
-      readBindings = new Set();
-    let bindingsChanged = true;
-    while (bindingsChanged) {
-      bindingsChanged = false;
-      for (const declaration of scope.declarations) {
-        if (
-          !readBindings.has(declaration.name.text) &&
-          expressionReferencesAuthored(declaration.initializer, readBindings, readScopes)
-        ) {
-          readBindings.add(declaration.name.text);
-          bindingsChanged = true;
+      for (const call of scope.calls) {
+        const callee = calleeName(call.expression),
+          calleeScope = callee === null ? undefined : scopes.get(callee);
+        if (calleeScope === undefined) continue;
+        for (const [index, parameter] of calleeScope.parameterNames.entries()) {
+          const kind = pathKindExpression(call.arguments[index], scope, scopes);
+          const merged =
+            kind === null
+              ? calleeScope.parameters.get(parameter)
+              : joinPathKinds([calleeScope.parameters.get(parameter), kind]);
+          if (merged !== null && calleeScope.parameters.get(parameter) !== merged) {
+            calleeScope.parameters.set(parameter, merged);
+            changed = true;
+          }
+        }
+      }
+      if (symbol && pathNameKind(symbol) !== null && !scope.parameters.has("<named-task-path>")) {
+        scope.parameters.set("<named-task-path>", pathNameKind(symbol));
+        changed = true;
+      }
+      for (const binding of callbackBindings) {
+        const kind = pathKindExpression(binding.source, binding.outerScope, scopes);
+        if (kind !== null && binding.scope.parameters.get(binding.parameter) !== kind) {
+          binding.scope.parameters.set(binding.parameter, kind);
+          changed = true;
         }
       }
     }
-    for (const statement of scope.returns)
-      if (readinessDerivedExpression(statement.expression, readBindings)) scope.derived.push(statement);
-    for (const statement of scope.conditionals)
-      if (conditionReturnsVerdict(statement, readBindings)) scope.derived.push(statement);
   }
-  const sites = [],
-    add = (nodes, symbol, kind) =>
-      sites.push({
-        path: rel,
-        symbol,
-        kind,
-        fingerprint: createHash("sha256")
-          .update(`${rel}\0${symbol}\0${kind}`)
-          .update(nodes.map((node) => `\0${node.getText(source).replace(/\s+/gu, " ").trim()}`).join(""))
-          .digest("hex"),
-      });
-  for (const [symbol, scope] of scopes) {
-    if (!scope.reads) continue;
-    // One site per scope and kind: dataflow from the read to each judgment is not traced, so the
-    // scope is the unit that must stop reading authored bytes. Each kind is its own site, so a local
-    // derivation added beside a grandfathered kernel call is a new site, not hidden by the old row.
-    if (scope.kernel.length > 0) add(scope.kernel, symbol, "local-read-kernel-readiness");
-    if (scope.derived.length > 0) add(scope.derived, symbol, "local-readiness-derivation");
-  }
+
+  const sites = [];
+  for (const [symbol, scope] of scopes)
+    for (const node of scope.directReads)
+      if (
+        ["task", "root"].includes(pathKindExpression(node.arguments[0], scope, scopes)) &&
+        !canonicalPortRead(rel, symbol, node, source)
+      )
+        sites.push({
+          path: rel,
+          symbol,
+          kind: AUTHORED_READ_KIND,
+          line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+          call: node.expression.getText(source),
+          fingerprint: createHash("sha256")
+            .update(`${rel}\0${symbol}\0${AUTHORED_READ_KIND}\0${node.getText(source).replace(/\s+/gu, " ").trim()}`)
+            .digest("hex"),
+        });
   return sites;
-}
 
-export function checkAuthoredReadinessSites(sites, baseline, priorBaseline = null) {
-  const findings = [],
-    entries = Array.isArray(baseline?.entries) ? baseline.entries : [],
-    allowed = countEntries(entries, siteKey);
-  if (baseline?.schema !== BASELINE_SCHEMA)
-    findings.push(`${AUTHORED_READINESS_BASELINE}: invalid or missing authored-document readiness baseline`);
-  for (const site of sites) {
-    const key = siteKey(site),
-      remaining = allowed.get(key) ?? 0;
-    if (remaining === 0)
-      findings.push(
-        `${site.path}#${site.symbol}: new ${site.kind} authored-document readiness judgment (${site.fingerprint}); ` +
-          "read the canonical body through the projection port and judge it with the kernel assessTransitionDocument",
-      );
-    else allowed.set(key, remaining - 1);
-  }
-  for (const [key, count] of allowed)
-    if (count > 0) findings.push(`${AUTHORED_READINESS_BASELINE}: stale baseline entry should be removed: ${key}`);
-  // Growth is counted per scope and kind, so re-fingerprinting an edited site is not growth.
-  if (priorBaseline !== null) {
-    const prior = countEntries(priorBaseline, scopeKey);
-    for (const [key, count] of countEntries(entries, scopeKey))
-      if (count > (prior.get(key) ?? 0))
-        findings.push(`${AUTHORED_READINESS_BASELINE}: baseline may only shrink; added ${key}`);
-  }
-  return findings;
-}
-
-export function authoredReadinessFindings(root, baseline = authoredDocumentReadinessBaseline) {
-  return checkAuthoredReadinessSites(scanAuthoredReadinessSites(root), baseline, previousBaselineEntries(root));
-}
-
-/** The baseline module text, generated from the scanner so N0 is the scan's own output. */
-export function renderAuthoredReadinessBaseline(root = process.cwd()) {
-  const entries = scanAuthoredReadinessSites(root)
-    .map((site) =>
-      [
-        "    {",
-        ...["path", "symbol", "kind", "fingerprint"].map((key) => `      ${key}: ${JSON.stringify(site[key])},`),
-        "    },",
-      ].join("\n"),
-    )
-    .join("\n");
-  return [
-    "// Authored-document readiness sites frozen by dec_6B912A63D279A922FA1288536D CH2.",
-    "// Generated by `node tools/check-domain-judgment-single-definition.mjs --print-authored-readiness-baseline`.",
-    "// Entries may only be removed: migrate a site to the canonical read port, then delete its row.",
-    "export const authoredDocumentReadinessBaseline = Object.freeze({",
-    `  schema: "${BASELINE_SCHEMA}",`,
-    "  entries: Object.freeze([",
-    entries,
-    "  ]),",
-    "});",
-    "",
-  ].join("\n");
-}
-
-function previousBaselineEntries(root) {
-  let text;
-  try {
-    text = git(root, ["show", `${process.env.PR_BASE_SHA ?? "origin/main"}:${AUTHORED_READINESS_BASELINE}`]);
-  } catch {
-    // No base ref, or the baseline predates the base: the shrink check has nothing to compare.
+  function pathKindExpression(node, scope, allScopes, seen = new Set()) {
+    if (node === undefined) return null;
+    const expression = unwrap(node);
+    if (ts.isIdentifier(expression)) {
+      const known = scope.parameters.get(expression.text) ?? pathNameKind(expression.text);
+      if (known !== null && known !== undefined) return known;
+      for (const declaration of scope.declarations)
+        if (declaration.name.text === expression.text && !seen.has(declaration)) {
+          seen.add(declaration);
+          const kind = pathKindExpression(declaration.initializer, scope, allScopes, seen);
+          if (kind !== null) return kind;
+        }
+      return null;
+    }
+    if (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression))
+      return taskPathKind(expression.text);
+    if (ts.isTemplateExpression(expression))
+      return taskPathKind(expression.head.text) === "task" ||
+        taskPathKind(expression.head.text) === "task-fragment" ||
+        expression.templateSpans.some((span) => pathKindExpression(span.expression, scope, allScopes, seen) === "task")
+        ? "task"
+        : null;
+    if (ts.isPropertyAccessExpression(expression)) {
+      if (pathNameKind(expression.name.text) === "task") return "task";
+      if (AUTHORED_ROOT_MEMBER.test(expression.getText(source))) return "root";
+      return pathKindExpression(expression.expression, scope, allScopes, seen);
+    }
+    if (ts.isElementAccessExpression(expression))
+      return pathKindExpression(expression.expression, scope, allScopes, seen);
+    if (ts.isSpreadElement(expression)) return pathKindExpression(expression.expression, scope, allScopes, seen);
+    if (ts.isCallExpression(expression)) {
+      const callee = calleeName(expression.expression);
+      if (ts.isPropertyAccessExpression(expression.expression)) {
+        const method = expression.expression.name.text;
+        if (["map", "flatMap", "filter"].includes(method))
+          return pathKindExpression(expression.expression.expression, scope, allScopes, seen);
+      }
+      if (["files", "listJsonFiles", "readdirSync", "globSync"].includes(callee ?? "")) {
+        const sourceKind = pathKindExpression(expression.arguments[0], scope, allScopes, seen);
+        if (sourceKind === "task" || sourceKind === "root") return sourceKind;
+      }
+      if (callee !== null && /(?:^|\.)(?:join|resolve|normalize|dirname)$/u.test(callee))
+        return joinPathKinds(
+          expression.arguments.map((argument) => pathKindExpression(argument, scope, allScopes, seen)),
+        );
+      const calleeScope = callee === null ? undefined : allScopes.get(callee);
+      if (calleeScope !== undefined && !seen.has(calleeScope)) {
+        seen.add(calleeScope);
+        const returnKinds = calleeScope.returns
+          .map((returned) => pathKindExpression(returned, calleeScope, allScopes, seen))
+          .filter((kind) => kind !== null);
+        if (returnKinds.includes("task")) return "task";
+        if (returnKinds.includes("root")) return "root";
+      }
+      return null;
+    }
+    if (ts.isBinaryExpression(expression))
+      return joinPathKinds([
+        pathKindExpression(expression.left, scope, allScopes, seen),
+        pathKindExpression(expression.right, scope, allScopes, seen),
+      ]);
+    if (ts.isConditionalExpression(expression))
+      return joinPathKinds([
+        pathKindExpression(expression.whenTrue, scope, allScopes, seen),
+        pathKindExpression(expression.whenFalse, scope, allScopes, seen),
+      ]);
     return null;
   }
-  // The base revision's module is evaluated as data in an empty context; it imports nothing.
-  const sandbox = {};
-  runInNewContext(text.replace(/^\s*export\s+const\s+authoredDocumentReadinessBaseline\s*=/mu, "baseline ="), sandbox);
-  const previous = sandbox.baseline;
-  return previous?.schema === BASELINE_SCHEMA && Array.isArray(previous.entries) ? previous.entries : [];
+
+  function callbackSourceExpression(call, callbackIndex) {
+    if (callbackIndex !== 0 || !ts.isPropertyAccessExpression(call.expression)) return undefined;
+    if (!new Set(["map", "flatMap", "forEach", "filter"]).has(call.expression.name.text)) return undefined;
+    return call.expression.expression;
+  }
+
+  function taskPathKind(text) {
+    if (!TASK_SEGMENT.test(text)) return null;
+    if (/(?:^|[/\\])tasks(?:[/\\]|$)/iu.test(text)) return "task";
+    return /(?:^|[/\\])(?:task_plan\.md|task-contract\.json|INDEX\.md|closeout\.md|review\.md|artifacts|returns|missions)(?:[/\\]|$)/iu.test(
+      text,
+    )
+      ? "task-fragment"
+      : null;
+  }
+
+  function canonicalPortRead(file, symbol, node, parsedSource) {
+    return (
+      file === "packages/daemon/src/authored-document-read-port.ts" &&
+      symbol === "readAuthoredDocumentBytes" &&
+      calleeName(node.expression) === "readFileSync" &&
+      node.arguments[0]?.getText(parsedSource) === "candidate"
+    );
+  }
 }
 
-function countEntries(entries, key) {
-  const counts = new Map();
-  for (const entry of entries) counts.set(key(entry), (counts.get(key(entry)) ?? 0) + 1);
-  return counts;
+export function checkAuthoredReadinessSites(sites) {
+  return sites.map(
+    (site) =>
+      `${site.path}#${site.symbol}:${site.kind}:${site.line}: direct ${site.call} reads an authored task-package document; ` +
+      "read the canonical bytes through projection.readDocument",
+  );
+}
+
+export function authoredReadinessFindings(root) {
+  return checkAuthoredReadinessSites(scanAuthoredReadinessSites(root));
 }
 
 function siteKey(entry) {
-  return `${entry.path}|${entry.symbol}|${entry.kind}|${entry.fingerprint}`;
+  return `${entry.path}|${entry.symbol}|${entry.kind}|${entry.line}|${entry.fingerprint}`;
 }
 
-function scopeKey(entry) {
-  return `${entry.path}|${entry.symbol}|${entry.kind}`;
+function pathNameKind(name) {
+  if (TASK_PATH_NAME.test(name) || name === "documentPath") return "task";
+  if (ROOT_PATH_NAME.test(name)) return "root";
+  return null;
 }
 
-function readinessLiteral(node) {
-  return ts.isStringLiteralLike(node) && READINESS_WORDS.has(node.text);
+function joinPathKinds(kinds) {
+  if (kinds.includes("task")) return "task";
+  if (kinds.includes("root") && kinds.includes("task-fragment")) return "task";
+  if (kinds.includes("root")) return "root";
+  return null;
 }
 
-const BOOLEAN_OPERATORS = new Set([
-  ts.SyntaxKind.EqualsEqualsEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsEqualsToken,
-  ts.SyntaxKind.AmpersandAmpersandToken,
-  ts.SyntaxKind.BarBarToken,
-  ts.SyntaxKind.LessThanToken,
-  ts.SyntaxKind.GreaterThanToken,
-  ts.SyntaxKind.LessThanEqualsToken,
-  ts.SyntaxKind.GreaterThanEqualsToken,
-]);
-const BOOLEAN_PROBES = new Set(["includes", "test", "startsWith", "endsWith", "some", "every"]);
-
-// A readiness binding is a judgment only when it is computed as a boolean, not a promise or handle.
-function booleanJudgment(node) {
-  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
-  return (
-    expression.kind === ts.SyntaxKind.TrueKeyword ||
-    expression.kind === ts.SyntaxKind.FalseKeyword ||
-    (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) ||
-    (ts.isBinaryExpression(expression) && BOOLEAN_OPERATORS.has(expression.operatorToken.kind)) ||
-    (ts.isCallExpression(expression) && BOOLEAN_PROBES.has(calleeName(expression.expression) ?? ""))
-  );
-}
-
-function expressionReferencesAuthored(node, readBindings, readScopes) {
-  if (node === undefined) return false;
-  if (ts.isIdentifier(node) && readBindings.has(node.text)) return true;
-  if (ts.isCallExpression(node)) {
-    const callee = calleeName(node.expression);
-    if (callee !== null && (FS_READS.has(callee) || readScopes.has(callee))) return true;
-  }
-  let found = false;
-  node.forEachChild((child) => {
-    if (!found && expressionReferencesAuthored(child, readBindings, readScopes)) found = true;
-  });
-  return found;
-}
-
-function readinessDerivedExpression(node, readBindings) {
-  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
-  if (ts.isConditionalExpression(expression))
-    return (
-      referencesReadBinding(expression.condition, readBindings) &&
-      stringVerdictExpression(expression.whenTrue) &&
-      stringVerdictExpression(expression.whenFalse)
-    );
-  return false;
-}
-
-function conditionReturnsVerdict(statement, readBindings) {
-  if (!referencesReadBinding(statement.expression, readBindings)) return false;
-  const returnedVerdict = (node) => {
-    if (ts.isReturnStatement(node)) return node.expression !== undefined && stringVerdictExpression(node.expression);
-    if (ts.isBlock(node)) return node.statements.some(returnedVerdict);
-    return false;
-  };
-  return (
-    returnedVerdict(statement.thenStatement) ||
-    (statement.elseStatement !== undefined && returnedVerdict(statement.elseStatement))
-  );
-}
-
-function referencesReadBinding(node, readBindings) {
-  if (node === undefined) return false;
-  if (ts.isIdentifier(node) && readBindings.has(node.text)) return true;
-  let found = false;
-  node.forEachChild((child) => {
-    if (!found && referencesReadBinding(child, readBindings)) found = true;
-  });
-  return found;
-}
-
-function stringVerdictExpression(node) {
-  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
-  if (ts.isStringLiteralLike(expression)) return true;
-  return (
-    ts.isConditionalExpression(expression) &&
-    stringVerdictExpression(expression.whenTrue) &&
-    stringVerdictExpression(expression.whenFalse)
-  );
-}
-
-function headingProbe(node) {
-  const callee = calleeName(node.expression);
-  if (callee === null) return false;
-  const boolean = BOOLEAN_PROBE_CALLS.has(callee);
-  if (!boolean && !(CONDITION_PROBE_CALLS.has(callee) && conditionContext(node))) return false;
-  const receiver = ts.isPropertyAccessExpression(node.expression) ? node.expression.expression : null;
-  return [receiver, ...node.arguments].some((operand) => operand !== null && headingPattern(operand));
-}
-
-function headingPattern(node) {
-  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
-  if (ts.isStringLiteralLike(expression) || ts.isRegularExpressionLiteral(expression))
-    return HEADING_PATTERN.test(expression.text);
-  if (ts.isTemplateExpression(expression)) return HEADING_PATTERN.test(expression.head.text);
-  if (ts.isNewExpression(expression) && expression.expression.getText() === "RegExp")
-    return (expression.arguments ?? []).some((argument) => headingPattern(argument));
-  return false;
-}
-
-function conditionContext(node) {
-  let current = node;
-  while (
-    current.parent &&
-    (ts.isParenthesizedExpression(current.parent) ||
-      ts.isNonNullExpression(current.parent) ||
-      (ts.isPropertyAccessExpression(current.parent) && current.parent.questionDotToken !== undefined) ||
-      ts.isElementAccessExpression(current.parent))
-  )
-    current = current.parent;
-  const parent = current.parent;
-  return (
-    !!parent &&
-    (((ts.isIfStatement(parent) || ts.isWhileStatement(parent)) && parent.expression === current) ||
-      (ts.isConditionalExpression(parent) && parent.condition === current) ||
-      (ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken) ||
-      (ts.isBinaryExpression(parent) && BOOLEAN_OPERATORS.has(parent.operatorToken.kind)))
-  );
-}
-
-function readinessName(symbol) {
-  const tokens = symbol.match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/gu) ?? [];
-  return tokens.some((token) => READINESS_NAME_TOKENS.has(token.toLowerCase()));
-}
-
-// What a readiness-named scope answers: a word, a boolean, or a choice between them.
-function verdictExpression(node) {
-  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
-  if (ts.isStringLiteralLike(expression) || booleanJudgment(expression)) return true;
-  return (
-    ts.isConditionalExpression(expression) &&
-    verdictExpression(expression.whenTrue) &&
-    verdictExpression(expression.whenFalse)
-  );
-}
-
-// `read.status === "ready"` asks whether a projection read caught up, not whether a document is ready.
-function projectionReadStatus(node) {
-  return ts.isPropertyAccessExpression(node) && node.name.text === "status";
+function isDirectRead(callee, aliases = new Set()) {
+  return DIRECT_READS.has(callee) || aliases.has(callee) || /(?:^|\.)(?:readFileSync|readFile)$/u.test(callee);
 }
 
 function calleeName(expression) {
   if (ts.isIdentifier(expression)) return expression.text;
-  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  if (ts.isPropertyAccessExpression(expression)) return expression.getText().replace(/\?\./gu, ".");
   return null;
 }
 
@@ -413,6 +339,16 @@ function enclosingSymbol(node) {
 
 function propertyName(node) {
   return ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : null;
+}
+
+function unwrap(node) {
+  let current = node;
+  while (
+    current &&
+    (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current))
+  )
+    current = current.expression;
+  return current;
 }
 
 function scriptKind(file) {

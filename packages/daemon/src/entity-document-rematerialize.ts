@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import {
   compileEntityDocumentRematerialization,
@@ -26,6 +26,7 @@ import { publicationKillpoints } from "./entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 type RematerializeEntityKind = "decision" | "fact" | "task";
 
@@ -183,7 +184,10 @@ function worktreeConflictPaths(
     const current = cell.projection.readDocument(update.path).document,
       absolute = path.join(authoredRoot, ...update.path.split("/"));
     if (!current || !existsSync(absolute)) return [];
-    return readFileSync(absolute, "utf8") === current.body ? [] : [update.path];
+    return new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, update.path)) ===
+      current.body
+      ? []
+      : [update.path];
   });
 }
 

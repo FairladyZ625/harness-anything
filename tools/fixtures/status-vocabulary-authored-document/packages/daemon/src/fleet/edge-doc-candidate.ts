@@ -6,3 +6,5 @@ export interface EdgeDocumentReadinessRow {
   readonly path: string;
   readonly readinessState: "ready" | "awaiting_center";
 }
+
+export type Status = "complete" | "incomplete";

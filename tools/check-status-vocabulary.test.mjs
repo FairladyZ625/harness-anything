@@ -262,6 +262,10 @@ test("positive fixture: an unregistered edge candidate or readiness word is refu
     findings.some((finding) => finding.includes(`${module}##readinessState`) && finding.includes("awaiting_center")),
     findings.join("\n"),
   );
+  assert.ok(
+    findings.some((finding) => finding.includes(`${module}#Status`) && finding.includes("complete")),
+    findings.join("\n"),
+  );
 });
 
 test("positive fixture: a registered authored-document vocabulary gaining a word is refused", () => {
@@ -284,6 +288,8 @@ test("authored-document family matches by camelCase token, not substring", () =>
     "PlanReadiness",
   ])
     assert.equal(isAuthoredDocumentVocabulary(anchor), true, anchor);
+  assert.equal(isAuthoredDocumentVocabulary("Status", ["complete", "incomplete"]), true);
+  assert.equal(isAuthoredDocumentVocabulary("State", ["queued", "running"]), false);
   for (const anchor of ["DoctorCheckStatus", "ReplicaSyncPhase", "#status", "#fallbackState"])
     assert.equal(isAuthoredDocumentVocabulary(anchor), false, anchor);
 });

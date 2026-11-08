@@ -33,7 +33,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /nine judgments resolve to kernel domain services; authored-document readiness ratchet holds/u,
+    /nine judgments resolve to kernel domain services; authored-document reads use the projection port/u,
   );
 });
 
@@ -102,7 +102,7 @@ test("positive fixture: a daemon reading task_plan and deciding readiness itself
     findings.some(
       (finding) =>
         finding.includes("packages/daemon/src/rogue-plan-readiness.ts#rogueTaskPlanReadiness") &&
-        finding.includes("local-readiness-derivation"),
+        finding.includes("direct-authored-document-read"),
     ),
     findings.join("\n"),
   );
@@ -114,7 +114,7 @@ test("positive fixture: a local plan read handed to the kernel judgment is still
     findings.some(
       (finding) =>
         finding.includes("packages/daemon/src/edge-plan-readiness.ts#edgePlanReadiness") &&
-        finding.includes("local-read-kernel-readiness"),
+        finding.includes("direct-authored-document-read"),
     ),
     findings.join("\n"),
   );
@@ -139,47 +139,29 @@ test("positive fixture: a second authored-document readiness definition is refus
   );
 });
 
-test("authored readiness baseline only shrinks and drops migrated sites", () => {
-  const site = {
-      path: "packages/daemon/src/legacy.ts",
-      symbol: "taskContext",
-      kind: "local-read-kernel-readiness",
-      fingerprint: "a",
-    },
-    edited = { ...site, fingerprint: "b" },
-    baseline = (entries) => ({ schema: "authored-document-readiness-baseline/v1", entries });
-  assert.deepEqual(checkAuthoredReadinessSites([], baseline([]), [site]), []);
-  assert.deepEqual(checkAuthoredReadinessSites([edited], baseline([edited]), [site]), []);
-  assert.ok(
-    checkAuthoredReadinessSites([site, edited], baseline([site, edited]), [site]).some((finding) =>
-      finding.includes("baseline may only shrink"),
-    ),
-  );
-  assert.ok(
-    checkAuthoredReadinessSites([], baseline([site]), [site]).some((finding) =>
-      finding.includes("stale baseline entry should be removed"),
-    ),
-  );
-  assert.ok(
-    checkAuthoredReadinessSites([site], { entries: [site] }).some((finding) => finding.includes("invalid or missing")),
-  );
-});
-
-test("positive fixture: readiness derived with custom words or without a ready literal is refused", (t) => {
+test("positive fixture: direct authored reads are refused regardless of verdict shape", (t) => {
   const findings = fixtureFindings(t);
-  for (const symbol of ["documentReadiness", "scaffoldState", "evaluate"])
+  for (const symbol of [
+    "documentReadiness",
+    "scaffoldState",
+    "evaluate",
+    "ordinaryBoolean",
+    "aliasedVerdict",
+    "promiseBoolean",
+    "namespaceBoolean",
+    "listedFileRead",
+  ])
     assert.ok(
       findings.some(
         (finding) =>
           finding.includes(`packages/daemon/src/custom-word-readiness.ts#${symbol}`) &&
-          finding.includes("local-readiness-derivation"),
+          finding.includes("direct-authored-document-read"),
       ),
       findings.join("\n"),
     );
 });
 
-// Review F2: a grandfathered kernel-read scope must not hide a local judgment added beside it.
-test("a local judgment added to a grandfathered kernel-read scope is a new site", (t) => {
+test("a direct authored read is reported without a readiness heuristic", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authored-readiness-scope-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
@@ -190,32 +172,23 @@ test("a local judgment added to a grandfathered kernel-read scope is a new site"
         file,
         [
           'import { readFileSync } from "node:fs";',
+          'import path from "node:path";',
           'import { assertTransitionDocumentReady } from "@harness-anything/kernel";',
-          "export function assertPlanReady(planPath: string, contract: unknown): void {",
-          '  const body = readFileSync(planPath, "utf8");',
+          "export function assertPlanReady(authoredRoot: string, contract: unknown): void {",
+          '  const body = readFileSync(path.join(authoredRoot, "tasks/example/task_plan.md"), "utf8");',
           extra,
           '  assertTransitionDocumentReady("task.plan", body, contract as never);',
           "}",
           "",
         ].join("\n"),
       );
-  write("");
-  const baseline = {
-    schema: "authored-document-readiness-baseline/v1",
-    entries: scanAuthoredReadinessSites(root),
-  };
-  assert.deepEqual(
-    baseline.entries.map(({ kind }) => kind),
-    ["local-read-kernel-readiness"],
-  );
-  assert.deepEqual(checkAuthoredReadinessSites(scanAuthoredReadinessSites(root), baseline), []);
   write('  const planReady = body.includes("## Goal");');
-  const findings = checkAuthoredReadinessSites(scanAuthoredReadinessSites(root), baseline);
+  const findings = checkAuthoredReadinessSites(scanAuthoredReadinessSites(root));
   assert.ok(
     findings.some(
       (finding) =>
         finding.includes("packages/daemon/src/access.ts#assertPlanReady") &&
-        finding.includes("new local-readiness-derivation"),
+        finding.includes("direct-authored-document-read"),
     ),
     findings.join("\n"),
   );

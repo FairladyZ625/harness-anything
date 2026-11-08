@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import path from "node:path";
 import { taskEntryToRow, type TaskSourceEntry } from "@harness-anything/storage";
 import {
@@ -180,8 +180,11 @@ export function addOracleTask(context: MigrationImportContext, source: Projectio
     packagePath = source.packagePath,
     packageRoot = packagePath === null ? null : path.join(context.sourceLayout.authoredRoot, packagePath),
     indexPath = packageRoot === null ? null : path.join(packageRoot, "INDEX.md"),
-    sourceBody = indexPath === null ? null : utf8Absolute(indexPath),
-    titleWitness = taskTitleFromPackage(packageRoot, sourceBody, context.sourceLayout.authoredRoot),
+    sourceBody =
+      packagePath === null ? null : context.utf8File(context.sourceLayout.authoredRoot, `${packagePath}/INDEX.md`),
+    planBody =
+      packagePath === null ? null : context.utf8File(context.sourceLayout.authoredRoot, `${packagePath}/task_plan.md`),
+    titleWitness = taskTitleFromPackage(packageRoot, sourceBody, context.sourceLayout.authoredRoot, planBody),
     occurredAt = source.firstEvent?.occurredAt ?? null;
   if (projected === null || titleWitness === null || occurredAt === null) return false;
   const targetTaskId = context.mappedIdentifier(
@@ -506,6 +509,10 @@ function taskTitleWitness(
     path.dirname(entry.indexPath),
     entry.body,
     context.sourceLayout.authoredRoot,
+    context.utf8File(
+      context.sourceLayout.authoredRoot,
+      `${portableMigrationPath(path.relative(context.sourceLayout.authoredRoot, path.dirname(entry.indexPath)))}/task_plan.md`,
+    ),
   );
   return fromPackage === null ? null : { ...fromPackage, derived: true };
 }
@@ -514,13 +521,14 @@ export function taskTitleFromPackage(
   packageRoot: string | null,
   indexBody: string | null,
   authoredRoot: string,
+  planBody: string | null = null,
 ): { readonly value: string; readonly source: string } | null {
   if (packageRoot === null) return null;
   const planPath = path.join(packageRoot, "task_plan.md"),
-    planTitle = markdownH1(utf8Absolute(planPath));
+    planTitle = markdownH1(planBody);
   if (planTitle) return { value: planTitle, source: portableMigrationPath(path.relative(authoredRoot, planPath)) };
   const indexPath = path.join(packageRoot, "INDEX.md"),
-    indexTitle = markdownH1(indexBody ?? utf8Absolute(indexPath));
+    indexTitle = markdownH1(indexBody);
   return indexTitle
     ? { value: indexTitle, source: portableMigrationPath(path.relative(authoredRoot, indexPath)) }
     : null;
@@ -529,15 +537,6 @@ export function taskTitleFromPackage(
 export function markdownH1(body: string | null): string | null {
   const value = body?.match(/^#\s+(.+?)\s*$/mu)?.[1]?.trim() ?? "";
   return value || null;
-}
-
-function utf8Absolute(target: string): string | null {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(target));
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
 }
 
 function recordTaskDerivation(

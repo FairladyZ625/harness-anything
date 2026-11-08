@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import {
@@ -7,6 +7,7 @@ import {
   type MigrationProjectionOracle,
 } from "@harness-anything/storage";
 import { inspectMigrationSourceEvents, rebuildMigrationProjectionOracle } from "./migration-import-oracle-rebuild.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 export function readMigrationProjectionOracle(sourceRoot: string): MigrationProjectionOracle {
   const layout = resolveHarnessLayout(sourceRoot),
     databasePath = path.join(layout.localRoot, "cache", "task.sqlite"),
@@ -51,7 +52,9 @@ function overlayAgentDeclarations(sourceRoot: string, oracle: MigrationProjectio
       source = `agents/${name}`;
     let value: unknown;
     try {
-      value = JSON.parse(readFileSync(target, "utf8")) as unknown;
+      value = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(layout.authoredRoot, source)),
+      ) as unknown;
     } catch (error) {
       consumeKnownError(error);
       continue;

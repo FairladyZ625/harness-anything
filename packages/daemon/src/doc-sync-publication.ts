@@ -1,6 +1,6 @@
 import { runtimeDispatchTaskMatches } from "./runtime-session-action-runtime.ts";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { TaskProjection } from "@harness-anything/kernel";
 import {
@@ -32,6 +32,7 @@ import {
 } from "./doc-sync-files.ts";
 import { readDocReceipt } from "./doc-sync-reads.ts";
 import { readDispatchStreamHeader } from "./dispatch-stream.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export interface RuntimeDispatchArchive {
   readonly dispatchId: string;
@@ -306,7 +307,7 @@ export function archiveRuntimeDispatch(
   const reviewer = readDispatchStreamHeader(input.rootDir, value.dispatchId)?.role === "reviewer",
     classified = documents.map((document, index) => {
       const authored = path.join(layout.authoredRoot, ...document.path.split("/")),
-        authoredBody = existsSync(authored) ? readFileSync(authored) : null,
+        authoredBody = existsSync(authored) ? readAuthoredDocumentBytes(layout.authoredRoot, document.path) : null,
         read = reads[index]!,
         // The ruling artifact is the one archive document the dispatch authored in place: a
         // package-bound worker writes inside the canonical package itself, so its bytes sit at the

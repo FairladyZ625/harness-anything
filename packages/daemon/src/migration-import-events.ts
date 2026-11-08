@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { taskEntryToRow, type ColdDecisionProjectionRow } from "@harness-anything/storage";
 import {
@@ -18,6 +18,7 @@ import { isMigrationImportRecord, nonEmpty } from "@harness-anything/storage";
 import { timestamp } from "./migration-import-report.ts";
 import { migrationOperationId } from "./migration-import-source.ts";
 import type { ImportedTask, Prepared } from "./migration-import-types.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export function prepare(
   sourceKey: string,
@@ -78,7 +79,9 @@ export function readSourceAttribution(authoredRoot: string): ReadonlyMap<string,
     return new Map();
   }
   for (const name of names)
-    for (const line of readFileSync(path.join(dir, name), "utf8").split("\n")) {
+    for (const line of new TextDecoder("utf-8", { fatal: true })
+      .decode(readAuthoredDocumentBytes(authoredRoot, path.join("attribution-events", name)))
+      .split("\n")) {
       if (!line.trim()) continue;
       let row: unknown;
       try {

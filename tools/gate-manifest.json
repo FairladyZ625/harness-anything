@@ -2107,7 +2107,6 @@
         "tools/check-domain-judgment-single-definition.mjs",
         "tools/check-domain-judgment-single-definition.test.mjs",
         "tools/domain-judgment-authored-readiness.mjs",
-        "tools/gate-allowlists/authored-document-readiness-baseline.mjs",
         "tools/fixtures/domain-judgment-single-definition/**"
       ],
       "authoritySource": [
@@ -2123,7 +2122,7 @@
         "warm and cold Decision coverage projections",
         "Fact liveness projection and GUI DTO consumption",
         "daemon task blocking projection and GUI DTO consumption",
-        "authored-document readiness: daemon, application, and CLI judge task plans only through the kernel assessTransitionDocument over the canonical read port"
+        "authored-document bytes in daemon, application, and CLI production sources are read only through the AuthoredDocument projection port"
       ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
@@ -2131,10 +2130,10 @@
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/gate-allowlists/authored-document-readiness-baseline.mjs",
+        "allowed": false,
+        "location": "tools/domain-judgment-authored-readiness.mjs",
         "adrOrDecisionRequired": true,
-        "notes": "CH1 named judgments remain single-definition with no duplicate allowlist. dec_6B912A63D279A922FA1288536D CH2 freezes the scanner-generated inventory of adapter scopes that read authored bytes and judge readiness; it only shrinks and never grants a new judgment."
+        "notes": "CH1 named judgments remain single-definition. dec_6B912A63D279A922FA1288536D CH2 makes the authored-byte projection port the boundary invariant; direct filesystem reads of task-package authored documents are violations and have no allowlist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -2142,7 +2141,6 @@
         "protectedSurfaces": [
           "tools/check-domain-judgment-single-definition.mjs",
           "tools/domain-judgment-authored-readiness.mjs",
-          "tools/gate-allowlists/authored-document-readiness-baseline.mjs",
           "package.json:scripts.harness:check-domain-judgment-single-definition",
           "tools/gate-manifest.json"
         ]

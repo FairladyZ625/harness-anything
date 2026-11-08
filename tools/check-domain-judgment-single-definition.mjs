@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { authoredReadinessFindings, renderAuthoredReadinessBaseline } from "./domain-judgment-authored-readiness.mjs";
+import { authoredReadinessFindings } from "./domain-judgment-authored-readiness.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
 const judgments = Object.freeze([
@@ -168,10 +168,6 @@ function read(root, rel) {
   }
 }
 async function main() {
-  if (process.argv.includes("--print-authored-readiness-baseline")) {
-    process.stdout.write(renderAuthoredReadinessBaseline());
-    return;
-  }
   const findings = checkDomainJudgmentSingleDefinition();
   if (findings.length) {
     console.error("Domain judgment single-definition check failed:");
@@ -179,7 +175,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Domain judgment single-definition check passed (nine judgments resolve to kernel domain services; authored-document readiness ratchet holds).",
+    "Domain judgment single-definition check passed (nine judgments resolve to kernel domain services; authored-document reads use the projection port).",
   );
 }
 const invokedDirectly =
