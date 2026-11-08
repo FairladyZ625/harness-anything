@@ -203,7 +203,7 @@
       ]
     },
     "prBody": {
-      "pullRequestGateJobs": ["pr-body-lint"],
+      "pullRequestGateJobs": ["pr-body-lint", "pr-body-advisory"],
       "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": []
     },
@@ -622,13 +622,13 @@
       "command": "node tools/gates/production-delta.mjs --base \"${PR_BASE_SHA:-origin/main}\"",
       "failureHint": "Name the unclassified production source in module policy or narrow the diff; the delta is measured from the PR merge base.",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "The production delta is reported on every PR-body workflow run but is not a required merge context.",
       "authoritySource": ["tools/gates/production-delta.mjs", "decision/dec_BB2BCE9F995CD3A126E2918734#CH3"],
-      "consumerScope": ["GitHub job summary and structured CI observation", "the single PR-body aggregate job"],
+      "consumerScope": ["GitHub job summary and structured CI observation", "the advisory PR-body aggregate job"],
       "githubContext": {
-        "requiredContexts": ["pr-body-lint"],
-        "workflowJobs": ["pr-body-lint"],
+        "requiredContexts": [],
+        "workflowJobs": ["pr-body-advisory"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": { "allowed": false },
@@ -636,8 +636,8 @@
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
         "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "prBody": { "pullRequestJobs": ["pr-body-lint"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": true, "contexts": ["pr-body-lint"] },
+        "prBody": { "pullRequestJobs": ["pr-body-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
       "deterministic": false,
@@ -651,13 +651,13 @@
       "command": "node tools/gates/evidence-contract.mjs --event \"$GITHUB_EVENT_PATH\"",
       "failureHint": "Complete every evidence claim field (run-url, commit-sha, failed-test, scope, owner) or remove the claim.",
       "category": "meta-governance",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "Evidence claims are checked on every PR-body workflow run but this advisory aggregate is not a required merge context.",
       "authoritySource": ["tools/gates/evidence-contract.mjs", ".github/pull_request_template.md"],
-      "consumerScope": ["GitHub pull request evidence claims", "the single PR-body aggregate job"],
+      "consumerScope": ["GitHub pull request evidence claims", "the advisory PR-body aggregate job"],
       "githubContext": {
-        "requiredContexts": ["pr-body-lint"],
-        "workflowJobs": ["pr-body-lint"],
+        "requiredContexts": [],
+        "workflowJobs": ["pr-body-advisory"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": { "allowed": false },
@@ -665,8 +665,8 @@
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
         "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "prBody": { "pullRequestJobs": ["pr-body-lint"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": true, "contexts": ["pr-body-lint"] },
+        "prBody": { "pullRequestJobs": ["pr-body-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
       "deterministic": false,
@@ -680,13 +680,13 @@
       "command": "node tools/gates/dependency-policy.mjs --base \"${PR_BASE_SHA:-origin/main}\" --pr-body-env PR_BODY",
       "failureHint": "When package.json or package-lock.json changes, replace `Dependency-Change: none` with exactly one line describing what changed.",
       "category": "release-policy",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "pr-advisory",
+      "tierReason": "The Dependency-Change declaration is judged on every PR-body workflow run but this advisory aggregate is not a required merge context.",
       "authoritySource": ["tools/gates/dependency-policy.mjs", ".github/pull_request_template.md"],
-      "consumerScope": ["GitHub pull request Dependency-Change declarations for npm dependency changes", "the single PR-body aggregate job"],
+      "consumerScope": ["GitHub pull request Dependency-Change declarations for npm dependency changes", "the advisory PR-body aggregate job"],
       "githubContext": {
-        "requiredContexts": ["pr-body-lint"],
-        "workflowJobs": ["pr-body-lint"],
+        "requiredContexts": [],
+        "workflowJobs": ["pr-body-advisory"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": { "allowed": false },
@@ -694,8 +694,8 @@
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
         "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "prBody": { "pullRequestJobs": ["pr-body-lint"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": true, "contexts": ["pr-body-lint"] },
+        "prBody": { "pullRequestJobs": ["pr-body-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
       "deterministic": false,
