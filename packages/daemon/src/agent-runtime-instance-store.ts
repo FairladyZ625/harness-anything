@@ -65,6 +65,7 @@ import type {
   RuntimeInstanceSummary,
   RuntimeLaunchRequest,
 } from "./agent-runtime-instance-types.ts";
+import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import {
   credentialHint,
   credentialUnavailableHint,
@@ -86,8 +87,10 @@ import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
 import { runtimeVersionGate, runtimeWebSearchVersionGate } from "./runtime-version.ts";
 import {
   readCodexManagedPolicyTexts,
+  runtimeWebSearchGatewayProbeRequired,
   runtimeWebSearchModelGate,
   runtimeWebSearchPolicyConflict,
+  verifyRuntimeWebSearchGateway,
 } from "./agent-runtime-web-search.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 
@@ -148,6 +151,9 @@ export function openRuntimeInstanceStore(input: {
   /** Test/embedded seam for Codex's managed requirements. Production reads the host's
    *  administrator policy through the same default source Codex loads. */
   readonly managedPolicyTexts?: () => readonly string[] | Promise<readonly string[]>;
+  /** Test/embedded seam for the one real gateway verification an opt-in search tier on a
+   *  custom base URL needs. Production uses the process fetch. */
+  readonly webSearchFetch?: typeof fetch;
 }) {
   const platform = input.platform ?? process.platform,
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
@@ -156,6 +162,7 @@ export function openRuntimeInstanceStore(input: {
     operatorEnvironment = input.env ?? process.env,
     resolveGithubToken = input.resolveGithubToken,
     managedPolicyTexts = input.managedPolicyTexts ?? (() => readCodexManagedPolicyTexts(platform)),
+    webSearchFetch = input.webSearchFetch ?? fetch,
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
@@ -163,7 +170,7 @@ export function openRuntimeInstanceStore(input: {
   let cachedInstances: readonly RuntimeInstanceConfig[] | null = null,
     recordedInstallationsCache: readonly RecordedRuntimeInstallation[] | null = null,
     recordedInstallationsRead = false;
-  function create(
+  function buildCreate(
     candidate: RuntimeInstanceConfig | LegacyRuntimeInstanceConfig | FlatRuntimeInstanceConfig,
   ): RuntimeInstanceConfig {
     const witnessed = input.discover(),
@@ -182,9 +189,55 @@ export function openRuntimeInstanceStore(input: {
         "runtime_installation_not_found",
         `Runtime installation ${config.installationId} is not currently witnessed for ${config.kindId}.`,
       );
-    if (config.isolationState === "enforced") ensureStateRoot(config);
-    persist([...instances, config]);
     return config;
+  }
+  function commitCreate(config: RuntimeInstanceConfig): RuntimeInstanceConfig {
+    if (config.isolationState === "enforced") ensureStateRoot(config);
+    persist([...read(), config]);
+    return config;
+  }
+  function create(
+    candidate: RuntimeInstanceConfig | LegacyRuntimeInstanceConfig | FlatRuntimeInstanceConfig,
+  ): RuntimeInstanceConfig {
+    const config = buildCreate(candidate);
+    // A custom gateway can only be admitted by the command write path, which performs the
+    // one real verification before this commit. The direct builder stays closed so no
+    // in-process caller can turn on an unverified tier by skipping that step.
+    if (runtimeWebSearchGatewayProbeRequired(config))
+      throw runtimeInstanceError(
+        "runtime_web_search_gateway_unverified",
+        [
+          `Runtime instance ${config.instanceId} requests webSearch on a custom gateway, which is verified once `,
+          `by the update command. Create it with webSearch=disabled, then run ` +
+            `\`ha runtime instance update ${config.instanceId} --web-search live\`.`,
+        ].join(""),
+      );
+    return commitCreate(config);
+  }
+  /** The one write-boundary verification for an opt-in tier on a custom base URL. */
+  async function assertGatewaySearchVerified(config: RuntimeInstanceConfig): Promise<void> {
+    if (!runtimeWebSearchGatewayProbeRequired(config)) return;
+    if (config.auth.mode !== "api-key")
+      throw runtimeInstanceError(
+        "runtime_web_search_gateway_unverified",
+        [
+          `Native web search on ${config.instanceId}'s custom gateway is verified with the instance's API key; `,
+          "this instance uses subscription authentication. Recreate it with api-key authentication or set webSearch=disabled.",
+        ].join(""),
+      );
+    const provider = runtimeProviderConfig(config);
+    await verifyRuntimeWebSearchGateway(
+      {
+        baseUrl: provider.baseUrl!,
+        model: selectRuntimeModel(config),
+        credentialRef: config.auth.credentialRef,
+        ...(provider.credentialHeader === undefined ? {} : { credentialHeader: provider.credentialHeader }),
+        ...(provider.httpHeaders === undefined ? {} : { httpHeaders: provider.httpHeaders }),
+        ...(provider.wireApi === undefined ? {} : { wireApi: provider.wireApi }),
+      },
+      resolveCredential,
+      webSearchFetch,
+    );
   }
   function resolveRuntimeInstallation(
     kindId: RuntimeInstanceKind,
@@ -635,7 +688,7 @@ export function openRuntimeInstanceStore(input: {
             .filter((candidate) => action[candidate] !== undefined || candidate === action.kindId)
             .map((candidate) => [candidate, action[candidate] ?? {}]),
         ),
-        config = create({
+        config = buildCreate({
           schemaVersion: 2,
           instanceId: action.instanceId,
           name: action.name,
@@ -653,13 +706,22 @@ export function openRuntimeInstanceStore(input: {
             ? {}
             : { hostingCredentialRefsByRepo: action.hostingCredentialRefsByRepo }),
         } as RuntimeInstanceConfig),
-        instance = publicConfig(config, readiness.get(config.instanceId));
-      return {
-        ...base,
-        instance,
-        evidence: JSON.stringify(instance),
-        summary: `runtime-instance-create: ${config.instanceId}`,
-      };
+        receipt = () => {
+          const instance = publicConfig(config, readiness.get(config.instanceId));
+          return {
+            ...base,
+            instance,
+            evidence: JSON.stringify(instance),
+            summary: `runtime-instance-create: ${config.instanceId}`,
+          };
+        };
+      if (runtimeWebSearchGatewayProbeRequired(config))
+        return assertGatewaySearchVerified(config).then(() => {
+          commitCreate(config);
+          return receipt();
+        });
+      commitCreate(config);
+      return receipt();
     }
     if (kind === "runtime-instance-list") {
       // A probe is the caller saying "observe this machine now", so it reads the live snapshot the
@@ -846,15 +908,23 @@ export function openRuntimeInstanceStore(input: {
         ...kindConfig,
         ...(hasCredential ? { auth: { mode: "api-key", credentialRef: action.credentialRef } } : {}),
       });
-      if (updated.isolationState === "enforced") ensureStateRoot(updated);
-      persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
-      if (hasInstallation || hasBaseUrl || hasCredential) readiness.delete(updated.instanceId);
-      return {
-        ...base,
-        instance: publicConfig(updated, readiness.get(updated.instanceId)),
-        evidence: JSON.stringify(publicConfig(updated, readiness.get(updated.instanceId))),
-        summary: `runtime-instance-update: ${instanceId}`,
+      const finish = () => {
+        if (updated.isolationState === "enforced") ensureStateRoot(updated);
+        persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
+        if (hasInstallation || hasBaseUrl || hasCredential) readiness.delete(updated.instanceId);
+        const instance = publicConfig(updated, readiness.get(updated.instanceId));
+        return {
+          ...base,
+          instance,
+          evidence: JSON.stringify(instance),
+          summary: `runtime-instance-update: ${instanceId}`,
+        };
       };
+      // An opt-in tier on a custom gateway is admitted by the one real verification, and
+      // only when the update itself touches the search endpoint, mode or credential.
+      if ((hasWebSearch || hasBaseUrl || hasCredential) && runtimeWebSearchGatewayProbeRequired(updated))
+        return assertGatewaySearchVerified(updated).then(finish);
+      return finish();
     }
     if (kind === "runtime-instance-show") {
       const witnessed = action.probe === true ? input.discover() : undefined,
