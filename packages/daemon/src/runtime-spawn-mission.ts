@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -36,6 +36,7 @@ import {
   latestRuntimeContinuationSeed,
 } from "./runtime-continuation-context.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import { claudeWorkspaceWriteCli } from "./runtime-inventory.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
@@ -594,6 +595,31 @@ export function priorEscalationAnswer(projection: TaskProjection, taskId: string
 }
 
 /**
+ * Read the latest resolution from an edge's mirrored package after its center serving cut. The
+ * ruling bytes come from the authored-document read port, same as every other package-file read;
+ * only the directory listing is filesystem-local.
+ */
+function mirroredEscalationAnswer(packageRoot: string): string | null {
+  const rulingRoot = path.join(packageRoot, "artifacts", "rulings");
+  if (!existsSync(rulingRoot)) return null;
+  const answers = readdirSync(rulingRoot)
+    .filter((name) => /^dispatch_[a-f0-9]{24}\.resolution\.md$/u.test(name))
+    .flatMap((name) => {
+      const dispatchId = name.slice(0, -".resolution.md".length),
+        body = new TextDecoder("utf-8", { fatal: true }).decode(
+          readAuthoredDocumentBytes(packageRoot, path.join("artifacts", "rulings", name)),
+        ),
+        resolution = readDispatchRuling(() => body, "", `${dispatchId}.resolution`);
+      return resolution === null
+        ? []
+        : [{ dispatchId, answer: resolution.question, answeredAt: resolution.createdAt ?? "" }];
+    })
+    .sort((left, right) => left.answeredAt.localeCompare(right.answeredAt))
+    .at(-1);
+  return answers ? `Owner answer to worker escalation ${answers.dispatchId}: ${answers.answer}` : null;
+}
+
+/**
  * Who reviews this task's next submitted cut (dec_E369B861 CH3): the task's own reviewer override,
  * else the repository defaultReviewer. Named in the worker mission so the submitter knows whose
  * verdict the automatic review loop will run.
@@ -967,6 +993,9 @@ export async function resolveRuntimeMission(input: {
     // remotely from the center's serving read. Historical tasks without the policy version keep
     // the creation-time profile rule.
     missionRiskTier = remoteTask?.riskTier ?? taskSnapshot?.task?.metadata?.riskTier ?? null,
+    // The edge mirror keeps the resolved escalation beside the package; remote missions read it
+    // through the authored port, the same way local missions read the projection ruling.
+    remoteEscalationAnswer = remoteTask === null ? null : mirroredEscalationAnswer(remoteTask.packageRoot),
     // A re-dispatched worker answers the latest owner return, so its mission carries the managed
     // rework record verbatim — from the center's serving read remotely, from the projection
     // locally. Reviewers bind to a submitted cut instead, so their missions never carry it, and
@@ -976,7 +1005,19 @@ export async function resolveRuntimeMission(input: {
       taskId === null || input.reviewerBinding
         ? null
         : remoteTask !== null
-          ? remoteTask.ownerReturnBody
+          ? (() => {
+              const servedOwnerReturn = remoteTask.ownerReturnBody;
+              return (
+                [
+                  servedOwnerReturn,
+                  remoteEscalationAnswer !== null && !servedOwnerReturn?.includes(remoteEscalationAnswer)
+                    ? remoteEscalationAnswer
+                    : null,
+                ]
+                  .filter((value): value is string => value !== null)
+                  .join("\n\n") || null
+              );
+            })()
           : [priorOwnerReturnBody(projection, taskId), priorEscalationAnswer(projection, taskId)]
               .filter((value): value is string => value !== null)
               .join("\n\n") || null,
@@ -1010,7 +1051,9 @@ export async function resolveRuntimeMission(input: {
       explicitMission === undefined
         ? (() => {
             const mission = taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
-            return mission;
+            return remoteEscalationAnswer !== null && !mission.includes(remoteEscalationAnswer)
+              ? `${mission}\n\n# Owner escalation answer\n\n${remoteEscalationAnswer}`
+              : mission;
           })()
         : explicitPromptMission(
             taskId,
