@@ -164,6 +164,7 @@
       "packages/daemon/src/entity-rows-read.ts#readDeclaredEntityRows",
       "packages/daemon/src/fleet-edge-task.ts#fleetExactTaskPackagePath",
       "packages/daemon/src/fleet-edge-task.ts#runFleetEdgeTask",
+      "packages/daemon/src/fleet-edge-runtime.ts#readLocalAuthoredDocument",
       "packages/daemon/src/fleet/center-lease-claims.ts#discardOwnedClaims",
       "packages/daemon/src/fleet/center-transport.ts#dispatch",
       "packages/daemon/src/fleet/center-transport.ts#pump",

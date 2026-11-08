@@ -4,6 +4,7 @@ import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import {
   canStartExecution,
+  consumeKnownError,
   isNativeExecution,
   type RepositorySettingsV1,
   type RuntimeProviderUnreachable,
@@ -657,10 +658,20 @@ export function openFleetEdgeRuntime(input: {
           entriesPrefix: `tasks/${taskId}`,
         });
         const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
+        const readLocalAuthoredDocument = (logicalPath: string): string | null => {
+          try {
+            return new TextDecoder("utf-8", { fatal: true }).decode(
+              readAuthoredDocumentBytes(materializedRoot, logicalPath),
+            );
+          } catch (error) {
+            consumeKnownError(error);
+            return null;
+          }
+        };
         const packagePathsFor = (logical: string): string[] => {
           const packagePath = logical.slice(0, -"/INDEX.md".length);
           try {
-            const body = readMirroredDocument(logical);
+            const body = readLocalAuthoredDocument(logical);
             if (body === null) return [];
             return body.split(/\r?\n/u).some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`)
               ? [packagePath]
@@ -687,7 +698,7 @@ export function openFleetEdgeRuntime(input: {
           { causalContext, riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
         let plan: string;
         try {
-          plan = readMirroredDocument(`${candidates[0]!}/task_plan.md`) ?? "";
+          plan = readLocalAuthoredDocument(`${candidates[0]!}/task_plan.md`) ?? "";
           if (!plan) throw new Error("task plan unavailable");
         } catch {
           throw edgeRuntimeError(
@@ -696,7 +707,7 @@ export function openFleetEdgeRuntime(input: {
           );
         }
         const { planContract } = mirroredPlanContract(
-          readMirroredDocument(`${candidates[0]!}/task-contract.json`),
+          readLocalAuthoredDocument(`${candidates[0]!}/task-contract.json`),
           taskId,
         );
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
@@ -714,7 +725,8 @@ export function openFleetEdgeRuntime(input: {
                     let body: string;
                     try {
                       body =
-                        readMirroredDocument(`${candidates[0]!}/returns/iteration-${String(priorIteration)}.md`) ?? "";
+                        readLocalAuthoredDocument(`${candidates[0]!}/returns/iteration-${String(priorIteration)}.md`) ??
+                        "";
                       if (!body) throw new Error("owner return unavailable");
                     } catch {
                       throw edgeRuntimeError(
@@ -740,7 +752,7 @@ export function openFleetEdgeRuntime(input: {
                   );
                 let body: string;
                 try {
-                  body = readMirroredDocument(logicalPath) ?? "";
+                  body = readLocalAuthoredDocument(logicalPath) ?? "";
                   if (!body) throw new Error("mission unavailable");
                 } catch {
                   throw edgeRuntimeError(
