@@ -5,12 +5,13 @@
  * design. A task-package authored document is read through the document
  * projection port. A direct filesystem read of a path rooted at the authored
  * task tree is therefore a boundary violation, regardless of the value
- * returned by the caller or the name of its helper.
+ * returned by the caller. The generic workspace text adapter is also treated
+ * as a read sink so helper layers cannot hide authored-path provenance.
  *
  * This scanner deliberately does not identify readiness predicates. It
- * follows path provenance into filesystem IO calls and reports the IO call
- * itself. `projection.readDocument(...)` is the port and is not a filesystem
- * call, so projection consumers are the negative control by construction.
+ * follows path provenance into filesystem IO calls and the generic workspace
+ * text adapter. `projection.readDocument(...)` is the canonical port and is
+ * not a filesystem call, so projection consumers are the negative control.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -20,8 +21,10 @@ import { listWorktreeFiles } from "./gates/git.mjs";
 
 export const SCOPES = Object.freeze(["packages/daemon/src", "packages/application/src", "packages/cli/src"]);
 export const AUTHORED_READ_KIND = "direct-authored-document-read";
+export const AUTHORED_WRAPPED_READ_KIND = "wrapped-authored-document-read";
 
 const DIRECT_READS = new Set(["readFileSync", "readFile"]);
+const WORKSPACE_TEXT_READS = new Set(["readWorkspaceText"]);
 const AUTHORED_ROOT_MEMBER = /(?:^|\.)authoredRoot$/u;
 const TASK_PATH_NAME = /^(?:task(?:Package|Plan|_plan)|packagePath|sourcePackageRoot|taskRoot|documentPath)$/iu;
 const ROOT_PATH_NAME = /^(?:authoredRoot|destinationRoot|materializedRoot)$/iu;
@@ -47,6 +50,7 @@ function scanFile(rel, body) {
   const source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel));
   const scopes = new Map(),
     directReadAliases = new Set(),
+    workspaceTextAliases = new Set(WORKSPACE_TEXT_READS),
     callbackBindings = [];
   const scopeOf = (symbol) => {
     if (!scopes.has(symbol))
@@ -57,6 +61,7 @@ function scanFile(rel, body) {
         parameterNames: [],
         returns: [],
         directReads: [],
+        workspaceTextReads: [],
       });
     return scopes.get(symbol);
   };
@@ -80,6 +85,13 @@ function scanFile(rel, body) {
     }
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const moduleName = node.moduleSpecifier.text;
+      if (/(?:^|\/)workspace-text-port(?:\.[cm]?[jt]s)?$/u.test(moduleName)) {
+        const named = node.importClause?.namedBindings;
+        if (named && ts.isNamedImports(named))
+          for (const element of named.elements)
+            if ((element.propertyName?.text ?? element.name.text) === "readWorkspaceText")
+              workspaceTextAliases.add(element.name.text);
+      }
       if (moduleName === "node:fs" || moduleName === "node:fs/promises") {
         const named = node.importClause?.namedBindings;
         if (named && ts.isNamedImports(named))
@@ -113,6 +125,8 @@ function scanFile(rel, body) {
       if (callee !== null && !isDirectRead(callee, directReadAliases)) scope.calls.push(node);
       if (callee !== null && isDirectRead(callee, directReadAliases)) {
         scope.directReads.push(node);
+      } else if (callee !== null && workspaceTextAliases.has(callee)) {
+        scope.workspaceTextReads.push(node);
       }
     }
     if (ts.isReturnStatement(node) && node.expression) scope.returns.push(node.expression);
@@ -187,6 +201,25 @@ function scanFile(rel, body) {
             .update(`${rel}\0${symbol}\0${AUTHORED_READ_KIND}\0${node.getText(source).replace(/\s+/gu, " ").trim()}`)
             .digest("hex"),
         });
+  for (const [symbol, scope] of scopes)
+    for (const node of scope.workspaceTextReads)
+      if (
+        ["task", "root"].includes(
+          joinPathKinds(node.arguments.slice(0, 2).map((argument) => pathKindExpression(argument, scope, scopes))),
+        )
+      )
+        sites.push({
+          path: rel,
+          symbol,
+          kind: AUTHORED_WRAPPED_READ_KIND,
+          line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+          call: node.expression.getText(source),
+          fingerprint: createHash("sha256")
+            .update(
+              `${rel}\0${symbol}\0${AUTHORED_WRAPPED_READ_KIND}\0${node.getText(source).replace(/\s+/gu, " ").trim()}`,
+            )
+            .digest("hex"),
+        });
   return sites;
 
   function pathKindExpression(node, scope, allScopes, seen = new Set()) {
@@ -255,6 +288,8 @@ function scanFile(rel, body) {
         pathKindExpression(expression.whenTrue, scope, allScopes, seen),
         pathKindExpression(expression.whenFalse, scope, allScopes, seen),
       ]);
+    if (ts.isArrayLiteralExpression(expression))
+      return joinPathKinds(expression.elements.map((element) => pathKindExpression(element, scope, allScopes, seen)));
     return null;
   }
 
@@ -287,8 +322,8 @@ function scanFile(rel, body) {
 export function checkAuthoredReadinessSites(sites) {
   return sites.map(
     (site) =>
-      `${site.path}#${site.symbol}:${site.kind}:${site.line}: direct ${site.call} reads an authored task-package document; ` +
-      "read the canonical bytes through projection.readDocument",
+      `${site.path}#${site.symbol}:${site.kind}:${site.line}: ${site.call} reads an authored task-package document; ` +
+      "read bytes through projection.readDocument or the authored-document port",
   );
 }
 

@@ -161,6 +161,18 @@ test("positive fixture: direct authored reads are refused regardless of verdict 
     );
 });
 
+test("positive fixture: an authored task artifact read through a workspace wrapper is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/wrapped-authored-read.ts#readPacketThroughHelper") &&
+        finding.includes("wrapped-authored-document-read"),
+    ),
+    findings.join("\n"),
+  );
+});
+
 test("a direct authored read is reported without a readiness heuristic", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-authored-readiness-scope-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
