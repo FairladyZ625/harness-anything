@@ -11,6 +11,7 @@ import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-g
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { publishActiveDispatchLifecycle } from "./runtime-dispatch-lifecycle.ts";
 import {
   parseRuntimeSteerExpectation,
   resolveRuntimeSteerHeader,
@@ -94,23 +95,42 @@ export async function cancelRuntime(
       // after terminateTree would wait for that CLI child, which waits for us: stop the provider
       // now, let the response flush, and finish the full tree cleanup in the next check phase.
       active.process.terminate();
-      setImmediate(() => {
-        const terminateTree = active.process.terminateTree;
-        if (terminateTree)
-          void terminateTree().catch((error: unknown) =>
-            console.error("[runtime-escalation] descendant cleanup failed", error),
-          );
-      });
-      void consumeDurableOutput(context, active)
-        .then(() => context.publishExit(active, null))
+      const terminateTree = active.process.terminateTree?.bind(active.process),
+        treeCleanup = new Promise<boolean>((resolve) => {
+          setImmediate(() => {
+            if (!terminateTree) {
+              resolve(false);
+              return;
+            }
+            void terminateTree().then(
+              () => resolve(true),
+              (error: unknown) => {
+                console.error("[runtime-escalation] descendant cleanup failed", error);
+                resolve(false);
+              },
+            );
+          });
+        });
+      void treeCleanup
+        .then(async (treeStopped) => {
+          await consumeDurableOutput(context, active);
+          await publishActiveDispatchLifecycle(context, active, {
+            type: treeStopped ? "process_exit" : "process_lost",
+          });
+          await context.publishExit(active, null);
+        })
         .catch((error: unknown) => console.error("[runtime-escalation] settlement failed", error));
       return context.controlReceipt(opId, runtimeSessionId, "requested");
     }
-    if (active.process.terminateTree) await active.process.terminateTree();
+    const terminateTree = active.process.terminateTree?.bind(active.process);
+    if (terminateTree) await terminateTree();
     else active.process.terminate();
     // Cancel holds the write queue: lines flushed during termination drain into work queued behind
     // it, which is dropped once settlement retires the runtime. Settle them from the stream.
     await consumeDurableOutput(context, active);
+    await publishActiveDispatchLifecycle(context, active, {
+      type: terminateTree ? "process_exit" : "process_lost",
+    });
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
@@ -250,9 +270,13 @@ function readLocalRuntimeDispatchOwner(
 export async function enforceRuntimeSpendCap(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {
   if (context.processes.get(active.runtimeSessionId) !== active) return;
   if (!active.spendCapExceeded || active.cancelRequested || context.exiting.has(active.runtimeSessionId)) return;
-  if (active.process.terminateTree) await active.process.terminateTree();
+  const terminateTree = active.process.terminateTree?.bind(active.process);
+  if (terminateTree) await terminateTree();
   else active.process.terminate();
   await consumeDurableOutput(context, active);
+  await publishActiveDispatchLifecycle(context, active, {
+    type: terminateTree ? "process_exit" : "process_lost",
+  });
   await context.publishExit(active, null);
 }
 
