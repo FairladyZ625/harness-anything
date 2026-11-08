@@ -72,12 +72,23 @@ test("reviewed commands round-trip the settings boundary with their Agent scope"
   );
 });
 
+test("a single quote inside a double-quoted argument stays literal", () => {
+  const command = `/opt/ha/bridge.mjs task-create "don't expand"`,
+    args = launchArgs(claude, "claude-fable-5", "Run", undefined, null, "workspace-write", false, undefined, "darwin", [
+      { id: "bridge", approvedCommand: command },
+    ]),
+    settings = JSON.parse(args[args.indexOf("--settings") + 1]!);
+  assert.deepEqual(settings.permissions, { allow: [`Bash(${command})`] });
+});
+
 test("an unbounded or shell-composed reviewed command is rejected before launch", () => {
   for (const approvedCommand of [
     "/opt/ha/bridge.mjs task-create *",
     "/opt/ha/bridge.mjs task-create; rm -rf .",
     "/opt/ha/bridge.mjs task-create && echo done",
     '/opt/ha/bridge.mjs task-create "$(whoami)"',
+    `/opt/ha/bridge.mjs task-create "'$(whoami)'" 'safe'`,
+    "/opt/ha/bridge.mjs task-create \"'`whoami`'\" 'safe'",
     "/opt/ha/bridge.mjs task-create `whoami`",
     "/opt/ha/bridge.mjs task-create\nother",
     "/opt/ha/bridge.mjs task-create " + "a".repeat(4096),

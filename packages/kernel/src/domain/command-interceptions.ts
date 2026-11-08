@@ -58,12 +58,16 @@ function validApprovedCommand(command: string): boolean {
       if (character === "'") quote = null;
       continue;
     }
+    if (quote === "double") {
+      if (character === "$" || character === "`" || character === "\\") return false;
+      if (character === '"') quote = null;
+      continue;
+    }
     if (escaped) {
       escaped = false;
       continue;
     }
     if (character === "\\") {
-      if (quote === "double") return false;
       escaped = true;
       continue;
     }
@@ -72,11 +76,7 @@ function validApprovedCommand(command: string): boolean {
       continue;
     }
     if (character === '"') {
-      quote = quote === "double" ? null : "double";
-      continue;
-    }
-    if (quote === "double") {
-      if (character === "$" || character === "`") return false;
+      quote = "double";
       continue;
     }
     if ([";", "&", "|", "<", ">", "`", "(", ")", "$", "\\", "*", "?", "[", "]", "{", "}"].includes(character))
