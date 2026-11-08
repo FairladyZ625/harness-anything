@@ -56,6 +56,12 @@ const judgments = Object.freeze([
   },
   {
     id: "authoredDocumentReadiness",
+    symbol: "assessAuthoredDocumentReadiness",
+    canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
+    declaration: "function",
+  },
+  {
+    id: "transitionDocumentReadiness",
     symbol: "assessTransitionDocument",
     canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
     declaration: "function",
@@ -175,7 +181,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Domain judgment single-definition check passed (nine judgments resolve to kernel domain services; authored-document reads use the projection port).",
+    "Domain judgment single-definition check passed (ten judgments resolve to kernel domain services; authored-document reads use the projection port).",
   );
 }
 const invokedDirectly =

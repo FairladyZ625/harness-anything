@@ -33,7 +33,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /nine judgments resolve to kernel domain services; authored-document reads use the projection port/u,
+    /ten judgments resolve to kernel domain services; authored-document reads use the projection port/u,
   );
 });
 
@@ -130,13 +130,18 @@ test("negative fixture: the kernel judgment over a projection body passes", (t) 
 
 test("positive fixture: a second authored-document readiness definition is refused", (t) => {
   const findings = fixtureFindings(t);
-  assert.ok(
-    findings.some(
-      (finding) =>
-        finding.includes("authoredDocumentReadiness") && finding.includes("packages/daemon/src/duplicate-judgments.ts"),
-    ),
-    findings.join("\n"),
-  );
+  for (const judgment of ["authoredDocumentReadiness", "transitionDocumentReadiness"]) {
+    const symbol =
+      judgment === "authoredDocumentReadiness" ? "assessAuthoredDocumentReadiness" : "assessTransitionDocument";
+    assert.ok(
+      findings.some(
+        (finding) =>
+          finding.includes(`${judgment}: expected one definition of ${symbol}`) &&
+          finding.includes("packages/daemon/src/duplicate-judgments.ts"),
+      ),
+      findings.join("\n"),
+    );
+  }
 });
 
 test("positive fixture: direct authored reads are refused regardless of verdict shape", (t) => {
