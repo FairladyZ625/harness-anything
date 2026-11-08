@@ -740,6 +740,63 @@ test(
         );
       },
     );
+    await t.test("a taskless read-only edge launch receives a center-enforced read-only principal", async () => {
+      const readOnly = await edgeHost.fleet.edgeRuntime(
+        {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          nodeId: fixture.subject.nodeId,
+          credential: "machine-secret",
+          repoId: fixture.subject.repoId,
+          viewRoot,
+          quotaBytes: replicaQuota,
+          workspaceRoot: edgeRoot,
+          method: "repo.agentRuntime.spawn",
+          action: {
+            runtimeInstanceId: runtimeDefinition.instanceId,
+            cwd: { scope: "repo-root" },
+            permissionMode: "read-only",
+            taskId: null,
+            prompt: "Read only through the center-issued execution scope",
+            dispatchKey: "unbound-fleet-read-only",
+          },
+        },
+        localAuth,
+      );
+      assert.equal(readOnly.outcome, "applied", JSON.stringify(readOnly));
+      assert.ok(launchedEnv?.HARNESS_EXECUTION_CREDENTIAL);
+      const principal = readRuntimeExecutionPrincipal(edgeRoot, launchedEnv!.HARNESS_EXECUTION_CREDENTIAL!);
+      assert.equal(principal?.role, "read-only");
+      assert.equal(principal?.taskId, null);
+      const denied = await runFleetEdgeTask(
+        {
+          payload: {
+            host: "127.0.0.1",
+            port: center.port,
+            caPath: fixture.certFile,
+            nodeId: fixture.subject.nodeId,
+            credential: "machine-secret",
+            repoId: fixture.subject.repoId,
+            executionCredential: launchedEnv!.HARNESS_EXECUTION_CREDENTIAL!,
+            principalId: principal!.personId,
+            viewRoot,
+            quotaBytes: replicaQuota,
+            workspaceRoot: edgeRoot,
+            action: {
+              kind: "task-create",
+              taskId: "task-unbound-edge-read-only",
+              title: "Must be denied by the read-only execution scope",
+              presetId: "docs-task",
+              riskTier: "low",
+            },
+          },
+        },
+        async () => `device-token-${fixture.subject.nodeId}`,
+      );
+      assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
+      assert.equal(denied.code, "execution_credential_rejected", JSON.stringify(denied));
+    });
   },
 );
 test(

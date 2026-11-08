@@ -18,6 +18,7 @@ import {
   requireExecutionDocumentSelection,
   requireExecutionRequestScope,
   requireExecutionActionScope,
+  runtimeExecutionRoleForLaunch,
   taskExecutionSurfaces,
 } from "../src/runtime-execution-scope.ts";
 import {
@@ -191,6 +192,15 @@ test("unbound session credentials preserve the person, repository and live dispa
       realm.fetch,
     ),
     { code: "execution_credential_rejected" },
+  );
+});
+
+test("a read-only ceiling narrows only a taskless session execution role", () => {
+  assert.equal(runtimeExecutionRoleForLaunch({ taskId: null, role: "session", readOnlyCeiling: true }), "read-only");
+  assert.equal(runtimeExecutionRoleForLaunch({ taskId: null, role: "session", readOnlyCeiling: false }), "session");
+  assert.equal(
+    runtimeExecutionRoleForLaunch({ taskId: "task-worker", role: "implementation", readOnlyCeiling: true }),
+    "implementation",
   );
 });
 

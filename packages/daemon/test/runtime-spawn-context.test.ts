@@ -5,11 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import {
-  assertRuntimeLaunchAuthorization,
-  daemonCliBinDirectory,
-  prepareBoundRuntimeLaunch,
-} from "../src/runtime-spawn-context.ts";
+import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "../src/runtime-spawn-context.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { resolveDispatchCwd } from "../src/runtime-resume-admission.ts";
 
@@ -36,34 +32,47 @@ test("an unbound runtime inherits its spawning daemon route and runtime actor", 
   assert.equal(launch.env.PATH?.split(path.delimiter)[0], "/installation/bin");
 });
 
-test("a taskless read-only launch rejects broad or missing identity before touching credential providers", async () => {
-  for (const remote of [undefined, { executionCredential: () => assert.fail("must not read a center credential") }])
-    for (const daemonRoute of [undefined, { userRoot: "/state", daemonId: "test", endpoint: "/daemon.sock" }])
-      for (const role of [undefined, "session"] as const)
-        await assert.rejects(
-          prepareBoundRuntimeLaunch({
-            input: {
-              remote,
-              keycloakCenter: () => assert.fail("must not issue a credential"),
-            } as unknown as RuntimeSpawnerInput,
-            prepared: { permissionMode: "read-only" } as Parameters<typeof prepareBoundRuntimeLaunch>[0]["prepared"],
-            daemonRoute,
-            runtimeActor: "agent:runtime-session:readonly",
-            taskId: null,
-            ...(role ? { execution: { role } as never } : {}),
-          }),
-          { code: "runtime_read_only_agent_required" },
-        );
-});
-
-test("runtime launch authorization accepts only the declared read-only identity", () => {
-  assertRuntimeLaunchAuthorization({ taskId: null, permissionMode: "read-only", executionRole: "read-only" });
-  assertRuntimeLaunchAuthorization({ taskId: "task-1", permissionMode: "read-only", executionRole: "implementation" });
-  assertRuntimeLaunchAuthorization({ taskId: null, permissionMode: "workspace-write", executionRole: "session" });
-  assert.throws(
-    () => assertRuntimeLaunchAuthorization({ taskId: null, permissionMode: "read-only", executionRole: "session" }),
-    { code: "runtime_read_only_agent_required" },
+test("a read-only execution credential is delivered through the launch environment", async () => {
+  const principals: Array<{ readonly role: string; readonly taskId: string | null }> = [],
+    center = {
+      accessToken: "synthetic-access-token",
+      provider: {
+        issueExecutionCredential: async (
+          _accessToken: string,
+          principal: { readonly role: string; readonly taskId: string | null },
+        ) => {
+          principals.push(principal);
+          return "synthetic-execution-credential";
+        },
+      },
+    },
+    launch = await prepareBoundRuntimeLaunch({
+      input: {
+        rootDir: "/repo",
+        repoId: "repo",
+        now: () => "2026-11-08T00:00:00.000Z",
+        keycloakCenter: async () => center,
+      } as unknown as RuntimeSpawnerInput,
+      prepared: { env: {}, permissionMode: "read-only" } as Parameters<typeof prepareBoundRuntimeLaunch>[0]["prepared"],
+      daemonRoute: { userRoot: "/state", daemonId: "test", endpoint: "/daemon.sock" },
+      runtimeActor: "agent:runtime-session:readonly",
+      taskId: null,
+      execution: {
+        repoId: "repo",
+        personId: "person",
+        source: "local",
+        runtimeSessionId: "runtime-readonly",
+        dispatchId: "dispatch-readonly",
+        taskId: null,
+        executionId: null,
+        role: "read-only",
+      },
+    });
+  assert.deepEqual(
+    principals.map(({ role, taskId }) => ({ role, taskId })),
+    [{ role: "read-only", taskId: null }],
   );
+  assert.equal(launch.env.HARNESS_EXECUTION_CREDENTIAL, "synthetic-execution-credential");
 });
 
 test("runtime CLI bin resolves from the nearest daemon installation", (context) => {

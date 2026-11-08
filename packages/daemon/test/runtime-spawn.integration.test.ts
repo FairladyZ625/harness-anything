@@ -672,22 +672,19 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     );
     assert.ok(performance.now() - unavailableStarted < 1_000, "an incompatible explicit instance should fail quickly");
     const launchBeforeReadOnly = launched;
-    await assert.rejects(
-      cell.spawnRuntime(
-        {
-          runtimeInstanceId: "codex-agent-model",
-          agentId: "declared-model",
-          cwd: { scope: "repo-root" },
-          prompt: "A provider override cannot grant a read-only execution identity.",
-          permissionMode: "read-only",
-          taskId: null,
-          dispatchKey: "agent-model-read-only",
-        },
-        binding,
-      ),
-      { code: "runtime_read_only_agent_required" },
+    await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "declared-model",
+        cwd: { scope: "repo-root" },
+        prompt: "A read-only provider ceiling must launch with a read-only execution identity.",
+        permissionMode: "read-only",
+        taskId: null,
+        dispatchKey: "agent-model-read-only",
+      },
+      binding,
     );
-    assert.equal(launched, launchBeforeReadOnly, "a rejected read-only override must not launch the provider");
+    assert.notEqual(launched, launchBeforeReadOnly, "a read-only request must still launch the provider");
     assert.deepEqual(validateDaemonGuiCommandReceipt(makeDaemonCommandReceipt("runtime-spawn", resolvedCase)), []);
     assert.deepEqual(validateRuntimeSpawnReceipt(makeDaemonCommandReceipt("runtime-spawn", resolvedCase)), []);
     await cell.spawnRuntime(

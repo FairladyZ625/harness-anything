@@ -15,23 +15,19 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
-// The ask-agent tool boundary end to end: the dispatched agent's environment carries the
-// read-only execution credential, and the real CLI inside it finds allowlisted queries answered
-// while everything outside the allowlist — reads and writes — is rejected by the daemon.
+// Read-only execution credentials are enforced by the daemon regardless of provider mode or Agent declaration.
 for (const scenario of [
   {
     name: "the dispatched ask agent reaches only its allowlisted ledger queries through the real CLI",
     agentId: "ask-agent",
   },
   {
-    name: "#4401 taskless explicit read-only without an Agent is refused before launch",
+    name: "#4401 taskless explicit read-only without an Agent launches with a restricted credential",
     requested: "read-only",
-    rejected: true,
   },
   {
-    name: "#4401 taskless instance read-only without an Agent is refused before launch",
+    name: "#4401 taskless instance read-only without an Agent launches with a restricted credential",
     configured: "read-only",
-    rejected: true,
   },
   { name: "#4401 ordinary taskless session retains repository writes under person RBAC", session: true },
 ])
@@ -146,27 +142,7 @@ for (const scenario of [
         prompt: "重构组怎么样了？",
         dispatchKey: "ask-allowlist",
       },
-    })) as { readonly outcome: string; readonly code?: string; readonly runtimeSessionId?: string };
-    if (scenario.rejected) {
-      assert.equal(spawned.outcome, "op_rejected", JSON.stringify(spawned));
-      assert.equal(spawned.code, "runtime_read_only_agent_required");
-      assert.equal(existsSync(envPath), false, "refused dispatch must not launch a provider with a credential");
-      const retry = (await rpc("repo.agentRuntime.spawn", {
-        repo: { repoId },
-        payload: {
-          runtimeInstanceId: "codex-ask",
-          permissionMode: "workspace-write",
-          taskId: null,
-          cwd: { scope: "repo-root" },
-          prompt: "重构组怎么样了？",
-          dispatchKey: "ask-allowlist-retry",
-        },
-      })) as { readonly outcome: string };
-      assert.equal(retry.outcome, "applied", JSON.stringify(retry));
-      await eventuallyValue(() => (existsSync(envPath) ? readFileSync(envPath, "utf8") : null));
-      writeFileSync(path.join(parent, "ask-finish"), "");
-      return;
-    }
+    })) as { readonly outcome: string; readonly runtimeSessionId?: string };
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
 
     const env = await eventuallyValue(() =>
@@ -197,7 +173,10 @@ for (const scenario of [
     }
     for (const [label, response] of [
       ["outside allowlist read", await cli(["agent", "list"])],
-      ["outside allowlist write", await cli(["agent", "install", "--source", path.join(parent, "nope")])],
+      ["task creation", await cli(["task", "create", "--title", "Read-only task write attempt"])],
+      ["task progress write", await cli(["task", "progress", "append", "task_4401_probe", "--text", "must be denied"])],
+      ["document sync write", await cli(["doc", "sync", "--submit", "--path", "README.md"])],
+      ["agent install write", await cli(["agent", "install", "--source", path.join(parent, "nope")])],
       ["ledger write", await cli(["settings", "update", "--runtime-allowed-instance", "codex-other"])],
     ]) {
       assert.match(

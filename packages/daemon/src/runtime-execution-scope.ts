@@ -95,6 +95,15 @@ const readOnlyLedgerQueries = new Set([
   "schedule-runs",
 ]);
 
+/** A taskless session's requested read-only ceiling becomes an issued server-side role. */
+export function runtimeExecutionRoleForLaunch(input: {
+  readonly taskId: string | null;
+  readonly role: RuntimeExecutionPrincipal["role"];
+  readonly readOnlyCeiling: boolean;
+}): RuntimeExecutionPrincipal["role"] {
+  return input.taskId === null && input.readOnlyCeiling && input.role === "session" ? "read-only" : input.role;
+}
+
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
   const commandClass = action.kind === repositoryReadActionKind ? "repo-read" : commandClassForAction(action.kind);
   // The read-only dispatch holds no task lease, so every non-allowlisted action — read or
