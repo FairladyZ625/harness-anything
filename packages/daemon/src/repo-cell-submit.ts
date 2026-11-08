@@ -473,6 +473,7 @@ async function autoDeclareSubmittedExecutor(
   executionId: string,
   binding: RepoCellBinding,
 ): Promise<WriteReceiptDraft | null> {
+  throw new Error("[auto-executor-debug] called");
   const snapshot = (await cell.service.read(taskId)).snapshot,
     execution = snapshot.executions.find((candidate) => candidate.executionId === executionId);
   if (
