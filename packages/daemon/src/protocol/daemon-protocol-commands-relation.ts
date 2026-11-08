@@ -7,6 +7,7 @@ import { cliInput, defineCenterForwardWriteCommand } from "@harness-anything/pre
 
 const invalid = () => ({ code: "invalid_field" });
 const expectedVersion = cliInput("--expected-version", "single", true, invalid(), {
+  pathKind: "non-path",
   regex: "^(?:0|[1-9][0-9]*)$",
   projection: "number" as const,
 });
@@ -32,21 +33,25 @@ export const relationProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [
       cliInput("--source-ref", "single", true, invalid(), {
+        pathKind: "non-path",
         description: "the Relation's source endpoint, a local Entity ref",
         format: endpointRefFormat,
       }),
       cliInput("--target-ref", "single", true, invalid(), {
+        pathKind: "non-path",
         description: "the Relation's target endpoint, a local Entity ref",
         format: endpointRefFormat,
       }),
       cliInput("--type", "single", true, invalid(), {
+        pathKind: "non-path",
         field: "relationType",
         enum: relationTypes,
       }),
-      cliInput("--direction", "single", false, invalid(), { enum: relationDirections }),
-      cliInput("--origin", "single", false, invalid(), { enum: relationOrigins }),
-      cliInput("--rationale", "single", true, invalid()),
+      cliInput("--direction", "single", false, invalid(), { pathKind: "non-path", enum: relationDirections }),
+      cliInput("--origin", "single", false, invalid(), { pathKind: "non-path", enum: relationOrigins }),
+      cliInput("--rationale", "single", true, invalid(), { pathKind: "non-path" }),
       cliInput("--expected-version", "single", true, invalid(), {
+        pathKind: "non-path",
         description:
           "the Relation's current revision; pass 0 to create a new Relation and the retired revision to re-ask",
         regex: "^(?:0|[1-9][0-9]*)$",
@@ -65,7 +70,7 @@ export const relationProtocolCommands = Object.freeze([
       "with the answer as --reason; the person can instead answer it in place from the GUI overview " +
       "(等你答复), which writes the same retire.",
     method: "repo.task.run",
-    inputs: [cliInput("--reason", "single", true, invalid()), expectedVersion],
+    inputs: [cliInput("--reason", "single", true, invalid(), { pathKind: "non-path" }), expectedVersion],
   }),
   defineCenterForwardWriteCommand({
     id: "relation-reconfirm",
@@ -73,6 +78,6 @@ export const relationProtocolCommands = Object.freeze([
     path: ["relation", "reconfirm", "<relation-id>"],
     summary: "Reconfirm a Relation against the target version at the current canonical cut.",
     method: "repo.task.run",
-    inputs: [cliInput("--rationale", "single", true, invalid()), expectedVersion],
+    inputs: [cliInput("--rationale", "single", true, invalid(), { pathKind: "non-path" }), expectedVersion],
   }),
 ] as const);

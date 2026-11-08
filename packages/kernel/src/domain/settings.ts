@@ -1,6 +1,6 @@
 import {
   commandInterceptionsSchema,
-  commandInterceptionPatternIssues,
+  commandInterceptionIssues,
   type CommandInterception,
 } from "./command-interceptions.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
@@ -437,7 +437,7 @@ function withGateMappingIssues(errors: readonly string[], value: unknown): reado
   )?.runtime?.commandInterceptions;
   return [
     ...(gates === undefined ? [] : gateWitnessMappingIssues(gates)),
-    ...(rules === undefined ? [] : commandInterceptionPatternIssues(rules)),
+    ...(rules === undefined ? [] : commandInterceptionIssues(rules)),
   ];
 }
 

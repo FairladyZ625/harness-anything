@@ -502,7 +502,7 @@ test("amending the title retitles the published plan through the typed route and
     )) as { outcome?: string; opId?: string; changedPaths?: readonly string[] };
     assert.equal(amended.outcome, "applied", JSON.stringify(amended));
     assert.ok(
-      amended.changedPaths?.includes(plan),
+      amended.changedPaths?.includes(`harness/${plan}`),
       `amend changedPaths must retitle the plan: ${JSON.stringify(amended.changedPaths)}`,
     );
     await waitForFixturePublication(cell, amended.opId!, binding);

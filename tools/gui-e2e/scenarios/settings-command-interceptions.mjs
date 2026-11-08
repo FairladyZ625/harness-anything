@@ -43,7 +43,7 @@ export default {
             Array.isArray(state.rules) &&
             state.rules.length === expected.length &&
             state.rules.every((rule, index) =>
-              ["id", "pattern", "agent"].every((key) => rule[key] === expected[index][key]),
+              ["id", "pattern", "approvedCommand", "agent"].every((key) => rule[key] === expected[index][key]),
             )
           );
         },
@@ -59,7 +59,15 @@ export default {
     await page.getByTestId("command-interception-0-id").fill("block-release");
     await page.getByTestId("command-interception-0-pattern").fill("^npm run release(?: |$)");
     await page.getByTestId("command-interception-0-agent").fill("worker");
-    const rules = [{ id: "block-release", pattern: "^npm run release(?: |$)", agent: "worker" }];
+    await page.getByTestId("command-interception-add").click();
+    await page.getByTestId("command-interception-1-id").fill("reviewed-bridge");
+    await page.getByTestId("command-interception-1-kind").selectOption("approvedCommand");
+    await page.getByTestId("command-interception-1-pattern").fill("/opt/ha/node /opt/ha/bridge.mjs task-create");
+    await page.getByTestId("command-interception-1-agent").fill("worker");
+    const rules = [
+      { id: "block-release", pattern: "^npm run release(?: |$)", agent: "worker" },
+      { id: "reviewed-bridge", approvedCommand: "/opt/ha/node /opt/ha/bridge.mjs task-create", agent: "worker" },
+    ];
     await save(rules);
     console.log(
       "[command-interceptions] persisted rules:",
@@ -69,9 +77,11 @@ export default {
     await page.reload();
     await openSettings();
     assert.equal(await page.getByTestId("command-interception-0-pattern").inputValue(), rules[0].pattern);
+    assert.equal(await page.getByTestId("command-interception-1-kind").inputValue(), "approvedCommand");
+    assert.equal(await page.getByTestId("command-interception-1-pattern").inputValue(), rules[1].approvedCommand);
     await page.getByTestId("settings-runtimeCommandInterceptions-help").locator("summary").click();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
-    assert.match(await page.getByTestId("settings-content").innerText(), /Blocked runtime commands/u);
+    assert.match(await page.getByTestId("settings-content").innerText(), /Runtime command rules/u);
     await shot("command-interceptions-en");
     await page.getByRole("button", { name: /外观|Appearance/u }).click();
     await page.getByRole("button", { name: /^(?:亮色|Light)$/u }).click();
@@ -82,7 +92,7 @@ export default {
     await page.getByLabel(/^语言$|^Language$/u).selectOption("zh-CN");
     await page.getByRole("button", { name: /^Repository |^仓库 /u }).click();
     await page.getByTestId("settings-search").fill("runtimeCommandInterceptions");
-    assert.match(await page.getByTestId("settings-content").innerText(), /Runtime 命令拦截/u);
+    assert.match(await page.getByTestId("settings-content").innerText(), /Runtime 命令规则/u);
     await page.getByTestId("settings-runtimeCommandInterceptions-help").locator("summary").click();
     await shot("command-interceptions-zh");
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1120, 900));

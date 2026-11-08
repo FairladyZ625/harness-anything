@@ -218,9 +218,15 @@ function parseTaskArtifactAdd(
   if (!parsed.ok) return parsed;
   if (parsed.command.action.run === true)
     return rejected("missing_field", "--run requires -- <command> [args...]. See ha task artifact add --help.", json);
-  return parsed.command.action.destination === undefined
-    ? rejected("missing_field", "--destination is required with --source. See ha task artifact add --help.", json)
-    : parsed;
+  if (parsed.command.action.destination === undefined)
+    return rejected("missing_field", "--destination is required with --source. See ha task artifact add --help.", json);
+  // Artifact receipts name ledger documents, but the command is still a caller-facing CLI route.
+  // Keep the coordinate marker on the CLI transport envelope; the closed Task Action carries only
+  // its declared fields and can therefore pass repo.task.run validation unchanged.
+  return {
+    ...parsed,
+    command: { ...parsed.command, pathCoordinate: "workspace" },
+  };
 }
 
 function parseTaskDispatchReview(

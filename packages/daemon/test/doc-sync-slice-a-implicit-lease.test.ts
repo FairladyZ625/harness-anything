@@ -323,19 +323,21 @@ test("path and confirmed full submits ride the repository prose channel when ano
     const status = await cell.run(
       {
         kind: "doc-status",
-        paths: [`${packagePath}/artifacts/reports/leased.md`],
+        paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        pathCoordinate: "workspace",
       },
       person,
     );
     assert.deepEqual(
       rows(status.evidence).map((row) => [row.path, row.state]),
-      [[`${packagePath}/artifacts/reports/leased.md`, "eligible"]],
+      [[`harness/${packagePath}/artifacts/reports/leased.md`, "eligible"]],
       JSON.stringify(status.evidence),
     );
     const prefixedStatus = await cell.run(
       {
         kind: "doc-status",
         paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        pathCoordinate: "workspace",
       },
       person,
     );
@@ -344,6 +346,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
       {
         kind: "doc-submit",
         paths: [`harness/${packagePath}/artifacts/reports/leased.md`],
+        pathCoordinate: "workspace",
       },
       person,
     );
@@ -557,10 +560,9 @@ test("a submit whose only candidate is a deleted canonical document names the re
   }
 });
 
-// doc status/sync accept repo-relative selections (harness/…); retire must accept the same
-// spelling. The nested layout is the dogfood shape: the ledger prefix is empty there, so the
-// strip rides the product-visible authored-root prefix.
-test("doc retire accepts the product-root path spelling in the nested ledger layout", async () => {
+// doc status/sync accept the workspace spelling; retire shares the same translation. The nested
+// layout is the dogfood shape where the ledger-repository key and the workspace spelling differ.
+test("doc retire accepts the workspace spelling in the nested ledger layout", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-spelling-"));
   initNestedLedgerRepo(rootDir);
   const repoId = workspaceId("retire-spelling"),
@@ -578,7 +580,12 @@ test("doc retire accepts the product-root path spelling in the nested ledger lay
     await waitForWorktree(cell, submitted, binding);
     rmSync(path.join(rootDir, "harness", logical));
     const retired = (await cell.run(
-      { kind: "doc-retire", paths: [`harness/${logical}`], reason: "superseded duplicate" },
+      {
+        kind: "doc-retire",
+        paths: [`harness/${logical}`],
+        pathCoordinate: "workspace",
+        reason: "superseded duplicate",
+      },
       binding,
     )) as { readonly outcome?: string; readonly evidence?: string };
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
@@ -589,7 +596,7 @@ test("doc retire accepts the product-root path spelling in the nested ledger lay
     };
     assert.deepEqual(
       receipt.retirements.map((row) => row.path),
-      [logical],
+      [`harness/${logical}`],
     );
     const shown = await cell.run({ kind: "doc-show", path: logical }, binding);
     assert.equal(shown.code, "document_not_found");

@@ -923,6 +923,19 @@ export function createJsonRpcProtocolServer(options: {
     let action: JsonObject & { readonly kind: string };
     try {
       action = actionForDaemonMethod(commandMethod, commandParams.payload);
+      // The CLI's artifact destination coordinate is transport metadata, not a Task Action field.
+      // Attach it only after the closed RPC/action validators have accepted the request so the
+      // daemon's internal doc writer can render the caller-facing workspace spelling.
+      if (
+        commandParams.payload.pathCoordinate === "workspace" ||
+        commandParams.payload.pathCoordinate === "task-artifact"
+      )
+        action = { ...action, pathCoordinate: commandParams.payload.pathCoordinate };
+      // The CLI-read plan file's path is a diagnostic label, not a declared action field. Attach it
+      // after validation exactly like pathCoordinate; the task-create action strips it before the
+      // create plan is compiled.
+      if (action.kind === "task-create" && typeof commandParams.planSource === "string")
+        action = { ...action, planSource: commandParams.planSource };
     } catch (error) {
       return reply(commandMethod, protocolFailure(commandMethod, error));
     }

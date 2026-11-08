@@ -6,6 +6,8 @@ import {
   compileAgentRetired,
   compileDecisionWrite,
   compileFactWrite,
+  documentWorkspacePath,
+  resolveHarnessLayout,
   getExecutableEntityAction,
   isRelationEvent,
   isSamePerson,
@@ -133,8 +135,17 @@ export function makeEntityActionCatalogExecutor(input: {
           },
         });
       }
-      if (action.kind === "decision-validate")
-        return readReceipt("decision-validate", validateDecisionPackages(action, decisions, input.projection));
+      if (action.kind === "decision-validate") {
+        const rootDir = input.rootDir,
+          layout = rootDir ? resolveHarnessLayout(rootDir) : null,
+          validation = validateDecisionPackages(action, decisions, input.projection);
+        return readReceipt("decision-validate", {
+          ...validation,
+          rows: rootDir
+            ? validation.rows.map((row) => ({ ...row, path: documentWorkspacePath(rootDir!, row.path, layout!) }))
+            : validation.rows,
+        });
+      }
       throw Object.assign(new Error(`Action ${action.kind} is declared as a read without a reader.`), {
         code: "invalid_store",
       });

@@ -12,6 +12,7 @@ export const CANONICAL_EVENT_REF = "refs/ha/canonical";
 export type TaskEventStoreErrorCode =
   | "invalid_store"
   | "invalid_write_plan"
+  | "document_too_large"
   | "legacy_shape"
   | "materialization_failed"
   | "op_conflict"

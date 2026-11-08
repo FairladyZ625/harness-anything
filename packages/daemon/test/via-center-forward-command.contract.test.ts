@@ -10,7 +10,6 @@ import {
   fleetRuntimeRoute,
   fleetScheduleRoute,
   fleetTaskRoute,
-  materializeScheduleMission,
 } from "@harness-anything/cli/internal/daemon/fleet-command-route";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
@@ -550,7 +549,7 @@ test("each remote-edge via-center-forward declaration reaches its matching fleet
         continue;
       }
       try {
-        const command = materializeScheduleMission(parsed.command),
+        const command = parsed.command,
           schedule = await fleetScheduleRoute(command, env),
           runtime = schedule ? null : await fleetRuntimeRoute(command, env),
           task = schedule || runtime ? null : await fleetTaskRoute(command, env),

@@ -382,6 +382,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
     if (!valid) return [validationError(entityId, field, actual, expectation)];
   const taskIds = Array.isArray(value.taskIds) ? value.taskIds : [],
     unavailableTaskIds = Array.isArray(value.unavailableTaskIds) ? value.unavailableTaskIds : [],
+    workspacePathFields = typeof value.workspacePathPrefix === "string" ? ["workspacePathPrefix"] : [],
     single =
       nonEmpty(value.taskId) &&
       exactRecord(value, [
@@ -393,6 +394,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "exitCode",
         "watermark",
         "sourceRevision",
+        ...workspacePathFields,
       ]),
     batch =
       stringArray(taskIds) &&
@@ -413,6 +415,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "page",
         "watermark",
         "sourceRevision",
+        ...workspacePathFields,
       ]),
     member =
       nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&
@@ -439,6 +442,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "exitCode",
         "watermark",
         "sourceRevision",
+        ...workspacePathFields,
       ]);
   if (!single && !batch && !member)
     return [

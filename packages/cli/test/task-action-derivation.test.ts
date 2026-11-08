@@ -38,6 +38,13 @@ test("daemon lifecycle command inputs and thin CLI parameters are projections of
                 required: field.required,
                 ...(field.enum ? { enum: field.enum } : {}),
                 ...(field.regex ? { regex: field.regex } : {}),
+                // The coordinate is CLI-boundary metadata: a file field carries its codec,
+                // every other value field states that it is not a path, and booleans carry no value.
+                ...(field.cli.kind === "boolean"
+                  ? {}
+                  : field.field === "fromFile"
+                    ? { pathKind: "workspace-file" }
+                    : { pathKind: "non-path" }),
                 ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),
                 ...(field.cli.jsonSchema
                   ? {
@@ -111,6 +118,42 @@ test("repo.task.run validator consumes the same closed Task Action input", () =>
     /expectedVersion must be number/u,
   );
   assert.match(call({ kind: "task-complete", taskId: "task_contract", shadow: true }).join("\n"), /shadow/u);
+});
+
+test("artifact coordinate metadata is declared on the repo.task.run envelope, not the closed action", () => {
+  const action = {
+    kind: "task-artifact-add",
+    taskId: "task_contract",
+    source: "evidence.txt",
+    destination: "evidence/result.txt",
+  };
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.task.run",
+      params: { repo: { repoId: "canonical" }, payload: { action, pathCoordinate: "workspace" } },
+    }),
+    [],
+  );
+  assert.match(
+    validateDaemonRpcCall({
+      method: "repo.task.run",
+      params: {
+        repo: { repoId: "canonical" },
+        payload: { action: { ...action, pathCoordinate: "workspace" } },
+      },
+    }).join("\n"),
+    /action\.pathCoordinate.*not declared/u,
+  );
+  assert.match(
+    validateDaemonRpcCall({
+      method: "repo.task.run",
+      params: {
+        repo: { repoId: "canonical" },
+        payload: { action: { kind: "task-submit", taskId: "task_contract" }, pathCoordinate: "workspace" },
+      },
+    }).join("\n"),
+    /pathCoordinate is only declared for task-artifact-add/u,
+  );
 });
 
 test("removed submit JSON and complete evidence forms are rejected", () => {

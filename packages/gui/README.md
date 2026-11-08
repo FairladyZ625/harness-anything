@@ -23,6 +23,25 @@ stops the daemon.
 `npm run dev:electron` remains package-local for contributor hot reload. It
 does not fast-forward Git and is not a production entry.
 
+## Upgrading an already-running GUI
+
+A running Electron window keeps the bundle it started with. `ha gui` rebuilds a
+stale bundle before launching, but it cannot replace the bundle of a window that
+is already open. After pulling a new commit that changes the daemon protocol or
+GUI contract, rebuild the GUI in the same step as the daemon and CLI, then quit
+and rerun `ha gui`:
+
+```bash
+npm run build -w @harness-anything/daemon
+npm run build -w @harness-anything/cli
+npm run build -w @harness-anything/gui
+```
+
+Rebuilding only the CLI or daemon leaves the old GUI contract in place; the GUI
+then shows a build-mismatch banner naming both build ids and this rebuild
+command instead of a field-validation error. The source installer runs the same
+three builds and prints the restart reminder.
+
 ## Distribution Status
 
 Version 0.1.0 retains packaging checks for the macOS Local candidate, but the

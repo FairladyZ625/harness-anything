@@ -1,14 +1,17 @@
-import { readFileSync, realpathSync } from "node:fs";
-import path from "node:path";
 import {
+  FLEET_PATH_COORDINATE_FIELD,
   fleetActionPayloadIssue,
   type EntityActionInputField,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-fleet-validation";
-import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import {
+  commandDescriptorForAction,
+  hasCommandDescriptor,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import {
   generatedTaskActionProtocolDeclarations,
   type CliInputFacet,
 } from "@harness-anything/preset/internal/preset-command-contract";
+import { readCliInputFile } from "../cli-input-codec.ts";
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
@@ -17,51 +20,22 @@ type Codec = NonNullable<CliInputFacet["codec"]>;
 
 const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
 
+function descriptorKey(command: ThinCommand): string {
+  return command.id && hasCommandDescriptor(command.id) ? command.id : command.action.kind;
+}
+
 function invalid(message: string): never {
   throw Object.assign(new Error(message), { code: "invalid_field" });
 }
 
 function descriptorFor(command: ThinCommand) {
   try {
-    return commandDescriptorForAction(command.action.kind);
+    return commandDescriptorForAction(descriptorKey(command));
   } catch (error) {
     throw Object.assign(new Error(`No command declaration exists for ${command.action.kind}.`), {
       code: "invalid_field",
       cause: error,
     });
-  }
-}
-
-function readUtf8(rootDir: string, source: string, maxBytes: number, label: string): string {
-  if (typeof source !== "string" || source.length === 0) invalid(`${label} must name one file on this edge.`);
-  let resolved: string;
-  try {
-    const root = realpathSync.native(rootDir);
-    resolved = realpathSync.native(path.resolve(rootDir, source));
-    const relative = path.relative(root, resolved);
-    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-      invalid(`${label} must stay within the selected repository.`);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "invalid_field") throw error;
-    throw Object.assign(new Error(`${label} could not be resolved on this edge: ${cliErrorMessage(error)}`), {
-      code: "invalid_field",
-      cause: error,
-    });
-  }
-  let bytes: Buffer;
-  try {
-    bytes = readFileSync(resolved);
-  } catch (error) {
-    throw Object.assign(new Error(`${label} could not be read on this edge: ${cliErrorMessage(error)}`), {
-      code: "invalid_field",
-      cause: error,
-    });
-  }
-  if (bytes.byteLength > maxBytes) invalid(`${label} exceeds the declared ${maxBytes}-byte limit.`);
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (error) {
-    throw Object.assign(new Error(`${label} must be valid UTF-8.`), { code: "invalid_field", cause: error });
   }
 }
 
@@ -227,6 +201,7 @@ function validationFields(
     for (const field of descriptor.payloadFields as readonly EntityActionInputField[]) fields.set(field.field, field);
   addPathFields(fields, descriptor);
   addDefaultFields(fields, descriptor);
+  fields.set(FLEET_PATH_COORDINATE_FIELD.field, FLEET_PATH_COORDINATE_FIELD);
   return [...fields.values()].filter((field) => !field.wire?.omit);
 }
 
@@ -289,12 +264,12 @@ export function serializeFleetAction(command: ThinCommand): Action {
     const sourceField = (input as CliInputFacet & { readonly field?: string }).field ?? fieldName(input.name);
     const source = action[sourceField];
     if (source === undefined) continue;
+    // The declared file source is edge-local input and the action contract can mark it `omit` on the
+    // wire (`planFile`). The codec target replaces it before the frame leaves this edge; leaving the
+    // source name behind makes the center's closed schema reject the whole command.
     delete action[sourceField];
     if (codec.kind === "json-object") {
-      const text =
-        codec.source === "file"
-          ? readUtf8(command.rootDir, String(source), codec.maxBytes, input.name)
-          : String(source);
+      const text = codec.source === "file" ? readCliInputFile(command.rootDir, String(source), input) : String(source);
       const packet = parseJson(text, input.name, codec.maxBytes);
       const allowed = input.jsonAllowedFields ?? input.jsonFields ?? [];
       const unsupported = Object.keys(packet).filter((field) => !allowed.includes(field));
@@ -305,7 +280,7 @@ export function serializeFleetAction(command: ThinCommand): Action {
       continue;
     }
     const target = codec.target;
-    const text = readUtf8(command.rootDir, String(source), codec.maxBytes, input.name);
+    const text = readCliInputFile(command.rootDir, String(source), input);
     action[target] =
       codec.kind === "line-list-file"
         ? text
@@ -345,4 +320,33 @@ export function serializeFleetAction(command: ThinCommand): Action {
     if (issue) invalid(`${issue} does not match its Fleet declaration`);
   }
   return action;
+}
+
+/** Local execution uses the same declared file codecs as Fleet forwarding. JSON packets remain
+ * on the daemon's command boundary; this materializes text targets without changing the action. */
+export function materializeCommandFileInputs(command: ThinCommand): ThinCommand {
+  if (!hasCommandDescriptor(descriptorKey(command))) return command;
+  const action = { ...command.action };
+  let planSource = command.planSource;
+  for (const input of inputsOf(descriptorFor(command))) {
+    const codec = typeof input.codec === "object" ? input.codec : undefined;
+    if (!codec || codec.kind === "json-object") continue;
+    const field = declaredField(input),
+      source = action[field];
+    if (source === undefined) continue;
+    delete action[field];
+    // The source path is a caller-facing diagnostic label, not an action field: the contract omits
+    // `planFile` from the action, so it travels beside the action like `pathCoordinate` and the
+    // daemon re-attaches it only to name the file in a plan_placeholder rejection.
+    if (field === "planFile") planSource = String(source);
+    const text = readCliInputFile(command.rootDir, String(source), input);
+    action[codec.target] =
+      codec.kind === "line-list-file"
+        ? text
+            .split(/\r?\n/u)
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0 && !line.startsWith("#"))
+        : text;
+  }
+  return { ...command, action, ...(planSource === undefined ? {} : { planSource }) };
 }

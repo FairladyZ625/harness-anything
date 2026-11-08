@@ -179,7 +179,7 @@ test(
     // An in-repository source runs the validator itself (its report owns availability).
     const validated = await cli(["vertical", "validate", "--source", "verticals/none"]);
     assert.equal(validated.receipt.outcome, "applied", JSON.stringify(validated.receipt));
-    const plan = await cli(["doc", "show", "--path", `${packagePath}/task_plan.md`]);
+    const plan = await cli(["doc", "show", "--path", `harness/${packagePath}/task_plan.md`]);
     assert.equal(plan.receipt.outcome, "applied", JSON.stringify(plan.receipt));
     assert.ok(String(plan.receipt.evidence).includes("Worker catalog reads"));
 
@@ -190,7 +190,7 @@ test(
         "## Residual Risk\n\nThe provider is a deterministic Codex fixture.\n\n" +
         "## Same Mechanism Elsewhere\n\nThe relay root is granted only to sealed workspace-write artifact dispatches.\n",
     );
-    const closeout = await cli(["doc", "sync", "--submit", "--path", `${packagePath}/closeout.md`]);
+    const closeout = await cli(["doc", "sync", "--submit", "--path", `harness/${packagePath}/closeout.md`]);
     assert.equal(closeout.status, 0, JSON.stringify(closeout.receipt));
     assert.equal(closeout.receipt.outcome, "applied", JSON.stringify(closeout.receipt));
     const submitted = await cli(["task", "submit", taskId, "--execution-id", "execution-reads"]);
@@ -198,7 +198,7 @@ test(
     assert.equal(submitted.receipt.outcome, "applied", JSON.stringify(submitted.receipt));
 
     // dec_CF96A3C910B31D2D7498F32DDD/CH2: foreign reads reach document lookup; foreign writes stay denied.
-    const otherPlan = await cli(["doc", "show", "--path", "tasks/task-other/task_plan.md"]);
+    const otherPlan = await cli(["doc", "show", "--path", "harness/tasks/task-other/task_plan.md"]);
     assert.equal(otherPlan.receipt.code, "document_not_found", JSON.stringify(otherPlan.receipt));
 
     for (const [args, label] of [

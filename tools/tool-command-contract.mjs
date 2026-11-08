@@ -28,7 +28,7 @@ export const dispatchTaskCommand = command({
     { name: "--prompt-file", placeholder: "<prompt-file>", description: "Optional runtime prompt file." },
   ],
   details: [
-    "Creates the Task, writes the caller-authored plan to the packagePath returned by task create, acquires the execution lease,",
+    "Creates the Task, writes the caller-authored plan to the workspacePackagePath returned by task create, acquires the execution lease,",
     "dispatches runtime run --detach, and returns its runtime session, JSONL path, and foreground status --wait next action.",
     "The script does not generate plan/title judgments and does not monitor, retry, or resume the dispatched runtime.",
   ],

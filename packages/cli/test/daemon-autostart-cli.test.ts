@@ -1087,10 +1087,10 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     ]).outcome,
     "applied",
   );
-  const packagePath = String(created.packagePath),
+  const packagePath = String(created.workspacePackagePath),
     closeoutPath = `${packagePath}/closeout.md`;
   const planPath = `${packagePath}/task_plan.md`;
-  writeFileSync(path.join(fixture.root, "harness", planPath), realizedTaskPlan("Executor Axis"));
+  writeFileSync(path.join(fixture.root, planPath), realizedTaskPlan("Executor Axis"));
   assert.equal(run(fixture.root, fixture.userRoot, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
 
   assert.equal(
@@ -1099,7 +1099,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     "applied",
   );
   writeFileSync(
-    path.join(fixture.root, "harness", packagePath, "artifacts", "executor-axis.txt"),
+    path.join(fixture.root, packagePath, "artifacts", "executor-axis.txt"),
     "Executor and review actor axes remain distinct.\n",
   );
   const closeoutSync = run(
@@ -1116,7 +1116,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
   git(deliveryRoot, "commit", "--quiet", "-m", "executor axis implementation");
   const deliveryCommit = git(deliveryRoot, "rev-parse", "HEAD");
   writeFileSync(
-    path.join(fixture.root, "harness", closeoutPath),
+    path.join(fixture.root, closeoutPath),
     `# Closeout\n\n## Summary\n\nExecutor attribution restored at ${deliveryCommit}.\n\n` +
       "## Verification\n\nEnd-to-end daemon flow.\n\n## Residual Risk\n\nNone.\n\n" +
       "## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
@@ -1136,9 +1136,9 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       resolutions: [],
     }),
   );
-  mkdirSync(path.join(fixture.root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
+  mkdirSync(path.join(fixture.root, packagePath, "artifacts", "reports"), { recursive: true });
   writeFileSync(
-    path.join(fixture.root, "harness", packagePath, "artifacts", "reports", "executor-axis.md"),
+    path.join(fixture.root, packagePath, "artifacts", "reports", "executor-axis.md"),
     "# Review review-executor-axis\n\nHuman review accepted the agent execution.\n",
   );
   const reviewed = run(fixture.root, fixture.userRoot, [
@@ -1193,15 +1193,13 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     executor: { kind: "agent", id: "claude-code" },
   });
   assert.deepEqual(snapshot.reviews[0]?.actor, { principal: { personId: "owner" }, executor: null });
-  assert.equal(
-    run(
-      fixture.root,
-      fixture.userRoot,
-      ["task", "create", "--id", "task-source", "--admin", "--title", "Source"],
-      "agent:codex",
-    ).outcome,
-    "applied",
+  const sourceTaskCreated = run(
+    fixture.root,
+    fixture.userRoot,
+    ["task", "create", "--id", "task-source", "--admin", "--title", "Source"],
+    "agent:codex",
   );
+  assert.equal(sourceTaskCreated.outcome, "applied");
   const sourceTask = JSON.parse(
     String(run(fixture.root, fixture.userRoot, ["task", "show", "task-source"]).evidence),
   ) as { task: { createdBy: unknown } };
@@ -1219,7 +1217,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "--source",
       "artifact.md",
       "--destination",
-      "proof.md",
+      `${sourceTaskCreated.workspacePackagePath}/artifacts/proof.md`,
     ]).outcome,
     "applied",
   );

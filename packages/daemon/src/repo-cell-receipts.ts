@@ -223,12 +223,13 @@ export function progressReceipt(
 ): TaskProgressReceipt {
   const applied = cell.projection.readOperation(event.opId),
     visible = !!applied && applied.watermark >= event.workspaceRevision,
-    roots = receiptLayoutRoots(cell.store, cell.rootDir);
+    roots = receiptLayoutRoots(cell.store, cell.rootDir),
+    progressPath = workspaceRelativePath(roots, event.payload.resultDocumentClaim.path);
   return {
     outcome: visible ? "applied" : "pending",
     opId: event.opId,
     revision: event.workspaceRevision,
-    evidence: `event-object:${event.opId};file:${event.payload.resultDocumentClaim.path}`,
+    evidence: `event-object:${event.opId};file:${progressPath}`,
     visibility: "center",
     proof: {
       committedRevision: event.workspaceRevision,
@@ -237,13 +238,10 @@ export function progressReceipt(
       canonicalVisible: visible,
       worktreeVisible: true,
     },
-    summary: `appended progress for ${event.payload.taskId} at ${workspaceRelativePath(
-      roots,
-      event.payload.resultDocumentClaim.path,
-    )}`,
+    summary: `appended progress for ${event.payload.taskId} at ${progressPath}`,
     taskId: event.payload.taskId,
     executionId: event.payload.executionId,
-    progressPath: event.payload.resultDocumentClaim.path,
+    progressPath,
     eventId: event.eventId,
     ...publication,
     worktreeVisible: true,

@@ -3,6 +3,7 @@ import {
   defineCenterForwardWriteCommand,
   cliInput,
   defineLedgerWriteCommand,
+  workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 const factDomainTypeFormat =
@@ -19,13 +20,31 @@ export const docFactProtocolCommands = Object.freeze([
         operation === "assign" ? "Assign a Fact to a person, node or team." : "Remove the current Fact assignment.",
       method: "repo.task.run",
       inputs: [
-        cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+        cliInput(
+          "--expected-version",
+          "single",
+          true,
+          { code: "missing_field" },
+          { pathKind: "non-path", projection: "number" },
+        ),
         ...(operation === "assign"
           ? [
-              cliInput("--person", "single", false, { code: "invalid_field" }, { field: "personId" }),
-              cliInput("--node", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
-              cliInput("--team", "single", false, { code: "invalid_field" }, { field: "teamId" }),
-              cliInput("--expires-at", "single", false, { code: "invalid_field" }, { field: "expiresAt" }),
+              cliInput(
+                "--person",
+                "single",
+                false,
+                { code: "invalid_field" },
+                { pathKind: "non-path", field: "personId" },
+              ),
+              cliInput("--node", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "nodeId" }),
+              cliInput("--team", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "teamId" }),
+              cliInput(
+                "--expires-at",
+                "single",
+                false,
+                { code: "invalid_field" },
+                { pathKind: "non-path", field: "expiresAt" },
+              ),
             ]
           : []),
       ],
@@ -39,12 +58,24 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Scan the authored root for document candidates.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--task", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--task",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
@@ -55,12 +86,24 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Preview the scanner selection without writing.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--task", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--task",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path" },
+      ),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -74,7 +117,15 @@ export const docFactProtocolCommands = Object.freeze([
       "and task start still requires the scaffold headings.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId" }),
+      cliInput(
+        "--task",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "taskId", pathKind: "non-path" },
+      ),
       cliInput(
         "--path",
         "repeated",
@@ -82,7 +133,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "paths" },
+        { field: "paths", pathKind: "ledger-document", format: workspacePathFormat },
       ),
       cliInput(
         "--all",
@@ -105,9 +156,15 @@ export const docFactProtocolCommands = Object.freeze([
     ].join(""),
     method: "repo.task.run",
     inputs: [
-      cliInput("--path", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--path",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
       cliInput(
         "--all",
         "boolean",
@@ -127,21 +184,33 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Show a canonical projected document; --raw prints only the document body.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--path", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--path",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "ledger-document", format: workspacePathFormat },
+      ),
       cliInput("--raw", "boolean", false, {
         code: "invalid_field",
       }),
-      cliInput("--offset", "single", false, { code: "invalid_field" }, { projection: "number" }),
-      cliInput("--length", "single", false, { code: "invalid_field" }, { projection: "number" }),
-      cliInput("--content-sha256", "single", false, { code: "invalid_field" }, { field: "contentSha256" }),
+      cliInput("--offset", "single", false, { code: "invalid_field" }, { pathKind: "non-path", projection: "number" }),
+      cliInput("--length", "single", false, { code: "invalid_field" }, { pathKind: "non-path", projection: "number" }),
+      cliInput(
+        "--content-sha256",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "contentSha256" },
+      ),
       cliInput(
         "--content-revision",
         "single",
         false,
         { code: "invalid_field" },
-        { field: "contentRevision", projection: "number" },
+        { pathKind: "non-path", field: "contentRevision", projection: "number" },
       ),
     ],
   }),
@@ -159,11 +228,17 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "paths" },
+        { field: "paths", pathKind: "ledger-document", format: workspacePathFormat },
       ),
-      cliInput("--reason", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -209,7 +284,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "domainTypes", format: factDomainTypeFormat },
+        { pathKind: "non-path", field: "domainTypes", format: factDomainTypeFormat },
       ),
       cliInput(
         "--rationale",
@@ -218,7 +293,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^[\\s\\S]{1,199}$" },
+        { pathKind: "non-path", regex: "^[\\s\\S]{1,199}$" },
       ),
     ],
   }),
@@ -244,7 +319,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^[\\s\\S]{1,199}$" },
+        { pathKind: "non-path", regex: "^[\\s\\S]{1,199}$" },
       ),
       cliInput(
         "--ids-file",
@@ -253,7 +328,12 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "idsFile", codec: { kind: "line-list-file", target: "factIds", maxBytes: 64 * 1024 } },
+        {
+          codec: { kind: "line-list-file", target: "factIds", maxBytes: 64 * 1024 },
+          field: "idsFile",
+          pathKind: "workspace-file",
+          format: workspacePathFormat,
+        },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
@@ -275,7 +355,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { regex: "^[\\s\\S]{1,199}$" },
+        { pathKind: "non-path", regex: "^[\\s\\S]{1,199}$" },
       ),
     ],
   }),
@@ -303,7 +383,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "factId", conflictsWith: ["--all"], regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
+        { pathKind: "non-path", field: "factId", conflictsWith: ["--all"], regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
@@ -335,7 +415,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "evidenceSource" },
+        { field: "evidenceSource", pathKind: "non-path" },
       ),
     ],
   }),
@@ -367,7 +447,7 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Record an immutable Fact event.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", false, { code: "missing_field" }, { field: "taskId" }),
+      cliInput("--task", "single", false, { code: "missing_field" }, { pathKind: "non-path", field: "taskId" }),
       cliInput(
         "--statement",
         "single",
@@ -375,7 +455,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "statement", maxLength: 32 * 1024, conflictsWith: ["--text"] },
+        { pathKind: "non-path", field: "statement", maxLength: 32 * 1024, conflictsWith: ["--text"] },
       ),
       cliInput(
         "--text",
@@ -384,9 +464,15 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "statement", maxLength: 32 * 1024, conflictsWith: ["--statement"] },
+        { pathKind: "non-path", field: "statement", maxLength: 32 * 1024, conflictsWith: ["--statement"] },
       ),
-      cliInput("--source", "single", true, { code: "missing_field" }, { field: "evidenceSource" }),
+      cliInput(
+        "--source",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "evidenceSource", pathKind: "non-path" },
+      ),
       cliInput(
         "--observed-at",
         "single",
@@ -394,9 +480,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {
-          regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
-        },
+        { pathKind: "non-path", regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$" },
       ),
       cliInput(
         "--confidence",
@@ -405,7 +489,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["low", "medium", "high"] },
+        { pathKind: "non-path", enum: ["low", "medium", "high"] },
       ),
       cliInput(
         "--memory-class",
@@ -414,14 +498,14 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["semantic", "episodic", "procedural"] },
+        { pathKind: "non-path", enum: ["semantic", "episodic", "procedural"] },
       ),
       cliInput(
         "--type",
         "repeated",
         false,
         { code: "invalid_field" },
-        { field: "domainTypes", format: factDomainTypeFormat },
+        { pathKind: "non-path", field: "domainTypes", format: factDomainTypeFormat },
       ),
       cliInput(
         "--memory-tag",
@@ -430,6 +514,7 @@ export const docFactProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         // Mirrors kernel factMemoryTags; the thin CLI graph must not load a kernel module for help.
         {
+          pathKind: "non-path",
           field: "memoryTags",
           enum: ["episode", "procedural", "tool_memory", "pattern", "task_skill", "abstract_rule", "other"],
         },
@@ -441,7 +526,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { requires: ["--rationale"] },
+        { pathKind: "non-path", requires: ["--rationale"] },
       ),
       cliInput(
         "--rationale",
@@ -450,7 +535,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { requires: ["--supersedes"], regex: "^[\\s\\S]{1,199}$", format: "1-199 characters" },
+        { pathKind: "non-path", requires: ["--supersedes"], regex: "^[\\s\\S]{1,199}$", format: "1-199 characters" },
       ),
     ],
   }),
@@ -470,7 +555,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
+        { pathKind: "non-path", regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
       ),
     ],
   }),
