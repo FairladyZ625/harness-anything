@@ -59,7 +59,7 @@ test("reviewed commands cannot widen a different permission mode", () => {
         launchArgs(claude, "claude-fable-5", "Run", undefined, null, permissionMode, false, undefined, "darwin", [
           { id: "bridge", approvedCommand: "/opt/ha/bridge.mjs task-create" },
         ]),
-      /runtime_approved_command_permission_mode/u,
+      (error: unknown) => (error as { readonly code?: unknown }).code === "runtime_approved_command_permission_mode",
     );
 });
 
