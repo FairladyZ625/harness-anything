@@ -184,9 +184,9 @@ The registry records:
   collisions remain covered by `npm run typecheck`.)
 - `check-gate-manifest-invariants` executes locally, in `boundaries`, and in
   non-PR `full-check` confirmation runs.
-- 24 GitHub branch-protection required contexts:
+- 26 GitHub branch-protection required contexts:
   `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
-  `integration-shard (1)` through `integration-shard (14)`, `supply-chain`,
+  `integration-shard (1)` through `integration-shard (16)`, `supply-chain`,
   `gui-build`, `pr-body-lint`, `crlf-checkout`,
   `windows-first-run (ubuntu-latest)`, and `windows-first-run (windows-latest)`.
   (`node26-compatibility` was removed by decision

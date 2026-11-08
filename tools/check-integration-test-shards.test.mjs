@@ -26,13 +26,13 @@ test("integration shard declaration is non-overlapping and complete", () => {
   assert.ok(result.currentCount > 0);
   assert.deepEqual(
     result.workflowShards,
-    Array.from({ length: 14 }, (_, index) => index + 1),
+    Array.from({ length: integrationShardCount }, (_, index) => index + 1),
   );
   assert.deepEqual(
     result.requiredContexts,
-    Array.from({ length: 14 }, (_, index) => `integration-shard (${index + 1})`),
+    Array.from({ length: integrationShardCount }, (_, index) => `integration-shard (${index + 1})`),
   );
-  assert.equal(result.summaries.length, 14);
+  assert.equal(result.summaries.length, integrationShardCount);
   assert.ok(result.summaries.every((summary) => summary.files > 0));
 });
 

@@ -74,6 +74,8 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (12)
 - integration-shard (13)
 - integration-shard (14)
+- integration-shard (15)
+- integration-shard (16)
 - supply-chain
 - gui-build
 - pr-body-lint
@@ -81,7 +83,7 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - windows-first-run (ubuntu-latest)
 - windows-first-run (windows-latest)
 
-Integration tests are required through the fourteen `integration-shard (N)`
+Integration tests are required through the sixteen `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.
 
 GUI Electron E2E is an explicit local closeout gate for GUI-related tasks and
