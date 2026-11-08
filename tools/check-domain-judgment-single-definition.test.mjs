@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { checkDomainJudgmentSingleDefinition } from "./check-domain-judgment-single-definition.mjs";
-import { checkAuthoredReadinessSites } from "./domain-judgment-authored-readiness.mjs";
+import { checkAuthoredReadinessSites, scanAuthoredReadinessSites } from "./domain-judgment-authored-readiness.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -162,5 +162,61 @@ test("authored readiness baseline only shrinks and drops migrated sites", () => 
   );
   assert.ok(
     checkAuthoredReadinessSites([site], { entries: [site] }).some((finding) => finding.includes("invalid or missing")),
+  );
+});
+
+test("positive fixture: readiness derived with custom words or without a ready literal is refused", (t) => {
+  const findings = fixtureFindings(t);
+  for (const symbol of ["documentReadiness", "scaffoldState"])
+    assert.ok(
+      findings.some(
+        (finding) =>
+          finding.includes(`packages/daemon/src/custom-word-readiness.ts#${symbol}`) &&
+          finding.includes("local-readiness-derivation"),
+      ),
+      findings.join("\n"),
+    );
+});
+
+// Review F2: a grandfathered kernel-read scope must not hide a local judgment added beside it.
+test("a local judgment added to a grandfathered kernel-read scope is a new site", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-authored-readiness-scope-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+  spawnSync("git", ["init", "--quiet"], { cwd: root });
+  const file = path.join(root, "packages/daemon/src/access.ts"),
+    write = (extra) =>
+      writeFileSync(
+        file,
+        [
+          'import { readFileSync } from "node:fs";',
+          'import { assertTransitionDocumentReady } from "@harness-anything/kernel";',
+          "export function assertPlanReady(planPath: string, contract: unknown): void {",
+          '  const body = readFileSync(planPath, "utf8");',
+          extra,
+          '  assertTransitionDocumentReady("task.plan", body, contract as never);',
+          "}",
+          "",
+        ].join("\n"),
+      );
+  write("");
+  const baseline = {
+    schema: "authored-document-readiness-baseline/v1",
+    entries: scanAuthoredReadinessSites(root),
+  };
+  assert.deepEqual(
+    baseline.entries.map(({ kind }) => kind),
+    ["local-read-kernel-readiness"],
+  );
+  assert.deepEqual(checkAuthoredReadinessSites(scanAuthoredReadinessSites(root), baseline), []);
+  write('  const planReady = body.includes("## Goal");');
+  const findings = checkAuthoredReadinessSites(scanAuthoredReadinessSites(root), baseline);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/access.ts#assertPlanReady") &&
+        finding.includes("new local-readiness-derivation"),
+    ),
+    findings.join("\n"),
   );
 });

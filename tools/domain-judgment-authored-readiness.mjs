@@ -28,6 +28,12 @@ const FS_READS = new Set(["readFileSync", "readFile"]);
 const KERNEL_READINESS = new Set(["assessTransitionDocument", "assertTransitionDocumentReady"]);
 const READINESS_WORDS = new Set(["ready", "not_ready"]);
 const READINESS_BINDING = /^(?:is|plan|doc|document|content)?ready$/iu;
+// A scope or binding named for readiness is a judgment whatever words it answers with.
+const READINESS_NAME_TOKENS = new Set(["ready", "readiness", "placeholder", "scaffold"]);
+// Markdown structure probes: a heading looked up in locally read bytes decides a document verdict.
+const HEADING_PATTERN = /(?:^|\\n|\n|\^|\/)\s*#{1,6}[ \t\\[(]/u;
+const BOOLEAN_PROBE_CALLS = new Set(["includes", "test", "startsWith", "endsWith"]);
+const CONDITION_PROBE_CALLS = new Set(["match", "exec", "search"]);
 
 export function scanAuthoredReadinessSites(root = process.cwd()) {
   const sites = [];
@@ -56,7 +62,13 @@ function scanFile(rel, body) {
       else if (callee !== null && KERNEL_READINESS.has(callee)) scope.kernel.push(node);
       else if (callee !== null && ts.isIdentifier(node.expression)) scope.calls.add(callee);
     }
-    if (ts.isReturnStatement(node) && node.expression && readinessLiteral(node.expression))
+    if (ts.isCallExpression(node) && headingProbe(node)) scopeOf(enclosingSymbol(node)).derived.push(node);
+    if (
+      ts.isReturnStatement(node) &&
+      node.expression &&
+      (readinessLiteral(node.expression) ||
+        (readinessName(enclosingSymbol(node)) && verdictExpression(node.expression)))
+    )
       scopeOf(enclosingSymbol(node)).derived.push(node);
     if (
       ts.isBinaryExpression(node) &&
@@ -100,10 +112,11 @@ function scanFile(rel, body) {
       });
   for (const [symbol, scope] of scopes) {
     if (!scope.reads) continue;
-    // One site per scope: dataflow from the read to each judgment call is not traced, so the
-    // scope, not the call, is the unit that must stop reading authored bytes.
+    // One site per scope and kind: dataflow from the read to each judgment is not traced, so the
+    // scope is the unit that must stop reading authored bytes. Each kind is its own site, so a local
+    // derivation added beside a grandfathered kernel call is a new site, not hidden by the old row.
     if (scope.kernel.length > 0) add(scope.kernel, symbol, "local-read-kernel-readiness");
-    else if (scope.derived.length > 0) add(scope.derived, symbol, "local-readiness-derivation");
+    if (scope.derived.length > 0) add(scope.derived, symbol, "local-readiness-derivation");
   }
   return sites;
 }
@@ -219,6 +232,61 @@ function booleanJudgment(node) {
     (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) ||
     (ts.isBinaryExpression(expression) && BOOLEAN_OPERATORS.has(expression.operatorToken.kind)) ||
     (ts.isCallExpression(expression) && BOOLEAN_PROBES.has(calleeName(expression.expression) ?? ""))
+  );
+}
+
+function headingProbe(node) {
+  const callee = calleeName(node.expression);
+  if (callee === null) return false;
+  const boolean = BOOLEAN_PROBE_CALLS.has(callee);
+  if (!boolean && !(CONDITION_PROBE_CALLS.has(callee) && conditionContext(node))) return false;
+  const receiver = ts.isPropertyAccessExpression(node.expression) ? node.expression.expression : null;
+  return [receiver, ...node.arguments].some((operand) => operand !== null && headingPattern(operand));
+}
+
+function headingPattern(node) {
+  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
+  if (ts.isStringLiteralLike(expression) || ts.isRegularExpressionLiteral(expression))
+    return HEADING_PATTERN.test(expression.text);
+  if (ts.isTemplateExpression(expression)) return HEADING_PATTERN.test(expression.head.text);
+  if (ts.isNewExpression(expression) && expression.expression.getText() === "RegExp")
+    return (expression.arguments ?? []).some((argument) => headingPattern(argument));
+  return false;
+}
+
+function conditionContext(node) {
+  let current = node;
+  while (
+    current.parent &&
+    (ts.isParenthesizedExpression(current.parent) ||
+      ts.isNonNullExpression(current.parent) ||
+      (ts.isPropertyAccessExpression(current.parent) && current.parent.questionDotToken !== undefined) ||
+      ts.isElementAccessExpression(current.parent))
+  )
+    current = current.parent;
+  const parent = current.parent;
+  return (
+    !!parent &&
+    (((ts.isIfStatement(parent) || ts.isWhileStatement(parent)) && parent.expression === current) ||
+      (ts.isConditionalExpression(parent) && parent.condition === current) ||
+      (ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken) ||
+      (ts.isBinaryExpression(parent) && BOOLEAN_OPERATORS.has(parent.operatorToken.kind)))
+  );
+}
+
+function readinessName(symbol) {
+  const tokens = symbol.match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/gu) ?? [];
+  return tokens.some((token) => READINESS_NAME_TOKENS.has(token.toLowerCase()));
+}
+
+// What a readiness-named scope answers: a word, a boolean, or a choice between them.
+function verdictExpression(node) {
+  const expression = ts.isParenthesizedExpression(node) ? node.expression : node;
+  if (ts.isStringLiteralLike(expression) || booleanJudgment(expression)) return true;
+  return (
+    ts.isConditionalExpression(expression) &&
+    verdictExpression(expression.whenTrue) &&
+    verdictExpression(expression.whenFalse)
   );
 }
 

@@ -2172,7 +2172,8 @@
           "tools/fixtures/domain-judgment-single-definition/packages/gui/src/duplicate-readiness.ts",
           "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/rogue-plan-readiness.ts",
           "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/edge-plan-readiness.ts",
-          "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/canonical-plan-readiness.ts"
+          "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/canonical-plan-readiness.ts",
+          "tools/fixtures/domain-judgment-single-definition/packages/daemon/src/custom-word-readiness.ts"
         ]
       }
     },
