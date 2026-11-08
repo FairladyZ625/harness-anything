@@ -27,18 +27,22 @@ test("accepts a consistent deterministic gate on local, PR, and main-full surfac
   }
 });
 
-test("positive control rejects a deterministic gate without the PR execution surface", () => {
+test("positive control rejects a deterministic gate without a CI execution surface", () => {
   const root = makeFixtureRoot();
   try {
     writeFixture(root, {
       deterministic: true,
-      surfaceClasses: ["local", "main-full"],
+      surfaceClasses: ["local"],
       pullRequestJobs: [],
+      nonPullRequestJobs: [],
     });
 
     const result = runChecker(root);
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /example-gate is deterministic but executionSurfaces\.classes omits pr and nightly/u);
+    assert.match(
+      result.stderr,
+      /example-gate is deterministic but executionSurfaces\.classes omits pr, main, main-full, and nightly/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

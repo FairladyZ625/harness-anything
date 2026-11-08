@@ -8,7 +8,7 @@ import { INFRASTRUCTURE_COMMANDS } from "./gate-infrastructure-commands.mjs";
 import { parseGateWorkflow } from "./gate-workflow-parser.mjs";
 
 const DEFAULT_ROOT = process.cwd();
-const SURFACE_CLASSES = new Set(["local", "pr", "main-full", "nightly", "manual"]);
+const SURFACE_CLASSES = new Set(["local", "pr", "main", "main-full", "nightly", "manual"]);
 const POSITIVE_CONTROL_STATUSES = new Set(["covered", "documented-gap", "not-applicable"]);
 export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
   const manifest = readJson(path.join(root, "tools/gate-manifest.json"));
@@ -225,8 +225,14 @@ function checkClassificationFields(gate, findings) {
   // A deterministic gate must stay CI-visible; dec_F5B2CBF8B45042B6DA2824A7FA/CH3 moved two
   // deterministic advisory gates to the nightly schedule, so "pr" is no longer the only
   // visibility class that satisfies this invariant.
-  if (gate.deterministic === true && !classes?.includes("pr") && !classes?.includes("nightly")) {
-    findings.push(`${gate.id} is deterministic but executionSurfaces.classes omits pr and nightly`);
+  if (
+    gate.deterministic === true &&
+    !classes?.includes("pr") &&
+    !classes?.includes("main") &&
+    !classes?.includes("main-full") &&
+    !classes?.includes("nightly")
+  ) {
+    findings.push(`${gate.id} is deterministic but executionSurfaces.classes omits pr, main, main-full, and nightly`);
   }
 
   if (Array.isArray(classes)) checkSurfaceClassMapping(gate, classes, findings);
@@ -250,6 +256,8 @@ function checkSurfaceClassMapping(gate, classes, findings) {
   const prBody = gate.executionSurfaces?.prBody ?? {};
   const hasPrJobs = [...(rewriteCi.pullRequestJobs ?? []), ...(prBody.pullRequestJobs ?? [])].length > 0;
   const hasFullCheck = (rewriteCi.nonPullRequestJobs ?? []).includes("full-check") && rewriteCi.scheduleOnly !== true;
+  const hasMainLane =
+    (rewriteCi.nonPullRequestJobs ?? []).some((job) => job !== "full-check") && rewriteCi.scheduleOnly !== true;
   const hasLocalScript = Boolean(gate.executionSurfaces?.packageJson?.script);
 
   if (hasClass("pr") !== hasPrJobs) {
@@ -257,6 +265,9 @@ function checkSurfaceClassMapping(gate, classes, findings) {
   }
   if (hasClass("main-full") !== hasFullCheck) {
     findings.push(`${gate.id} executionSurfaces.classes main-full does not match its non-PR full-check mapping`);
+  }
+  if (hasClass("main") && !hasMainLane) {
+    findings.push(`${gate.id} executionSurfaces.classes main does not match its non-PR workflow mapping`);
   }
   if (hasClass("nightly") !== (rewriteCi.scheduleOnly === true)) {
     findings.push(`${gate.id} executionSurfaces.classes nightly does not match rewriteCi.scheduleOnly`);
