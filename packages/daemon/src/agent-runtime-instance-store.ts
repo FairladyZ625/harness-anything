@@ -84,6 +84,11 @@ import {
 } from "./runtime-inventory.ts";
 import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
 import { runtimeVersionGate, runtimeWebSearchVersionGate } from "./runtime-version.ts";
+import {
+  readCodexManagedPolicyTexts,
+  runtimeWebSearchModelGate,
+  runtimeWebSearchPolicyConflict,
+} from "./agent-runtime-web-search.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
@@ -140,6 +145,9 @@ export function openRuntimeInstanceStore(input: {
     readonly installation: RuntimeInstallationWitness;
     readonly env: NodeJS.ProcessEnv;
   }) => RuntimeAuthReadiness | Promise<RuntimeAuthReadiness>;
+  /** Test/embedded seam for Codex's managed requirements. Production reads the host's
+   *  administrator policy through the same default source Codex loads. */
+  readonly managedPolicyTexts?: () => readonly string[];
 }) {
   const platform = input.platform ?? process.platform,
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
@@ -147,6 +155,7 @@ export function openRuntimeInstanceStore(input: {
     // one place a launch reads a GitHub credential, and it reads the operator's own login.
     operatorEnvironment = input.env ?? process.env,
     resolveGithubToken = input.resolveGithubToken,
+    managedPolicyTexts = input.managedPolicyTexts ?? (() => readCodexManagedPolicyTexts(platform)),
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
@@ -245,6 +254,12 @@ export function openRuntimeInstanceStore(input: {
     const webSearchRefusal = runtimeWebSearchVersionGate(config, installation.version);
     if (webSearchRefusal)
       return rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
+    const modelSearchRefusal = runtimeWebSearchModelGate(config, selectRuntimeModel(config), installation);
+    if (modelSearchRefusal)
+      return rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
+    const policyRefusal = runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    if (policyRefusal)
+      return rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
@@ -355,6 +370,16 @@ export function openRuntimeInstanceStore(input: {
     if (webSearchRefusal) {
       rememberAuthReadiness(config.instanceId, unavailable(webSearchRefusal.code, webSearchRefusal.hint));
       throw runtimeInstanceError(webSearchRefusal.code, webSearchRefusal.hint);
+    }
+    const modelSearchRefusal = runtimeWebSearchModelGate(config, model, installation);
+    if (modelSearchRefusal) {
+      rememberAuthReadiness(config.instanceId, unavailable(modelSearchRefusal.code, modelSearchRefusal.hint));
+      throw runtimeInstanceError(modelSearchRefusal.code, modelSearchRefusal.hint);
+    }
+    const policyRefusal = runtimeWebSearchPolicyConflict(config, managedPolicyTexts);
+    if (policyRefusal) {
+      rememberAuthReadiness(config.instanceId, unavailable(policyRefusal.code, policyRefusal.hint));
+      throw runtimeInstanceError(policyRefusal.code, policyRefusal.hint);
     }
     if (!path.isAbsolute(request.cwd) || !request.prompt)
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");

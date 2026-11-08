@@ -113,7 +113,7 @@ test("runtime installation discovery projects each provider's detected model cat
     mkdirSync(bin);
     writeProviderExecutable(
       path.join(bin, "codex"),
-      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("codex-test"); else if (args.join(" ") === "debug models --bundled") console.log(JSON.stringify({ models: [{ slug: "gpt-sol" }, { slug: "gpt-terra" }] }));\n`,
+      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("codex-test"); else if (args.join(" ") === "debug models --bundled") console.log(JSON.stringify({ models: [{ slug: "gpt-sol", supports_search_tool: true }, { slug: "gpt-terra", supports_search_tool: false }] }));\n`,
     );
     writeProviderExecutable(
       path.join(bin, "agy"),
@@ -145,6 +145,7 @@ test("runtime installation discovery projects each provider's detected model cat
         { kindId: "zcode", models: undefined, defaultModel: undefined },
       ],
     );
+    assert.deepEqual(rows.find((row) => row.kindId === "codex")?.searchCapableModels, ["gpt-sol"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

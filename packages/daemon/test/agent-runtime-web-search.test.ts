@@ -13,6 +13,11 @@ import { runtimeSpawnReceipt } from "../src/runtime-spawn-receipt.ts";
 import { runtimeKinds } from "../src/runtime-inventory.ts";
 import { runtimeWebSearchVersionGate } from "../src/runtime-version.ts";
 import type { RuntimeWebSearchMode } from "../src/runtime-inventory.ts";
+import {
+  allowedWebSearchModesInPolicy,
+  runtimeWebSearchModelGate,
+  runtimeWebSearchPolicyConflict,
+} from "../src/agent-runtime-web-search.ts";
 
 const witness: RuntimeInstallationWitness = {
   installationId: "codex-installation-web-search",
@@ -20,6 +25,7 @@ const witness: RuntimeInstallationWitness = {
   executablePath: "/opt/runtime-test/codex",
   version: "0.163.0",
   observedAt: "2026-11-08T00:00:00.000Z",
+  searchCapableModels: ["gpt-5.6-sol"],
 };
 
 function codedAs(error: unknown, code: string): boolean {
@@ -130,6 +136,70 @@ test("a CLI below the verified search floor is refused only for a non-default ti
   assert.match(refused!.hint, /cached/u);
 });
 
+test("an unwitnessed or incapable model is refused for an opt-in tier", () => {
+  const live = codexInstance("live");
+  assert.equal(runtimeWebSearchModelGate(live, "gpt-5.6-sol", { searchCapableModels: ["gpt-5.6-sol"] }), null);
+  assert.equal(
+    runtimeWebSearchModelGate(live, "gpt-5.6-sol", { searchCapableModels: ["gpt-6-sol"] })?.code,
+    "runtime_web_search_model_unsupported",
+  );
+  assert.equal(runtimeWebSearchModelGate(live, "gpt-5.6-sol", {})?.code, "runtime_web_search_model_unsupported");
+  // The default tier never needs a capability witness.
+  assert.equal(runtimeWebSearchModelGate(codexInstance("disabled"), "gpt-5.6-sol", {}), null);
+});
+
+test("administrator managed requirements that exclude the tier are refused", () => {
+  assert.deepEqual(allowedWebSearchModesInPolicy('allowed_web_search_modes = ["disabled", "cached"]'), [
+    "disabled",
+    "cached",
+  ]);
+  assert.equal(allowedWebSearchModesInPolicy('# no policy here\nmodel = "x"'), null);
+  assert.equal(runtimeWebSearchPolicyConflict(codexInstance("live"), []), null);
+  assert.equal(
+    runtimeWebSearchPolicyConflict(codexInstance("live"), ['allowed_web_search_modes = ["disabled"]'])?.code,
+    "runtime_web_search_policy_conflict",
+  );
+  assert.equal(
+    runtimeWebSearchPolicyConflict(codexInstance("cached"), ['allowed_web_search_modes = ["disabled", "cached"]']),
+    null,
+  );
+  assert.throws(
+    () => allowedWebSearchModesInPolicy("allowed_web_search_modes = [disabled]"),
+    (error: unknown) => codedAs(error, "runtime_web_search_policy_invalid"),
+  );
+});
+
+test("prepareLaunch refuses a managed-policy conflict before any credential or process work", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-policy-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [witness],
+      managedPolicyTexts: () => ['allowed_web_search_modes = ["disabled"]'],
+      resolveCredential: async () => "redacted-test-key",
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-policy",
+      name: "Codex Policy",
+      kindId: "codex",
+      installationId: witness.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      isolationState: "enforced",
+      authMode: "api-key",
+      credentialRef: "credential:v1:codex-policy",
+      codex: { webSearch: "live" },
+    });
+    await assert.rejects(
+      store.prepareLaunch("codex-policy", { cwd: "/workspace/repo", prompt: "search" }),
+      (error: unknown) => codedAs(error, "runtime_web_search_policy_conflict"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("the instance write path persists the tier and the read receipt shows it", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-web-search-"));
   try {
@@ -225,4 +295,35 @@ test("a published dispatch receipt carries the effective tier but not account co
   );
   assert.equal((receipt as { webSearch?: string }).webSearch, "live");
   assert.doesNotMatch(JSON.stringify(receipt), /credential|apiKey|auth\.json/u);
+});
+
+test("prepareLaunch refuses a model the witnessed catalog does not mark search-capable", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-model-gate-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [{ ...witness, searchCapableModels: ["gpt-6-sol"] }],
+      managedPolicyTexts: () => [],
+      resolveCredential: async () => "redacted-test-key",
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-model",
+      name: "Codex Model",
+      kindId: "codex",
+      installationId: witness.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      isolationState: "enforced",
+      authMode: "api-key",
+      credentialRef: "credential:v1:codex-model",
+      codex: { webSearch: "live" },
+    });
+    await assert.rejects(
+      store.prepareLaunch("codex-model", { cwd: "/workspace/repo", prompt: "search" }),
+      (error: unknown) => codedAs(error, "runtime_web_search_model_unsupported"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });

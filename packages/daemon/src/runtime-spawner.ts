@@ -1366,7 +1366,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           reason: runtimeSelection.reason,
           model: definition.model,
         },
-        ...(definition.webSearch === undefined ? {} : { webSearch: definition.webSearch }),
       },
       // `ha agent validate` / `ha agent install` warn before dispatch; the dispatch that actually
       // had to pick is the last moment the author can still be told the choice was unstated, so the
