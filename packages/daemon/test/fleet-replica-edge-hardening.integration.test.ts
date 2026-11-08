@@ -580,11 +580,17 @@ test(
     const fixture = await fleetReplicationFixture(t);
     const { planPath } = await seedCenterData(fixture, seededTask);
     // Incompressible content keeps the archive past the receive window (256 frames of 64 KiB).
-    const bulkPath = `${path.posix.dirname(planPath)}/artifacts/bulk.md`,
-      bulkFile = path.join(fixture.repo, "harness", bulkPath);
-    mkdirSync(path.dirname(bulkFile), { recursive: true });
-    writeFileSync(bulkFile, `# Bulk\n\n${randomBytes(32 * 1024 * 1024).toString("base64")}\n`);
-    const submitted = await fixture.centerRun({ kind: "doc-submit", paths: [bulkPath] });
+    // Three documents keep every single document under the 20,000,000-byte ceiling while their
+    // combined ~50MB still exceeds the window.
+    const bulkDir = `${path.posix.dirname(planPath)}/artifacts`,
+      bulkPaths = [1, 2, 3].map((part) => `${bulkDir}/bulk-${part}.md`);
+    mkdirSync(path.join(fixture.repo, "harness", bulkDir), { recursive: true });
+    for (const [index, bulkPath] of bulkPaths.entries())
+      writeFileSync(
+        path.join(fixture.repo, "harness", bulkPath),
+        `# Bulk ${index + 1}\n\n${randomBytes(12 * 1024 * 1024).toString("base64")}\n`,
+      );
+    const submitted = await fixture.centerRun({ kind: "doc-submit", paths: bulkPaths });
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await fixture.openCenter();
     // A stalled disk on the edge: staged writes wait until the stream stops reading, so frames

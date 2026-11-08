@@ -46,7 +46,15 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
               ...(field.regex ? { regex: field.regex } : {}),
               // The kernel contract carries the packet shape; the workspace-root path rule belongs
               // to the daemon read layer, so it is added here where the CLI facet is assembled.
-              ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),
+              // A boolean carries no value, so it has no coordinate to declare.
+              ...(field.cli.kind === "boolean"
+                ? {}
+                : field.field === "fromFile"
+                  ? {
+                      pathKind: "workspace-file" as const,
+                      format: workspacePathFormat,
+                    }
+                  : { pathKind: "non-path" as const }),
             }),
           ]
         : [],
@@ -136,10 +144,10 @@ export const taskExecutionProtocolCommands = Object.freeze([
       'Worker-only upward channel for a real blocker. Use for forbidden boundaries, owner rulings, false preconditions, or another task blocking progress; do not use for choices you can decide yourself. Example: ha task escalate <task-id> --question "May I change the fleet protocol?" --option "Keep scope" --option "Extend protocol" --recommend "Keep scope" --reason "Required writer is outside this task."',
     method: "repo.task.run",
     inputs: [
-      cliInput("--question", "single", true, { code: "missing_field" }),
-      cliInput("--option", "repeated", false, { code: "invalid_field" }),
-      cliInput("--recommend", "single", false, { code: "invalid_field" }),
-      cliInput("--reason", "single", false, { code: "invalid_field" }),
+      cliInput("--question", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--option", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--recommend", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--reason", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -157,8 +165,8 @@ export const taskExecutionProtocolCommands = Object.freeze([
       "Owner/CEO answer to a worker escalation. Records the answer, unblocks the task, and injects it into the next dispatch.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--dispatch-id", "single", true, { code: "missing_field" }),
-      cliInput("--answer", "single", true, { code: "missing_field" }),
+      cliInput("--dispatch-id", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--answer", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
     ],
   }),
   defineCliCommand({
@@ -176,8 +184,10 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
-          field: "body",
+          field: "bodyFile",
           codec: { kind: "text-file", target: "body", maxBytes: 32 * 1024 },
+          pathKind: "workspace-file",
+          format: workspacePathFormat,
         },
       ),
     ],
@@ -225,9 +235,15 @@ export const taskExecutionProtocolCommands = Object.freeze([
     summary: "Append typed progress through the active task lease, or backfill after release with --as-owner.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--text", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--text",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { pathKind: "non-path" },
+      ),
       cliInput(
         "--evidence",
         "repeated",
@@ -235,10 +251,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        {
-          format: "<type>:<path>:<summary>",
-          regex: "^[a-z][a-z0-9_-]{0,31}:[^:]+:.+$",
-        },
+        { pathKind: "non-path", format: "<type>:<path>:<summary>", regex: "^[a-z][a-z0-9_-]{0,31}:[^:]+:.+$" },
       ),
       cliInput("--as-owner", "boolean", false, { code: "invalid_field" }, { field: "asOwner" }),
     ],
@@ -264,17 +277,23 @@ export const taskExecutionProtocolCommands = Object.freeze([
       "Dispatch one independent reviewer per selected task; each review binds to the task's submitted cut, never to an implementation execution.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "repeated", false, { code: "invalid_field" }, { field: "taskIds" }),
-      cliInput("--agent", "single", false, { code: "invalid_field" }, { field: "agentId" }),
-      cliInput("--execution-id", "single", false, { code: "invalid_field" }),
-      cliInput("--instance", "single", false, { code: "invalid_field" }, { field: "runtimeInstanceId" }),
-      cliInput("--model", "single", false, { code: "invalid_field" }),
+      cliInput("--task", "repeated", false, { code: "invalid_field" }, { pathKind: "non-path", field: "taskIds" }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "agentId" }),
+      cliInput("--execution-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--instance",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", field: "runtimeInstanceId" },
+      ),
+      cliInput("--model", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput(
         "--effort",
         "single",
         false,
         { code: "invalid_runtime_effort" },
-        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+        { pathKind: "non-path", enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
       ),
       cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
     ],
@@ -292,7 +311,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "missing_field" },
-        { conflictsWith: ["--run"], description: "Read artifact bytes from a local file" },
+        {
+          conflictsWith: ["--run"],
+          description: "Read artifact bytes from a local file",
+          pathKind: "cli-local",
+          pathReader: "cli-local",
+        },
       ),
       cliInput(
         "--run",
@@ -310,7 +334,10 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         { code: "missing_field" },
         {
-          description: "Required with --source; with --run defaults to a unique artifacts/evidence path",
+          description:
+            "Workspace-relative artifact path; required with --source, while --run defaults to a unique task-local artifacts/evidence path",
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
         },
       ),
     ],
@@ -340,7 +367,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { field: "taskId", conflictsWith: ["--all"] },
+        { pathKind: "non-path", field: "taskId", conflictsWith: ["--all"] },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
@@ -356,7 +383,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     summary: "Read the task projection.",
     method: "repo.task.read",
     // <task-id> and --id are the same field in two spellings; the parser rejects both-at-once.
-    inputs: [cliInput("--id", "single", false, { code: "invalid_field" }, { field: "taskId" })],
+    inputs: [cliInput("--id", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "taskId" })],
   }),
   defineRepoReadCommand({
     id: "receipt-show",
@@ -365,8 +392,8 @@ export const taskExecutionProtocolCommands = Object.freeze([
     summary: "Read acceptance and independent progress; optionally wait for comma-separated receipt predicates.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--wait", "single", false, { code: "invalid_field" }),
-      cliInput("--timeout-ms", "single", false, { code: "invalid_field" }),
+      cliInput("--wait", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--timeout-ms", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
     ],
   }),
 ] as const);

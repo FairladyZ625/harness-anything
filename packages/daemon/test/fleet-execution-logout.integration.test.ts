@@ -378,7 +378,7 @@ test(
       "--source",
       "incoming.bin",
       "--destination",
-      "evidence.bin",
+      `${f.workspacePackagePath}/artifacts/evidence.bin`,
     ]);
     assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
     await waitForFleetPublication(f.host, repoId, String(artifact.opId), f.auth);
@@ -648,26 +648,34 @@ test(
     assert.equal(reviewedTask.outcome, "applied", JSON.stringify(reviewedTask));
     // Frozen evidence is served by the center, even when the edge's workspace content differs.
     writeFileSync(path.join(reviewRoot, "harness", frozenEvidencePath), "Changed local evidence.\n");
-    const fullEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
+    const fullEvidence = await reviewCli(["doc", "show", "--path", `harness/${frozenEvidencePath}`]);
     assert.equal(fullEvidence.outcome, "applied", JSON.stringify(fullEvidence));
     assert.equal(fullEvidence.evidenceContentEncoding, "utf8");
     assert.equal(typeof fullEvidence.evidenceFile, "string");
     assert.equal(readFileSync(String(fullEvidence.evidenceFile), "utf8"), frozenEvidence);
     t.diagnostic(`Frozen evidence read ${Buffer.byteLength(frozenEvidence)} bytes through center chunk frames.`);
-    const rawEvidence = await spawnCli(["--root", reviewRoot, "doc", "show", "--path", frozenEvidencePath, "--raw"], {
-      ...process.env,
-      ...reviewEnv,
-    });
+    const rawEvidence = await spawnCli(
+      ["--root", reviewRoot, "doc", "show", "--path", `harness/${frozenEvidencePath}`, "--raw"],
+      {
+        ...process.env,
+        ...reviewEnv,
+      },
+    );
     assert.equal(rawEvidence.stdout, frozenEvidence);
-    const binaryEvidence = await reviewCli(["doc", "show", "--path", "tasks/task-fleet-fleet/artifacts/evidence.bin"]);
+    const binaryEvidence = await reviewCli([
+      "doc",
+      "show",
+      "--path",
+      "harness/tasks/task-fleet-fleet/artifacts/evidence.bin",
+    ]);
     assert.equal(binaryEvidence.evidenceContentEncoding, "base64");
     assert.equal(typeof binaryEvidence.evidenceFile, "string");
     assert.deepEqual(readFileSync(String(binaryEvidence.evidenceFile)), artifactBytes);
     // dec_CF96A3C910B31D2D7498F32DDD/CH2: unfrozen reads use the shared live document view.
     for (const readablePath of [
-      "tasks/task-other/artifacts/full-evidence.txt",
-      "tasks/task-fleet-fleet/artifacts/unregistered.txt",
-      "tasks/task-fleet-fleet/task_plan.md",
+      "harness/tasks/task-other/artifacts/full-evidence.txt",
+      "harness/tasks/task-fleet-fleet/artifacts/unregistered.txt",
+      "harness/tasks/task-fleet-fleet/task_plan.md",
     ])
       assert.notEqual((await reviewCli(["doc", "show", "--path", readablePath])).code, "execution_credential_rejected");
     assert.equal((await reviewCli(["doc", "show", "--path", "../task_plan.md"])).outcome, "op_rejected");
@@ -788,7 +796,7 @@ test(
     const staleRead = await reviewCli(["task", "show", taskId]);
     assert.equal(staleRead.outcome, "applied", JSON.stringify(staleRead));
     // CH2 preserves repository reads after amendment; only the stale receipt and success settlement are fenced.
-    const supersededEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
+    const supersededEvidence = await reviewCli(["doc", "show", "--path", `harness/${frozenEvidencePath}`]);
     assert.equal(supersededEvidence.outcome, "applied", JSON.stringify(supersededEvidence));
     assert.equal(supersededEvidence.evidenceContentEncoding, "utf8");
     assert.equal(typeof supersededEvidence.evidenceFile, "string");

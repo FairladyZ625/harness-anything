@@ -26,7 +26,8 @@ export type RuntimeProviderFault = {
     | "auth_failed"
     | "request_unavailable"
     | "provider_disconnected"
-    | "pre_tool_exit";
+    | "pre_tool_exit"
+    | "permission_denied";
   readonly reason: string;
   readonly faultClass?: "quota_exhausted" | "rate_limited";
   readonly resetAt?: string;

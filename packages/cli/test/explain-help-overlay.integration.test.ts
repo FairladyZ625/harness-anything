@@ -167,7 +167,7 @@ test("ha explain reports submit availability for the same actor that can submit"
       actorId,
     );
     assert.equal(created.status, 0, created.stderr);
-    const packagePath = String(created.value.packagePath);
+    const packagePath = String(created.value.workspacePackagePath);
     await realizeTaskPlanFixture(root, packagePath, async () => {
       const synced = runJson(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], actorId);
       assert.equal(synced.status, 0, synced.stderr);
@@ -179,7 +179,7 @@ test("ha explain reports submit availability for the same actor that can submit"
       `## Summary\n\nSubmit actor fixture at ${deliveryCommit}.\n\n## Verification\n\nCLI integration.\n\n` +
       "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared actor binding.\n";
     for (const closeoutRoot of [root, path.join(root, ".worktrees", taskId)]) {
-      const closeoutPath = path.join(closeoutRoot, "harness", packagePath, "closeout.md");
+      const closeoutPath = path.join(closeoutRoot, packagePath, "closeout.md");
       mkdirSync(path.dirname(closeoutPath), { recursive: true });
       writeFileSync(closeoutPath, closeoutBody);
     }

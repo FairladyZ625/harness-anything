@@ -4,6 +4,7 @@ import { makeTaskEventStore } from "@harness-anything/storage";
 import {
   approvedReviewHistoryForExecution,
   consentedApprovedReviewForExecution,
+  documentWorkspacePath,
   getExecutableEntityAction,
   resolveHarnessLayout,
   reviewDigest,
@@ -279,7 +280,7 @@ function reviewWaiverLine(
 }
 
 export function lifecycleReceipt(
-  cell: Pick<RepoCellOperationalContext, "projection" | "rootDir">,
+  cell: Pick<RepoCellOperationalContext, "layout" | "projection" | "rootDir">,
   event: Extract<ReturnType<ReturnType<typeof makeTaskEventStore>["readEvent"]>, { readonly schema: "task-event/v1" }>,
   snapshot: Snapshot,
   publication: PublicPublication,
@@ -345,7 +346,9 @@ export function lifecycleReceipt(
         ? [{ command: `ha work show ${movedWorkRoot}`, reason: "the task's work after the move" }]
         : []),
     ],
-    changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
+    changedPaths = (event.payload.documentClaims ?? []).map((claim) =>
+      documentWorkspacePath(cell.rootDir, claim.path, cell.layout),
+    ),
     waiver = reviewWaiverLine(snapshot.task, execution),
     summary =
       event.type === "execution_annotated"

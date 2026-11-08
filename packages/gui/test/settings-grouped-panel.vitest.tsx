@@ -298,6 +298,29 @@ describe("设置页按用途分组并逐项解释", () => {
     expect(container.querySelector('[data-testid="settings-runtimeCommandInterceptions-modified"]')).toBeNull();
   });
 
+  it("命令规则可切换到精确审核命令并保留规则范围", async () => {
+    const rule = { id: "task-bridge", pattern: "^ha task-create", agent: "ceo" },
+      container = await mountView({ runtimeCommandInterceptions: [rule] }),
+      kind = container.querySelector<HTMLSelectElement>('[data-testid="command-interception-0-kind"]')!;
+    expect(kind.value).toBe("pattern");
+    await act(async () => {
+      kind.value = "approvedCommand";
+      kind.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(input(container, "command-interception-0-pattern").getAttribute("aria-label")).toBe("完整命令（精确匹配）");
+    const change = async (testId: string, value: string) =>
+      act(async () => {
+        const field = input(container, testId);
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, value);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    await change("command-interception-0-pattern", '/opt/ha/bridge task-create \'{"title":"slice"}\'');
+    await act(async () => saveButton(container).click());
+    expect(lastUpdatePayload().runtimeCommandInterceptions).toEqual([
+      { id: rule.id, agent: rule.agent, approvedCommand: '/opt/ha/bridge task-create \'{"title":"slice"}\'' },
+    ]);
+  });
+
   it("分组按声明序渲染,每组有一句说明,每个字段带「改了会怎样」行", async () => {
     const container = await mountView();
     expect(sectionTitles(container)).toEqual([

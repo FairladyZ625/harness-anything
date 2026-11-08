@@ -85,6 +85,21 @@ const artifactEntityImportProtocolInput = Object.freeze({
   exactlyOneOf: Object.freeze([]),
 } as const satisfies typeof artifactEntityImportActionInput);
 
+// task-artifact-add is a protocol command rather than a generated lifecycle Action, but it
+// still crosses repo.task.run's closed Action boundary. Keep its transport shape explicit here so
+// metadata such as the CLI-only coordinate marker cannot silently enter the Action object.
+const taskArtifactAddProtocolInput = Object.freeze({
+  schema: "entity-action-input/v1",
+  fields: Object.freeze([
+    { field: "taskId", type: "string", required: true },
+    { field: "source", type: "string", required: false },
+    { field: "content", type: "string", required: false },
+    { field: "destination", type: "string", required: false },
+    { field: "squadRunId", type: "string", required: false, regex: "^squad_[a-f0-9]{24}$" },
+  ]),
+  exactlyOneOf: Object.freeze([]),
+} as const satisfies GeneratedTaskActionProtocolDeclaration["input"]);
+
 const taskActionProtocolByIngress: ReadonlyMap<string, GeneratedTaskActionProtocolDeclaration> = new Map(
   generatedTaskActionProtocolDeclarations.map((action) => [action.execution.ingress, action] as const),
 );
@@ -105,6 +120,8 @@ export function validateCatalogActionPayload(value: JsonObject): readonly string
   if (!isJsonObject(action) || typeof action.kind !== "string") return [];
   const declaration = taskActionProtocolByIngress.get(action.kind);
   if (declaration) return validateProjectedTaskActionInput(action.kind, declaration.input, action);
+  if (action.kind === "task-artifact-add")
+    return validateProjectedTaskActionInput(action.kind, taskArtifactAddProtocolInput, action);
   if (action.kind === "entity-import")
     return [
       ...validateProjectedTaskActionInput(action.kind, artifactEntityImportProtocolInput, action),

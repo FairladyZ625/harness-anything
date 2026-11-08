@@ -29,10 +29,11 @@ interface BlockedCandidate {
 export function blockedCandidateNextAction(
   candidate: BlockedCandidate,
   nextStep = "rerun ha doc sync --submit with --task <task-id> or --path <path>",
+  workspacePath: (document: string) => string = (document) => document,
 ): string {
   const route = candidate.requiredRoute ?? resolveDocRoute(documentPath(candidate.path)).requiredRoute;
   return (
-    `${candidate.path} is daemon-managed; use ${route}: ${candidate.reason ?? "candidate is blocked"}; ` +
+    `${workspacePath(candidate.path)} is daemon-managed; use ${route}: ${candidate.reason ?? "candidate is blocked"}; ` +
     `then ${nextStep}`
   );
 }

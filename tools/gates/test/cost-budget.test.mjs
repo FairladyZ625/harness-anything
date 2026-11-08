@@ -511,6 +511,20 @@ test("document counts, event body bytes, and a paged single-owner relation colle
   }
 });
 
+// dec_E355A3715D7C65666E385C8339 CH2: the single-document 20MB ceiling is judged in the kernel
+// write port; G38 must keep measuring the per-event body cost on doc-submit so the dimension cannot
+// be dropped from the gate while the limit remains.
+test("G38 keeps doc-submit event-bytes as the registered single-event volume dimension", () => {
+  const probe = COLLECTION_PROBES["doc-submit:event-bytes"];
+  assert.equal(probe?.action, "doc-submit");
+  assert.equal(probe?.dimension, "event-bytes");
+  const budget = JSON.parse(readFileSync(new URL("../cost-budget.json", import.meta.url), "utf8"));
+  assert.equal(
+    budget.writeCostScaling.actionCoverage.measured["doc-submit"].measurements.includes("doc-submit:event-bytes"),
+    true,
+  );
+});
+
 test("runtime-run dispatch admission measures both declared execution scales", async () => {
   const probe = COLLECTION_PROBES["runtime-run:execution-dispatches"];
   assert.ok(probe, "runtime-run execution dispatch probe must remain registered");

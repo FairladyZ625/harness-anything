@@ -32,15 +32,48 @@ export function CommandInterceptionsEditor({
               onChange={(id) => update(index, { id })}
             />
           </label>
+          <label className="grid min-w-0 gap-1 ui-meta text-text-muted">
+            {t("views.settingsView.commandInterceptionKind")}
+            <select
+              aria-label={t("views.settingsView.commandInterceptionKind")}
+              data-testid={`command-interception-${index}-kind`}
+              className="rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+              value={"approvedCommand" in rule ? "approvedCommand" : "pattern"}
+              disabled={disabled}
+              onChange={(event) => {
+                const base = { id: rule.id, ...(rule.agent ? { agent: rule.agent } : {}) };
+                onChange(
+                  rules.map((entry, row) =>
+                    row === index
+                      ? event.currentTarget.value === "approvedCommand"
+                        ? { ...base, approvedCommand: "" }
+                        : { ...base, pattern: "" }
+                      : entry,
+                  ),
+                );
+              }}
+            >
+              <option value="pattern">{t("views.settingsView.commandInterceptionPatternKind")}</option>
+              <option value="approvedCommand">{t("views.settingsView.commandInterceptionApprovedKind")}</option>
+            </select>
+          </label>
           <label className="grid min-w-0 flex-[2] gap-1 ui-meta text-text-muted">
-            {t("views.settingsView.commandInterceptionPattern")}
+            {t(
+              "pattern" in rule
+                ? "views.settingsView.commandInterceptionPattern"
+                : "views.settingsView.commandInterceptionApprovedCommand",
+            )}
             <TextInput
-              label={t("views.settingsView.commandInterceptionPattern")}
+              label={t(
+                "pattern" in rule
+                  ? "views.settingsView.commandInterceptionPattern"
+                  : "views.settingsView.commandInterceptionApprovedCommand",
+              )}
               testId={`command-interception-${index}-pattern`}
               mono
-              value={rule.pattern}
+              value={"pattern" in rule ? rule.pattern : rule.approvedCommand}
               disabled={disabled}
-              onChange={(pattern) => update(index, { pattern })}
+              onChange={(value) => update(index, "pattern" in rule ? { pattern: value } : { approvedCommand: value })}
             />
           </label>
           <label className="grid min-w-0 flex-1 gap-1 ui-meta text-text-muted">

@@ -16,29 +16,25 @@ export const eventProtocolCommands = Object.freeze([
       "List canonical ledger events newest-first, with optional type/entity/actor/time filters and cursor paging.",
     method: "repo.task.read",
     inputs: [
-      cliInput("--type", "single", false, { code: "invalid_field" }),
+      cliInput("--type", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput(
         "--entity",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          format: "<kind/id> (or a bare entity id)",
-        },
+        { pathKind: "non-path", format: "<kind/id> (or a bare entity id)" },
       ),
       cliInput(
         "--actor",
         "single",
         false,
         { code: "invalid_field" },
-        {
-          format: "<executor-id or person-id>",
-        },
+        { pathKind: "non-path", format: "<executor-id or person-id>" },
       ),
-      cliInput("--after", "single", false, { code: "invalid_field" }, { regex: isoTimestamp }),
-      cliInput("--before", "single", false, { code: "invalid_field" }, { regex: isoTimestamp }),
-      cliInput("--limit", "single", false, { code: "invalid_field" }, { regex: eventListLimit }),
-      cliInput("--cursor", "single", false, { code: "invalid_field" }, { regex: "^[0-9]+$" }),
+      cliInput("--after", "single", false, { code: "invalid_field" }, { pathKind: "non-path", regex: isoTimestamp }),
+      cliInput("--before", "single", false, { code: "invalid_field" }, { pathKind: "non-path", regex: isoTimestamp }),
+      cliInput("--limit", "single", false, { code: "invalid_field" }, { pathKind: "non-path", regex: eventListLimit }),
+      cliInput("--cursor", "single", false, { code: "invalid_field" }, { pathKind: "non-path", regex: "^[0-9]+$" }),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({

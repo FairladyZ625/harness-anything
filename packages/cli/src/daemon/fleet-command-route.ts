@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { daemonUserRoot, readRegisteredRepos } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import {
   canonicalRoot,
   commandDescriptorForAction,
   daemonProtocolCommands,
+  hasCommandDescriptor,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { serializeFleetAction } from "./fleet-payload-serializer.ts";
@@ -40,23 +40,6 @@ export async function fleetScheduleRoute(
     workspaceRoot: config.workspaceRoot,
     action: { kind: "fleet-schedule", payload: action },
   };
-}
-
-/** Resolve a Schedule mission file on the edge before either local or Fleet execution. */
-export function materializeScheduleMission(command: ThinCommand): ThinCommand {
-  if (
-    !["schedule-create", "schedule-update"].includes(command.action.kind) ||
-    typeof command.action.missionFile !== "string"
-  )
-    return command;
-  const missionPath = path.resolve(command.rootDir, command.action.missionFile),
-    relative = path.relative(command.rootDir, missionPath);
-  if (relative.startsWith("..") || path.isAbsolute(relative))
-    throw Object.assign(new Error("--mission-file must stay within the selected repository."), {
-      code: "invalid_field",
-    });
-  const { missionFile: _missionFile, ...action } = command.action;
-  return { ...command, action: { ...action, mission: readFileSync(missionPath, "utf8") } };
 }
 
 // The registry-mode gate behind every fleet reroute: a workspace only takes a
@@ -121,12 +104,6 @@ const fleetRuntimeMethods = [
   "repo.agentRuntime.sessions.read",
   "repo.agentRuntime.sessions.await",
 ] as const;
-
-function hasCommandDescriptor(actionKind: string): boolean {
-  return daemonProtocolCommands.some(
-    (descriptor) => ("actionKind" in descriptor ? descriptor.actionKind : descriptor.id) === actionKind,
-  );
-}
 
 export async function fleetRuntimeRoute(
   command: ThinCommand,
@@ -210,6 +187,6 @@ export async function fleetTaskRoute(
     ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,
   };
-  payload.action = action;
+  payload.action = { ...action, ...(command.pathCoordinate ? { pathCoordinate: command.pathCoordinate } : {}) };
   return payload;
 }

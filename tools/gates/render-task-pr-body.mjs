@@ -104,7 +104,7 @@ function taskProjection(receipt, taskId) {
   if (!current) throw new Error(`task ${taskId} has no submitted cut for iteration ${task.iteration}`);
   return {
     submission: current.submission,
-    packagePath: projection.packagePath,
+    workspacePackagePath: projection.workspacePackagePath,
     profileId: record(task.metadata) && typeof task.metadata.profileId === "string" ? task.metadata.profileId : null,
     decisionAuthority: decisionAuthority(projection),
   };
@@ -325,15 +325,15 @@ function parseArgs(argv) {
   return { taskId, bodyFile };
 }
 
-function readCloseout(rootDir, packagePath) {
+function readCloseout(rootDir, workspacePackagePath) {
   if (
-    typeof packagePath !== "string" ||
-    packagePath.length === 0 ||
-    packagePath.startsWith("/") ||
-    packagePath.split("/").includes("..")
+    typeof workspacePackagePath !== "string" ||
+    workspacePackagePath.length === 0 ||
+    workspacePackagePath.startsWith("/") ||
+    workspacePackagePath.split("/").includes("..")
   )
-    throw new Error("task projection has no usable packagePath for closeout.md");
-  const docPath = `${packagePath}/closeout.md`;
+    throw new Error("task projection has no usable workspacePackagePath for closeout.md");
+  const docPath = `${workspacePackagePath}/closeout.md`;
   try {
     return execFileSync("ha", ["doc", "show", "--path", docPath, "--raw"], {
       cwd: rootDir,
@@ -362,8 +362,8 @@ export function main(argv = process.argv.slice(2)) {
           maxBuffer: 16 * 1024 * 1024,
         }),
       ),
-      { packagePath } = taskProjection(receipt, options.taskId),
-      closeout = readCloseout(rootDir, packagePath),
+      { workspacePackagePath } = taskProjection(receipt, options.taskId),
+      closeout = readCloseout(rootDir, workspacePackagePath),
       template = readFileSync(path.resolve(rootDir, ".github/pull_request_template.md"), "utf8"),
       input =
         path.resolve(rootDir, options.bodyFile) === path.resolve(rootDir, ".github/pull_request_template.md")

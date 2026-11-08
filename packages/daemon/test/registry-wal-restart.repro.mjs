@@ -38,6 +38,10 @@ export async function reproduceRegistrySqliteRestart(arm, options = {}) {
     await waitForAttached(fixture);
     const taskReceipt = runCli(fixture, ["task", "create", "--title", `Daemon SQLite ${arm}`]),
       taskId = String(taskReceipt.taskId),
+      // The CLI boundary prints the workspace spelling for disk paths and the authored key for ledger
+      // readers; the old `packagePath` name is deleted, so this fixture resolves the workspace path
+      // once from the repository root instead of reading a key the receipt no longer carries.
+      taskPackagePath = String(taskReceipt.workspacePackagePath),
       factReceipt = runCli(fixture, [
         "fact",
         "record",
@@ -51,6 +55,13 @@ export async function reproduceRegistrySqliteRestart(arm, options = {}) {
       ]),
       before = observeBefore(fixture, taskReceipt, factReceipt);
     assert.equal(taskReceipt.status, "accepted_durable", JSON.stringify(taskReceipt));
+    assert.equal(typeof taskReceipt.workspacePackagePath, "string", JSON.stringify(taskReceipt));
+    assert.equal(
+      taskReceipt.ledgerPackagePath,
+      taskPackagePath.replace(/^harness\//u, ""),
+      JSON.stringify(taskReceipt),
+    );
+    assert.equal(Object.hasOwn(taskReceipt, "packagePath"), false, JSON.stringify(taskReceipt));
     assert.equal(factReceipt.status, "accepted_durable", JSON.stringify(factReceipt));
     assert.ok(before.canonicalEventHead >= 2, JSON.stringify(before));
     if (arm === "graceful-stop") runCli(fixture, ["daemon", "stop"]);
@@ -60,9 +71,9 @@ export async function reproduceRegistrySqliteRestart(arm, options = {}) {
     await waitForAttached(fixture);
     const task = runCli(fixture, ["task", "show", taskId]),
       fact = runCli(fixture, ["fact", "show", "--id", String(factReceipt.factId)]),
-      after = observeAfter(fixture, taskId, String(factReceipt.factId), String(taskReceipt.packagePath), task, fact);
+      after = observeAfter(fixture, taskId, String(factReceipt.factId), taskPackagePath, task, fact);
     await waitForPublication(fixture, factReceipt.opId);
-    after.taskPackageExists = packageExists(fixture.rootDir, String(taskReceipt.packagePath));
+    after.taskPackageExists = packageExists(fixture.rootDir, taskPackagePath);
     return { arm, fixtureRoot, before, after };
   } finally {
     if (readDaemonPid(userRoot, daemonId) !== null) {
@@ -76,17 +87,17 @@ function observeBefore(fixture, taskReceipt, factReceipt) {
   return {
     registrySchema: registrySchema(fixture),
     ...canonicalState(fixture),
-    taskPackageExists: packageExists(fixture.rootDir, String(taskReceipt.packagePath)),
+    taskPackageExists: packageExists(fixture.rootDir, String(taskReceipt.workspacePackagePath)),
     receipts: { taskReceipt, factReceipt },
   };
 }
-function observeAfter(fixture, taskId, factId, packagePath, task, fact) {
+function observeAfter(fixture, taskId, factId, workspacePackagePath, task, fact) {
   const taskEvidence = JSON.parse(String(task.evidence)),
     factEvidence = JSON.parse(String(fact.evidence));
   return {
     registrySchema: registrySchema(fixture),
     ...canonicalState(fixture),
-    taskPackageExists: packageExists(fixture.rootDir, packagePath),
+    taskPackageExists: packageExists(fixture.rootDir, workspacePackagePath),
     taskId: taskEvidence.task.taskId,
     factId: factEvidence.fact.factId,
     expectedTaskId: taskId,
@@ -167,8 +178,8 @@ function downgradeRegistryToV1(userRoot) {
 function registrySchema(fixture) {
   return JSON.parse(readFileSync(path.join(fixture.userRoot, "registry.json"), "utf8")).schema;
 }
-function packageExists(rootDir, packagePath) {
-  return existsSync(path.join(rootDir, packagePath)) || existsSync(path.join(rootDir, "harness", packagePath));
+function packageExists(rootDir, workspacePackagePath) {
+  return existsSync(path.join(rootDir, workspacePackagePath));
 }
 function canonicalState(fixture) {
   const read = makeTaskEventReader({ repoId: fixture.repoId, rootDir: fixture.rootDir }).read();
