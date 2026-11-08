@@ -459,7 +459,12 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         agentId: context.requiredCellText(payload.agentId, "agentId"),
         revision: Number(payload.revision),
       }),
-    "repo.agent.skills.list": () => readAgentSkillsGui(context.rootDir),
+    // A runtime execution credential gets the minimal repository projection; an operator session
+    // keeps the GUI's absolute selectable paths.
+    "repo.agent.skills.list": (_payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) =>
+      readAgentSkillsGui(context.rootDir, {
+        projection: binding?.executionPrincipal === undefined ? "gui" : "execution",
+      }),
     "repo.squad.entities.list": () =>
       readAgentEntityGuiProjection({
         kind: "squad-list",

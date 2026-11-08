@@ -19,13 +19,51 @@ export function resolveAgentSkillRoot(rootDir: string): string {
   return resolveHarnessLayout(rootDir).authoredRoot;
 }
 
+export interface AgentSkillCatalogReadOptions {
+  /** `execution` is the minimal projection a runtime execution credential may receive. */
+  readonly projection?: "gui" | "execution";
+  /** Fixture seam for discovery tests; production uses the serving user's home. */
+  readonly userHome?: string;
+}
+
 /** The `repo.agent.skills.list` result: discovery and its GUI envelope live in one place. */
-export function readAgentSkillsGui(rootDir: string): {
+export function readAgentSkillsGui(
+  rootDir: string,
+  options: AgentSkillCatalogReadOptions = {},
+): {
   readonly schema: "agent-skill-catalog/v1";
   readonly ok: true;
   readonly skills: readonly AgentSkillCatalogRow[];
 } {
-  return { schema: "agent-skill-catalog/v1", ok: true, skills: discoverAgentSkills({ rootDir }) };
+  const skills = discoverAgentSkills({
+    rootDir,
+    ...(options.userHome === undefined ? {} : { userHome: options.userHome }),
+  });
+  return {
+    schema: "agent-skill-catalog/v1",
+    ok: true,
+    skills: options.projection === "execution" ? executionAgentSkillCatalog(rootDir, skills) : skills,
+  };
+}
+
+/**
+ * A runtime execution credential may read the catalog but not the host's skill roots. Keep only
+ * repository-owned rows and address each by a POSIX path relative to the served repository.
+ * User-level skills and project links that resolve outside the repository are host state the
+ * relay cannot rely on, so they are omitted rather than disclosed.
+ */
+function executionAgentSkillCatalog(
+  rootDir: string,
+  rows: readonly AgentSkillCatalogRow[],
+): readonly AgentSkillCatalogRow[] {
+  const lexicalRoot = path.resolve(rootDir),
+    repositoryRoot = existsSync(lexicalRoot) ? realpathSync(lexicalRoot) : lexicalRoot;
+  return rows.flatMap((row) => {
+    if (row.source !== "project") return [];
+    const relative = path.relative(repositoryRoot, row.path);
+    if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) return [];
+    return [{ ...row, path: relative === "" ? "." : relative.split(path.sep).join(path.posix.sep) }];
+  });
 }
 export function discoverAgentSkills(input: {
   readonly rootDir: string;

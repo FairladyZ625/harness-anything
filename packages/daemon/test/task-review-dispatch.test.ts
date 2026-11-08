@@ -3,10 +3,20 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
-import { historicalReadConclusions, type ExecutionV1 } from "@harness-anything/kernel";
+import {
+  historicalReadConclusions,
+  REPLAY_TASK_GRAPH,
+  validateTaskV2,
+  type ExecutionV1,
+} from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewFindingScopePrompt } from "../src/review-prompt-guidance.ts";
-import { decisionReviewDispatchPrompt, dispatchTaskReview, reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
+import {
+  decisionReviewDispatchPrompt,
+  dispatchTaskReview,
+  nodeReviewDispatchCandidate,
+  reviewDispatchPrompt,
+} from "../src/task-review-dispatch.ts";
 import { taskExecutionPlacement } from "../src/task-execution-placement.ts";
 import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/node-auto-dispatch.ts";
 import { nodeReworkDispatchCandidate } from "../src/task-return-dispatch.ts";
@@ -204,6 +214,88 @@ test("explicit review dispatch stays pending when its execution source cannot be
   assert.equal(step?.outcome, "pending", JSON.stringify(step));
   assert.equal(step?.agentId, "selected-reviewer");
   assert.match(String(result.warnings), /no runtime dispatch was created/u);
+});
+
+test("a default review dispatch writes a minimal intent and its node consumer spawns the reviewer", async () => {
+  const taskId = "task-review-default-intent",
+    executionId = "execution-review-default-intent",
+    task = {
+      schema: "task/v2",
+      taskId,
+      title: "Default review intent",
+      taskClass: "standard",
+      status: "in_review",
+      graph: REPLAY_TASK_GRAPH,
+      currentNode: "review",
+      iteration: 0,
+      createdBy: { principal: { personId: "owner" }, executor: null },
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+      pinned: false,
+    },
+    snapshot = {
+      task,
+      revision: 2,
+      executions: [{ schema: "execution/v1", executionId, iteration: 0, state: "submitted", submission: {} }],
+      reviews: [],
+      edgesTaken: [],
+      lease: null,
+    };
+  let writtenIntent: Record<string, unknown> | undefined,
+    persistedTask = task;
+  const cell = {
+    input: { repoId: "repo-review-default-intent" },
+    rootDir: process.cwd(),
+    projection: {
+      read: () => ({
+        snapshot: { ...snapshot, task: persistedTask },
+        packagePath: "tasks/review-default-intent",
+        watermark: 2,
+        sourceRevision: 2,
+      }),
+      readLatestLeaseIntervalForExecution: () => ({
+        taskId,
+        executionId,
+        acquiredRevision: 1,
+        holder: { source: { kind: "node", nodeId: "node-laptop" }, actor: { executor: null } },
+      }),
+      readRuntimeDispatchesByTaskExecution: () => [],
+      readRuntimeDispatchByDispatchKey: () => null,
+    },
+    settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
+    store: { readHead: () => ({ revision: 2 }), readEntityDeclarations: () => [] },
+    taskSurfaceWrite: (action: { readonly patches: readonly { readonly field: string; readonly value: string }[] }) => {
+      writtenIntent = JSON.parse(action.patches[0]!.value) as Record<string, unknown>;
+      const issues = validateTaskV2({ ...task, reviewDispatchIntent: writtenIntent });
+      return { outcome: issues.length === 0 ? "applied" : "failed", issues };
+    },
+    operationId: () => "op-review-default-intent",
+  } as unknown as Parameters<typeof dispatchTaskReview>[0];
+  const result = await dispatchTaskReview(
+    cell,
+    { kind: "task-dispatch-review", taskIds: [taskId] } as never,
+    { actor: { principal: { personId: "owner" }, executor: null }, source: "local" } as never,
+  );
+  const step = (result.dispatches as readonly Record<string, unknown>[])[0];
+  assert.deepEqual(writtenIntent, { executionId, reviewerId: "closeout-reviewer" });
+  assert.equal(result.outcome, "pending", JSON.stringify(result));
+  assert.equal(step?.outcome, "pending", JSON.stringify(step));
+  assert.equal(step?.requiredNodeId, "node-laptop");
+
+  // The node-side consumer must turn the persisted minimal intent into the reviewer spawn the edge runs.
+  persistedTask = { ...task, reviewDispatchIntent: writtenIntent! };
+  const candidate = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: "node-laptop" });
+  assert.equal(candidate?.kind, "review", JSON.stringify(candidate));
+  assert.equal(candidate?.taskId, taskId);
+  assert.equal(candidate?.executionId, executionId);
+  assert.equal(candidate?.requiredNodeId, "node-laptop");
+  assert.equal(candidate?.payload.agentId, "closeout-reviewer");
+  assert.equal(candidate?.payload.role, "reviewer");
+  assert.equal(candidate?.payload.taskId, taskId);
+  assert.equal(candidate?.payload.executionId, executionId);
+  for (const omitted of ["runtimeInstanceId", "model", "effort", "fast"])
+    assert.equal(candidate?.payload[omitted], undefined);
+  assert.match(String(candidate?.payload.prompt), /Independently review task task-review-default-intent/u);
 });
 
 test("execution placement uses a portable lease source without inventing a runtime dispatch", () => {
