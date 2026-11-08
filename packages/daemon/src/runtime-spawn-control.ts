@@ -76,6 +76,26 @@ export async function cancelRuntime(
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
   }
+  if (ruling !== null) {
+    // A ruling is an owner decision for an unreachable runtime only. Check every
+    // precondition before recovery, process-group probing, or the active-process
+    // branch can perform a physical cancellation or cleanup.
+    const hasLocalOwner =
+        context.processes.has(runtimeSessionId) ||
+        context.exiting.has(runtimeSessionId) ||
+        context.ownsModelSlot?.(runtimeSessionId) === true,
+      dispatchId = matchingHeader?.dispatchId ?? canonicalDispatch?.payload.dispatchId,
+      hasReadableDispatch =
+        matchingHeader !== undefined ||
+        (typeof dispatchId === "string" && readDispatchStreamSummary(context.input.rootDir, dispatchId) !== null),
+      hasRecordedProcessGroup =
+        canonicalDispatch?.processGroupPid !== null && canonicalDispatch?.processGroupPid !== undefined;
+    if (hasLocalOwner || hasReadableDispatch || hasRecordedProcessGroup)
+      throw runtimeSpawnError(
+        "runtime_ruling_not_allowed",
+        "Owner ruling requires no local runtime owner, no readable dispatch stream, and no recorded process group.",
+      );
+  }
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
     const [adoption] = await Promise.allSettled([
       adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding }),
@@ -149,21 +169,6 @@ export async function cancelRuntime(
         }) !== "proven_stopped"
       ) {
         if (ruling !== null) {
-          const hasLocalOwner =
-              context.processes.has(runtimeSessionId) ||
-              context.exiting.has(runtimeSessionId) ||
-              context.ownsModelSlot?.(runtimeSessionId) === true,
-            recordedGroup = ownerEvidence?.processGroupPid;
-          if (
-            matchingHeader !== undefined ||
-            readDispatchStreamSummary(context.input.rootDir, ownerEvidence?.payload.dispatchId ?? "") !== null ||
-            hasLocalOwner ||
-            (recordedGroup !== null && recordedGroup !== undefined)
-          )
-            throw runtimeSpawnError(
-              "runtime_ruling_not_allowed",
-              "Owner ruling requires no local runtime owner, no readable dispatch stream, and no recorded process group.",
-            );
           const resultBody = JSON.stringify({
               schema: "runtime-ruling-resolution/v1",
               runtimeSessionId,

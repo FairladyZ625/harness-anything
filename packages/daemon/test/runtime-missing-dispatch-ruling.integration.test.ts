@@ -42,6 +42,7 @@ function fixture(t: test.TestContext) {
     actor: RuntimeBinding["actor"];
     body?: string;
   }> = [];
+  const terminationAttempts = { terminate: 0, terminateTree: 0 };
   const context = {
     input: {
       rootDir,
@@ -77,7 +78,7 @@ function fixture(t: test.TestContext) {
       detail,
     }),
   } as unknown as RuntimeSpawnerContext;
-  return { rootDir, context, session, owner, published };
+  return { rootDir, context, session, owner, published, terminationAttempts };
 }
 
 test("owner ruling closes a live session with no local owner, dispatch stream or recorded group, without stop proof", async (t) => {
@@ -139,7 +140,17 @@ for (const condition of [
         binding,
       });
     if (condition === "recorded-group") f.owner.processGroupPid = process.pid;
-    if (condition === "active-owner") f.context.processes.set(runtimeSessionId, {} as never);
+    if (condition === "active-owner")
+      f.context.processes.set(runtimeSessionId, {
+        process: {
+          terminate: () => {
+            f.terminationAttempts.terminate += 1;
+          },
+          terminateTree: async () => {
+            f.terminationAttempts.terminateTree += 1;
+          },
+        },
+      } as never);
     if (condition === "exiting-owner") f.context.exiting.add(runtimeSessionId);
     const context = condition === "slot-owner" ? { ...f.context, ownsModelSlot: () => true } : f.context;
     const author =
@@ -148,7 +159,11 @@ for (const condition of [
         : condition === "foreign-node"
           ? { ...binding, source: { kind: "node" as const, nodeId: "node-b" } }
           : binding;
-    const expected = condition.startsWith("foreign-") ? "execution_scope_mismatch" : "runtime_ruling_not_allowed";
+    const expected = condition.startsWith("foreign-")
+      ? "execution_scope_mismatch"
+      : condition === "blank-ruling"
+        ? "invalid_runtime_ruling"
+        : "runtime_ruling_not_allowed";
     await assert.rejects(
       cancelRuntime(
         context,
@@ -158,6 +173,7 @@ for (const condition of [
       { code: expected },
     );
     assert.deepEqual(f.published, []);
+    if (condition === "active-owner") assert.deepEqual(f.terminationAttempts, { terminate: 0, terminateTree: 0 });
   });
 }
 
@@ -213,7 +229,7 @@ for (const mission of ["implement", "review"] as const) {
     assert.ok(diagnostics.some((entry) => (entry as { event?: string }).event === "runtime_recovery_failed"));
     const action = {
       prompt: "admit",
-      cwd: { scope: "repo-root" },
+      cwd: { scope: "repo-root", path: f.rootDir },
       dispatchKey: `probe-${mission}`,
       ...(mission === "review"
         ? {
