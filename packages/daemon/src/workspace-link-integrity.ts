@@ -1,10 +1,11 @@
-import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 
 export interface WorkspaceLinkFinding {
   readonly packageName: string;
   readonly linkPath: string;
   readonly target: string;
+  readonly physicalParent: string;
   readonly expectedTarget: string;
   readonly repairCommand: string;
 }
@@ -20,7 +21,7 @@ const workspaceLinkFailureCode = "daemon_start_workspace_links_external" as cons
 
 /** Inspect only declared workspace package links; never walks the dependency store. */
 export function checkWorkspaceLinks(rootDir: string): WorkspaceLinkCheck {
-  const resolvedRoot = path.resolve(rootDir),
+  const resolvedRoot = realpathSync(path.resolve(rootDir)),
     packages = workspacePackages(resolvedRoot),
     findings: WorkspaceLinkFinding[] = [];
   for (const entry of packages) {
@@ -28,15 +29,20 @@ export function checkWorkspaceLinks(rootDir: string): WorkspaceLinkCheck {
       stat = lstatSync(linkPath, { throwIfNoEntry: false });
     if (!stat?.isSymbolicLink()) continue;
     const target = readlinkSync(linkPath),
-      resolvedTarget = path.resolve(path.dirname(linkPath), target),
-      relative = path.relative(resolvedRoot, resolvedTarget);
-    if (relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`))) continue;
+      physicalParent = realpathSync(path.dirname(linkPath)),
+      resolvedTarget = path.resolve(physicalParent, target),
+      parentRelative = path.relative(resolvedRoot, physicalParent),
+      targetRelative = path.relative(resolvedRoot, resolvedTarget),
+      parentOutside = parentRelative === ".." || parentRelative.startsWith(`..${path.sep}`),
+      targetOutside = targetRelative === ".." || targetRelative.startsWith(`..${path.sep}`);
+    if (!parentOutside && !targetOutside) continue;
     const expectedTarget = path.resolve(resolvedRoot, entry.relativePath),
       expectedLinkTarget = path.relative(path.dirname(linkPath), expectedTarget) || ".";
     findings.push({
       packageName: entry.packageName,
       linkPath,
-      target,
+      target: resolvedTarget,
+      physicalParent,
       expectedTarget,
       repairCommand: `ln -sfn ${expectedLinkTarget} ${linkPath}`,
     });
@@ -57,7 +63,8 @@ export function workspaceLinkFailure(finding: WorkspaceLinkFinding): Error & { r
   return Object.assign(
     new Error(
       `Refusing daemon start: workspace link for ${finding.packageName} points outside the repository ` +
-        `(${finding.linkPath} -> ${finding.target}). Repair it with \`${finding.repairCommand}\`, then retry.`,
+        `(${finding.linkPath} -> ${finding.target}; parent=${finding.physicalParent}). ` +
+        `Repair it with \`${finding.repairCommand}\`, then retry.`,
     ),
     { code: workspaceLinkFailureCode },
   );

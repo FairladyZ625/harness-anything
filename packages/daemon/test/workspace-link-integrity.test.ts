@@ -57,6 +57,30 @@ test("an external workspace link is named with its repair command", (t) => {
   });
 });
 
+test("an external scope parent cannot hide a workspace link", (t) => {
+  if (process.platform === "win32") t.skip("requires POSIX file-symbolic-link semantics");
+  const root = workspaceFixture(),
+    externalScope = mkdtempSync(path.join(tmpdir(), "ha-external-workspace-scope-")),
+    scopePath = path.join(root, "node_modules", "@harness-anything");
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(externalScope, { recursive: true, force: true });
+  });
+  rmSync(scopePath, { recursive: true, force: true });
+  symlinkSync(externalScope, scopePath, "dir");
+  symlinkSync("../../packages/cli", path.join(externalScope, "cli"));
+
+  const check = checkWorkspaceLinks(root),
+    finding = check.findings[0]!;
+  assert.equal(check.ok, false);
+  assert.equal(finding.physicalParent, externalScope);
+  assert.equal(finding.target, path.resolve(externalScope, "../../packages/cli"));
+  assert.match(finding.repairCommand, /ln -sfn .*packages\/cli .*node_modules/u);
+  const doctor = workspaceLinkDoctorCheck(root);
+  assert.equal(doctor.status, "fail");
+  assert.match(doctor.next, /ln -sfn .*packages\/cli/u);
+});
+
 test("daemon startup refuses external workspace links before creating its pid", async (t) => {
   if (process.platform === "win32") t.skip("requires POSIX file-symbolic-link semantics");
   const root = workspaceFixture(),
@@ -66,7 +90,10 @@ test("daemon startup refuses external workspace links before creating its pid", 
     rmSync(root, { recursive: true, force: true });
     rmSync(external, { recursive: true, force: true });
   });
-  symlinkSync(external, path.join(root, "node_modules", "@harness-anything", "cli"));
+  const scopePath = path.join(root, "node_modules", "@harness-anything");
+  rmSync(scopePath, { recursive: true, force: true });
+  symlinkSync(external, scopePath, "dir");
+  symlinkSync("../../packages/cli", path.join(external, "cli"));
   mkdirSync(userRoot, { recursive: true });
   writeFileSync(
     path.join(userRoot, "registry.json"),
