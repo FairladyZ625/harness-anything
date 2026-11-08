@@ -28,12 +28,11 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   assert.equal(boundaryCommands[0][1], undefined);
 
   for (const job of [
-    "typecheck",
+    "quick-gates",
     "fast-contract",
     "integration-shard",
     "boundaries",
     "package-policy",
-    "supply-chain",
     "gui-build",
   ]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
