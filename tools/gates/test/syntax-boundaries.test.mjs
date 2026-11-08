@@ -157,7 +157,31 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
   );
   assert.deepEqual(
     kinds(
-      "test('x', { timeout: 60_000 }, async () => { await child.exited; });",
+      "test('x', { timeout: timeoutMs }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: 57_629 }, async () => { await child.exited; });",
+      { ...integration },
+      "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
+    ),
+    ["contention-watchdog"],
+  );
+  assert.deepEqual(
+    kinds(
+      "test('x', { timeout: 57_630 }, async () => { await child.exited; });",
       { ...integration },
       "packages/daemon/test/task-squad-orchestration.integration.test.mjs",
     ),

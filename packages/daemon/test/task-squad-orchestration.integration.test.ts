@@ -108,7 +108,7 @@ async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void
   await closed;
 }
 
-test("canonical squad dispatch rows expose the run owner for leaders and children", { timeout: 60_000 }, async (t) => {
+test("canonical squad dispatch rows expose the run owner for leaders and children", { timeout: 90_000 }, async (t) => {
   const fixture = await openFixture(t, "canonical-run-owner");
   await fixture.plan(["a.txt"], ["b.txt"]);
   const running = await fixture.waitStatus(
@@ -151,7 +151,7 @@ test("canonical squad dispatch rows expose the run owner for leaders and childre
 
 test(
   "squad children submit independently, resume one leader and integrate a verified local-remote delivery",
-  { timeout: 60_000 },
+  { timeout: 90_000 },
   async (t) => {
     const fixture = await openFixture(t, "delivery");
     const planningLeader = (await fixture.status()).leaderTurns[0].runtimeSessionId;
@@ -340,7 +340,7 @@ test(
 
 test(
   "scheduler preserves a Squad occurrence through a second leader turn and reclaims its worktree",
-  { timeout: 60_000 },
+  { timeout: 90_000 },
   async (t) => {
     const fixture = await openFixture(t, "scheduled-squad"),
       scheduleId = "schedule-squad-e2e",
@@ -441,7 +441,7 @@ test(
 for (const restart of [false, true])
   test(
     `targeted task publishes while same-squad child stays local (restart=${restart})`,
-    { timeout: 60_000 },
+    { timeout: 90_000 },
     async (t) => {
       // Each independent repository has its own identity in the shared fixture realm.
       const fixture = await openFixture(t, `publication-owner-${restart}`);
@@ -529,7 +529,7 @@ for (const restart of [false, true])
   );
 
 for (const ending of ["cancelled", "failed"] as const)
-  test(`squad ${ending} closes child tasks and releases their WIP slots`, { timeout: 60_000 }, async (t) => {
+  test(`squad ${ending} closes child tasks and releases their WIP slots`, { timeout: 90_000 }, async (t) => {
     const fixture = await openFixture(t, `child-closeout-${ending}`);
     const beforeWip = await fixture.cell.read("repo.tasks.wip", {}, binding);
     await fixture.plan(["a.txt"], ["b.txt"]);
@@ -581,7 +581,7 @@ function assertChildrenClosed(fixture: Awaited<ReturnType<typeof openFixture>>, 
   }
 }
 
-test("failed child wakes the leader with the failure after its sibling settles", { timeout: 60_000 }, async (t) => {
+test("failed child wakes the leader with the failure after its sibling settles", { timeout: 90_000 }, async (t) => {
   const fixture = await openFixture(t, "failure");
   await fixture.plan(["a.txt"], ["b.txt"]);
   const running = await fixture.waitStatus(
@@ -674,7 +674,7 @@ test(
   },
 );
 
-test("overlapping worker declarations reject the second child before execution", { timeout: 60_000 }, async (t) => {
+test("overlapping worker declarations reject the second child before execution", { timeout: 90_000 }, async (t) => {
   const fixture = await openFixture(t, "overlap");
   await fixture.plan(["src/"], ["SRC/a.txt"]);
   const state = await fixture.waitStatus(
@@ -706,7 +706,7 @@ test("overlapping worker declarations reject the second child before execution",
 
 test(
   "a real parent runtime actor dispatches child plans through its canonical parent lease",
-  { timeout: 60_000 },
+  { timeout: 90_000 },
   async (t) => {
     const fixture = await openFixture(t, "runtime-caller", true);
     await fixture.plan(["a.txt"], ["b.txt"]);

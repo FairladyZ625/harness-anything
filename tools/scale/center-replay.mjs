@@ -127,6 +127,21 @@ export async function replayTraffic({
       observeArrivals.push({ node, direction });
       for (const arrive of observeWakeups) arrive();
     };
+  const observeRequestsByNode = new Map();
+  for (const row of window) {
+    if (row.method !== "observe.tail" || (bindings[`${row.method}:${row.command}`] ?? bindings[row.method])) continue;
+    for (let node = 0; node < nodes; node++)
+      observeRequestsByNode.set(node, (observeRequestsByNode.get(node) ?? 0) + 1);
+  }
+  const observeArrivalWaits = [...observeRequestsByNode].flatMap(([node, count]) =>
+    ["history", ...(count > 1 ? ["follow"] : [])].map((direction) =>
+      waitForArrival(
+        () =>
+          observeArrivals.some((arrival) => arrival.node === node && arrival.direction === direction) ? true : null,
+        subscribeObserve,
+      ),
+    ),
+  );
   const started = performance.now();
   const traceTag = `center-bench-trace-${++nextReplayId}`;
   let serial = 0,
@@ -247,23 +262,7 @@ export async function replayTraffic({
       if (serial % 128 === 0) await new Promise((resolve) => setImmediate(resolve));
     }
     await Promise.all(pending);
-    const observeRequestsByNode = new Map();
-    for (const row of window) {
-      if (row.method !== "observe.tail" || (bindings[`${row.method}:${row.command}`] ?? bindings[row.method])) continue;
-      for (let node = 0; node < nodes; node++)
-        observeRequestsByNode.set(node, (observeRequestsByNode.get(node) ?? 0) + 1);
-    }
-    await Promise.all(
-      [...observeRequestsByNode].flatMap(([node, count]) =>
-        ["history", ...(count > 1 ? ["follow"] : [])].map((direction) =>
-          waitForArrival(
-            () =>
-              observeArrivals.some((arrival) => arrival.node === node && arrival.direction === direction) ? true : null,
-            subscribeObserve,
-          ),
-        ),
-      ),
-    );
+    await Promise.all(observeArrivalWaits);
     const elapsedMs = performance.now() - started;
     return {
       nodes,
