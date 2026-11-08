@@ -31,7 +31,7 @@ function initRepo(rootDir: string): void {
   git("commit", "--quiet", "-m", "fixture base");
 }
 
-test("doctor health reports the eight checks and degrades to indeterminate without origin/main", async (t) => {
+test("doctor health reports the nine checks and degrades to indeterminate without origin/main", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-health-")),
     repoId = workspaceId("doctor-health");
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -52,6 +52,7 @@ test("doctor health reports the eight checks and degrades to indeterminate witho
         "local-root-residue",
         "doc-debt",
         "relation-cycles",
+        "workspace-links",
         "build-drift",
       ],
     );
@@ -59,6 +60,7 @@ test("doctor health reports the eight checks and degrades to indeterminate witho
     // A fixture repository has no origin remote: freshness and the daemon-side build verdict
     // cannot be judged, so both checks report indeterminate rather than guessing.
     assert.equal(byId.get("stale-delivered")?.status, "indeterminate");
+    assert.equal(byId.get("workspace-links")?.status, "ok");
     assert.equal(byId.get("build-drift")?.status, "indeterminate");
     for (const id of ["executor-undeclared", "orphan-lease", "wip-pressure", "relation-cycles"])
       assert.equal(byId.get(id)?.status, "ok", id);
@@ -210,7 +212,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const checks = receipt.checks as { id: string; status: string; summary: string; next: string }[];
-      assert.equal(checks.length, 11);
+      assert.equal(checks.length, 12);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
       // The host check reads the repository's selected provider and the machine-local record.
@@ -227,7 +229,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     const receipt = (await host.run("doctor-edge", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const edgeChecks = receipt.checks as { id: string; status: string }[];
-    assert.equal(edgeChecks.length, 9);
+    assert.equal(edgeChecks.length, 10);
     assert.equal(edgeChecks.find((check) => check.id === "edge-replica")?.status, "fail");
     assert.equal(receipt.failureCode, "fleet_edge_config_invalid");
     assert.ok(

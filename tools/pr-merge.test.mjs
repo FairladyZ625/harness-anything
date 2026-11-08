@@ -1,7 +1,16 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -206,6 +215,7 @@ function fixture(
     rejectPull = false,
     duplicateBlocks = false,
     nearbyContextChange = false,
+    workspaceLinks = false,
     featureContent = "feature\n",
   } = {},
 ) {
@@ -226,6 +236,16 @@ function fixture(
   writeFileSync(path.join(seed, "base.txt"), "base\n");
   if (nearbyContextChange)
     writeFileSync(path.join(seed, "shared.txt"), Array.from({ length: 30 }, (_, i) => `line ${i}\n`).join(""));
+  if (workspaceLinks) {
+    writeFileSync(path.join(seed, "package.json"), JSON.stringify({ workspaces: ["packages/*"] }));
+    for (const packageName of ["daemon", "cli"]) {
+      mkdirSync(path.join(seed, "packages", packageName), { recursive: true });
+      writeFileSync(
+        path.join(seed, "packages", packageName, "package.json"),
+        JSON.stringify({ name: `@harness-anything/${packageName}` }),
+      );
+    }
+  }
   if (duplicateBlocks) {
     const block = [
       "// repeated policy block",
@@ -382,6 +402,27 @@ test("merges, cleans the PR branch and worktree, and fast-forwards local main", 
     "@harness-anything/daemon",
     "@harness-anything/cli",
   ]);
+});
+
+test("checks workspace links before rebuilding runtime packages", (t) => {
+  if (process.platform === "win32") t.skip("requires POSIX file-symbolic-link semantics");
+  const setup = fixture(t, { workspaceLinks: true }),
+    external = mkdtempSync(path.join(tmpdir(), "pr-merge-external-workspace-"));
+  mkdirSync(path.join(setup.main, "node_modules", "@harness-anything"), { recursive: true });
+  symlinkSync(external, path.join(setup.main, "node_modules", "@harness-anything", "daemon"));
+  t.after(() => rmSync(external, { recursive: true, force: true }));
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /workspace link for @harness-anything\/daemon points outside the repository/u);
+  assert.match(result.stderr, /ln -sfn .*packages\/daemon/u);
+  assert.equal(existsSync(setup.buildLogPath), false, "runtime builds must not start after the integrity failure");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
 });
 
 test("enqueues the PR and waits for the queue to report a merge", (t) => {

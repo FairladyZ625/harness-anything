@@ -6,6 +6,7 @@ import {
   consentedApprovedReviewForExecution,
   currentExecutionCuts,
 } from "@harness-anything/kernel";
+import { checkWorkspaceLinks, workspaceLinkFailure } from "../packages/daemon/src/workspace-link-integrity.ts";
 
 const MAIN_BRANCH = "main";
 const REMOTE = "origin";
@@ -522,6 +523,8 @@ function syncMain(root) {
 }
 
 function rebuildRuntimePackages(root) {
+  const workspaceLinks = checkWorkspaceLinks(root);
+  if (!workspaceLinks.ok) throw workspaceLinkFailure(workspaceLinks.findings[0]);
   for (const packageName of RUNTIME_BUILD_PACKAGES) {
     try {
       run("npm", ["run", "build", "-w", packageName], { cwd: root });
