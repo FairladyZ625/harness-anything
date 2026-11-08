@@ -203,7 +203,7 @@
       ]
     },
     "prBody": {
-      "pullRequestGateJobs": ["pr-body-lint", "production-delta", "evidence-contract", "dependency-policy-declaration"],
+      "pullRequestGateJobs": ["pr-body-lint", "pr-body-advisory"],
       "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": []
     },
@@ -477,6 +477,7 @@
     {
       "id": "pr-body-lint",
       "command": "node tools/check-pr-body.mjs --env PR_BODY",
+      "failureHint": "Fill every required PR template section with real content; the failure names each empty or placeholder section.",
       "category": "meta-governance",
       "tier": "pr-required",
       "tierReason": null,
@@ -543,6 +544,7 @@
     {
       "id": "pr-governance-lint",
       "command": "node tools/check-pr-governance.mjs --body-env PR_BODY --base-env PR_BASE_SHA --head-env PR_HEAD_SHA",
+      "failureHint": "Add `## Governance Declaration` / `## 治理声明` citing an ADR, decision, or task when a manifest-derived protected surface changes.",
       "category": "meta-governance",
       "tier": "pr-required",
       "tierReason": null,
@@ -617,15 +619,16 @@
     },
     {
       "id": "production-delta",
-      "command": "node tools/gates/production-delta.mjs --base origin/main",
+      "command": "node tools/gates/production-delta.mjs --base \"$PR_BASE_SHA\"",
+      "failureHint": "Name the unclassified production source in module policy or narrow the diff; the delta is measured from the PR merge base.",
       "category": "meta-governance",
       "tier": "pr-advisory",
-      "tierReason": "The computed production delta is reported on every PR-body workflow run but is not a required context.",
+      "tierReason": "The production delta is reported on every PR-body workflow run but is not a required merge context.",
       "authoritySource": ["tools/gates/production-delta.mjs", "decision/dec_BB2BCE9F995CD3A126E2918734#CH3"],
-      "consumerScope": ["GitHub job summary and structured CI observation"],
+      "consumerScope": ["GitHub job summary and structured CI observation", "the advisory PR-body aggregate job"],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["production-delta"],
+        "workflowJobs": ["pr-body-advisory"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": { "allowed": false },
@@ -633,7 +636,7 @@
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
         "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "prBody": { "pullRequestJobs": ["production-delta"], "nonPullRequestJobs": [] },
+        "prBody": { "pullRequestJobs": ["pr-body-advisory"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
@@ -646,14 +649,15 @@
     {
       "id": "evidence-contract",
       "command": "node tools/gates/evidence-contract.mjs --event \"$GITHUB_EVENT_PATH\"",
+      "failureHint": "Complete every evidence claim field (run-url, commit-sha, failed-test, scope, owner) or remove the claim.",
       "category": "meta-governance",
       "tier": "pr-advisory",
-      "tierReason": "Evidence claims are checked on every PR-body workflow run but this job is not a required context.",
+      "tierReason": "Evidence claims are checked on every PR-body workflow run but this advisory aggregate is not a required merge context.",
       "authoritySource": ["tools/gates/evidence-contract.mjs", ".github/pull_request_template.md"],
-      "consumerScope": ["GitHub pull request evidence claims"],
+      "consumerScope": ["GitHub pull request evidence claims", "the advisory PR-body aggregate job"],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["evidence-contract"],
+        "workflowJobs": ["pr-body-advisory"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": { "allowed": false },
@@ -661,7 +665,7 @@
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
         "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "prBody": { "pullRequestJobs": ["evidence-contract"], "nonPullRequestJobs": [] },
+        "prBody": { "pullRequestJobs": ["pr-body-advisory"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
@@ -673,15 +677,16 @@
     },
     {
       "id": "dependency-policy-declaration",
-      "command": "node tools/gates/dependency-policy.mjs --base origin/main --pr-body-file \"$RUNNER_TEMP/pr-body.md\"",
+      "command": "node tools/gates/dependency-policy.mjs --base \"$PR_BASE_SHA\" --pr-body-file \"$RUNNER_TEMP/pr-body.md\"",
+      "failureHint": "When package.json or package-lock.json changes, replace `Dependency-Change: none` with exactly one line describing what changed.",
       "category": "release-policy",
       "tier": "pr-advisory",
-      "tierReason": "The Dependency-Change declaration is judged on every PR-body workflow run but is not a required context.",
+      "tierReason": "The Dependency-Change declaration is judged on every PR-body workflow run but this advisory aggregate is not a required merge context.",
       "authoritySource": ["tools/gates/dependency-policy.mjs", ".github/pull_request_template.md"],
-      "consumerScope": ["GitHub pull request Dependency-Change declarations for npm dependency changes"],
+      "consumerScope": ["GitHub pull request Dependency-Change declarations for npm dependency changes", "the advisory PR-body aggregate job"],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["dependency-policy-declaration"],
+        "workflowJobs": ["pr-body-advisory"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": { "allowed": false },
@@ -689,7 +694,7 @@
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
         "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
-        "prBody": { "pullRequestJobs": ["dependency-policy-declaration"], "nonPullRequestJobs": [] },
+        "prBody": { "pullRequestJobs": ["pr-body-advisory"], "nonPullRequestJobs": [] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
