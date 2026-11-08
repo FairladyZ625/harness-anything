@@ -468,6 +468,7 @@ function parseArgs(argv) {
     dimension: process.env.G38_DIMENSION,
     output: process.env.G38_OUTPUT,
     resultsDir: process.env.G38_RESULTS,
+    requiredBackends: process.env.G38_REQUIRED_BACKENDS?.split(",").filter(Boolean),
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -480,6 +481,7 @@ function parseArgs(argv) {
     else if (arg === "--dimension") options.dimension = argv[++index];
     else if (arg === "--output") options.output = argv[++index];
     else if (arg === "--results") options.resultsDir = argv[++index];
+    else if (arg === "--required-backends") options.requiredBackends = argv[++index].split(",").filter(Boolean);
     else throw new Error(`unknown argument: ${arg}`);
   }
   return options;

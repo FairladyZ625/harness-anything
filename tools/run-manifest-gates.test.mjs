@@ -6,9 +6,37 @@ import test from "node:test";
 import {
   buildManifestGatePlan,
   parseManifestGateArgs,
+  runManifestGatePlan,
   selectManifestGateIds,
   shouldSkipTestQuarantine,
 } from "./run-manifest-gates.mjs";
+
+test("manifest gate runner can group each quick-gate command for GitHub logs", () => {
+  const lines = [],
+    logged = [],
+    originalLog = console.log;
+  console.log = (line) => logged.push(line);
+  try {
+    const result = runManifestGatePlan(
+      [
+        { id: "typecheck", command: "npm run typecheck" },
+        { id: "lint", command: "npm run lint" },
+      ],
+      {
+        githubGroups: true,
+        execute: (entry) => {
+          lines.push(`ran:${entry.id}`);
+          return { ok: true };
+        },
+      },
+    );
+    assert.deepEqual(result.failedGateIds, []);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.deepEqual(lines, ["ran:typecheck", "ran:lint"]);
+  assert.deepEqual(logged, ["::group::typecheck", "::endgroup::", "::group::lint", "::endgroup::"]);
+});
 
 test("manifest gate runner appends shard args only to shardable gates", () => {
   const manifest = {

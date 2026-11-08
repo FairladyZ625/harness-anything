@@ -1,14 +1,12 @@
 export default Object.freeze({
   id: "rebuild-gates",
   phases: ["P2", "P4"],
-  // The workflow projection (job and command verification against rebuild-gates.yml) retired with
-  // that workflow: its jobs merged into rewrite-ci.yml, whose job/command surface is verified
-  // bidirectionally by check-gate-surface and check-gate-manifest-invariants against
-  // tools/gate-manifest.json. This file remains the stable G-number registry.
+  // The workflow projection retired with rebuild-gates.yml; its jobs merged into rewrite-ci.yml.
+  // The manifest owns current job surfaces, while this file remains the stable G-number registry.
   commands: [],
   guards: [],
   gates: [
-    { id: "G01", phase: "P4", job: "lint", command: "npm run lint" },
+    { id: "G01", phase: "P4", job: "quick-gates", command: "npm run lint" },
     { id: "G02", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G03", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G04", phase: "P2", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
@@ -18,8 +16,8 @@ export default Object.freeze({
     { id: "G08", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G09", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G10", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
-    { id: "G11", phase: "P2", job: "derived-contracts", command: "node tools/gates/derived-contracts.mjs --check" },
-    { id: "G12", phase: "P2", job: "lint", command: "npm run lint" },
+    { id: "G11", phase: "P2", job: "quick-gates", command: "node tools/gates/derived-contracts.mjs --check" },
+    { id: "G12", phase: "P2", job: "quick-gates", command: "npm run lint" },
     { id: "G13", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G14", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     {
@@ -30,21 +28,21 @@ export default Object.freeze({
       command: 'node tools/gates/evidence-contract.mjs --event "$GITHUB_EVENT_PATH"',
     },
     { id: "G18", phase: "P2", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
-    { id: "G19", phase: "P2", job: "lint", command: "npm run lint" },
-    { id: "G20", phase: "P2", job: "platform-smoke", command: "node tools/gates/platform-smoke.mjs" },
-    { id: "G23", phase: "P2", job: "schema-closure", command: "node tools/gates/schema-closure.mjs --check" },
+    { id: "G19", phase: "P2", job: "quick-gates", command: "npm run lint" },
+    { id: "G20", phase: "P2", job: "quick-gates", command: "node tools/gates/platform-smoke.mjs" },
+    { id: "G23", phase: "P2", job: "quick-gates", command: "node tools/gates/schema-closure.mjs --check" },
     { id: "G24", phase: "P2", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     {
       id: "G25",
       phase: "P2",
-      job: "test-selection",
+      job: "quick-gates",
       command: "node tools/gates/test-selection.mjs --base origin/main",
     },
     { id: "G26", phase: "P2", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G28", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G29", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G30", phase: "P2", job: "clean-build", command: "node tools/gates/clean-build.mjs --temp" },
-    { id: "G31", phase: "P2", job: "dependency-policy", command: "node tools/gates/dependency-policy.mjs" },
+    { id: "G31", phase: "P2", job: "quick-gates", command: "node tools/gates/dependency-policy.mjs" },
     {
       id: "G33",
       phase: "P2",
@@ -56,11 +54,11 @@ export default Object.freeze({
     {
       id: "G35",
       phase: "P2",
-      job: "canonical-event-compat",
+      job: "quick-gates",
       command: "npm run harness:check-canonical-event-compat",
     },
-    { id: "G37", phase: "P4", job: "entity-id-links", command: "node tools/gates/entity-id-links.mjs" },
-    { id: "G38", phase: "P2", job: "cost-budget", command: "node tools/gates/cost-budget.mjs" },
+    { id: "G37", phase: "P4", job: "quick-gates", command: "node tools/gates/entity-id-links.mjs" },
+    { id: "G38", phase: "P2", job: "quick-gates", command: "node tools/gates/cost-budget.mjs" },
     {
       id: "G41",
       phase: "P2",

@@ -167,29 +167,18 @@
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
-        "typecheck",
+        "quick-gates",
         "fast-contract",
         "crlf-checkout",
-        "windows-first-run",
         "integration-shard",
         "pglite-node26",
         "boundaries",
         "package-policy",
-        "supply-chain",
         "gui-build",
         "gate-contract-tests",
-        "derived-contracts",
-        "platform-smoke",
-        "schema-closure",
-        "canonical-event-compat",
-        "test-selection",
-        "clean-build",
-        "dependency-policy",
-        "cost-budget",
         "cost-budget-reads",
-        "cost-budget-read-summary",
-        "lint",
-        "entity-id-links"
+        "cost-budget-reads-sqlite",
+        "cost-budget-read-summary"
       ],
       "helperJobsNotRegisteredAsGates": ["install"],
       "nonPullRequestGateJobs": [
@@ -199,15 +188,20 @@
         "windows-integration-shard",
         "nightly-daemon-soak",
         "nightly-cli-command-timing",
-        "typecheck",
         "fast-contract",
         "integration-shard",
         "pglite-node26",
         "boundaries",
         "ontology-advisory",
         "package-policy",
-        "supply-chain",
-        "gui-build"
+        "gui-build",
+        "quick-gates",
+        "clean-build",
+        "platform-smoke-windows",
+        "windows-first-run-windows",
+        "cost-budget-reads",
+        "cost-budget-reads-sqlite",
+        "cost-budget-read-summary"
       ]
     },
     "prBody": {
@@ -219,7 +213,7 @@
       "requiredContexts": [
         "boundaries",
         "package-policy",
-        "typecheck (24)",
+        "quick-gates",
         "fast-contract",
         "integration-shard (1)",
         "integration-shard (2)",
@@ -235,12 +229,9 @@
         "integration-shard (12)",
         "integration-shard (13)",
         "integration-shard (14)",
-        "supply-chain",
         "gui-build",
         "pr-body-lint",
-        "crlf-checkout",
-        "windows-first-run (ubuntu-latest)",
-        "windows-first-run (windows-latest)"
+        "crlf-checkout"
       ],
       "enforceAdmins": false
     }
@@ -755,8 +746,8 @@
       "authoritySource": ["tsconfig.json", "package.json:scripts.typecheck"],
       "consumerScope": ["TypeScript project references"],
       "githubContext": {
-        "requiredContexts": ["typecheck (24)"],
-        "workflowJobs": ["typecheck", "node26-compatibility"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check", "node26-compatibility"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -778,12 +769,12 @@
           "script": "typecheck"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["typecheck"],
-          "nonPullRequestJobs": ["full-check", "node26-compatibility", "typecheck"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates", "full-check", "node26-compatibility"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["typecheck (24)"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -815,8 +806,8 @@
         "kernel/application production-source physical I/O import boundary: fs/fs/promises/child_process imports are rejected outside explicit port implementation debt files"
       ],
       "githubContext": {
-        "requiredContexts": ["crlf-checkout"],
-        "workflowJobs": ["crlf-checkout", "lint"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "crlf-checkout", "full-check"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -842,12 +833,12 @@
           "script": "lint"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["crlf-checkout", "lint"],
-          "nonPullRequestJobs": ["full-check", "crlf-checkout"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates", "full-check", "crlf-checkout"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["crlf-checkout"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3620,8 +3611,8 @@
       ],
       "consumerScope": ["npm dependency lockfile, generated SBOM, license policy, and supply-chain CI presence"],
       "githubContext": {
-        "requiredContexts": ["supply-chain"],
-        "workflowJobs": ["supply-chain"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3648,14 +3639,14 @@
           "script": "harness:check-supply-chain"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["supply-chain"],
-          "nonPullRequestJobs": ["full-check", "supply-chain"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates", "full-check"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["supply-chain"]
+          "contexts": ["quick-gates"]
         },
-        "classes": ["local", "pr", "main-full"]
+        "classes": ["local", "pr", "main", "main-full"]
       },
       "deterministic": false,
       "positiveControl": {
@@ -3908,8 +3899,8 @@
         "First-run product path on every supported platform: init, resident daemon, task and fact publication, ledger clone fidelity, and daemon stop"
       ],
       "githubContext": {
-        "requiredContexts": ["windows-first-run (ubuntu-latest)", "windows-first-run (windows-latest)"],
-        "workflowJobs": ["windows-first-run"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "windows-first-run-windows"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3935,14 +3926,14 @@
           "script": "harness:windows-first-run"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["windows-first-run"],
-          "nonPullRequestJobs": ["full-check", "package-policy"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates", "windows-first-run-windows"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["windows-first-run (ubuntu-latest)", "windows-first-run (windows-latest)"]
+          "contexts": ["quick-gates"]
         },
-        "classes": ["local", "pr", "main-full"]
+        "classes": ["local", "pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -3988,8 +3979,8 @@
         "connected Decision digest and current Relation shape derivation controls from the 2026-09-02 incident"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "canonical-event-compat", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -4018,14 +4009,14 @@
           "script": "harness:check-canonical-event-compat"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries", "canonical-event-compat"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates", "full-check"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
-        "classes": ["local", "pr", "main-full"]
+        "classes": ["local", "pr", "main", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4533,7 +4524,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["entity-id-links"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4555,9 +4546,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "harness:check-entity-id-links" },
-        "rewriteCi": { "pullRequestJobs": ["entity-id-links"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "pr"]
+        "classes": ["local", "pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4591,7 +4582,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["derived-contracts"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4613,9 +4604,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "check:local:derived-contracts" },
-        "rewriteCi": { "pullRequestJobs": ["derived-contracts"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "pr"]
+        "classes": ["local", "pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4649,7 +4640,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["schema-closure"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4671,9 +4662,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "check:local:schema-closure" },
-        "rewriteCi": { "pullRequestJobs": ["schema-closure"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "pr"]
+        "classes": ["local", "pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4704,7 +4695,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["dependency-policy"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4726,9 +4717,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": "harness:check-dependency-policy" },
-        "rewriteCi": { "pullRequestJobs": ["dependency-policy"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["local", "pr"]
+        "classes": ["local", "pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4770,7 +4761,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["cost-budget", "cost-budget-reads", "cost-budget-read-summary"],
+        "workflowJobs": ["quick-gates", "cost-budget-reads", "cost-budget-reads-sqlite", "cost-budget-read-summary"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -4801,14 +4792,14 @@
           "script": "harness:check-cost-budget"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["cost-budget", "cost-budget-reads", "cost-budget-read-summary"],
-          "nonPullRequestJobs": []
+          "pullRequestJobs": ["quick-gates", "cost-budget-reads", "cost-budget-reads-sqlite", "cost-budget-read-summary"],
+          "nonPullRequestJobs": ["quick-gates", "cost-budget-reads", "cost-budget-reads-sqlite", "cost-budget-read-summary"]
         },
         "branchProtection": {
           "required": false,
           "contexts": []
         },
-        "classes": ["local", "pr"]
+        "classes": ["local", "pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4863,7 +4854,7 @@
       "consumerScope": ["packaged CLI boot and cold-machine refusal behavior on ubuntu-latest and windows-latest"],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["platform-smoke"],
+        "workflowJobs": ["quick-gates", "platform-smoke-windows"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4884,9 +4875,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["platform-smoke"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates", "platform-smoke-windows"] },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["pr"]
+        "classes": ["pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4907,7 +4898,7 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["test-selection"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4928,9 +4919,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["test-selection"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["pr"]
+        "classes": ["pr", "main"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -5001,8 +4992,8 @@
       "id": "clean-build",
       "command": "node tools/gates/clean-build.mjs --temp",
       "category": "smoke",
-      "tier": "pr-advisory",
-      "tierReason": "G30 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml clean-build job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
+      "tier": "main-only",
+      "tierReason": "G30 is intentionally off the pull-request path by dec_7467B04DD9EFC2D18A656D2FB3/CH1; detection remains on main pushes and the daily schedule.",
       "authoritySource": ["task_9a1058d01d5487ef3e44118485", "tools/gates/clean-build.mjs"],
       "consumerScope": ["npm ci and workspace build from a clean temporary clone of the pull request tree"],
       "githubContext": {
@@ -5028,9 +5019,9 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["clean-build"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": ["clean-build"] },
         "branchProtection": { "required": false, "contexts": [] },
-        "classes": ["pr"]
+        "classes": ["main"]
       },
       "deterministic": true,
       "positiveControl": {

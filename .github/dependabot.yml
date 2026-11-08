@@ -5,7 +5,7 @@ updates:
   # normalization, because dependabot writes an exact version into package.json but a
   # caret range into the lock's workspace spec, which the dependency-policy gate rejects.
   # The security half is already covered harder elsewhere: `npm audit --audit-level=high`
-  # runs in the required `supply-chain` CI job, so a high-severity advisory blocks every
+  # runs in the required `quick-gates` CI job, so a high-severity advisory blocks every
   # merge rather than merely opening a pull request. Raise the limit to resume version
   # updates; security updates are governed by repository settings, not by this file.
   - package-ecosystem: "npm"
