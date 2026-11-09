@@ -165,13 +165,16 @@ jobs:
         run: git fetch --no-tags origin main
       - name: Build the CLI used by platform smoke gates
         run: npm run build -w @harness-anything/cli
+      # The merged job runs the full quick+boundary set. It does not reuse the retired
+      # boundaries job's docs-only `--changed` narrowing: this job's diff-based gates resolve
+      # their base from the fetched origin/main (workflow-base-sha contract), and a PR-base
+      # narrowing here would make them judge a different revision. Docs-only PRs still finish
+      # well inside the fast-contract wall.
       - name: Run quick and boundary PR gates
         env:
           GITHUB_TOKEN: ${{ github.token }}
           G38_PHASE: legacy
-          # Empty unless install reported code == 'false', so a failed detector runs every gate.
-          DOCS_ONLY_BASE: ${{ needs.install.outputs.code == 'false' && (github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before) || '' }}
-        run: node tools/run-manifest-gates.mjs --workflow-job quick-gates --github-groups ${DOCS_ONLY_BASE:+--changed "$DOCS_ONLY_BASE"}
+        run: node tools/run-manifest-gates.mjs --workflow-job quick-gates --github-groups
   fast-contract:
     name: fast-contract (${{ matrix.partition }})
     needs: install
