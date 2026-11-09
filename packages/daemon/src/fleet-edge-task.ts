@@ -658,7 +658,6 @@ export async function runFleetEdgeTask(
     if (receiptFormat === "domain")
       return {
         ...receipt,
-        ...(result.appliedCut ? { appliedCut: result.appliedCut } : {}),
         ...(mirror !== null && (mirror.outcome === "pull_blocked" || mirror.outcome === "pull_failed")
           ? {
               warnings: [
