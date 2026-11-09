@@ -193,9 +193,43 @@ export default {
     const cwd = context.options[0]?.root ?? context.getCwd?.() ?? process.cwd();
     const integration = context.options[0]?.integration === true;
     const pollHelpers = new Set();
+    // Rule-level reclassification (task_6ddecd04b58fe29d6aa32c9736): a site that is not a test
+    // correctness judgment carries an inline `// poll-spin-class: <kind> - <reason>` directive.
+    // The gate still sees and counts it, but it is a named classification instead of a baseline
+    // waiver. The directive must name an allowed kind and a non-empty reason; a malformed or
+    // misplaced directive does not suppress anything.
+    const classifications = new Set([
+      "product-timing",
+      "fixture-stimulus",
+      "condition-variable",
+      "synchronous-bridge",
+      "backoff",
+      "durable-poll",
+    ]);
+    const directives = (context.sourceCode.getAllComments?.() ?? [])
+      .map((comment) => {
+        const match = /^\s*poll-spin-class:\s*([a-z-]+)\s+-\s+(\S.*)$/u.exec(comment.value);
+        return match ? { line: comment.loc.start.line, kind: match[1], reason: match[2].trim() } : null;
+      })
+      .filter(Boolean);
+    const classificationFor = (node) => {
+      const lines = new Set([node.loc.start.line]);
+      for (let current = node.parent; current; current = current.parent) {
+        if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type))
+          lines.add(current.loc.start.line);
+      }
+      return (
+        directives.find(
+          (directive) =>
+            classifications.has(directive.kind) && [...lines].some((line) => Math.abs(directive.line - line) <= 3),
+        ) ?? null
+      );
+    };
     const report = (node, kind, symbol = enclosingFunction(node)) => {
       const key = `${normalized(context.filename, cwd)}#${symbol}#${kind}`;
-      if (!baseline.has(key)) context.report({ node, messageId: "forbidden", data: { key } });
+      if (baseline.has(key)) return;
+      if (classificationFor(node)) return;
+      context.report({ node, messageId: "forbidden", data: { key } });
     };
     const milliseconds = (node) =>
       node?.type === "Literal" && typeof node.value === "number"

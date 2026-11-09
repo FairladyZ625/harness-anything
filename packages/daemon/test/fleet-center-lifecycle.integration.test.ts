@@ -530,6 +530,7 @@ test("host close cuts a peer that completed the TLS handshake but never sent its
   );
   const closed = await Promise.race([
     host.close().then(() => "closed" as const),
+    // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
     new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), closeBoundMs).unref()),
   ]);
   assert.equal(closed, "closed", "a hello-less TLS peer must not hold the center close open");

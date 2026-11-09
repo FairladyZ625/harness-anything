@@ -256,6 +256,8 @@ function spawnBinDaemon(root: string, userRoot: string, daemonId: string): Child
   );
 }
 
+// poll-spin-class: durable-poll - durable predicate read (Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (function waitForDaemon(root: string, userRoot: string, daemonId: string): Record); no product event port at the wait site
 function waitForDaemon(root: string, userRoot: string, daemonId: string): Record<string, unknown> {
   let last = runMaybe(root, userRoot, daemonId, ["daemon", "status", "--user-root", userRoot, "--daemon-id", daemonId]);
   for (let attempt = 0; attempt < 300 && last.status !== 0; attempt += 1) {

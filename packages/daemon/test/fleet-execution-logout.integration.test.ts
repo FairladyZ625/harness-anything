@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -14,7 +15,7 @@ import { runFleetTaskCommandClient, runFleetRuntimeEventClient, runFleetWriteCli
 import { IdentitySessionPort, keycloakSessionStore, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
+import { spawnCli } from "./fixtures/runtime-ingress.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
@@ -222,13 +223,13 @@ test(
     };
     const rpc = (method: string, params: JsonObject) =>
       requestDaemonJsonRpcAt(daemon.endpoint, method, params, 1000, 30_000);
-    await eventuallyValue(async () => {
+    await waitForArrival(async () => {
       const status = await rpc("daemon.status", {});
       assert.notEqual(status.ok, false, JSON.stringify(status));
       const row = (status.repos as JsonObject[])?.find((repo) => repo.repoId === repoId);
       assert.notEqual(row?.state, "unavailable", JSON.stringify(status));
       return row?.state === "attached" ? true : null;
-    });
+    }, watchDirectoryArrival(f.root));
     const created = await rpc("daemon.runtimeInstance.create", {
       payload: {
         instanceId: "edge-worker",
@@ -269,10 +270,12 @@ test(
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const runtimeId = String(spawned.runtimeSessionId);
     live.add(runtimeId);
-    const env = await eventuallyValue(async () =>
-      existsSync(path.join(f.root, `${runtimeId}.json`))
-        ? (JSON.parse(readFileSync(path.join(f.root, `${runtimeId}.json`), "utf8")) as NodeJS.ProcessEnv)
-        : null,
+    const env = await waitForArrival(
+      async () =>
+        existsSync(path.join(f.root, `${runtimeId}.json`))
+          ? (JSON.parse(readFileSync(path.join(f.root, `${runtimeId}.json`), "utf8")) as NodeJS.ProcessEnv)
+          : null,
+      watchDirectoryArrival(f.root),
     );
     assert.ok(env.HARNESS_EXECUTION_CREDENTIAL);
     assert.equal(
@@ -411,8 +414,9 @@ test(
     assert.equal(revoked.code, "authorization_denied", JSON.stringify(revoked));
     assert.equal((await cli(["task", "show", taskId])).code, "replica_unavailable");
     f.owners.keycloak.permit("person-owner", repoId, ["repository-read"]);
-    await eventuallyValue(async () =>
-      readReplicaGeneration(path.join(viewRoot, "repos", repoId, "views", config.nodeId)),
+    await waitForArrival(
+      async () => readReplicaGeneration(path.join(viewRoot, "repos", repoId, "views", config.nodeId)),
+      watchDirectoryArrival(f.root),
     );
     await catchUpReplica({ ...peer, diskQuotaBytes: config.quotaBytes });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
@@ -570,10 +574,10 @@ test(
       await reviewDaemon.stop();
       await firstCleanup();
     };
-    await eventuallyValue(async () => {
+    await waitForArrival(async () => {
       const status = await reviewRpc("daemon.status", {});
       return (status.repos as JsonObject[])?.some((row) => row.state === "attached") ? true : null;
-    });
+    }, watchDirectoryArrival(f.root));
     assert.equal(
       (
         await reviewRpc("daemon.runtimeInstance.create", {
@@ -620,10 +624,12 @@ test(
     let reviewRuntime = String(reviewSpawn.runtimeSessionId),
       reviewDispatch = String(reviewSpawn.dispatchId);
     reviewLive.add(reviewRuntime);
-    let reviewEnv = await eventuallyValue(async () =>
-      existsSync(path.join(f.root, `${reviewRuntime}.json`))
-        ? (JSON.parse(readFileSync(path.join(f.root, `${reviewRuntime}.json`), "utf8")) as NodeJS.ProcessEnv)
-        : null,
+    let reviewEnv = await waitForArrival(
+      async () =>
+        existsSync(path.join(f.root, `${reviewRuntime}.json`))
+          ? (JSON.parse(readFileSync(path.join(f.root, `${reviewRuntime}.json`), "utf8")) as NodeJS.ProcessEnv)
+          : null,
+      watchDirectoryArrival(f.root),
     );
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, secret);
@@ -859,7 +865,7 @@ test(
       JSON.stringify({ ...ownerSession, accessToken: "owner-return-node-slow", loginTarget: reviewRoot }),
     );
     writeFileSync(path.join(f.root, `${reviewRuntime}.finish`), "finish");
-    const staleSettled = await eventuallyValue(async () => {
+    const staleSettled = await waitForArrival(async () => {
       const result = await f.host.read(
         repoId,
         "repo.agentRuntime.sessions.read",
@@ -867,10 +873,13 @@ test(
         f.auth,
       );
       return result.session.activity.outcome ? result.session : null;
-    });
+    }, watchDirectoryArrival(f.root));
     assert.equal(staleSettled.activity.outcome, "failed", JSON.stringify(f.runtimeArchiveReceipts));
     assert.equal(staleSettled.liveness, "exited");
-    const staleStream = await eventuallyValue(() => readDispatchStream(reviewRoot, reviewDispatch));
+    const staleStream = await waitForArrival(
+      () => readDispatchStream(reviewRoot, reviewDispatch),
+      watchDirectoryArrival(f.root),
+    );
     assert.equal(staleStream?.terminalOutcome?.payload.reasonCode, "runtime_archive_failed");
     assert.match(staleStream?.terminalOutcome?.body ?? "", /execution_credential_rejected/u);
     reviewLive.delete(reviewRuntime);
@@ -888,7 +897,7 @@ test(
     assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
     // Cancellation acknowledgement can race the provider exit callback. Observe the
     // canonical exit as well as cancellation before inspecting completed settlement.
-    const cancelSettled = await eventuallyValue(async () => {
+    const cancelSettled = await waitForArrival(async () => {
       const result = await f.host.read(
         repoId,
         "repo.agentRuntime.sessions.read",
@@ -896,10 +905,13 @@ test(
         f.auth,
       );
       return result.session.liveness === "exited" && result.session.activity.resultRef ? result.session : null;
-    });
+    }, watchDirectoryArrival(f.root));
     assert.equal(cancelSettled.liveness, "exited");
     assert.equal(cancelSettled.activity.outcome, "cancelled");
-    const cancelledStream = await eventuallyValue(() => readDispatchStream(reviewRoot, cancelDispatch));
+    const cancelledStream = await waitForArrival(
+      () => readDispatchStream(reviewRoot, cancelDispatch),
+      watchDirectoryArrival(f.root),
+    );
     assert.equal(cancelledStream.terminalOutcome?.payload.outcome, "cancelled", JSON.stringify(cancelledStream));
     reviewLive.delete(cancelRuntime);
     assert.deepEqual((await show()).reviews, s1.reviews, "neither stale settlement may register a review");
@@ -925,10 +937,12 @@ test(
     reviewDispatch = String(fresh.dispatchId);
     reviewLive.add(reviewRuntime);
     const oldSecret = reviewEnv.HARNESS_EXECUTION_CREDENTIAL;
-    reviewEnv = await eventuallyValue(async () =>
-      existsSync(path.join(f.root, `${reviewRuntime}.json`))
-        ? (JSON.parse(readFileSync(path.join(f.root, `${reviewRuntime}.json`), "utf8")) as NodeJS.ProcessEnv)
-        : null,
+    reviewEnv = await waitForArrival(
+      async () =>
+        existsSync(path.join(f.root, `${reviewRuntime}.json`))
+          ? (JSON.parse(readFileSync(path.join(f.root, `${reviewRuntime}.json`), "utf8")) as NodeJS.ProcessEnv)
+          : null,
+      watchDirectoryArrival(f.root),
     );
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, oldSecret);
@@ -973,7 +987,7 @@ test(
     ]);
     assert.equal(consent.code, "execution_credential_rejected", JSON.stringify(consent));
     writeFileSync(path.join(f.root, `${reviewRuntime}.finish`), "finish");
-    const reviewSettled = await eventuallyValue(async () => {
+    const reviewSettled = await waitForArrival(async () => {
       const result = await f.host.read(
         repoId,
         "repo.agentRuntime.sessions.read",
@@ -981,14 +995,14 @@ test(
         f.auth,
       );
       return result.session.activity.outcome ? result.session : null;
-    });
+    }, watchDirectoryArrival(f.root));
     // The edge settles without a local projection, so its reviewer settlement cannot witness the
     // registered review; the receipt stays honestly stopped instead of restating success from the
     // exit/result pair. The registered review itself is asserted through `show()` below.
     assert.equal(reviewSettled.activity.outcome, "stopped", JSON.stringify(f.runtimeArchiveReceipts));
     reviewLive.delete(reviewRuntime);
     writeFileSync(path.join(f.root, `${runtimeId}.finish`), "finish");
-    const settled = await eventuallyValue(async () => {
+    const settled = await waitForArrival(async () => {
       const result = await f.host.read(
         repoId,
         "repo.agentRuntime.sessions.read",
@@ -996,7 +1010,7 @@ test(
         f.auth,
       );
       return result.session.activity.outcome ? result.session : null;
-    });
+    }, watchDirectoryArrival(f.root));
     assert.equal(settled.liveness, "exited");
     // Same edge honesty: no local delivery witness, so the session reports its settled stopped.
     assert.equal(settled.activity.outcome, "stopped", JSON.stringify(f.runtimeArchiveReceipts));

@@ -1593,6 +1593,7 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const status = await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 2_000, 2_000);
       if ((status.repos as { readonly state: string }[])[0]?.state === "attached") break;
+      // poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 50));); no product event port at the wait site
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
@@ -1779,6 +1780,9 @@ function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value
   return { promise, resolve: (value?: T) => resolvePromise(value as T) };
 }
 
+// poll-spin-class: durable-poll - durable predicate read (async function waitUntil(predicate: () => boolean | Promise<boolean>, timeoutMs ); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (while (Date.now() < deadline) {); no product event port at the wait site
 async function waitUntil(predicate: () => boolean | Promise<boolean>, timeoutMs = 3_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -1788,6 +1792,9 @@ async function waitUntil(predicate: () => boolean | Promise<boolean>, timeoutMs 
   assert.fail(`condition did not settle within ${String(timeoutMs)}ms`);
 }
 
+// poll-spin-class: durable-poll - durable predicate read (async function eventuallyValue<T>(read: () => T | null, timeoutMs = 10_000): Pro); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (if (Date.now() >= deadline) assert.fail(`condition did not settle within ${Strin); no product event port at the wait site
 async function eventuallyValue<T>(read: () => T | null, timeoutMs = 10_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

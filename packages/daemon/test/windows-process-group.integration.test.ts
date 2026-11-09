@@ -76,6 +76,7 @@ for (const stop of ["sweep", "host-exit"] as const)
         await exited;
         const deadline = Date.now() + 15_000;
         while (probeProcessGroup(identity) !== "proven_stopped") {
+          // poll-spin-class: durable-poll - durable predicate read (assert.ok(Date.now() < deadline, "job accounting did not reach zero");); no product event port at the wait site
           assert.ok(Date.now() < deadline, "job accounting did not reach zero");
           await new Promise<void>((resolve) => setImmediate(resolve));
         }

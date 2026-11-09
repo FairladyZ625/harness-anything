@@ -77,10 +77,12 @@ test("dispatch JSONL reads ignore only an unterminated tail record", (context) =
 
 test("shared fixture waits report the deadline and final observed state", async () => {
   await assert.rejects(
+    // poll-spin-class: durable-poll - durable predicate read (waitForCondition(() => false, "fixture state", { timeoutMs: 1, intervalMs: 1 }),); no product event port at the wait site
     waitForCondition(() => false, "fixture state", { timeoutMs: 1, intervalMs: 1 }),
     /timed out after 1ms waiting for fixture state; last observed: false/u,
   );
   await assert.rejects(
+    // poll-spin-class: durable-poll - durable predicate read (waitForPromise(new Promise(() => undefined), "fixture promise", { timeoutMs: 1, ); no product event port at the wait site
     waitForPromise(new Promise(() => undefined), "fixture promise", { timeoutMs: 1, intervalMs: 1 }),
     /timed out after 1ms waiting for fixture promise; last observed: pending/u,
   );
@@ -188,6 +190,10 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
   runMaybe(root, env, ["runtime", "status", String(automaticLease.receipt.runtimeSessionId), "--wait", "--no-stream"]);
 });
 
+// poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(notificationOnce);); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await eventuallyValue(); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (const cancelled = await eventuallyTerminal(root, env, ["task", "dispatches", tas); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (const cancelledNotificationTrace = await eventuallyNotification(root, detachedDi); no product event port at the wait site
 const cancellationResumeTest = async (context: TestContext) => {
   const fixture = createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env);
@@ -388,6 +394,7 @@ test("rejected task resume stream cleanup follows the observed lease stop proof"
   ]);
   const sourceDispatchId = String(detached.dispatchId),
     sourceSessionId = String(detached.runtimeSessionId);
+  // poll-spin-class: durable-poll - durable predicate read (await eventuallyValue(); no product event port at the wait site
   await eventuallyValue(
     () =>
       readDispatchRecords(root, sourceDispatchId).find((record) => {
@@ -398,6 +405,7 @@ test("rejected task resume stream cleanup follows the observed lease stop proof"
     `dispatch ${sourceDispatchId} provider live event`,
   );
   assert.equal(run(root, env, ["runtime", "cancel", sourceSessionId]).detail, "cancelled");
+  // poll-spin-class: durable-poll - durable predicate read (await eventuallyTerminal(root, env, ["task", "dispatches", taskId]);); no product event port at the wait site
   await eventuallyTerminal(root, env, ["task", "dispatches", taskId]);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
 
@@ -480,6 +488,7 @@ test("Detached runtime results are retrieved from another CLI process over a reu
     retrievalProcess.pid,
     "detach and status --wait must execute in different CLI processes",
   );
+  // poll-spin-class: durable-poll - durable predicate read (const readerReuse = await eventuallyRuntimeReaderReuse(userRoot, daemonId);); no product event port at the wait site
   const readerReuse = await eventuallyRuntimeReaderReuse(userRoot, daemonId);
   context.diagnostic(
     `detach cross-process retrieval: ${JSON.stringify({ launcherPid: detachedProcess.pid, retrievalPid: retrievalProcess.pid, runtimeSessionId: detachedRuntimeSessionId, outcome: retrievalProcess.receipt.outcome, resultText: retrievedText, readerReuse })}`,
@@ -703,6 +712,7 @@ test("A detached runtime worker survives daemon restart and remains cancellable"
   const restartDetached = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--detach"]),
     restartSessionId = String(restartDetached.runtimeSessionId),
     restartDispatchId = String(restartDetached.dispatchId),
+    // poll-spin-class: durable-poll - durable predicate read (liveBeforeRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "); no product event port at the wait site
     liveBeforeRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
     workerPid = Number(
       readDispatchRecords(root, restartDispatchId).find((record) => record.kind === "process_started")?.pid,
@@ -714,6 +724,7 @@ test("A detached runtime worker survives daemon restart and remains cancellable"
   assert.equal(stoppedForRestart.forced, true, JSON.stringify(stoppedForRestart));
   assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must survive daemon stop --force`);
   assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+  // poll-spin-class: durable-poll - durable predicate read (const liveAfterRestart = await eventuallyRuntimeStatus(root, env, restartSession); no product event port at the wait site
   const liveAfterRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
     daemonAfterRestart = run(root, env, ["daemon", "status"]);
   assert.notEqual(daemonAfterRestart.pid, daemonBeforeRestart.pid, "runtime status must use a restarted daemon");
@@ -905,9 +916,12 @@ for (const afterResult of [false, true])
       ]);
       const sessionId = String(spawned.runtimeSessionId),
         dispatchId = String(spawned.dispatchId);
+      // poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(pidPath);); no product event port at the wait site
       await eventuallyFile(pidPath);
+      // poll-spin-class: durable-poll - durable predicate read (await eventuallyRuntimeStatus(root, env, sessionId, "live");); no product event port at the wait site
       await eventuallyRuntimeStatus(root, env, sessionId, "live");
       if (afterResult) {
+        // poll-spin-class: durable-poll - durable predicate read (await waitForValue(); no product event port at the wait site
         await waitForValue(
           () =>
             readDispatchRecords(root, dispatchId).some(
@@ -926,6 +940,7 @@ for (const afterResult of [false, true])
       try {
         const wait = runAsync(root, env, ["runtime", "status", sessionId, "--wait", "--no-stream"]);
         process.kill(hostPid, "SIGKILL");
+        // poll-spin-class: durable-poll - durable predicate read (const result = await waitForPromise(wait, "runtime status --wait to settle after); no product event port at the wait site
         const result = await waitForPromise(wait, "runtime status --wait to settle after host loss", {
           timeoutMs: 60_000,
         });

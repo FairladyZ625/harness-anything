@@ -55,6 +55,7 @@ function follower(label, rootDir, repoId, projectionPath) {
       let timer;
       const expired = new Promise((resolve) => {
         const error = () => `stage budget: ${label} follower reached ${JSON.stringify(reached)} of ${revision}`;
+        // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
         timer = setTimeout(() => resolve({ ok: false, error: error() }), Math.max(0, withinMs));
       });
       const result = await Promise.race([settled, expired]);

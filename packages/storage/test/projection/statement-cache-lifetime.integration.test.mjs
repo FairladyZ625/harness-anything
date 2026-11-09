@@ -16,6 +16,7 @@ import {
   withQueryOnlyDatabaseSession,
 } from "../../src/projection/rebuildable-task-projection-database.ts";
 
+// poll-spin-class: durable-poll - durable predicate read (await setImmediate();); no product event port at the wait site
 async function retainedDatabases() {
   // Statements first release native owner references; a later GC collects their database wrappers.
   for (let turn = 0; turn < 3; turn++) {

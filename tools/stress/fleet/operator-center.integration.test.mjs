@@ -44,7 +44,9 @@ test(
     closeSync(stdout);
     closeSync(stderr);
     const deadline = Date.now() + 60_000;
+    // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
     while (!existsSync(path.join(controlRoot, "status.json")) && Date.now() < deadline)
+      // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
       await new Promise((resolve) => setTimeout(resolve, 250));
     assert.equal(existsSync(path.join(controlRoot, "status.json")), true, readLog("center.stderr.log"));
     const status = JSON.parse(readFileSync(path.join(controlRoot, "status.json"), "utf8"));

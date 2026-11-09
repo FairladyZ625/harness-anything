@@ -1356,6 +1356,8 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
   };
 }
 
+// poll-spin-class: durable-poll - durable predicate read (async function eventually<T>(read: () => Promise<T | null>): Promise<T> {); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
 async function eventually<T>(read: () => Promise<T | null>): Promise<T> {
   for (let attempt = 0; attempt < 1_500; attempt += 1) {
     const value = await read();

@@ -300,6 +300,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     tracked.termination ??= terminateChild(tracked.child).finally(() => children.delete(runId));
     return tracked.termination;
   }
+  // poll-spin-class: synchronous-bridge - process teardown bridge; close/exit is the completion signal
   async function execute(
     witness: Witness,
     resolved: InternalPresetResolution | undefined,
@@ -579,6 +580,7 @@ function ensureTree(root: string, ...targets: string[]): void {
     }
   }
 }
+// poll-spin-class: synchronous-bridge - process teardown bridge; close/exit is the completion signal
 function terminateChild(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolve) => {

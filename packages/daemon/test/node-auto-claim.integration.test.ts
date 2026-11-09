@@ -261,6 +261,7 @@ test(
           `runtime=${JSON.stringify(centerRuntime.sessions)}`
         );
       };
+      // poll-spin-class: durable-poll - durable predicate read (const diagnosed = setTimeout(() => {); no product event port at the wait site
       const waitForLaunch = async (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, taskId: string) => {
         // A launch is an event of the edge runtime, not a poll deadline. Claiming crosses the edge
         // lease write, the center command and the center-to-edge spawn before runtimeLaunch fires;
@@ -451,6 +452,7 @@ test(
         );
         assert.equal(activeTask.outcome, "applied", JSON.stringify(activeTask));
         phase = "read foreign-node lease and verify source denial";
+        // poll-spin-class: durable-poll - durable predicate read (const otherNodeLease = await eventuallyValue(async () => {); no product event port at the wait site
         const otherNodeLease = await eventuallyValue(async () => {
           const context = await fixture.host.read(
             "lease-repo",
@@ -475,6 +477,7 @@ test(
         assert.equal(otherNodeLease.snapshot.lease?.phase, "held");
         phase = "settle same-owner runtime and observe denial";
         await launches.find((launch) => launch.taskId === tasks.offline)!.finish();
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
         await eventually(async () => {
           const status = await edge.host.system(localAuth);
           const autoClaim = status.nodeAutoClaim as {
@@ -483,6 +486,7 @@ test(
           return autoClaim.recent.some((row) => row.taskId === tasks.denied && row.reason === "source_not_allowed");
         });
         try {
+          // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
           await eventually(async () => {
             const context = await fixture.host.read(
               "lease-repo",
@@ -520,6 +524,7 @@ test(
           false,
         );
 
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
         await eventually(async () => {
           const overview = await fixture.host.read(
             "lease-repo",
@@ -539,6 +544,7 @@ test(
         );
         phase = "settle foreign-node runtime";
         await launches.find((launch) => launch.taskId === "task-a-node-runtime")!.finish();
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
         await eventually(async () => {
           const overview = await fixture.host.read(
             "lease-repo",
@@ -550,6 +556,7 @@ test(
         });
         phase = "settle allowed runtime";
         await launches.find((launch) => launch.taskId === tasks.denied)!.finish();
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
         await eventually(async () => {
           const context = await fixture.host.read(
             "lease-repo",
@@ -559,6 +566,7 @@ test(
           );
           return context.snapshot.lease === null || context.snapshot.lease.phase === "released";
         });
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
         await eventually(async () => {
           const overview = await fixture.host.read(
             "lease-repo",
@@ -593,6 +601,7 @@ test(
             { taskId },
             fixture.owners.auth({ nodeId: "node-one" }),
           );
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => (await readOverview(tasks.next)).sessions.length ==); no product event port at the wait site
         await eventually(async () => (await readOverview(tasks.next)).sessions.length === 1);
         const predecessor = await readOverview(tasks.next);
         assert.equal(predecessor.sessions.length, 1);
@@ -624,6 +633,7 @@ test(
         // the center projection of that write, so wait for the held state instead of racing it.
         let startedOnB: Awaited<ReturnType<typeof readContext>>;
         try {
+          // poll-spin-class: durable-poll - durable predicate read (startedOnB = await eventuallyValue(async () => {); no product event port at the wait site
           startedOnB = await eventuallyValue(async () => {
             const context = await readContext("task-50-waits-for-b-slot");
             const state = heldByNodeOne(context);
@@ -644,6 +654,7 @@ test(
         );
         phase = "settle second concurrency slot";
         await launches.find((launch) => launch.taskId === "task-50-waits-for-b-slot")!.finish();
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
         await eventually(async () => {
           const overview = await fixture.host.read(
             "lease-repo",
@@ -653,6 +664,7 @@ test(
           );
           return overview.sessions.some((session) => session.activity.outcome !== null);
         });
+        // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
         await eventually(async () => {
           const context = await fixture.host.read(
             "lease-repo",

@@ -518,6 +518,7 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
   return { ...params, password } as JsonObject;
 }
 
+// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 async function settleRepoWarming(
   initial: JsonObject,
   openReader: () => ReturnType<typeof openLocalDaemonReader>,

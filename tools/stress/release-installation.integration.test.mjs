@@ -240,7 +240,9 @@ test(
             console.log("DEVELOPMENT CONTROL", entries);
             break;
           }
+          // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
           assert.ok(Date.now() < deadline, `No build_superseded in ${lifecycle}`);
+          // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
       } finally {

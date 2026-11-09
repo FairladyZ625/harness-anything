@@ -498,6 +498,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           AbortSignal.timeout(options.replicationKeepaliveMs ?? REPLICATION_KEEPALIVE_MS),
         ]);
         while (!until.aborted && store.replicationPosition().sequence <= after.sequence)
+          // poll-spin-class: backoff - bounded retry/backoff loop; the awaited delay spaces retries and does not decide correctness
           await delay(REPLICATION_HEAD_POLL_MS, until);
       },
       backup: async (backupSignal: AbortSignal) => {

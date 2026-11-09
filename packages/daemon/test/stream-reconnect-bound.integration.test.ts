@@ -64,6 +64,7 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
     try {
       const started = Date.now();
       assert.equal((values[0] as { readonly ok: boolean }).ok, true, "the initial attach must succeed");
+      // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
       for (const deadline = Date.now() + 30_000; lost === undefined && Date.now() < deadline; ) await delay(50);
       assert.ok(lost, "the stream must report its loss");
       assert.equal(lost.code, "daemon_stream_lost");
@@ -88,6 +89,7 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
   }
 });
 
+// poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

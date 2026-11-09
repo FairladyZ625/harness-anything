@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -13,7 +14,7 @@ import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
+import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
@@ -158,10 +159,12 @@ test(
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const runtime = String(spawned.runtimeSessionId),
-      env = await eventuallyValue(async () =>
-        existsSync(path.join(parent, `${runtime}.json`))
-          ? (JSON.parse(readFileSync(path.join(parent, `${runtime}.json`), "utf8")) as NodeJS.ProcessEnv)
-          : null,
+      env = await waitForArrival(
+        async () =>
+          existsSync(path.join(parent, `${runtime}.json`))
+            ? (JSON.parse(readFileSync(path.join(parent, `${runtime}.json`), "utf8")) as NodeJS.ProcessEnv)
+            : null,
+        watchDirectoryArrival(parent),
       );
     assert.ok(env.HARNESS_EXECUTION_CREDENTIAL);
     assert.equal(env.HARNESS_DAEMON_RELAY, "1");
@@ -214,18 +217,14 @@ test(
     // The per-dispatch relay socket lives only while the provider runs, so the worker completes
     // on this marker after the CLI reads; the early cleanup hook then stops the fixture daemon.
     writeFileSync(path.join(parent, `${runtime}.finish`), "finish");
-    const terminal = await eventuallyValue(
-      async () => {
-        const value = await rpc("repo.agentRuntime.sessions.read", {
-          repo: { repoId },
-          payload: { runtimeSessionId: runtime },
-        });
-        const session = value.session as { readonly activity?: { readonly outcome?: string | null } } | undefined;
-        return session?.activity?.outcome ? session : null;
-      },
-      60_000,
-      `runtime session ${runtime} to finish before fixture cleanup`,
-    );
+    const terminal = await waitForArrival(async () => {
+      const value = await rpc("repo.agentRuntime.sessions.read", {
+        repo: { repoId },
+        payload: { runtimeSessionId: runtime },
+      });
+      const session = value.session as { readonly activity?: { readonly outcome?: string | null } } | undefined;
+      return session?.activity?.outcome ? session : null;
+    }, watchDirectoryArrival(parent));
     assert.ok(terminal.activity?.outcome);
   },
 );

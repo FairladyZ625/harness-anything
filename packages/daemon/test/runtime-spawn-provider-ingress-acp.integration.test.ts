@@ -81,6 +81,9 @@ async function withAcpDaemon(
   }
 }
 
+// poll-spin-class: durable-poll - durable predicate read (const read = await eventuallyValue(async () => {); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (outcome = await eventuallyValue(readOutcome);); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (records = await eventuallyValue(() => {); no product event port at the wait site
 async function spawnSettled(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   root: string,
@@ -148,6 +151,7 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
     assert.equal((read.session as { activity: { outcome: unknown; exitCode: unknown } }).activity.outcome, "succeeded");
     assert.equal((read.session as { activity: { exitCode: unknown } }).activity.exitCode, 0);
     assert.equal((read.result as Record<string, unknown>).text, "devin live content");
+    // poll-spin-class: durable-poll - durable predicate read (const stream = await eventuallyValue(() => {); no product event port at the wait site
     const stream = await eventuallyValue(() => {
       const content = JSON.stringify(readDispatchStream(root, String(receipt.dispatchId)));
       return content.includes('"acp.result"') ? content : null;

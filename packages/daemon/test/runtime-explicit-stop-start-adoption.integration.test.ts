@@ -149,10 +149,12 @@ test(
         restarted = await start("release-B"),
         daemonAfter = cli(repo, env, ["daemon", "status"]);
       samples.push({ at: stopAt, alive: daemonProcessAlive(workerPid) });
+      // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
       const sampleTimer = setInterval(
         () => samples.push({ at: new Date().toISOString(), alive: daemonProcessAlive(workerPid) }),
         5_000,
       );
+      // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
       await new Promise<void>((resolve) => setTimeout(resolve, 60_000));
       clearInterval(sampleTimer);
       samples.push({ at: new Date().toISOString(), alive: daemonProcessAlive(workerPid) });

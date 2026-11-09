@@ -143,6 +143,7 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
     branchExists: git(root, "branch", "--list", missedTree.branch) !== "",
   };
   const reclaimStartedAt = performance.now();
+  // poll-spin-class: durable-poll - durable predicate read (await waitForCondition(); no product event port at the wait site
   await waitForCondition(
     () => {
       reclaimState = {
@@ -274,6 +275,7 @@ for (const { name, command } of [
     start.stdout.on("data", (chunk: Buffer) => output.push(String(chunk)));
     start.stderr.on("data", (chunk: Buffer) => output.push(String(chunk)));
     try {
+      // poll-spin-class: durable-poll - durable predicate read (await waitForValue(() => (existsSync(running) ? true : null), "worktree setup to); no product event port at the wait site
       await waitForValue(() => (existsSync(running) ? true : null), "worktree setup to begin", {
         timeoutMs: 60_000,
         intervalMs: 100,

@@ -274,6 +274,7 @@ function initialize(root: string): void {
   git(root, "commit", "--quiet", "-m", "fixture");
 }
 
+// poll-spin-class: durable-poll - durable predicate read (Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);); no product event port at the wait site
 function startDaemon(root: string, userRoot: string): void {
   const started = runJson(root, userRoot, ["daemon", "start", "--service"]);
   if (started.status === 0) return;

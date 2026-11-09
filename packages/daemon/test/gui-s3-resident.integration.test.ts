@@ -371,6 +371,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
   }
 });
 
+// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
 async function waitReceipt(
   rpc: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>,
   operationId: string,
@@ -385,6 +386,8 @@ async function waitReceipt(
 function controlSettlementMs(receipt: Record<string, unknown>): number {
   return Date.parse(String(receipt.completedAt)) - Date.parse(String(receipt.requestedAt));
 }
+// poll-spin-class: durable-poll - durable predicate read (async function eventually(predicate: () => boolean): Promise<void> {); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 20));); no product event port at the wait site
 async function eventually(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (predicate()) return;

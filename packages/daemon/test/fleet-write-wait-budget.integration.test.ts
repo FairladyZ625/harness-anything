@@ -86,6 +86,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
     );
     assert.equal(warmed.outcome, "applied", JSON.stringify(warmed));
     let stalledOnce = false;
+    // poll-spin-class: fixture-stimulus - fake external system delay; the timer is test input, not a correctness wait
     const stalledWrite = async (action: unknown): Promise<void> => {
       if (
         !stalledOnce &&

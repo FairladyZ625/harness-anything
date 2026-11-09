@@ -51,6 +51,7 @@ const LAST_SECTION_PAGE = `<!doctype html><html><body style="margin:0;font:16px 
 <div style="height:40px"></div>
 </body></html>`;
 
+// poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
 const insertHeadingAfter = (page, delayMs) =>
   page.evaluate(
     ({ delay }) =>

@@ -49,6 +49,7 @@ async function fixture(mode: string) {
 async function diagnostic(endpoint: string) {
   return requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(endpoint), "daemon.status", {}, 500, 1_000);
 }
+// poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
 async function until(endpoint: string, predicate: (value: Record<string, unknown>) => boolean) {
   const deadline = performance.now() + 5_000;
   let last: Record<string, unknown> | undefined;

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -8,7 +9,7 @@ import test from "node:test";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
-import { eventually, initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
+import { initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 // A parked sessions.await re-reads settlement on exit signals and outcomes, not on provider
@@ -92,7 +93,10 @@ test("a parked sessions.await does not re-read settlement for provider activity 
       .finally(() => {
         settled = true;
       });
-    await eventually(() => settlementReads.count >= 1);
+    await waitForArrival(
+      async () => ((await (() => settlementReads.count >= 1)()) ? true : null),
+      watchDirectoryArrival(parent),
+    );
     const readsWhenParked = settlementReads.count;
     for (let index = 0; index < activityFrames; index += 1) {
       emit({
@@ -100,12 +104,19 @@ test("a parked sessions.await does not re-read settlement for provider activity 
         session_id: providerSessionId,
         message: { content: [{ type: "text", text: `activity-frame-${index}` }] },
       });
+      // poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 2));); no product event port at the wait site
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
     // Every frame has been consumed and its activity signal relayed before the count is taken.
-    await eventually(
-      () => JSON.stringify(readDispatchStream(root, dispatchId)).split("activity-frame-").length - 1 >= activityFrames,
+    await waitForArrival(
+      async () =>
+        (await (() =>
+          JSON.stringify(readDispatchStream(root, dispatchId)).split("activity-frame-").length - 1 >= activityFrames)())
+          ? true
+          : null,
+      watchDirectoryArrival(parent),
     );
+    // poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 50));); no product event port at the wait site
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(settled, false, "activity frames must not settle a live session");
     assert.ok(

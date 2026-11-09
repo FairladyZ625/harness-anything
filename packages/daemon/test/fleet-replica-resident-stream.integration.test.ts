@@ -116,6 +116,7 @@ test(
     t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
     const stream = startStream(t, fixture, viewRoot, fake.port);
     await waitForState(() => stream.failures.length === 1, "the first deterministic rejection", 10_000);
+    // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
     await new Promise<void>((resolve) => setTimeout(resolve, 750));
     assert.equal(fake.counts()["replica.start"], 1, "the permanent failure waits five minutes before retrying");
     assert.equal(

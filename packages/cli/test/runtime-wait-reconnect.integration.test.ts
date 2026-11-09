@@ -171,6 +171,7 @@ test("runtime status --wait keeps the daemon wait when the attached stream is lo
         cursor: "stream:0",
         events: [],
       });
+      // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
       setTimeout(() => socket.destroy(), 20);
       return;
     }
@@ -306,6 +307,7 @@ test("runtime status --wait rides out repeated parked-connection teardowns witho
       awaitRequests += 1;
       if (awaitRequests <= teardowns) {
         // Parked, then torn down: the request reached this daemon and this connection held it.
+        // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
         setTimeout(() => socket.destroy(), 20);
         return;
       }
@@ -351,6 +353,7 @@ test("runtime status --wait still reports daemon_gone within a bounded time afte
     if (request.method === "repo.agentRuntime.sessions.await") {
       awaitRequests += 1;
       if (awaitRequests === 1) {
+        // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
         setTimeout(() => {
           fixture.die();
         }, 20);

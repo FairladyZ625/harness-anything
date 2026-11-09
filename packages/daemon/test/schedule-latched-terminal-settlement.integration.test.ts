@@ -188,6 +188,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
       );
       exit?.(0);
 
+      // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
       await eventually(async () => {
         const schedule = await listedSettlementSchedule(cell, scheduleId);
         return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === "failed";
@@ -235,6 +236,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
   }
 });
 
+// poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
 async function runOccurrence(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   scheduleId: string,
@@ -457,6 +459,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       // Query-only run() reads cannot start recovery: the whole terminal chain
       // (exit publication, outcome observation, Schedule settlement) must land on the
       // durable ledger and completed projection while the cell is still latched.
+      // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
       await eventually(async () => {
         const events = makeTaskEventReader({ repoId, rootDir: root }).read().events;
         if (

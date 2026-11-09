@@ -22,6 +22,7 @@ const REGISTRATIONS_PER_SECOND = 100,
 // workload that produces the CPU: registrations are published through the shared in-flight table,
 // so no registration may cross the thread boundary as a message (or as a batch of them), and no
 // registration may persist a record. Total CPU is still asserted against the unchanged 2 % budget.
+// poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
 async function measure(ticks: number, work: () => void) {
   const cpu = process.cpuUsage(),
     start = performance.now();

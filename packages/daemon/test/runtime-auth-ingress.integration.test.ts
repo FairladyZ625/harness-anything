@@ -341,6 +341,8 @@ async function rpcTerminalAttach(
   assert.equal((response as { result: { ok: boolean } }).result.ok, true, JSON.stringify(response));
   return { close: server.close };
 }
+// poll-spin-class: durable-poll - durable predicate read (async function eventually(check: () => boolean | Promise<boolean>): Promise<void); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 20));); no product event port at the wait site
 async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 300; attempt += 1) {
     if (await check()) return;

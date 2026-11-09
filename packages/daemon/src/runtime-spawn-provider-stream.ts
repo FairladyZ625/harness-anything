@@ -417,6 +417,8 @@ function providerRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// poll-spin-class: backoff - bounded retry/backoff loop; the awaited delay spaces retries and does not decide correctness
+// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 export async function consumeDurableOutput(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,

@@ -119,6 +119,7 @@ export async function acquireDaemonSingleton(input: {
 }
 // An empty or unparsable lock body is usually a creator between its atomic
 // create and its pid write; give that window a short grace before replacing.
+// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 async function readHolderPid(lockPath: string): Promise<number | null> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const pid = readPidFile(lockPath);

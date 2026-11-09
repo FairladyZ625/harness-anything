@@ -228,6 +228,7 @@ test("a leader-only squad decision keeps attribution and settles success or fail
   }
 });
 
+// poll-spin-class: durable-poll - durable predicate read (if (outcomeIndex < 0) await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
 async function assertLeaseReleasedBeforeOutcome(
   rootDir: string,
   taskId: string,

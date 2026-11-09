@@ -10,6 +10,8 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/clien
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { daemonSocketProbe, readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 
+// poll-spin-class: durable-poll - durable predicate read (assert.ok(Date.now() < deadline, message);); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (async function waitFor(predicate: () => boolean, message: string): Promise<void>); no product event port at the wait site
 async function waitFor(predicate: () => boolean, message: string): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (!predicate()) {

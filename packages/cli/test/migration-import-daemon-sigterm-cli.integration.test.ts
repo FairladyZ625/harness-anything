@@ -83,6 +83,7 @@ test(
       assert.ok(child.stdout !== null && child.stderr !== null, "stdio pipe must be captured");
       child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
       child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
+      // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
       walPoll = setInterval(() => {
         const size = walSize();
         if (size === walBaseline) return;

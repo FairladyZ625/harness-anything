@@ -150,6 +150,7 @@ async function workspaceLinkStartRefusal(
   const error = workspaceLinkFailure(finding);
   return { code: "daemon_start_workspace_links_external", hint: error.message };
 }
+// poll-spin-class: backoff - bounded retry/backoff loop; the awaited delay spaces retries and does not decide correctness
 export async function ensureLocalDaemonRunning(input: {
   readonly socketPath: string;
   readonly invokingRoot: string;
@@ -305,6 +306,7 @@ export async function ensureLocalDaemonRunning(input: {
     }.`,
   };
 }
+// poll-spin-class: backoff - bounded retry/backoff loop; the awaited delay spaces retries and does not decide correctness
 export async function waitForDaemonGenerationChange(input: {
   readonly previousPid: number | null;
   readonly readPid: () => number | null;

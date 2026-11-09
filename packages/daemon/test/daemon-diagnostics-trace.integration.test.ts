@@ -12,6 +12,7 @@ import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/clien
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 
+// poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
 async function until<T>(read: () => Promise<T | null>, timeoutMs = 5_000): Promise<T> {
   const deadline = performance.now() + timeoutMs;
   for (;;) {
@@ -92,6 +93,7 @@ test(
         assert.deepEqual(snapshot.inFlight, []);
         const stall = await until(async () => {
           const started = performance.now();
+          // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
           while (performance.now() - started < 60) {
             /* deliberate main-thread block */
           }

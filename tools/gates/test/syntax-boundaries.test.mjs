@@ -261,6 +261,26 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
   );
 });
 
+// Inline reclassification is the rule-level alternative to a baseline waiver: the site stays
+// visible (messageId "classified") and must name an allowed kind plus a reason. A malformed
+// directive suppresses nothing.
+test("G3 inline poll-spin classification requires an allowed kind and a reason", () => {
+  const integration = { integration: true },
+    filename = "packages/example/test/classified.integration.test.mjs",
+    body = "async function until() { for (;;) { if (await ready()) return; await next(); } }";
+  const valid = lint(
+    noPollSpin,
+    `// poll-spin-class: durable-poll - reads a durable receipt\n${body}`,
+    integration,
+    filename,
+  );
+  assert.equal(valid.length, 0, "a valid classified directive is not reported as a violation");
+  for (const directive of ["// poll-spin-class: durable-poll", "// poll-spin-class: not-a-kind - reason"]) {
+    const rejected = lint(noPollSpin, `${directive}\n${body}`, integration, filename);
+    assert.equal(rejected[0]?.messageId, "forbidden", directive);
+  }
+});
+
 // The ceiling is a shrink-only ratchet: every batch that deletes entries must lower it in the same
 // commit, so "the exemptions stopped shrinking" shows up here even though the gate's fixture runs
 // deliberately skip the ceiling. This is the exact-sync half of the ratchet.

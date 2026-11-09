@@ -60,6 +60,7 @@ function carriageReturns(file) {
   return (readFileSync(file, "utf8").match(/\r/gu) ?? []).length;
 }
 
+// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SETTLE_MS } = {}) {
   const discovered = cliEntrypoints(rootDir);
   if (discovered.errors.length > 0) return { ok: false, errors: discovered.errors, checks: [] };

@@ -52,7 +52,7 @@ const root = path.resolve(rootArg ?? process.cwd());
 // as a number that did not move. Growth past the ceiling fails, which is the point: a new wait site
 // must be converted or carry an explicit decision, not a quiet append. Fixture runs pass an explicit
 // root and test exact-sync against their own allowlist, so they are not ratcheted.
-const allowlistCeiling = 107;
+const allowlistCeiling = 0;
 const enforceCeiling = rootArg === undefined && !update;
 // Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and integration tests
 // (dec_25B3C380F6FB9D4D4A1E27921E CH1) share one rule, one baseline and one exact-sync ratchet; the
@@ -66,6 +66,7 @@ const lanes = [
   { patterns: integrationPatterns, integration: true },
 ];
 const keys = new Set();
+const lintedFiles = [];
 for (const lane of lanes) {
   const eslint = new ESLint({
     cwd: root,
@@ -82,6 +83,7 @@ for (const lane of lanes) {
   });
   for (const result of await eslint.lintFiles(lane.patterns)) {
     if (result.filePath.endsWith("no-poll-spin.js")) continue;
+    lintedFiles.push(result.filePath);
     for (const message of result.messages) {
       const key = /Baseline key: (\S+)/u.exec(message.message)?.[1];
       if (key) keys.add(key);
@@ -131,4 +133,16 @@ if (missing.length || stale.length)
       `update ${allowlistPath} with event, ref, and reason`,
     ].join("\n"),
   );
-console.log(`${gateId}: ${keys.size} allowed sites`);
+// Inline classifications are rule-level reclassifications, not baseline waivers: count them so a
+// reader can still see how many polling sites remain, and require kind + reason in the directive.
+const classified = await Promise.all(
+  [...new Set(lintedFiles)].map(async (file) => {
+    const body = await readFile(file, "utf8");
+    return body
+      .split("\n")
+      .map((line) => /\/\/\s*poll-spin-class:\s*([a-z-]+)\s+-\s+(\S.+)$/u.exec(line))
+      .filter(Boolean).length;
+  }),
+);
+const classifiedCount = classified.reduce((total, count) => total + count, 0);
+console.log(`${gateId}: ${keys.size} allowed sites, ${classifiedCount} classified sites`);

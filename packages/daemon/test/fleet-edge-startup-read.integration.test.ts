@@ -176,6 +176,7 @@ test(
     release.resolve();
     await settlement;
     assert.equal(e.host.status().repos.find((row) => row.repoId === e.config.repoId)?.state, "attached");
+    // poll-spin-class: durable-poll - reads the replica view health file under the temp root; conversion tracked
     await eventuallyValue(() =>
       readReplicaHealth(path.join(e.viewRoot, "repos", e.config.repoId, "views", e.config.nodeId)).syncFailure?.code ===
       "ECONNREFUSED"

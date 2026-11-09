@@ -311,6 +311,7 @@ test("Runtime report is archived after the worker submits its execution", async 
     submittedReportPath = `${submittedPackagePath}/artifacts/reports/${submittedDispatchId}.md`;
   // The report is archived by a doc-sync publication after the runtime settles, and the dispatch
   // read derives reportPath from the archived file, so the row is read only after the file exists.
+  // poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(path.join(root, submittedReportPath));); no product event port at the wait site
   await eventuallyFile(path.join(root, submittedReportPath));
   assert.equal(existsSync(path.join(root, submittedReportPath)), true);
   const submittedDispatch = (
@@ -602,6 +603,7 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
   assert.equal(failedRow?.nextAction, `ha agent run terra --resume-dispatch ${String(detachedFailure.dispatchId)}`);
   assert.equal(failedRow?.exitCode, 1);
   assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
+  // poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispa); no product event port at the wait site
   await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispatchId}.md`));
   const publishedFailureRow = (
     runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
@@ -891,6 +893,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "--wait",
       "--no-stream",
     ]),
+    // poll-spin-class: durable-poll - durable predicate read (missingTrace = await eventuallyNotification(root, String(missingNotification.dis); no product event port at the wait site
     missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
     missingInvariant = await runtimeInvariantEvidence(
       root,
@@ -921,6 +924,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "--wait",
       "--no-stream",
     ]),
+    // poll-spin-class: durable-poll - durable predicate read (nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNoti); no product event port at the wait site
     nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)),
     nonzeroInvariant = await runtimeInvariantEvidence(
       root,
@@ -1015,6 +1019,7 @@ test("Repository writes commit while an exit callback is still running", async (
     "--no-stream",
   ]);
   assert.equal(queueSettled.status, 1, "the no-delivery worker settles stopped and its wait exits 1");
+  // poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(notificationStarted);); no product event port at the wait site
   await eventuallyFile(notificationStarted);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const revisionBefore = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
@@ -1036,6 +1041,7 @@ test("Repository writes commit while an exit callback is still running", async (
     "the notification must still be executing when the repo write commits",
   );
   writeFileSync(notificationRelease, "release\n");
+  // poll-spin-class: durable-poll - durable predicate read (const queueNotificationTrace = await eventuallyNotification(root, String(queueNo); no product event port at the wait site
   const queueNotificationTrace = await eventuallyNotification(root, String(queueNotification.dispatchId));
   assert.equal(queueNotificationTrace.started?.phase, "started");
   assert.equal(queueNotificationTrace.finished?.timedOut, false);

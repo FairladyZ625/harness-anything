@@ -1484,6 +1484,8 @@ function initIngressRepo(root: string, uid: number): void {
 async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
   await eventuallyValue(async () => ((await check()) ? true : null));
 }
+// poll-spin-class: durable-poll - durable predicate read (async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Pro); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
 async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     const value = await read();

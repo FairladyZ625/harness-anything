@@ -46,6 +46,7 @@ test("runtime discovery write load keeps independent read clients within the sto
       userRoot,
       runtimeDiscover: async () => {
         discoveryCalls += 1;
+        // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
         await new Promise((resolve) => setTimeout(resolve, 1_500));
         return [installation];
       },
@@ -94,6 +95,7 @@ test("runtime discovery write load keeps independent read clients within the sto
       },
     });
     assert.equal(projectAccess.outcome, "applied", JSON.stringify(projectAccess));
+    // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
     await new Promise((resolve) => setTimeout(resolve, 0));
     const idle = await measure(readCalls, 20),
       callsBeforeSpawn = discoveryCalls,
@@ -319,6 +321,7 @@ function distribution(values: readonly number[]): Distribution {
   return { n: sorted.length, p50: percentile(0.5), p95: percentile(0.95), max: sorted.at(-1) ?? 0 };
 }
 
+// poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
 async function eventually(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 1_000; attempt += 1) {
     if (predicate()) return;

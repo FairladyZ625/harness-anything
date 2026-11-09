@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { signInPolicyTestUser, withPolicyGroup, policyTestDeviceToken } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
@@ -16,14 +17,7 @@ import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import {
-  definition,
-  installation,
-  initIngressRepo,
-  rpc,
-  eventuallyValue,
-  spawnCli,
-} from "./fixtures/runtime-ingress.ts";
+import { definition, installation, initIngressRepo, rpc, spawnCli } from "./fixtures/runtime-ingress.ts";
 
 test("daemon ingress preserves executor-scoped task-bound runtime execution", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")),
@@ -337,7 +331,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         /# Self-iteration closeout/u,
         "the review audience never receives the delivery heading",
       );
-      await eventuallyValue(
+      await waitForArrival(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
@@ -346,6 +340,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 event.type === "runtime_session_task_bound" &&
                 event.payload.runtimeSessionId === firstReviewer.runtimeSessionId,
             ) ?? null,
+        watchDirectoryArrival(parent),
       );
       writeReviewReport(taskId, "redispatch-changes");
       const returned = (await host.run(
@@ -379,7 +374,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       );
       assert.doesNotMatch(launchedPrompt, /# Reviewer Role/u);
 
-      const implementationBinding = await eventuallyValue(
+      const implementationBinding = await waitForArrival(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
@@ -388,6 +383,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 event.type === "runtime_session_task_bound" &&
                 event.payload.runtimeSessionId === implementation.runtimeSessionId,
             ) ?? null,
+        watchDirectoryArrival(parent),
       );
       assert.equal(implementationBinding?.type, "runtime_session_task_bound");
       if (implementationBinding?.type !== "runtime_session_task_bound") throw new Error("missing task binding");
@@ -479,7 +475,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         },
       });
       assert.equal(secondReviewer.outcome, "applied", JSON.stringify(secondReviewer));
-      await eventuallyValue(
+      await waitForArrival(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
@@ -488,6 +484,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 event.type === "runtime_session_task_bound" &&
                 event.payload.runtimeSessionId === secondReviewer.runtimeSessionId,
             ) ?? null,
+        watchDirectoryArrival(parent),
       );
       writeReviewReport(taskId, "redispatch-review");
       const exhausted = (await host.run(
@@ -528,7 +525,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(returnEvent.actor.principal.personId, "owner");
       assert.ok(returnEvent.occurredAt, "the owner return event records when it happened");
       assert.equal(returnEvent.payload.task.iteration, 2, "owner return advances the task's implementation iteration");
-      const rebound = await eventuallyValue(
+      const rebound = await waitForArrival(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
@@ -537,6 +534,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 event.type === "runtime_session_task_bound" &&
                 event.payload.runtimeSessionId === manualContinuation.runtimeSessionId,
             ) ?? null,
+        watchDirectoryArrival(parent),
       );
       assert.equal(rebound.type, "runtime_session_task_bound");
       if (rebound.type !== "runtime_session_task_bound") throw new Error("missing owner-return worker binding");
@@ -707,7 +705,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           },
         });
         assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
-        await eventuallyValue(
+        await waitForArrival(
           async () =>
             makeTaskEventReader({ repoId, rootDir: root })
               .read()
@@ -716,6 +714,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                   event.type === "runtime_session_task_bound" &&
                   event.payload.runtimeSessionId === spawned.runtimeSessionId,
               ) ?? null,
+          watchDirectoryArrival(parent),
         );
         return spawned;
       };
@@ -755,7 +754,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(firstContinuation?.outcome, "applied", JSON.stringify(firstReturn));
       assert.match(launchedPrompt, new RegExp(`Review ${staleReviewId} on your submitted cut requested changes`, "u"));
       const firstDispatchId = String(firstContinuation.dispatchId),
-        firstBinding = await eventuallyValue(
+        firstBinding = await waitForArrival(
           async () =>
             makeTaskEventReader({ repoId, rootDir: root })
               .read()
@@ -764,6 +763,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                   event.type === "runtime_session_task_bound" &&
                   event.payload.runtimeSessionId === firstContinuation.runtimeSessionId,
               ) ?? null,
+          watchDirectoryArrival(parent),
         );
       assert.equal(firstBinding?.type, "runtime_session_task_bound");
       if (firstBinding?.type !== "runtime_session_task_bound") throw new Error("missing ordering binding");
@@ -966,7 +966,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         assert.equal(launchedPermissionMode, "read-only", "the declaration's read-only mode must reach the launch");
         assert.match(launchedPrompt, /# Read-only Dispatch Contract/u);
         assert.equal(receipt.ledgerAccess, "unavailable", "the attach receipt must disclaim ledger write access");
-        const binding = await eventuallyValue(
+        const binding = await waitForArrival(
           async () =>
             makeTaskEventReader({ repoId, rootDir: root })
               .read()
@@ -975,6 +975,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                   event.type === "runtime_session_task_bound" &&
                   event.payload.runtimeSessionId === receipt.runtimeSessionId,
               ) ?? null,
+          watchDirectoryArrival(parent),
         );
         assert.equal(binding.payload.executionId, executionId, "the attach binds to the submitted cut's execution");
         assert.equal(leaseReader(), leaseBeforeAttach, "the attach must not take or change the task lease");
@@ -1046,7 +1047,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             dispatchKey: "runtime-progress",
           },
         });
-        await eventuallyValue(
+        await waitForArrival(
           async () =>
             makeTaskEventReader({ repoId, rootDir: root })
               .read()
@@ -1055,6 +1056,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                   event.type === "runtime_session_task_bound" &&
                   event.payload.runtimeSessionId === receipt.runtimeSessionId,
               ) ?? null,
+          watchDirectoryArrival(parent),
         );
         const worker = {
             kind: "agent",
@@ -1205,7 +1207,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             },
           });
           assert.equal(commander.outcome, "applied", JSON.stringify(commander));
-          await eventuallyValue(
+          await waitForArrival(
             async () =>
               makeTaskEventReader({ repoId, rootDir: root })
                 .read()
@@ -1214,6 +1216,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                     event.type === "runtime_session_task_bound" &&
                     event.payload.runtimeSessionId === commander.runtimeSessionId,
                 ) ?? null,
+            watchDirectoryArrival(parent),
           );
           const commanderExecutor = {
               kind: "agent",
@@ -1315,7 +1318,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             },
           });
           assert.equal(childDispatch.outcome, "applied", JSON.stringify(childDispatch));
-          await eventuallyValue(
+          await waitForArrival(
             async () =>
               makeTaskEventReader({ repoId, rootDir: root })
                 .read()
@@ -1325,6 +1328,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                     event.payload.runtimeSessionId === childDispatch.runtimeSessionId &&
                     event.payload.taskId === childTaskId,
                 ) ?? null,
+            watchDirectoryArrival(parent),
           );
 
           await createReadyTask(unrelatedTaskId, "Runtime commander unrelated");
@@ -1391,7 +1395,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             dispatchKey: "runtime-artifact",
           },
         });
-        await eventuallyValue(
+        await waitForArrival(
           async () =>
             makeTaskEventReader({ repoId, rootDir: root })
               .read()
@@ -1400,6 +1404,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                   event.type === "runtime_session_task_bound" &&
                   event.payload.runtimeSessionId === spawned.runtimeSessionId,
               ) ?? null,
+          watchDirectoryArrival(parent),
         );
         const worker = {
             kind: "agent",

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
-import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
+import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
@@ -145,8 +146,10 @@ for (const scenario of [
     })) as { readonly outcome: string; readonly runtimeSessionId?: string };
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
 
-    const env = await eventuallyValue(() =>
-      existsSync(envPath) ? (JSON.parse(readFileSync(envPath, "utf8")) as Record<string, string | undefined>) : null,
+    const env = await waitForArrival(
+      () =>
+        existsSync(envPath) ? (JSON.parse(readFileSync(envPath, "utf8")) as Record<string, string | undefined>) : null,
+      watchDirectoryArrival(parent),
     );
     assert.match(String(env.HARNESS_EXECUTION_CREDENTIAL), /^harness-execution-dispatch_[a-z0-9]+:/u);
     assert.equal(env.HARNESS_TASK_BOUND, undefined);

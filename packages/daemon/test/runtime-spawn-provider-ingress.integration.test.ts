@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -19,8 +20,6 @@ import {
   initIngressRepo,
   rpc,
   rpcAttach,
-  eventually,
-  eventuallyValue,
   writeProviderStub,
   installationFixture,
   spawnCli,
@@ -112,23 +111,31 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
         // Keep Claude active while its first message is already buffered so it covers the attach
         // response's replay path; Codex continues to cover live notifications after attachment.
+        // poll-spin-class: durable-poll - durable predicate read (if (kindId === "claude") await new Promise((resolve) => setTimeout(resolve, 2_00); no product event port at the wait site
         if (kindId === "claude") await new Promise((resolve) => setTimeout(resolve, 2_000));
         const frames: Record<string, unknown>[] = [],
           attached = await rpcAttach(host, auth, repoId, String(receipt.runtimeSessionId), frames);
         try {
-          await eventually(async () =>
-            frames.some(
-              (frame) =>
-                frame.type === "activity" && frame.activity === "message" && frame.content === `${kindId} live content`,
-            ),
+          await waitForArrival(
+            async () =>
+              (await (async () =>
+                frames.some(
+                  (frame) =>
+                    frame.type === "activity" &&
+                    frame.activity === "message" &&
+                    frame.content === `${kindId} live content`,
+                ))())
+                ? true
+                : null,
+            watchDirectoryArrival(parent),
           );
-          const read = await eventuallyValue(async () => {
+          const read = await waitForArrival(async () => {
             const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
               repo: { repoId },
               payload: { runtimeSessionId: receipt.runtimeSessionId },
             });
             return value.result ? value : null;
-          });
+          }, watchDirectoryArrival(parent));
           assert.equal((read.session as Record<string, unknown>).providerSessionId, `${kindId}-provider-session`);
           assert.deepEqual((read.session as { activity: unknown }).activity, {
             lastObservedAt: (read.session as { activity: { lastObservedAt: string } }).activity.lastObservedAt,
@@ -145,10 +152,10 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
             String((read.result as Record<string, unknown>).ref),
             /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u,
           );
-          const stream = await eventuallyValue(() => {
+          const stream = await waitForArrival(() => {
             const value = readDispatchStream(root, receipt.dispatchId);
             return value ? value.records.map((record) => JSON.stringify(record)).join("\n") : null;
-          });
+          }, watchDirectoryArrival(parent));
           assert.match(stream, /"kind":"provider_event"/u);
           if (kindId === "codex") {
             assert.doesNotMatch(
@@ -157,7 +164,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
             );
           }
           // A readable local terminal result does not imply canonical publication has finished.
-          const outcome = await eventuallyValue(
+          const outcome = await waitForArrival(
             () =>
               makeTaskEventReader({ repoId, rootDir: root })
                 .read()
@@ -166,6 +173,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
                     event.type === "runtime_session_outcome_observed" &&
                     event.payload.runtimeSessionId === receipt.runtimeSessionId,
                 ) ?? null,
+            watchDirectoryArrival(parent),
           );
           assert.equal(outcome?.type, "runtime_session_outcome_observed");
           if (outcome?.type === "runtime_session_outcome_observed") {
@@ -195,7 +203,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       },
     });
     assert.equal(readOnly.outcome, "applied", JSON.stringify(readOnly));
-    const readOnlyRead = await eventuallyValue(async () => {
+    const readOnlyRead = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: readOnly.runtimeSessionId },
@@ -204,7 +212,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       // projected (runtime_session_not_found), which returns a receipt with no `session` at
       // all -- keep polling rather than crashing on that transient shape.
       return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     assert.deepEqual(
       (
         readOnlyRead.session as {
@@ -226,7 +234,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           dispatchKey: "codex-no-action",
         },
       }),
-      noActionRead = await eventuallyValue(async () => {
+      noActionRead = await waitForArrival(async () => {
         const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
           repo: { repoId },
           payload: { runtimeSessionId: noAction.runtimeSessionId },
@@ -235,7 +243,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         // projected (runtime_session_not_found), which returns a receipt with no `session` at
         // all -- keep polling rather than crashing on that transient shape.
         return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-      });
+      }, watchDirectoryArrival(parent));
     assert.deepEqual(
       (
         noActionRead.session as {
@@ -257,7 +265,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           dispatchKey: "codex-no-write",
         },
       }),
-      noWriteRead = await eventuallyValue(async () => {
+      noWriteRead = await waitForArrival(async () => {
         const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
           repo: { repoId },
           payload: { runtimeSessionId: noWrite.runtimeSessionId },
@@ -266,7 +274,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         // projected (runtime_session_not_found), which returns a receipt with no `session` at
         // all -- keep polling rather than crashing on that transient shape.
         return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-      });
+      }, watchDirectoryArrival(parent));
     assert.deepEqual(
       (
         noWriteRead.session as {
@@ -288,7 +296,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           dispatchKey: "claude-permission-denied",
         },
       }),
-      deniedRead = await eventuallyValue(async () => {
+      deniedRead = await waitForArrival(async () => {
         const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
           repo: { repoId },
           payload: { runtimeSessionId: denied.runtimeSessionId },
@@ -297,7 +305,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         // projected (runtime_session_not_found), which returns a receipt with no `session` at
         // all -- keep polling rather than crashing on that transient shape.
         return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-      });
+      }, watchDirectoryArrival(parent));
     // Permission denials prevent a successful delivery witness. A final message and normal exit
     // still produce a named failed turn instead of treating exit 0 as a delivery receipt.
     assert.deepEqual(
@@ -321,7 +329,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         dispatchKey: "codex-empty-failure",
       },
     });
-    const emptyRead = await eventuallyValue(async () => {
+    const emptyRead = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: empty.runtimeSessionId },
@@ -329,7 +337,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       // See the comment above the first occurrence of this guard: a read racing the writer's
       // projection catch-up can return a receipt with no `session` yet.
       return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     assert.deepEqual(
       (
         emptyRead.session as {
@@ -356,7 +364,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           dispatchKey: "codex-stderr-failure",
         },
       });
-    const stderrRead = await eventuallyValue(async () => {
+    const stderrRead = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: stderrFailure.runtimeSessionId },
@@ -364,7 +372,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       // See the comment above the first occurrence of this guard: a read racing the writer's
       // projection catch-up can return a receipt with no `session` yet.
       return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     assert.match(
       String((stderrRead.result as Record<string, unknown>).text),
       /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u,
@@ -381,7 +389,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         dispatchKey: "codex-structured-failure",
       },
     });
-    const structuredRead = await eventuallyValue(async () => {
+    const structuredRead = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: structured.runtimeSessionId },
@@ -389,7 +397,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       // See the comment above the first occurrence of this guard: a read racing the writer's
       // projection catch-up can return a receipt with no `session` yet.
       return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     assert.match(String((structuredRead.result as Record<string, unknown>).text), /structured provider failure/u);
     assert.doesNotMatch(JSON.stringify(structuredRead), new RegExp(secret, "u"));
   } finally {
@@ -535,14 +543,19 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
           },
         });
         assert.equal(first.outcome, "applied", JSON.stringify(first));
-        await eventually(async () =>
-          makeTaskEventReader({ repoId, rootDir: root })
-            .read()
-            .events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === first.runtimeSessionId,
-            ),
+        await waitForArrival(
+          async () =>
+            (await (async () =>
+              makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.some(
+                  (event) =>
+                    event.type === "runtime_session_outcome_observed" &&
+                    event.payload.runtimeSessionId === first.runtimeSessionId,
+                ))())
+              ? true
+              : null,
+          watchDirectoryArrival(parent),
         );
         const providerSessionId = kindId === "claude" ? "claude-resume-session" : "codex-resume-session",
           second = await rpc(host, auth, "repo.agentRuntime.spawn", {
@@ -556,22 +569,27 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
               dispatchKey: `${kindId}-resume-second`,
             },
           });
-        await eventually(async () =>
-          makeTaskEventReader({ repoId, rootDir: root })
-            .read()
-            .events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === second.runtimeSessionId,
-            ),
+        await waitForArrival(
+          async () =>
+            (await (async () =>
+              makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.some(
+                  (event) =>
+                    event.type === "runtime_session_outcome_observed" &&
+                    event.payload.runtimeSessionId === second.runtimeSessionId,
+                ))())
+              ? true
+              : null,
+          watchDirectoryArrival(parent),
         );
-        const read = await eventuallyValue(async () => {
+        const read = await waitForArrival(async () => {
           const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
             repo: { repoId },
             payload: { runtimeSessionId: second.runtimeSessionId },
           });
           return value.result ? value : null;
-        });
+        }, watchDirectoryArrival(parent));
         assert.equal((read.session as Record<string, unknown>).providerSessionId, providerSessionId);
         assert.equal(
           (read.result as Record<string, unknown>).text,
@@ -660,7 +678,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
       });
       assert.equal(cancelled.outcome, "applied");
       assert.equal(cancelled.command, "runtime-cancel");
-      const read = await eventuallyValue(async () => {
+      const read = await waitForArrival(async () => {
         const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
           repo: { repoId },
           payload: { runtimeSessionId: spawned.runtimeSessionId },
@@ -668,7 +686,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         // See the comment above the `.activity` polling guards: a read racing the writer's
         // projection catch-up can return a receipt with no `session` yet.
         return (value.session as Record<string, unknown> | undefined)?.liveness === "exited" ? value : null;
-      });
+      }, watchDirectoryArrival(parent));
       assert.equal(
         (read.session as Record<string, unknown>).activity &&
           ((read.session as Record<string, unknown>).activity as Record<string, unknown>).outcome,
@@ -679,7 +697,13 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         executor: null,
       });
       assert.equal(lifecycle.find((entry) => entry.event === "runtime_exit")?.reason, "Worker stop was requested.");
-      await eventually(() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"));
+      await waitForArrival(
+        async () =>
+          (await (() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"))())
+            ? true
+            : null,
+        watchDirectoryArrival(parent),
+      );
       const events = makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.filter(
@@ -831,13 +855,13 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       },
     });
     assert.equal(succeeded.outcome, "applied", JSON.stringify(succeeded));
-    const read = await eventuallyValue(async () => {
+    const read = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: succeeded.runtimeSessionId },
       });
       return value.result ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     assert.equal((read.session as Record<string, unknown>).providerSessionId, "agy-conversation");
     assert.equal((read.result as Record<string, unknown>).text, "AGY-OK");
     assert.equal((read.session as { activity: { outcome: string } }).activity.outcome, "succeeded");
@@ -854,7 +878,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       },
     });
     assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
-    const rejectedRead = await eventuallyValue(async () => {
+    const rejectedRead = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: rejected.runtimeSessionId },
@@ -862,7 +886,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       // See the comment above the first occurrence of this guard: a read racing the writer's
       // projection catch-up can return a receipt with no `session` yet.
       return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     // The out-of-protocol event never becomes a result, and with no structured provider outcome
     // the zero exit alone settles unknown instead of restating success.
     assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "unknown");
@@ -1070,7 +1094,7 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
  * readiness means the record parses as a non-empty argv array, not that the path exists.
  */
 async function recordedArgs(argsPath: string): Promise<readonly string[]> {
-  return eventuallyValue(() => {
+  return await waitForArrival(() => {
     if (!existsSync(argsPath)) return null;
     try {
       const parsed: unknown = JSON.parse(readFileSync(argsPath, "utf8"));
@@ -1079,5 +1103,5 @@ async function recordedArgs(argsPath: string): Promise<readonly string[]> {
       consumeKnownError(error);
       return null;
     }
-  });
+  }, watchFileArrival(argsPath));
 }

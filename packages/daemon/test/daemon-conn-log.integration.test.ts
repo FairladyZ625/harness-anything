@@ -75,9 +75,11 @@ test("a live daemon logs hello, dispatched requests, rejections, and connection 
       }),
     ]);
     assert.equal(first.length, 4);
+    // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
     await new Promise((resolve) => setTimeout(resolve, 25));
     const second = await session(daemon.endpoint, [JSON.stringify(hello)]);
     assert.equal(second.length, 1);
+    // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
     await new Promise((resolve) => setTimeout(resolve, 25));
     await daemon.stop();
     const dir = path.join(userRoot, "logs"),

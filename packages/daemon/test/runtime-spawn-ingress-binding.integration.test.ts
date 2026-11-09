@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -18,14 +19,7 @@ import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import {
-  definition,
-  installation,
-  initIngressRepo,
-  rpc,
-  eventuallyValue,
-  spawnCli,
-} from "./fixtures/runtime-ingress.ts";
+import { definition, installation, initIngressRepo, rpc, spawnCli } from "./fixtures/runtime-ingress.ts";
 
 test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")),
@@ -222,7 +216,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         taskId,
         executionId,
       });
-      const bound = await eventuallyValue(
+      const bound = await waitForArrival(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
@@ -231,6 +225,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
                 event.type === "runtime_session_task_bound" &&
                 event.payload.runtimeSessionId === receipt.runtimeSessionId,
             ) ?? null,
+        watchDirectoryArrival(parent),
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
       assert.deepEqual(bound?.actor.executor, {
@@ -260,7 +255,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       } finally {
         claimed.close();
       }
-      const session = await eventuallyValue(async () => {
+      const session = await waitForArrival(async () => {
         const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth),
           projected = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
         return projected?.associations.some(
@@ -268,7 +263,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         )
           ? projected
           : null;
-      });
+      }, watchDirectoryArrival(parent));
       assert.equal(
         session?.associations.some(
           (association) => association.taskId === taskId && association.executionId === executionId,
@@ -461,7 +456,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "keycloak-policy@1");
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
-      const bound = await eventuallyValue(
+      const bound = await waitForArrival(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
@@ -470,6 +465,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
                 event.type === "runtime_session_task_bound" &&
                 event.payload.runtimeSessionId === receipt.runtimeSessionId,
             ) ?? null,
+        watchDirectoryArrival(parent),
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
       assert.deepEqual(bound?.actor.executor, {
@@ -503,6 +499,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           Promise.race([
             createReadyTask("task-runtime-dispatcher-unrelated", "Dispatcher unrelated write"),
             new Promise<never>((_resolve, reject) => {
+              // poll-spin-class: durable-poll - durable predicate read (setTimeout(() => reject(new Error("unrelated write was not accepted within 5000m); no product event port at the wait site
               setTimeout(() => reject(new Error("unrelated write was not accepted within 5000ms")), 5_000);
             }),
           ]),
@@ -677,7 +674,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
-      const bound = await eventuallyValue(
+      const bound = await waitForArrival(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
@@ -686,6 +683,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
                 event.type === "runtime_session_task_bound" &&
                 event.payload.runtimeSessionId === receipt.runtimeSessionId,
             ) ?? null,
+        watchDirectoryArrival(parent),
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
       assert.deepEqual(bound?.actor.executor, {

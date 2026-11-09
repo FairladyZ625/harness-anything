@@ -596,6 +596,7 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
         summary: `daemon-stop: pid ${pid} terminated (SIGKILL); pid file and singleton lock released`,
       };
 }
+// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 async function waitProcessExit(pid: number, budgetMs: number): Promise<boolean> {
   for (const deadline = Date.now() + budgetMs; daemonProcessAlive(pid) && Date.now() < deadline; )
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -621,6 +622,7 @@ function signalStop(pid: number): void {
 // bookkeeping it left. Anything else is judged on what the daemon said: one that acknowledged the
 // stop and still answers on its endpoint is draining, because a bound endpoint now outlives nothing.
 type DaemonStopOutcome = "stopped" | "draining" | "timeout";
+// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 async function waitForDaemonStop(
   userRoot: string,
   daemonId: string,

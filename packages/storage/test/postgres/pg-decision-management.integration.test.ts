@@ -222,6 +222,7 @@ test("public management backfill completes a previous-writer Decision search exp
       for (;;) {
         const state = (await peers.query("SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1", [pid])).rows[0];
         if (state?.wait_event_type === "Lock") break;
+        // poll-spin-class: durable-poll - durable predicate read (assert.ok(Date.now() < deadline, "previous writer must wait on management comple); no product event port at the wait site
         assert.ok(Date.now() < deadline, "previous writer must wait on management completion");
       }
     } finally {

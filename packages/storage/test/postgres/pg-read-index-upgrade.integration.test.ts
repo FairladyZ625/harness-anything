@@ -354,6 +354,8 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
 /** Pin a real concurrent build at PostgreSQL's writer wait, then commit a new writer.
  * No desktop/system services or timed scheduling participate in this test.
  */
+// poll-spin-class: durable-poll - durable predicate read (assert.ok(Date.now() < deadline, `concurrent build did not enter its writer wait); no product event port at the wait site
+// poll-spin-class: durable-poll - durable predicate read (await yieldTurn();); no product event port at the wait site
 async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: readonly unknown[], summary = false) {
   const index = summary ? "ha_events_summary_pending" : "ha_decisions_state_order";
   const peers = new Pool({ host: "127.0.0.1", port, user: "postgres", database: "postgres", max: 2 }),
