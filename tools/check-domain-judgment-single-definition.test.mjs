@@ -22,9 +22,9 @@ function fixtureFindings(t) {
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   cpSync(path.join(repoRoot, "tools/fixtures/domain-judgment-single-definition"), fixture, { recursive: true });
   mkdirSync(path.join(fixture, "tools/gate-allowlists"), { recursive: true });
-  cpSync(
-    path.join(repoRoot, "tools/gate-allowlists/dispatch-lifecycle-observation.json"),
+  writeFileSync(
     path.join(fixture, "tools/gate-allowlists/dispatch-lifecycle-observation.json"),
+    JSON.stringify({ schema: "harness-anything/gate-allowlist/v1", entries: { observationSites: [] } }, null, 2),
   );
   for (const args of [
     ["init", "--quiet"],

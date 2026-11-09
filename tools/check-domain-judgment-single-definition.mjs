@@ -85,6 +85,12 @@ const judgments = Object.freeze([
     declaration: "const",
   },
   {
+    id: "forwardingIntent",
+    symbol: "forwardingIntentIssue",
+    canonical: "packages/daemon/src/fleet/forwarding-intent.ts",
+    declaration: "function",
+  },
+  {
     id: "closeoutBilingualDelivery",
     symbol: "missingChineseCloseoutSections",
     canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
