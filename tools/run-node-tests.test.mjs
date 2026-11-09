@@ -161,6 +161,19 @@ test("testOrdinalInPartition splits the slow shared suite exactly by registratio
   assert.throws(() => testOrdinalInPartition(0, "1/1"), /index from 1 to count/u);
 });
 
+test("testOrdinalInPartition honors a complete weighted assignment", () => {
+  const assignments = [2, 1, 1, 2, 3, 3];
+  const selected = Array.from({ length: assignments.length }, (_, ordinal) =>
+    [1, 2, 3].filter((partition) => testOrdinalInPartition(ordinal, `${partition}/3`, assignments)),
+  );
+  assert.deepEqual(
+    selected,
+    assignments.map((partition) => [partition]),
+  );
+  assert.throws(() => testOrdinalInPartition(6, "1/3", assignments), /cover this test ordinal/u);
+  assert.throws(() => testOrdinalInPartition(0, "1/2", [1, 3]), /within the partition count/u);
+});
+
 test("runner partition reaches its selected suite and stops at the nested runner boundary", () => {
   const selectedSuiteEnvironment = testChildEnvironment({
     parent: {

@@ -172,11 +172,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [1, 2]
+        partition: [1, 2, 3, 4]
     env:
-      # Both partitions derive from the same tier manifest. This contract file is shared because
-      # its independent mutation cases partition themselves by registration order.
-      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/2
+      # All partitions derive from the same tier manifest. The expensive mutation suite uses a
+      # measured weighted assignment to keep its four partitions balanced.
+      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
       HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
     steps:
       - uses: actions/checkout@v4
@@ -210,10 +210,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [1, 2]
+        partition: [1, 2, 3, 4]
     env:
-      # Preserve the full CRLF checkout and dedicated boundary gate on both test partitions.
-      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/2
+      # Preserve the full CRLF checkout and dedicated boundary gate on all four test partitions.
+      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
       HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
     steps:
       - name: Convert line endings on checkout the way a Windows host does

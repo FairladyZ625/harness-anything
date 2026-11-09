@@ -18,9 +18,12 @@ const inputs = await loadAuthorizationInputs(repoRoot);
 
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
+// Greedy balance from measured durations; each partition sums to 209–221s versus 350/497s with
+// ordinal modulo two. New tests must update this map after measuring their duration.
+const authorizationTestPartitionAssignments = [4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
-  if (!testOrdinalInPartition(ordinal, partitionValue)) return;
+  if (!testOrdinalInPartition(ordinal, partitionValue, authorizationTestPartitionAssignments)) return;
   test(name, testFn);
 }
 

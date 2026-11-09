@@ -35,11 +35,23 @@ function parseTestPartition(partitionValue) {
 }
 
 /** Decide whether a zero-based discovered test ordinal belongs to a CI partition. */
-export function testOrdinalInPartition(ordinal, partitionValue) {
+export function testOrdinalInPartition(ordinal, partitionValue, partitionAssignments = undefined) {
   if (!Number.isSafeInteger(ordinal) || ordinal < 0)
     throw new Error("test ordinal must be a non-negative safe integer");
   const partition = parseTestPartition(partitionValue);
-  return partition === null || ordinal % partition.count === partition.index - 1;
+  if (partition === null) return true;
+  if (partitionAssignments !== undefined) {
+    if (!Array.isArray(partitionAssignments) || ordinal >= partitionAssignments.length)
+      throw new Error("partition assignments must cover this test ordinal");
+    if (
+      partitionAssignments.some(
+        (assignment) => !Number.isSafeInteger(assignment) || assignment < 1 || assignment > partition.count,
+      )
+    )
+      throw new Error("partition assignments must be integers within the partition count");
+    return partitionAssignments[ordinal] === partition.index;
+  }
+  return ordinal % partition.count === partition.index - 1;
 }
 
 /** Select one deterministic CI partition from a tier's discovered files. */
