@@ -7,6 +7,7 @@ import test from "node:test";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
+import { authenticateRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
@@ -82,8 +83,11 @@ test(
         ? f.owners.keycloak.fetch(input, init)
         : networkFetch(input, init);
     });
-    const center = await f.center(undefined, loginAuthorityUrl, (auth) =>
-        IdentitySessionPort(path.join(f.root, "user")).bind(auth),
+    const center = await f.center(
+        undefined,
+        loginAuthorityUrl,
+        (auth) => IdentitySessionPort(path.join(f.root, "user")).bind(auth),
+        (credential) => authenticateRuntimeExecutionPrincipal(() => f.host.keycloakCenter(), credential),
       ),
       repoId = f.subject.repoId,
       taskId = f.subject.taskId;

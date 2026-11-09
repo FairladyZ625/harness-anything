@@ -275,7 +275,7 @@ export async function startDaemon(input: {
     });
     const oidc = createIdentitySession(input.userRoot);
     const authenticateExecutionPrincipal = (credential: string) =>
-      authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
+      authenticateRuntimeExecutionPrincipal(() => oidc.center(), credential);
     host = await observation.withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
         ...input,
