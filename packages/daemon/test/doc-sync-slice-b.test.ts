@@ -87,18 +87,21 @@ test("a planned task's plan rides the node doc-submit channel while other task d
     await waitForFixturePublication(fixture.cell, created.opId, writerBinding);
     const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
       planPath = `${packagePath}/task_plan.md`,
-      currentCut = async () =>
-        (
-          (await fixture.cell.run({ kind: "doc-status", paths: [] }, localBinding)) as {
-            readonly detail?: { readonly baseLedgerSha?: unknown };
-          }
-        ).detail?.baseLedgerSha,
-      pushNodeDoc = async (documentPath: string, body: string, ref: string) => {
-        // The replace base is the canonical bytes the writer read: the current on-disk document
-        // before this edit. A document that does not exist yet is a create, whose base is null.
-        const target = path.join(fixture.rootDir, "harness", documentPath),
-          baseBlobSha256 = existsSync(target) ? sha(readFileSync(target, "utf8")) : null,
-          baseLedgerSha = await currentCut();
+      status = async (documentPath: string) =>
+        (await fixture.cell.run({ kind: "doc-status", paths: [documentPath] }, localBinding)) as {
+          readonly detail?: {
+            readonly baseLedgerSha?: unknown;
+            readonly paths?: readonly { readonly path: string; readonly currentBlobSha256?: string | null }[];
+          };
+        },
+      pushNodeDoc = async (documentPath: string, body: string, ref: string, base?: string | null) => {
+        // The replace base is the center's current blob for this path, exactly what the CLI sends.
+        // A path the projection does not hold is a create whose base is null; reading the worktree
+        // instead races its materialization and makes the kernel's own base check refuse the write.
+        const before = await status(documentPath),
+          canonicalBase = before.detail?.paths?.find((row) => row.path === documentPath)?.currentBlobSha256 ?? null,
+          baseBlobSha256 = base === undefined ? canonicalBase : base,
+          baseLedgerSha = before.detail?.baseLedgerSha;
         writeAuthored(fixture.rootDir, documentPath, body);
         writeClaim(fixture.rootDir, ref, body);
         return fixture.cell.run(
@@ -128,6 +131,13 @@ test("a planned task's plan rides the node doc-submit channel while other task d
     assert.equal(closeout.outcome, "op_rejected", JSON.stringify(closeout));
     assert.equal(closeout.code, "task_docs_require_task_command");
 
+    // Negative control for the CI failure this fixture must not reintroduce: submitting the plan
+    // with a create (null) base while the center already projects it is refused by the kernel's own
+    // base check, not by the planned-plan admission exemption.
+    const staleBase = await pushNodeDoc(planPath, realizedTaskPlan("Planned node plan"), "planned-plan-stale", null);
+    assert.equal(staleBase.outcome, "op_rejected", JSON.stringify(staleBase));
+    assert.equal(staleBase.code, "base_blob_changed");
+
     const submitted = await pushNodeDoc(planPath, realizedTaskPlan("Planned node plan"), "planned-plan");
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const started = await fixture.cell.run({ kind: "task-start", taskId, executionId: "execution-doc" }, writerBinding);
@@ -139,6 +149,7 @@ test("a planned task's plan rides the node doc-submit channel while other task d
     assert.equal(afterStart.code, "task_docs_require_task_command");
     console.log(
       `NODE_PLAN_DOC_SYNC ${JSON.stringify({
+        stalePlanBase: staleBase.code,
         plannedPlan: submitted.outcome,
         nonPlanTaskDocument: closeout.code,
         afterStart: afterStart.code,
