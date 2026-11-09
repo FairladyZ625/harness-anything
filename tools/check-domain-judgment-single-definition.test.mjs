@@ -279,10 +279,10 @@ test("dispatch observation ratchet rejects admission and terminal judgments but 
     });
   assert.deepEqual(sites.map(({ symbol, kind }) => `${symbol}:${kind}`).sort(), [
     "admissionFromPid:runtimePidIsAlive",
+    "adoptionFromProcessTable:process-table-probe",
     "capacityFromLocalTables:fallback-state-branch",
     "capacityFromLocalTables:liveness-comparison",
     "capacityFromLocalTables:process-table-probe",
-    "adoptionFromProcessTable:process-table-probe",
     "terminalFromProcessLost:process-lost-terminal-return",
   ]);
   // observeProcess reads the PID fact into the existing lifecycle event: no finding.
