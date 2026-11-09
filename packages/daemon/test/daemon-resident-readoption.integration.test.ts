@@ -19,7 +19,6 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
-import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { daemonServiceUnit } from "../src/client/daemon-service.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
