@@ -534,11 +534,52 @@ function resolveSpecifier(fromFile, specifier) {
 }
 
 /**
+ * Parse the re-export graph every view-local check consumes, once per scan instead
+ * of once per vocabulary: `checkViewLocalDeclarations` used to re-read every
+ * package source for each registered view-local row, which made the gate and its
+ * positive-control test O(view-local rows × repository).
+ *
+ * `localAliases` maps a module to its `export { Phase as Alias }` bindings; the
+ * `reexports` list holds `export { X } from "./y"` edges in source order.
+ */
+function buildReexportIndex(sourcesByFile) {
+  const localAliases = new Map();
+  const reexports = [];
+  for (const [file, text] of sourcesByFile) {
+    for (const match of text.matchAll(EXPORT_SPECIFIERS)) {
+      const bindings = specifierBindings(match[1]);
+      if (match[2] === undefined) {
+        const aliases = localAliases.get(file) ?? [];
+        for (const binding of bindings) aliases.push(binding);
+        localAliases.set(file, aliases);
+        continue;
+      }
+      const target = resolveSpecifier(file, match[2]);
+      if (target === null) continue;
+      for (const binding of bindings) reexports.push({ file, target, ...binding });
+    }
+  }
+  return { localAliases, reexports };
+}
+
+function moduleBasename(module) {
+  return path.posix.basename(module);
+}
+
+/**
  * Names under which `anchor` leaves its declaring module: the declaration itself,
  * local `export { Phase as Alias }`, and transitive re-export chains. The result
  * maps module -> exported alias set.
+ *
+ * `reexportIndex` lets a caller that checks several anchors share one parse of the
+ * scanned sources; without it the graph is built for this call only.
  */
-export function anchorExportNames(module, anchor, sourcesByFile, { declaredExported = false } = {}) {
+export function anchorExportNames(
+  module,
+  anchor,
+  sourcesByFile,
+  { declaredExported = false, reexportIndex = undefined } = {},
+) {
   const names = new Map();
   const strip = (value) => value.replace(/\.(?:[cm]?[jt]sx?)$/u, "");
   const add = (target, name) => {
@@ -548,27 +589,14 @@ export function anchorExportNames(module, anchor, sourcesByFile, { declaredExpor
     names.get(moduleName).add(name);
   };
   if (declaredExported) add(module, anchor);
-  const reexports = [];
-  for (const [file, text] of sourcesByFile) {
-    for (const match of text.matchAll(EXPORT_SPECIFIERS)) {
-      const bindings = specifierBindings(match[1]);
-      if (match[2] === undefined) {
-        if (file === module) {
-          for (const binding of bindings) {
-            if (binding.original === anchor) add(module, binding.alias);
-          }
-        }
-        continue;
-      }
-      const target = resolveSpecifier(file, match[2]);
-      if (target === null) continue;
-      for (const binding of bindings) reexports.push({ file, target, ...binding });
-    }
+  const index = reexportIndex ?? buildReexportIndex(sourcesByFile);
+  for (const binding of index.localAliases.get(module) ?? []) {
+    if (binding.original === anchor) add(module, binding.alias);
   }
   let changed = true;
   while (changed) {
     changed = false;
-    for (const reexport of reexports) {
+    for (const reexport of index.reexports) {
       if (!names.get(reexport.target)?.has(reexport.original)) continue;
       const before = names.get(reexport.file)?.size ?? 0;
       add(reexport.file, reexport.alias);
@@ -587,9 +615,16 @@ export function isAnchorImportedElsewhere(module, anchor, sourcesByFile, options
   const declaredExported =
     options.declaredExported === true ||
     new RegExp(`export\\s+(?:type\\s+|interface\\s+|const\\s+|class\\s+)?${escapeRegExp(anchor)}\\b`, "u").test(source);
-  const exported = anchorExportNames(module, anchor, sourcesByFile, { declaredExported });
+  const index = options.reexportIndex ?? buildReexportIndex(sourcesByFile);
+  const exported =
+    options.exported ?? anchorExportNames(module, anchor, sourcesByFile, { declaredExported, reexportIndex: index });
+  // A relative specifier that resolves to one of these modules must spell that
+  // module's basename, so a file that mentions none of them cannot import the
+  // anchor. The prefilter only skips files the import parse below could not match.
+  const basenames = [...new Set([...exported.keys()].map(moduleBasename))];
   for (const [file, text] of sourcesByFile) {
     if (file === module) continue;
+    if (!basenames.some((basename) => text.includes(basename))) continue;
     for (const match of text.matchAll(IMPORT_FROM)) {
       const target = resolveSpecifier(file, match[2]);
       if (target === null) continue;
@@ -626,17 +661,28 @@ export function hasPersistentWrite(source) {
 
 export function checkViewLocalDeclarations(register, sites, sourcesByFile, findings = []) {
   const siteByKey = new Map(sites.map((site) => [declarationKey(site.module, site.anchor), site]));
+  // One re-export parse for every view-local row; the previous shape rebuilt it per
+  // row and then rebuilt it again inside isAnchorImportedElsewhere.
+  const reexportIndex = buildReexportIndex(sourcesByFile);
   for (const vocabulary of register.statusVocabularies) {
     if (vocabulary.scope !== "view-local") continue;
     const key = declarationKey(vocabulary.module, vocabulary.anchor);
     const site = siteByKey.get(key);
     if (!site) continue;
+    const declaredExported = site.exported === true;
     const exportedNames = anchorExportNames(vocabulary.module, vocabulary.anchor, sourcesByFile, {
-      declaredExported: site.exported === true,
+      declaredExported,
+      reexportIndex,
     });
     if (exportedNames.size > 0) {
       findings.push(`${key}: view-local vocabulary must not be exported (directly or through an alias)`);
-    } else if (isAnchorImportedElsewhere(vocabulary.module, vocabulary.anchor, sourcesByFile)) {
+    } else if (
+      isAnchorImportedElsewhere(vocabulary.module, vocabulary.anchor, sourcesByFile, {
+        declaredExported,
+        reexportIndex,
+        exported: exportedNames,
+      })
+    ) {
       findings.push(`${key}: view-local vocabulary must not be imported by another module`);
     }
     if (hasPersistentWrite(sourcesByFile.get(vocabulary.module) ?? "")) {
@@ -723,6 +769,26 @@ function readSources(root, scopes) {
   return sources;
 }
 
+/**
+ * Every judgment the gate makes, assembled once. `main` and the positive-control
+ * test call this same function, so a check dropped from the gate's wiring fails the
+ * test instead of passing both places silently.
+ */
+export function collectStatusVocabularyFindings({ register, sourcesByFile, sites, storeIndex, kernelModules }) {
+  return [
+    ...checkRegisterShape(register),
+    ...storeIndex.findings,
+    ...checkOwnerStoreAgreement(register, storeIndex.byId),
+    ...checkExternalOwnership(register, statusVocabularyUnownedRegister),
+    ...checkKernelVocabularyBijection(register, kernelModules, sites),
+    ...checkStatusVocabularyCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
+    ...checkInlineFieldCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
+    ...checkViewLocalDeclarations(register, sites, sourcesByFile),
+    ...checkGuiAdapterInvariants(register, sourcesByFile),
+    ...checkDaemonProjectionFreshness(register, sourcesByFile),
+  ];
+}
+
 async function main() {
   const root = process.cwd();
   const register = await import(pathToFileURL(path.resolve(import.meta.dirname, REGISTER)).href);
@@ -739,18 +805,7 @@ async function main() {
         .map((vocabulary) => vocabulary.module),
     ),
   ]);
-  const findings = [
-    ...checkRegisterShape(register),
-    ...storeIndex.findings,
-    ...checkOwnerStoreAgreement(register, storeIndex.byId),
-    ...checkExternalOwnership(register, statusVocabularyUnownedRegister),
-    ...checkKernelVocabularyBijection(register, kernelModules, sites),
-    ...checkStatusVocabularyCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
-    ...checkInlineFieldCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
-    ...checkViewLocalDeclarations(register, sites, sourcesByFile),
-    ...checkGuiAdapterInvariants(register, sourcesByFile),
-    ...checkDaemonProjectionFreshness(register, sourcesByFile),
-  ];
+  const findings = collectStatusVocabularyFindings({ register, sourcesByFile, sites, storeIndex, kernelModules });
   if (findings.length > 0) {
     console.error("Status vocabulary check failed:");
     for (const finding of findings) console.error(`- ${finding}`);
