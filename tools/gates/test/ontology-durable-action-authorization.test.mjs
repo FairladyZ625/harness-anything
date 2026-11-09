@@ -4,6 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, syml
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 import {
   auditDurableActionAuthorization,
   kindRewriteViolations,
@@ -14,6 +15,14 @@ import { replaceSourceOnce, runGit } from "./helpers.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const tracedPackages = ["daemon", "authorization-keycloak", "application"];
 const inputs = await loadAuthorizationInputs(repoRoot);
+
+const partitionValue = process.env.HARNESS_TEST_PARTITION;
+let partitionTestOrdinal = 0;
+function partitionedTest(name, testFn) {
+  const ordinal = partitionTestOrdinal++;
+  if (!testOrdinalInPartition(ordinal, partitionValue)) return;
+  test(name, testFn);
+}
 
 // Every control mutates a copy of the real sources on disk; the other packages and node_modules are
 // linked read-only so imports resolve exactly as they do in the checkout.
@@ -44,7 +53,7 @@ function edit(dir, file, from, to) {
   return () => writeFileSync(target, text);
 }
 
-test("source mutation fragments match LF and CRLF checkouts alike", () => {
+partitionedTest("source mutation fragments match LF and CRLF checkouts alike", () => {
   const lf = "alpha\nbeta\ngamma\n",
     crlf = lf.replaceAll("\n", "\r\n");
   assert.equal(replaceSourceOnce(lf, "alpha\nbeta", "alpha\nX\nY", "sample.ts"), "alpha\nX\nY\ngamma\n");
@@ -84,13 +93,13 @@ function threeStage(t, ids, mutate, { dir = sourceCopy(t), reason } = {}) {
 
 const queuedRoute = "packages/daemon/src/repo-cell-command-run.ts";
 
-test("removing the queued RepoCell authorization call turns its durable commands red", (t) => {
+partitionedTest("removing the queued RepoCell authorization call turns its durable commands red", (t) => {
   threeStage(t, ["task-create", "todo-add"], (dir) =>
     edit(dir, queuedRoute, "queuedDecision = await authorizeAtCurrentCut()!;", "queuedDecision = undefined!;"),
   );
 });
 
-test("a denial branch that no longer exits is a bypass, not an authorization", (t) => {
+partitionedTest("a denial branch that no longer exits is a bypass, not an authorization", (t) => {
   threeStage(t, ["task-create"], (dir) =>
     edit(
       dir,
@@ -101,7 +110,7 @@ test("a denial branch that no longer exits is a bypass, not an authorization", (
   );
 });
 
-test("extracting the authorization helper under different names stays green", (t) => {
+partitionedTest("extracting the authorization helper under different names stays green", (t) => {
   const dir = sourceCopy(t);
   const file = path.join(dir, queuedRoute),
     text = readFileSync(file, "utf8");
@@ -119,7 +128,7 @@ test("extracting the authorization helper under different names stays green", (t
   assert.ok(traced["todo-add"].ok, traced["todo-add"].evidence.join("; "));
 });
 
-test("a declared local-transport route is red once its transport exit is removed", (t) => {
+partitionedTest("a declared local-transport route is red once its transport exit is removed", (t) => {
   const stop = threeStage(t, ["daemon-stop"], (dir) =>
     edit(
       dir,
@@ -147,7 +156,7 @@ test("a declared local-transport route is red once its transport exit is removed
   );
 });
 
-test("a local-process command must send the daemon only a read", (t) => {
+partitionedTest("a local-process command must send the daemon only a read", (t) => {
   const dir = sourceCopy(t);
   const start = inputs.descriptors.find((descriptor) => descriptor.id === "daemon-start");
   assert.equal(start.hostAuthority, "local-process");
@@ -160,7 +169,7 @@ test("a local-process command must send the daemon only a read", (t) => {
 
 const accessAdmin = "packages/daemon/src/access-admin-service.ts";
 
-test("an own-session route is red once the account it changes no longer comes from the session", (t) => {
+partitionedTest("an own-session route is red once the account it changes no longer comes from the session", (t) => {
   // The person named by the request, not the signed-in person, would receive the new password.
   const changed = threeStage(t, ["access-password-change"], (dir) =>
     edit(
@@ -182,7 +191,7 @@ test("an own-session route is red once the account it changes no longer comes fr
   );
 });
 
-test("an own-session route through a differently named session helper stays green", (t) => {
+partitionedTest("an own-session route through a differently named session helper stays green", (t) => {
   const dir = sourceCopy(t);
   const file = path.join(dir, accessAdmin),
     text = readFileSync(file, "utf8");
@@ -200,7 +209,7 @@ test("an own-session route through a differently named session helper stays gree
   assert.ok(traced.ok, traced.violations.join("; "));
 });
 
-test("an AuthorizationPort decision for another action does not authorize this one", (t) => {
+partitionedTest("an AuthorizationPort decision for another action does not authorize this one", (t) => {
   // The permission-request route evaluates its own policy action; folding the request onto
   // another action's spelling must not borrow that decision.
   threeStage(t, ["permission-request-decide"], (dir) =>
@@ -215,7 +224,7 @@ test("an AuthorizationPort decision for another action does not authorize this o
 
 const rewriteRows = ["agent-run", "runtime-batch", "edge-join"];
 
-test("a kind-rewrite route is traced against the kind it actually authorizes", (t) => {
+partitionedTest("a kind-rewrite route is traced against the kind it actually authorizes", (t) => {
   // dec_2BF45FF7E52020380F5F35CE2D/CH6: agent-run and runtime-batch are authorized as runtime-run.
   // Removing that decision's denial exit turns both red even though the declaration still stands.
   const today = { today: "2026-11-07" };
@@ -235,7 +244,7 @@ test("a kind-rewrite route is traced against the kind it actually authorizes", (
   for (const id of rewriteRows) assert.ok(restored[id].ok, `${id}: restored green`);
 });
 
-test("a kind-rewrite declaration turns red after its expiry date", () => {
+partitionedTest("a kind-rewrite declaration turns red after its expiry date", () => {
   const before = rows(repoRoot, rewriteRows, undefined, { today: "2026-12-07" }),
     after = rows(repoRoot, rewriteRows, undefined, { today: "2026-12-08" });
   for (const id of rewriteRows) {
@@ -245,7 +254,7 @@ test("a kind-rewrite declaration turns red after its expiry date", () => {
   }
 });
 
-test("a kind-rewrite declaration must cite an indexed decision and owner task", () => {
+partitionedTest("a kind-rewrite declaration must cite an indexed decision and owner task", () => {
   const valid = inputs.descriptors.find((descriptor) => descriptor.id === "agent-run").kindRewrite;
   assert.deepEqual(kindRewriteViolations(valid, "2026-11-07"), []);
   assert.match(
@@ -261,7 +270,7 @@ test("a kind-rewrite declaration must cite an indexed decision and owner task", 
 
 // Each link of the queued route is its own failure class: the effect must run after the denial
 // exit, receive the decision, and the decision must be evaluated at the current canonical cut.
-test("an effect callback that runs before the authorization denial exit is red", (t) => {
+partitionedTest("an effect callback that runs before the authorization denial exit is red", (t) => {
   threeStage(
     t,
     ["task-create"],
@@ -287,13 +296,13 @@ test("an effect callback that runs before the authorization denial exit is red",
   );
 });
 
-test("an effect callback called without the authorization decision is red", (t) => {
+partitionedTest("an effect callback called without the authorization decision is red", (t) => {
   threeStage(t, ["task-create"], (dir) => edit(dir, queuedRoute, "await execute(queuedDecision)", "await execute()"), {
     reason: /effect callback runs without the authorization decision/,
   });
 });
 
-test("a canonical decision evaluated at a fixed revision instead of the current cut is red", (t) => {
+partitionedTest("a canonical decision evaluated at a fixed revision instead of the current cut is red", (t) => {
   threeStage(
     t,
     ["task-create", "task-push"],
@@ -308,7 +317,7 @@ test("a canonical decision evaluated at a fixed revision instead of the current 
   );
 });
 
-test("a durable action that skips the queued authorization is red", (t) => {
+partitionedTest("a durable action that skips the queued authorization is red", (t) => {
   threeStage(
     t,
     ["task-create"],
@@ -317,7 +326,7 @@ test("a durable action that skips the queued authorization is red", (t) => {
   );
 });
 
-test("a prepared publication must run the real handler and hand it the decision", (t) => {
+partitionedTest("a prepared publication must run the real handler and hand it the decision", (t) => {
   const dir = sourceCopy(t);
   threeStage(
     t,
@@ -345,7 +354,7 @@ test("a prepared publication must run the real handler and hand it the decision"
   );
 });
 
-test("a same-named prepared handler in an unrelated file does not stand in for the real one", (t) => {
+partitionedTest("a same-named prepared handler in an unrelated file does not stand in for the real one", (t) => {
   const dir = sourceCopy(t);
   threeStage(
     t,
@@ -368,7 +377,7 @@ test("a same-named prepared handler in an unrelated file does not stand in for t
   );
 });
 
-test("an equivalent prepared publication written as a function expression stays green", (t) => {
+partitionedTest("an equivalent prepared publication written as a function expression stays green", (t) => {
   const dir = sourceCopy(t);
   edit(
     dir,
@@ -380,7 +389,7 @@ test("an equivalent prepared publication written as a function expression stays 
   assert.ok(traced.ok, traced.violations.join("; "));
 });
 
-test("edge-join is red once its daemon-repo-register denial no longer exits", (t) => {
+partitionedTest("edge-join is red once its daemon-repo-register denial no longer exits", (t) => {
   threeStage(t, ["edge-join"], (dir) =>
     edit(
       dir,
@@ -393,7 +402,7 @@ test("edge-join is red once its daemon-repo-register denial no longer exits", (t
 
 // Dominance is per path: an enforcer on one branch of a test must not lend its evidence to the
 // branch that skips it and reaches the same effect.
-test("an authorization on only one branch of a test does not authorize the branch that skips it", (t) => {
+partitionedTest("an authorization on only one branch of a test does not authorize the branch that skips it", (t) => {
   threeStage(
     t,
     ["runtime-instance-create"],
@@ -420,7 +429,7 @@ test("an authorization on only one branch of a test does not authorize the branc
   );
 });
 
-test("a branch skips authorization only when the authorization port itself chose it", (t) => {
+partitionedTest("a branch skips authorization only when the authorization port itself chose it", (t) => {
   // D1: access configuration stays open until the port reports that someone holds access-manage.
   // The same skip chosen by request data instead of the port is a bypass.
   threeStage(

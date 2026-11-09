@@ -68,7 +68,8 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - boundaries
 - package-policy
 - quick-gates
-- fast-contract
+- fast-contract (1)
+- fast-contract (2)
 - integration-shard (1)
 - integration-shard (2)
 - integration-shard (3)
@@ -85,7 +86,8 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (14)
 - gui-build
 - pr-body-lint
-- crlf-checkout
+- crlf-checkout (1)
+- crlf-checkout (2)
 
 Integration tests are required through the fourteen `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.

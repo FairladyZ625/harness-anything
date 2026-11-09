@@ -23,6 +23,33 @@ export function parseRunnerArgs(args) {
   return options;
 }
 
+function parseTestPartition(partitionValue) {
+  if (partitionValue === undefined || partitionValue === "") return null;
+  const match = /^(\d+)\/(\d+)$/u.exec(String(partitionValue));
+  if (!match) throw new Error(`HARNESS_TEST_PARTITION must be <index>/<count>, got ${partitionValue}`);
+  const index = Number(match[1]);
+  const count = Number(match[2]);
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(count) || index < 1 || index > count || count < 2)
+    throw new Error(`HARNESS_TEST_PARTITION must use an index from 1 to count (got ${partitionValue})`);
+  return { index, count };
+}
+
+/** Decide whether a zero-based discovered test ordinal belongs to a CI partition. */
+export function testOrdinalInPartition(ordinal, partitionValue) {
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0)
+    throw new Error("test ordinal must be a non-negative safe integer");
+  const partition = parseTestPartition(partitionValue);
+  return partition === null || ordinal % partition.count === partition.index - 1;
+}
+
+/** Select one deterministic CI partition from a tier's discovered files. */
+export function partitionTestFiles(files, partitionValue, sharedFiles = []) {
+  const partition = parseTestPartition(partitionValue);
+  if (partition === null) return [...files];
+  const shared = new Set(sharedFiles);
+  return files.filter((file, fileIndex) => shared.has(file) || fileIndex % partition.count === partition.index - 1);
+}
+
 export function coverageReporterArgs(coveragePath) {
   return coveragePath === undefined
     ? []
@@ -258,7 +285,7 @@ function buildLockOwnerAlive(lockPath) {
  * into the run's own temporary directory makes the fallback value private as well; the route is still
  * dropped because the worker's socket belongs to another daemon.
  */
-export function testChildEnvironment({ parent, temporaryRoot, variableNames }) {
+export function testChildEnvironment({ parent, temporaryRoot, variableNames, forwardPartition = false }) {
   const environment = {
     ...parent,
     HARNESS_TEST_TEMP_ROOT: temporaryRoot,
@@ -266,6 +293,22 @@ export function testChildEnvironment({ parent, temporaryRoot, variableNames }) {
     USERPROFILE: temporaryRoot,
   };
   for (const name of variableNames) delete environment[name];
+  if (
+    forwardPartition &&
+    parent.HARNESS_TEST_PARTITION_TEST_CHILD !== "1" &&
+    parent.HARNESS_TEST_PARTITION !== undefined
+  ) {
+    environment.HARNESS_TEST_PARTITION = parent.HARNESS_TEST_PARTITION;
+    environment.HARNESS_TEST_PARTITION_SHARED_FILES = parent.HARNESS_TEST_PARTITION_SHARED_FILES ?? "";
+    environment.HARNESS_TEST_PARTITION_TEST_CHILD = "1";
+  } else {
+    // The partition is owned by the current runner's tier selection. A test file may launch a
+    // nested runner, whose complete tier must stay intact; its child processes do not inherit the
+    // outer partition either.
+    delete environment.HARNESS_TEST_PARTITION;
+    delete environment.HARNESS_TEST_PARTITION_SHARED_FILES;
+    delete environment.HARNESS_TEST_PARTITION_TEST_CHILD;
+  }
   return environment;
 }
 

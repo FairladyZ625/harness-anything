@@ -22,7 +22,8 @@
         "boundaries",
         "package-policy",
         "typecheck (24)",
-        "fast-contract",
+        "fast-contract (1)",
+        "fast-contract (2)",
         "integration-shard (1)",
         "integration-shard (2)",
         "integration-shard (3)",
@@ -216,7 +217,8 @@
         "boundaries",
         "package-policy",
         "quick-gates",
-        "fast-contract",
+        "fast-contract (1)",
+        "fast-contract (2)",
         "integration-shard (1)",
         "integration-shard (2)",
         "integration-shard (3)",
@@ -233,7 +235,8 @@
         "integration-shard (14)",
         "gui-build",
         "pr-body-lint",
-        "crlf-checkout"
+        "crlf-checkout (1)",
+        "crlf-checkout (2)"
       ],
       "enforceAdmins": false
     }
@@ -259,7 +262,7 @@
         "wall-clock deadlines, scheduled timers, self-written polls and the shared wall-clock poller in integration tests"
       ],
       "githubContext": {
-        "requiredContexts": ["crlf-checkout"],
+        "requiredContexts": ["crlf-checkout (1)", "crlf-checkout (2)"],
         "workflowJobs": ["crlf-checkout"],
         "nodeVersions": [24]
       },
@@ -283,7 +286,7 @@
       "executionSurfaces": {
         "packageJson": { "check": true, "checkPr": true, "script": "harness:check-poll-spin-boundary" },
         "rewriteCi": { "pullRequestJobs": ["crlf-checkout"], "nonPullRequestJobs": ["crlf-checkout"] },
-        "branchProtection": { "required": true, "contexts": ["crlf-checkout"] },
+        "branchProtection": { "required": true, "contexts": ["crlf-checkout (1)", "crlf-checkout (2)"] },
         "classes": ["local", "pr"]
       },
       "deterministic": true,
@@ -974,7 +977,7 @@
       "authoritySource": ["tools/test-tier-manifest.mjs", "tools/run-node-tests.mjs", "package.json:scripts.test:fast"],
       "consumerScope": ["node:test suites classified as fast"],
       "githubContext": {
-        "requiredContexts": ["fast-contract"],
+        "requiredContexts": ["fast-contract (1)", "fast-contract (2)"],
         "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
         "nodeVersions": [24, 26]
       },
@@ -1007,7 +1010,7 @@
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["fast-contract"]
+          "contexts": ["fast-contract (1)", "fast-contract (2)"]
         },
         "classes": ["local", "pr"]
       },
@@ -1039,7 +1042,7 @@
         "GUI bridge static lock: API registry shipped/deferred methods, preload allowlist, and registered IPC channels stay aligned"
       ],
       "githubContext": {
-        "requiredContexts": ["fast-contract"],
+        "requiredContexts": ["fast-contract (1)", "fast-contract (2)"],
         "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
         "nodeVersions": [24, 26]
       },
@@ -1071,7 +1074,7 @@
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["fast-contract"]
+          "contexts": ["fast-contract (1)", "fast-contract (2)"]
         },
         "classes": ["local", "pr"]
       },

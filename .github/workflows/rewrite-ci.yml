@@ -165,9 +165,19 @@ jobs:
           G38_PHASE: legacy
         run: node tools/run-manifest-gates.mjs --workflow-job quick-gates --github-groups
   fast-contract:
+    name: fast-contract (${{ matrix.partition }})
     needs: install
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
+    env:
+      # Both partitions derive from the same tier manifest. This contract file is shared because
+      # its independent mutation cases partition themselves by registration order.
+      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/2
+      HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
     steps:
       - uses: actions/checkout@v4
         with:
@@ -193,9 +203,18 @@ jobs:
     # This job keeps its own nightly/manual install because the shared install job is only consumed
     # by PR/merge-group/push lanes. The dependency still orders PR/merge-group/push artifact
     # consumption; always() lets the nightly/manual lane run after the PR-only install is skipped.
+    name: crlf-checkout (${{ matrix.partition }})
     needs: install
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
+    env:
+      # Preserve the full CRLF checkout and dedicated boundary gate on both test partitions.
+      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/2
+      HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
     steps:
       - name: Convert line endings on checkout the way a Windows host does
         run: git config --global core.autocrlf true

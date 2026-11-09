@@ -23,6 +23,9 @@ import {
   formatSlowTestSummary,
   parseCompletedTestLine,
   parseRunnerArgs,
+  partitionTestFiles,
+  testOrdinalInPartition,
+  testChildEnvironment,
   resolveTestConcurrency,
   runsCliEntry,
   selectTestFiles,
@@ -132,6 +135,57 @@ test("filterTestFilesByNames keeps only exact selected repository paths", () => 
     ),
     ["tools/a.test.mjs", "packages/kernel/b.test.ts"],
   );
+});
+
+test("partitionTestFiles covers a tier exactly and repeats only declared shared files", () => {
+  const files = ["a.test.mjs", "b.test.mjs", "shared.test.mjs", "c.test.mjs", "d.test.mjs"];
+  const first = partitionTestFiles(files, "1/2", ["shared.test.mjs"]);
+  const second = partitionTestFiles(files, "2/2", ["shared.test.mjs"]);
+  assert.deepEqual(first, ["a.test.mjs", "shared.test.mjs", "d.test.mjs"]);
+  assert.deepEqual(second, ["b.test.mjs", "shared.test.mjs", "c.test.mjs"]);
+  assert.deepEqual([...new Set([...first, ...second])].sort(), files.sort());
+  assert.throws(() => partitionTestFiles(files, "0/2"), /index from 1 to count/u);
+});
+
+test("testOrdinalInPartition splits the slow shared suite exactly by registration order", () => {
+  const ordinals = Array.from({ length: 22 }, (_, ordinal) => ordinal);
+  const first = ordinals.filter((ordinal) => testOrdinalInPartition(ordinal, "1/2"));
+  const second = ordinals.filter((ordinal) => testOrdinalInPartition(ordinal, "2/2"));
+  assert.deepEqual(first, [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
+  assert.deepEqual(second, [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21]);
+  assert.deepEqual(
+    [...first, ...second].sort((left, right) => left - right),
+    ordinals,
+  );
+  assert.equal(testOrdinalInPartition(0, undefined), true);
+  assert.throws(() => testOrdinalInPartition(0, "1/1"), /index from 1 to count/u);
+});
+
+test("runner partition reaches its selected suite and stops at the nested runner boundary", () => {
+  const selectedSuiteEnvironment = testChildEnvironment({
+    parent: {
+      HARNESS_TEST_PARTITION: "2/2",
+      HARNESS_TEST_PARTITION_SHARED_FILES: "shared.test.mjs",
+      KEEP_FOR_CHILD: "present",
+    },
+    temporaryRoot: "/tmp/test-child-home",
+    variableNames: [],
+    forwardPartition: true,
+  });
+  assert.equal(selectedSuiteEnvironment.HARNESS_TEST_PARTITION, "2/2");
+  assert.equal(selectedSuiteEnvironment.HARNESS_TEST_PARTITION_SHARED_FILES, "shared.test.mjs");
+  assert.equal(selectedSuiteEnvironment.HARNESS_TEST_PARTITION_TEST_CHILD, "1");
+  assert.equal(selectedSuiteEnvironment.KEEP_FOR_CHILD, "present");
+
+  const nestedRunnerEnvironment = testChildEnvironment({
+    parent: selectedSuiteEnvironment,
+    temporaryRoot: "/tmp/nested-runner-home",
+    variableNames: [],
+    forwardPartition: true,
+  });
+  assert.equal(nestedRunnerEnvironment.HARNESS_TEST_PARTITION, undefined);
+  assert.equal(nestedRunnerEnvironment.HARNESS_TEST_PARTITION_SHARED_FILES, undefined);
+  assert.equal(nestedRunnerEnvironment.HARNESS_TEST_PARTITION_TEST_CHILD, undefined);
 });
 
 test("runner watchdog fails and names a file whose process keeps an open handle", () => {
