@@ -343,7 +343,7 @@ async function scanFileForward(
 async function openStableFile(file: JsonlTailFile): Promise<{ readonly handle: FileHandle; readonly size: number }> {
   let handle: FileHandle;
   try {
-    handle = await open(file.path, "r");
+    handle = await /* @gate-identity state-store/legacy.b62396679580c5a1 */ open(file.path, "r");
   } catch (error) {
     if (fsErrorCode(error) === "ENOENT") throw new TailSnapshotChanged();
     throw error;

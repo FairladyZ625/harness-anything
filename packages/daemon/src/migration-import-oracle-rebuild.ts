@@ -262,7 +262,7 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
     );
   } finally {
     projection?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    /* @gate-identity state-store/legacy.ef127f14027bb02f */ rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -728,25 +728,30 @@ export function createMigrationPlanningWorkspace(sourceRoot: string): {
       ? realpathSync.native(sourceLayout.localRoot)
       : sourceLayout.localRoot,
     authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
-  mkdirSync(path.dirname(authoredRoot), { recursive: true });
+  /* @gate-identity state-store/legacy.6873cfbd268957bd */ mkdirSync(path.dirname(authoredRoot), { recursive: true });
   if (existsSync(sourceAuthoredRoot))
-    cpSync(realpathSync.native(sourceAuthoredRoot), authoredRoot, {
-      recursive: true,
-      dereference: false,
-      filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
-    });
-  else mkdirSync(authoredRoot, { recursive: true });
+    /* @gate-identity state-store/legacy.86fb0c028d105218 */ cpSync(
+      realpathSync.native(sourceAuthoredRoot),
+      authoredRoot,
+      {
+        recursive: true,
+        dereference: false,
+        filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
+      },
+    );
+  else /* @gate-identity state-store/legacy.32dc7fc6cbd587cd */ mkdirSync(authoredRoot, { recursive: true });
   // Layout discovery must remain confined to this fresh scratch workspace.
   const scratchConfig = path.join(authoredRoot, "harness.yaml");
   removeAuthored(scratchConfig);
-  writeFileSync(
+  /* @gate-identity state-store/legacy.e02399272b58363c */ writeFileSync(
     scratchConfig,
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
   return {
     rootDir,
     stage: (bundle) => stageAuthored(bundle, authoredRoot),
-    close: () => rmSync(rootDir, { recursive: true, force: true }),
+    close: () =>
+      /* @gate-identity state-store/legacy.c07c59eed7fad03a */ rmSync(rootDir, { recursive: true, force: true }),
   };
 }
 
@@ -760,14 +765,15 @@ function stageAuthored(bundle: CanonicalWriteBundle, authoredRoot: string): void
     const body = blobs.get(claim.sha256);
     if (!body) throw migrationImportError("invalid_store", `staged document ${claim.path} has no content object`);
     const target = authoredPath(authoredRoot, claim.path);
-    mkdirSync(path.dirname(target), { recursive: true });
+    /* @gate-identity state-store/legacy.70e4977de157f4d9 */ mkdirSync(path.dirname(target), { recursive: true });
     removeAuthored(target);
     const symbolicLink =
       entity?.kind === "repo-document" &&
       entity.nodeKind === "symbolic-link" &&
       entity.documentClaim.path === claim.path;
-    if (symbolicLink) symlinkSync(body.toString("utf8"), target);
-    else writeFileSync(target, body);
+    if (symbolicLink)
+      /* @gate-identity state-store/legacy.d019bd23ffa62061 */ symlinkSync(body.toString("utf8"), target);
+    else /* @gate-identity state-store/legacy.b548a080b558cfef */ writeFileSync(target, body);
   }
 }
 
@@ -788,7 +794,7 @@ function authoredPath(root: string, relative: string): string {
 
 function removeAuthored(target: string): void {
   if (!existsSync(target) && !lstatExists(target)) return;
-  rmSync(target, { recursive: true, force: true });
+  /* @gate-identity state-store/legacy.53b511126c97e1e8 */ rmSync(target, { recursive: true, force: true });
 }
 
 function lstatExists(target: string): boolean {

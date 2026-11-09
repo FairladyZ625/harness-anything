@@ -204,7 +204,7 @@ function slug(value: string): string {
 
 function resolveBootstrapAuthoredBranch(rootDir: CanonicalRoot): string {
   const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
-  mkdirSync(authoredRoot, { recursive: true });
+  /* @gate-identity state-store/legacy.cd6fcfe8c25c3338 */ mkdirSync(authoredRoot, { recursive: true });
   git(authoredRoot, ["init", "--quiet"]);
   const remote = optionalGit(authoredRoot, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]),
     current = optionalGit(authoredRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
@@ -231,7 +231,7 @@ export function bootstrapRepo(
   isolateLedgerFromProject(layout.rootDir, layout.authoredRoot, layout.localRoot);
   const boundBranch = authoredBranch ?? resolveBootstrapAuthoredBranch(rootDir),
     ledgerRoot = layout.authoredRoot;
-  mkdirSync(ledgerRoot, { recursive: true });
+  /* @gate-identity state-store/legacy.f91d4dbc214c0e3c */ mkdirSync(ledgerRoot, { recursive: true });
   git(ledgerRoot, ["init", "--quiet"]);
   const maintenance = configureLedgerMaintenance(ledgerRoot),
     guard = installLedgerCommitGuard(ledgerRoot),
@@ -265,7 +265,11 @@ export function bootstrapRepo(
     ];
   for (const document of writtenDocuments) {
     ensureSafeParent(rootDir, document.path);
-    writeFileSync(path.join(rootDir, ...document.path.split("/")), document.body, "utf8");
+    /* @gate-identity state-store/legacy.81621353db3b2f8a */ writeFileSync(
+      path.join(rootDir, ...document.path.split("/")),
+      document.body,
+      "utf8",
+    );
   }
   const authoredDocuments = (before ? writtenDocuments : [...input.machineDocuments, ...repositoryDocuments]).flatMap(
       (document) => authoredDocument(layout.authoredRoot, rootDir, document),
@@ -600,7 +604,7 @@ function ensureSafeParent(rootDir: string, target: string): void {
   for (let current = path.dirname(absolute); current !== rootDir; current = path.dirname(current))
     if (existsSync(current) && lstatSync(current).isSymbolicLink())
       throw repoBootstrapError("reserved_path", `${target} crosses a symbolic link.`);
-  mkdirSync(path.dirname(absolute), { recursive: true });
+  /* @gate-identity state-store/legacy.d3524ad117c02bfc */ mkdirSync(path.dirname(absolute), { recursive: true });
 }
 function checkoutAuthoredBranch(rootDir: string, authoredBranch: string): void {
   if (!validBranch(authoredBranch))
@@ -658,7 +662,7 @@ function authoredDocument(
     : [];
 }
 function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRoot: string): void {
-  mkdirSync(rootDir, { recursive: true });
+  /* @gate-identity state-store/legacy.b172fdbbdccfd324 */ mkdirSync(rootDir, { recursive: true });
   if (!optionalGit(rootDir, ["rev-parse", "--show-toplevel"])) git(rootDir, ["init", "--quiet"]);
   const projectRoot = optionalGit(rootDir, ["rev-parse", "--show-toplevel"]);
   if (!projectRoot)
@@ -678,7 +682,7 @@ function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRo
   const existing = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "",
     missing = projectPaths.filter((target) => !projectGitIgnores(projectRoot, target)).map((target) => `/${target}/`);
   if (missing.length)
-    writeFileSync(
+    /* @gate-identity state-store/legacy.236932fbb7b48e53 */ writeFileSync(
       ignorePath,
       `${existing && !existing.endsWith("\n") ? `${existing}\n` : existing}${missing.join("\n")}\n`,
       "utf8",
@@ -721,7 +725,8 @@ export function removeHarnessIgnoreRules(rootDir: string, authoredRoot: string, 
     ),
     lines = readFileSync(ignorePath, "utf8").split(/(?<=\n)/u),
     retained = lines.filter((line) => !rules.has(line.replace(/\r?\n$/u, "")));
-  if (retained.length !== lines.length) writeFileSync(ignorePath, retained.join(""), "utf8");
+  if (retained.length !== lines.length)
+    /* @gate-identity state-store/legacy.cabcf5aa63dbec33 */ writeFileSync(ignorePath, retained.join(""), "utf8");
 }
 function projectRelativePaths(
   projectRoot: string,

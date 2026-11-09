@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { isSamePerson } from "@harness-anything/kernel/internal/domain/actor-domain-services.ts";
@@ -563,7 +562,7 @@ export function migrationDocument(db: DatabaseSync, path: string): DocumentState
 
 function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
   const row =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-098 */
+    /* @gate-identity state-store/legacy.fs-098 */
     db
       .prepare("SELECT json_type(snapshot_json, '$.task') AS task_type FROM task_snapshot WHERE task_id = ?")
       .get(taskId) as { readonly task_type: string | null } | undefined;

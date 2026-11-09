@@ -56,9 +56,12 @@ export async function ensureSelfSignedCertificate(
       return { certificateFile, certificateKeyFile };
     }
   }
-  rmSync(certificateFile, { force: true });
-  rmSync(certificateKeyFile, { force: true });
-  mkdirSync(path.dirname(certificateFile), { recursive: true, mode: 0o700 });
+  /* @gate-identity state-store/legacy.773f1f24462e0efd */ rmSync(certificateFile, { force: true });
+  /* @gate-identity state-store/legacy.44f16540c48fcc72 */ rmSync(certificateKeyFile, { force: true });
+  /* @gate-identity state-store/legacy.580e80f3650a0879 */ mkdirSync(path.dirname(certificateFile), {
+    recursive: true,
+    mode: 0o700,
+  });
   const san = isIP(hostname) !== 0 ? `IP:${hostname}` : `DNS:${hostname}`;
   const addressSan = address === hostname ? "" : isIP(address) !== 0 ? `,IP:${address}` : `,DNS:${address}`;
   try {
@@ -84,8 +87,8 @@ export async function ensureSelfSignedCertificate(
     host.validateCertificateNames(readFileSync(certificateFile), names);
     return { certificateFile, certificateKeyFile };
   } catch (error) {
-    rmSync(certificateFile, { force: true });
-    rmSync(certificateKeyFile, { force: true });
+    /* @gate-identity state-store/legacy.778729626dd1b40c */ rmSync(certificateFile, { force: true });
+    /* @gate-identity state-store/legacy.8f59e38af283edd1 */ rmSync(certificateKeyFile, { force: true });
     throw Object.assign(
       new Error(
         `Could not create the self-signed login certificate: ${error instanceof Error ? error.message : String(error)}`,
@@ -99,8 +102,8 @@ export async function ensureSelfSignedCertificate(
 
 export function removeSelfSignedCertificate(root: string): void {
   const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root);
-  rmSync(certificateFile, { force: true });
-  rmSync(certificateKeyFile, { force: true });
+  /* @gate-identity state-store/legacy.0437be7bf65098b0 */ rmSync(certificateFile, { force: true });
+  /* @gate-identity state-store/legacy.64dd2033f7d1c003 */ rmSync(certificateKeyFile, { force: true });
 }
 
 export function publicListener(listener: ManagedRbacListener): Omit<ManagedRbacListener, "certificateKeyFile"> {

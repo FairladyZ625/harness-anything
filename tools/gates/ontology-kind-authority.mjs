@@ -58,7 +58,14 @@ export function auditKindAuthority(rootDir = process.cwd()) {
 
 const STORE_ROLES = new Set(["authority", "replica", "projection", "spool", "operational"]);
 const STORE_RESIDENCIES = new Set(["canonical", "runtime-local", "host-local"]);
-const MEDIUM_KINDS = new Set(["journal", "sqlite-table", "canonical-event", "shared-cache", "host-operational"]);
+const MEDIUM_KINDS = new Set([
+  "journal",
+  "sqlite-table",
+  "postgres-table",
+  "canonical-event",
+  "shared-cache",
+  "host-operational",
+]);
 const STORE_FIELDS = new Set([
   "id",
   "owner",
@@ -120,6 +127,7 @@ function stateAuthorityCoverage(rootDir) {
       const allowedMediumFields = {
         journal: new Set(["kind", "recordSchema"]),
         "sqlite-table": new Set(["kind", "table"]),
+        "postgres-table": new Set(["kind", "table"]),
         "canonical-event": new Set(["kind", "schema", "types", "writers", "payloadField"]),
         "shared-cache": new Set(["kind", "adapter"]),
         "host-operational": new Set(["kind", "recordSchema", "purpose"]),
@@ -154,8 +162,8 @@ function stateAuthorityCoverage(rootDir) {
     }
     if (store.medium?.kind === "journal" && !nonEmptyString(store.medium.recordSchema))
       findings.push(`${store.id}: journal medium requires recordSchema`);
-    if (store.medium?.kind === "sqlite-table" && !nonEmptyString(store.medium.table))
-      findings.push(`${store.id}: sqlite-table medium requires table`);
+    if (["sqlite-table", "postgres-table"].includes(store.medium?.kind) && !nonEmptyString(store.medium.table))
+      findings.push(`${store.id}: ${store.medium.kind} medium requires table`);
     if (store.medium?.kind === "shared-cache") {
       if (!/^[^#\s]+#[^#\s]+$/u.test(String(store.medium.adapter ?? "")))
         findings.push(`${store.id}: shared-cache medium requires an exact module#export adapter`);

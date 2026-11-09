@@ -11,8 +11,8 @@ export type {
   RelationGraphProjection,
 } from "@harness-anything/kernel";
 export function createRelationGraphProjectionTables(db: DatabaseSync): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS relation_edge (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL,
+  /* @gate-identity state-store/legacy.f15b81862fa87810 */ db.exec(`
+    /* @gate-identity state-store/task.projection.relation_edge */ CREATE TABLE IF NOT EXISTS relation_edge (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL,
       state TEXT NOT NULL, target_observed_version, owner_ref TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL, updated_at TEXT NOT NULL, row_json TEXT NOT NULL,
       freshness TEXT, current_target_version);

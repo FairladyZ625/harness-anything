@@ -51,7 +51,7 @@ export const localLedgerBackupFileSystem = {
   symlink: symlinkSync,
   write: writeFileSync,
   remove: (inputPath: string) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-135 */
+    /* @gate-identity state-store/legacy.fs-135 */
     rmSync(inputPath, { recursive: true, force: true }),
 } as const;
 
@@ -61,7 +61,7 @@ export const localEventFileSystem = {
   readNames: (inputPath: string) => readdirSync(inputPath),
   realpath: (inputPath: string) => realpathSync.native(inputPath),
   remove: (inputPath: string) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-043 */
+    /* @gate-identity state-store/legacy.fs-043 */
     rmSync(inputPath, { force: true }),
 };
 
@@ -70,14 +70,14 @@ export const localRuntimeStateFileSystem = {
     let descriptor: number;
     try {
       descriptor =
-        /* @gate-identity check-bypass-write-boundary/bypass-write-053 */
+        /* @gate-identity state-store/legacy.fs-053 */
         openSync(inputPath, "wx");
     } catch (error) {
       if (isExclusiveCreateConflict(error)) return false;
       throw error;
     }
     try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-054 */
+      /* @gate-identity state-store/legacy.fs-054 */
       writeFileSync(descriptor, value);
       syncDescriptor(descriptor);
       if (syncParents) {
@@ -88,7 +88,7 @@ export const localRuntimeStateFileSystem = {
       }
       return true;
     } finally {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-055 */
+      /* @gate-identity state-store/legacy.fs-055 */
       closeSync(descriptor);
     }
   },
@@ -102,51 +102,51 @@ export const localRuntimeStateFileSystem = {
     return stat?.size ?? null;
   },
   mkdirp: (inputPath: string) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-056 */
+    /* @gate-identity state-store/legacy.fs-056 */
     mkdirSync(inputPath, { recursive: true }),
   linkExclusive: (fromPath: string, toPath: string): void => {
-    /* @gate-identity check-bypass-write-boundary/generation-three-certificate-link */
+    /* @gate-identity state-store/legacy.generation-three-certificate-link */
     linkSync(fromPath, toPath);
   },
   modifiedAtMs: (inputPath: string) => statSync(inputPath).mtimeMs,
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
   rename: (fromPath: string, toPath: string) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-057 */
+    /* @gate-identity state-store/legacy.fs-057 */
     renameSync(fromPath, toPath),
   remove: (inputPath: string) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-058 */
+    /* @gate-identity state-store/legacy.fs-058 */
     rmSync(inputPath, { force: true }),
   syncDirectory: (inputPath: string) => syncDirectories([inputPath]),
   withReadDescriptor: <T>(inputPath: string, use: (descriptor: number) => T): T => {
     const descriptor =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-129 */
+      /* @gate-identity state-store/legacy.fs-129 */
       openSync(inputPath, "r");
     try {
       return use(descriptor);
     } finally {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-130 */
+      /* @gate-identity state-store/legacy.fs-130 */
       closeSync(descriptor);
     }
   },
   writeExclusiveStream: (inputPath: string, chunks: Iterable<string | Uint8Array>): void => {
     const descriptor =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-131 */
+      /* @gate-identity state-store/legacy.fs-131 */
       openSync(inputPath, "wx");
     try {
       for (const chunk of chunks) {
         const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
         for (let offset = 0; offset < bytes.byteLength; )
           offset +=
-            /* @gate-identity check-bypass-write-boundary/bypass-write-132 */
+            /* @gate-identity state-store/legacy.fs-132 */
             writeSync(descriptor, bytes, offset);
       }
     } finally {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-133 */
+      /* @gate-identity state-store/legacy.fs-133 */
       closeSync(descriptor);
     }
   },
   writeText: (inputPath: string, value: string) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-059 */
+    /* @gate-identity state-store/legacy.fs-059 */
     writeFileSync(inputPath, value, "utf8"),
 };
 
@@ -169,30 +169,30 @@ export const localContentObjectFileSystem = {
           directory = parent;
           directories.add(directory);
         }
-        /* @gate-identity check-bypass-write-boundary/bypass-write-067 */
+        /* @gate-identity state-store/legacy.fs-067 */
         mkdirSync(path.dirname(entry.path), { recursive: true });
         const temporary = `${entry.path}.${process.pid}.tmp`,
           descriptor =
-            /* @gate-identity check-bypass-write-boundary/bypass-write-068 */
+            /* @gate-identity state-store/legacy.fs-068 */
             openSync(temporary, "w", 0o600);
         temporaryObjects.push({ temporary, target: entry.path });
         try {
-          /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
+          /* @gate-identity state-store/legacy.fs-069 */
           writeSync(descriptor, typeof entry.body === "string" ? Buffer.from(entry.body, "utf8") : entry.body);
           syncDescriptor(descriptor);
         } finally {
-          /* @gate-identity check-bypass-write-boundary/bypass-write-071 */
+          /* @gate-identity state-store/legacy.fs-071 */
           closeSync(descriptor);
         }
       }
       for (const object of temporaryObjects) {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-072 */
+        /* @gate-identity state-store/legacy.fs-072 */
         renameSync(object.temporary, object.target);
       }
       syncDirectories([...directories]);
     } catch (error) {
       for (const object of temporaryObjects) {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-110 */
+        /* @gate-identity state-store/legacy.fs-110 */
         rmSync(object.temporary, { force: true });
       }
       throw error;
@@ -201,7 +201,7 @@ export const localContentObjectFileSystem = {
 };
 
 function syncDescriptor(descriptor: number): void {
-  /* @gate-identity check-bypass-write-boundary/bypass-write-070 */
+  /* @gate-identity state-store/legacy.fs-070 */
   fsyncSync(descriptor);
 }
 
@@ -209,13 +209,13 @@ function syncDirectories(directories: readonly string[]): void {
   if (process.platform !== "win32")
     for (const directoryPath of directories) {
       const directory =
-        /* @gate-identity check-bypass-write-boundary/bypass-write-073 */
+        /* @gate-identity state-store/legacy.fs-073 */
         openSync(directoryPath, "r");
       try {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-074 */
+        /* @gate-identity state-store/legacy.fs-074 */
         fsyncSync(directory);
       } finally {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-075 */
+        /* @gate-identity state-store/legacy.fs-075 */
         closeSync(directory);
       }
     }

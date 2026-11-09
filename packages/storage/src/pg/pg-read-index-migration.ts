@@ -8,7 +8,7 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
  */
 export function readIndexDdl(): readonly string[] {
   return [
-    `CREATE TABLE IF NOT EXISTS ha_runtime_session_tasks (
+    /* @gate-identity state-store/task.projection.ha_runtime_session_tasks */ `CREATE TABLE IF NOT EXISTS ha_runtime_session_tasks (
       ${POSTGRES_SCOPE_COLUMNS_SQL},readers text[] NOT NULL DEFAULT '{}',task_id text NOT NULL,session_id text NOT NULL,
       PRIMARY KEY(tenant_id,project_id,policy_epoch,task_id,session_id))`,
     `CREATE INDEX IF NOT EXISTS ha_runtime_session_tasks_session ON ha_runtime_session_tasks

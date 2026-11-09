@@ -37,7 +37,7 @@ export function relationFreshnessDdl(): readonly string[] {
   return [
     "ALTER TABLE ha_relations ADD COLUMN IF NOT EXISTS freshness text",
     "ALTER TABLE ha_relations ADD COLUMN IF NOT EXISTS current_target_version jsonb",
-    `CREATE TABLE IF NOT EXISTS ${PG_RELATION_FRESHNESS_DIRTY_TABLE} (
+    /* @gate-identity state-store/task.projection.ha_relation_freshness_dirty */ `CREATE TABLE IF NOT EXISTS ${PG_RELATION_FRESHNESS_DIRTY_TABLE} (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       ref text NOT NULL,

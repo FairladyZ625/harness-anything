@@ -73,7 +73,7 @@ const RETIRED_REPOSITORY_ENTRIES = [
 export function revokeReplicaView(root: string): void {
   const pointer = path.join(root, "current.json");
   if (!existsSync(pointer)) return;
-  rmSync(pointer);
+  /* @gate-identity state-store/legacy.2b71d7772261c9f6 */ rmSync(pointer);
   syncDirectory(root);
 }
 
@@ -103,7 +103,7 @@ export async function installReplicaGeneration(input: {
     throw new Error("base backup archive is incomplete or corrupt");
   const next = generation(input.root, randomUUID(), input.metadata),
     temporary = `${next.rootDir}.staging`;
-  await mkdir(temporary, { recursive: true });
+  await /* @gate-identity state-store/legacy.41e5542f841b626b */ mkdir(temporary, { recursive: true });
   let expandedBytes = 0;
   try {
     const unpack = new tar.Unpack({
@@ -179,12 +179,12 @@ export async function installReplicaGeneration(input: {
     };
     flush(temporary);
     // Publication cannot yield between making the directory collectible and publishing its pointer.
-    renameSync(temporary, next.rootDir);
+    /* @gate-identity state-store/legacy.2643c6e4e8068c8f */ renameSync(temporary, next.rootDir);
     syncDirectory(path.dirname(next.rootDir));
     writeFileDurably(path.join(input.root, "current.json"), JSON.stringify({ id: next.id, metadata: next.metadata }));
     return next;
   } catch (error) {
-    await rm(temporary, { recursive: true, force: true });
+    await /* @gate-identity state-store/legacy.045528ed74c9f69f */ rm(temporary, { recursive: true, force: true });
     throw error;
   }
 }
@@ -241,7 +241,13 @@ function createGenerationReaders(root: string) {
       (entry) =>
         entry.isDirectory() && entry.name !== current?.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
     );
-    for (const entry of superseded) rmSync(path.join(directory, entry.name), { recursive: true, force: true });
+    for (const entry of superseded) {
+      /* @gate-identity state-store/legacy.b5b775a388c27d49 */
+      rmSync(path.join(directory, entry.name), {
+        recursive: true,
+        force: true,
+      });
+    }
   };
   /**
    * Removes what a crashed install left behind (unpublished generation staging and received base
@@ -253,15 +259,29 @@ function createGenerationReaders(root: string) {
     if (existsSync(directory))
       for (const entry of readdirSync(directory, { withFileTypes: true }))
         if (entry.isDirectory() && entry.name.endsWith(".staging"))
-          await rm(path.join(directory, entry.name), { recursive: true, force: true });
-    await rm(path.join(root, "staging"), { recursive: true, force: true });
+          await /* @gate-identity state-store/legacy.0baf4b0ca7a84712 */ rm(path.join(directory, entry.name), {
+            recursive: true,
+            force: true,
+          });
+    await /* @gate-identity state-store/legacy.b4637ecfe1a1cf9f */ rm(path.join(root, "staging"), {
+      recursive: true,
+      force: true,
+    });
     // An edge upgraded in place still holds the retired layout under the same view path.
     const pointer = path.join(root, "current.json");
-    if (existsSync(pointer) && readReplicaGeneration(root) === null) await rm(pointer, { force: true });
-    for (const name of RETIRED_VIEW_ENTRIES) await rm(path.join(root, name), { recursive: true, force: true });
+    if (existsSync(pointer) && readReplicaGeneration(root) === null)
+      await /* @gate-identity state-store/legacy.0c877efe5d0ccf7f */ rm(pointer, { force: true });
+    for (const name of RETIRED_VIEW_ENTRIES)
+      await /* @gate-identity state-store/legacy.8a8341f027d3f06a */ rm(path.join(root, name), {
+        recursive: true,
+        force: true,
+      });
     const repository = path.dirname(path.dirname(root));
     for (const name of RETIRED_REPOSITORY_ENTRIES)
-      await rm(path.join(repository, name), { recursive: true, force: true });
+      await /* @gate-identity state-store/legacy.3028220fe1257151 */ rm(path.join(repository, name), {
+        recursive: true,
+        force: true,
+      });
   };
   return {
     acquire(): { readonly generation: ReplicaGeneration; readonly release: () => void } | null {

@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 

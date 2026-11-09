@@ -507,17 +507,19 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   }
   #deleteSession(): void {
     const file = sessionFile(this.#root);
-    if (existsSync(file)) unlinkSync(file);
+    if (existsSync(file)) /* @gate-identity state-store/legacy.569933132c33b414 */ unlinkSync(file);
   }
   #acceptUser(user: BuiltinUser): Record<string, unknown> {
     const session = this.#mintSession(user);
     const file = sessionFile(this.#root),
       directory = path.dirname(file),
       temporary = `${file}.${process.pid}.tmp`;
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    writeFileSync(temporary, `${JSON.stringify(session)}\n`, { mode: 0o600 });
+    /* @gate-identity state-store/legacy.973f82efcfc02039 */ mkdirSync(directory, { recursive: true, mode: 0o700 });
+    /* @gate-identity state-store/legacy.bca67aab89d013d4 */ writeFileSync(temporary, `${JSON.stringify(session)}\n`, {
+      mode: 0o600,
+    });
     chmodSync(temporary, 0o600);
-    renameSync(temporary, file);
+    /* @gate-identity state-store/legacy.b5bae2c6cafb6493 */ renameSync(temporary, file);
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 

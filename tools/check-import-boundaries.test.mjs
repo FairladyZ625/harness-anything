@@ -928,6 +928,25 @@ test("import boundary keeps SQL and database drivers inside storage", () => {
   }
 });
 
+test("import boundary rejects direct cross-process cache driver imports", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFileSync(
+      path.join(root, "packages/daemon/src/cache.ts"),
+      "import { createClient } from 'redis';\nexport const client = createClient();\n",
+      "utf8",
+    );
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /cache driver redis must be imported by a registered storage CrossProcessCachePort adapter/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("import boundary names the value edges of a production-shaped Registry runtime cycle", () => {
   const root = makeFixtureRoot();
   try {

@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { Pool } from "pg";
 import type { CanonicalEventV1 } from "@harness-anything/kernel";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";

@@ -59,8 +59,10 @@ export function daemonStoppedMarkerPath(userRoot: string, daemonId: string): str
 export function writeDaemonStoppedMarker(userRoot: string, daemonId: string): string {
   const stoppedAt = new Date().toISOString(),
     markerPath = daemonStoppedMarkerPath(userRoot, daemonId);
-  mkdirSync(userRoot, { recursive: true });
-  writeFileSync(markerPath, `${stoppedAt}\n${process.pid}\n`, { mode: 0o600 });
+  /* @gate-identity state-store/legacy.922811db7d4b5308 */ mkdirSync(userRoot, { recursive: true });
+  /* @gate-identity state-store/legacy.d751c91ac5cd9c5d */ writeFileSync(markerPath, `${stoppedAt}\n${process.pid}\n`, {
+    mode: 0o600,
+  });
   return stoppedAt;
 }
 export function readDaemonStoppedAt(userRoot: string, daemonId: string): string | null {
@@ -69,18 +71,20 @@ export function readDaemonStoppedAt(userRoot: string, daemonId: string): string 
   return readFileSync(markerPath, "utf8").split("\n", 1)[0] || null;
 }
 export function clearDaemonStoppedMarker(userRoot: string, daemonId: string): void {
-  rmSync(daemonStoppedMarkerPath(userRoot, daemonId), { force: true });
+  /* @gate-identity state-store/legacy.ae9f33d2357cd9e4 */ rmSync(daemonStoppedMarkerPath(userRoot, daemonId), {
+    force: true,
+  });
 }
 // The unit file is the one persistent record that a service manager owns this daemon; spawn (below)
 // and `ha daemon service` both read it, so it is written and removed here and nowhere else.
 export function writeDaemonServiceUnit(unit: DaemonServiceUnit, content: string, outputPath: string): void {
-  mkdirSync(path.dirname(unit.unitPath), { recursive: true });
+  /* @gate-identity state-store/legacy.c525f2977a64562a */ mkdirSync(path.dirname(unit.unitPath), { recursive: true });
   // The service manager opens the daemon's output file itself and does not create its directory.
-  mkdirSync(path.dirname(outputPath), { recursive: true });
-  writeFileSync(unit.unitPath, content, "utf8");
+  /* @gate-identity state-store/legacy.ebb0f3dc7d49ecf6 */ mkdirSync(path.dirname(outputPath), { recursive: true });
+  /* @gate-identity state-store/legacy.d1ede72339cbae09 */ writeFileSync(unit.unitPath, content, "utf8");
 }
 export function removeDaemonServiceUnit(unit: DaemonServiceUnit): void {
-  rmSync(unit.unitPath, { force: true });
+  /* @gate-identity state-store/legacy.a9c01bf05c0cfe26 */ rmSync(unit.unitPath, { force: true });
 }
 export class DaemonAutostartError extends Error {
   readonly code: DaemonAutostartFailureCode;
@@ -480,7 +484,7 @@ export function daemonCheckoutRoot(rootDir: string): string {
 // One-command workspace preparation (edge join) needs the spawn cwd to exist before the first
 // spawn; callers decide which root qualifies, this only makes it real.
 export function ensureDaemonSpawnRoot(invokingRoot: string): void {
-  mkdirSync(invokingRoot, { recursive: true });
+  /* @gate-identity state-store/legacy.b44a95013e42368d */ mkdirSync(invokingRoot, { recursive: true });
 }
 function sameGitRepository(left: string, right: string): boolean {
   const leftCommon = gitCommonDirectory(left),

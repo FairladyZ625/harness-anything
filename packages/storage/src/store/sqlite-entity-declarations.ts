@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { CanonicalEventV1 } from "@harness-anything/kernel";
 import { isEntityEvent } from "@harness-anything/kernel/internal/domain/entity-event.ts";
 import { reduceEntityDeclarationState } from "./entity-declaration-state.ts";
@@ -11,7 +10,7 @@ type Query = (
   sql: string,
   values?: readonly (string | number | null)[],
 ) => Record<string, import("node:sqlite").SQLOutputValue>[];
-export const SQLITE_DECLARATION_INDEX_DDL = `
+export const SQLITE_DECLARATION_INDEX_DDL = /* @gate-identity state-store/legacy.66be51206faac3d7 */ /* @gate-identity state-store/legacy.d0d7f4283b2e5e8d */ `
   CREATE TABLE IF NOT EXISTS entity_declaration_head (
     entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, state_json TEXT NOT NULL,
     live INTEGER NOT NULL, PRIMARY KEY(entity_kind,entity_id)

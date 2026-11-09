@@ -20,16 +20,6 @@ export const allowlistJsonPolicies = Object.freeze({
     pathSections: {},
     nonPathSections: ["catalogNulls"],
   },
-  "check-bypass-write-boundary.json": {
-    pathSections: {},
-    nonPathSections: [
-      "rebuildable-projection",
-      "coordinatedCore",
-      "exemptHumanOrBootstrap",
-      "legacyArchive",
-      "freshGateRegistry",
-    ],
-  },
   "check-implementation-contracts.json": {
     pathSections: {
       expectedRuntimeTestFiles: "value",

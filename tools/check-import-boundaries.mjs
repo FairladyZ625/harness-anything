@@ -1,9 +1,11 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
+import { auditCacheDriverImports, cacheDriverAdapterCandidates } from "./gates/cache-driver-import-boundary.mjs";
+import { loadStateAuthoritySnapshot } from "./gates/ontology-gate-lib.mjs";
 import {
   analyzeRuntimeImportCycles,
   formatCycleWitness,
@@ -328,6 +330,20 @@ const toolSourceFiles = listWorktreeFiles(root, ["tools"])
   .map((file) => path.join(root, file));
 const knownImportFiles = new Set([...packageSourceFiles, ...toolSourceFiles].map(relative));
 const importEdges = await collectImportEdges([...packageSourceFiles, ...toolSourceFiles], knownImportFiles);
+const registryPath = path.join(root, "packages/kernel/src/domain/entity-kind-registry.ts");
+const packageSources = await Promise.all(
+  packageSourceFiles.map(async (file) => ({ path: relative(file), text: await readFile(file, "utf8") })),
+);
+const registeredCacheAdapters =
+  cacheDriverAdapterCandidates(packageSources).length > 0 && existsSync(registryPath)
+    ? loadStateAuthoritySnapshot(root).stateStores.flatMap(({ stateStores }) =>
+        (stateStores ?? [])
+          .filter(({ medium }) => medium?.kind === "shared-cache")
+          .map(({ medium }) => medium.adapter.split("#")[0]),
+      )
+    : [];
+for (const finding of auditCacheDriverImports(packageSources, registeredCacheAdapters))
+  record(path.join(root, finding.path), finding.message);
 
 // dec_D90F19C8AAAF39747F8F0D6698/CH8 C4: persistence belongs to packages/storage. The
 // backend discriminant, SQL text and database drivers must not appear in the ledger runtime

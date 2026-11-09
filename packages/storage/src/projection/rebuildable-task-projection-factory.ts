@@ -1,7 +1,6 @@
 import { projectionCatchUpLimit } from "./catch-up-limit.ts";
 import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
-// @write-boundary-exemption rebuildable-projection
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {

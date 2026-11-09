@@ -1,253 +1,114 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { pathToFileURL } from "node:url";
-import ts from "typescript";
-import { loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
-import { readSourceIdentity } from "./gate-allowlists/source-identity.mjs";
-import { listWorktreeFiles } from "./gates/git.mjs";
+import { stateResidencyBaseline } from "./gate-allowlists/state-residency-baseline.mjs";
+import { loadStateAuthoritySnapshot } from "./gates/ontology-gate-lib.mjs";
+import { scanBypassWriteCalls } from "./gates/state-residency.mjs";
 
-const gateId = "check-bypass-write-boundary";
+export { scanBypassWriteCalls };
 
-const targetRoots = [
-  "packages/storage/src/store",
-  "packages/kernel/src/local",
-  "packages/storage/src/projection",
-  "packages/cli/src",
-];
-
-const fsWriteApis = new Set([
-  "appendFile",
-  "appendFileSync",
-  "closeSync",
-  "copyFile",
-  "copyFileSync",
-  "cp",
-  "cpSync",
-  "fsyncSync",
-  "link",
-  "linkSync",
-  "mkdir",
-  "mkdirSync",
-  "open",
-  "openSync",
-  "rename",
-  "renameSync",
-  "rm",
-  "rmSync",
-  "rmdir",
-  "rmdirSync",
-  "symlink",
-  "symlinkSync",
-  "truncate",
-  "truncateSync",
-  "unlink",
-  "unlinkSync",
-  "write",
-  "writeFile",
-  "writeFileSync",
-  "writeSync",
-]);
-
-export function scanBypassWriteCalls(root = process.cwd()) {
-  return targetRoots.flatMap((relRoot) => walkTypeScriptFiles(root, relRoot)).flatMap((rel) => inspectFile(root, rel));
-}
-
-export function checkBypassWriteBoundary(root = process.cwd()) {
-  const allowlist = loadGateAllowlist(gateId, {
-    requiredSections: [
-      "coordinatedCore",
-      "rebuildable-projection",
-      "exemptHumanOrBootstrap",
-      "legacyArchive",
-      "freshGateRegistry",
-    ],
-  });
-  const rebuildableProjection = new Map(allowlist["rebuildable-projection"].map((entry) => [entry.value, entry]));
-  const governed = new Map(
-    Object.entries(allowlist)
-      .filter(([section]) => section !== "rebuildable-projection")
-      .flatMap(([, entries]) => entries)
-      .map((entry) => [entry.value, entry]),
+export function checkBypassWriteBoundary(root = process.cwd(), options = {}) {
+  const contracts = options.contracts ?? loadStateAuthoritySnapshot(root).stateStores;
+  const baseline = options.baseline ?? stateResidencyBaseline;
+  const stores = contracts.flatMap(({ kind, stateStores }) =>
+    (stateStores ?? []).map((store) => ({ ...store, owner: kind })),
   );
-  const findings = scanBypassWriteCalls(root).map((finding) => {
-    const entry = (finding.category === "rebuildable-projection" ? rebuildableProjection : governed).get(finding.key);
-    return {
+  const byId = new Map();
+  const findings = [];
+  const fail = (key, message) => findings.push({ key, message, allowed: false });
+  for (const store of stores) {
+    if (byId.has(store.id)) fail(store.id, `store id ${store.id} is declared by multiple aggregates`);
+    byId.set(store.id, store);
+  }
+  const debt = new Map();
+  for (const entry of baseline) {
+    if (debt.has(entry.key)) fail(entry.key, "duplicate state residency baseline entry");
+    debt.set(entry.key, entry);
+  }
+  const seenDebt = new Map();
+  const seenStores = new Set();
+  for (const finding of scanBypassWriteCalls(root)) {
+    // A table's exact registered name is its natural identity. An explicit marker
+    // takes precedence, so a wrong marker cannot silently fall back to that name.
+    const owners = finding.identity ? [byId.get(finding.identity)].filter(Boolean) : [];
+    const store = owners.length === 1 ? owners[0] : undefined;
+    let message;
+    let allowed = false;
+    if (owners.length > 1) message = `table ${finding.table} is claimed by multiple stores`;
+    else if (store) {
+      message = mediumMismatch(finding, store);
+      allowed = message === undefined;
+      if (allowed) seenStores.add(store.id);
+    } else {
+      const entry = debt.get(finding.key);
+      if (entry && entry.kind === finding.kind && entry.api === finding.api && entry.medium === finding.medium) {
+        seenDebt.set(entry.key, (seenDebt.get(entry.key) ?? 0) + 1);
+        allowed = true;
+        message = "existing unowned state residency debt (remove on aggregate ownership)";
+      } else if (entry) message = `baseline identity ${finding.key} changed API or medium`;
+      else
+        message = finding.identity
+          ? "store id does not resolve to a declared aggregate"
+          : finding.kind === "cache"
+            ? "unowned cross-process cache adapter"
+            : finding.kind === "table"
+              ? "unowned persistent table"
+              : "unowned persistent write";
+    }
+    findings.push({
       ...finding,
-      message:
-        entry && entry.api !== finding.api
-          ? `source identity ${finding.key} changed API from ${entry.api} to ${finding.api}`
-          : finding.category === "rebuildable-projection"
-            ? `${finding.api} writes a rebuildable projection cache under the explicit rebuildable-projection exemption`
-            : `${finding.api} writes filesystem state outside the coordinator unless explicitly governed`,
-      allowed: finding.identity !== null && entry?.api === finding.api,
-    };
-  });
-
-  const identityCounts = new Map();
-  for (const finding of findings) {
-    if (finding.identity !== null)
-      identityCounts.set(finding.identity, (identityCounts.get(finding.identity) ?? 0) + 1);
+      owner: store?.owner,
+      role: store?.role,
+      allowed,
+      message: message ?? `owned by ${store.owner}/${store.id}`,
+    });
   }
-  for (const finding of findings) {
-    if (finding.identity !== null && identityCounts.get(finding.identity) !== 1) {
-      finding.allowed = false;
-      finding.message = `source identity ${finding.identity} is attached to more than one governed call`;
-    }
+  for (const entry of baseline) {
+    const count = seenDebt.get(entry.key) ?? 0;
+    if (count === 0) fail(entry.key, "state residency baseline entry is stale and must be removed");
+    else if (count !== entry.count) fail(entry.key, `baseline identity count changed from ${entry.count} to ${count}`);
   }
-
-  for (const entry of [...governed.values(), ...rebuildableProjection.values()]) {
-    if (!findings.some((finding) => finding.identity === entry.value)) {
-      findings.push({
-        key: entry.value,
-        message: `allowlist entry is stale and should be removed: ${entry.value}`,
-        allowed: false,
-      });
-    }
+  for (const store of stores) {
+    // Canonical events are checked by aggregate-entry. The two fixed host
+    // helpers are port-based domain functions, not physical storage drivers.
+    if (
+      ["journal", "sqlite-table", "postgres-table", "shared-cache"].includes(store.medium.kind) &&
+      !seenStores.has(store.id)
+    )
+      fail(store.id, "declared state store is stale: no matching write/table/cache construction");
   }
   return { findings, violations: findings.filter((finding) => !finding.allowed) };
 }
 
-function inspectFile(root, rel) {
-  const sourceText = readFileSync(path.join(root, rel), "utf8");
-  const category =
-    rel.startsWith("packages/storage/src/projection/") &&
-    sourceText.includes("@write-boundary-exemption rebuildable-projection")
-      ? "rebuildable-projection"
-      : "governed-write";
-  const sourceFile = ts.createSourceFile(rel, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const bindings = fsBindings(sourceFile);
-  const sqlite = sqliteBindings(sourceFile);
-  const sqliteGoverned = category === "rebuildable-projection" || hasWritableSqliteOpen(sourceFile, sqlite);
-  if (bindings.named.size === 0 && bindings.namespaces.size === 0 && sqlite.size === 0) return [];
-  const findings = [];
-
-  visit(sourceFile, (node) => {
-    const api = ts.isCallExpression(node)
-      ? (calledFsApi(node.expression, bindings) ?? calledSqliteApi(node.expression, sqlite, sqliteGoverned))
-      : ts.isNewExpression(node) &&
-          ts.isIdentifier(node.expression) &&
-          sqlite.has(node.expression.text) &&
-          !readOnlySqliteOpen(node)
-        ? "DatabaseSync"
-        : undefined;
-    if (!api) return;
-    const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.expression.getStart(sourceFile));
-    const identity =
-      readSourceIdentity(node.expression, sourceFile, gateId) ??
-      (ts.isNewExpression(node) ? readSourceIdentity(node, sourceFile, gateId) : null);
-    findings.push({
-      api,
-      category,
-      path: rel,
-      line: line + 1,
-      column: character + 1,
-      identity,
-      key: identity ?? `${rel}#${api}@${line + 1}:${character + 1}`,
-      legacyKey: `${rel}#${api}@${line + 1}:${character + 1}`,
-    });
-  });
-  return findings;
-}
-
-function sqliteBindings(sourceFile) {
-  const bindings = new Set();
-  for (const statement of sourceFile.statements) {
-    if (
-      !ts.isImportDeclaration(statement) ||
-      !ts.isStringLiteral(statement.moduleSpecifier) ||
-      statement.moduleSpecifier.text !== "node:sqlite"
-    )
-      continue;
-    const named = statement.importClause?.namedBindings;
-    if (!named || !ts.isNamedImports(named)) continue;
-    for (const element of named.elements) {
-      if ((element.propertyName ?? element.name).text === "DatabaseSync") bindings.add(element.name.text);
-    }
+function mediumMismatch(finding, store) {
+  if (finding.kind === "cache" && (store.medium.kind !== "shared-cache" || store.medium.adapter !== finding.adapter))
+    return `cache adapter ${finding.adapter} does not match declared medium.adapter`;
+  if (finding.kind === "table" && (store.medium.kind !== finding.medium || store.medium.table !== finding.table))
+    return `table ${finding.table} does not match declared ${finding.medium} medium`;
+  if (finding.kind === "write") {
+    if (store.medium.kind === "shared-cache") return "physical write cannot claim a shared-cache adapter";
+    const sqliteApi = finding.api === "DatabaseSync" || finding.api.startsWith("sqlite.");
+    if (sqliteApi && !["sqlite-table", "canonical-event"].includes(store.medium.kind))
+      return `SQLite API ${finding.api} does not match declared medium ${store.medium.kind}`;
+    if (!sqliteApi && !["journal", "canonical-event"].includes(store.medium.kind))
+      return `filesystem API ${finding.api} does not match declared medium ${store.medium.kind}`;
   }
-  return bindings;
-}
-
-function calledSqliteApi(expression, sqlite, sqliteGoverned) {
-  if (!sqliteGoverned || sqlite.size === 0 || !ts.isPropertyAccessExpression(expression)) return undefined;
-  return ["exec", "prepare"].includes(expression.name.text) ? `sqlite.${expression.name.text}` : undefined;
-}
-
-function hasWritableSqliteOpen(sourceFile, sqlite) {
-  let writable = false;
-  visit(sourceFile, (node) => {
-    if (
-      ts.isNewExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      sqlite.has(node.expression.text) &&
-      !readOnlySqliteOpen(node)
-    )
-      writable = true;
-  });
-  return writable;
-}
-
-function readOnlySqliteOpen(node) {
-  const options = node.arguments?.[1];
-  if (!options || !ts.isObjectLiteralExpression(options)) return false;
-  return options.properties.some(
-    (property) =>
-      ts.isPropertyAssignment(property) &&
-      property.name.getText() === "readOnly" &&
-      property.initializer.kind === ts.SyntaxKind.TrueKeyword,
-  );
-}
-
-function fsBindings(sourceFile) {
-  const named = new Map();
-  const namespaces = new Set();
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (!["node:fs", "node:fs/promises"].includes(statement.moduleSpecifier.text)) continue;
-    const clause = statement.importClause;
-    if (!clause) continue;
-    if (clause.name) namespaces.add(clause.name.text);
-    const namedBindings = clause.namedBindings;
-    if (namedBindings && ts.isNamespaceImport(namedBindings)) namespaces.add(namedBindings.name.text);
-    if (namedBindings && ts.isNamedImports(namedBindings)) {
-      for (const element of namedBindings.elements) {
-        const imported = (element.propertyName ?? element.name).text;
-        if (fsWriteApis.has(imported)) named.set(element.name.text, imported);
-      }
-    }
-  }
-  return { named, namespaces };
-}
-
-function calledFsApi(expression, bindings) {
-  if (ts.isIdentifier(expression)) return bindings.named.get(expression.text);
-  if (!ts.isPropertyAccessExpression(expression) || !bindings.namespaces.has(expression.expression.getText()))
-    return undefined;
-  return fsWriteApis.has(expression.name.text) ? expression.name.text : undefined;
-}
-
-function visit(node, fn) {
-  fn(node);
-  ts.forEachChild(node, (child) => visit(child, fn));
-}
-
-function walkTypeScriptFiles(root, relRoot) {
-  if (!existsSync(path.join(root, relRoot))) throw new Error(`required scan root is missing: ${relRoot}`);
-  return listWorktreeFiles(root, [relRoot]).filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".d.ts"));
+  if (store.role === "operational")
+    return "host operational state requires the fixed purpose/schema/API helper; arbitrary filesystem writes are forbidden";
+  return undefined;
 }
 
 function main() {
   const result = checkBypassWriteBoundary();
-  if (result.violations.length > 0) {
+  if (result.violations.length) {
     console.error("Bypass write boundary check failed:");
-    for (const finding of result.violations) {
-      const location = finding.path ? `${finding.path}:${finding.line}:${finding.column}` : finding.key;
-      console.error(`- ${location} [${finding.key}]: ${finding.message}`);
-    }
+    for (const finding of result.violations)
+      console.error(
+        `- ${finding.path ? `${finding.path}:${finding.line}:${finding.column}` : finding.key} [${finding.key}]: ${finding.message}`,
+      );
     process.exitCode = 1;
-  } else {
-    console.log(`Bypass write boundary check passed (${result.findings.length} governed filesystem/SQLite call(s)).`);
-  }
+  } else
+    console.log(
+      `Bypass write boundary check passed (${result.findings.length} persistent write/table/cache signal(s); baseline=${stateResidencyBaseline.length}).`,
+    );
 }
-
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) main();

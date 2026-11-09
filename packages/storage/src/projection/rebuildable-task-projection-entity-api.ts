@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { TaskProjection } from "@harness-anything/kernel";
 import type { ProjectionContext } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";

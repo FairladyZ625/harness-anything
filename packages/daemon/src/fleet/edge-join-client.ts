@@ -383,7 +383,7 @@ async function prepareJoinWorkspace(
   readonly defaultBranch?: string;
   readonly centerOrigin?: string;
 } | null> {
-  mkdirSync(root, { recursive: true });
+  /* @gate-identity state-store/legacy.6cc0d5c726eb11a2 */ mkdirSync(root, { recursive: true });
   const hasGit = existsSync(path.join(root, ".git"));
   if (!repository.originUrl) {
     if (!hasGit) await prepareWorkspace(root, repository.harnessYaml, repository.defaultBranch ?? "main");
@@ -461,7 +461,7 @@ async function prepareJoinWorkspace(
 function ensureCenterLayout(root: string, harnessYaml: string): void {
   const layout = path.join(root, "harness", "harness.yaml");
   if (existsSync(layout)) return;
-  mkdirSync(path.dirname(layout), { recursive: true });
+  /* @gate-identity state-store/legacy.983af9eb1df07bc2 */ mkdirSync(path.dirname(layout), { recursive: true });
   writeFileDurably(layout, harnessYaml);
 }
 

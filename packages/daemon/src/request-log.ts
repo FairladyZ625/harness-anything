@@ -167,7 +167,7 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
   }
 
   async function openSink(logPath: string): Promise<{ handle: FileHandle; bytes: number }> {
-    await mkdir(path.dirname(logPath), { recursive: true });
+    await /* @gate-identity state-store/legacy.3dd8b1ca6b76b91c */ mkdir(path.dirname(logPath), { recursive: true });
     const handle = await openFile(logPath, "a");
     const sink = { handle, bytes: (await handle.stat()).size };
     sinks.set(logPath, sink);
@@ -220,7 +220,10 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
       if (!pattern.test(name)) continue;
       try {
         const age = (await stat(path.join(directory, name))).mtimeMs;
-        if (age < cutoff) await rm(path.join(directory, name), { force: true });
+        if (age < cutoff)
+          await /* @gate-identity state-store/legacy.69b1169ea4d01ff3 */ rm(path.join(directory, name), {
+            force: true,
+          });
       } catch (error) {
         consumeKnownError(error);
       }
@@ -283,7 +286,7 @@ function escapeRegExp(value: string): string {
 }
 
 function renameIfExists(from: string, to: string): Promise<void> {
-  return rename(from, to).catch((error: unknown) => {
+  return /* @gate-identity state-store/legacy.b99cb7e864440348 */ rename(from, to).catch((error: unknown) => {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
       consumeKnownError(error);
       return;

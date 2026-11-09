@@ -25,7 +25,7 @@ import { checkedPageLimit } from "./pg-query-page.ts";
  * cannot reorder non-BMP names against the database pages at a page boundary.
  */
 export const artifactTimelineDdl = (): readonly string[] => [
-  `CREATE TABLE IF NOT EXISTS ha_artifact_documents (
+  /* @gate-identity state-store/task.projection.ha_artifact_documents */ `CREATE TABLE IF NOT EXISTS ha_artifact_documents (
     tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
     all_readers boolean NOT NULL,
     reader text NOT NULL,
@@ -41,7 +41,7 @@ export const artifactTimelineDdl = (): readonly string[] => [
   // cursor predicate keep a page at the index boundary instead of scanning invisible rows.
   `CREATE INDEX IF NOT EXISTS ha_artifact_documents_page ON ha_artifact_documents
     (tenant_id, project_id, policy_epoch, all_readers, reader, kind, sort_ms, relative, package_dir)`,
-  `CREATE TABLE IF NOT EXISTS ha_artifact_counts (
+  /* @gate-identity state-store/task.projection.ha_artifact_counts */ `CREATE TABLE IF NOT EXISTS ha_artifact_counts (
     tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
     all_readers boolean NOT NULL,
     reader text NOT NULL,

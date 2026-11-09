@@ -13,7 +13,10 @@
 // gate go green by dropping a real exemption on the floor. Only whitespace and
 // opening parens are allowed through, so any real token between the marker and a
 // node still means that node is not the marked one.
-const sourceIdentityPattern = /\/\*\s*@gate-identity\s+([a-z][a-z0-9-]*)\/([a-z][a-z0-9-]*)\s*\*\/[\s(]*$/u;
+// Store identities use dotted names (for example `state-store/host.process-lock`)
+// in addition to the older dash-only gate identities. Keep the gate component
+// strict, but let the owned id carry the registry's namespace separators.
+const sourceIdentityPattern = /\/\*\s*@gate-identity\s+([a-z][a-z0-9-]*)\/([a-z][a-z0-9_.-]*)\s*\*\/[\s(]*$/u;
 
 export function readSourceIdentity(node, sourceFile, gateId) {
   const start = node.getStart(sourceFile);

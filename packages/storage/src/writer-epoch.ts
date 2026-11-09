@@ -28,10 +28,12 @@ type EpochRow = {
 const repoIdPattern = /^[a-z][a-z0-9-]{0,62}$/u;
 
 function openEpochDatabase(databasePath: string): DatabaseSync {
-  mkdirSync(path.dirname(databasePath), { recursive: true });
-  const database = new DatabaseSync(databasePath);
-  database.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON");
-  database.exec(`
+  /* @gate-identity state-store/legacy.461fbe1aed14c554 */ mkdirSync(path.dirname(databasePath), { recursive: true });
+  const database = /* @gate-identity state-store/legacy.6c6c9b7708761cc1 */ new DatabaseSync(databasePath);
+  /* @gate-identity state-store/legacy.ea5a12c75f4992fb */ database.exec(
+    "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
+  );
+  /* @gate-identity state-store/legacy.14b3e2076302aec9 */ database.exec(/* @gate-identity state-store/legacy.bc16436affcb5b0d */ /* @gate-identity state-store/legacy.dbad50004138d3e7 */ `
     CREATE TABLE IF NOT EXISTS writer_epoch_history (
       repo_id TEXT NOT NULL,
       epoch INTEGER NOT NULL CHECK(epoch > 0),
@@ -61,13 +63,19 @@ function openRepoEpochAuthority(options: {
   readonly initialEpochFloor?: number;
 }) {
   const database = openEpochDatabase(options.databasePath);
-  const selectCurrent = database.prepare(
+  const selectCurrent = /* @gate-identity state-store/legacy.6a0c731aec14a31f */ database.prepare(
       "SELECT repo_id, holder_id, epoch, version, issued_at FROM writer_epochs WHERE repo_id=?",
     ),
-    selectFloor = database.prepare("SELECT MAX(epoch) AS floor FROM writer_epoch_history WHERE repo_id=?"),
-    deleteCurrent = database.prepare("DELETE FROM writer_epochs WHERE repo_id=?"),
-    insertHistory = database.prepare("INSERT INTO writer_epoch_history(repo_id, epoch) VALUES (?, ?)"),
-    upsertCurrent = database.prepare(
+    selectFloor = /* @gate-identity state-store/legacy.8868c6951fc41d8b */ database.prepare(
+      "SELECT MAX(epoch) AS floor FROM writer_epoch_history WHERE repo_id=?",
+    ),
+    deleteCurrent = /* @gate-identity state-store/legacy.6087ac6d766bca62 */ database.prepare(
+      "DELETE FROM writer_epochs WHERE repo_id=?",
+    ),
+    insertHistory = /* @gate-identity state-store/legacy.544f53dbf90f3268 */ database.prepare(
+      "INSERT INTO writer_epoch_history(repo_id, epoch) VALUES (?, ?)",
+    ),
+    upsertCurrent = /* @gate-identity state-store/legacy.a4c85092e6f444cf */ database.prepare(
       "INSERT INTO writer_epochs(repo_id, holder_id, epoch, version, issued_at) VALUES (?, ?, ?, ?, ?) " +
         "ON CONFLICT(repo_id) DO UPDATE SET holder_id=excluded.holder_id, epoch=excluded.epoch, " +
         "version=excluded.version, issued_at=excluded.issued_at",
@@ -82,14 +90,14 @@ function openRepoEpochAuthority(options: {
   };
   const withImmediateTransaction = <T>(operation: () => T): T => {
     ensureOpen();
-    database.exec("BEGIN IMMEDIATE");
+    /* @gate-identity state-store/legacy.d11f66a21148101d */ database.exec("BEGIN IMMEDIATE");
     try {
       const result = operation();
-      database.exec("COMMIT");
+      /* @gate-identity state-store/legacy.97575847d0903999 */ database.exec("COMMIT");
       return result;
     } catch (error) {
       try {
-        database.exec("ROLLBACK");
+        /* @gate-identity state-store/legacy.1d1078515e720d5b */ database.exec("ROLLBACK");
       } catch (rollbackError) {
         consumeKnownError(rollbackError);
       }
@@ -223,7 +231,7 @@ function safeFloorNumber(value: unknown, repoId: string): number {
 }
 
 function legacyFloorForRepo(database: DatabaseSync, repoId: string): number | null {
-  const statement = database.prepare(
+  const statement = /* @gate-identity state-store/legacy.366453f878dd3ffa */ database.prepare(
     "SELECT MAX(epoch_floor) AS floor FROM (" +
       "SELECT epoch AS epoch_floor FROM writer_epoch_history WHERE repo_id=? UNION ALL " +
       "SELECT epoch AS epoch_floor FROM writer_epochs WHERE repo_id=? UNION ALL " +
@@ -248,7 +256,7 @@ function targetEpochFloor(databasePath: string, repoId: string): number | null {
   if (!existsSync(databasePath)) return null;
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
-    const statement = database.prepare(
+    const statement = /* @gate-identity state-store/legacy.f3b97569fd744316 */ database.prepare(
       "SELECT MAX(epoch_floor) AS floor FROM (" +
         "SELECT epoch AS epoch_floor FROM writer_epoch_history WHERE repo_id=? UNION ALL " +
         "SELECT epoch AS epoch_floor FROM writer_epochs WHERE repo_id=? UNION ALL " +
@@ -269,7 +277,9 @@ function assertLegacyWriterEpochRepoMigrated(stateRoot: string, repoId: string, 
   const legacy = new DatabaseSync(legacyPath, { readOnly: true });
   try {
     const userVersion = Number(
-      (legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version,
+      /* @gate-identity state-store/legacy.ab19ed2ed3dcb732 */ (
+        legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }
+      ).user_version,
     );
     if (userVersion === 1) return;
     if (userVersion > 1)
@@ -309,12 +319,14 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
   if (!existsSync(legacyPath))
     return { schema: "writer-epoch-migration-receipt/v1", state: "not-needed", migratedRepos: [], rejectedRepos: [] };
 
-  const legacy = new DatabaseSync(legacyPath);
+  const legacy = /* @gate-identity state-store/legacy.989e429e10a1ea0d */ new DatabaseSync(legacyPath);
   let transactionOpen = false;
   try {
-    legacy.exec("PRAGMA busy_timeout=5000");
+    /* @gate-identity state-store/legacy.591c223fdd7a2c0c */ legacy.exec("PRAGMA busy_timeout=5000");
     let userVersion = Number(
-      (legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version,
+      /* @gate-identity state-store/legacy.705768c2f75fc9f9 */ (
+        legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }
+      ).user_version,
     );
     if (userVersion === 1)
       return {
@@ -329,13 +341,15 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
         `legacy writer epoch database version ${userVersion} is newer than supported version 1; ` +
           "restore a compatible backup before migrating",
       );
-    legacy.exec("BEGIN IMMEDIATE");
+    /* @gate-identity state-store/legacy.85899c3e2b0335ee */ legacy.exec("BEGIN IMMEDIATE");
     transactionOpen = true;
     userVersion = Number(
-      (legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }).user_version,
+      /* @gate-identity state-store/legacy.677ac5a2a99bd60d */ (
+        legacy.prepare("PRAGMA user_version").get() as { readonly user_version: number }
+      ).user_version,
     );
     if (userVersion === 1) {
-      legacy.exec("COMMIT");
+      /* @gate-identity state-store/legacy.24fe2eef871adb68 */ legacy.exec("COMMIT");
       transactionOpen = false;
       return {
         schema: "writer-epoch-migration-receipt/v1",
@@ -353,7 +367,7 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
 
     let floors: readonly LegacyWriterEpochFloor[];
     try {
-      const statement = legacy.prepare(legacyFloorSql);
+      const statement = /* @gate-identity state-store/legacy.45bb6c8a6f36fef0 */ legacy.prepare(legacyFloorSql);
       statement.setReadBigInts(true);
       floors = statement.all() as unknown as readonly LegacyWriterEpochFloor[];
     } catch (error) {
@@ -390,8 +404,9 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
       migrated.close();
       migratedRepos.push(repoId);
     }
-    if (rejectedRepos.length === 0) legacy.exec("PRAGMA user_version=1");
-    legacy.exec("COMMIT");
+    if (rejectedRepos.length === 0)
+      /* @gate-identity state-store/legacy.db8abadf69186b13 */ legacy.exec("PRAGMA user_version=1");
+    /* @gate-identity state-store/legacy.f6df20907c5d7a92 */ legacy.exec("COMMIT");
     transactionOpen = false;
     return {
       schema: "writer-epoch-migration-receipt/v1",
@@ -401,7 +416,7 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
     };
   } finally {
     try {
-      if (transactionOpen) legacy.exec("ROLLBACK");
+      if (transactionOpen) /* @gate-identity state-store/legacy.73ee0147635ca415 */ legacy.exec("ROLLBACK");
     } finally {
       legacy.close();
     }
@@ -417,7 +432,7 @@ export function openPersistentWriterEpoch(options: {
 }): PersistentWriterEpoch {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
     return openPgWriterEpoch({ ...options, storage: options.storage });
-  mkdirSync(options.stateRoot, { recursive: true });
+  /* @gate-identity state-store/legacy.9c7251038b1f88ab */ mkdirSync(options.stateRoot, { recursive: true });
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
     authorities = new Map<string, ReturnType<typeof openRepoEpochAuthority> | PersistentWriterEpoch>();

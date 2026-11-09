@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 // Dispatch lifecycle read model: the kernel reducer folded over the runtime and task events this
 // projection already applies. It is derived state only. A cache written before these tables existed
 // (or by a binary with another lifecycle model version) is refolded from its own event rows on open
@@ -36,7 +35,7 @@ const LIFECYCLE_TABLES = [
 ] as const;
 
 export const DISPATCH_LIFECYCLE_TABLES_SQL = `
-    CREATE TABLE IF NOT EXISTS dispatch_lifecycle_group (
+    /* @gate-identity state-store/task.projection.dispatch_lifecycle_group */ CREATE TABLE IF NOT EXISTS dispatch_lifecycle_group (
       attempt_group_id TEXT PRIMARY KEY,
       phase TEXT NOT NULL,
       current_instance_id TEXT NOT NULL,
@@ -48,18 +47,18 @@ export const DISPATCH_LIFECYCLE_TABLES_SQL = `
       ON dispatch_lifecycle_group(attempt_group_id) WHERE phase <> 'closed';
     CREATE INDEX IF NOT EXISTS dispatch_lifecycle_active_instance
       ON dispatch_lifecycle_group(current_instance_id, attempt_group_id) WHERE phase <> 'closed';
-    CREATE TABLE IF NOT EXISTS dispatch_lifecycle_attempt (
+    /* @gate-identity state-store/task.projection.dispatch_lifecycle_attempt */ CREATE TABLE IF NOT EXISTS dispatch_lifecycle_attempt (
       runtime_session_id TEXT PRIMARY KEY,
       dispatch_id TEXT NOT NULL,
       attempt_group_id TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS dispatch_lifecycle_attempt_dispatch ON dispatch_lifecycle_attempt(dispatch_id);
-    CREATE TABLE IF NOT EXISTS dispatch_lifecycle_task_lease (
+    /* @gate-identity state-store/task.projection.dispatch_lifecycle_task_lease */ CREATE TABLE IF NOT EXISTS dispatch_lifecycle_task_lease (
       task_id TEXT PRIMARY KEY,
       execution_id TEXT NOT NULL,
       version INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS dispatch_lifecycle_cursor (
+    /* @gate-identity state-store/task.projection.dispatch_lifecycle_cursor */ CREATE TABLE IF NOT EXISTS dispatch_lifecycle_cursor (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       revision INTEGER NOT NULL,
       model_version INTEGER NOT NULL

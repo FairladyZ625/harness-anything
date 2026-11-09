@@ -110,7 +110,7 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
 
 export function projectionDdl(): readonly string[] {
   return [
-    `CREATE TABLE IF NOT EXISTS ha_projection_values (
+    /* @gate-identity state-store/task.projection.ha_projection_values */ `CREATE TABLE IF NOT EXISTS ha_projection_values (
       ${POSTGRES_SCOPE_COLUMNS_SQL}, readers text[] NOT NULL DEFAULT '{}',
       model text NOT NULL, entity_id text NOT NULL, owner_id text NOT NULL DEFAULT '',
       workspace_revision bigint NOT NULL, value text NOT NULL,
@@ -126,7 +126,7 @@ export function projectionDdl(): readonly string[] {
     // immediately after seeding), so an aggregate read must not depend on it. This table holds
     // only unsettled sessions and is maintained by the same write transaction; its size is the
     // current in-flight count, not session history.
-    `CREATE TABLE IF NOT EXISTS ha_event_summary_state (
+    /* @gate-identity state-store/task.projection.ha_event_summary_state */ `CREATE TABLE IF NOT EXISTS ha_event_summary_state (
       tenant_id text NOT NULL,
       project_id text NOT NULL,
       policy_epoch bigint NOT NULL,
@@ -134,7 +134,7 @@ export function projectionDdl(): readonly string[] {
       ready boolean NOT NULL DEFAULT false,
       PRIMARY KEY(tenant_id,project_id,policy_epoch,repo_id)
     )`,
-    `CREATE TABLE IF NOT EXISTS ha_runtime_unsettled (
+    /* @gate-identity state-store/task.projection.ha_runtime_unsettled */ `CREATE TABLE IF NOT EXISTS ha_runtime_unsettled (
       tenant_id text NOT NULL,
       project_id text NOT NULL,
       policy_epoch bigint NOT NULL,
@@ -190,7 +190,7 @@ export function projectionDdl(): readonly string[] {
     `DROP INDEX IF EXISTS ha_projection_values_runtime_unsettled`,
     `CREATE INDEX IF NOT EXISTS ha_projection_document_path ON ha_projection_values
       (tenant_id,project_id,policy_epoch,entity_id COLLATE "C") WHERE model='document' AND owner_id=''`,
-    `CREATE TABLE IF NOT EXISTS ha_task_snapshots (
+    /* @gate-identity state-store/task.projection.ha_task_snapshots */ `CREATE TABLE IF NOT EXISTS ha_task_snapshots (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       task_id text NOT NULL,
@@ -204,7 +204,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, task_id)
     )`,
-    `CREATE TABLE IF NOT EXISTS ha_decisions (
+    /* @gate-identity state-store/task.projection.ha_decisions */ `CREATE TABLE IF NOT EXISTS ha_decisions (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       decision_id text NOT NULL,
@@ -214,7 +214,7 @@ export function projectionDdl(): readonly string[] {
       PRIMARY KEY (tenant_id, project_id, policy_epoch, decision_id)
     )`,
     ...decisionIndexDdl(),
-    `CREATE TABLE IF NOT EXISTS ha_facts (
+    /* @gate-identity state-store/task.projection.ha_facts */ `CREATE TABLE IF NOT EXISTS ha_facts (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       fact_id text NOT NULL,
@@ -224,7 +224,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, fact_id)
     )`,
-    `CREATE TABLE IF NOT EXISTS ha_relations (
+    /* @gate-identity state-store/task.projection.ha_relations */ `CREATE TABLE IF NOT EXISTS ha_relations (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       relation_id text NOT NULL,
@@ -237,7 +237,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, relation_id)
     )`,
-    `CREATE TABLE IF NOT EXISTS ha_agents (
+    /* @gate-identity state-store/task.projection.ha_agents */ `CREATE TABLE IF NOT EXISTS ha_agents (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       agent_id text NOT NULL,
@@ -250,7 +250,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, agent_id)
     )`,
-    `CREATE TABLE IF NOT EXISTS ha_squads (
+    /* @gate-identity state-store/task.projection.ha_squads */ `CREATE TABLE IF NOT EXISTS ha_squads (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       squad_id text NOT NULL,
@@ -263,7 +263,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, squad_id)
     )`,
-    `CREATE TABLE IF NOT EXISTS ha_projection_meta (
+    /* @gate-identity state-store/task.projection.ha_projection_meta */ `CREATE TABLE IF NOT EXISTS ha_projection_meta (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       projection_name text NOT NULL DEFAULT 'task/v1',

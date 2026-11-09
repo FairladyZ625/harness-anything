@@ -86,8 +86,8 @@ export async function startDaemon(input: {
     throw error;
   }
   const pidPath = daemonPidPath(input.userRoot, input.daemonId);
-  mkdirSync(path.dirname(pidPath), { recursive: true });
-  writeFileSync(pidPath, `${process.pid}\n`, "utf8");
+  /* @gate-identity state-store/legacy.f756e994e58ddb31 */ mkdirSync(path.dirname(pidPath), { recursive: true });
+  /* @gate-identity state-store/legacy.dd07d571d4e2d1f6 */ writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   const lifecycle = openDaemonLifecycleLog({ userRoot: input.userRoot, daemonId: input.daemonId });
   const build = daemonBuildStamp();
   const buildObserver = input.buildObserver ?? observeDaemonBuild(input.runtimeFile);
@@ -194,7 +194,9 @@ export async function startDaemon(input: {
         // A resident being superseded keeps its pid until it really exits, so force-stop can find
         // it after the socket closes. Its exit hook removes only its own pid; a successor may replace it.
         if (outcome !== "build_superseded" || input.retainPidUntilExit !== true)
-          await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
+          await settleTeardownStep(async () =>
+            /* @gate-identity state-store/legacy.a389d04c8a80e439 */ rmSync(pidPath, { force: true }),
+          );
         // A rejected drain cannot prove its writer threads stopped. Keep the singleton until
         // the resident actually dies; the next claimant removes the now-stale PID lock.
         if (!(drainFailed && outcome === "build_superseded" && input.retainPidUntilExit === true)) singleton.release();
@@ -422,7 +424,7 @@ export async function startDaemon(input: {
     await connLog.settle();
     await host?.close();
     await diagnostics?.close();
-    rmSync(pidPath, { force: true });
+    /* @gate-identity state-store/legacy.bda8b9ab2d4f87d8 */ rmSync(pidPath, { force: true });
     singleton.release();
     throw error;
   }

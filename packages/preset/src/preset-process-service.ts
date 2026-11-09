@@ -260,10 +260,15 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     const target = path.join(witnessRoot, `${witness.runId}.json`),
       temporary = path.join(witnessRoot, `.${witness.runId}-${randomUUID()}.tmp`);
     try {
-      writeFileSync(temporary, `${canonicalPresetBytes(witness)}\n`, { encoding: "utf8", mode: 0o600 });
-      renameSync(temporary, target);
+      /* @gate-identity state-store/legacy.784e8eab3deb6f65 */ writeFileSync(
+        temporary,
+        `${canonicalPresetBytes(witness)}\n`,
+        { encoding: "utf8", mode: 0o600 },
+      );
+      /* @gate-identity state-store/legacy.52b90794258f0d0b */ renameSync(temporary, target);
     } finally {
-      if (existsSync(temporary)) rmSync(temporary, { force: true });
+      if (existsSync(temporary))
+        /* @gate-identity state-store/legacy.2b41af4ab7f40b6a */ rmSync(temporary, { force: true });
     }
     return witness;
   }
@@ -285,7 +290,8 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
   }
   function cleanup(runId: string): void {
     const stage = path.join(stagingRoot, runId);
-    if (existsSync(stage)) rmSync(stage, { recursive: true, force: true });
+    if (existsSync(stage))
+      /* @gate-identity state-store/legacy.5d8ede7325950b99 */ rmSync(stage, { recursive: true, force: true });
   }
   function fail(
     runId: string,
@@ -320,23 +326,36 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     const stage = path.join(stagingRoot, witness.runId),
       packageRoot = path.join(stage, "package");
     try {
-      mkdirSync(stage, { mode: 0o700 });
+      /* @gate-identity state-store/legacy.715a498a1846c762 */ mkdirSync(stage, { mode: 0o700 });
       if (frozen) {
         if (frozen.codeRoot)
-          cpSync(frozen.codeRoot, path.join(stage, "input", "code"), { recursive: true, errorOnExist: true });
-        mkdirSync(path.join(stage, "output"), { mode: 0o700 });
+          /* @gate-identity state-store/legacy.b865a22ed879b515 */ cpSync(
+            frozen.codeRoot,
+            path.join(stage, "input", "code"),
+            { recursive: true, errorOnExist: true },
+          );
+        /* @gate-identity state-store/legacy.4712b7f8163f2765 */ mkdirSync(path.join(stage, "output"), { mode: 0o700 });
         for (const [name, body] of Object.entries(frozen.package.files)) {
           const target = path.join(packageRoot, name);
-          mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-          writeFileSync(target, body, { mode: 0o600 });
+          /* @gate-identity state-store/legacy.f0d1e2fcb60fffb8 */ mkdirSync(path.dirname(target), {
+            recursive: true,
+            mode: 0o700,
+          });
+          /* @gate-identity state-store/legacy.58a7d3504d53a8e9 */ writeFileSync(target, body, { mode: 0o600 });
         }
         for (const [name, body] of Object.entries(frozen.inputFiles)) {
           const target = path.join(stage, "input", name);
-          mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-          writeFileSync(target, body, { mode: 0o400 });
+          /* @gate-identity state-store/legacy.c517aaf6d4f7d196 */ mkdirSync(path.dirname(target), {
+            recursive: true,
+            mode: 0o700,
+          });
+          /* @gate-identity state-store/legacy.5839f03f6153cbe3 */ writeFileSync(target, body, { mode: 0o400 });
         }
       } else {
-        cpSync(resolved!.packageRoot, packageRoot, { recursive: true, errorOnExist: true });
+        /* @gate-identity state-store/legacy.a243b7eb63e5a869 */ cpSync(resolved!.packageRoot, packageRoot, {
+          recursive: true,
+          errorOnExist: true,
+        });
         if (decodePresetPackageV3(packageRoot).packageDigest !== resolved!.packageDigest)
           throw presetProcessError("package_changed", "Preset package changed after admission.");
       }
@@ -474,7 +493,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
       settled = true;
       clearTimeout(timer);
       change(witness.runId, "applied", "applied", { resultDigest });
-      rmSync(stage, { recursive: true, force: true });
+      /* @gate-identity state-store/legacy.a0b1ebb24059bb40 */ rmSync(stage, { recursive: true, force: true });
       children.delete(witness.runId);
     }
   }
@@ -578,7 +597,7 @@ function ensureTree(root: string, ...targets: string[]): void {
       if (existsSync(current)) {
         if (!lstatSync(current).isDirectory() || lstatSync(current).isSymbolicLink())
           throw presetProcessError("invalid_run_root", `${current} is not a regular directory.`);
-      } else mkdirSync(current, { mode: 0o700 });
+      } else /* @gate-identity state-store/legacy.72428dae014dca98 */ mkdirSync(current, { mode: 0o700 });
     }
   }
 }

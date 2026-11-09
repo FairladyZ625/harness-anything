@@ -1,8 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 
 export function createDecisionProjectionTables(db: DatabaseSync): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS decision (
+  /* @gate-identity state-store/legacy.4685427a386fa5aa */ db.exec(`
+    /* @gate-identity state-store/task.projection.decision */ CREATE TABLE IF NOT EXISTS decision (
       decision_id TEXT PRIMARY KEY,
       legacy_number INTEGER,
       decision_sort_key TEXT NOT NULL,
@@ -22,7 +22,7 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       provenance_json TEXT NOT NULL DEFAULT '[]',
       workspace_revision INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS decision_option (
+    /* @gate-identity state-store/task.projection.decision_option */ CREATE TABLE IF NOT EXISTS decision_option (
       decision_id TEXT NOT NULL,
       kind TEXT NOT NULL,
       option_id TEXT NOT NULL,
@@ -32,7 +32,7 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       workspace_revision INTEGER NOT NULL,
       PRIMARY KEY(decision_id, kind, option_id)
     );
-    CREATE TABLE IF NOT EXISTS decision_claim (
+    /* @gate-identity state-store/task.projection.decision_claim */ CREATE TABLE IF NOT EXISTS decision_claim (
       decision_id TEXT NOT NULL,
       claim_id TEXT NOT NULL,
       position INTEGER NOT NULL,
@@ -43,32 +43,32 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       fulfilled_revision INTEGER,
       PRIMARY KEY(decision_id, claim_id)
     );
-    CREATE TABLE IF NOT EXISTS decision_judgment_consent (
+    /* @gate-identity state-store/task.projection.decision_judgment_consent */ CREATE TABLE IF NOT EXISTS decision_judgment_consent (
       consent_id TEXT PRIMARY KEY,
       decision_id TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS decision_amendment (
+    /* @gate-identity state-store/task.projection.decision_amendment */ CREATE TABLE IF NOT EXISTS decision_amendment (
       amendment_id TEXT PRIMARY KEY,
       decision_id TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS decision_content_pin (
+    /* @gate-identity state-store/task.projection.decision_content_pin */ CREATE TABLE IF NOT EXISTS decision_content_pin (
       pin_id TEXT PRIMARY KEY,
       decision_id TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS decision_review_event (
+    /* @gate-identity state-store/task.projection.decision_review_event */ CREATE TABLE IF NOT EXISTS decision_review_event (
       event_id TEXT PRIMARY KEY,
       decision_id TEXT NOT NULL,
       kind TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-    CREATE VIRTUAL TABLE IF NOT EXISTS decision_fts USING fts5(
+    /* @gate-identity state-store/task.projection.decision_fts */ CREATE VIRTUAL TABLE IF NOT EXISTS decision_fts USING fts5(
       decision_id UNINDEXED,
       title,
       question,

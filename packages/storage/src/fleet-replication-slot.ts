@@ -21,22 +21,24 @@ import type { StorageBackendConfig } from "./storage-backend.ts";
 import { existsSync } from "node:fs";
 /** Transport state only. A new authenticated session fences the previous node/repo sender. */
 function openSqliteReplicationSlots(file: string) {
-  mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
+  /* @gate-identity state-store/legacy.1d074b32f37ed2d8 */ mkdirSync(path.dirname(file), { recursive: true });
+  const db = /* @gate-identity state-store/legacy.c331a829ea25d6e8 */ new DatabaseSync(file);
+  /* @gate-identity state-store/legacy.5ecc606a394c6550 */ db.exec(/* @gate-identity state-store/legacy.38ecf1453eaaa038 */ `PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
     CREATE TABLE IF NOT EXISTS replication_slot (
       repo TEXT NOT NULL, node TEXT NOT NULL, fence INTEGER NOT NULL,
       history TEXT NOT NULL, ack TEXT, acked_at TEXT, PRIMARY KEY(repo,node)
     ) STRICT`);
   const row = (key: ReplicationSlotKey) =>
-    db.prepare("SELECT * FROM replication_slot WHERE repo=? AND node=?").get(key.repoId, key.nodeId);
+    /* @gate-identity state-store/legacy.6979f39c9c6a2cdd */ db
+      .prepare("SELECT * FROM replication_slot WHERE repo=? AND node=?")
+      .get(key.repoId, key.nodeId);
   const current = (lease: ReplicationSlotLease): boolean => {
     const value = row(lease);
     return value?.fence === lease.fence && value.history === lease.history;
   };
   return {
     claim(key: ReplicationSlotKey, history: string): ReplicationSlotLease {
-      const value = db
+      const value = /* @gate-identity state-store/legacy.5bfc2702cb74eedb */ db
         .prepare(
           `INSERT INTO replication_slot VALUES(?,?,1,?,NULL,NULL)
         ON CONFLICT(repo,node) DO UPDATE SET fence=fence+1, history=excluded.history,
@@ -61,7 +63,7 @@ function openSqliteReplicationSlots(file: string) {
         previous?.fence === lease.fence && previous.history === lease.history,
         prior,
       );
-      const result = db
+      const result = /* @gate-identity state-store/legacy.68ccc202eabd27f4 */ db
         .prepare("UPDATE replication_slot SET ack=?, acked_at=? WHERE repo=? AND node=? AND fence=? AND history=?")
         .run(
           JSON.stringify({ durable: ack.durable, applied: ack.applied }),
@@ -75,7 +77,7 @@ function openSqliteReplicationSlots(file: string) {
     },
     /** The slowest durable ACK on this history: the log must keep every commit after it. */
     minimumAck(repoId: string, history: string): number | null {
-      const value = db
+      const value = /* @gate-identity state-store/legacy.f7ba99ff2bdff872 */ db
         .prepare(
           "SELECT MIN(json_extract(ack, '$.durable.sequence')) AS floor FROM replication_slot WHERE repo=? AND history=? AND ack IS NOT NULL",
         )
@@ -84,10 +86,14 @@ function openSqliteReplicationSlots(file: string) {
     },
     /** Node retirement removes every repository slot and fences all outstanding slot leases. */
     removeNode(nodeId: string): void {
-      db.prepare("DELETE FROM replication_slot WHERE node=?").run(nodeId);
+      /* @gate-identity state-store/legacy.daea223e551cdeb8 */ db.prepare(
+        "DELETE FROM replication_slot WHERE node=?",
+      ).run(nodeId);
     },
     invalidateOffline(repoId: string): void {
-      db.prepare("UPDATE replication_slot SET fence=fence+1, ack=NULL, acked_at=NULL WHERE repo=?").run(repoId);
+      /* @gate-identity state-store/legacy.cc9795989af4f387 */ db.prepare(
+        "UPDATE replication_slot SET fence=fence+1, ack=NULL, acked_at=NULL WHERE repo=?",
+      ).run(repoId);
     },
     /** Every slot's last durable ACK, for the center's replica status. */
     list(): readonly (ReplicationSlotKey & {
@@ -95,7 +101,7 @@ function openSqliteReplicationSlots(file: string) {
       readonly ack: ReplicationAcknowledgement | null;
       readonly ackedAt: string | null;
     })[] {
-      return db
+      return /* @gate-identity state-store/legacy.d37eb26652d4ecfe */ db
         .prepare("SELECT repo, node, history, ack, acked_at FROM replication_slot ORDER BY repo, node")
         .all()
         .map((value) => ({

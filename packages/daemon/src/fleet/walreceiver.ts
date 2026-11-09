@@ -39,8 +39,8 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
       /** Content-addressed and immutable: a verified object is published ahead of the commit claiming it. */
       installObject: async (sha256: string, file: string) => {
         const target = path.join(objectRoot, sha256.slice(0, 2), sha256.slice(2));
-        await mkdir(path.dirname(target), { recursive: true });
-        await rename(file, target);
+        await /* @gate-identity state-store/legacy.a0cf2964d134df34 */ mkdir(path.dirname(target), { recursive: true });
+        await /* @gate-identity state-store/legacy.dd5bfead61e5906d */ rename(file, target);
         syncDirectory(path.dirname(target));
       },
       project: async (_position: ReplicationPosition) => {
@@ -163,9 +163,9 @@ export async function runWalReceiver(input: {
     }
     if (frame.type === "replica.backup") {
       if (frame.size > input.quotaBytes) throw new Error("base backup exceeds disk quota");
-      await mkdir(input.directory, { recursive: true });
+      await /* @gate-identity state-store/legacy.4f62e1d5a38603ae */ mkdir(input.directory, { recursive: true });
       const file = path.join(input.directory, `${randomUUID()}.tar.gz`);
-      const handle = await open(file, "wx");
+      const handle = await /* @gate-identity state-store/legacy.86c097b43a2b67a1 */ open(file, "wx");
       try {
         try {
           await receiveBytes(peer, frame.size, signal, async (bytes) => {
@@ -179,7 +179,7 @@ export async function runWalReceiver(input: {
         await target.install(file, frame.metadata, frame.size, frame.sha256);
         await ack(frame.metadata.position);
       } finally {
-        await rm(file, { force: true });
+        await /* @gate-identity state-store/legacy.4d1cb7398be78de6 */ rm(file, { force: true });
       }
     } else if (frame.type === "replica.commit") {
       if (frame.size > input.maxBufferedBytes) throw new Error("replication commit exceeds memory capacity");
@@ -201,9 +201,9 @@ export async function runWalReceiver(input: {
         if (object.type !== "replica.object") throw new Error("expected replication content object");
         staged += object.size;
         if (staged > input.quotaBytes) throw new Error("replication commit exceeds disk quota");
-        await mkdir(input.directory, { recursive: true });
+        await /* @gate-identity state-store/legacy.b3f141dd21d8d0b1 */ mkdir(input.directory, { recursive: true });
         const file = path.join(input.directory, `${randomUUID()}.object`),
-          handle = await open(file, "wx"),
+          handle = await /* @gate-identity state-store/legacy.cf6e8fcf123657de */ open(file, "wx"),
           digest = createHash("sha256");
         try {
           try {
@@ -219,7 +219,7 @@ export async function runWalReceiver(input: {
           if (digest.digest("hex") !== object.sha256) throw new Error("replication content object digest differs");
           await target.installObject(object.sha256, file);
         } finally {
-          await rm(file, { force: true });
+          await /* @gate-identity state-store/legacy.5eeaceccac6eef1d */ rm(file, { force: true });
         }
       }
       try {

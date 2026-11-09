@@ -5,13 +5,13 @@ import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
  */
 export function decisionSearchDdl(): readonly string[] {
   return [
-    `CREATE TABLE IF NOT EXISTS ha_search_terms (
+    /* @gate-identity state-store/task.projection.ha_search_terms */ `CREATE TABLE IF NOT EXISTS ha_search_terms (
       ${POSTGRES_SCOPE_COLUMNS_SQL},readers text[] NOT NULL DEFAULT '{}',
       term_key text NOT NULL,term text NOT NULL,term_slot bigint GENERATED ALWAYS AS IDENTITY,
       PRIMARY KEY(tenant_id,project_id,policy_epoch,term_slot))`,
     `CREATE INDEX IF NOT EXISTS ha_search_terms_lookup ON ha_search_terms
       (tenant_id,project_id,policy_epoch,term_key)`,
-    `CREATE TABLE IF NOT EXISTS ha_decision_positions (
+    /* @gate-identity state-store/task.projection.ha_decision_positions */ `CREATE TABLE IF NOT EXISTS ha_decision_positions (
       ${POSTGRES_SCOPE_COLUMNS_SQL},readers text[] NOT NULL DEFAULT '{}',
       term_key text NOT NULL,term_slot bigint NOT NULL,decision_id text NOT NULL,
       column_id smallint NOT NULL,position integer NOT NULL,repo_id text NOT NULL DEFAULT '',

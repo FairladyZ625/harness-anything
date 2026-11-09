@@ -56,11 +56,13 @@ export function oidcCenterSelections(userRoot: string) {
         { clientSecret: _secret, ...authority } = selection.authority,
         stored = { issuer: selection.issuer, authority };
       memory.set(key, stored);
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      /* @gate-identity state-store/legacy.1c2f09ec30aef32a */ mkdirSync(directory, { recursive: true, mode: 0o700 });
       const file = path.join(directory, `${key}.json`),
         temporary = `${file}.tmp`;
-      writeFileSync(temporary, JSON.stringify(stored), { mode: 0o600 });
-      renameSync(temporary, file);
+      /* @gate-identity state-store/legacy.77005564065f1d60 */ writeFileSync(temporary, JSON.stringify(stored), {
+        mode: 0o600,
+      });
+      /* @gate-identity state-store/legacy.dd494a5496ef0710 */ renameSync(temporary, file);
     },
   };
 }

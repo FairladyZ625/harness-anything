@@ -85,11 +85,16 @@ export function migrateAgentDeclarations(input: {
     if (!input.destination) throw new Error("Declaration conversion requires --destination <new-file-or-directory>.");
     destination = path.resolve(input.destination);
     if (stat.isFile()) {
-      writeFileSync(destination, writable[0]!.result.body, { flag: "wx" });
+      /* @gate-identity state-store/legacy.fd11f2cc7ba917bb */ writeFileSync(destination, writable[0]!.result.body, {
+        flag: "wx",
+      });
     } else {
       if (existsSync(destination)) throw new Error(`Migration destination already exists: ${destination}`);
-      mkdirSync(destination, { recursive: true });
-      for (const { name, result } of writable) writeFileSync(path.join(destination, name), result.body, { flag: "wx" });
+      /* @gate-identity state-store/legacy.c856ef7e6562828b */ mkdirSync(destination, { recursive: true });
+      for (const { name, result } of writable) {
+        /* @gate-identity state-store/legacy.b8e22ee9dc2cbdbb */
+        writeFileSync(path.join(destination, name), result.body, { flag: "wx" });
+      }
     }
   }
   return {
