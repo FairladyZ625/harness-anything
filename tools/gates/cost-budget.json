@@ -2456,15 +2456,6 @@
           "small": 340,
           "large": 3400
         }
-      },
-      {
-        "probe": "startup-adopt",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "After PG read-downpush merge #4307, the real unsettled startup reader still scans 180 rows at 200 historical sessions -> 940 at 2000, warm and firstCall, while result k remains 1. This is the PG unsettled read responsibility explicitly assigned to task_b8a3cd12; engine work, not only returned rows, must become bounded. No margin change.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
       }
     ]
   }

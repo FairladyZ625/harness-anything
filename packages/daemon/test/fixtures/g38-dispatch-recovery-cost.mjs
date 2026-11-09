@@ -48,6 +48,27 @@ export async function measureTaskDispatchAdmission(rootDir, size) {
       task: { taskId, status: "active", iteration: 1 },
       executions: [{ executionId, state: "active", iteration: 1, submission: null }],
     },
+    lifecycle = {
+      attemptGroupId: events.at(-1).payload.dispatchId,
+      groupPhase: "closed",
+      attempt: {
+        dispatchId: events.at(-1).payload.dispatchId,
+        runtimeSessionId: events.at(-1).payload.runtimeSessionId,
+        phase: "closed",
+        process: "exited",
+        stopProof: "proven_stopped",
+      },
+      policy: {
+        attemptSettled: true,
+        groupSettled: true,
+        capacity: "released",
+        capacityDisposition: "free",
+        successorAdmissible: false,
+        canResolveRuling: false,
+        canRecover: true,
+        blockerCode: null,
+      },
+    },
     projection = {
       read: () =>
         keyed({
@@ -70,6 +91,14 @@ export async function measureTaskDispatchAdmission(rootDir, size) {
           warnings: [],
         }),
       readDocument: () => keyed({ document: null }),
+      readDispatchLifecycle: () =>
+        keyed({
+          status: "ready",
+          watermark: snapshot.revision,
+          sourceRevision: snapshot.revision,
+          rows: [lifecycle],
+          nextCursor: null,
+        }),
       readRuntimeDispatchesByTaskExecution: () => keyed(rows),
       readRuntimeDispatchById: (dispatchId) => keyed(byId.has(dispatchId) ? { event: byId.get(dispatchId) } : null),
       readRuntimeDispatchByResumeSource: () => keyed(null),
