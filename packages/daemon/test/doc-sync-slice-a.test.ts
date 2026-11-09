@@ -430,6 +430,7 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
       "the oversized prose candidate stays on the doc-sync route; the reason names the inline cap",
     );
     assert.equal(git(rootDir, "ls-files", "harness/context/binary.pdf"), "", "binary content stays unpublished");
+    await waitForWorktree(cell, submitted);
     const clean = await cell.run({ kind: "doc-status", paths: [] }, binding);
     assert.deepEqual(
       rows(clean.evidence)

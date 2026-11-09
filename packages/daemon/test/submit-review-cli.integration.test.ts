@@ -38,6 +38,7 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
     "tools/check-pr-governance.mjs",
     "tools/gate-manifest.json",
     "tools/gates/git.mjs",
+    "packages/kernel/src/domain/protected-surface-governance.ts",
   ]) {
     const target = path.join(root, file);
     mkdirSync(path.dirname(target), { recursive: true });
