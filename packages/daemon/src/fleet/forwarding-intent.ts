@@ -1,3 +1,4 @@
+import { getExecutableEntityAction } from "@harness-anything/kernel";
 import { commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
 
 export type ForwardingIntent = Readonly<{
@@ -44,6 +45,11 @@ export function forwardingIntentIssue(value: unknown): string | null {
   if (descriptor.method !== intent.method) return `forwarding intent method does not match ${intent.commandId}`;
   if (
     descriptor.admission["remote-edge"] !== "via-center-forward" &&
+    !(
+      descriptor.admission["remote-center"] === "via-node" &&
+      descriptor.admission["remote-edge"] === "direct" &&
+      getExecutableEntityAction(intent.commandId)?.target.kind === "schedule"
+    ) &&
     !(intent.commandId === "doc-show" && intent.method === "repo.task.read")
   )
     return `forwarding intent command ${intent.commandId} is not center-forwardable`;

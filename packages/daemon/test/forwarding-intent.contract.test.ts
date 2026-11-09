@@ -31,6 +31,16 @@ test("forwarding intent rejects mismatched identity, method, execution and route
   );
 });
 
+test("forwarding accepts node-owned schedule commands while keeping replica reads local", () => {
+  for (const kind of ["schedule-run-now", "schedule-settle", "schedule-missed"]) {
+    assert.equal(forwardingIntentIssue(forwardingIntentForAction("repo.task.run", { kind })), null, kind);
+  }
+  assert.match(
+    forwardingIntentIssue(forwardingIntentForAction("repo.task.read", { kind: "schedule-list" })) ?? "",
+    /not center-forwardable/u,
+  );
+});
+
 test("forwarding resolves workspace, view and CA again after registration moves", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-location-"))),
     userRoot = path.join(root, "user"),
@@ -95,4 +105,24 @@ test("forwarding resolves workspace, view and CA again after registration moves"
     assert.equal(requests[index]?.host, `center-${index}`);
     assert.equal(requests[index]?.nodeId, `node-${index}`);
   }
+  await forward({
+    userRoot,
+    repoId: "repo",
+    intent: forwardingIntentForAction("repo.task.run", {
+      kind: "schedule-run-now",
+      scheduleId: "probe",
+      idempotencyKey: "occurrence-one",
+    }),
+    auth: { transportKind: "unix-socket" },
+    oidc,
+    runRuntime: async (request) => {
+      assert.equal(request.workspaceRoot, workspaces[1]);
+      assert.deepEqual(request.action, {
+        kind: "schedule-run-now",
+        scheduleId: "probe",
+        idempotencyKey: "occurrence-one",
+      });
+      return { outcome: "applied" };
+    },
+  });
 });

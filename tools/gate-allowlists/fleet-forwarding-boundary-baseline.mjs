@@ -39,7 +39,6 @@ export const fleetForwardingBoundaryBaseline = Object.freeze({
     },
     migrateEdgeWorkspace: {
       edgeRuntimeFor: 1,
-      readFleetEdgeConfig: 1,
     },
   },
   "packages/daemon/src/daemon-host-repository-api.ts": {

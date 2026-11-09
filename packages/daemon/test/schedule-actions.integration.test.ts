@@ -866,8 +866,7 @@ test(
           }
         ).status?.activeRun?.runtimeSessionId;
       assert.equal(typeof activeRuntimeSessionId, "string");
-      const edgeRuntimeSession = await winnerEdge.runtime.run("repo.schedule.run", {
-        kind: "runtime-session-read",
+      const edgeRuntimeSession = await winnerEdge.runtime.run("repo.agentRuntime.sessions.read", {
         runtimeSessionId: activeRuntimeSessionId,
       });
       assert.equal(

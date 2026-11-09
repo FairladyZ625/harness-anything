@@ -709,21 +709,34 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         throw hostCodedError("authentication_required", "The schedule creator must sign in on this device.");
       return daemonWriterBinding(repoId, current);
     },
-    remoteEdgeAction: async (repoId, rootDir, action) => {
-      const config = readFleetEdgeConfig(rootDir);
-      if (!config || config.repoId !== repoId)
-        throw hostCodedError(
-          "fleet_edge_config_invalid",
-          `Remote-edge Schedule ${repoId} requires a matching fleet-edge.json.`,
-        );
-      const request: FleetEdgeRuntimeRequest["payload"] = {
-        ...config,
+    remoteEdgeAction: async (repoId, _rootDir, action) => {
+      if (typeof action.kind !== "string") throw hostCodedError("invalid_field", "Schedule action kind is required.");
+      if (action.kind === "schedule-list" || action.kind === "runtime-session-read") {
+        const auth = { transportKind: "unix-socket" } as const;
+        const result =
+          action.kind === "schedule-list"
+            ? await host.run(repoId, { kind: "schedule-list" }, auth)
+            : await host.read(
+                repoId,
+                "repo.agentRuntime.sessions.read",
+                { runtimeSessionId: action.runtimeSessionId },
+                auth,
+              );
+        return result as unknown as Readonly<Record<string, unknown>>;
+      }
+      const receipt = await forward({
+        userRoot: input.userRoot,
         repoId,
-        workspaceRoot: rootDir,
-        method: "repo.schedule.run",
-        action,
-      };
-      return edgeRuntimeFor(request).run(request.method, action);
+        intent: forwardingIntentForAction("repo.task.run", { ...action, kind: action.kind }),
+        auth: { transportKind: "unix-socket" },
+        oidc,
+        runRuntime: (payload, auth) => {
+          const request = payload as unknown as FleetEdgeRuntimeRequest["payload"];
+          return edgeRuntimeFor(request).run(request.method, request.action, auth.connectionSignal);
+        },
+      });
+      if (!receipt) throw hostCodedError("fleet_edge_config_invalid", `Remote-edge Schedule ${repoId} is unavailable.`);
+      return receipt;
     },
   });
   let latestControl: DaemonControlReceipt | null = null;
