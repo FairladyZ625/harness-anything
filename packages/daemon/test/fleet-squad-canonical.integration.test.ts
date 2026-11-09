@@ -580,6 +580,9 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
           action: { kind: "squad-cancel", squadRunId: runId },
         },
         peer: f.peer("node-one"),
+        forwardTaskAction: async () => {
+          throw new Error("Cold cancellation must not publish squad task actions.");
+        },
         controlBinding: async () => ({
           actor: { principal: { personId }, executor: null },
           source: { kind: "node", nodeId: "node-one" },

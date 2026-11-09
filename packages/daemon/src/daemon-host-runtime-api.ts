@@ -62,9 +62,6 @@ export function createDaemonHostRuntimeApi(
   | "decisionProvider"
   | "runtimeInstanceAuth"
 > {
-  // Runtime orchestration (bounded batch window) is a host-level composer of
-  // single-writer primitives: spawns and settlement reads all re-enter the cell
-  // through the normal request path, so ingress events flow while a saga is parked.
   const hostOrchestration = (
     repoId: string,
     cell: ReturnType<typeof context.requiredCell>,
@@ -96,56 +93,31 @@ export function createDaemonHostRuntimeApi(
       evaluatedAtCut: "fleet-center:current",
     });
   };
-  const runFleetEdgeRuntime = async (
-      request: FleetEdgeRuntimeRequest["payload"],
-      auth: Parameters<typeof context.binding>[1],
-      annotateSpawn = false,
-    ): Promise<JsonObject> => {
-      context.localOnly(auth);
-      const registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-        (repo) => repo.repoId === request.repoId && repo.state === "enabled",
-      );
-      if (
-        !registered ||
-        registered.mode !== "remote-edge" ||
-        registered.canonicalRoot === null ||
-        canonicalRoot(request.workspaceRoot) !== canonicalRoot(registered.canonicalRoot)
-      )
-        throw context.hostCodedError(
-          "repo_mode_read_only",
-          "Fleet runtime launch requires the matching enabled remote-edge registration.",
-        );
-      context.startReplicaSyncs();
-      const receipt = await context.edgeRuntimeFor(request).run(request.method, request.action, auth.connectionSignal);
+  const runRemoteEdgeRuntime = async (
+    repoId: string,
+    method: FleetEdgeRuntimeRequest["payload"]["method"],
+    action: JsonObject,
+    auth: Parameters<typeof context.binding>[1],
+  ): Promise<JsonObject | null> => {
+    const receipt = await context.forwardRuntime({
+      repoId,
+      method,
+      action,
+      auth,
+      decorate:
+        method === "repo.agentRuntime.spawn"
+          ? (resolved, value) =>
+              annotateHostingCredentialNotice(value, action, resolved.workspaceRoot, {
+                repoId,
+                instances: context.instances.list(),
+              })
+          : undefined,
+    });
+    if (receipt) {
       await context.scheduleScheduler.refresh();
-      return annotateSpawn && request.method === "repo.agentRuntime.spawn"
-        ? annotateHostingCredentialNotice(receipt, request.action, request.workspaceRoot, {
-            repoId: request.repoId,
-            instances: context.instances.list(),
-          })
-        : receipt;
-    },
-    runRemoteEdgeRuntime = async (
-      repoId: string,
-      method: FleetEdgeRuntimeRequest["payload"]["method"],
-      action: JsonObject,
-      auth: Parameters<typeof context.binding>[1],
-    ): Promise<JsonObject | null> => {
-      const registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-        (repo) => repo.repoId === repoId && repo.state === "enabled",
-      );
-      if (registered?.mode !== "remote-edge") return null;
-      const workspaceRoot = registered.canonicalRoot;
-      if (workspaceRoot === null)
-        throw context.hostCodedError("repo_namespace_unknown", "Remote-edge runtime repository has no workspace root.");
-      const config = readFleetEdgeConfig(workspaceRoot);
-      if (!config || config.repoId !== repoId)
-        throw context.hostCodedError(
-          "repo_mode_read_only",
-          "Fleet runtime launch requires the matching enabled remote-edge registration.",
-        );
-      return runFleetEdgeRuntime({ ...config, repoId, workspaceRoot, method, action }, auth, true);
-    };
+    }
+    return receipt;
+  };
   return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
@@ -164,8 +136,6 @@ export function createDaemonHostRuntimeApi(
         payload,
         await context.binding(cell.status().rootDir, auth, undefined, repoId),
       );
-      // The dispatch still runs; the notice only tells the operator the worker will not be
-      // able to publish its delivery until the hosting credential is configured.
       return annotateHostingCredentialNotice(receipt, payload, cell.status().rootDir, {
         repoId,
         instances: context.instances.list(),
@@ -358,9 +328,6 @@ export function createDaemonHostRuntimeApi(
         await authorizeCenterConfiguration(config.repoId, auth);
         return { ok: true, externalUrl: config.externalUrl ?? null };
       },
-      // The read the GUI's center panel and invite entry consult: an honest running flag (the live
-      // listener, not the saved config) plus the fields the panel displays. A saved config whose
-      // restore failed reports running=false — that machine still needs an authorized start.
       readCenterState: async (auth) => {
         const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
         if (!config)
@@ -434,9 +401,6 @@ export function createDaemonHostRuntimeApi(
           );
         centerStarting = true;
         try {
-          // A start without an explicit certificate reuses the login service's listener pair; the
-          // private-key path is resolved daemon-side and never crosses a transport. Both paths or
-          // neither — half a pair is a caller's mistake, not a defaultable state.
           const rawRequest = payload as unknown as FleetCenterAdmissionRequest["payload"];
           if ((rawRequest.keyPath === undefined) !== (rawRequest.certPath === undefined))
             throw context.hostCodedError(
@@ -601,7 +565,6 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
-        // The edge only relays its machine credential; the center decides whether the node's owner may sync.
         context.localOnly(auth);
         const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),
           matchingConfig =
@@ -631,14 +594,32 @@ export function createDaemonHostRuntimeApi(
           context.startReplicaSyncs(),
         );
         await runReplicaConfirmedRound({
-          reconcile: () => context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile(),
+          reconcile: async () => {
+            const result = await context.forwardRuntime({
+              repoId: request.repoId,
+              method: "repo.squad.control",
+              action: {},
+              operation: "reconcile",
+              auth: { transportKind: "unix-socket" },
+            });
+            if (!result)
+              throw context.hostCodedError("fleet_edge_config_invalid", "The registered remote-edge is unavailable.");
+          },
           observeRecovery: (failures) => context.runtimeRecoveryWatch.observe(request.repoId, failures, context.now()),
           triggers: [() => context.scheduleScheduler.refresh()],
         });
         return receipt;
       },
       edgeRuntime: async (payload, auth) => {
-        return runFleetEdgeRuntime(payload as unknown as FleetEdgeRuntimeRequest["payload"], auth);
+        context.localOnly(auth);
+        const request = payload as unknown as FleetEdgeRuntimeRequest["payload"],
+          receipt = await runRemoteEdgeRuntime(request.repoId, request.method, request.action, auth);
+        if (!receipt)
+          throw context.hostCodedError(
+            "repo_mode_read_only",
+            "Fleet runtime requires an enabled remote-edge registration.",
+          );
+        return receipt;
       },
     },
     system: context.system,
@@ -660,14 +641,6 @@ export function createDaemonHostRuntimeApi(
         evaluatedAtCut: "runtime-instances:current",
         now: context.now(),
       });
-      // Only an explicit probe, a write that binds an installation id, the very first catalog
-      // read on a machine that has never recorded an installation, or the first update on such a
-      // machine (legacy installation-identity migration needs the witness) requires this machine's
-      // provider CLIs executed. Every later list reads the node's recorded observations:
-      // re-witnessing on each read is what turned a ~2 ms registry read into ~2 s. An update that
-      // does not bind an installation (enable/disable, rename, permission, base URL, credential)
-      // never reads the witness snapshot, so re-running every provider CLI there only delayed the
-      // receipt.
       const needsInstallationWitness =
         payload.probe === true ||
         actionKind === "runtime-instance-create" ||
@@ -769,8 +742,6 @@ export function createDaemonHostRuntimeApi(
           actionId: `${actionKind}:${instanceId}`,
           evaluatedAtCut: `repository:${repoId}:current`,
         });
-      // Authorization precedes every local effect: a denied call must not re-witness provider CLI
-      // installations, create an instance state root, or move readiness.
       await context.instances.refreshInstallations();
       const command = context.instances.prepareAuthCommand(instanceId, operation as "login" | "logout"),
         env = Object.fromEntries(

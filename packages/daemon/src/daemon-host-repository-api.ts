@@ -773,7 +773,6 @@ export function createDaemonHostRepositoryApi(
           const forwarded = await forward({
             userRoot: context.input.userRoot,
             repoId,
-            rootDir: context.cells.get(repoId)?.status().rootDir,
             intent: forwardingIntentForAction(descriptor.method, action),
             auth,
             oidc: context.oidc,
@@ -781,10 +780,10 @@ export function createDaemonHostRepositoryApi(
           });
           if (forwarded) return forwarded as WriteReceiptDraft | SquadControlResult;
         } catch (error) {
+          if (context.code(error) === "local_transport_required" && !modeAdmission.ok)
+            return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
           return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
         }
-        // No forwarding target: only the doc-show credential opt-in may still fall through to the
-        // local cell. A mode that was refused above keeps its admission rejection.
         if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       }
       if (action.kind === "doctor-health") {

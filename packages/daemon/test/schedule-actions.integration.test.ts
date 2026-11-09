@@ -676,6 +676,7 @@ test(
           initHarnessRepo(workspaceRoot, "schedule-center");
           const runtime = openFleetEdgeRuntime({
             readBinding: () => owners!.binding(subject.nodeId),
+            readAccessToken: owners!.readAccessToken(subject.nodeId),
             controlBinding: () => owners!.binding(subject.nodeId),
             request: {
               host: "127.0.0.1",
@@ -866,8 +867,7 @@ test(
           }
         ).status?.activeRun?.runtimeSessionId;
       assert.equal(typeof activeRuntimeSessionId, "string");
-      const edgeRuntimeSession = await winnerEdge.runtime.run("repo.schedule.run", {
-        kind: "runtime-session-read",
+      const edgeRuntimeSession = await winnerEdge.runtime.run("repo.agentRuntime.sessions.read", {
         runtimeSessionId: activeRuntimeSessionId,
       });
       assert.equal(

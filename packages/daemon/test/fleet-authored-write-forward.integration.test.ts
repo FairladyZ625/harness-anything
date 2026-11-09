@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
@@ -46,6 +46,26 @@ function proposal(title: string) {
     body: realizedDecisionBody(title),
   };
 }
+
+test("edge task forwarding resolves a relative CA from the registered workspace", { timeout: 90_000 }, async (t) => {
+  const f = await fleetNodeClaimFixture(t);
+  const edge = await fleetEdgeHostFixture(t, f, {
+    beforeOpen: (edgeRoot) => {
+      const configPath = path.join(edgeRoot, "fleet-edge.json"),
+        config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+      writeFileSync(path.join(edgeRoot, "center-ca.pem"), readFileSync(path.join(f.root, "tls.crt")));
+      writeFileSync(configPath, JSON.stringify({ ...config, caPath: "center-ca.pem" }));
+    },
+  });
+  const receipt = await edge.command({
+    kind: "fact-record",
+    statement: "Relative CA paths use the registered workspace.",
+    evidenceSource: "test:fleet-authored-write",
+    confidence: "high",
+    memoryClass: "semantic",
+  });
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+});
 
 test(
   "edge fact reclassification, archive and unarchive carry real payloads and center authorization",

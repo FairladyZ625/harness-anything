@@ -51,7 +51,6 @@ import {
   runFleetTaskCommandClient,
   runFleetEdgeUploadClient,
   runFleetEdgeTaskCommand,
-  type FleetPeerOptions,
 } from "./fleet-edge-write.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
@@ -59,7 +58,6 @@ import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from ".
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { runFleetEdgeWrite, transientFleetReceipt } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
@@ -68,19 +66,12 @@ import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
 import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
+import { runtimeForwardingContext } from "./fleet/forwarding-port.ts";
+import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 
 export interface FleetEdgeRuntimeRequest {
-  readonly payload: {
-    readonly host: string;
-    readonly port: number;
-    readonly caPath: string;
-    readonly servername?: string;
-    readonly nodeId: string;
-    readonly credential: string;
-    readonly repoId: string;
-    readonly viewRoot: string;
-    readonly quotaBytes: number;
+  readonly payload: FleetEdgeConfig & {
     readonly workspaceRoot: string;
     readonly method:
       | "repo.agentRuntime.spawn"
@@ -98,6 +89,7 @@ export interface FleetEdgeRuntimeRequest {
     readonly action: JsonObject;
   };
 }
+type FleetRuntimeLocation = Omit<FleetEdgeRuntimeRequest["payload"], "method" | "action">;
 type RuntimePorts = {
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
@@ -247,65 +239,37 @@ export function createFleetEdgeRuntimeWorkQueue(onError: (error: unknown) => voi
 }
 
 export function openFleetEdgeRuntime(input: {
-  readonly request: FleetEdgeRuntimeRequest["payload"];
-  readonly readBinding: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
+  readonly request: FleetRuntimeLocation;
+  readonly readAccessToken: (request: FleetRuntimeLocation) => Promise<string | undefined>;
+  readonly readBinding: (request?: FleetRuntimeLocation) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
   /** Binding for controls and launches; offline replica identity is valid for reads only. */
-  readonly controlBinding: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
+  readonly controlBinding: (request?: FleetRuntimeLocation) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
   readonly daemonGeneration: number;
   readonly daemonRoute: RuntimeDaemonRoute;
   readonly ports: RuntimePorts;
+  readonly forwardTaskAction: (action: Record<string, unknown> & { kind: string }) => Promise<JsonObject>;
   /** Waits for an in-flight resident stream to publish its first readable generation. */
-  readonly waitForReplicaReady?: (signal?: AbortSignal) => Promise<boolean>;
+  readonly waitForReplicaReady?: (request: FleetRuntimeLocation, signal?: AbortSignal) => Promise<boolean>;
   /** Reports a released task once its canonical runtime outcome is readable on this node. */
   readonly onTaskSettled?: (taskId: string) => void;
   readonly launch?: RuntimeLauncher;
   readonly now?: () => string;
 }) {
-  // Provider signals already remain in the edge-local dispatch JSONL, while remote status
-  // polls the canonical session read below. Forwarding stream frames would create a second,
-  // non-canonical synchronization surface with no consumer or settlement contract.
-  const request = input.request,
-    controlBinding = input.controlBinding,
-    credential = request.credential,
-    peer: FleetPeerOptions = {
-      readAccessToken: async () => {
-        const session = (await input.readBinding()).keycloakAuthorization?.session;
-        return session?.currentAccessToken ? session.currentAccessToken() : session?.accessToken;
-      },
-      hostname: request.host,
-      port: request.port,
-      ca: readFileSync(request.caPath, "utf8"),
-      ...(request.servername ? { servername: request.servername } : {}),
-      nodeId: request.nodeId,
-      credential,
-      repoId: request.repoId,
-    },
-    runtimeReadTimeoutMs = readFleetEdgeConfig(request.workspaceRoot)?.waitTimeoutMs,
-    runtimeReadPeer: FleetPeerOptions = {
-      ...peer,
-      ...(runtimeReadTimeoutMs === undefined ? {} : { timeoutMs: runtimeReadTimeoutMs }),
-    },
-    // A mutating center round trip settles when the single-writer queue applies the operation,
-    // not within a read's transport bound: git materialization, durable state writes, or a
-    // latched cell's recovery can each hold the reply past any flat deadline. Write sessions
-    // carry the edge's configured center wait budget plus the transport margin the
-    // task-command client already applies (waitMs + 10s); inheriting the 5s read default
-    // turned every legitimately slow write into "Fleet response timeout".
-    centerWriteWaitMs = runtimeReadTimeoutMs ?? 30_000,
-    writePeer: FleetPeerOptions = { ...peer, timeoutMs: centerWriteWaitMs + 10_000 },
+  const controlBinding = input.controlBinding,
     now = input.now ?? (() => new Date().toISOString()),
-    stream = { publish: () => ({}) as never },
-    // Repository settings follow the authorized replica cut, including before workspace materialization.
-    // A replica that has not projected the Settings entity yet falls back to the authored facet alone;
-    // the non-null assertion this replaces crashed on exactly the never-minted repositories this task
-    // is about, instead of answering with the declaration they do have.
-    readSettings = () =>
-      withEdgeReadModel({ ...request, principalId: replicaOwner }, (projection) => ({
-        ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
-        ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
-      }));
+    stream = { publish: () => ({}) as never };
+  const context = () => runtimeForwardingContext(input.request, () => input.readAccessToken(input.request));
+  const readSettings = () => {
+    const { request } = context();
+    return withEdgeReadModel({ ...request, principalId: replicaOwner }, (projection) => ({
+      ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
+      ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
+    }));
+  };
   let replicaOwner: string | undefined;
   const readMirroredDocument = (logicalPath: string): string | null => {
+    const { request } = context();
+
     if (replicaOwner === undefined) return null;
     return withEdgeReadModel(
       { ...request, principalId: replicaOwner, includeEntries: true },
@@ -313,6 +277,8 @@ export function openFleetEdgeRuntime(input: {
     );
   };
   const readMirroredEscalationAnswer = (packagePath: string): string | null => {
+    const { request } = context();
+
     if (replicaOwner === undefined) return null;
     const documents = withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: true }, (projection) =>
       projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents.map((document) => ({
@@ -340,12 +306,14 @@ export function openFleetEdgeRuntime(input: {
       .at(-1);
     return answers ? `Owner answer to worker escalation ${answers.dispatchId}: ${answers.answer}` : null;
   };
-  const readReplica = async (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) =>
-    readEdgeRuntimeRepository(
-      { ...request, principalId: (await input.readBinding()).actor.principal.personId },
+  const readReplica = async (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) => {
+    const { request } = context();
+    return readEdgeRuntimeRepository(
+      { ...request, principalId: (await input.readBinding(request)).actor.principal.personId },
       method,
       payload,
     );
+  };
   const executionCredentials = new Map<
     string,
     { credential: string; expiresAt: string; personId: string; surfaces: readonly string[] }
@@ -359,12 +327,12 @@ export function openFleetEdgeRuntime(input: {
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   const workQueue = createFleetEdgeRuntimeWorkQueue((error) => {
     console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
-    // Durable dispatch streams remain the recovery source. The next supported request
-    // re-enters adoption instead of treating failed initialization as permanent readiness.
     ready = null;
   });
   const schedule = workQueue.schedule;
   const runScheduleCommand: typeof runFleetScheduleCommandClient = async (options) => {
+    const { request, centerWriteWaitMs } = context();
+
     return runFleetEdgeWrite({
       viewRoot: request.viewRoot,
       repoId: request.repoId,
@@ -378,6 +346,8 @@ export function openFleetEdgeRuntime(input: {
     readonly dispatchId: string;
     readonly cwd: string;
   }) => {
+    const { request } = context();
+
     const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId);
     if (!view) return null;
     const packagePaths = fleetMirrorTaskPaths(view, artifact.taskId)
@@ -425,6 +395,8 @@ export function openFleetEdgeRuntime(input: {
       : { packet: { path: packetPath, body: packet }, report: { path: reportPath, body: report } };
   };
   const recoverEdgeReviewerReview = async (review: ReviewerReviewRecoveryInput) => {
+    const { request, writePeer, centerWriteWaitMs } = context();
+
     discardExpiredExecutionCredentials();
     const execution = executionCredentials.get(review.runtimeSessionId);
     if (!execution || Date.parse(execution.expiresAt) <= Date.now())
@@ -484,7 +456,6 @@ export function openFleetEdgeRuntime(input: {
         executionId: review.executionId,
         reviewId: `review-${review.dispatchId}`,
       } as const,
-      // One request identity for this review recovery; the retry loop below reuses it.
       recoveryOpId = randomUUID(),
       taskCommand = () =>
         runFleetTaskCommandClient({
@@ -528,13 +499,21 @@ export function openFleetEdgeRuntime(input: {
       );
   };
   const spawner = makeRuntimeSpawner({
-    repoId: request.repoId,
-    rootDir: request.workspaceRoot,
+    get repoId() {
+      return input.request.repoId;
+    },
+    get rootDir() {
+      return input.request.workspaceRoot;
+    },
     daemonGeneration: input.daemonGeneration,
-    runtimeNode: { nodeId: request.nodeId },
+    get runtimeNode() {
+      return { nodeId: input.request.nodeId };
+    },
     runtimeDaemonRoute: input.daemonRoute,
     remote: {
       executionCredential: (runtimeSessionId) => {
+        const { request } = context();
+
         discardExpiredExecutionCredentials();
         const execution = executionCredentials.get(runtimeSessionId);
         if (!execution)
@@ -570,7 +549,8 @@ export function openFleetEdgeRuntime(input: {
       },
       runtimeControlReceipt: (runtimeSessionId) => runtimeControlReceipts.get(runtimeSessionId) ?? null,
       taskContext: async (taskId, missionName, review, onClaimed) => {
-        // Pull only in write preparation; repository values themselves use the shared local query.
+        const { request, centerWriteWaitMs, writePeer } = context();
+
         await pullRuntimeReplica();
         let runtimeContext = taskRuntimeContext(
           await readReplica("repo.tasks.runtimeContext.read", { taskId }),
@@ -695,8 +675,6 @@ export function openFleetEdgeRuntime(input: {
               " run ha daemon fleet edge sync, then retry.",
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
-          // Causal context, risk tier, profile and worktree binding share the just-confirmed replica cut.
-          // Authored task files remain the explicitly synchronized local workspace.
           { causalContext, riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
         let plan: string;
         try {
@@ -713,9 +691,6 @@ export function openFleetEdgeRuntime(input: {
           taskId,
         );
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
-        // A re-dispatched worker answers the latest owner return: the mirrored managed
-        // `returns/iteration-N.md` of iteration N rides verbatim in the mission and in the
-        // remote task context, exactly like the local projection paths inject it.
         const priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
           ownerReturnBody =
             [
@@ -804,60 +779,37 @@ export function openFleetEdgeRuntime(input: {
           worktree,
         };
       },
-      readRuntimeSession: async (runtimeSessionId) =>
-        withEdgeReadModel(
-          { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
-          (projection) => projection.readRuntimeSession(runtimeSessionId),
-        ),
+      readRuntimeSession: (runtimeSessionId) =>
+        readRuntimeProjection(input.request, (projection) => projection.readRuntimeSession(runtimeSessionId)),
       readRuntimeSessions: async (query) => {
-        // Recovery needs the center's published outcome. Local terminal evidence is for public
-        // reads; treating it as publication would skip replay after a lost write. Read the
-        // replica projection directly so startup follows unsettled sessions, not full history.
-        if (!query?.unsettledOnly && query?.runtimeSessionId === undefined && query?.providerSessionId === undefined)
-          return readFleetRuntimeSessionsPaged(async (payload) =>
-            withEdgeReadModel(
-              { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
-              (projection, frame, view) => ({
-                ...repositoryRuntimeReads(
-                  projection as TaskProjection,
-                  {
-                    readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
-                  },
-                  undefined,
-                  request.viewRoot,
-                  true,
-                  false,
-                ).overview(payload),
-                ...frame,
-              }),
-            ),
-          );
-        const principalId = (await input.readBinding()).actor.principal.personId;
-        return withEdgeReadModel({ ...request, principalId, includeEntries: false }, (projection) =>
-          readEdgeRuntimeSessions(projection, query),
+        const request = input.request;
+        if (query?.unsettledOnly || query?.runtimeSessionId !== undefined || query?.providerSessionId !== undefined)
+          return readRuntimeProjection(request, (projection) => readEdgeRuntimeSessions(projection, query));
+        return readFleetRuntimeSessionsPaged((payload) =>
+          readRuntimeProjection(request, (projection, frame, view) => ({
+            ...repositoryRuntimeReads(
+              projection as TaskProjection,
+              { readContentBlob: (sha256) => readEdgeViewBlob(view, sha256) },
+              undefined,
+              request.viewRoot,
+              true,
+              false,
+            ).overview(payload),
+            ...frame,
+          })),
         );
       },
-      readDispatchLifecycle: async (query) =>
-        withEdgeReadModel(
-          {
-            viewRoot: request.viewRoot,
-            repoId: request.repoId,
-            nodeId: request.nodeId,
-            principalId: (await input.readBinding()).actor.principal.personId,
-          },
-          (projection, frame) => readEdgeDispatchLifecycle(projection, frame, query),
+      readDispatchLifecycle: (query) =>
+        readRuntimeProjection(input.request, (projection, frame) =>
+          readEdgeDispatchLifecycle(projection, frame, query),
         ),
-      readRuntimeDispatch: async (runtimeSessionId) =>
-        withEdgeReadModel(
-          {
-            viewRoot: request.viewRoot,
-            repoId: request.repoId,
-            nodeId: request.nodeId,
-            principalId: (await input.readBinding()).actor.principal.personId,
-          },
-          (projection) => readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId),
+      readRuntimeDispatch: (runtimeSessionId) =>
+        readRuntimeProjection(input.request, (projection) =>
+          readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId),
         ),
       publish: async (draft) => {
+        const { request, centerWriteWaitMs, writePeer } = context();
+
         let response: Awaited<ReturnType<typeof runFleetRuntimeEventClient>>;
         try {
           response = await runFleetEdgeWrite({
@@ -888,12 +840,7 @@ export function openFleetEdgeRuntime(input: {
           }
           throw error;
         }
-        // A returned dispatch is immediately usable by local status/foreground wait. This
-        // acknowledgement belongs to write preparation; subsequent reads remain offline.
         if (draft.type === "runtime_session_started") await pullRuntimeReplica();
-        // The fleet frame carries the authoritative event beside the command receipt. Keep that
-        // event on the internal publication result for the spawner, but never leak it into the
-        // runtime-spawn receipt validated by the daemon GUI/CLI protocol.
         const {
           event: _event,
           executionCredential,
@@ -930,6 +877,8 @@ export function openFleetEdgeRuntime(input: {
         };
       },
       archive: async (archive) => {
+        const { request, centerWriteWaitMs, writePeer } = context();
+
         const response = await runFleetEdgeWrite({
           viewRoot: request.viewRoot,
           repoId: request.repoId,
@@ -957,9 +906,13 @@ export function openFleetEdgeRuntime(input: {
       : {}),
     reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
-    resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
-    resolveSquadDispatch: (squadId, leaderId, workerId, binding) =>
-      withEdgeReadModel(
+    resolveAgent: (agentId) => {
+      const { request } = context();
+      return trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId);
+    },
+    resolveSquadDispatch: (squadId, leaderId, workerId, binding) => {
+      const { request } = context();
+      return withEdgeReadModel(
         {
           viewRoot: request.viewRoot,
           repoId: request.repoId,
@@ -977,10 +930,11 @@ export function openFleetEdgeRuntime(input: {
               list: (kind) => projection.listEntities(kind),
             },
           }),
-      ),
+      );
+    },
     onRuntimeOutcome: (event) => {
-      // publish() has joined the outcome's replica sequence. Release and capacity census
-      // now share that cut; task-release alone precedes the runtime outcome publication.
+      const { request } = context();
+
       withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) => {
         const session = projection.readRuntimeSession(event.payload.runtimeSessionId);
         for (const { taskId } of session?.taskBindings ?? [])
@@ -988,6 +942,8 @@ export function openFleetEdgeRuntime(input: {
       });
     },
     onAttemptTerminal: async (terminal) => {
+      const { request, centerWriteWaitMs, writePeer } = context();
+
       if (terminal.task) {
         const { taskId, executionId } = terminal.task,
           processGroupPid = terminal.processGroupPid;
@@ -1095,8 +1051,13 @@ export function openFleetEdgeRuntime(input: {
     schedule,
   });
   const squad = makeFleetSquadCoordinator({
-    request,
-    peer: writePeer,
+    get request() {
+      return input.request;
+    },
+    get peer() {
+      return context().writePeer;
+    },
+    forwardTaskAction: input.forwardTaskAction,
     spawner,
     controlBinding,
     sync: async () => {
@@ -1104,17 +1065,17 @@ export function openFleetEdgeRuntime(input: {
     },
     prepareWorkspace: prepareRuntimeWorkspace,
     readWorktreeSetup: () => readSettings().worktree,
-    readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
+    readResult: (ref) => {
+      const { request } = context();
+      return readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref);
+    },
   });
-  // Replica admission is shared; independent runtime recovery never owns the request barrier.
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
         void spawner.adopt().then(
           () => {
-            // The queue owns and reports maintenance failures. Returning its promise
-            // would create an unobserved second rejection in this detached continuation.
             schedule(() => squad.reconcile());
           },
           (error: unknown) => console.error("[runtime-recovery]", error),
@@ -1129,49 +1090,34 @@ export function openFleetEdgeRuntime(input: {
   };
   return {
     reconcile: async () => {
+      const { request } = context();
+
       if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
       await ensureReady();
-      // Recovery performs external work outside the queue, so one pending runtime
-      // cannot stop a sibling's terminal publication. Only this dependent action waits.
       const recovered = await spawner.adopt();
       await schedule(async () => {
         await squad.flushPublications();
         await pullRuntimeReplica();
       });
-      // Each runtime was recovered on its own; the error names every failure, not just the first.
       const failed = runtimeRecoveryError(recovered);
       if (failed) throw failed;
     },
-    awaitCanonicalRuntimeSessions: async (action: JsonObject, connectionSignal?: AbortSignal): Promise<JsonObject> =>
-      (await readFleetOperationalClient({
-        ...runtimeReadPeer,
-        repoId: request.repoId,
-        method: "repo.agentRuntime.sessions.await",
-        payload: action,
-        connectionSignal,
-      })) as JsonObject,
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,
       connectionSignal?: AbortSignal,
     ): Promise<JsonObject> => {
+      const { runtimeReadPeer, centerWriteWaitMs, request, writePeer } = context();
+
       if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
         return readReplica(method, action);
-      if (method === "repo.schedule.run" && action.kind === "runtime-session-read") {
-        if (typeof action.runtimeSessionId !== "string" || !action.runtimeSessionId)
-          throw edgeRuntimeError("runtime_read_invalid", "Schedule runtime read requires a session id.");
-        return readReplica("repo.agentRuntime.sessions.read", { runtimeSessionId: action.runtimeSessionId });
-      }
-      const readBinding = await input.readBinding();
+      const readBinding = await input.readBinding(request);
       let handoffControlBinding: import("./repo-cell-types.ts").RepoCellBinding | undefined;
       if (method === "repo.agentRuntime.sessions.await" && readBinding.keycloakAuthorization === undefined)
         return awaitLocalRuntimeSessions(action, readReplica, connectionSignal);
       if (method === "repo.tasks.autoClaimCandidates" || method === "repo.tasks.autoDispatchCandidates")
         return (await readFleetOperationalClient({
           ...runtimeReadPeer,
-          // Candidate generation joins the center projection, assignment witness and directory
-          // team facts; it is a bounded control read but can exceed the short interactive read
-          // budget used for local runtime status snapshots.
           timeoutMs: centerWriteWaitMs,
           repoId: request.repoId,
           method,
@@ -1203,15 +1149,14 @@ export function openFleetEdgeRuntime(input: {
               ...frame,
             }) as unknown as JsonObject,
         );
-      // Local termination cannot wait for adoption's canonical publications.
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
-      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await controlBinding());
-      if (method === "repo.agentRuntime.steer") return spawner.steer(action, await controlBinding());
+      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await controlBinding(request));
+      if (method === "repo.agentRuntime.steer") return spawner.steer(action, await controlBinding(request));
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string") await preflightRuntimeWorkspace();
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
         await prepareRuntimeWorkspace(action.taskId);
       if (method === "repo.agentRuntime.handoff" && action.operation === "claim") {
-        handoffControlBinding = await controlBinding();
+        handoffControlBinding = await controlBinding(request);
         await preflightRuntimeWorkspace();
       }
       await ensureReady();
@@ -1242,10 +1187,16 @@ export function openFleetEdgeRuntime(input: {
             return result.receipt as JsonObject;
           },
           spawn: async (checkpoint, spawn, rollout) =>
-            spawner.spawnHandoff(checkpoint, spawn, handoffControlBinding ?? (await controlBinding()), null, rollout),
+            spawner.spawnHandoff(
+              checkpoint,
+              spawn,
+              handoffControlBinding ?? (await controlBinding(request)),
+              null,
+              rollout,
+            ),
         });
       return method === "repo.agentRuntime.spawn"
-        ? spawner.spawn(action, await controlBinding())
+        ? spawner.spawn(action, await controlBinding(request))
         : ((await readFleetOperationalClient({
             ...runtimeReadPeer,
             repoId: request.repoId,
@@ -1260,11 +1211,21 @@ export function openFleetEdgeRuntime(input: {
     },
   };
 
+  async function readRuntimeProjection<T>(
+    request: FleetRuntimeLocation,
+    read: Parameters<typeof withEdgeReadModel<T>>[1],
+  ): Promise<T> {
+    const principalId = (await input.readBinding(request)).actor.principal.personId;
+    return withEdgeReadModel({ ...request, principalId, includeEntries: false }, read);
+  }
+
   async function awaitLocalRuntimeSessions(
     payload: JsonObject,
     read: (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) => Promise<JsonObject>,
     connectionSignal?: AbortSignal,
   ): Promise<JsonObject> {
+    const { request } = context();
+
     return orchestrateRuntimeSessionsAwait(payload, {
       readSession: async (runtimeSessionId) =>
         (await read("repo.agentRuntime.sessions.read", { runtimeSessionId })) as never,
@@ -1277,6 +1238,8 @@ export function openFleetEdgeRuntime(input: {
   }
 
   async function runSchedule(action: JsonObject): Promise<JsonObject> {
+    const { writePeer, request } = context();
+
     const actionKind = requiredScheduleText(action.kind, "kind"),
       assigned = await readFleetRepositoryMetadataClient(writePeer),
       scheduleId = typeof action.scheduleId === "string" ? action.scheduleId : request.repoId;
@@ -1286,8 +1249,6 @@ export function openFleetEdgeRuntime(input: {
         center: await readFleetRepositoryMetadataClient({ ...writePeer, includeGitMetadata: true }),
         operation: "runtime dispatch",
       });
-    // The request identity and the Schedule business key are minted independently at this entry:
-    // the former correlates one round trip, the latter names the occurrence and rides the action.
     const operationKey =
         typeof action.idempotencyKey === "string" && action.idempotencyKey ? action.idempotencyKey : randomUUID(),
       command = await runScheduleCommand({
@@ -1386,18 +1347,22 @@ export function openFleetEdgeRuntime(input: {
   }
 
   async function pullRuntimeReplica() {
+    const { request } = context();
+
     let generation = readReplicaGeneration(
       path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId),
     );
-    if (!generation && input.waitForReplicaReady && (await input.waitForReplicaReady()))
+    if (!generation && input.waitForReplicaReady && (await input.waitForReplicaReady(request)))
       generation = readReplicaGeneration(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId));
     if (!generation) throw edgeRuntimeError("replica_unavailable", "The edge replica has not been initialized.");
     const pulled = { replica: { viewId: request.nodeId, knownHead: generation.metadata.position } };
-    replicaOwner = (await input.readBinding()).actor.principal.personId;
+    replicaOwner = (await input.readBinding(request)).actor.principal.personId;
     return pulled;
   }
 
   async function prepareRuntimeWorkspace(taskId?: string): Promise<void> {
+    const { request } = context();
+
     await preflightRuntimeWorkspace();
     const pulled = await pullRuntimeReplica();
     if (taskId !== undefined) {
@@ -1425,6 +1390,8 @@ export function openFleetEdgeRuntime(input: {
   }
 
   async function preflightRuntimeWorkspace(): Promise<void> {
+    const { writePeer, request } = context();
+
     const centerGit = await readFleetRepositoryMetadataClient({ ...writePeer, includeGitMetadata: true });
     await assertFleetEdgeRepositoryGit({
       rootDir: request.workspaceRoot,
@@ -1434,9 +1401,6 @@ export function openFleetEdgeRuntime(input: {
   }
 }
 
-// The wire result crossed a process boundary, so the edge re-judges the served
-// shape rather than trusting the peer's word — same posture as the paged
-// runtime overview reads.
 function taskRuntimeContext(
   read: Readonly<Record<string, unknown>>,
   taskId: string,

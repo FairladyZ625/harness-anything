@@ -14,6 +14,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
@@ -264,6 +265,17 @@ test(
       { allowHost: fixture.host },
     );
     await catchUp();
+    writeFleetEdgeConfig(edgeRoot, {
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      quotaBytes: replicaQuota,
+    });
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
     const resident = startResidentReplicaSync({
       hostname: "127.0.0.1",
       port: center.port,
@@ -492,6 +504,7 @@ for (const probe of [
     // current manifest and every readable local file before that guard.
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
