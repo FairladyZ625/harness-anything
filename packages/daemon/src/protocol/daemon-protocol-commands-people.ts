@@ -34,6 +34,7 @@ const peopleWriteTopology = {
         jsonAllowedFields: allowedFields,
         codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
         pathKind: "workspace-file",
+        zeroHit: "not-a-selection",
         format: workspacePathFormat,
         conflictsWith: ["--json-input"],
       },

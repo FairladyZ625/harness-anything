@@ -43,7 +43,7 @@ test("daemon lifecycle command inputs and thin CLI parameters are projections of
                 ...(field.cli.kind === "boolean"
                   ? {}
                   : field.field === "fromFile"
-                    ? { pathKind: "workspace-file" }
+                    ? { pathKind: "workspace-file", zeroHit: "not-a-selection" }
                     : { pathKind: "non-path" }),
                 ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),
                 ...(field.cli.jsonSchema

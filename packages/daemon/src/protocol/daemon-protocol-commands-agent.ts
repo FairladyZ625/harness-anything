@@ -76,6 +76,7 @@ export const agentProtocolCommands = Object.freeze([
         {
           format: workspacePathFormat,
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           conflictsWith: ["--declaration"],
           jsonFields: [
             "id",
@@ -233,14 +234,24 @@ export const agentProtocolCommands = Object.freeze([
         "single",
         true,
         { code: "missing_field" },
-        { field: "sourceLocation", pathKind: "workspace-file", pathReader: "workspace-text" },
+        {
+          field: "sourceLocation",
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
+        },
       ),
       cliInput(
         "--target",
         "single",
         true,
         { code: "missing_field" },
-        { field: "targetLocation", pathKind: "workspace-file", pathReader: "workspace-text" },
+        {
+          field: "targetLocation",
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          zeroHit: "not-a-selection",
+        },
       ),
       cliInput("--run-id", "single", true, { code: "missing_field" }, { pathKind: "non-path", field: "runId" }),
       cliInput(

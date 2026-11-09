@@ -188,7 +188,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { pathKind: "workspace-file", pathReader: "workspace-text", field: "inputPath" },
+        { pathKind: "workspace-file", pathReader: "workspace-text", field: "inputPath", zeroHit: "refused" },
       ),
       cliInput("--entity", "single", false, { code: "invalid_field" }, { pathKind: "non-path", field: "entityRef" }),
     ],
@@ -208,7 +208,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
         "single",
         true,
         { code: "invalid_field" },
-        { pathKind: "workspace-file", pathReader: "workspace-text", field: "candidatePath" },
+        {
+          pathKind: "workspace-file",
+          pathReader: "workspace-text",
+          field: "candidatePath",
+          zeroHit: "refused",
+        },
       ),
       cliInput("--claim", "single", true, { code: "invalid_field" }, { pathKind: "non-path", field: "statement" }),
       cliInput(

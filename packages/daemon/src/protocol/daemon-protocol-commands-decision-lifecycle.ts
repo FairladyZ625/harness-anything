@@ -182,6 +182,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonDefaultFields: decisionProposalDefaultJsonFields,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           conflictsWith: ["--json-input"],
         },
@@ -227,6 +228,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           requiresAny: ["--from-file", "--json-input"],
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           conflictsWith: ["--body"],
           wire: { omit: true },
@@ -420,6 +422,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: [
@@ -483,6 +486,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["responses"],
@@ -512,6 +516,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           codec: { kind: "json-object", source: "file", maxBytes: 64 * 1024 },
           jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
@@ -651,6 +656,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           codec: { kind: "markdown-file", target: "body", maxBytes: 32 * 1024 },
           pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
           format: workspacePathFormat,
           wire: { omit: true },
         },
