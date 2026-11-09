@@ -604,24 +604,32 @@ function observeDispatchProcess(
   const drain = (): void => {
     if (released || exited) return;
     try {
-      let processAlive = false;
-      const livenessObservation: RuntimeProcessObservation = {
-        runtimeSessionId,
-        liveness: (processAlive = runtimePidIsAlive(pid)) ? "live" : "unknown",
+      const livenessEvent = {
+        type: "runtime_session_liveness_changed",
+        payload: {
+          runtimeSessionId,
+          liveness: runtimePidIsAlive(pid) ? ("live" as const) : ("unknown" as const),
+          processGroupPid: pid,
+        },
       };
       const bytes = readRuntimeWorkerChunk(stream, offset);
       if (bytes.length === 0) {
-        if (!processAlive) {
-          const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
-          appendRuntimeWorkerRecord(rootDir, dispatchId, {
-            kind: "process_lost",
-            occurredAt: new Date().toISOString(),
-            reason,
-            exitCode: null,
-            signal: null,
-          });
-          removeRuntimeCallbackRelay(dispatchId);
-          emitExit(null, reason, { ...livenessObservation, processGroupPid: pid });
+        switch (livenessEvent.payload.liveness) {
+          case "unknown": {
+            const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
+            appendRuntimeWorkerRecord(rootDir, dispatchId, {
+              kind: "process_lost",
+              occurredAt: new Date().toISOString(),
+              reason,
+              exitCode: null,
+              signal: null,
+            });
+            removeRuntimeCallbackRelay(dispatchId);
+            emitExit(null, reason, livenessEvent.payload);
+            break;
+          }
+          case "live":
+            break;
         }
         return;
       }
