@@ -105,25 +105,30 @@ export function createDaemonHostRuntimeApi(
       const registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
         (repo) => repo.repoId === request.repoId && repo.state === "enabled",
       );
-      if (
-        !registered ||
-        registered.mode !== "remote-edge" ||
-        registered.canonicalRoot === null ||
-        canonicalRoot(request.workspaceRoot) !== canonicalRoot(registered.canonicalRoot)
-      )
+      if (!registered || registered.mode !== "remote-edge" || registered.canonicalRoot === null)
         throw context.hostCodedError(
           "repo_mode_read_only",
           "Fleet runtime launch requires the matching enabled remote-edge registration.",
         );
       context.startReplicaSyncs();
-      const receipt = await context.edgeRuntimeFor(request).run(request.method, request.action, auth.connectionSignal);
+      const receipt = await context.forwardRuntime({
+        repoId: request.repoId,
+        method: request.method,
+        action: request.action,
+        auth,
+        decorate:
+          annotateSpawn && request.method === "repo.agentRuntime.spawn"
+            ? (resolved, value) =>
+                annotateHostingCredentialNotice(value, request.action, resolved.workspaceRoot, {
+                  repoId: request.repoId,
+                  instances: context.instances.list(),
+                })
+            : undefined,
+      });
+      if (!receipt)
+        throw context.hostCodedError("fleet_edge_config_invalid", "The registered remote-edge is unavailable.");
       await context.scheduleScheduler.refresh();
-      return annotateSpawn && request.method === "repo.agentRuntime.spawn"
-        ? annotateHostingCredentialNotice(receipt, request.action, request.workspaceRoot, {
-            repoId: request.repoId,
-            instances: context.instances.list(),
-          })
-        : receipt;
+      return receipt;
     },
     runRemoteEdgeRuntime = async (
       repoId: string,
@@ -138,13 +143,11 @@ export function createDaemonHostRuntimeApi(
       const workspaceRoot = registered.canonicalRoot;
       if (workspaceRoot === null)
         throw context.hostCodedError("repo_namespace_unknown", "Remote-edge runtime repository has no workspace root.");
-      const config = readFleetEdgeConfig(workspaceRoot);
-      if (!config || config.repoId !== repoId)
-        throw context.hostCodedError(
-          "repo_mode_read_only",
-          "Fleet runtime launch requires the matching enabled remote-edge registration.",
-        );
-      return runFleetEdgeRuntime({ ...config, repoId, workspaceRoot, method, action }, auth, true);
+      return runFleetEdgeRuntime(
+        { repoId, workspaceRoot, method, action } as FleetEdgeRuntimeRequest["payload"],
+        auth,
+        true,
+      );
     };
   return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
@@ -631,7 +634,17 @@ export function createDaemonHostRuntimeApi(
           context.startReplicaSyncs(),
         );
         await runReplicaConfirmedRound({
-          reconcile: () => context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile(),
+          reconcile: async () => {
+            const result = await context.forwardRuntime({
+              repoId: request.repoId,
+              method: "repo.squad.control",
+              action: {},
+              operation: "reconcile",
+              auth: { transportKind: "unix-socket" },
+            });
+            if (!result)
+              throw context.hostCodedError("fleet_edge_config_invalid", "The registered remote-edge is unavailable.");
+          },
           observeRecovery: (failures) => context.runtimeRecoveryWatch.observe(request.repoId, failures, context.now()),
           triggers: [() => context.scheduleScheduler.refresh()],
         });

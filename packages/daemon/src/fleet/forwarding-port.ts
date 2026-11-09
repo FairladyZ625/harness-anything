@@ -6,6 +6,7 @@ import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { RepoTaskAction } from "../repo-cell-types.ts";
+import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
 import { FleetEdgeTaskError, runFleetEdgeTask } from "../fleet-edge-task.ts";
 import { forwardingIntentIssue, type ForwardingIntent } from "./forwarding-intent.ts";
 
@@ -16,17 +17,51 @@ export async function forward(input: {
   readonly intent: ForwardingIntent;
   readonly auth: DaemonAuthenticationContext;
   readonly oidc: IdentitySessionPort;
-  readonly runRuntime: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
+  readonly runRuntime: (
+    payload: JsonObject,
+    auth: DaemonAuthenticationContext,
+    operation?: "run" | "reconcile",
+  ) => Promise<Record<string, unknown>>;
+  readonly decorateRuntime?: (
+    payload: FleetEdgeRuntimeRequest["payload"],
+    receipt: JsonObject,
+  ) => JsonObject | Promise<JsonObject>;
 }): Promise<Record<string, unknown> | null> {
+  if (input.intent.kind === "runtime") {
+    if (input.auth.transportKind !== "unix-socket" || input.auth.nodePrincipal) return null;
+    const edge = registeredRemoteEdge(input.userRoot, input.repoId);
+    if (!edge) return null;
+    const { workspaceRoot, config: storedConfig } = edge;
+    if (
+      !storedConfig ||
+      storedConfig.repoId !== input.repoId ||
+      (input.intent.inputs.requiredNodeId !== undefined && storedConfig.nodeId !== input.intent.inputs.requiredNodeId)
+    )
+      throw new FleetEdgeTaskError(
+        "fleet_edge_config_invalid",
+        "The registered remote-edge configuration is unavailable.",
+      );
+    const payload: FleetEdgeRuntimeRequest["payload"] = {
+        ...storedConfig,
+        caPath: path.resolve(workspaceRoot, storedConfig.caPath),
+        viewRoot: path.resolve(workspaceRoot, storedConfig.viewRoot),
+        workspaceRoot,
+        method: input.intent.method,
+        action: input.intent.inputs.action,
+      },
+      receipt = (await input.runRuntime(
+        payload as unknown as JsonObject,
+        input.auth,
+        input.intent.inputs.operation ?? "run",
+      )) as JsonObject;
+    return input.decorateRuntime ? input.decorateRuntime(payload, receipt) : receipt;
+  }
   const issue = forwardingIntentIssue(input.intent);
   if (issue) throw new FleetEdgeTaskError("invalid_field", issue);
   if (input.auth.transportKind !== "unix-socket" || input.auth.nodePrincipal) return null;
-  const edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
-    (repo) => repo.repoId === input.repoId && repo.state === "enabled" && repo.mode === "remote-edge",
-  );
-  if (!edge?.canonicalRoot || (input.rootDir && edge.canonicalRoot !== input.rootDir)) return null;
-  const workspaceRoot = edge.canonicalRoot,
-    storedConfig = readFleetEdgeConfig(workspaceRoot);
+  const edge = registeredRemoteEdge(input.userRoot, input.repoId);
+  if (!edge || (input.rootDir && edge.workspaceRoot !== input.rootDir)) return null;
+  const { workspaceRoot, config: storedConfig } = edge;
   if (
     !storedConfig ||
     storedConfig.repoId !== input.repoId ||
@@ -96,6 +131,14 @@ export async function forward(input: {
     },
     "domain",
   );
+}
+
+function registeredRemoteEdge(userRoot: string | undefined, repoId: string) {
+  const repo = readDaemonRegistry({ userRoot }).repos.find(
+    (candidate) => candidate.repoId === repoId && candidate.state === "enabled" && candidate.mode === "remote-edge",
+  );
+  if (!repo?.canonicalRoot) return null;
+  return { workspaceRoot: repo.canonicalRoot, config: readFleetEdgeConfig(repo.canonicalRoot) };
 }
 
 async function bindPersonSession(

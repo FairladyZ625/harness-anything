@@ -230,6 +230,87 @@ export function createJsonRpcProtocolServer(options: {
       );
       return response;
     };
+    const dispatchForwardedIntent = async (
+      fleetPayload: JsonObject,
+      fleetAction: unknown,
+      requestParams: JsonObject,
+    ): Promise<Record<string, unknown>> => {
+      if (!isJsonObject(fleetAction))
+        throw Object.assign(new Error("A forwarded fleet intent must be an object."), { code: "invalid_field" });
+      if (fleetAction.kind === "fleet-runtime") {
+        if (
+          ![
+            "repo.squad.control",
+            "repo.agentRuntime.spawn",
+            "repo.agentRuntime.cancel",
+            "repo.agentRuntime.steer",
+            "repo.agentRuntime.handoff",
+            "repo.agentRuntime.overview",
+            "repo.agentRuntime.sessions.read",
+            "repo.agentRuntime.sessions.await",
+          ].includes(String(fleetAction.method)) ||
+          !isJsonObject(fleetAction.payload)
+        )
+          throw Object.assign(new Error("Fleet runtime intent must carry one declared method and payload."), {
+            code: "invalid_field",
+          });
+        return options.host.fleet.edgeRuntime(
+          { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
+          options.authContext,
+        );
+      }
+      if (fleetAction.kind === "fleet-schedule") {
+        if (!isJsonObject(fleetAction.payload))
+          throw Object.assign(new Error("Fleet schedule intent must carry an action payload."), {
+            code: "invalid_field",
+          });
+        return options.host.fleet.edgeRuntime(
+          { ...fleetPayload, method: "repo.schedule.run", action: fleetAction.payload },
+          options.authContext,
+        );
+      }
+      if (typeof fleetAction.kind !== "string")
+        throw Object.assign(new Error("Fleet task intent must carry a declared command."), { code: "invalid_field" });
+      let relayedExecutionPrincipal: DaemonAuthenticationContext["executionPrincipal"],
+        relayedSessionPrincipal: DaemonAuthenticationContext["oidcPrincipal"];
+      if (executionCredential !== undefined) {
+        relayedSessionPrincipal = options.sessionPrincipal
+          ? await options.sessionPrincipal("daemon.fleet.task.run", requestParams)
+          : options.authContext.oidcPrincipal;
+        if (!relayedSessionPrincipal)
+          throw Object.assign(new Error("A device session is required for relayed execution."), {
+            code: "authentication_required",
+          });
+        if (!options.edgeExecutionPrincipal)
+          throw Object.assign(new Error("Edge execution identity is unavailable."), { code: "authorization_denied" });
+        relayedExecutionPrincipal = await options.edgeExecutionPrincipal(executionCredential);
+        Object.assign(options.authContext, {
+          executionPrincipal: relayedExecutionPrincipal,
+          executionCredential,
+          oidcPrincipal: relayedSessionPrincipal,
+        });
+      }
+      const result = makeDaemonCommandReceipt(
+        fleetAction.kind,
+        await options.host.run(String(fleetPayload.repoId), fleetAction as never, options.authContext),
+      );
+      if (
+        fleetAction.kind === "task-escalate" &&
+        relayedExecutionPrincipal !== undefined &&
+        (result.outcome === "applied" || result.outcome === "no_changes")
+      ) {
+        const cancel = await options.host.fleet.edgeRuntime(
+          {
+            ...fleetPayload,
+            method: "repo.agentRuntime.cancel",
+            action: { runtimeSessionId: relayedExecutionPrincipal.runtimeSessionId, escalation: true },
+          },
+          options.authContext,
+        );
+        return { ...result, edgeCancellation: cancel };
+      }
+      return result;
+    };
     if (request.method === "protocol.hello") handshaken = false;
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
@@ -592,101 +673,13 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (method === "daemon.fleet.task.run") {
-      // Loaded lazily: schema-closure imports this module in a zero-dependency checkout, and the fleet edge stack reaches the kernel barrel.
       try {
         if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
           throw Object.assign(new Error("This control is available only through the local session token."), {
             code: "local_transport_required",
           });
-        const fleetPayload = params.payload,
-          fleetAction = fleetPayload.action;
-        if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-runtime") {
-          if (
-            ![
-              "repo.squad.control",
-              "repo.agentRuntime.spawn",
-              "repo.agentRuntime.cancel",
-              "repo.agentRuntime.steer",
-              "repo.agentRuntime.handoff",
-              "repo.agentRuntime.overview",
-              "repo.agentRuntime.sessions.read",
-              "repo.agentRuntime.sessions.await",
-            ].includes(String(fleetAction.method)) ||
-            !isJsonObject(fleetAction.payload)
-          )
-            throw Object.assign(new Error("Fleet runtime envelope must carry one closed runtime method and payload."), {
-              code: "invalid_field",
-            });
-          const result = await options.host.fleet.edgeRuntime(
-            { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
-            options.authContext,
-          );
-          return reply(method, result);
-        }
-        if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-schedule") {
-          if (!isJsonObject(fleetAction.payload))
-            throw Object.assign(new Error("Fleet Schedule envelope must carry one closed action payload."), {
-              code: "invalid_field",
-            });
-          return reply(
-            method,
-            await options.host.fleet.edgeRuntime(
-              { ...fleetPayload, method: "repo.schedule.run", action: fleetAction.payload },
-              options.authContext,
-            ),
-          );
-        }
-        // Legacy callers may still use this transport coordinator, but ordinary repository
-        // actions now enter the same host.run -> ForwardingPort path as repo.task.run.  The
-        // coordinator no longer assembles a Fleet envelope or credential of its own.
-        if (!isJsonObject(fleetAction) || typeof fleetAction.kind !== "string")
-          throw Object.assign(new Error("Fleet task action must be a declared command object."), {
-            code: "invalid_field",
-          });
-        let relayedExecutionPrincipal: DaemonAuthenticationContext["executionPrincipal"],
-          relayedSessionPrincipal: DaemonAuthenticationContext["oidcPrincipal"];
-        if (executionCredential !== undefined) {
-          relayedSessionPrincipal = options.sessionPrincipal
-            ? await options.sessionPrincipal(method, params as JsonObject)
-            : options.authContext.oidcPrincipal;
-          if (!relayedSessionPrincipal)
-            throw Object.assign(new Error("A device session is required for relayed execution."), {
-              code: "authentication_required",
-            });
-          if (!options.edgeExecutionPrincipal)
-            throw Object.assign(new Error("Edge execution identity is unavailable."), {
-              code: "authorization_denied",
-            });
-          relayedExecutionPrincipal = await options.edgeExecutionPrincipal(executionCredential);
-        }
-        if (executionCredential !== undefined) {
-          const principal = relayedExecutionPrincipal;
-          Object.assign(options.authContext, {
-            executionPrincipal: principal,
-            executionCredential,
-            oidcPrincipal: relayedSessionPrincipal,
-          });
-        }
-        const receipt = await options.host.run(String(fleetPayload.repoId), fleetAction as never, options.authContext);
-        const result = makeDaemonCommandReceipt(fleetAction.kind, receipt);
-        // The center accepts the escalation artifact, but the edge owns the worker process. Close
-        // that owner through the existing edge runtime route before reporting command success.
-        if (
-          fleetAction.kind === "task-escalate" &&
-          relayedExecutionPrincipal !== undefined &&
-          (result.outcome === "applied" || result.outcome === "no_changes")
-        ) {
-          const cancel = await options.host.fleet.edgeRuntime(
-            {
-              ...fleetPayload,
-              method: "repo.agentRuntime.cancel",
-              action: { runtimeSessionId: relayedExecutionPrincipal.runtimeSessionId, escalation: true },
-            },
-            options.authContext,
-          );
-          return reply(method, { ...result, edgeCancellation: cancel });
-        }
-        return reply(method, result);
+        const payload = params.payload;
+        return reply(method, await dispatchForwardedIntent(payload, payload.action, params as JsonObject));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }

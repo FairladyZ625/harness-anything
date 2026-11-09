@@ -1,19 +1,35 @@
 import { getExecutableEntityAction } from "@harness-anything/kernel";
 import { commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
+import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
+import type { JsonObject } from "../protocol/json-rpc-types.ts";
 
-export type ForwardingIntent = Readonly<{
+export type CommandForwardingIntent = Readonly<{
+  kind: "command";
   commandId: string;
   method: string;
   inputs: Readonly<Record<string, unknown>> & { readonly kind: string };
   executionContext: Readonly<{ executionId?: string; requiredNodeId?: string }>;
 }>;
 
+export type RuntimeForwardingIntent = Readonly<{
+  kind: "runtime";
+  method: FleetEdgeRuntimeRequest["payload"]["method"];
+  inputs: Readonly<{
+    action: JsonObject;
+    operation?: "run" | "reconcile";
+    requiredNodeId?: string;
+  }>;
+}>;
+
+export type ForwardingIntent = CommandForwardingIntent | RuntimeForwardingIntent;
+
 export function forwardingIntentForAction(
   method: string,
   inputs: Readonly<Record<string, unknown>> & { readonly kind: string },
   executionContext: Readonly<{ requiredNodeId?: string }> = {},
-): ForwardingIntent {
+): CommandForwardingIntent {
   return {
+    kind: "command",
     commandId: inputs.kind,
     method,
     inputs,
@@ -24,10 +40,18 @@ export function forwardingIntentForAction(
   };
 }
 
+export function runtimeForwardingIntent(
+  method: FleetEdgeRuntimeRequest["payload"]["method"],
+  action: JsonObject,
+  options: Readonly<{ operation?: "run" | "reconcile"; requiredNodeId?: string }> = {},
+): RuntimeForwardingIntent {
+  return { kind: "runtime", method, inputs: { action, ...options } };
+}
+
 export function forwardingIntentIssue(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "forwarding intent must be an object";
-  const intent = value as Partial<ForwardingIntent>,
-    inputs = intent.inputs;
+  const intent = value as Partial<CommandForwardingIntent>,
+    inputs = intent.inputs as (CommandForwardingIntent["inputs"] & { readonly executionId?: unknown }) | undefined;
   if (
     typeof intent.commandId !== "string" ||
     typeof intent.method !== "string" ||

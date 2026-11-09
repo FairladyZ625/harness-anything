@@ -6,7 +6,7 @@ import type { RuntimeInstanceSummary, openRuntimeInstanceStore } from "./agent-r
 import type { DaemonBuildObserver } from "./build-identity.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
-import type { FleetEdgeRuntimeRequest, openFleetEdgeRuntime } from "./fleet-edge-runtime.ts";
+import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
@@ -98,7 +98,18 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
     reason: string,
     releasedTask?: { readonly repoId: string; readonly taskId: string },
   ) => void;
-  readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
+  readonly forwardRuntime: (input: {
+    readonly repoId: string;
+    readonly requiredNodeId?: string;
+    readonly method: FleetEdgeRuntimeRequest["payload"]["method"];
+    readonly action: JsonObject;
+    readonly operation?: "run" | "reconcile";
+    readonly decorate?: (
+      payload: FleetEdgeRuntimeRequest["payload"],
+      receipt: JsonObject,
+    ) => JsonObject | Promise<JsonObject>;
+    readonly auth: DaemonAuthenticationContext;
+  }) => Promise<JsonObject | null>;
   readonly invalidRepoId: (repo: InvalidDaemonRegistryRepo) => string;
   readonly closeCell: (repoId: string) => Promise<void>;
   readonly unavailableProbes: Map<string, ReturnType<typeof makeRecoveryProbe>>;
@@ -176,10 +187,10 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly recoverableRunId: typeof import("./daemon-host-errors.ts").recoverableRunId;
   readonly requireHostMode: (repoId: string, command: CommandTopology, auth: DaemonAuthenticationContext) => void;
   fleetCenter: FleetTlsCenter | null;
-  readonly fleetEdgeRuntimes: Map<string, ReturnType<typeof openFleetEdgeRuntime>>;
+  readonly fleetEdgeRuntimes: Map<string, ReturnType<typeof import("./fleet-edge-runtime.ts").openFleetEdgeRuntime>>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
-  readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
+  readonly forwardRuntime: DaemonHostRegistryContext["forwardRuntime"];
   readonly migrateEdgeWorkspace: (repoId: string, oldRoot: string, newRoot: string) => Promise<void>;
   readonly instances: ReturnType<typeof openRuntimeInstanceStore>;
   readonly decisionProviders: ReturnType<typeof openDecisionProviderService>;
