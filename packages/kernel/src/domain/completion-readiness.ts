@@ -427,7 +427,8 @@ function evaluateCompletion(
       "consent_missing",
       "consent",
       reviewConsentCommands(task.taskId, snapshot.reviews, execution).join(" or "),
-      "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
+      `Owner consent is required because ${consentRequirementReason(task, execution)}. ` +
+        "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
     );
   if (context.delivery?.required && submission.commitSha !== null && !context.delivery.merged) {
     // The daemon's readCompletionDeliveryStatus is the one parser of merge_commit_sha annotations;
@@ -484,6 +485,24 @@ export function changesRequestedReview(
   return reviewsForExecution(reviews, execution)
     .filter((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId))
     .at(-1);
+}
+
+/**
+ * The rule the consent judgment already read, named for the receipt. A high effective tier forces
+ * consent and carries its recorded reasons (declared tier, matched path rules, protected surfaces,
+ * risk scripts). Below high, consent is owed only because the task/preset override or the
+ * repository's configured closeout gate turned it on. This narrates that judgment; it decides
+ * nothing.
+ */
+function consentRequirementReason(task: TaskV2, execution: ExecutionV1): string {
+  const assessment = execution.submission?.riskTierAssessment;
+  if (assessment?.effectiveTier === "high") {
+    const declared = `declared ${assessment.declaredTier}`,
+      details = [declared, ...assessment.reasons].join("; ");
+    return `the effective risk tier is high (${details})`;
+  }
+  if (task.closeoutOverrides?.consent === true) return "the task's closeout override requires owner consent";
+  return "the configured closeout gate requires owner consent";
 }
 
 /** Consent commands always name the execution and the review: a sole candidate is a suggestion, never an implicit choice. */
