@@ -16,6 +16,7 @@ import {
   type EntityKind,
   type EntityResidencyFacets,
   type EntityTypeContract,
+  hostEntityTypeContract,
 } from "./base-entity.ts";
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
@@ -46,7 +47,7 @@ import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
-import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
+import { SCHEDULE_V1_SCHEMA, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./person-profile.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
@@ -67,6 +68,8 @@ import {
   type ActionReturnsContract,
   type EntityActionDescriptorFacets,
 } from "./entity-action-descriptor.ts";
+import { hostStateStores, stateStoresForKind, type StateStoreDeclaration } from "./entity-state-stores.ts";
+import { hostAggregateSchema } from "./host.ts";
 
 export type EntityStorageForm =
   | "lifecycle"
@@ -82,13 +85,7 @@ export interface EntityAnchorDeclaration {
   readonly entityRef: string;
   readonly anchors: ReadonlyArray<{ readonly field: string; readonly idField: string; readonly ref: string }>;
 }
-export interface EmbeddedCanonicalEventDeclaration {
-  readonly schema: string;
-  readonly types: ReadonlyArray<string>;
-  readonly payloadField: string;
-}
 export interface EntityCanonicalProjectionDeclaration {
-  readonly embeddedEvents: ReadonlyArray<EmbeddedCanonicalEventDeclaration>;
   readonly row: {
     readonly idField: string;
     readonly ownerField: string | null;
@@ -154,6 +151,7 @@ export type EntityKindContract<E extends BaseEntity = BaseEntity, T = unknown> =
     }[];
   };
   readonly canonicalProjection: EntityCanonicalProjectionDeclaration | null;
+  readonly stateStores: readonly StateStoreDeclaration[];
   readonly statusVocabulary?: readonly { readonly field: string; readonly words: readonly string[] }[];
   readonly actionCatalog: {
     readonly ref: string;
@@ -316,6 +314,7 @@ export interface EntityKindExplanation {
   readonly id: EntityKindContract["id"];
   readonly relations: EntityKindContract["relations"];
   readonly canonicalProjection: EntityKindContract["canonicalProjection"];
+  readonly stateStores: EntityKindContract["stateStores"];
   readonly statusVocabulary: NonNullable<EntityKindContract["statusVocabulary"]>;
   readonly transitions: {
     readonly catalogRef: string | null;
@@ -943,6 +942,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: taskSchema,
     relations: relationsFor("task"),
     canonicalProjection: null,
+    stateStores: stateStoresForKind("task"),
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
     actionCatalog: Object.freeze({
       ...taskActionCatalog,
@@ -962,6 +962,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: factSchema,
     relations: relationsFor("fact"),
     canonicalProjection: null,
+    stateStores: stateStoresForKind("fact"),
     statusVocabulary: [{ field: "state", words: ["standing", "superseded_fact"] }],
     actionCatalog: Object.freeze({
       ...factActionCatalog,
@@ -981,6 +982,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: decisionSchema,
     relations: relationsFor("decision"),
     canonicalProjection: null,
+    stateStores: stateStoresForKind("decision"),
     statusVocabulary: [{ field: "state", words: decisionStates }],
     actionCatalog: Object.freeze({
       ...decisionActionCatalog,
@@ -1000,9 +1002,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: relationSchema,
     relations: relationsFor("relation"),
     canonicalProjection: {
-      embeddedEvents: [],
       row: { idField: "id", ownerField: null },
     },
+    stateStores: stateStoresForKind("relation"),
     statusVocabulary: [{ field: "state", words: relationStates }],
     actionCatalog: relationActionCatalog,
     entityStore: null,
@@ -1017,7 +1019,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       directions: ["directed"],
       edges: canonicalRelationDirections.filter((edge) => edge.sourceKind === "todo"),
     },
-    canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
+    canonicalProjection: { row: { idField: "id", ownerField: null } },
+    stateStores: stateStoresForKind("todo"),
     actionCatalog: createTodoActionCatalog((id) => entityAction("todo", requireEntityTypeContract("todo").id, id)),
     entityStore: genericEntityStore("todos/{id}.json"),
     authoring: genericAuthoring,
@@ -1028,7 +1031,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ...entityTypeContractFields("agent"),
     schema: AGENT_DECLARATION_V1_SCHEMA,
     relations: { directions: [], edges: [] },
-    canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
+    canonicalProjection: { row: { idField: "id", ownerField: null } },
+    stateStores: stateStoresForKind("agent"),
     actionCatalog: Object.freeze({
       ...agentActionCatalog,
       actions: Object.freeze([
@@ -1045,7 +1049,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     ...entityTypeContractFields("squad"),
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     relations: { directions: [], edges: [] },
-    canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
+    canonicalProjection: { row: { idField: "id", ownerField: null } },
+    stateStores: stateStoresForKind("squad"),
     actionCatalog: Object.freeze({
       ...squadActionCatalog,
       actions: Object.freeze([
@@ -1080,31 +1085,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       ],
     },
     canonicalProjection: {
-      embeddedEvents: [
-        {
-          schema: "task-event/v1",
-          types: [
-            "execution_started",
-            "lease_renewed",
-            "execution_submitted",
-            "submission_forwarded",
-            "submission_returned",
-            "execution_executor_declared",
-            "execution_annotated",
-            "review_recorded",
-            "task_review_responded",
-            "review_consent_recorded",
-            "completion_gate_verified",
-            "gate_run_changed",
-            "task_completion_generation_retired",
-            "task_completed",
-            "lease_released",
-          ],
-          payloadField: "execution",
-        },
-      ],
       row: { idField: "executionId", ownerField: "taskId" },
     },
+    stateStores: stateStoresForKind("execution"),
     statusVocabulary: [{ field: "state", words: executionStates }],
     actionCatalog: noActionCatalog(
       "kernel/task-lifecycle/v1",
@@ -1137,15 +1120,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       ],
     },
     canonicalProjection: {
-      embeddedEvents: [
-        {
-          schema: "task-event/v1",
-          types: ["review_recorded", "review_consent_recorded"],
-          payloadField: "review",
-        },
-      ],
       row: { idField: "reviewId", ownerField: "taskId" },
     },
+    stateStores: stateStoresForKind("review"),
     statusVocabulary: [{ field: "verdict", words: reviewVerdicts }],
     actionCatalog: noActionCatalog(
       "kernel/task-lifecycle/v1",
@@ -1164,9 +1141,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       edges: [{ type: "executes", sourceKind: "runtime-session", targetKind: "task" }],
     },
     canonicalProjection: {
-      embeddedEvents: [],
       row: { idField: "runtimeSessionId", ownerField: null },
     },
+    stateStores: stateStoresForKind("runtime-session"),
     statusVocabulary: [
       { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
       { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled", "stopped"] },
@@ -1191,15 +1168,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: SCHEDULE_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: {
-      embeddedEvents: [
-        {
-          schema: "schedule-event/v1",
-          types: scheduleEventTypes,
-          payloadField: "schedule",
-        },
-      ],
       row: { idField: "scheduleId", ownerField: null },
     },
+    stateStores: stateStoresForKind("schedule"),
     statusVocabulary: [
       { field: "state", words: scheduleStates },
       { field: "status.lastRun.outcome", words: scheduleRunOutcomes },
@@ -1221,9 +1192,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: SETTINGS_REPOSITORY_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: {
-      embeddedEvents: [{ schema: "settings-event/v1", types: ["settings_changed"], payloadField: "settings" }],
       row: { idField: "settingsId", ownerField: null },
     },
+    stateStores: stateStoresForKind("settings"),
     actionCatalog: settingsActionCatalog,
     entityStore: null,
     authoring: { kind: "settings-event", contractRef: "settings-event/v1" },
@@ -1235,6 +1206,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: PERSON_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
+    stateStores: stateStoresForKind("person"),
     actionCatalog: personActionCatalog,
     entityStore: null,
     authoring: null,
@@ -1246,6 +1218,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: documentKindSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
+    stateStores: stateStoresForKind("document"),
     actionCatalog: documentActionCatalog,
     entityStore: null,
     authoring: null,
@@ -1257,6 +1230,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: migrationKindSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
+    stateStores: stateStoresForKind("migration"),
     actionCatalog: migrationActionCatalog,
     entityStore: null,
     authoring: null,
@@ -1268,6 +1242,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: scriptExecutionKindSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
+    stateStores: stateStoresForKind("script-execution"),
     actionCatalog: scriptExecutionActionCatalog,
     entityStore: null,
     authoring: null,
@@ -1279,7 +1254,20 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     schema: verticalDeclarationKindSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
+    stateStores: stateStoresForKind("vertical-declaration"),
     actionCatalog: verticalDeclarationActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    ...hostEntityTypeContract,
+    schema: hostAggregateSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    stateStores: hostStateStores,
+    statusVocabulary: [{ field: "process", words: ["running", "stopped"] }],
+    actionCatalog: noActionCatalog("kernel/host/v1", "Host process aggregate; lifecycle helpers own operational stores."),
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
@@ -1372,6 +1360,7 @@ export function explainEntityKindContract(contract: EntityKindContract): EntityK
     id: contract.id,
     relations: contract.relations,
     canonicalProjection: contract.canonicalProjection,
+    stateStores: contract.stateStores,
     statusVocabulary: contract.statusVocabulary ?? [],
     transitions: {
       catalogRef: contract.actionCatalog?.ref ?? null,

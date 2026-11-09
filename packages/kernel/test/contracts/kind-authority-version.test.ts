@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { contractVersion } from "../../src/domain/contract-version.ts";
+import { scheduleEventTypes } from "../../src/domain/schedule.ts";
 import { entityKindContracts, explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import {
   getEntityKindContract,
@@ -28,6 +29,7 @@ const expectedKinds = [
   "task",
   "todo",
   "vertical-declaration",
+  "host",
 ] as const;
 const expectedResidency = {
   agent: { authored: "ledger" },
@@ -48,10 +50,11 @@ const expectedResidency = {
   task: { authored: "ledger" },
   todo: { authored: "ledger" },
   "vertical-declaration": { authored: "ledger" },
+  host: { process: "host-local" },
 } as const;
 
 test("one named kind-contract authority explains all registered entity kinds with one shape", () => {
-  assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds]);
+  assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds].sort());
   for (const contract of entityKindContracts)
     assert.deepEqual(contract.residency, expectedResidency[contract.kind], `${contract.kind} residency`);
   const explanations = expectedKinds.map(explainEntityKind);
@@ -65,6 +68,34 @@ test("one named kind-contract authority explains all registered entity kinds wit
         .map(({ id }) => id),
       `${explanation.kind} available Actions`,
     );
+  const host = entityKindContracts.find(({ kind }) => kind === "host");
+  assert.ok(host);
+  assert.equal(host.schema.$id, "host/v1");
+  assert.deepEqual(
+    host.stateStores.map(({ id, purpose, medium, writerApi }) => ({ id, purpose, medium, writerApi })),
+    [
+      {
+        id: "host.process-lock",
+        purpose: "process-lock",
+        medium: {
+          kind: "host-operational",
+          recordSchema: "host-process-lock/v1",
+          purpose: "process-lock",
+        },
+        writerApi: "withHostProcessLock",
+      },
+      {
+        id: "host.diagnostic-log",
+        purpose: "diagnostic-log",
+        medium: {
+          kind: "host-operational",
+          recordSchema: "host-diagnostic-line/v1",
+          purpose: "diagnostic-log",
+        },
+        writerApi: "appendHostDiagnostic",
+      },
+    ],
+  );
   for (const kind of ["execution", "review"] as const) {
     const transitions = explanations.find((explanation) => explanation.kind === kind)?.transitions;
     assert.deepEqual(transitions?.actions, [], `${kind} declared Actions`);
@@ -109,6 +140,13 @@ test("one named kind-contract authority explains all registered entity kinds wit
     schedule?.transitions.actions.some((action) => Object.hasOwn(action, "admission")),
     false,
   );
+  const scheduleStore = getEntityKindContract("schedule")?.stateStores.find(
+    ({ id }) => id === "schedule.schedule-events",
+  );
+  assert.ok(scheduleStore);
+  assert.deepEqual(scheduleStore.projection?.types, scheduleEventTypes);
+  assert.deepEqual(scheduleStore.medium.types, scheduleEventTypes);
+  assert.ok(scheduleEventTypes.some((type) => type === "schedule_occurrence_claimed"));
   const settings = explanations.find(({ kind }) => kind === "settings");
   assert.deepEqual(settings?.residency, { authored: "ledger", current: "projection" });
   assert.deepEqual(settings?.statusVocabulary, []);

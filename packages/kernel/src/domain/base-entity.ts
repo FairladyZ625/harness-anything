@@ -12,7 +12,7 @@ export { ENTITY_ID_PATTERN } from "./entity-id-pattern.ts";
 export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
 export const entityDispositions = packageDispositions;
 export type EntityDisposition = PackageDisposition;
-export type EntityResidency = "ledger" | "runtime-local" | "projection";
+export type EntityResidency = "ledger" | "runtime-local" | "projection" | "host-local";
 export type EntityResidencyFacets = Readonly<Record<string, EntityResidency>>;
 
 export const baseEntityActionIds = Object.freeze([
@@ -191,6 +191,17 @@ const verticalDeclarationIdentity = Object.freeze({
   pattern: "^default$",
   refTemplate: "vertical-declaration/{id}" as const,
 });
+export const hostEntityTypeContract = Object.freeze({
+  kind: "host" as const,
+  ...baseEntityTypeContract(
+    Object.freeze({
+      field: "hostId",
+      pattern: "^singleton$",
+      refTemplate: "host/{id}" as const,
+    }),
+    Object.freeze({ process: "host-local" as const }),
+  ),
+});
 
 export const entityTypeContracts = Object.freeze([
   {
@@ -232,6 +243,7 @@ export const entityTypeContracts = Object.freeze([
   { kind: "migration", ...baseEntityTypeContract(migrationIdentity, authoredResidency) },
   { kind: "script-execution", ...baseEntityTypeContract(scriptExecutionIdentity, authoredResidency) },
   { kind: "vertical-declaration", ...baseEntityTypeContract(verticalDeclarationIdentity, authoredResidency) },
+  hostEntityTypeContract,
 ] as const satisfies readonly EntityTypeContract[]);
 
 export type RegisteredEntity = EntityFromTypeContract<(typeof entityTypeContracts)[number]>;
