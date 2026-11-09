@@ -78,6 +78,63 @@ test("task start reports every incomplete plan section, empty and scaffold alike
   }
 });
 
+test("a start that judged the canonical plan names the unsynced local body and its doc sync command, and following that command reaches start", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-start-plan-unsynced-")),
+    taskId = "task-start-unsynced";
+  initRepo(rootDir);
+  const cell = await openBootstrappedRepoCell({
+    repoId: workspaceId("start-plan-unsynced"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "start-plan-unsynced",
+  });
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    const created = await cell.run({ kind: "task-create", taskId, title: "Unsynced plan" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
+      planPath = `${packagePath}/task_plan.md`;
+    // The local plan is complete; the canonical projection still holds the create-time scaffold.
+    writeFileSync(path.join(rootDir, "harness", planPath), realizedTaskPlan("Unsynced but complete plan"));
+
+    const rejected = await cell.run({ kind: "task-start", taskId, executionId: "execution-unsynced" }, binding);
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "plan_placeholder");
+    assert.equal(rejected.diagnostic?.kind, "missing-sections");
+    assert.equal(rejected.diagnostic?.diskDiffers, true);
+    assert.deepEqual(
+      rejected.diagnostic?.missingSections,
+      [],
+      "the on-disk body is complete, so the empty section list alone used to hide the real cause",
+    );
+    const explanation = String(rejected.rejectionExplanation);
+    assert.match(explanation, /judged the canonical projection document at workspace revision \d+/u);
+    assert.match(explanation, new RegExp(`on-disk .*${planPath} differs and has not been submitted`, "u"));
+    assert.match(explanation, new RegExp(`ha doc sync --submit --task ${taskId}, then retry this command`, "u"));
+    console.log(
+      `PLAN_READINESS_BEFORE ${JSON.stringify({
+        code: rejected.code,
+        diagnostic: rejected.diagnostic,
+        rejectionExplanation: explanation,
+      })}`,
+    );
+
+    // Only the command the receipt names: no delete/recreate, no --plan-file.
+    const synced = await cell.run({ kind: "doc-submit", taskId }, binding);
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+    const started = await cell.run({ kind: "task-start", taskId, executionId: "execution-unsynced" }, binding);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    console.log(
+      `PLAN_READINESS_AFTER ${JSON.stringify({
+        docSync: { outcome: synced.outcome, code: synced.code ?? null },
+        start: { outcome: started.outcome, code: started.code ?? null },
+      })}`,
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a fix task without an authored Recurrence Gate is refused at create and admitted once filled", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fix-recurrence-gate-")),
     template = readFileSync(

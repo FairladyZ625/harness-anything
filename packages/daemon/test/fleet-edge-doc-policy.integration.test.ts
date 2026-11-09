@@ -306,7 +306,7 @@ test(
     writeFileSync(target, persistedBody);
     assert.equal(sha256Bytes(readFileSync(target)), sha256Bytes(persistedBody), "local edit is the NUL-bearing row");
 
-    // A task-package document cannot ride the bare edge `doc-submit` channel
+    // A non-plan task-package document cannot ride the bare edge `doc-submit` channel
     // (`task_docs_require_task_command`); it rides the canonical task command's carried docChanges,
     // which is the edge path that recomputed the policy from bytes before this fix.
     const carried = await fixture.edgeTask("node-one", {

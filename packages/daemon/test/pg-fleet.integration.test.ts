@@ -173,8 +173,12 @@ for (const { gitFollower, materialize } of [
             path.join(edge.workspaceRoot, "harness", packagePath, "task_plan.md"),
             realizedTaskPlan("PG two-node claim"),
           );
-        const refusedPlan = await edgeRun(one, { kind: "doc-submit", taskId: "task-pg-race" }, false);
-        assert.equal(refusedPlan.code, "task_docs_require_task_command", JSON.stringify(refusedPlan));
+        // A planned task's plan rides the plain doc-submit channel: the start gate reads the
+        // canonical plan, and a planned task has no execution to name on the task command. Both
+        // edges converge before the two-node start race so neither command carries a stale body.
+        const submittedPlan = await edgeRun(one, { kind: "doc-submit", taskId: "task-pg-race" }, false);
+        assert.equal(submittedPlan.outcome, "applied", JSON.stringify(submittedPlan));
+        await converge(two);
         const results = await Promise.all(
           [one, two].map((edge) => edgeRun(edge, { kind: "task-start", taskId: "task-pg-race" }, false)),
         );
