@@ -310,7 +310,6 @@ export function createJsonRpcProtocolServer(options: {
       !daemonControl &&
       !sessionIndependentRbacOperation(method, params as JsonObject) &&
       !sessionIndependentFleetRuntimeRead(method, params as JsonObject) &&
-      !sessionIndependentFleetReplicaRead(method, params as JsonObject) &&
       !options.sessionIndependentRead?.(method, params as JsonObject) &&
       !relayExecution &&
       options.sessionPrincipal
@@ -323,12 +322,6 @@ export function createJsonRpcProtocolServer(options: {
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
-    } else if (!daemonControl && sessionIndependentFleetReplicaRead(method, params as JsonObject)) {
-      Object.assign(options.authContext, {
-        oidcPrincipal: undefined,
-        replicaReadPrincipal: undefined,
-        replicaReadDenied: undefined,
-      });
     }
     markDaemonOperationPhase("repository-admission");
     updateDaemonOperation({
@@ -1235,20 +1228,6 @@ function sessionIndependentFleetRuntimeRead(method: string, params: JsonObject):
       String(action.method),
     )
   );
-}
-
-function sessionIndependentFleetReplicaRead(method: string, params: JsonObject): boolean {
-  if (
-    !["daemon.fleet.task.run", "repo.task.read"].includes(method) ||
-    !isJsonObject(params.payload) ||
-    !isJsonObject(params.payload.action)
-  )
-    return false;
-  // Runtime and schedule envelopes are handled by their dedicated Fleet ports; they are not
-  // repository action descriptors and must not be passed to commandDescriptorForAction.
-  if (["fleet-runtime", "fleet-schedule"].includes(String(params.payload.action.kind))) return false;
-  // Let the server-selected edge read bind once with replicaRead enabled, so refresh rejection stays on this request.
-  return commandDescriptorForAction(String(params.payload.action.kind)).admission["remote-edge"] === "edge-replica";
 }
 
 function protocolFailure(command: string, error: unknown) {

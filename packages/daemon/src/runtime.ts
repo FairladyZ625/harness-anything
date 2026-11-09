@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { readDaemonRegistry } from "@harness-anything/kernel/daemon-registry";
+import { readDaemonRegistry } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
@@ -305,9 +305,19 @@ export async function startDaemon(input: {
               typeof params.repo === "object" && params.repo !== null && "repoId" in params.repo
                 ? String(params.repo.repoId)
                 : undefined;
-            const edgeRepo = host!.status().repos.find((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
-            const principal = edgeRepo
-              ? readRuntimeExecutionPrincipal(edgeRepo.rootDir, credential)
+            // The registry is the authority for repository mode during startup. The host
+            // status projection can still be warming after a daemon restart, but an edge
+            // execution credential must be resolved locally before any center lookup.
+            const edgeRepo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+              (repo) =>
+                repo.repoId === repoId &&
+                repo.state === "enabled" &&
+                repo.mode === "remote-edge" &&
+                repo.canonicalRoot !== null,
+            );
+            const edgeRoot = edgeRepo?.canonicalRoot;
+            const principal = edgeRoot
+              ? readRuntimeExecutionPrincipal(edgeRoot, credential)
               : await authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
             if (!principal)
               throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {

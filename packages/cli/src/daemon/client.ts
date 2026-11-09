@@ -272,8 +272,7 @@ export async function runCommandThroughDaemon(
     descriptor &&
     command.method !== "repo.agentRuntime.handoff" &&
     descriptor.method === command.method &&
-    descriptor.admission["remote-edge"] === "via-center-forward" &&
-    !(command.action.kind === "task-create" && Object.hasOwn(command.action, "createMode"))
+    descriptor.admission["remote-edge"] === "via-center-forward"
   )
     command = { ...command, action: serializeFleetAction(command) };
   command = materializeArtifactSource(materializeCommandFileInputs(command));

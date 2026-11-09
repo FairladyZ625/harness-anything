@@ -685,6 +685,15 @@ export async function runFleetTaskCommandClient(
           mediaType: "application/x-ndjson",
         })
       : null;
+    // Direct Fleet callers may still provide the operation-specific handoff kind
+    // without repeating its discriminator. The wire contract remains closed: the
+    // client derives the declared operation before serialization, while an explicit
+    // conflicting value is left for the schema to reject.
+    const action =
+      options.action.operation === undefined &&
+      ["export", "claim", "revoke"].includes(options.action.kind.replace("runtime-handoff-", ""))
+        ? { ...options.action, operation: options.action.kind.replace("runtime-handoff-", "") }
+        : options.action;
     let result: FleetFrameV1;
     try {
       result = await session.request({
@@ -695,7 +704,7 @@ export async function runFleetTaskCommandClient(
         opId: options.opId,
         repoId: options.repoId,
         taskId: options.taskId,
-        action: { ...options.action, ...(candidate ? { candidate } : {}) },
+        action: { ...action, ...(candidate ? { candidate } : {}) },
         ...(options.artifact ? { artifact: options.artifact } : {}),
         docChanges: options.docChanges ?? null,
         mirrorBaseCut: options.mirrorBaseCut ?? null,

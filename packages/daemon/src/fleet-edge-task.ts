@@ -314,6 +314,17 @@ export async function runFleetEdgeRepositoryRead(
     });
   const payload = { ...config, workspaceRoot: input.rootDir, action: input.action },
     minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
+  const readAtReplicaCut = async (): Promise<Record<string, unknown>> => {
+    const receipt = await readLocal(),
+      view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
+    return {
+      schema: "command-receipt/v2",
+      command: payload.action.kind,
+      ok: receipt.outcome === "applied",
+      ...receipt,
+      ...(view ? { cut: { revision: view.revision, headDigest: view.headDigest } } : {}),
+    };
+  };
   return readEdgeRepository(
     {
       viewRoot: payload.viewRoot,
@@ -323,15 +334,7 @@ export async function runFleetEdgeRepositoryRead(
       ...(minCut ? { minCut } : {}),
     },
     () => Promise.resolve(),
-    async () => {
-      const receipt = await readLocal();
-      return {
-        schema: "command-receipt/v2",
-        command: payload.action.kind,
-        ok: receipt.outcome === "applied",
-        ...receipt,
-      };
-    },
+    readAtReplicaCut,
   );
 }
 
@@ -588,7 +591,9 @@ export async function runFleetEdgeTask(
           ? error.code
           : error instanceof FleetEdgeTaskError
             ? error.code
-            : "fleet_task_rejected";
+            : typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+              ? error.code
+              : "fleet_task_rejected";
       return {
         schema: "command-receipt/v2",
         ok: false,
@@ -653,6 +658,7 @@ export async function runFleetEdgeTask(
     if (receiptFormat === "domain")
       return {
         ...receipt,
+        ...(result.appliedCut ? { appliedCut: result.appliedCut } : {}),
         ...(mirror !== null && (mirror.outcome === "pull_blocked" || mirror.outcome === "pull_failed")
           ? {
               warnings: [

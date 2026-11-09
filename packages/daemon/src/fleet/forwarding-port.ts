@@ -36,7 +36,6 @@ export async function forward(input: {
     return null;
   const action = input.intent.inputs as RepoTaskAction,
     descriptor = commandDescriptorForAction(input.intent.commandId);
-  if (action.kind === "task-create" && Object.hasOwn(action, "createMode")) return null;
   const scheduleAction = getExecutableEntityAction(action.kind)?.target.kind === "schedule",
     squadControl = action.kind === "squad-run" || action.kind === "squad-cancel";
   if (scheduleAction || squadControl) {
@@ -67,7 +66,9 @@ export async function forward(input: {
   // Executor attribution is part of the declared action intent. It must cross the
   // center boundary so the center can bind execution-scoped review and task writes
   // to the originating runtime session instead of the local interactive user.
-  const wireAction = action;
+  // `planSource` is a local CLI diagnostic label. It may contain an edge-only
+  // workspace path and is intentionally absent from the declared Fleet action.
+  const { planSource: _planSource, ...wireAction } = action;
   const bindPersonSessionNow = () => bindPersonSessionForRoot(input.auth, input.oidc, workspaceRoot),
     bound = await bindPersonSessionNow(),
     personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
@@ -103,6 +104,10 @@ async function bindPersonSessionForRoot(
   oidc: IdentitySessionPort,
   workspaceRoot: string,
 ) {
+  // Admission already selected the request's edge session. Rebinding by the
+  // workspace root can consult the edge's intentionally secret-less provider
+  // configuration and turn a valid device session into rbac_admin_unavailable.
+  if (auth.oidcPrincipal) return auth;
   const session = await oidc.bind(auth, workspaceRoot),
     personId = localDefaultBinding(session).actor.principal.personId;
   if (auth.executionPrincipal && auth.executionPrincipal.personId !== personId) throw executionCredentialRejected();

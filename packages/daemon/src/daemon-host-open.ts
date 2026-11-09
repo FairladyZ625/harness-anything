@@ -158,6 +158,7 @@ import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-s
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
+import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 
 export function edgeRuntimeCacheKey(
   request: Pick<
@@ -350,9 +351,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     }
-    const execution = auth.executionCredential
-      ? await authenticateRuntimeExecutionPrincipal(keycloakCenter, auth.executionCredential)
-      : auth.executionPrincipal;
+    // The protocol server has already authenticated a relayed execution credential. Reusing that
+    // principal is required on a secret-less edge: asking the center credential provider again
+    // would turn a valid edge-local execution into rbac_admin_unavailable.
+    const execution =
+      auth.executionPrincipal ??
+      (auth.executionCredential
+        ? await authenticateRuntimeExecutionPrincipal(keycloakCenter, auth.executionCredential)
+        : undefined);
     if (execution) {
       if (
         auth.nodePrincipal &&
@@ -1194,11 +1200,23 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               (row) => row.repoId === repoId && row.state === "enabled" && row.canonicalRoot !== null,
             )
           : undefined,
-        rootDir = requestedRoot ?? registered?.canonicalRoot;
+        rootDir = requestedRoot ?? registered?.canonicalRoot,
+        edgeReplicaRead =
+          registered?.mode === "remote-edge" &&
+          payload?.action !== null &&
+          typeof payload?.action === "object" &&
+          typeof (payload.action as Record<string, unknown>).kind === "string" &&
+          !["fleet-runtime", "fleet-schedule"].includes(String((payload.action as Record<string, unknown>).kind)) &&
+          commandDescriptorForAction(String((payload.action as Record<string, unknown>).kind)).admission[
+            "remote-edge"
+          ] === "edge-replica";
       if (!rootDir && methodContract?.requiresRepo)
         throw hostCodedError("oidc_center_required", "Select a repository with a configured center before continuing.");
       if (!rootDir && !method.startsWith("daemon.skillEval.")) return undefined;
-      return (await oidc.bind(auth, rootDir ?? undefined)).oidcPrincipal;
+      const bound = await oidc.bind(auth, rootDir ?? undefined, edgeReplicaRead);
+      if (edgeReplicaRead && bound.replicaReadDenied)
+        throw hostCodedError("authorization_denied", "The current session does not authorize this replica read.");
+      return bound.oidcPrincipal;
     },
     parkedWaitSignal: parkedWaitController.signal,
     ...createDaemonHostRepositoryApi(hostContext),

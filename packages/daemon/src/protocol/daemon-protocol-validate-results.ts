@@ -531,6 +531,7 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     "runtimeSessionId",
     "dispatchId",
     "checkpoint",
+    "handoffResumed",
     "reviewerId",
     "reviewerSource",
     "ledgerAccess",
@@ -820,6 +821,8 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
     (!isJsonObject(value.continuation) || !statusWord(receiptOutcomeWords, value.continuation.outcome))
   )
     errors.push(validationError(entityId, "continuation", value.continuation, "must name a declared receipt outcome"));
+  if (Object.hasOwn(value, "handoffResumed") && typeof value.handoffResumed !== "boolean")
+    errors.push(validationError(entityId, "handoffResumed", value.handoffResumed, "must be a boolean"));
   return errors;
 }
 
