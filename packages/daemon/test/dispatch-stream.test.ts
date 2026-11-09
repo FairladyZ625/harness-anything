@@ -645,12 +645,14 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
       fast: false,
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
-    const adopted = new Map(),
+    const activeQueries: string[] = [],
+      adopted = new Map(),
       context = {
         input: {
           rootDir,
           repoId: "node-owner",
           runtimeNode: { nodeId: "node-b" },
+          runtimeInstances: () => [{ instanceId: "instance-1" }],
           remote: {
             readRuntimeDispatch: async () => ({ payload: { dispatchId }, source: { kind: "node", nodeId: "node-a" } }),
             async readRuntimeSession(id: string) {
@@ -663,9 +665,12 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
             readRuntimeSessions: async () => [
               { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
             ],
-            readDispatchLifecycle: lifecycleReadFor([
-              { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "node:node-a", process: "alive" },
-            ]),
+            readDispatchLifecycle: async (query) => {
+              if (query.by === "active") activeQueries.push(query.instanceId ?? "all");
+              return lifecycleReadFor([
+                { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "node:node-a", process: "alive" },
+              ])(query);
+            },
           },
         },
         processes: adopted,
@@ -674,6 +679,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
       };
     await adoptRuntimes(context);
     assert.equal(adopted.size, 0, "only the dispatching node may probe or settle its recorded pid");
+    assert.deepEqual(activeQueries, ["instance-1"], "adoption reads the node's indexed instance page");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

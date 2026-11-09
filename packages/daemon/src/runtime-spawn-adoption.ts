@@ -13,6 +13,7 @@ import {
   readDispatchStream,
   readDispatchStreamHeader,
   readDispatchStreamSummary,
+  readDispatchStreamHeaders,
   reopenDispatchStream,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
@@ -59,17 +60,23 @@ export async function adoptRuntimes(
 ): Promise<readonly RuntimeRecoveryResult[]> {
   const owner = dispatchOwnerForNode(context.input.runtimeNode?.nodeId),
     candidates = new Map<string, DispatchLifecycleView>();
-  for (const view of await readActiveDispatchLifecycle(
-    (query) => readDispatch(context, query),
-    context.runtimeSpawnError,
-  ))
+  const instanceIds = context.input.runtimeInstances?.().map(({ instanceId }) => instanceId) ?? [],
+    active = await Promise.all(
+      [
+        ...new Set([
+          ...instanceIds,
+          ...readDispatchStreamHeaders(context.input.rootDir).map(({ instanceId }) => instanceId),
+        ]),
+      ].map((instanceId) =>
+        readActiveDispatchLifecycle((query) => readDispatch(context, query), context.runtimeSpawnError, instanceId),
+      ),
+    );
+  for (const view of active.flat())
     if (view.attempt.fence.verified && view.attempt.fence.owner === owner)
       candidates.set(view.attempt.runtimeSessionId, view);
   let pending = recoveries.get(context);
   if (!pending) recoveries.set(context, (pending = new Map()));
   let completed = 0;
-  // Point reads, including archived streams, belong to each recovery. A stalled
-  // remote header lookup must not delay a sibling's restoration.
   const attempts = [...candidates]
     .filter(([id]) => !options?.runtimeSessionId || id === options.runtimeSessionId)
     .map(([runtimeSessionId, initial]) => {
@@ -159,7 +166,6 @@ async function readDispatch(
     : context.requiredRuntimeProjection(context.input).readDispatchLifecycle(query);
 }
 
-/** Admission never waits while holding the writer: an unresolved owner cannot look idle. */
 export async function assertRuntimeRecoveryReady(
   context: RuntimeSpawnerContext,
   runtimeSessionId: string,
@@ -219,8 +225,6 @@ async function restoreRuntime(
   authorizationBinding?: RuntimeBinding,
 ): Promise<boolean> {
   if (context.closed?.()) return false;
-  // Canonical publication precedes process registration. Recovery must not reclaim a
-  // launch still owned by this spawner's existing slot reservation as a dead predecessor.
   if (context.ownsModelSlot?.(header.runtimeSessionId)) return false;
   const metadata = adoptableMetadata(header);
   if (!metadata) return false;
@@ -292,8 +296,6 @@ async function restoreRuntime(
     squadId: stream.header.squadId ?? null,
     publicationOwner: stream.header.publicationOwner ?? "runtime",
     parentRuntimeSessionId: stream.header.parentRuntimeSessionId ?? null,
-    // Explicit owner cancellation supplies fresh credentials, while the original actor/source
-    // remain the settlement fence. Startup recovery never borrows a local operator session.
     binding,
     task:
       stream.header.taskId && stream.header.executionId
@@ -420,13 +422,8 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
   }
 }
 
-/** Startup-only retry for this repository's explicitly terminal sessions, independent of
- *  archived dispatch streams. Other repositories share the node's instance store, so an
- *  unknown session must be retained. Locally adopted/settling sessions are still in use. */
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
   if (!context.input.reclaimSettledRuntimeTempDirectories || !context.input.listRuntimeTempSessionIds) return;
-  // Local temp directories are the only reclaim candidates. Point-reading exactly those names
-  // keeps startup maintenance at D reads instead of reading the repository's whole session table.
   const runtimeSessionIds = [...new Set(context.input.listRuntimeTempSessionIds())];
   if (runtimeSessionIds.length === 0) {
     context.input.reclaimSettledRuntimeTempDirectories([]);
@@ -447,8 +444,6 @@ export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawner
     logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);
 }
 
-/** A failed launch reclaims immediately. If that fails before registration, no repository
- *  can prove ownership on a later sweep; the directory stays and the refusal is logged. */
 export function reclaimFailedLaunchTempDirectory(
   input: Pick<RuntimeSpawnerInput, "reclaimRuntimeTempDirectory">,
   instanceId: string,
@@ -474,9 +469,6 @@ export function ownedByRuntimeSpawner(
       return header.executionOwner === "local"
         ? runtimeNode === undefined
         : header.executionOwner.nodeId === runtimeNode?.nodeId;
-    // Historical center-local streams predate executionOwner. This spool is written only
-    // by the local launcher, never replicated from a node. Its presence proves execution
-    // here even when the initiating request carried a node source.
     if (runtimeNode === undefined) return true;
   }
   if (runtimeNode === undefined) return binding.source === "local";

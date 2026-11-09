@@ -129,7 +129,12 @@ test("adoption leaves an unproven missing-PID dispatch pending for loss reconcil
     const settled: Array<{ readonly runtimeSessionId: string; readonly reason: string | null }> = [],
       published: string[] = [],
       context = {
-        input: { rootDir, repoId: "missing-process", now: () => "2026-09-13T00:01:00.000Z" },
+        input: {
+          rootDir,
+          repoId: "missing-process",
+          now: () => "2026-09-13T00:01:00.000Z",
+          runtimeInstances: () => [{ instanceId: "instance-1" }],
+        },
         requiredRuntimeProjection: () => ({
           readRuntimeSession(id: string) {
             return (
@@ -140,7 +145,7 @@ test("adoption leaves an unproven missing-PID dispatch pending for loss reconcil
           },
           readDispatchLifecycle: (query) =>
             lifecycleReadFor([
-              { runtimeSessionId, dispatchId, instanceId: "deepseek-worker", owner: "local", process: "unobserved" },
+              { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unobserved" },
             ])(query),
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
@@ -180,7 +185,12 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
     let settled = false;
     const settledSessions: Array<{ readonly runtimeSessionId: string; readonly lossReason: string | null }> = [],
       context = {
-        input: { rootDir, repoId: "archived-dead-process", now: () => "2026-10-31T04:00:00.000Z" },
+        input: {
+          rootDir,
+          repoId: "archived-dead-process",
+          now: () => "2026-10-31T04:00:00.000Z",
+          runtimeInstances: () => [{ instanceId: "instance-1" }],
+        },
         requiredRuntimeProjection: () => ({
           readRuntimeSession(id: string) {
             return (
@@ -194,7 +204,7 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
               {
                 runtimeSessionId,
                 dispatchId,
-                instanceId: "deepseek-worker",
+                instanceId: "instance-1",
                 owner: "local",
                 attemptSettled: settled,
                 groupSettled: settled,
@@ -248,6 +258,7 @@ test("adoption reports completed restores independently of a pending or failed s
       input: {
         rootDir,
         now: () => "2026-09-13T00:01:00.000Z",
+        runtimeInstances: () => [{ instanceId: "instance-1" }],
         schedule: async (work: () => Promise<void> | void) => {
           await work();
         },
@@ -693,6 +704,7 @@ test("runtime cancel settles a live remote session when the owner stream is gone
           rootDir,
           repoId: "cancel-ghost-owner",
           runtimeNode: { nodeId: "edge-a" },
+          runtimeInstances: () => [{ instanceId }],
           reclaimRuntimeTempDirectory: (ownerInstanceId: string, ownerRuntimeSessionId: string) => {
             reclaimed.push([ownerInstanceId, ownerRuntimeSessionId]);
             return null;

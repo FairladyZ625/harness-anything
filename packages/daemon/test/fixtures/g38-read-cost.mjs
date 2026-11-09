@@ -227,6 +227,7 @@ export async function measureReadScale(
     recovery: {
       input: {
         rootDir: fixture.rootDir,
+        runtimeInstances: () => [],
         listRuntimeTempSessionIds: () => [READ_SESSION_ID],
         reclaimSettledRuntimeTempDirectories: () => [],
       },
