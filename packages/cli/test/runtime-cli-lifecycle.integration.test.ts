@@ -13,6 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import { workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { eventuallyValue } from "../../daemon/test/fixtures/runtime-ingress.ts";
 import {
@@ -966,14 +968,39 @@ for (const afterResult of [false, true])
         assert.equal(result.status, 1, JSON.stringify(result));
         assert.equal(typeof result.receipt.nextAction, "string", JSON.stringify(result));
         assert.ok(String(result.receipt.nextAction).includes(taskId));
-        const unresolvedSession = result.receipt.session as {
+        const settledSession = result.receipt.session as {
           associations?: readonly { taskId?: string; lease?: { phase?: string } }[];
         };
         assert.equal(
-          unresolvedSession.associations?.find((association) => association.taskId === taskId)?.lease?.phase,
-          "held",
-          "an unproven process group must retain its task lease",
+          settledSession.associations?.find((association) => association.taskId === taskId)?.lease?.phase,
+          "released",
+          "the stopped provider must release its task lease before the terminal outcome",
         );
+        const reader = makeTaskEventReader({ repoId: workspaceId("runtime-cli"), rootDir: root }),
+          projection = makeTaskProjection({ rootDir: root, eventStore: reader });
+        try {
+          const lifecycle = projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+          assert.equal(lifecycle.status, "ready");
+          assert.equal(lifecycle.rows[0]?.attempt.stopProof, "proven_stopped");
+          assert.equal(lifecycle.rows[0]?.attempt.task?.leaseReleased, true);
+          assert.equal(lifecycle.rows[0]?.groupPhase, "closed");
+          const events = reader.read().events,
+            exitIndex = events.findIndex(
+              (event) => event.type === "runtime_session_exited" && event.payload.runtimeSessionId === sessionId,
+            ),
+            releaseIndexes = events.flatMap((event, index) =>
+              event.type === "lease_released" && event.taskId === taskId ? [index] : [],
+            ),
+            outcomeIndex = events.findIndex(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === sessionId,
+            );
+          assert.equal(releaseIndexes.length, 1, "the matching lease is released exactly once");
+          assert.ok(exitIndex >= 0 && exitIndex < releaseIndexes[0]! && releaseIndexes[0]! < outcomeIndex);
+        } finally {
+          projection.close();
+          await reader.drain();
+        }
         const dispatches = runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Record<
           string,
           unknown

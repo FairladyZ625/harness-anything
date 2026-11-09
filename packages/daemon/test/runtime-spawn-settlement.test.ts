@@ -1068,8 +1068,8 @@ for (const cancelled of [false, true])
       await publishExit(context, runtime, 1);
       assert.match(errors.join("\n"), /could not be archived: archive publication failed/u);
       assert.deepEqual(published, [
-        ...(cancelled ? ["runtime_session_cancelled"] : []),
         "runtime_session_exited",
+        ...(cancelled ? ["runtime_session_cancelled"] : []),
         "runtime_session_outcome_observed",
       ]);
       assert.equal(outcomes[0]?.outcome, cancelled ? "cancelled" : "failed");

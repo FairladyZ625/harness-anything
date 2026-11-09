@@ -2,6 +2,7 @@
  * settlement drivers, and outcome polling. `failProvider` true fails every launch; a number
  * fails only that many first launches, then hangs. */
 import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -21,7 +22,6 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import type { Snapshot } from "../src/repo-cell-types.ts";
-import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,
@@ -169,6 +169,7 @@ export async function fixture(
     readonly legacyReviewer?: boolean;
   } = {},
 ) {
+  const runtimeStops: Array<() => unknown> = [];
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review"),
     catalogModel = options.catalogModel ?? "review-model",
@@ -205,28 +206,6 @@ export async function fixture(
     output?: (chunk: string) => void;
     exit?: (code: number | null) => void;
   }[] = [];
-  // A settled session exposes its outcome from the local dispatch stream one write before the
-  // daemon publishes the canonical `runtime_session_outcome_observed` event. `awaitOutcome`
-  // subscribes to the daemon's outcome callback before each ledger read, so a publish that lands
-  // between the read and the wait cannot lose its only wake-up.
-  const outcomeArrivals = new Map<string, Set<() => void>>(),
-    noteOutcome = (runtimeSessionId: string) => {
-      const waiters = outcomeArrivals.get(runtimeSessionId);
-      if (!waiters) return;
-      outcomeArrivals.delete(runtimeSessionId);
-      for (const resolve of waiters) resolve();
-    },
-    subscribeOutcome = (runtimeSessionId: string, arrive: () => void) => {
-      const waiters = outcomeArrivals.get(runtimeSessionId) ?? new Set<() => void>();
-      waiters.add(arrive);
-      outcomeArrivals.set(runtimeSessionId, waiters);
-      return () => {
-        waiters.delete(arrive);
-        // Only drop the entry this subscription owns: a later wait may already have replaced it.
-        if (waiters.size === 0 && outcomeArrivals.get(runtimeSessionId) === waiters)
-          outcomeArrivals.delete(runtimeSessionId);
-      };
-    };
   let instancesAvailable = available,
     remainingProviderFailures =
       typeof failProvider === "number" ? failProvider : failProvider ? Number.POSITIVE_INFINITY : 0,
@@ -264,7 +243,6 @@ export async function fixture(
                   }))
                 : []),
             ],
-      onRuntimeOutcome: (event) => noteOutcome(event.payload.runtimeSessionId),
       prepareRuntimeLaunch: (instanceId, request) => {
         interceptionRequests.set(request.prompt, request.commandInterceptions ?? []);
         const extra = extraInstances.find((row) => row.instanceId === instanceId),
@@ -315,12 +293,20 @@ export async function fixture(
         });
         providerSessionStarted = true;
         for (const notify of launchWaiters) notify();
+        const runtime =
+          options.runtimePid === undefined
+            ? fixtureRuntimeProcess({
+                after: (stop) => {
+                  runtimeStops.push(stop);
+                },
+              })
+            : { pid: options.runtimePid, terminate: () => undefined, terminateTree: async () => undefined };
         // The real launcher records its worker pid; without the record, post-restart adoption treats
         // a still-live reviewer as lost.
         appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
           kind: "process_started",
           occurredAt: new Date().toISOString(),
-          pid: options.runtimePid ?? process.pid,
+          pid: runtime.pid,
         });
         const launchIndex = launches.length - 1;
         const pending: (typeof pendingProviders)[number] = {};
@@ -328,7 +314,7 @@ export async function fixture(
         return {
           // The default fake pid is live; a selected stopped pid lets owner-loss tests reproduce
           // a worker whose process group has already disappeared.
-          pid: options.runtimePid ?? process.pid,
+          pid: runtime.pid,
           onOutput: (listener) => {
             pending.output = listener;
             if (options.autoProviderSession) {
@@ -343,8 +329,11 @@ export async function fixture(
             }
           },
           onErrorOutput: () => undefined,
-          terminate: () => undefined,
-          ...(options.beforeRuntimeStop ? { terminateTree: () => options.beforeRuntimeStop!(launchIndex) } : {}),
+          terminate: runtime.terminate,
+          terminateTree: async () => {
+            await options.beforeRuntimeStop?.(launchIndex);
+            await runtime.terminateTree();
+          },
           onExit: (listener) => {
             pending.exit = (code) => {
               pending.exit = undefined;
@@ -531,21 +520,16 @@ export async function fixture(
     return event;
   };
   const awaitOutcome = async (runtimeSessionId: string) => {
-    // Bind the wait to the canonical outcome event. The settle predicate becomes true when the
-    // dispatch stream records the terminal outcome, one queued write before the daemon publishes
-    // `runtime_session_outcome_observed`; reading the ledger at that earlier moment is the race
-    // that reddened integration-shard(2) under load. `waitForArrival` subscribes before it reads,
-    // so an event published between the read and the wait still wakes this waiter.
-    return await waitForArrival(
-      () => {
-        const outcome = events().find(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-        );
-        return outcome?.type === "runtime_session_outcome_observed" ? outcome.payload.outcome : null;
-      },
-      (arrive) => subscribeOutcome(runtimeSessionId, arrive),
+    await cell.awaitRuntimeOutcome(runtimeSessionId);
+    // Canonical acceptance wakes the waiter before archive/worktree cleanup finishes in the same
+    // writer job. Drain that job before asserting its filesystem effects.
+    await cell.settlePendingMaterialization("runtime settlement assertion");
+    const outcome = events().find(
+      (event) =>
+        event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
     );
+    assert.ok(outcome?.type === "runtime_session_outcome_observed");
+    return outcome.payload.outcome;
   };
   return {
     root,
@@ -851,6 +835,7 @@ export async function fixture(
     close: async () => {
       for (const pending of pendingProviders) pending.exit?.(1);
       await cell.close();
+      for (const stop of runtimeStops) await stop();
       await eventsReader?.drain();
       rmSync(root, { recursive: true, force: true });
     },

@@ -2,12 +2,11 @@
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
-import { execFileSync, spawn } from "node:child_process";
-import { once } from "node:events";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import test, { type TestContext } from "node:test";
+import test from "node:test";
 import { makeTaskEventStore } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import {
@@ -33,28 +32,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
-function fixtureRuntimeProcess(context: TestContext) {
-  const child = spawn(
-    process.execPath,
-    ["-e", "process.stdin.once('data', () => process.exit(0)); process.stdin.resume()"],
-    {
-      detached: true,
-      stdio: ["pipe", "ignore", "ignore"],
-    },
-  );
-  if (!child.pid) throw new Error("fixture runtime did not expose a pid");
-  const terminate = () => {
-    child.stdin.end("stop");
-  };
-  const terminateTree = async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const exited = once(child, "exit");
-    terminate();
-    await exited;
-  };
-  context.after(terminateTree);
-  return { pid: child.pid, terminate, terminateTree };
-}
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",

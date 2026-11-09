@@ -241,10 +241,12 @@ test("RuntimeSession events use one-time fields, ordered liveness, and terminal 
   );
   session = reduceRuntimeSession(session, event("runtime_session_exited", { runtimeSessionId: "runtime-matrix" }));
   assert.ok(session);
-  assert.equal(
-    reduceRuntimeSession(session, event("runtime_session_cancelled", { runtimeSessionId: "runtime-matrix" }))?.outcome,
-    null,
-  );
+  const cancelled = event("runtime_session_cancelled", { runtimeSessionId: "runtime-matrix" }),
+    stoppedThenCancelled = reduceRuntimeSession(session, cancelled);
+  assert.ok(stoppedThenCancelled);
+  assert.equal(stoppedThenCancelled.outcome, null);
+  assert.deepEqual(stoppedThenCancelled.cancelledBy, cancelled.actor);
+  assert.equal(reduceRuntimeSession(stoppedThenCancelled, cancelled), stoppedThenCancelled);
   session = reduceRuntimeSession(
     session,
     event("runtime_session_task_bound", {

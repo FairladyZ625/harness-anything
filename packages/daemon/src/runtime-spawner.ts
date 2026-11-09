@@ -74,6 +74,7 @@ import {
 } from "./runtime-spawn-process.ts";
 import { isStructuredSuccessResult, parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-provider-stream.ts";
+import { runtimeProcessTreeStopped } from "./runtime-spawn-settlement.ts";
 import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { assertDispatchAdmission } from "./runtime-dispatch-admission.ts";
@@ -954,72 +955,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
-    let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
-    const cleanupCallbackRelay = (): void => {
-      if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
-    };
-    const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
-      processes.get(runtimeSessionId)?.releaseAuthorization?.();
-      process?.terminate();
-      process?.release?.();
-      releaseModelSlot();
-      await cloudRelay?.close();
-      cleanupCallbackRelay();
-      reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
-      if (role === "reviewer") {
-        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
-        if (reviewCleanupFailure)
-          console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
-      }
-      if (!taskLeaseHandoff || !taskBinding) {
-        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
-      }
-      if (!requested?.event) {
-        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
-      }
-      const exited = await publishRuntimeEvent(
-        "runtime_session_exited",
-        { runtimeSessionId },
-        randomUUID(),
-        activeBinding,
-      ).catch(consumeKnownError);
-      if (!exited?.event) {
-        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
-      }
-      const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed";
-      await input.onAttemptTerminal?.({
-        runtimeSessionId,
-        dispatchId: newDispatchId,
-        task: taskBinding,
-        schedule: trustedSchedule ?? null,
-        outcome: "failed",
-        reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
-        endedAt: input.now(),
-        binding: activeBinding,
-        ...(preservePrimaryError ? { preservePrimaryError: true } : {}),
-      });
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-    };
-    try {
-      await publishRuntimeEvent(
-        "runtime_installation_observed",
-        {
-          installationId: installation.installationId,
-          kindId: installation.kindId,
-          protocolFamily,
-          hostRef: "host:local",
-          version: installation.version,
-          discoverySource: "wrapper",
-          capabilities: runtimeKind.declaredCapabilities,
-        },
-        installationOpId,
-        binding,
-      );
-      onDispatched?.(newDispatchId, runtimeSessionId);
-      requested = await publishRuntimeEvent(
+    let requested: Awaited<ReturnType<typeof publishRuntimeEvent>> | undefined;
+    const requestDispatch = (resumeAccepted: boolean) =>
+      publishRuntimeEvent(
         "runtime_dispatch_requested",
         runtimeDispatchRequestedPayload(
           {
@@ -1038,11 +976,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
           },
           {
-            ...(handoff
-              ? { resumedFromDispatchId: handoff.dispatchId }
-              : requestedDispatchId
-                ? { resumedFromDispatchId: requestedDispatchId }
-                : {}),
+            ...(resumeAccepted && (handoff?.dispatchId ?? requestedDispatchId)
+              ? { resumedFromDispatchId: handoff?.dispatchId ?? requestedDispatchId }
+              : {}),
             ...(taskBinding ? { taskBinding } : {}),
             attemptGroupId: fallbackAttempt?.attemptGroupId ?? newDispatchId,
             attemptIndex: fallbackAttempt?.attemptIndex ?? 0,
@@ -1065,6 +1001,68 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           executionId: taskBinding?.executionId ?? null,
         },
       );
+    const cleanupCallbackRelay = (): void => {
+      if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
+    };
+    const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
+      processes.get(runtimeSessionId)?.releaseAuthorization?.();
+      process?.terminate();
+      process?.release?.();
+      releaseModelSlot();
+      await cloudRelay?.close();
+      cleanupCallbackRelay();
+      reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
+      if (role === "reviewer") {
+        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
+        if (reviewCleanupFailure)
+          console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+      }
+      if (!taskLeaseHandoff || !taskBinding) {
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        return;
+      }
+      requested ??= await requestDispatch(false);
+      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
+      const exited = await publishRuntimeEvent(
+        "runtime_session_exited",
+        { runtimeSessionId },
+        randomUUID(),
+        activeBinding,
+      ).catch(consumeKnownError);
+      if (!exited?.event) {
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        return;
+      }
+      const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed";
+      const settlement = await input.onAttemptTerminal?.({
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        task: taskBinding,
+        schedule: trustedSchedule ?? null,
+        outcome: "failed",
+        reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+        endedAt: input.now(),
+        binding: activeBinding,
+        ...(preservePrimaryError ? { preservePrimaryError: true } : {}),
+      });
+      if (settlement?.outcome !== "lease_unproven" && stream) removeDispatchStream(input.rootDir, newDispatchId);
+    };
+    try {
+      await publishRuntimeEvent(
+        "runtime_installation_observed",
+        {
+          installationId: installation.installationId,
+          kindId: installation.kindId,
+          protocolFamily,
+          hostRef: "host:local",
+          version: installation.version,
+          discoverySource: "wrapper",
+          capabilities: runtimeKind.declaredCapabilities,
+        },
+        installationOpId,
+        binding,
+      );
+      onDispatched?.(newDispatchId, runtimeSessionId);
     } catch (error) {
       await cleanupFailedLaunch(error);
       throw error;
@@ -1150,7 +1148,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         },
       };
       return launchRuntimeProcess(
-        launch,
+        (...args) => (process = launch(...args)),
         workerLaunch,
         {
           rootDir: input.rootDir,
@@ -1170,14 +1168,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     }
-    if (onPrepared) {
-      try {
-        openStream();
-        onPrepared(newDispatchId, runtimeSessionId);
-      } catch (error) {
-        await cleanupFailedLaunch(error);
-        throw error;
-      }
+    try {
+      openStream();
+      onPrepared?.(newDispatchId, runtimeSessionId);
+      requested = await requestDispatch(true);
+    } catch (error) {
+      await cleanupFailedLaunch(error);
+      throw error;
     }
     if (requested.receipt?.reused === true) {
       releaseModelSlot();

@@ -73,7 +73,7 @@ export async function fleetFixture(
   let ownerLookupDelayMs = 0,
     runtimeOutcomeFailures = 0,
     runtimeOutcomeFailureObserved: (() => void) | null = null,
-    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
+    runtimeOutcomeBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
@@ -196,7 +196,7 @@ export async function fleetFixture(
         runtimeOutcomeFailureObserved = resolve;
       });
     },
-    blockTaskRelease: () => {
+    blockRuntimeOutcome: () => {
       let started!: () => void, release!: () => void;
       const startedPromise = new Promise<void>((resolve) => {
           started = resolve;
@@ -204,7 +204,7 @@ export async function fleetFixture(
         wait = new Promise<void>((resolve) => {
           release = resolve;
         });
-      taskReleaseBarrier = { started, wait };
+      runtimeOutcomeBarrier = { started, wait };
       return { started: startedPromise, release };
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
@@ -232,18 +232,15 @@ export async function fleetFixture(
                   code: "ECONNRESET",
                 });
               }
+              const barrier = runtimeOutcomeBarrier;
+              if (args[1].kind === "event" && args[1].type === "runtime_session_outcome_observed" && barrier) {
+                barrier.started();
+                await barrier.wait;
+                if (runtimeOutcomeBarrier === barrier) runtimeOutcomeBarrier = null;
+              }
               const receipt = await host.runtimeIngress(...args);
               if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
               return receipt;
-            },
-            run: async (...args: Parameters<typeof host.run>) => {
-              const barrier = taskReleaseBarrier;
-              if (args[1].kind === "task-release" && barrier) {
-                barrier.started();
-                await barrier.wait;
-                if (taskReleaseBarrier === barrier) taskReleaseBarrier = null;
-              }
-              return host.run(...args);
             },
           },
           stateRoot,

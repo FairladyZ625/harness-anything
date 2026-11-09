@@ -689,10 +689,10 @@ test("a cancel receipt is returned only after the canonical outcome is readable"
     const runtimeSessionId = dispatch.payload.runtimeSessionId;
 
     const recorded = (await f.cancel(runtimeSessionId), terminalEventsFor(f, runtimeSessionId));
-    // The receipt alone must already imply the outcome: `cancelled` first, outcome last, nothing pending.
+    // The receipt implies accepted stop proof, cancellation attribution and a canonical outcome.
     assert.deepEqual(
       recorded.map(({ type }) => type),
-      ["runtime_session_cancelled", "runtime_session_outcome_observed"],
+      ["runtime_session_exited", "runtime_session_cancelled", "runtime_session_outcome_observed"],
       `runtime session ${runtimeSessionId} has no settled canonical outcome after its cancel receipt returned`,
     );
     const outcome = f

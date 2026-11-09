@@ -16,7 +16,7 @@ import {
   type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import type { ActiveRuntime, ReviewerReviewArtifacts } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, ReviewerReviewArtifacts, RuntimeProcess } from "./runtime-spawn-types.ts";
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import { workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { strayWriteWarning } from "./runtime-write-boundary.ts";
@@ -30,7 +30,7 @@ import {
   type RuntimeRulingArtifact,
 } from "./runtime-ruling.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
-import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -75,7 +75,11 @@ export async function publishExit(
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
     stopProofPending = true;
-    await proveRuntimeProcessTreeStopped(context, active);
+    if (!(await runtimeProcessTreeStopped(context.input.rootDir, active.dispatchId, active.process)))
+      throw context.runtimeSpawnError(
+        "runtime_process_group_unproven",
+        `Runtime process group ${String(active.process.pid)} has no stop proof.${processGroupRecoveryHint()}`,
+      );
     stopProofPending = false;
     disposeActiveRuntimeObservations(active);
     // Every terminal path — success, failure, cancellation, and the daemon-restart loss
@@ -89,7 +93,6 @@ export async function publishExit(
         `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
       );
     const cancelled = active.cancelRequested && !escalationStop,
-      cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
       terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
       squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
     const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
@@ -652,14 +655,6 @@ export async function publishExit(
         consumeKnownError(error);
       }
     }
-    if (cancelled) {
-      await context.publishRuntimeEvent(
-        "runtime_session_cancelled",
-        { runtimeSessionId: active.runtimeSessionId },
-        active.cancelOpId ?? randomUUID(),
-        cancelBinding,
-      );
-    }
     context.processes.delete(active.runtimeSessionId);
     if (!escalationStop) active.process.release?.();
     const processGroupPid =
@@ -744,26 +739,15 @@ export async function publishExit(
   }
 }
 
-async function proveRuntimeProcessTreeStopped(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {
-  const makeRuntimeError = context.runtimeSpawnError ?? runtimeSpawnError;
-  const pid = active.process.pid;
-  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid)
-    throw makeRuntimeError(
-      "runtime_process_group_unproven",
-      `Runtime process group for ${active.runtimeSessionId} has no valid owner process identity.${processGroupRecoveryHint()}`,
-    );
-  const identity = {
-    pid,
-    pgid: pid,
-    dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
-  };
-  await active.process.terminateTree?.();
-  const verdict = reconcileProcessGroup(identity);
-  if (verdict !== "proven_stopped")
-    throw makeRuntimeError(
-      "runtime_process_group_unproven",
-      `Runtime process group ${String(pid)} is ${verdict}; lifecycle settlement waits for a stop proof.${processGroupRecoveryHint()}`,
-    );
+export async function runtimeProcessTreeStopped(
+  rootDir: string,
+  dispatchId: string,
+  runtime: RuntimeProcess,
+): Promise<boolean> {
+  const pid = runtime.pid;
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  await runtime.terminateTree?.();
+  return reconcileProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped";
 }
 
 async function dispatchLifecycleForTerminal(
@@ -796,6 +780,13 @@ async function publishTerminalOutcome(
     randomUUID(),
     terminalBinding,
   );
+  if (active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true)
+    await context.publishRuntimeEvent(
+      "runtime_session_cancelled",
+      { runtimeSessionId: active.runtimeSessionId },
+      active.cancelOpId ?? randomUUID(),
+      active.cancelBinding ?? active.binding,
+    );
   const outcomeEvent = await context.publishRuntimeEvent(
     "runtime_session_outcome_observed",
     payload,

@@ -970,7 +970,7 @@ export function reduceRuntimeSession(
     };
   }
   if (event.type === "runtime_session_cancelled") {
-    if (current.liveness === "exited") return current;
+    if (current.cancelledBy || current.outcome !== null) return current;
     return {
       ...current,
       liveness: "exited",
