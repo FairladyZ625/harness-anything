@@ -159,17 +159,36 @@ function publishedBody(existingBody: unknown, input: PullRequestInput): string |
   const block = renderSubmissionFacts(input.submission),
     candidate = typeof input.body === "string" ? input.body : existingBody,
     authored = typeof candidate === "string" ? candidate : undefined,
-    // The template owns the facts region. A body without it is authored prose, so re-rendering
-    // would replace the author's text with the template; fall back to the facts-only refresh.
-    rendered =
-      input.renderBody && (authored === undefined || hasSubmissionFacts(authored))
-        ? input.renderBody(authored)
-        : authored;
+    // A marker-less body can still carry the template's four authored sections; insert the one
+    // machine region so the renderer preserves that prose while adding governance and facts. An
+    // arbitrary marker-less body has no safe anchor, so the template render replaces it instead of
+    // republishing protected prose that can never satisfy the governance lint.
+    renderInput =
+      input.renderBody === undefined || authored === undefined
+        ? undefined
+        : hasSubmissionFacts(authored)
+          ? authored
+          : markerizedTemplateBody(authored),
+    rendered = input.renderBody ? input.renderBody(renderInput) : authored;
   return typeof rendered === "string" ? (replaceSubmissionFacts(rendered, block) ?? rendered) : undefined;
 }
 
 function hasSubmissionFacts(body: string): boolean {
   return body.includes(SUBMISSION_FACTS_START) && body.includes(SUBMISSION_FACTS_END);
+}
+
+const TEMPLATE_SECTIONS = ["Summary", "What Changed", "Verification", "Residual Risk"] as const;
+
+/** Add the one machine region to a template-shaped body that predates the marker convention. */
+function markerizedTemplateBody(body: string): string | undefined {
+  if (body.includes(SUBMISSION_FACTS_START) || body.includes(SUBMISSION_FACTS_END)) return undefined;
+  if (!TEMPLATE_SECTIONS.every((title) => new RegExp(`^##[ \\t]+${title}[ \\t]*$`, "mu").test(body))) return undefined;
+  const heading = /^##[ \t]+What Changed[ \t]*$/mu.exec(body);
+  if (!heading) return undefined;
+  const after = body.slice(heading.index + heading[0].length),
+    next = /^##[ \t]+/mu.exec(after),
+    insertAt = heading.index + heading[0].length + (next?.index ?? after.length);
+  return `${body.slice(0, insertAt)}\n${SUBMISSION_FACTS_START}\n${SUBMISSION_FACTS_END}\n${body.slice(insertAt)}`;
 }
 
 /** These are the framework's frozen closeout fields, not a repository PR template. */
