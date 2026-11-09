@@ -229,22 +229,33 @@ export function assertTaskTransitionDocumentReady(input: {
     if (error && typeof error === "object") {
       // The kernel judgment is pure: re-assessing the same body yields the sections the throw carried.
       const projectedMissing = assessTransitionDocument(kind, document.body, document.contract).missingSections,
+        workspacePath = documentWorkspacePath(input.rootDir, document.path),
         diskBody = document.source === "canonical projection" ? readOnDiskBody(input.rootDir, document.path) : null,
         diskDiffers = diskBody !== null && diskBody !== document.body,
         actionableMissing =
           diskDiffers && document.contract !== null
             ? assessTransitionDocument(kind, diskBody, document.contract).missingSections
             : projectedMissing,
+        sectionCount = actionableMissing.length,
+        incomplete = `${String(sectionCount)} required section${sectionCount === 1 ? " is" : "s are"} incomplete`,
         revision =
           document.source === "canonical projection"
             ? `canonical projection document at workspace revision ${document.workspaceRevision}`
             : `submitted candidate against canonical projection workspace revision ${document.workspaceRevision}`,
-        diagnosticSummary = actionableMissing.length
-          ? `${actionableMissing.length} required section` +
-            `${actionableMissing.length === 1 ? " is" : "s are"} incomplete.`
-          : "No missing required sections were reported.";
+        // `diskDiffers` names the raw fact the old diagnostic hid: the judgment read the center's
+        // accepted body, so a complete local plan still fails until it is submitted. The receipt
+        // must say that and name the one command that works on both center and edge.
+        diagnosticSummary = diskDiffers
+          ? `The on-disk ${workspacePath} differs and has not been submitted.` +
+            (sectionCount > 0
+              ? ` ${incomplete} there; complete ${sectionCount === 1 ? "it" : "them"}, then run`
+              : " It is complete, so run") +
+            ` ha doc sync --submit --task ${input.taskId}, then retry this command.`
+          : sectionCount > 0
+            ? `${incomplete}.`
+            : "No missing required sections were reported.";
       Object.assign(error, {
-        documentPath: documentWorkspacePath(input.rootDir, document.path),
+        documentPath: workspacePath,
         diskDiffers,
         missingSections: actionableMissing,
         projectedMissingSections: projectedMissing,
