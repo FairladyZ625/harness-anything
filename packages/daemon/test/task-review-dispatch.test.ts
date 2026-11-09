@@ -77,6 +77,10 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.doesNotMatch(prompt, /For every artifact anchor in that submission/u);
   assert.doesNotMatch(prompt, /registered anchors at their frozen revisions/u);
   assert.match(prompt, /first review.*every blocking finding visible/u);
+  assert.match(
+    prompt,
+    /A `ci-required` finding records the merge gate's observed check state and can never be blocking/u,
+  );
   assert.doesNotMatch(prompt, /previous report at/u);
 });
 

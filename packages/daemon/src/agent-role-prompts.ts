@@ -46,10 +46,12 @@ const reviewerDiscipline = [
     "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
     "you cannot run unverified.",
-  "- For a Task delivery with a repository commit, read the PR head with `gh pr view <task-id> --json headRefOid`, then the checks with " +
-    "`gh pr checks <task-id>`, then the head again; both reads must equal the pinned delivery commit. Pending " +
-    "checks are not green. `gh run view <run-id> --log-failed` reads a failure's log. When the checks cannot be read, record " +
-    "the exact error and label the check unverified.",
+  "- For a Task delivery with a repository commit, read the PR head with `gh pr view <task-id> --json headRefOid` " +
+    "before and after inspecting the cut; both reads must equal the pinned delivery commit. `gh run view <run-id> " +
+    "--log-failed` reads a failure's log.",
+  "- The merge gate exclusively decides CI: `tools/pr-merge.mjs` and the repository ruleset require every required " +
+    "check to pass before merge. A pending or failing check is an observation you may record, never a blocking finding " +
+    "or a reason for changes_requested; decide only from the frozen cut's content.",
   "- For a ledger-only Task delivery, review its frozen accepted artifacts and applicable gates; no repository PR, CI or merge is required.",
   "- Read another commit in a plain directory outside the repository that registers no worktree and shares no " +
     "dependency store, or use the repository's declared read-only checkout entry when it has one.",

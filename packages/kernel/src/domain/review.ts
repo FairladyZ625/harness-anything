@@ -327,6 +327,10 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
           "review finding category, label, evidence digest, prior finding refs, or reverify are invalid when present",
         ),
       );
+    // The merge gate owns CI. A current review may record a check observation, never block on one.
+    // Historical review_recorded events use allowUnknownFields and stay replayable.
+    if (!allowUnknownFields && finding.category === "ci-required" && finding.blocking === true)
+      issues.push(invalidReviewIssue("ci-required findings are merge-gate observations and cannot be blocking"));
   }
   return issues;
 }
