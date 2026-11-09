@@ -260,6 +260,18 @@ test("submit accepts a receipt bound to the submitted cut with no failures", asy
   ]);
 });
 
+test("submit refuses a receipt whose failure list is not an array", async (t) => {
+  const { head, derive, setReceipt } = fixture(t, {
+    pathReviewers: ["data-migration packages/storage/src/store/"],
+  });
+  const truncated = JSON.parse(receiptFor(head)) as Record<string, unknown>;
+  delete truncated.failures;
+  setReceipt(JSON.stringify(truncated));
+  const error = await rejection(derive());
+  assert.equal(error.code, "invalid_submission");
+  assert.match(error.message, /does not record a failures array/u);
+});
+
 test("a receipt carried in the same submit satisfies the gate before the ledger accepts it", async (t) => {
   const { head, derive } = fixture(t, {
     pathReviewers: ["data-migration packages/storage/src/store/"],
@@ -301,4 +313,14 @@ test("the receipt judge binds the cut and reports a missing failure phase honest
     /not the submitted cut/u,
   );
   assert.match(judgeOldDataCopyReceipt("{", "a".repeat(40)).reason ?? "", /not valid JSON/u);
+  const cut = "a".repeat(40),
+    missing = JSON.parse(receiptFor(cut)) as Record<string, unknown>;
+  delete missing.failures;
+  for (const body of [
+    JSON.stringify(missing),
+    receiptFor(cut, { failures: null }),
+    receiptFor(cut, { failures: "none" }),
+    receiptFor(cut, { failures: { phase: "cold-rebuild" } }),
+  ])
+    assert.match(judgeOldDataCopyReceipt(body, cut).reason ?? "", /does not record a failures array/u);
 });

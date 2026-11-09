@@ -58,7 +58,10 @@ export function judgeOldDataCopyReceipt(text: string, cutSha: string): OldDataCo
       typeof build.headCommit === "string" ? build.headCommit : typeof build.commit === "string" ? build.commit : null;
   if (bound === null) return { ok: false, reason: "does not name the build commit it ran" };
   if (bound !== cutSha) return { ok: false, reason: `is bound to cut ${bound}, not the submitted cut ${cutSha}` };
-  const failures = Array.isArray(receipt.failures) ? receipt.failures : [],
+  // The producer always emits an array. A missing, null, or scalar value is a truncated or
+  // hand-made payload whose failure list cannot be trusted, so it is not an empty list.
+  if (!Array.isArray(receipt.failures)) return { ok: false, reason: "does not record a failures array" };
+  const failures = receipt.failures,
     phases = failures.map(failurePhase).filter((phase) => phase !== null);
   if (receipt.ok !== true || failures.length > 0)
     return {
