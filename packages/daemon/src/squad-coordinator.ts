@@ -31,6 +31,7 @@ import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 import { openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
 import {
   callbackLeaderPrompt,
+  exhaustedLeaderBudget,
   initialLeaderPrompt,
   parseLeaderDecision,
   synthesisReportPath,
@@ -904,9 +905,11 @@ export function makeSquadCoordinator(input: {
   async function spawnPendingLeader(state: SquadState): Promise<SquadState> {
     const trigger = state.pendingLeaderTriggers[0];
     if (!trigger) return state;
+    // The budget caps leader turns: a callback that cannot start one is terminal, not retryable.
+    // Name the work it leaves behind and hand the task back instead of retrying into a generic
+    // budget error that hides the last leader decision.
+    if (state.leaderTurns.length >= state.leaderTurnBudget) return failExhaustedLeaderBudget(state);
     try {
-      if (state.leaderTurns.length >= state.leaderTurnBudget)
-        throw new Error(`leader turn budget ${state.leaderTurnBudget} exhausted`);
       await admitRunSubject(state);
       const parentTask = squadTaskRef(state);
       for (const attempt of state.workerAttempts) {
@@ -941,6 +944,25 @@ export function makeSquadCoordinator(input: {
       await reclaimWorkerCheckouts(failed.cwd, failed.workerAttempts);
       return failed;
     }
+  }
+
+  /**
+   * Ends a run whose leader budget is spent while a callback is still pending. The pending decision
+   * can never run, so the terminal state names it instead of only the budget number. The parent
+   * task's lease is handed back after that cut is durable: an active task behind a dead leader
+   * lease reads as in-flight and offers no restart, which is exactly the state that hid the drop.
+   */
+  async function failExhaustedLeaderBudget(state: SquadState): Promise<SquadState> {
+    const failed = revise(state, {
+      phase: "failed",
+      currentLeaderRuntimeSessionId: null,
+      error: exhaustedLeaderBudget(state, state.pendingLeaderTriggers, dispatchRows(state)),
+    });
+    await writeState(failed);
+    await reclaimWorkerCheckouts(failed.cwd, failed.workerAttempts);
+    const task = squadTaskRef(failed);
+    if (task) await input.releaseTaskLease(task.taskId, failed.binding, task.executionId, failed.squadRunId);
+    return failed;
   }
 
   async function spawnLeader(state: SquadState, trigger: LeaderTrigger): Promise<SquadState> {
