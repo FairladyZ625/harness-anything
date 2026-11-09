@@ -19,6 +19,13 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "dispatched",
+    entity: "Dispatch",
+    field: "fallbackState",
+    meaning: "The accepted terminal attempt has launched a successor dispatch for its continuation.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "scheduled",
     entity: "RuntimeSession",
     field: "attempt.fallbackState",
