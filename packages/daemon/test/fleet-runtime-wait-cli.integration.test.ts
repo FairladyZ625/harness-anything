@@ -245,6 +245,12 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
                 return target.fleet.edgeRuntime(...args);
               },
             };
+          if (property === "awaitRuntimeSessions")
+            return async (...args: Parameters<typeof target.awaitRuntimeSessions>) => {
+              edgeAwaitRouteCount += 1;
+              edgeAwaitRouteWaiters.get(edgeAwaitRouteCount)?.();
+              return target.awaitRuntimeSessions(...args);
+            };
           return Reflect.get(target, property, receiver);
         },
       }),
@@ -256,6 +262,21 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
             host: protocolHost,
             build: { commit: null },
             authContext: { ...authContext, connectionSignal },
+            sessionIndependentRead: (method, params) => {
+              const repo = params.repo;
+              return (
+                [
+                  "repo.agentRuntime.overview",
+                  "repo.agentRuntime.sessions.read",
+                  "repo.agentRuntime.sessions.await",
+                ].includes(method) &&
+                typeof repo === "object" &&
+                repo !== null &&
+                !Array.isArray(repo) &&
+                "repoId" in repo &&
+                repo.repoId === repoId
+              );
+            },
             sessionPrincipal: (method, params) => {
               sessionPrincipalMethods.push(method);
               const payload = params.payload,
@@ -375,7 +396,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           }),
         ]);
         assert.equal(
-          sessionPrincipalMethods.slice(sessionPrincipalCallCount).includes("daemon.fleet.task.run"),
+          sessionPrincipalMethods.slice(sessionPrincipalCallCount).includes("repo.agentRuntime.cancel"),
           false,
           "offline runtime reads must bypass the interactive session principal check",
         );
@@ -384,7 +405,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         const cancelled = await invoke(["runtime", "cancel", receipt.runtimeSessionId]);
         assert.notEqual(cancelled.code, 0, JSON.stringify(cancelled));
         assert.equal(
-          sessionPrincipalMethods.slice(cancelAuthCallCount).includes("daemon.fleet.task.run"),
+          sessionPrincipalMethods.slice(cancelAuthCallCount).includes("repo.agentRuntime.cancel"),
           true,
           "offline runtime cancellation must retain the interactive session principal check",
         );
@@ -393,7 +414,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         const steered = await invoke(["runtime", "steer", receipt.runtimeSessionId, "--prompt", "unauthorized steer"]);
         assert.notEqual(steered.code, 0, JSON.stringify(steered));
         assert.equal(
-          sessionPrincipalMethods.slice(steerAuthCallCount).includes("daemon.fleet.task.run"),
+          sessionPrincipalMethods.slice(steerAuthCallCount).includes("repo.agentRuntime.steer"),
           true,
           "offline runtime steer must retain the interactive session principal check",
         );

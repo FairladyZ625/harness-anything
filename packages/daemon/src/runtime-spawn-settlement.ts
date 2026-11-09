@@ -1294,19 +1294,42 @@ export function controlReceipt(
   runtimeSessionId: string,
   detail = "cancelled",
 ): JsonObject {
-  if (context.input.remote)
+  if (context.input.remote) {
+    const centerReceipt = context.input.remote.runtimeControlReceipt?.(runtimeSessionId);
+    if (centerReceipt) {
+      const outcome = centerReceipt.outcome;
+      return {
+        ...centerReceipt,
+        schema: "command-receipt/v2",
+        ok: outcome === "applied" || outcome === "pending" || outcome === "no_changes",
+        command: "runtime-cancel",
+        opId: typeof centerReceipt.opId === "string" ? centerReceipt.opId : opId,
+        runtimeSessionId,
+        evidence: `runtime-cancel:${detail}:${runtimeSessionId}:center:${String(centerReceipt.opId ?? "unknown")}`,
+        visibility: "center",
+        detail,
+        ...(outcome === "pending" ? { guidance: [{ kind: "retry-receipt", args: { opId } }] } : {}),
+      };
+    }
     return {
       schema: "command-receipt/v2",
       ok: true,
       command: "runtime-cancel",
-      outcome: detail === "cancelled" ? ("applied" as const) : ("pending" as const),
+      outcome: "pending",
       opId,
       runtimeSessionId,
+      status: "unknown",
+      acceptance: null,
+      projection: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
+      git: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
+      worktree: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
+      replica: { state: "pending", cut: null, reason: "Center cancellation receipt is not available yet." },
       evidence: `runtime-cancel:${detail}:${runtimeSessionId}`,
-      visibility: "center" as const,
+      visibility: "center",
       detail,
-      ...(detail === "cancelled" ? {} : { guidance: [{ kind: "retry-receipt", args: { opId } }] }),
+      guidance: [{ kind: "retry-receipt", args: { opId } }],
     };
+  }
   const store = context.requiredRuntimeStore(context.input),
     published = store.readEvent(opId),
     revision = published?.workspaceRevision ?? store.readHead()?.revision ?? 0,

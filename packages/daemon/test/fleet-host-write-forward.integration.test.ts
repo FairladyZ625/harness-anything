@@ -147,7 +147,7 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
     { kind: "doc-submit", taskId: "task-without-document-mirror" },
     localAuthFixture(),
   );
-  assert.equal(docWrite.code, "repo_mode_read_only", "document writes retain their dedicated admission path");
+  assert.equal(docWrite.code, "mirror_missing", "document writes require a materialized mirror before submission");
   assert.equal(f.eventCount(), beforeDoc, "the common RPC must not write the document center");
   const unconfigured = await fleetEdgeHostFixture(t, f, { name: "unconfigured", writeEdgeConfig: false });
   const beforeUnconfigured = f.eventCount();

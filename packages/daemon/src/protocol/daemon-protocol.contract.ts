@@ -415,6 +415,7 @@ export {
   actionForDaemonMethod,
   commandClassForAction,
   commandDescriptorForAction,
+  maybeCommandDescriptorForAction,
   commandIdForDaemonMethod,
   daemonProtocolCommands,
   hasCommandDescriptor,

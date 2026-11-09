@@ -140,6 +140,7 @@ export async function prepareBoundRuntimeLaunch(args: {
       HARNESS_DAEMON_ID: daemonRoute.daemonId,
       HARNESS_DAEMON_ENDPOINT: callbackRelay?.path ?? daemonRoute.endpoint,
       HARNESS_DAEMON_RELAY: callbackRelay ? "1" : undefined,
+      HARNESS_DAEMON_REMOTE_EDGE: input.remote ? "1" : undefined,
       HARNESS_DAEMON_REPO_ID: input.repoId,
       HARNESS_ACTOR: args.runtimeActor,
       HARNESS_EXECUTION_CREDENTIAL: credential,

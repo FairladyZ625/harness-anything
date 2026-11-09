@@ -9,7 +9,6 @@ import {
 } from "../daemon-operation.ts";
 import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
-import { localDefaultBinding } from "../daemon-host-binding.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import { agentActorForLog, type DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
@@ -17,7 +16,6 @@ import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
-  commandDescriptorForAction,
   commandIdForDaemonMethod,
   daemonProtocolError,
   invalidParamsReceipt,
@@ -25,7 +23,6 @@ import {
   jsonRpcMethodContracts,
   makeDaemonCommandReceipt,
   parseDaemonRpcParams,
-  type DaemonFleetTaskAction,
   type DaemonBuildDrainStatus,
   type DaemonRpcMethod,
   type DaemonRpcResult,
@@ -101,6 +98,8 @@ export function createJsonRpcProtocolServer(options: {
   readonly edgeExecutionPrincipal?: (
     credential: string,
   ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
+  /** Read-only runtime queries on an edge replica use the persisted replica identity. */
+  readonly sessionIndependentRead?: (method: string, params: JsonObject) => boolean;
   /** The daemon's signed-in OIDC principal as of now; read on every request, not once per connection. */
   readonly sessionPrincipal?: (
     method: string,
@@ -310,7 +309,7 @@ export function createJsonRpcProtocolServer(options: {
       !daemonControl &&
       !sessionIndependentRbacOperation(method, params as JsonObject) &&
       !sessionIndependentFleetRuntimeRead(method, params as JsonObject) &&
-      !sessionIndependentFleetReplicaRead(method, params as JsonObject) &&
+      !options.sessionIndependentRead?.(method, params as JsonObject) &&
       !relayExecution &&
       options.sessionPrincipal
     ) {
@@ -322,12 +321,6 @@ export function createJsonRpcProtocolServer(options: {
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
-    } else if (!daemonControl && sessionIndependentFleetReplicaRead(method, params as JsonObject)) {
-      Object.assign(options.authContext, {
-        oidcPrincipal: undefined,
-        replicaReadPrincipal: undefined,
-        replicaReadDenied: undefined,
-      });
     }
     markDaemonOperationPhase("repository-admission");
     updateDaemonOperation({
@@ -643,61 +636,39 @@ export function createJsonRpcProtocolServer(options: {
             ),
           );
         }
-        const { runFleetEdgeTask, runFleetEdgeRepositoryRead, isFleetEdgeRepositoryRead } = await import(
-          "../fleet-edge-task.ts"
-        );
-        if (executionCredential !== undefined)
-          localDefaultBinding({
-            ...options.authContext,
-            oidcPrincipal: await options.sessionPrincipal?.(method, params as JsonObject),
+        // Legacy callers may still use this transport coordinator, but ordinary repository
+        // actions now enter the same host.run -> ForwardingPort path as repo.task.run.  The
+        // coordinator no longer assembles a Fleet envelope or credential of its own.
+        if (!isJsonObject(fleetAction) || typeof fleetAction.kind !== "string")
+          throw Object.assign(new Error("Fleet task action must be a declared command object."), {
+            code: "invalid_field",
           });
-        const relayedExecutionPrincipal =
-          executionCredential === undefined
-            ? undefined
-            : options.edgeExecutionPrincipal
-              ? await options.edgeExecutionPrincipal(executionCredential)
-              : (() => {
-                  throw Object.assign(new Error("Edge execution identity is unavailable."), {
-                    code: "authorization_denied",
-                  });
-                })();
-        // Frozen submission blobs are center-owned; an edge replica may only hold the latest document.
-        if (
-          isFleetEdgeRepositoryRead(fleetAction as DaemonFleetTaskAction) &&
-          !(executionCredential && fleetAction.kind === "doc-show")
-        ) {
-          // The edge cell answers from its replica under the same principal the local daemon binds.
-          const readAuth = relayedExecutionPrincipal
-            ? { ...options.authContext, executionPrincipal: relayedExecutionPrincipal }
-            : options.authContext;
-          return reply(
-            method,
-            await runFleetEdgeRepositoryRead(
-              { payload: { ...params.payload, action: fleetAction as DaemonFleetTaskAction } as never },
-              async () =>
-                (await options.host.run(String(fleetPayload.repoId), fleetAction as never, readAuth)) as never,
-              async () => (await options.sessionPrincipal?.(method, params as JsonObject))?.accessToken,
-            ),
-          );
+        let relayedExecutionPrincipal: DaemonAuthenticationContext["executionPrincipal"],
+          relayedSessionPrincipal: DaemonAuthenticationContext["oidcPrincipal"];
+        if (executionCredential !== undefined) {
+          relayedSessionPrincipal = options.sessionPrincipal
+            ? await options.sessionPrincipal(method, params as JsonObject)
+            : options.authContext.oidcPrincipal;
+          if (!relayedSessionPrincipal)
+            throw Object.assign(new Error("A device session is required for relayed execution."), {
+              code: "authentication_required",
+            });
+          if (!options.edgeExecutionPrincipal)
+            throw Object.assign(new Error("Edge execution identity is unavailable."), {
+              code: "authorization_denied",
+            });
+          relayedExecutionPrincipal = await options.edgeExecutionPrincipal(executionCredential);
         }
-        const result = await runFleetEdgeTask(
-          {
-            payload: {
-              ...params.payload,
-              ...(executionCredential ? { executionCredential } : {}),
-              ...(options.authContext.executionPrincipal
-                ? { principalId: options.authContext.executionPrincipal.personId }
-                : relayedExecutionPrincipal
-                  ? { principalId: relayedExecutionPrincipal.personId }
-                  : !executionCredential && options.authContext.oidcPrincipal
-                    ? { principalId: options.authContext.oidcPrincipal.personId }
-                    : {}),
-              // The two non-task discriminants return above; the remainder is FleetTaskAction.
-              action: fleetAction as DaemonFleetTaskAction,
-            },
-          },
-          async () => (await options.sessionPrincipal?.(method, params as JsonObject))?.accessToken,
-        );
+        if (executionCredential !== undefined) {
+          const principal = relayedExecutionPrincipal;
+          Object.assign(options.authContext, {
+            executionPrincipal: principal,
+            executionCredential,
+            oidcPrincipal: relayedSessionPrincipal,
+          });
+        }
+        const receipt = await options.host.run(String(fleetPayload.repoId), fleetAction as never, options.authContext);
+        const result = makeDaemonCommandReceipt(fleetAction.kind, receipt);
         // The center accepts the escalation artifact, but the edge owns the worker process. Close
         // that owner through the existing edge runtime route before reporting command success.
         if (
@@ -1256,16 +1227,6 @@ function sessionIndependentFleetRuntimeRead(method: string, params: JsonObject):
       String(action.method),
     )
   );
-}
-
-function sessionIndependentFleetReplicaRead(method: string, params: JsonObject): boolean {
-  if (method !== "daemon.fleet.task.run" || !isJsonObject(params.payload) || !isJsonObject(params.payload.action))
-    return false;
-  // Runtime and schedule envelopes are handled by their dedicated Fleet ports; they are not
-  // repository action descriptors and must not be passed to commandDescriptorForAction.
-  if (["fleet-runtime", "fleet-schedule"].includes(String(params.payload.action.kind))) return false;
-  // Let the server-selected edge read bind once with replicaRead enabled, so refresh rejection stays on this request.
-  return commandDescriptorForAction(String(params.payload.action.kind)).admission["remote-edge"] === "edge-replica";
 }
 
 function protocolFailure(command: string, error: unknown) {

@@ -110,6 +110,7 @@ export async function fleetNodeClaimFixture(
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
       nodeOwner: owners.nodeOwner,
       verifyHuman: verifyHuman ?? owners.verifyHuman,
+      authenticateExecutionPrincipal: owners.authenticateExecutionPrincipal,
       ...(replicaOptions.replicaAdmission
         ? {
             verifyReplica: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
