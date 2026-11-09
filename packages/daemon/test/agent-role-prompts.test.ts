@@ -195,14 +195,20 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   );
   assert.match(prompt, /code repository is read-only.*Do not modify code, stage files, create commits/u);
   assert.match(prompt, /For a Task.*pinned execution.*For a Decision.*reviewContentDigest/su);
-  assert.match(prompt, /read the PR head with `gh pr view <task-id> --json headRefOid`, then the checks with/u);
+  assert.match(
+    prompt,
+    /read the PR head with `gh pr view <task-id> --json headRefOid` before and after inspecting the cut/u,
+  );
   assert.match(prompt, /For a Task delivery with a repository commit/u);
   assert.match(
     prompt,
     /For a ledger-only Task delivery, review its frozen accepted artifacts and applicable gates; no repository PR, CI or merge is required/u,
   );
   assert.match(prompt, /both reads must equal the pinned delivery commit/u);
-  assert.match(prompt, /Pending checks are not green/u);
+  assert.doesNotMatch(prompt, /then the checks with|Pending checks are not\s+green/u);
+  assert.match(prompt, /The merge gate exclusively decides CI/u);
+  assert.match(prompt, /A pending or failing check is an observation you may record, never a blocking finding/u);
+  assert.match(prompt, /decide only from the frozen cut's content/u);
   assert.match(prompt, /dispatch-assigned artifacts\/reports paths/u);
   assert.match(
     prompt,
@@ -218,7 +224,7 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   assert.match(prompt, /Read another commit in a plain directory outside the repository that registers no worktree/u);
   assert.match(prompt, /shares no dependency store, or use the repository's declared read-only checkout entry/u);
   assert.doesNotMatch(prompt, /readonly-checkout\.mjs|tools\/readonly-checkout|check:static/u);
-  // The CI wait is the reviewer's one write-family reach; publication stays delivery-only.
+  // Publication stays delivery-only; the reviewer never reaches a write surface.
   assert.doesNotMatch(
     prompt,
     /# Implementation Permissions|# Worker Role|# Commander Context|ha task push|ha task pr <task-id> --update/u,

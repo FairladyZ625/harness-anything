@@ -31,7 +31,8 @@ export function reviewFindingScopePrompt(phase: ReviewPromptPhase): string {
  */
 export const reviewFindingCategoryPrompt =
   `Give every finding a \`category\`, one of: ${reviewFindingCategories.join(", ")}. Keep the finding text and evidence ` +
-  "anchors in the report; category is advisory metadata and does not decide completion.";
+  "anchors in the report; category is advisory metadata and does not decide completion. A `ci-required` finding records " +
+  "the merge gate's observed check state and can never be blocking.";
 
 /**
  * The reverify boundary every task reviewer is told (dec_BEFCF7D0484E901F187C2C8EC6 CH1). The category

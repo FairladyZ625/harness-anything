@@ -333,6 +333,25 @@ test("Review entity schema accepts third-generation finding fields and rejects i
   assert.ok(validateReviewFindings([emptyPriorRefs]).length > 0);
 });
 
+test("a ci-required finding is an observation and cannot block a current review", () => {
+  const observation = {
+      findingId: "F-ci",
+      blocking: false,
+      text: "Required checks are still pending on the hosting platform.",
+      category: "ci-required" as const,
+    },
+    blocker = { ...observation, blocking: true };
+  assert.deepEqual(validateReviewFindings([observation]), []);
+  assert.match(
+    validateReviewFindings([blocker])
+      .map((issue) => issue.message)
+      .join("\n"),
+    /ci-required findings are merge-gate observations and cannot be blocking/u,
+  );
+  // Historical review_recorded events admitted blocking ci-required findings; replay keeps them readable.
+  assert.deepEqual(validateReviewFindings([blocker], true), []);
+});
+
 test("a synthetic third contract drives the same embedded projection interpreter", () => {
   const contract = {
     kind: "artifact",
