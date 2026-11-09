@@ -76,8 +76,12 @@ export function enqueueRuntimePublication(
       context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
       try {
         const result = await execute({ ...claimed.binding, authorizationDecision }, revision);
+        // A remote owner already returns the center's acceptance interval. Reattaching
+        // acceptance against the edge store would replace that interval with a local
+        // revision range (which can even run backwards), corrupting the center receipt.
+        const hasAuthoritativeAcceptance = result.status === "accepted_durable" && result.acceptance !== null;
         const receipt =
-          typeof result.opId === "string" && typeof result.outcome === "string"
+          typeof result.opId === "string" && typeof result.outcome === "string" && !hasAuthoritativeAcceptance
             ? attachReceiptAcceptance(result as unknown as WriteReceipt, context.store, context.projection)
             : result;
         return {

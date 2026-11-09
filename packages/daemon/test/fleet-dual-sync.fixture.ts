@@ -122,6 +122,7 @@ export async function dualSyncFixture(
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
     nodeOwner: owners.nodeOwner,
     verifyHuman: owners.verifyHuman,
+    authenticateExecutionPrincipal: owners.authenticateExecutionPrincipal,
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`),
     workspace = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);

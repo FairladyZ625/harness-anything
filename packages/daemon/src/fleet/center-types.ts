@@ -8,6 +8,7 @@ import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
 import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
 import type { ResourceBudget } from "./resource-budget.ts";
+import type { RuntimeExecutionPrincipal } from "../runtime-execution-credential.ts";
 
 export interface FleetCenterOptions {
   /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
@@ -51,6 +52,8 @@ export interface FleetCenterOptions {
    * transport so hello-failure budgets are keyed on something the hello frame cannot choose.
    */
   readonly authenticate: (nodeId: string, credential: string, source: string) => boolean | Promise<boolean>;
+  /** Verifies an execution credential before a Fleet writer binding is constructed. */
+  readonly authenticateExecutionPrincipal?: (credential: string) => Promise<RuntimeExecutionPrincipal>;
   /** Registered device owner, re-read for admission; action identity comes from the request user token. */
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;

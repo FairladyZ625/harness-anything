@@ -260,7 +260,7 @@ export function taskActionCommandUsage(action: EntityActionContract): string {
 }
 
 export function commandDescriptorForAction(kind: string) {
-  const descriptor = commandDescriptorByActionKind.get(kind) ?? presetMethodByActionKind.get(kind);
+  const descriptor = maybeCommandDescriptorForAction(kind);
   if (!descriptor)
     throw new DaemonProtocolContractError("unsupported_command", `No command descriptor exists for ${kind}.`);
   return descriptor;
@@ -268,6 +268,10 @@ export function commandDescriptorForAction(kind: string) {
 
 export function hasCommandDescriptor(kind: string): boolean {
   return commandDescriptorByActionKind.has(kind) || presetMethodByActionKind.has(kind);
+}
+
+export function maybeCommandDescriptorForAction(kind: string) {
+  return commandDescriptorByActionKind.get(kind) ?? presetMethodByActionKind.get(kind);
 }
 
 export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {

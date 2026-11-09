@@ -1,6 +1,7 @@
 import { readAgentEntityDeclarationSource } from "./agent-entities.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
 // the fleet TLS channel, attaches to the center's wait queue for as long as the
 // caller is willing to wait, reconnects with full-jitter exponential backoff
@@ -26,18 +27,7 @@ import {
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
   resolveHarnessLayout,
-  readDaemonRegistry,
-  getExecutableEntityAction,
-  type IdentitySessionPort,
-  type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
-import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { localDefaultBinding } from "./daemon-host-binding.ts";
-import { executionCredentialRejected } from "./runtime-execution-credential.ts";
-import type { RepoTaskAction } from "./repo-cell-types.ts";
-import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
@@ -115,73 +105,6 @@ async function verifyFleetTaskSubmitHolder(input: {
       "authorization_denied",
       "Task submit permission is required before publishing delivery.",
     );
-}
-
-/** The ordinary repository RPC shares the CLI's Fleet command executor. */
-export async function forwardRegisteredFleetAction(input: {
-  readonly userRoot?: string;
-  readonly repoId: string;
-  readonly command: Pick<CommandTopology, "admission">;
-  readonly action: RepoTaskAction;
-  readonly auth: DaemonAuthenticationContext;
-  readonly oidc: IdentitySessionPort;
-  readonly runSchedule: (payload: JsonObject) => Promise<Record<string, unknown>>;
-}): Promise<WriteReceiptDraft | null> {
-  if (
-    input.command.admission["remote-edge"] !== "via-center-forward" ||
-    input.auth.transportKind !== "unix-socket" ||
-    input.auth.nodePrincipal
-  )
-    return null;
-  const edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
-    (repo) => repo.repoId === input.repoId && repo.state === "enabled" && repo.mode === "remote-edge",
-  );
-  if (!edge?.canonicalRoot) return null;
-  const workspaceRoot = edge.canonicalRoot,
-    config = readFleetEdgeConfig(workspaceRoot);
-  if (!config || config.repoId !== input.repoId) return null;
-  // Document submission/conflict commands use their dedicated flows. A document retirement
-  // is an authored ledger mutation with no local bytes to upload, so it uses this same
-  // center-authorized command adapter as the other authored writes.
-  const descriptor = commandDescriptorForAction(input.action.kind);
-  if ("path" in descriptor && descriptor.path[0] === "doc" && descriptor.id !== "doc-retire") return null;
-  // Keep the execution grant and the signed-in person together: the center enforces runtime
-  // scope and AuthorizationPort independently evaluates the person's policy grants.
-  if (input.auth.executionPrincipal && !input.auth.executionCredential) throw executionCredentialRejected();
-  if (getExecutableEntityAction(input.action.kind)?.target.kind === "schedule") {
-    // This existing Schedule port binds an interactive person; it cannot relay a runtime secret.
-    if (input.auth.executionPrincipal || input.auth.executionCredential) throw executionCredentialRejected();
-    return (await input.runSchedule({
-      ...config,
-      workspaceRoot,
-      method: "repo.schedule.run",
-      action: input.action as JsonObject,
-    })) as unknown as WriteReceiptDraft;
-  }
-  const executionPersonId = input.auth.executionPrincipal?.personId,
-    bindPersonSession = async () => {
-      const session = await input.oidc.bind(input.auth, workspaceRoot),
-        personId = localDefaultBinding(session).actor.principal.personId;
-      if (executionPersonId && executionPersonId !== personId) throw executionCredentialRejected();
-      return session;
-    },
-    bound = await bindPersonSession(),
-    personId = executionPersonId ?? localDefaultBinding(bound).actor.principal.personId;
-  const receipt = await runFleetEdgeTask(
-    {
-      payload: {
-        ...config,
-        workspaceRoot,
-        principalId: personId,
-        ...(input.auth.executionCredential ? { executionCredential: input.auth.executionCredential } : {}),
-        action: input.action as FleetTaskAction,
-      },
-    },
-    async () => (await bindPersonSession()).oidcPrincipal?.accessToken,
-    "domain",
-  );
-  // The repository RPC assembles its own envelope around the center's domain receipt.
-  return receipt as unknown as WriteReceiptDraft;
 }
 
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
@@ -379,12 +302,28 @@ export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
 
 /** A repository read on an edge: answered by the host's edge cell after this edge's own writes land. */
 export async function runFleetEdgeRepositoryRead(
-  input: FleetEdgeTaskRequest,
+  input: { readonly rootDir: string; readonly repoId: string; readonly action: FleetTaskAction },
   readLocal: () => Promise<Record<string, unknown>>,
-  _readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
-  const payload = input.payload,
+  const config = readFleetEdgeConfig(input.rootDir);
+  if (!config) return readLocal();
+  if (config.repoId !== input.repoId)
+    throw Object.assign(new Error("The edge repository configuration is unavailable."), {
+      code: "fleet_edge_config_missing",
+    });
+  const payload = { ...config, workspaceRoot: input.rootDir, action: input.action },
     minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
+  const readAtReplicaCut = async (): Promise<Record<string, unknown>> => {
+    const receipt = await readLocal(),
+      view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
+    return {
+      schema: "command-receipt/v2",
+      command: payload.action.kind,
+      ok: receipt.outcome === "applied",
+      ...receipt,
+      ...(view ? { cut: { revision: view.revision, headDigest: view.headDigest } } : {}),
+    };
+  };
   return readEdgeRepository(
     {
       viewRoot: payload.viewRoot,
@@ -394,15 +333,7 @@ export async function runFleetEdgeRepositoryRead(
       ...(minCut ? { minCut } : {}),
     },
     () => Promise.resolve(),
-    async () => {
-      const receipt = await readLocal();
-      return {
-        schema: "command-receipt/v2",
-        command: payload.action.kind,
-        ok: receipt.outcome === "applied",
-        ...receipt,
-      };
-    },
+    readAtReplicaCut,
   );
 }
 
@@ -659,7 +590,9 @@ export async function runFleetEdgeTask(
           ? error.code
           : error instanceof FleetEdgeTaskError
             ? error.code
-            : "fleet_task_rejected";
+            : typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+              ? error.code
+              : "fleet_task_rejected";
       return {
         schema: "command-receipt/v2",
         ok: false,

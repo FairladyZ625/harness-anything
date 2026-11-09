@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { readDaemonRegistry } from "@harness-anything/kernel/daemon-registry";
+import { readDaemonRegistry } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
@@ -252,7 +252,6 @@ export async function startDaemon(input: {
       { openDaemonHost },
       { createJsonRpcProtocolServer },
       { openDaemonRequestLog },
-      { createIdentitySession },
       { readRuntimeExecutionPrincipal },
       { openDaemonDiagnostics },
       operations,
@@ -262,7 +261,6 @@ export async function startDaemon(input: {
       import("./daemon-host.ts"),
       import("./protocol/json-rpc-server.ts"),
       import("./request-log.ts"),
-      import("./authorization-provider.ts"),
       import("./runtime-execution-principal-store.ts"),
       import("./daemon-diagnostics.ts"),
       import("./daemon-operation.ts"),
@@ -273,13 +271,14 @@ export async function startDaemon(input: {
       endpoint,
       writeQueues: () => host?.writeQueues() ?? [],
     });
-    const oidc = createIdentitySession(input.userRoot);
+    const authenticateExecutionPrincipal = (credential: string) =>
+      authenticateRuntimeExecutionPrincipal(() => host!.identityCenter(), credential);
     host = await observation.withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
         ...input,
         endpoint,
+        authenticateExecutionPrincipal,
         recordLifecycle,
-        oidc,
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
         recordTraffic: connLog.request,
@@ -305,16 +304,41 @@ export async function startDaemon(input: {
               typeof params.repo === "object" && params.repo !== null && "repoId" in params.repo
                 ? String(params.repo.repoId)
                 : undefined;
-            const edgeRepo = host!.status().repos.find((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
-            const principal = edgeRepo
-              ? readRuntimeExecutionPrincipal(edgeRepo.rootDir, credential)
-              : await authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
+            // The registry is the authority for repository mode during startup. The host
+            // status projection can still be warming after a daemon restart, but an edge
+            // execution credential must be resolved locally before any center lookup.
+            const edgeRepo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+              (repo) =>
+                repo.repoId === repoId &&
+                repo.state === "enabled" &&
+                repo.mode === "remote-edge" &&
+                repo.canonicalRoot !== null,
+            );
+            const edgeRoot = edgeRepo?.canonicalRoot;
+            const principal = edgeRoot
+              ? readRuntimeExecutionPrincipal(edgeRoot, credential)
+              : await authenticateExecutionPrincipal(credential);
             if (!principal)
               throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
                 code: "authorization_denied",
               });
             requireExecutionRequestScope(principal, method, params);
             return principal;
+          },
+          sessionIndependentRead: (method, params) => {
+            if (
+              ![
+                "repo.agentRuntime.overview",
+                "repo.agentRuntime.sessions.read",
+                "repo.agentRuntime.sessions.await",
+              ].includes(method)
+            )
+              return false;
+            const repoId =
+              typeof params.repo === "object" && params.repo !== null && "repoId" in params.repo
+                ? String(params.repo.repoId)
+                : undefined;
+            return host!.status().repos.some((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
           },
           edgeExecutionPrincipal: async (credential) => {
             const principal = host!

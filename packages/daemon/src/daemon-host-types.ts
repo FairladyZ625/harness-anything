@@ -52,7 +52,7 @@ export interface DaemonHost {
     ) => Promise<SkillEvalRunResult>;
   };
   readonly remoteProxy: RemoteProxyManager;
-  readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
+  readonly identityCenter: import("@harness-anything/kernel").IdentitySessionPort["center"];
   readonly sessionPrincipal: (
     auth: DaemonAuthenticationContext,
     method: string,

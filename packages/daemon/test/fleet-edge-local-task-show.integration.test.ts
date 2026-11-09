@@ -86,9 +86,10 @@ test(
     // 4. This edge's own write is visible to its next read: the read waits for the applied cut.
     const write = await e.command({ kind: "task-create", taskId: "show-2", title: "Written on the edge" });
     assert.equal(write.outcome, "applied", JSON.stringify(write));
+    assert.ok(write.cut, JSON.stringify(write));
     const waited = await local("show-2");
     assert.equal(waited.ok, true, JSON.stringify(waited));
-    assert.ok((waited.cut as { revision: number }).revision >= (write.appliedCut as { revision: number }).revision);
+    assert.ok((waited.cut as { revision: number }).revision >= (write.cut as { revision: number }).revision);
     assert.match(String(waited.evidence), /Written on the edge/u);
 
     // 6. With the center gone, the edge still answers with the center's last answer.

@@ -261,9 +261,32 @@ export function checkFleetTransferBoundary(rootDir) {
   return errors;
 }
 
+/** Baseline entries are exact, not ceilings: a removed construction must lower its entry in the same
+ * change, otherwise the old judgment can be reintroduced without a gate failure. */
+export function checkForwardingBaselineFreshness(rootDir) {
+  const errors = [];
+  for (const relative of forwardingSources(rootDir)) {
+    const violations = findFleetForwardingBypasses(readFileSync(path.join(rootDir, relative), "utf8"), relative),
+      counts = new Map();
+    for (const violation of violations) {
+      const key = `${violation.symbol}\0${violation.fingerprint}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    for (const [symbol, fingerprints] of Object.entries(fleetForwardingBoundaryBaseline[relative] ?? {}))
+      for (const [fingerprint, allowed] of Object.entries(fingerprints)) {
+        const count = counts.get(`${symbol}\0${fingerprint}`) ?? 0;
+        if (count < allowed)
+          errors.push(
+            `${relative}#${symbol}: ${fingerprint} count ${count} is below ratchet baseline ${allowed}; lower the baseline`,
+          );
+      }
+  }
+  return errors;
+}
+
 async function main() {
   if (!process.argv.includes("--check")) throw new Error("usage: node tools/gates/fleet-transfer-boundary.mjs --check");
-  const errors = checkFleetTransferBoundary(process.cwd());
+  const errors = [...checkFleetTransferBoundary(process.cwd()), ...checkForwardingBaselineFreshness(process.cwd())];
   if (errors.length) {
     console.error(errors.join("\n"));
     process.exitCode = 1;

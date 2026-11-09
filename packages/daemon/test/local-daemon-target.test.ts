@@ -217,39 +217,43 @@ test("local daemon relay rejects a root outside the dispatched canonical root", 
   }
 });
 
-test("local daemon relay resolves from the injected route when the host registry is unreadable", async () => {
-  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-unreadable-")),
-    userRoot = path.join(fixtureRoot, "user"),
-    workspaceRoot = path.join(fixtureRoot, "workspace"),
-    workerRoot = path.join(workspaceRoot, ".worktrees", "worker"),
-    endpoint = path.join(perUserSocketRoot(), "r-0123456789abcdef01234567.sock");
-  try {
-    mkdirSync(workerRoot, { recursive: true });
-    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
-    mkdirSync(userRoot);
-    // A registry.json that is a directory fails every read for any uid: the resolver must not open it.
-    mkdirSync(path.join(userRoot, "registry.json"));
-    const target = await resolveLocalDaemonTarget({
-      rootDir: workerRoot,
-      userRoot,
-      env: {
-        HARNESS_DAEMON_RELAY: "1",
-        HARNESS_CANONICAL_ROOT: canonicalWorkspaceRoot,
-        HARNESS_DAEMON_REPO_ID: "runtime-worker",
-        HARNESS_DAEMON_ENDPOINT: endpoint,
-      },
-    });
-    assert.deepEqual(target, {
-      repoId: "runtime-worker",
-      canonicalRoot: canonicalWorkspaceRoot,
-      userRoot,
-      daemonId: "default",
-      socketPath: endpoint,
-    });
-  } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
-  }
-});
+for (const remoteEdge of [false, true]) {
+  test(`${remoteEdge ? "edge" : "local"} daemon relay resolves from the injected route when the host registry is unreadable`, async () => {
+    const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-unreadable-")),
+      userRoot = path.join(fixtureRoot, "user"),
+      workspaceRoot = path.join(fixtureRoot, "workspace"),
+      workerRoot = path.join(workspaceRoot, ".worktrees", "worker"),
+      endpoint = path.join(perUserSocketRoot(), "r-0123456789abcdef01234567.sock");
+    try {
+      mkdirSync(workerRoot, { recursive: true });
+      const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+      mkdirSync(userRoot);
+      // A registry.json that is a directory fails every read for any uid: the resolver must not open it.
+      mkdirSync(path.join(userRoot, "registry.json"));
+      const target = await resolveLocalDaemonTarget({
+        rootDir: workerRoot,
+        userRoot,
+        env: {
+          HARNESS_DAEMON_RELAY: "1",
+          HARNESS_DAEMON_REMOTE_EDGE: remoteEdge ? "1" : undefined,
+          HARNESS_CANONICAL_ROOT: canonicalWorkspaceRoot,
+          HARNESS_DAEMON_REPO_ID: "runtime-worker",
+          HARNESS_DAEMON_ENDPOINT: endpoint,
+        },
+      });
+      assert.deepEqual(target, {
+        repoId: "runtime-worker",
+        canonicalRoot: canonicalWorkspaceRoot,
+        userRoot,
+        daemonId: "default",
+        socketPath: endpoint,
+        ...(remoteEdge ? { remoteEdge: true } : {}),
+      });
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+}
 
 test("local daemon relay rejects a route missing its repo id or canonical root", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-incomplete-")),

@@ -6,7 +6,7 @@ import {
   observeDaemonOperation,
 } from "../daemon-operation.ts";
 import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
-import { commandClassForAction } from "../protocol/daemon-protocol.contract.ts";
+import { commandClassForAction, commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
@@ -69,6 +69,7 @@ import { createNodeSessionStatus } from "./node-session-status.ts";
 import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 import { createBaseBackupQueue } from "./basebackup-queue.ts";
+import { forwardingIntentForAction, forwardingIntentIssue } from "./forwarding-intent.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
@@ -169,10 +170,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       node: { nodeId: string; repoId: string; accessToken?: string },
       accessToken?: string,
       executionCredential?: string,
-    ): Promise<DaemonAuthenticationContext> => ({
-      ...(await readerAuth({ ...node, accessToken: accessToken ?? node.accessToken })),
-      ...(executionCredential ? { executionCredential } : {}),
-    }),
+    ): Promise<DaemonAuthenticationContext> => {
+      const principal = await readerAuth({ ...node, accessToken: accessToken ?? node.accessToken });
+      if (!executionCredential) return principal;
+      if (!options.authenticateExecutionPrincipal)
+        throw new FleetFault("execution_credential_rejected", "Execution credential authentication is unavailable.");
+      const executionPrincipal = await options.authenticateExecutionPrincipal(executionCredential);
+      if (
+        executionPrincipal.repoId !== node.repoId ||
+        executionPrincipal.personId !== principal.oidcPrincipal?.personId
+      )
+        throw new FleetFault(
+          "execution_credential_rejected",
+          "Execution credential does not match this repository session.",
+        );
+      return { ...principal, executionCredential, executionPrincipal };
+    },
     writerAuth = async (
       node: { nodeId: string; repoId: string; accessToken?: string },
       accessToken?: string,
@@ -1033,7 +1046,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw error;
         }
         if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
-        let command = frame.action;
+        const intent = forwardingIntentForAction(commandDescriptorForAction(frame.action.kind).method, frame.action),
+          intentIssue = forwardingIntentIssue(intent);
+        if (intentIssue) throw new FleetFault("invalid_field", intentIssue);
+        let command = intent.inputs as typeof frame.action;
         if (command.kind === "runtime-handoff-export") {
           const candidate = command.candidate as import("./command-protocol.ts").FleetDescriptor;
           if (!candidate || !findOwnedClaim(nodeId, a.repoId, candidate))
@@ -1114,25 +1130,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
           if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
+          const applied = receipt.outcome !== "op_rejected" && receipt.outcome !== "indeterminate";
+          const appliedCut = applied ? (receipt.cut ?? options.host.replica(a.repoId).ledgerCut()) : null;
           const result = {
-            outcome:
-              receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
-                ? ("op_rejected" as const)
-                : ("applied" as const),
+            outcome: applied ? ("applied" as const) : ("op_rejected" as const),
             // The frame opId is the caller's request identity for this round trip. The receipt's
             // opId remains the canonical command identity (content + revision); receipt-show
             // resolves either the request id (through the correlation map) or that canonical id.
             opId: frame.opId,
             revision: receipt.revision ?? null,
             replicationSequence: writeReplicationSequence(a.repoId, receipt),
-            ...(receipt.outcome === "applied" &&
-            receipt.cut &&
-            typeof receipt.cut.revision === "number" &&
-            typeof receipt.cut.headDigest === "string"
+            ...(appliedCut && typeof appliedCut.revision === "number" && typeof appliedCut.headDigest === "string"
               ? {
                   appliedCut: {
-                    revision: receipt.cut.revision,
-                    headDigest: receipt.cut.headDigest,
+                    revision: appliedCut.revision,
+                    headDigest: appliedCut.headDigest,
                     schemaGeneration: 0,
                   },
                 }
