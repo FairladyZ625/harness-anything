@@ -1,4 +1,4 @@
-import { lstatSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
@@ -37,6 +37,8 @@ export function assertPhysicalReviewReport(input: {
   readonly subject: string;
   readonly retry: string;
   readonly carriedReport?: { readonly path: string; readonly body: string };
+  /** Absolute report the action named; absent means the canonical authored root. */
+  readonly physicalReport?: string;
 }): {
   readonly path: string;
   readonly sha256: string;
@@ -53,7 +55,9 @@ export function assertPhysicalReviewReport(input: {
         `report under the ${input.subject} package's ` +
         `artifacts/reports/ directory, then retry ${retry}.`,
     );
-  const absolute = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...report.split("/"));
+  const display = input.physicalReport ?? `harness/${report}`,
+    absolute =
+      input.physicalReport ?? path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...report.split("/"));
   if (input.carriedReport && input.carriedReport.path !== report)
     throw cellCodedError("review_report_invalid", `Review report must be ${report}.`);
   if (!input.carriedReport) {
@@ -61,15 +65,15 @@ export function assertPhysicalReviewReport(input: {
     if (!entry)
       throw cellCodedError(
         "review_report_missing",
-        `Review ${input.reviewId} has no physical report on disk: expected harness/${report}. ` +
+        `Review ${input.reviewId} has no physical report on disk: expected ${display}. ` +
           `Write the reviewer-authored Markdown report there, then retry ${retry}. ` +
           "A Review recorded without its landed report cannot be consented.",
       );
     if (!entry.isFile() || entry.isSymbolicLink())
       throw cellCodedError(
         "review_report_invalid",
-        `Review report harness/${report} must be a regular file, not a symbolic link; rewrite the reviewer-authored ` +
-          `Markdown report there, then retry ${retry}.`,
+        `Review report ${display} must be a regular file, not a symbolic ` +
+          `link; rewrite the reviewer-authored Markdown report there, then retry ${retry}.`,
       );
   }
   let body: string;
@@ -77,27 +81,29 @@ export function assertPhysicalReviewReport(input: {
     body =
       input.carriedReport?.body ??
       new TextDecoder("utf-8", { fatal: true }).decode(
-        readAuthoredDocumentBytes(resolveHarnessLayout(input.rootDir).authoredRoot, report),
+        input.physicalReport === undefined
+          ? readAuthoredDocumentBytes(resolveHarnessLayout(input.rootDir).authoredRoot, report)
+          : readFileSync(input.physicalReport),
       );
   } catch {
     throw cellCodedError(
       "review_report_invalid",
-      `Review report harness/${report} is not readable UTF-8 text; rewrite it as the reviewer-authored ` +
-        `Markdown report, then retry ${retry}.`,
+      `Review report ${display} is not readable UTF-8 text; rewrite it as the ` +
+        `reviewer-authored Markdown report, then retry ${retry}.`,
     );
   }
   if (!body.trim())
     throw cellCodedError(
       "review_report_invalid",
-      `Review report harness/${report} is empty; write the substantive Markdown review findings there, ` +
-        `then retry ${retry}.`,
+      `Review report ${display} is empty; write the substantive Markdown ` +
+        `review findings there, then retry ${retry}.`,
     );
   if (!/^ {0,3}#{1,6}\s+\S/mu.test(body))
     throw cellCodedError(
       "review_report_invalid",
-      `Review report harness/${report} is not a substantive review document (it must carry at least one ` +
-        "Markdown heading and real findings); provider error output or a placeholder does not qualify. " +
-        `Rewrite it, then retry ${retry}.`,
+      `Review report ${display} is not a substantive review document (it must ` +
+        "carry at least one Markdown heading and real findings); provider error output or a placeholder does not " +
+        `qualify. Rewrite it, then retry ${retry}.`,
     );
   return {
     path: report,
@@ -106,6 +112,45 @@ export function assertPhysicalReviewReport(input: {
     mediaType: "text/markdown",
     body,
   };
+}
+
+/** A path is a reviewer artifact only when it stays inside the workspace boundary. */
+function insideWorkspace(rootDir: string, candidate: string): boolean {
+  const root = path.resolve(rootDir);
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+/**
+ * The physical packet/report pair a review action names through `--from-file`. A dispatched
+ * reviewer writes the pair into its own checkout, so an absolute spelling is resolved there rather
+ * than re-derived from the canonical authored root; a relative spelling keeps the canonical
+ * contract for human and legacy callers. Null means the action names no pair for this dispatch.
+ */
+export function reviewerArtifactFiles(input: {
+  readonly rootDir: string;
+  readonly packagePath: string;
+  readonly dispatchId: string;
+  readonly fromFile: unknown;
+}): {
+  readonly packet: string;
+  readonly report: string;
+  readonly packetAbsolute: string;
+  readonly reportAbsolute: string;
+} | null {
+  const packet = `${input.packagePath}/artifacts/reports/${input.dispatchId}.json`,
+    report = `${input.packagePath}/artifacts/reports/${input.dispatchId}.md`,
+    requested = typeof input.fromFile === "string" ? input.fromFile : "",
+    authoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
+    packetAbsolute = path.isAbsolute(requested)
+      ? path.resolve(requested)
+      : path.join(authoredRoot, ...packet.split("/")),
+    reportAbsolute = `${packetAbsolute.slice(0, -".json".length)}.md`,
+    named =
+      requested.replace(/^harness\//u, "") === packet ||
+      (path.isAbsolute(requested) &&
+        insideWorkspace(input.rootDir, packetAbsolute) &&
+        packetAbsolute.replace(/\\/gu, "/").endsWith(`/${packet}`));
+  return named ? { packet, report, packetAbsolute, reportAbsolute } : null;
 }
 
 export function reviewerArtifactsForReview(
@@ -174,19 +219,19 @@ export function reviewerArtifactsForReview(
   if (!dispatch) return null;
   const dispatchId = dispatch.payload.dispatchId;
   if (!task.packagePath) return null;
-  const packet = `${task.packagePath}/artifacts/reports/${dispatchId}.json`,
-    report = `${task.packagePath}/artifacts/reports/${dispatchId}.md`,
-    authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot,
-    requestedValue = String(action.fromFile ?? ""),
-    packetAbsolute = path.resolve(authoredRoot, ...packet.split("/")),
-    requestedPacket = requestedValue.replace(/^harness\//u, ""),
-    packetNamed =
-      requestedPacket === packet ||
-      (path.isAbsolute(requestedValue) && path.resolve(requestedValue) === packetAbsolute);
-  if (action.reviewId !== `review-${dispatchId}` || !packetNamed) return null;
-  for (const candidate of [packet, report]) {
-    const absolute = path.join(authoredRoot, ...candidate.split("/")),
-      entry = lstatSync(absolute, { throwIfNoEntry: false });
+  const files = reviewerArtifactFiles({
+    rootDir: cell.rootDir,
+    packagePath: task.packagePath,
+    dispatchId,
+    fromFile: action.fromFile,
+  });
+  if (action.reviewId !== `review-${dispatchId}` || files === null) return null;
+  const { packet, report, packetAbsolute, reportAbsolute } = files;
+  for (const [candidate, absolute] of [
+    [packet, packetAbsolute],
+    [report, reportAbsolute],
+  ] as const) {
+    const entry = lstatSync(absolute, { throwIfNoEntry: false });
     if (!entry)
       throw cell.cellCodedError(
         "invalid_command",
@@ -199,11 +244,18 @@ export function reviewerArtifactsForReview(
         `Reviewer artifact ${candidate} must be a regular file, not a symbolic link.`,
       );
   }
-  const rows = [packet, report].map((candidate) => {
+  const realWorkspaceRoot = realpathSync(cell.rootDir);
+  const readReviewArtifact = (absolute: string): string => {
+    const real = realpathSync(absolute);
+    if (real !== realWorkspaceRoot && !real.startsWith(`${realWorkspaceRoot}${path.sep}`))
+      throw cell.cellCodedError("invalid_command", "Reviewer artifact must stay inside the reviewer workspace.");
+    return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(real));
+  };
+  const rows = [packet, report].map((candidate, index) => {
     const classification = classifyTextualArtifactPath(candidate);
     if (!classification)
       throw cell.cellCodedError("invalid_command", `Reviewer artifact is not textual: ${candidate}.`);
-    const body = new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, candidate)),
+    const body = readReviewArtifact(index === 0 ? packetAbsolute : reportAbsolute),
       sha256 = sha256Text(body),
       size = Buffer.byteLength(body) as DocEventChange["candidate"]["size"];
     return {

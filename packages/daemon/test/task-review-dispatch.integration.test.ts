@@ -9,6 +9,7 @@ import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from 
 const REWORK_REVIEWER_PERSON = "completion-rework-reviewer";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -19,6 +20,7 @@ import {
   submissionDigest,
 } from "@harness-anything/kernel";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
+import { reviewerArtifactFiles } from "../src/reviewer-artifact-publication.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import {
   executionId,
@@ -131,11 +133,100 @@ test(
         /packages\//u,
         "the canonical checkout gains no package path",
       );
-      // The reviewer writes the report and packet to the canonical ledger by absolute path, so
-      // registration cannot depend on whichever checkout its shell happens to run in.
+      // A workspace-write sandbox can only write inside the reviewer's own checkout. The mission
+      // must therefore name the checkout's mirrored ledger copy (absolute, so registration does
+      // not depend on the shell cwd), not the canonical authored root.
+      const registration = [...launched.prompt.matchAll(/--from-file (\S+)/gu)].at(-1)?.[1]?.replace(/[.,;:]+$/u, "");
+      assert.ok(registration, `review prompt must carry the assigned packet: ${launched.prompt}`);
+      const registrationPath = path.resolve(registration);
       assert.ok(
+        registrationPath.startsWith(`${cwd}${path.sep}`),
+        `review prompt must name the writable checkout ${cwd}, not the canonical root: ${registration}`,
+      );
+      assert.equal(
         launched.prompt.includes(path.join(f.root, "harness", f.packagePath, "artifacts", "reports")),
-        `review prompt must name the canonical artifact root: ${launched.prompt}`,
+        false,
+        "the sandboxed reviewer must not be told to write the canonical authored root",
+      );
+      // The registration command must consume exactly the packet the mission assigned: write the
+      // pair where the prompt pointed and register the dispatched cut from that absolute path.
+      const missionReviewId = /--review-id (review-[A-Za-z0-9._-]+)/u.exec(launched.prompt)?.[1],
+        missionDispatchId = missionReviewId?.slice("review-".length),
+        dispatched = f
+          .events()
+          .findLast(
+            (event) =>
+              event.type === "runtime_dispatch_requested" &&
+              event.payload.role === "reviewer" &&
+              event.payload.dispatchId === missionDispatchId,
+          );
+      assert.ok(
+        missionReviewId && missionDispatchId,
+        `review prompt must carry its registration id: ${launched.prompt}`,
+      );
+      assert.ok(dispatched?.type === "runtime_dispatch_requested");
+      assert.equal(path.basename(registrationPath), `${missionDispatchId}.json`);
+      const execution = String(dispatched.payload.executionId),
+        dispatchId = missionDispatchId,
+        runtimeSessionId = String(dispatched.payload.runtimeSessionId),
+        reviewId = missionReviewId,
+        outsideRoot = path.join(tmpdir(), `ha-review-outside-${String(process.pid)}`),
+        outsidePacket = path.join(
+          outsideRoot,
+          ...f.packagePath.split("/"),
+          "artifacts",
+          "reports",
+          `${dispatchId}.json`,
+        );
+      mkdirSync(path.dirname(outsidePacket), { recursive: true });
+      writeFileSync(outsidePacket, "{}");
+      // Negative control: the right dispatch identity does not make a packet outside the workspace
+      // readable. Registration still refuses to consume a path the sandbox could never write.
+      await expectCoded(
+        f
+          .cell()
+          .run(
+            { kind: "task-review-execution", taskId, executionId: execution, reviewId, fromFile: outsidePacket },
+            reviewerActor(runtimeSessionId),
+          ),
+        "invalid_command",
+      );
+      rmSync(outsideRoot, { recursive: true, force: true });
+      const reportPath = registrationPath.replace(/\.json$/u, ".md"),
+        missionPair = reviewerArtifactFiles({
+          rootDir: f.root,
+          packagePath: f.packagePath,
+          dispatchId,
+          fromFile: registrationPath,
+        });
+      assert.ok(missionPair, `mission pair must resolve inside ${f.root} (reviewer cwd ${cwd}): ${registrationPath}`);
+      assert.equal(missionPair.reportAbsolute, reportPath);
+      mkdirSync(path.dirname(registrationPath), { recursive: true });
+      writeFileSync(reportPath, "# Review\n\nThe frozen cut was inspected in the review checkout.\n");
+      writeFileSync(
+        registrationPath,
+        JSON.stringify({
+          verdict: "approved",
+          reason: "The frozen submitted cut matches its task contract.",
+          evidenceChecked: ["closeout.md", "task-contract.json"],
+          findings: [],
+          resolutions: [],
+        }),
+      );
+      const registered = await f.cell().run(
+        {
+          kind: "task-review-execution",
+          taskId,
+          executionId: execution,
+          reviewId,
+          fromFile: registrationPath,
+        },
+        reviewerActor(runtimeSessionId),
+      );
+      assert.equal(registered.outcome, "applied", JSON.stringify(registered));
+      assert.ok(
+        f.events().some((event) => event.type === "review_recorded" && event.payload.review.reviewId === reviewId),
+        "the packet written in the review checkout registers the dispatched review",
       );
     } finally {
       await f.close();
@@ -1276,7 +1367,7 @@ test(
       assert.ok(
         fallback.prompt.includes(`--review-id review-${second.payload.dispatchId}`) &&
           fallback.prompt.includes(
-            `--from-file ${path.join(f.root, "harness", ...fallbackReport.replace(/\.md$/u, ".json").split("/"))}`,
+            `--from-file ${path.join(fallback.cwd, "harness", ...fallbackReport.replace(/\.md$/u, ".json").split("/"))}`,
           ),
         `fallback must register under its own dispatch identity: ${fallback.prompt}`,
       );

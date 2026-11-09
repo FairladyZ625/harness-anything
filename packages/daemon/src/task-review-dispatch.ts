@@ -45,6 +45,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { NodeAutoDispatchCandidate } from "./node-auto-dispatch.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { taskExecutionPlacement } from "./task-execution-placement.ts";
+import { workerRootPathToken } from "./runtime-spawn-mission.ts";
 
 /**
  * The one seat a submitted cut reviews under (dec_6A77D43B8523823ABA1F5E4D3C CH1). A professional
@@ -443,6 +444,17 @@ export function decisionReviewDispatchPrompt(input: {
   ].join("\n");
 }
 
+/**
+ * The ledger root a task-bound reviewer can write: the mirrored authored root inside the checkout
+ * the dispatch actually runs in. A workspace-write sandbox only permits writes under that checkout,
+ * so the canonical authored root is not a usable destination. The token is rendered at launch time;
+ * a fleet/node reviewer's relative authored prefix is a separate contract and stays untouched.
+ */
+function reviewArtifactRoot(cell: RepoCellOperationalContext): string {
+  const layout = resolveHarnessLayout(cell.rootDir);
+  return path.join(workerRootPathToken, path.relative(layout.rootDir, layout.authoredRoot));
+}
+
 /** The review packet prompt every reviewer dispatch carries; each dispatch owns exactly one task. */
 export function reviewDispatchPrompt(input: {
   readonly taskId: string;
@@ -451,7 +463,7 @@ export function reviewDispatchPrompt(input: {
   readonly execution: ExecutionV1;
   readonly gates: readonly string[];
   readonly ownerNote?: string;
-  /** Absolute authored root when the reviewer runs in a checkout that does not hold the ledger. */
+  /** Authored root inside the reviewer's checkout; rendered from `workerRootPathToken` at launch. */
   readonly artifactRoot?: string;
   /** Relative authored root for a reviewer in a different node's checkout. */
   readonly artifactPrefix?: string;
@@ -722,7 +734,7 @@ export async function spawnCutReviewDispatch(
             cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
             input.execution.submission,
           ),
-          artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
+          artifactRoot: reviewArtifactRoot(cell),
           reverify,
         })
       }${continuationNote ? `\n${continuationNote}` : ""}`,
@@ -945,7 +957,7 @@ export async function dispatchInReviewCutReview(
                 execution,
                 gates: completionGateIds(current.snapshot.task!.completionGateIds, execution.submission),
                 ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
-                artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
+                artifactRoot: reviewArtifactRoot(cell),
                 reverify,
               })}\n${reviewPathSeatPrompt({ seat })}`,
           }
@@ -1244,7 +1256,7 @@ export async function dispatchTaskReview(
             dispatchId: ids.dispatchId,
             execution,
             gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission),
-            artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
+            artifactRoot: reviewArtifactRoot(cell),
           }) + (seatPrompt === null ? "" : `\n${seatPrompt}`),
       },
       authorizationDecision = await evaluateRepoCellAction({

@@ -33,7 +33,7 @@ import {
   reviewResponsePacket,
   submissionPacket,
 } from "./repo-cell-packets.ts";
-import { assertPhysicalReviewReport } from "./reviewer-artifact-publication.ts";
+import { assertPhysicalReviewReport, reviewerArtifactFiles } from "./reviewer-artifact-publication.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
 import { reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
@@ -197,6 +197,17 @@ export function buildCommand(
     const packet = reviewPacket(rootDir, action),
       selection = reviewExecutionSelection(action, snapshot, taskId),
       reviewId = requiredCellText(action.reviewId, "reviewId"),
+      // A dispatched reviewer writes its report into the checkout the mission named; validate
+      // that physical file rather than a canonical copy the sandbox could not write.
+      physicalReport =
+        packagePath === null || !reviewId.startsWith("review-")
+          ? undefined
+          : reviewerArtifactFiles({
+              rootDir,
+              packagePath,
+              dispatchId: reviewId.slice("review-".length),
+              fromFile: action.fromFile,
+            })?.reportAbsolute,
       fields = {
         type: "RecordReview" as const,
         taskId,
@@ -219,6 +230,7 @@ export function buildCommand(
       reviewId,
       subject: `Task ${taskId}`,
       retry: `ha task review-execution ${taskId} --review-id ${reviewId}`,
+      ...(physicalReport === undefined ? {} : { physicalReport }),
       ...(carriedReport ? { carriedReport } : {}),
     });
     return normalizeTaskLifecycleCommand(bound, fields);
