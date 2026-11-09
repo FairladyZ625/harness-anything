@@ -1,10 +1,22 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
+import { buildFlowGraph } from "../authorization-flow-graph.mjs";
 import {
   auditDurableActionAuthorization,
   kindRewriteViolations,
@@ -20,7 +32,7 @@ const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
 // Greedy balance from measured durations; each partition sums to 209–221s versus 350/497s with
 // ordinal modulo two. New tests must update this map after measuring their duration.
-const authorizationTestPartitionAssignments = [4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1];
+const authorizationTestPartitionAssignments = [4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
   if (!testOrdinalInPartition(ordinal, partitionValue, authorizationTestPartitionAssignments)) return;
@@ -46,6 +58,21 @@ function sourceCopy(t) {
   // The gate enumerates sources through git; the excludesFile pin keeps host ignores out.
   runGit(dir, ["init", "--quiet"]);
   runGit(dir, ["config", "core.excludesFile", "/dev/null"]);
+  return dir;
+}
+
+// A checkout shaped like a task worktree: its own workspace sources plus a node_modules tree
+// shared with the canonical install, which is where a linked worktree's workspace links point.
+function worktreeCopy(t) {
+  const dir = sourceCopy(t),
+    kernel = path.join(dir, "packages", "kernel");
+  unlinkSync(kernel);
+  cpSync(path.join(repoRoot, "packages/kernel/src"), path.join(kernel, "src"), { recursive: true });
+  cpSync(path.join(repoRoot, "packages/kernel/package.json"), path.join(kernel, "package.json"));
+  writeFileSync(
+    path.join(dir, "package.json"),
+    `${JSON.stringify({ name: "durable-authorization-worktree", private: true, workspaces: ["packages/*"] }, null, 2)}\n`,
+  );
   return dir;
 }
 
@@ -447,4 +474,15 @@ partitionedTest("a branch skips authorization only when the authorization port i
       ),
     { reason: /reaches the code after it without the access-manage authorization/ },
   );
+});
+
+partitionedTest("a worktree root anchors on its own kernel sources instead of the shared install", (t) => {
+  const dir = worktreeCopy(t),
+    file = "packages/kernel/src/ports/authorization-port.ts",
+    members = buildFlowGraph(dir).interfaceMembers(file, "AuthorizationPort");
+
+  // The anchor resolves (the pre-fix lookup reported the interface missing) and it is the local
+  // copy: a program that followed the shared node_modules links would hand back the canonical file.
+  assert.ok(members.has("authorize"));
+  assert.equal(realpathSync(members.get("authorize").getSourceFile().fileName), realpathSync(path.join(dir, file)));
 });

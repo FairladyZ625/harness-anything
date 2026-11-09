@@ -10,6 +10,7 @@ import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } f
 import { workerPushFailureCode } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
+import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 
 type QueuedPublication = ((
@@ -121,6 +122,14 @@ export function readBeforeWriteQueue(
             "Publish from the worker bound to the intended submitted execution.",
           );
         const submission = executions[0]?.submission,
+          renderBody = submission
+            ? taskPrBodyRenderer({
+                rootDir: context.rootDir,
+                projection: context.projection,
+                taskId,
+                submission,
+              })
+            : undefined,
           publication = await publishTaskWorkerBranch({
             cwd,
             canonicalRoot: context.rootDir,
@@ -134,6 +143,7 @@ export function readBeforeWriteQueue(
                     taskTitle: latest.task?.title ?? taskId,
                     submission,
                     ...(typeof action.body === "string" ? { body: action.body } : {}),
+                    ...(renderBody ? { renderBody } : {}),
                   },
                 }
               : {}),
