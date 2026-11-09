@@ -15,7 +15,6 @@ export async function resolveRuntimeDispatchResources(
     readonly RuntimeInstanceSummary[],
     readonly string[] | undefined,
     readonly import("./runtime-provider-health.ts").RuntimeProviderHealth[],
-    readonly RuntimeSessionSelection[],
   ]
 > {
   // Dispatch needs instance load and recovery from the unsettled set, plus the one native session a
@@ -36,7 +35,7 @@ export async function resolveRuntimeDispatchResources(
       : (projection!.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined),
     allowedInstanceIds = settings?.runtime?.allowedInstances,
     health = input.runtimeProviderHealth?.list() ?? [];
-  return [localRuntimeSessions, runtimeInstances, allowedInstanceIds, health, runtimeSessions];
+  return [localRuntimeSessions, runtimeInstances, allowedInstanceIds, health];
 }
 
 /** ha init captures machine availability during the operator's repository setup. */

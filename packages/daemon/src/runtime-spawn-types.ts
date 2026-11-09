@@ -1,4 +1,5 @@
 import type { SquadDispatchSelection } from "./agent-entities.ts";
+import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import type {
@@ -406,6 +407,8 @@ export interface RemoteRuntimePersistence {
   }>;
   readonly readRuntimeSession: (runtimeSessionId: string) => Promise<RuntimeSessionSelection | null>;
   readonly readRuntimeSessions: (query?: RuntimeSessionReadQuery) => Promise<readonly RuntimeSessionSelection[]>;
+  /** The center's dispatch lifecycle read port, served from this node's replica. */
+  readonly readDispatchLifecycle: (query: DispatchLifecycleQuery) => Promise<DispatchLifecycleRead>;
   /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
   readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
   readonly publish: (draft: {

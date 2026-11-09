@@ -7,6 +7,7 @@ import {
   isSamePerson,
   isReturnedRuntimeContinuation,
   runtimeEventContentClaims,
+  dispatchOwner,
   stableStringify,
   submissionDigest,
   type AgentRuntimeEventV1,
@@ -17,6 +18,7 @@ import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { noChanges } from "./entity-action-write-helpers.ts";
+import { requireDispatchLifecycleAdmission } from "./runtime-dispatch-admission.ts";
 
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
@@ -223,6 +225,16 @@ export function appendAuxiliaryRuntimeIngress(
         throw cell.cellCodedError("dispatch_key_conflict", `Dispatch key ${key} already names different content.`);
       return { ...runtimeIngressReceipt(cell, existing), reused: true };
     }
+    // The lifecycle aggregate decides admission here, inside the writer, before the append.
+    requireDispatchLifecycleAdmission(
+      (query) => cell.projection.readDispatchLifecycle(query),
+      {
+        attemptGroupId: String(action.payload.attemptGroupId ?? action.payload.dispatchId),
+        instanceId: cell.requiredCellText(action.payload.instanceId, "instanceId"),
+        owner: dispatchOwner(binding.source).owner,
+      },
+      (code, message) => cell.cellCodedError(code, message),
+    );
   }
   requireSquadRuntimeAdmission(cell, action, binding);
   const value = {

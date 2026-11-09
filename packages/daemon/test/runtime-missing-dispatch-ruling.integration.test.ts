@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { DispatchLifecycleRead } from "@harness-anything/kernel";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
@@ -43,6 +44,52 @@ function fixture(t: test.TestContext) {
     body?: string;
   }> = [];
   const terminationAttempts = { terminate: 0, terminateTree: 0 };
+  let rulingResolved = false;
+  const blockedLifecycleRead = async (): Promise<DispatchLifecycleRead> => ({
+    status: "ready",
+    watermark: 1,
+    sourceRevision: 1,
+    rows: [
+      {
+        attemptGroupId: "missing-dispatch-group",
+        groupPhase: "settling",
+        attempt: {
+          dispatchId,
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          fence: { owner: "node:node-a", verified: true, token: 1, epoch: null },
+          reservation: {
+            reservationId: `${definition.instanceId}/${dispatchId}`,
+            instanceId: definition.instanceId,
+            owner: "node:node-a",
+          },
+          task: null,
+          workspaceRef: null,
+          phase: "settling",
+          process: "unknown",
+          stopProof: "unproven",
+          outcome: null,
+          admittedRevision: 1,
+          eventIds: ["missing-dispatch-event"],
+        },
+        successor: { admissible: false, dueAt: null },
+        ruling: null,
+        delivery: { status: "unregistered", targetRef: null, targetDigest: null, registeredRevision: null },
+        revision: 1,
+        policy: {
+          attemptSettled: false,
+          groupSettled: false,
+          capacity: "held",
+          capacityDisposition: "recovering",
+          successorAdmissible: false,
+          canResolveRuling: false,
+          canRecover: false,
+          blockerCode: "runtime_recovery_pending",
+        },
+      } as never,
+    ],
+    nextCursor: null,
+  });
   const context = {
     input: {
       rootDir,
@@ -52,6 +99,10 @@ function fixture(t: test.TestContext) {
       remote: {
         readRuntimeSession: async () => session,
         readRuntimeSessions: async () => [session],
+        readDispatchLifecycle: async (query: { readonly by: string; readonly instanceId?: string }) =>
+          !rulingResolved && query.by === "active" && query.instanceId === definition.instanceId
+            ? blockedLifecycleRead()
+            : { status: "ready", watermark: 1, sourceRevision: 1, rows: [], nextCursor: null },
         readRuntimeDispatch: async () => owner,
       },
       reclaimRuntimeTempDirectory: () => assert.fail("a ruling is not a process stop proof or cleanup permission"),
@@ -69,6 +120,7 @@ function fixture(t: test.TestContext) {
     ) => {
       published.push({ type, payload, opId, actor: author.actor, body });
       if (type === "runtime_session_outcome_observed") session.outcome = payload.outcome as "unknown";
+      if (payload.reasonCode === "ruling_resolved") rulingResolved = true;
     },
     controlReceipt: (opId: string, id: string, detail: string) => ({
       ok: true,
@@ -186,6 +238,7 @@ for (const mission of ["implement", "review"] as const) {
       code: "fixture_admitted",
     });
     const diagnostics: unknown[] = [];
+    const preparedInstances: string[] = [];
     const spawner = makeRuntimeSpawner({
       rootDir: f.rootDir,
       repoId: "missing-dispatch-ruling",
@@ -202,7 +255,7 @@ for (const mission of ["implement", "review"] as const) {
       readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId, healthyId] } }) as never,
       recordLifecycle: (event) => diagnostics.push(event),
       prepareLaunch: async (instanceId) => {
-        assert.equal(instanceId, healthyId);
+        preparedInstances.push(instanceId);
         throw admitted;
       },
       schedule: () => undefined,
@@ -246,11 +299,20 @@ for (const mission of ["implement", "review"] as const) {
         : {}),
     };
     await assert.rejects(spawner.spawn({ ...action, runtimeInstanceId: definition.instanceId }, binding), {
-      code: "runtime_recovery_missing_dispatch",
+      code: "runtime_recovery_pending",
     });
     await assert.rejects(spawner.spawn(action, binding), admitted);
+    assert.deepEqual(preparedInstances, [healthyId]);
     assert.equal(f.session.outcome, null, "automatic selection leaves the failed session unresolved");
     await cancelRuntime(f.context, { runtimeSessionId, ruling: "Owner abandons the missing dispatch" }, binding);
     assert.equal(f.session.outcome, "unknown");
+    await assert.rejects(
+      spawner.spawn(
+        { ...action, dispatchKey: `${action.dispatchKey}-after-ruling`, runtimeInstanceId: definition.instanceId },
+        binding,
+      ),
+      admitted,
+    );
+    assert.deepEqual(preparedInstances, [healthyId, definition.instanceId]);
   });
 }

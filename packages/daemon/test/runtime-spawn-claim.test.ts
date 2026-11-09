@@ -7,6 +7,7 @@ import test from "node:test";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import type { RemoteRuntimePersistence } from "../src/runtime-spawn-types.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 
 for (const boundary of ["context", "census", "preparation"] as const)
   for (const acquired of [true, false])
@@ -54,6 +55,7 @@ for (const boundary of ["context", "census", "preparation"] as const)
               reviewerNote: null,
             };
           },
+          readDispatchLifecycle: emptyDispatchLifecycleRead,
           readRuntimeSessions: async () => {
             if (boundary === "census") throw failure;
             return [];

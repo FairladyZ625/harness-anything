@@ -13,7 +13,7 @@ import {
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
-import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
+import { readEdgeDispatchLifecycle, withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
@@ -835,6 +835,16 @@ export function openFleetEdgeRuntime(input: {
           readEdgeRuntimeSessions(projection, query),
         );
       },
+      readDispatchLifecycle: async (query) =>
+        withEdgeReadModel(
+          {
+            viewRoot: request.viewRoot,
+            repoId: request.repoId,
+            nodeId: request.nodeId,
+            principalId: (await input.readBinding()).actor.principal.personId,
+          },
+          (projection, frame) => readEdgeDispatchLifecycle(projection, frame, query),
+        ),
       readRuntimeDispatch: async (runtimeSessionId) =>
         withEdgeReadModel(
           {

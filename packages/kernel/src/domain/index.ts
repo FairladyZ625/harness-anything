@@ -457,3 +457,21 @@ export { type ExecutionDelegationRecord } from "./execution-delegation.ts";
 export { parseDelegatedExecutionToken } from "./delegated-execution-token.ts";
 
 export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts";
+
+export {
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
+  DISPATCH_LIFECYCLE_MODEL_VERSION,
+  dispatchAdmissionBlocker,
+  dispatchAdmissionRefusal,
+  dispatchGroupIsActive,
+  dispatchLifecycleAddress,
+  dispatchLifecycleEventTypes,
+  dispatchLifecycleView,
+  dispatchOwner,
+  dispatchOwnerForNode,
+  reduceDispatchLifecycle,
+  type DispatchLifecycleGroup,
+  type DispatchLifecycleQuery,
+  type DispatchLifecycleRead,
+  type DispatchLifecycleView,
+} from "./dispatch-lifecycle.ts";

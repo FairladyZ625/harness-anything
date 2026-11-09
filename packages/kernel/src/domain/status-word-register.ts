@@ -4,10 +4,12 @@ import type { StatusWordRegistration } from "./status-vocabulary.ts";
 import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
 import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 import { authoredDocumentStatusWordRegister } from "./status-word-register-authored-document.ts";
+import { dispatchStatusWordRegister } from "./status-word-register-dispatch.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...gateRunStatusWordRegister,
+  ...dispatchStatusWordRegister,
   {
     word: "scheduled",
     entity: "Dispatch",

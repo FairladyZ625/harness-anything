@@ -11,6 +11,8 @@ import {
   refreshPgRelationFreshnessForRefs,
 } from "./pg-relation-freshness.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
+import { projectPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
+import { DISPATCH_LIFECYCLE_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
 import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
@@ -150,6 +152,7 @@ async function materializeProjectionEvent(
   } else if (isEntityEvent(event)) {
     await storeEntityEvent(client, scope, event, tables, input.readContentBlob);
   }
+  await projectPgDispatchLifecycle(client, scope, event);
   await storeEmbeddedRelations(client, scope, event, tables);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
   const searchOwners = new Set<string>();
@@ -947,8 +950,8 @@ async function updateProjectionMeta(
   // the marked relations are recomputed before the transaction commits the cut (dec_E34C4284B48AFAF152D7BF1980).
   const drained = await client.query<{ readonly ref: string }>(
     `${PG_OWN_DIRTY_RELATION_REFS_CTE}, meta AS (INSERT INTO ha_projection_meta
-       (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark, artifact_index_version)
-     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END, 1)
+       (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark, artifact_index_version, dispatch_lifecycle_version)
+     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END, 1, ${DISPATCH_LIFECYCLE_MODEL_VERSION})
      ON CONFLICT (tenant_id, project_id, policy_epoch, projection_name) DO UPDATE SET
        policy_epoch = excluded.policy_epoch, schema_version = excluded.schema_version,
        readers = '{}',

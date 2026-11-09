@@ -288,6 +288,9 @@ export function projectionDdl(): readonly string[] {
     // Old binary wrote projections before the artifact timeline index existed; the version asks
     // the embedded upgrade path to backfill once. Fresh inserts declare themselves complete.
     "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS artifact_index_version smallint NOT NULL DEFAULT 0",
+    // Same contract for the dispatch lifecycle model: an older meta row reads pending until the
+    // lifecycle backfill refolds it; fresh inserts declare the current model version.
+    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS dispatch_lifecycle_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",

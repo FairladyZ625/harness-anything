@@ -2,6 +2,7 @@ import { projectArtifactEntityState } from "./artifact-entity-state-projection.t
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
+import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
@@ -193,6 +194,7 @@ function applyEventProjection(
   event = normalizeHistoricalEvent(event);
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
+  projectDispatchLifecycleEvent(db, event);
   projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
     runSql(

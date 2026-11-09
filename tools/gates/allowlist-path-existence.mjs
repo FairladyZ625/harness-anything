@@ -95,6 +95,11 @@ export const allowlistJsonPolicies = Object.freeze({
     pathSections: {},
     nonPathSections: ["privateContentMarkers"],
   },
+  // dec_AEB05951C69E47FCE53E53C341 CH4 ratchet: every remaining dispatch observation site names a live file.
+  "dispatch-lifecycle-observation.json": {
+    pathSections: { observationSites: "path" },
+    nonPathSections: [],
+  },
   "scan-forbidden-symbols.json": {
     pathSections: {},
     nonPathSections: ["forbiddenSymbols"],

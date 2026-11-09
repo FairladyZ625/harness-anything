@@ -135,6 +135,42 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       ),
       { code: "dispatch_key_conflict" },
     );
+    // Two concurrent admissions into one attempt group with different dispatch keys: the center
+    // writer folds the first into the lifecycle aggregate before judging the second, so exactly one
+    // is appended and the other caller receives the aggregate's refusal, not an applied receipt.
+    const groupDispatch = (raceKey: string) => {
+      const raceHash = createHash("sha256").update(`${repoId}\0${raceKey}`).digest("hex");
+      return cell!.runtimeIngress(
+        {
+          kind: "event",
+          type: "runtime_dispatch_requested",
+          opId: `race-${raceKey}`,
+          dispatchContext: { role: null, taskId: null, executionId: null },
+          payload: {
+            dispatchId: `dispatch_${raceHash.slice(0, 24)}`,
+            runtimeSessionId: `runtime_${raceHash.slice(24, 48)}`,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            dispatchKey: raceKey,
+            definitionSnapshotRef: "artifact:runtime-definition/action-a",
+            definitionSnapshot: definition,
+            attemptGroupId: "group-race",
+            attemptIndex: 0,
+          },
+        },
+        binding,
+      );
+    };
+    const raced = await Promise.allSettled([groupDispatch("race-one"), groupDispatch("race-two")]);
+    assert.deepEqual(
+      raced.map((result) =>
+        result.status === "fulfilled"
+          ? String((result.value as { outcome?: unknown }).outcome)
+          : String((result.reason as { code?: unknown }).code),
+      ),
+      ["applied", "dispatch_group_busy"],
+    );
     const start = (opId: string, caller: RepoCellBinding) =>
         cell.runtimeIngress(
           {

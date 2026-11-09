@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { checkDomainJudgmentSingleDefinition } from "./check-domain-judgment-single-definition.mjs";
+import {
+  checkDispatchLifecycleObservationSites,
+  checkDomainJudgmentSingleDefinition,
+  scanDispatchLifecycleObservationSites,
+} from "./check-domain-judgment-single-definition.mjs";
 import { checkAuthoredReadinessSites, scanAuthoredReadinessSites } from "./domain-judgment-authored-readiness.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -26,14 +30,18 @@ function fixtureFindings(t) {
 }
 
 test("domain judgment single-definition gate accepts the repository", () => {
+  // The shrink-only comparison against the pull request base is covered by the ratchet unit test
+  // below; here the checkout is its own base, so the run needs no fetched origin/main.
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).stdout.trim();
   const result = spawnSync("node", [path.join(repoRoot, "tools/check-domain-judgment-single-definition.mjs")], {
     cwd: repoRoot,
     encoding: "utf8",
+    env: { ...process.env, PR_BASE_SHA: head },
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /twelve judgments resolve to kernel domain services; authored-document reads use the projection port/u,
+    /twelve judgments resolve to kernel domain services; authored-document reads use the projection port; dispatch observation ratchet is active/u,
   );
 });
 
@@ -229,4 +237,52 @@ test("positive fixture: a daemon copy of the review reverify judgment is refused
     ),
     findings.join("\n"),
   );
+});
+
+test("dispatch observation ratchet rejects admission and terminal judgments but accepts observations", (t) => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "ha-dispatch-observation-fixture-"));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  cpSync(path.join(repoRoot, "tools/fixtures/dispatch-lifecycle-observation"), fixture, { recursive: true });
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: fixture });
+  const sites = scanDispatchLifecycleObservationSites(fixture),
+    findings = checkDispatchLifecycleObservationSites(sites, {
+      schema: "harness-anything/gate-allowlist/v1",
+      entries: { observationSites: [] },
+    });
+  assert.deepEqual(sites.map(({ symbol, kind }) => `${symbol}:${kind}`).sort(), [
+    "admissionFromPid:runtimePidIsAlive",
+    "capacityFromLocalTables:fallback-state-branch",
+    "capacityFromLocalTables:liveness-comparison",
+    "capacityFromLocalTables:process-table-probe",
+    "terminalFromProcessLost:process-lost-terminal-return",
+  ]);
+  // observeProcess reads the same PID fact but only submits a process_observed event: no finding.
+  assert.ok(!sites.some(({ symbol }) => symbol === "observeProcess"));
+  assert.equal(findings.length, 5);
+  assert.ok(findings.every((finding) => finding.includes("new ")));
+});
+
+test("dispatch observation baseline rejects additions and permits reductions", () => {
+  const entry = {
+      path: "packages/daemon/src/legacy.ts",
+      symbol: "admission",
+      kind: "runtimePidIsAlive",
+      fingerprint: "fingerprint-a",
+    },
+    current = { schema: "harness-anything/gate-allowlist/v1", entries: { observationSites: [] } },
+    prior = [entry],
+    reduced = checkDispatchLifecycleObservationSites([], current, prior),
+    expanded = checkDispatchLifecycleObservationSites(
+      [entry],
+      { ...current, entries: { observationSites: [entry] } },
+      [],
+    ),
+    stale = checkDispatchLifecycleObservationSites([], { ...current, entries: { observationSites: [entry] } });
+  assert.deepEqual(reduced, []);
+  assert.ok(expanded.some((finding) => finding.includes("baseline may only shrink")));
+  assert.ok(stale.some((finding) => finding.includes("stale baseline entry should be removed")));
 });
