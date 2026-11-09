@@ -257,6 +257,56 @@ export function triggerKey(trigger: Exclude<LeaderTrigger, { readonly kind: "ini
   return trigger.kind === "worker_outcome" ? `outcome:${trigger.runtimeSessionId}` : `rejected:${trigger.attemptId}`;
 }
 
+/**
+ * The terminal reason for a run whose leader budget is spent while a callback is still pending.
+ * The budget caps leader turns, so the pending decision cannot run; the reason must name it, why it
+ * could not be applied, and where its full result lives. A generic "budget exhausted" message lets
+ * the last leader decision disappear behind the budget number.
+ */
+export function exhaustedLeaderBudget(
+  state: {
+    readonly leaderTurnBudget: number;
+    readonly leaderTurns: readonly LeaderTurn[];
+    readonly workerAttempts: readonly WorkerAttempt[];
+  },
+  triggers: readonly LeaderTrigger[],
+  rows: readonly TaskDispatchRow[],
+): string {
+  const pending = triggers.map((trigger) => describePendingTrigger(state.workerAttempts, trigger)),
+    last = state.leaderTurns.at(-1),
+    lastRow = last === undefined ? undefined : rows.find((row) => row.dispatchId === last.dispatchId);
+  return (
+    `leader turn budget ${state.leaderTurnBudget} exhausted` +
+    (pending.length ? `; unexecuted leader work: ${pending.join("; ")}` : "") +
+    (last === undefined
+      ? ""
+      : `; last leader turn ${last.turnId} dispatch ${last.dispatchId}` +
+        (typeof lastRow?.reportPath === "string" ? ` (report ${lastRow.reportPath})` : ""))
+  );
+}
+
+function describePendingTrigger(attempts: readonly WorkerAttempt[], trigger: LeaderTrigger): string {
+  if (trigger.kind === "leader_retry") return `${trigger.turnId}: ${trigger.reason}`;
+  if (trigger.kind === "initial") return "initial leader turn";
+  if (trigger.kind === "worker_outcome" || trigger.kind === "worker_wait") {
+    const attempt = attempts.find((candidate) => candidate.runtimeSessionId === trigger.runtimeSessionId);
+    return (
+      `${trigger.kind} ${trigger.runtimeSessionId}` +
+      (attempt === undefined
+        ? ""
+        : ` (worker ${attempt.workerId}, attempt ${attempt.attemptId}` +
+          (attempt.taskId === null ? ")" : `, task ${attempt.taskId})`))
+    );
+  }
+  const attempt = attempts.find((candidate) => candidate.attemptId === trigger.attemptId);
+  return (
+    `worker_rejected ${trigger.attemptId}` +
+    (attempt === undefined
+      ? ""
+      : ` (worker ${attempt.workerId}${attempt.rejection === null ? ")" : `: ${attempt.rejection})`}`)
+  );
+}
+
 function requiredLeaderText(value: unknown, field: string): string {
   if (typeof value !== "string" || !value) throw new Error(`${field} is required.`);
   return value;

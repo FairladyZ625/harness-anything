@@ -919,7 +919,14 @@ test("malformed leader results exhaust the declared budget after exactly that ma
       if (completedTurns === leaderTurnBudget) {
         assert.equal(fixture.reacquired(), previousReacquired, "exhausted budget must not acquire a lease");
         assert.equal(status.status, "failed");
-        assert.equal(status.error, `leader turn budget ${leaderTurnBudget} exhausted`);
+        assert.match(String(status.error), new RegExp(`leader turn budget ${leaderTurnBudget} exhausted`, "u"));
+        assert.match(
+          String(status.error),
+          /unexecuted leader work: leader-3: Leader result was not JSON\./u,
+          "the terminal reason keeps the last leader turn's actual failure",
+        );
+        assert.match(String(status.error), /last leader turn leader-3 dispatch dispatch_/u);
+        assert.ok(fixture.released.includes(TASK_ID), "an exhausted run hands the parent task back");
       } else {
         assert.equal(status.status, "leader_running", String(status.error));
         runtimeSessionId = String(status.currentLeaderRuntimeSessionId);
@@ -927,6 +934,36 @@ test("malformed leader results exhaust the declared budget after exactly that ma
       }
     }
     assert.equal(fixture.spawns.length, leaderTurnBudget - 1);
+  });
+});
+
+test("an exhausted leader budget surfaces the unexecuted batch and hands the task back", async () => {
+  await withRootDir(async (rootDir) => {
+    const lastBatch = JSON.stringify({
+        schema: "runtime-batch/v1",
+        dispatches: [{ to: "ghost-worker", prompt: "finish the last step" }],
+      }),
+      fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: "succeeded",
+        leaderResult: lastBatch,
+        leaderTurnBudget: 1,
+      });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    const status = fixture.status();
+    assert.equal(status.status, "failed");
+    // The terminal reason names what was not executed, why, and where its full result lives,
+    // instead of collapsing the last leader decision into a generic budget message.
+    assert.match(String(status.error), /leader turn budget 1 exhausted/u);
+    assert.match(
+      String(status.error),
+      /unexecuted leader work: leader-1: Leader selected invalid or duplicate worker ghost-worker\./u,
+    );
+    assert.match(String(status.error), /last leader turn leader-1 dispatch dispatch_000000000000000000000001/u);
+    // The invalid batch must not run, and the parent task must leave the dead leader's lease:
+    // otherwise it stays active with no in-flight dispatch and no owner-visible next step.
+    assert.equal(fixture.spawns.length, 0);
+    assert.deepEqual(fixture.released, [TASK_ID]);
   });
 });
 
