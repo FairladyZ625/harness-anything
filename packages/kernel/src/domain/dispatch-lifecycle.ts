@@ -456,13 +456,10 @@ function reduceTaskInput(
   let nextTask = task,
     delivery = group.delivery;
   if (task.role === "implementer") {
-    if (lease && lease.executionId === task.executionId) {
-      // A re-start of the same execution after this attempt released its lease belongs to a
-      // newer lease generation. Keep the attempt's original fence so settlement cannot release
-      // that replacement; ordinary renewals before release still advance the generation.
-      if (input.type === "lease_renewed" || !task.leaseReleased)
-        nextTask = { ...task, leaseVersion: lease.version, leaseReleased: false };
-    } else if (lease === null && context.taskLease?.executionId === task.executionId && task.leaseVersion !== null)
+    // Once released, this attempt cannot acquire a replacement lease generation.
+    if (lease && lease.executionId === task.executionId && !task.leaseReleased)
+      nextTask = { ...task, leaseVersion: lease.version, leaseReleased: false };
+    else if (lease === null && context.taskLease?.executionId === task.executionId && task.leaseVersion !== null)
       nextTask = { ...task, leaseReleased: true };
     if (
       input.type === "execution_submitted" &&
@@ -735,6 +732,6 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 3;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 4;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;

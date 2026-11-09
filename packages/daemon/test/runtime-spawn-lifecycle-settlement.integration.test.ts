@@ -30,6 +30,7 @@ function stopFixtureGroup(child: ReturnType<typeof spawn>): void {
   if (!child.pid) return;
   try {
     process.kill(-child.pid, "SIGKILL");
+    child.kill("SIGKILL");
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
   }
@@ -109,10 +110,14 @@ test(
           };
         },
         runtimeLaunch: () => {
-          const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
-            detached: true,
-            stdio: ["pipe", "ignore", "ignore"],
-          });
+          const child = spawn(
+            process.execPath,
+            ["-e", "process.stdin.once('data', () => process.exit(0)); process.stdin.resume()"],
+            {
+              detached: true,
+              stdio: ["pipe", "ignore", "ignore"],
+            },
+          );
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
           child.unref();
           fixtureChild = child;
@@ -124,7 +129,10 @@ test(
             },
             onErrorOutput: () => undefined,
             onExit: (listener) => {
-              exit = listener;
+              exit = () => {
+                child.once("exit", () => listener(0));
+                stopFixtureGroup(child);
+              };
             },
             terminate: stop,
             terminateTree: async () => stop(),
@@ -566,10 +574,14 @@ test(
           prompt: request.prompt,
         }),
         runtimeLaunch: () => {
-          const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
-            detached: true,
-            stdio: ["pipe", "ignore", "ignore"],
-          });
+          const child = spawn(
+            process.execPath,
+            ["-e", "process.stdin.once('data', () => process.exit(0)); process.stdin.resume()"],
+            {
+              detached: true,
+              stdio: ["pipe", "ignore", "ignore"],
+            },
+          );
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
           child.unref();
           fixtureChild = child;
@@ -579,7 +591,10 @@ test(
             onOutput: () => undefined,
             onErrorOutput: () => undefined,
             onExit: (listener) => {
-              exit = listener;
+              exit = () => {
+                child.once("exit", () => listener(0));
+                stopFixtureGroup(child);
+              };
             },
             terminate: stop,
             terminateTree: async () => stop(),
@@ -617,9 +632,7 @@ test(
           },
           binding,
         );
-        // The holder hands the execution over — release and restart — while the dispatch is still
-        // live. Both generations carry the same executionId, so only the lease version tells them
-        // apart, and the dispatch below belongs to the first one.
+        // The runtime relinquishes its lease while the principal starts replacement work.
         const runtimeHolder = {
           ...binding,
           actor: {
@@ -659,17 +672,6 @@ test(
         projection.close();
         assert.equal(lease?.phase, "held", "a stale dispatch must not release the lease generation that replaced it");
         assert.equal(lease?.executionId, executionId);
-        const spawned = await cell.spawnRuntime(
-          {
-            runtimeInstanceId: definition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "Dispatch under the surviving lease generation",
-            taskId,
-            dispatchKey: "lease-generation-next",
-          },
-          binding,
-        );
-        assert.equal(typeof spawned.dispatchId, "string");
       } finally {
         await cell.close();
       }

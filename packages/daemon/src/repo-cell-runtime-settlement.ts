@@ -60,6 +60,8 @@ export async function commitRuntimeSettlement(
   if (
     !lease ||
     (task.executionId === lease.executionId && task.leaseVersion !== null && lease.version !== task.leaseVersion) ||
+    (task.executionId !== lease.executionId &&
+      lease.actor.executor?.id !== `runtime-session:${event.payload.runtimeSessionId}`) ||
     !isSamePerson(lease.actor, binding.actor) ||
     stableStringify(lease.source) !== stableStringify(binding.source)
   )
@@ -116,8 +118,6 @@ export async function commitRuntimeSettlement(
         revision,
         cell.now(),
       );
-    if (command.type !== "ReleaseRuntimeLease" && command.type !== "TransitionTask")
-      throw new Error("runtime settlement command required");
     const transition = applyTransition(snapshot, command, {});
     for (const path of lifecycleDocumentFetchPaths(transition.event, read.packagePath!)) {
       if (documents.has(path)) continue;

@@ -1,10 +1,6 @@
 import { isSamePerson } from "./actor-domain-services.ts";
 import type { LeaseReleasedEvent } from "./task-lifecycle-event.ts";
-import type {
-  ReleaseRuntimeLeaseCommand,
-  TaskLifecycleSnapshot,
-  Transition,
-} from "./task-lifecycle-contract-internal-types.ts";
+import type { ReleaseRuntimeLeaseCommand, Transition } from "./task-lifecycle-contract-internal-types.ts";
 import { envelope, execution, lifecycleContractIssue, revisionIssues } from "./task-lifecycle-contract-support.ts";
 import { isNonEmptyString, sameWriteSource } from "./write-chain.contract.ts";
 
@@ -40,7 +36,7 @@ export const releaseRuntimeLease: Transition = {
         mutation: { command: "release", reason: command.reason, fields: ["lease"] },
       });
     return {
-      snapshot: { ...(snapshot as TaskLifecycleSnapshot), revision: command.workspaceRevision, lease: null },
+      snapshot: { ...snapshot, revision: command.workspaceRevision, lease: null },
       event,
     };
   },

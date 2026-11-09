@@ -479,6 +479,28 @@ test("a stopped dispatch cannot be recovered while its replacement lease generat
   );
 });
 
+test("an attempt never acquires a replacement lease generation after releasing its own", () => {
+  const ids = { dispatchId: "d-rejoin", runtimeSessionId: "s-rejoin", attemptGroupId: "d-rejoin" },
+    events: DispatchLifecycleInput[] = [
+      taskEvent("execution_started", "task-r", { execution: execution("exe-r"), lease: { version: 1 } }),
+      ...([{ t: "R" }, { t: "S" }] as Token[]).map(
+        (token) => runtimeEvent(token, ids, implementer("task-r", "exe-r")) as DispatchLifecycleInput,
+      ),
+      taskEvent("lease_released", "task-r", { execution: execution("exe-r"), releasedLease: { version: 1 } }),
+    ];
+  for (const [type, version] of [
+    ["execution_started", 2],
+    ["lease_renewed", 3],
+  ] as const) {
+    events.push(taskEvent(type, "task-r", { execution: execution("exe-r"), lease: { version } }));
+    const view = dispatchLifecycleView(fold(events).groups.get(ids.attemptGroupId)!);
+    assert.equal(view.attempt.task?.leaseVersion, 1);
+    assert.equal(view.attempt.task?.leaseReleased, true);
+    assert.equal(view.policy.capacity, "held", "lease handoff does not prove the runtime stopped");
+  }
+});
+});
+
 test("ruling resolution closes the group and admits its next attempt", () => {
   const ids = { dispatchId: "d-resolve", runtimeSessionId: "s-resolve", attemptGroupId: "d-resolve" },
     events: DispatchLifecycleInput[] = [
