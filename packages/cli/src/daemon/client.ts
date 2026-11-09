@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import {
   canonicalRoot,
+  maybeCommandDescriptorForAction,
   commandClassForAction,
   daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
@@ -17,15 +18,13 @@ import {
   daemonIdFromEnv,
   daemonRegistryUnreadableCode,
   daemonUserRoot,
-  localUserDaemonEndpoint,
   resolveLocalDaemonEndpoint,
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
-import { materializeCommandFileInputs } from "./fleet-payload-serializer.ts";
+import { materializeCommandFileInputs, serializeFleetAction } from "./fleet-payload-serializer.ts";
 import { materializeArtifactSource } from "../cli-artifact-source.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
-import { fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
@@ -56,6 +55,7 @@ export const daemonRuntimeScopedEnvironmentKeys = [
   "HARNESS_EXECUTION_EXPIRES_AT",
   "HARNESS_DAEMON_ENDPOINT",
   "HARNESS_DAEMON_RELAY",
+  "HARNESS_DAEMON_REMOTE_EDGE",
   "HARNESS_DAEMON_ID",
   "HARNESS_DAEMON_REPO_ID",
   "HARNESS_DAEMON_USER_ROOT",
@@ -176,64 +176,6 @@ async function prepareEdgeJoinWorkspace(command: ThinCommand, params: JsonObject
   ensureDaemonSpawnRoot(command.rootDir);
 }
 
-type FleetRouteRequest = (
-  target: {
-    readonly userRoot: string;
-    readonly daemonId: string;
-    readonly socketPath: string;
-    readonly invokingCommand?: string;
-  },
-  method: string,
-  params: JsonObject,
-  timeoutMs: number,
-  responseTimeoutMs?: number,
-) => Promise<JsonObject>;
-
-// The remote-edge fleet channel carries commands the edge daemon must forward to the center. A
-// relayed runtime validates its injected route first and sends that channel through the fixed
-// relay, so the fleet payload never falls back to the implicit user socket; the daemon applies its
-// registry mode and execution scope. A non-relay caller keeps the local daemon endpoint.
-async function requestFleetRoute(input: {
-  readonly command: ThinCommand;
-  readonly env: NodeJS.ProcessEnv;
-  readonly method: string;
-  readonly payload: JsonObject;
-  readonly autostart: boolean;
-  readonly request: FleetRouteRequest;
-}): Promise<JsonObject> {
-  const relayed =
-    input.env.HARNESS_DAEMON_RELAY === "1"
-      ? await resolveLocalDaemonTarget({
-          rootDir: input.command.rootDir,
-          repoIdOverride: input.command.repoId,
-          env: input.env,
-        })
-      : null;
-  const userRoot = relayed?.userRoot ?? daemonUserRoot(input.env),
-    daemonId = relayed?.daemonId ?? daemonIdFromEnv(input.env),
-    socketPath = relayed?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId);
-  return withAutostart(
-    () =>
-      input.request(
-        { userRoot, daemonId, socketPath, invokingCommand: input.command.id },
-        input.method,
-        { payload: input.payload },
-        75,
-        readResponseDeadlineMs(input.command.action.kind),
-      ),
-    () => cliDaemonServeLaunch(userRoot, daemonId),
-    socketPath,
-    daemonAutostartOptions(
-      input.command,
-      input.autostart,
-      input.env,
-      userRoot,
-      daemonId,
-      daemonCommandCategory(input.method),
-    ),
-  );
-}
-
 export async function runCommandThroughDaemon(
   command: ThinCommand,
   onPhase: (receipt: JsonObject) => void = () => undefined,
@@ -320,27 +262,23 @@ export async function runCommandThroughDaemon(
       autostartOptions: (target) =>
         daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId, "operation"),
     });
-  const fleetTask =
-    (await fleetScheduleRoute(command, env)) ??
-    (await fleetRuntimeRoute(command, env)) ??
-    (await fleetTaskRoute(command, env));
-  if (fleetTask)
-    return requestFleetRoute({
-      command,
-      env,
-      method: "daemon.fleet.task.run",
-      payload: fleetTask as JsonObject,
-      autostart,
-      request: requestLocalDaemonJsonRpcForTarget,
-    });
-  // Local daemon paths still consume file arguments here. Remote-edge commands have already
-  // crossed the declaration-driven serializer above, so the center never receives a local path.
-  command = materializeArtifactSource(materializeCommandFileInputs(command));
+  // Only parsed CLI routes still carry CLI inputs. Programmatic actions (for example an
+  // artifact --run transcript) already carry domain fields and use the daemon's closed schema.
+  const descriptor = command.id ? maybeCommandDescriptorForAction(command.action.kind) : undefined;
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
     invokingCommand: command.id,
   };
+  if (
+    target.remoteEdge &&
+    descriptor &&
+    command.method !== "repo.agentRuntime.handoff" &&
+    descriptor.method === command.method &&
+    descriptor.admission["remote-edge"] === "via-center-forward"
+  )
+    command = { ...command, action: serializeFleetAction(command) };
+  command = materializeArtifactSource(materializeCommandFileInputs(command));
   const requestParams = daemonRequestParams(command, target.repoId, env);
   const request = () =>
     requestLocalDaemonJsonRpcForTarget(

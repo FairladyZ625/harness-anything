@@ -1,23 +1,32 @@
-import { stableStringify, executionCredentialRejected, type RuntimeExecutionPrincipal } from "@harness-anything/kernel";
-import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
+import {
+  stableStringify,
+  executionCredentialRejected,
+  type AuthorizationProvider,
+  type RuntimeExecutionPrincipal,
+} from "@harness-anything/kernel";
 import { isKeycloakTransportFailure, keycloakUnavailableFailure } from "./keycloak-transport-failure.ts";
 export { runtimeExecutionLifetimeMs, executionCredentialRejected } from "@harness-anything/kernel";
 export type { RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 
-function executionProvider(center: KeycloakCenterCredential, fetchPort?: typeof fetch) {
+type RuntimeExecutionCredentialAuthority = {
+  readonly provider: AuthorizationProvider;
+  readonly accessToken: string;
+};
+
+function executionProvider(center: RuntimeExecutionCredentialAuthority, fetchPort?: typeof fetch) {
   if (fetchPort !== undefined && center.provider.withFetchPort) return center.provider.withFetchPort(fetchPort);
   return center.provider;
 }
 
 export function issueRuntimeExecutionCredential(
-  center: KeycloakCenterCredential,
+  center: RuntimeExecutionCredentialAuthority,
   principal: RuntimeExecutionPrincipal,
   fetchPort?: typeof fetch,
 ): Promise<string> {
   return executionProvider(center, fetchPort).issueExecutionCredential(center.accessToken, principal);
 }
 export function authenticateRuntimeExecutionCredential(
-  center: KeycloakCenterCredential,
+  center: RuntimeExecutionCredentialAuthority,
   credential: string,
   fetchPort?: typeof fetch,
 ): Promise<RuntimeExecutionPrincipal> {
@@ -31,7 +40,7 @@ export function authenticateRuntimeExecutionCredential(
  * response may already have applied.
  */
 export async function authenticateRuntimeExecutionPrincipal(
-  center: () => Promise<KeycloakCenterCredential>,
+  center: () => Promise<RuntimeExecutionCredentialAuthority>,
   credential: string,
   fetchPort?: typeof fetch,
 ): Promise<RuntimeExecutionPrincipal> {
@@ -43,7 +52,7 @@ export async function authenticateRuntimeExecutionPrincipal(
   }
 }
 export function readRuntimeExecutionPrincipal(
-  center: KeycloakCenterCredential,
+  center: RuntimeExecutionCredentialAuthority,
   dispatchId: string,
   fetchPort?: typeof fetch,
 ): Promise<RuntimeExecutionPrincipal> {
@@ -66,7 +75,7 @@ function executionCredentialRecovery(error: unknown): never {
 }
 /** A queued publication must still match its provider's current execution identity. */
 export async function verifyRuntimeExecutionPrincipal(
-  center: KeycloakCenterCredential,
+  center: RuntimeExecutionCredentialAuthority,
   principal: RuntimeExecutionPrincipal,
   fetchPort?: typeof fetch,
 ): Promise<void> {

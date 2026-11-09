@@ -1,26 +1,11 @@
 // Initial inventory for the first ForwardingPort slice: 37 files / 81 file-symbol-fingerprint entries.
-// Counts may only decrease; every unregistered production source or symbol has zero allowance.
+// Counts are exact: an increase is rejected and a decrease must lower this baseline in the same change.
+// Every unregistered production source or symbol has zero allowance.
 // Slice 4 removes this baseline when forwarding is fully port-owned.
 export const fleetForwardingBoundaryBaseline = Object.freeze({
   "packages/cli/src/daemon/control.ts": {
     flag: {
       readFleetEdgeConfig: 2,
-    },
-  },
-  "packages/cli/src/daemon/fleet-command-route.ts": {
-    fleetEdgeRegistration: {
-      readFleetEdgeConfig: 2,
-    },
-    fleetScheduleRoute: {
-      fleetRequestEnvelope: 1,
-      forwardingCredentialAssembly: 1,
-    },
-    fleetRuntimeRoute: {
-      fleetRequestEnvelope: 1,
-      forwardingCredentialAssembly: 1,
-    },
-    fleetTaskRoute: {
-      forwardingCredentialAssembly: 1,
     },
   },
   "packages/daemon/src/access-admin-edge-join.ts": {
@@ -42,23 +27,15 @@ export const fleetForwardingBoundaryBaseline = Object.freeze({
     keycloakSession: {
       edgeRuntimeFor: 4,
       readFleetEdgeConfig: 5,
-      forwardingCredentialAssembly: 3,
-    },
-    spawn: {
-      edgeRuntimeFor: 1,
-    },
-    edgeRuntimeFor: {
-      edgeRuntimeFor: 1,
-      readFleetEdgeConfig: 1,
+      forwardingCredentialAssembly: 2,
     },
     home: {
       edgeRuntimeFor: 1,
       readFleetEdgeConfig: 4,
-      forwardingCredentialAssembly: 5,
+      forwardingCredentialAssembly: 3,
     },
     writeNodeReviewDispatchFailure: {
       edgeRuntimeFor: 1,
-      readFleetEdgeConfig: 1,
     },
     migrateEdgeWorkspace: {
       edgeRuntimeFor: 1,
@@ -169,9 +146,8 @@ export const fleetForwardingBoundaryBaseline = Object.freeze({
     },
   },
   "packages/daemon/src/fleet-edge-task.ts": {
-    forwardRegisteredFleetAction: {
+    runFleetEdgeRepositoryRead: {
       readFleetEdgeConfig: 1,
-      fleetMethodByDiscriminant: 1,
     },
   },
   "packages/daemon/src/oidc-center-selection.ts": {

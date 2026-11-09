@@ -163,7 +163,7 @@ test(
   { timeout: 120_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, () => "2026-11-02T00:00:00.000Z", undefined, true),
-      authority = await f.host.keycloakCenter();
+      authority = await f.host.identityCenter();
     await authority.provider.syncBasePolicy(authority.accessToken);
     const created = await f.command("center-node", {
       kind: "task-create",

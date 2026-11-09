@@ -370,6 +370,8 @@ export interface RemoteRuntimePersistence {
     readonly reviewId: string;
     readonly runtimeSessionId: string;
   }) => Promise<boolean>;
+  /** The center receipt for the cancellation event most recently published by this edge. */
+  readonly runtimeControlReceipt?: (runtimeSessionId: string) => JsonObject | null;
   readonly taskContext: (
     taskId: string,
     missionName?: string,

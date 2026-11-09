@@ -44,7 +44,18 @@ function retryableEdgeError(error: unknown): boolean {
     typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : null;
   if (
     typeof code === "string" &&
-    ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ERR_TLS"].some((v) => code.includes(v))
+    [
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "EPIPE",
+      "ETIMEDOUT",
+      "ERR_TLS",
+      // A center write can be durable while the resident edge stream is between
+      // reconnects. The command opId is idempotent, so retry the read-after-write
+      // confirmation until the stream can prove the same cut.
+      "replica_stream_down",
+      "replica_lag_timeout",
+    ].some((v) => code.includes(v))
   )
     return true;
   return (

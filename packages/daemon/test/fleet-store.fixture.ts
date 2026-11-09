@@ -6,6 +6,7 @@ import type { DaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { serveKeycloak, signInAt, IdentitySessionPort } from "./keycloak.fixtures.ts";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { authenticateRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
 
 export function fleetHostWriterOptions(userRoot: string, repoIds: readonly string[]) {
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
@@ -122,6 +123,8 @@ export async function fleetNodeOwners(input: {
       ),
     verifyHuman: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
       IdentitySessionPort(input.userRoot).bind(auth),
+    authenticateExecutionPrincipal: (credential: string) =>
+      authenticateRuntimeExecutionPrincipal(() => IdentitySessionPort(input.userRoot).center(), credential),
     readAccessToken: (nodeId: string) => async () => `device-token-${nodeId}`,
 
     /** Re-registers a node to another person, the way an administrator moves a machine between owners. */

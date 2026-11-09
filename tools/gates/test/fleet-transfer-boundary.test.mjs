@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   checkFleetTransferBoundary,
+  checkForwardingBaselineFreshness,
   forwardingSources,
   findFleetForwardingBypasses,
   findFleetTransferBypasses,
@@ -13,6 +14,7 @@ import {
 
 test("Fleet production paths use the unified transfer boundary", () => {
   assert.deepEqual(checkFleetTransferBoundary(process.cwd()), []);
+  assert.deepEqual(checkForwardingBaselineFreshness(process.cwd()), []);
 });
 
 test("the negative direct large reply fixture is rejected", () => {
@@ -87,6 +89,23 @@ test("the full checker rejects forwarding construction in an unregistered CLI fi
     const errors = checkFleetTransferBoundary(root);
     assert.deepEqual(errors, [
       "packages/cli/src/daemon/new-forwarding-callsite.ts#<module>: fleetRequestEnvelope count 1 exceeds ratchet baseline 0",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the full checker rejects a stale baseline that still allows a removed construction", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-stale-baseline-"));
+  try {
+    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    assert.deepEqual(checkFleetTransferBoundary(root), []);
+    assert.deepEqual(checkForwardingBaselineFreshness(root), [
+      "packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi: readFleetEdgeConfig " +
+        "count 0 is below ratchet baseline 1; lower the baseline",
+      "packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi: " +
+        "forwardingCredentialAssembly count 0 is below ratchet baseline 1; lower the baseline",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -178,7 +197,7 @@ socket.write(line);`,
 test("the forwarding ratchet rejects route-level construction and file special cases", () => {
   const violations = findFleetForwardingBypasses(
     `const config = readFleetEdgeConfig(root);\nif (fromFile) payload.action = JSON.parse(value);`,
-    "packages/cli/src/daemon/fleet-command-route.ts",
+    "packages/cli/src/daemon/client.ts",
   );
   assert.deepEqual(
     violations.map(({ fingerprint, line }) => ({ fingerprint, line })),

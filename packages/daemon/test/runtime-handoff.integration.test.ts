@@ -121,14 +121,16 @@ test(
       ],
     ] as const)
       await runFleetRuntimeEventClient({ ...peer(), eventType, payload, opId: eventType });
-    const exportAction = { kind: "runtime-handoff-export", dispatchId, commit: "a".repeat(40) };
+    const exportAction = { kind: "runtime-handoff-export", operation: "export", dispatchId, commit: "a".repeat(40) };
     // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6 grants three distinct scopes, never ownership alone.
     const handoffScopes = ["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"];
     f.owners.keycloak.revoke("person-owner", source.repoId, handoffScopes);
     for (const kind of handoffScopes) {
       const denied = await command(
         source.nodeId,
-        kind === exportAction.kind ? exportAction : { kind, dispatchId },
+        kind === exportAction.kind
+          ? exportAction
+          : { kind, operation: kind.replace("runtime-handoff-", ""), dispatchId },
         kind === exportAction.kind ? body : undefined,
       );
       assert.equal(denied.receipt?.code, "authorization_denied", JSON.stringify(denied));
@@ -181,7 +183,7 @@ test(
       [...view.entries.keys()].some((name) => /rollout|runtime-handoffs/u.test(name)),
       false,
     );
-    const claim = { kind: "runtime-handoff-claim", dispatchId };
+    const claim = { kind: "runtime-handoff-claim", operation: "claim", dispatchId };
     const noLease = await command(target.nodeId, claim);
     assert.equal(noLease.receipt?.code, "runtime_task_lease_required", JSON.stringify(noLease));
     const returned = await f.host.run(

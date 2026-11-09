@@ -10,6 +10,7 @@ import { createIdentitySession } from "../src/authorization-provider.ts";
 import { type OidcSessionPorts } from "@harness-anything/kernel";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
@@ -20,8 +21,8 @@ import type { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 type FleetFixture = Awaited<ReturnType<typeof fleetNodeClaimFixture>>;
 
 /**
- * A real edge daemon host for `lease-repo` on a fleet node (node-one by default), reached through the same local JSON-RPC
- * method the CLI uses for edge task commands (`daemon.fleet.task.run`).
+ * A real edge daemon host for `lease-repo` on a fleet node (node-one by default), reached through the
+ * ordinary repository command RPC used by the CLI.
  */
 export async function fleetEdgeHostFixture(
   t: TestContext,
@@ -267,13 +268,14 @@ export async function fleetEdgeHostFixture(
     }
     let response;
     try {
+      const method = commandDescriptorForAction(String(action.kind)).method,
+        { kind: _kind, ...actionPayload } = action,
+        requestPayload = method === "repo.task.run" || method === "repo.task.read" ? { action } : actionPayload;
       response = await client.handle({
         jsonrpc: "2.0",
         id,
-        method: "daemon.fleet.task.run",
-        // The CLI names the workspace root on every fleet task payload; the task channel reads the
-        // invitation's interactive client from that root's fleet-edge.json.
-        params: { payload: { ...payload, workspaceRoot: edgeRoot, action } },
+        method,
+        params: { repo: { repoId: payload.repoId }, payload: requestPayload },
       });
     } finally {
       if (executionCredential) client.close();
