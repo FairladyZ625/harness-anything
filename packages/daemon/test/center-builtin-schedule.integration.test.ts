@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -101,11 +101,12 @@ async function fireDueOccurrences(mode: DaemonRepoMode, identityDrift = false) {
     // Wait for the builtin Schedule itself: in local mode the agent occurrence can settle first.
     const builtinPending = (current: readonly ScheduleRow[]) =>
       current.find(({ scheduleId }) => scheduleId === builtinLedgerBackupScheduleId)?.status.lastRun == null;
-    let rows = await list();
-    await waitForArrival(async () => {
-      rows = await list();
-      return builtinPending(rows) ? null : true;
-    }, watchLedgerArrival(rootDir));
+    // Filesystem writes are not a notification that this cell's projection has caught up.
+    // Read the durable Schedule result; node:test's timeout remains the only hang guard.
+    const rows = await waitForDurableValue(async () => {
+      const rows = await list();
+      return builtinPending(rows) ? null : rows;
+    });
     const events = await scheduleEvents("repo", rootDir),
       backups = existsSync(path.join(rootDir, scheduledLedgerBackupRoot))
         ? readdirSync(path.join(rootDir, scheduledLedgerBackupRoot))
