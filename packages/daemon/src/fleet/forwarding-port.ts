@@ -41,9 +41,10 @@ export async function forward(input: {
     const issue = forwardingIntentIssue(input.intent);
     if (issue) throw new FleetEdgeTaskError("invalid_field", issue);
   }
-  if (input.auth.transportKind !== "unix-socket" || input.auth.nodePrincipal) return null;
   const edge = registeredRemoteEdge(input.userRoot, input.repoId);
   if (!edge) return null;
+  if (input.auth.transportKind !== "unix-socket" || input.auth.nodePrincipal)
+    throw new FleetEdgeTaskError("local_transport_required", "Local session transport required.");
   const requiredNodeId =
       input.intent.kind === "runtime"
         ? input.intent.inputs.requiredNodeId

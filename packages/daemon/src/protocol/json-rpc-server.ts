@@ -689,7 +689,7 @@ export function createJsonRpcProtocolServer(options: {
         if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
           throw Object.assign(new Error("This control is available only through the local session token."), {
             code: "local_transport_required",
-          }); // Lazy for the same schema-closure reason as the task channel.
+          });
         return reply(
           method,
           protocolFailure(method, new Error("Fleet document sync is handled by the unified document-submit path.")),
