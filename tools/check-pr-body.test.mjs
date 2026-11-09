@@ -212,6 +212,10 @@ test("GitHub-rendered HTML tags are formatting, not unfilled placeholders", () =
       "Second line with <sub>sub</sub>, H<sup>2</sup>O, and <kbd>Ctrl</kbd>+<kbd>C</kbd>.",
       "",
       "<details open><summary>already open</summary>body</details>",
+      "",
+      // HTML tag names are case-insensitive, so GitHub renders these too (review F1).
+      "<DETAILS><SUMMARY>uppercase supported tags</SUMMARY></DETAILS>",
+      "<Details>mixed case</Details> and <BR> and <Sub>1</Sub>, <SUP>2</SUP>, <KBD>Ctrl</KBD>.",
     ].join("\n"),
   );
   const result = checkPrBody(body);
@@ -221,7 +225,7 @@ test("GitHub-rendered HTML tags are formatting, not unfilled placeholders", () =
 });
 
 test("angle-bracket template placeholders are still rejected", () => {
-  for (const placeholder of ["<owner>", "<what this CI run proves>", "<operation>"]) {
+  for (const placeholder of ["<owner>", "<what this CI run proves>", "<operation>", "<detailsx>", "<DETAILSX>"]) {
     const result = checkTemplatePlaceholderResidue(filledBody(`\n${placeholder}\n`));
 
     assert.equal(result.ok, false, placeholder);
