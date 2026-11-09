@@ -8,6 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { premiseReviewCommand } from "../src/premise-review.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -242,6 +243,12 @@ test("owner rework past the rework budget requires a premise review recorded aft
   const refused = await rework(pastBudget);
   assert.equal(refused.code, "premise_review_required", JSON.stringify(refused));
   assert.match(JSON.stringify(refused), /ha fact record --task task-rpc-premise --source review:premise/u);
+  const refusalHint = (receipt: Readonly<Record<string, unknown>>) =>
+    String((receipt.diagnostic as { readonly expectation?: unknown } | undefined)?.expectation ?? "");
+  assert.ok(
+    refusalHint(refused).includes(premiseReviewCommand(taskId)),
+    `the refusal hint must print the exact command: ${JSON.stringify(refused)}`,
+  );
   assert.equal(f.events().revision, before, "a refused return publishes no event");
 
   // The command the refusal prints is a template; recorded unedited it answers none of the questions.
@@ -260,6 +267,10 @@ test("owner rework past the rework budget requires a premise review recorded aft
   });
   const templated = await rework(pastBudget);
   assert.equal(templated.code, "premise_review_required", JSON.stringify(templated));
+  assert.ok(
+    refusalHint(templated).includes("is missing restart, alternative, sunk-cost, conclusion"),
+    `an unparsable premise Fact must name its missing labels: ${JSON.stringify(templated)}`,
+  );
 
   await premise("stop");
   const stopped = await rework(pastBudget);
