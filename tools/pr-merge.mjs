@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import process from "node:process";
 import {
   approvedReviewHistoryForExecution,
-  consentedApprovedReviewForExecution,
   currentExecutionCuts,
+  reviewConsentGateBlocker,
 } from "@harness-anything/kernel";
 
 const MAIN_BRANCH = "main";
@@ -178,10 +178,8 @@ function readTaskLifecycleEvidence(taskId, root) {
   return evidence;
 }
 
-// The merge gate for task-bound PRs: the kernel's own judgment over the task-show lifecycle snapshot
-// decides whether the task's current execution has an owner-consented approved review. The completion
-// blocker chain is not consulted: it names only the first unfinished step, and CI witnessing (which
-// exists only after merging) precedes the review chain in it.
+// The merge gate uses the same completion review/consent judgment as the ledger. The full completion
+// blocker chain is not consulted because it names only the first unfinished step.
 function readTaskReviewConsent(taskId, root) {
   try {
     return readTaskLifecycleEvidence(taskId, root);
@@ -191,21 +189,6 @@ function readTaskReviewConsent(taskId, root) {
         "Refusing to merge while the review-consent state is unknown (fail closed).",
     );
   }
-}
-
-// The kernel's own digest-pinned judgment over the receipt's lifecycle snapshot answers the one
-// question the first-blocker chain cannot: does the current execution's cut carry an
-// owner-consented approved review? A task that lifted the review and consent gates in its own
-// closeoutOverrides (the lightweight declaration — task overrides win over every settings layer)
-// owes no consent ever and would otherwise deadlock. Tasks without such a lift are held to the
-// consent requirement even if repository settings relaxed it: settings are not part of the
-// task-show receipt, so assuming them would fail open.
-function reviewChainClosed(evidence, cut) {
-  const task = evidence.task,
-    dispositions = Array.isArray(evidence.reviewDispositions) ? evidence.reviewDispositions : [];
-  if (task.closeoutOverrides?.review === false && task.closeoutOverrides?.consent === false) return true;
-  if (cut === undefined || cut.state !== "submitted") return false;
-  return consentedApprovedReviewForExecution(evidence.reviews, evidence.consents, cut, dispositions) !== undefined;
 }
 
 // One fail-closed read of the current execution cuts, shared by the head check and the review
@@ -313,7 +296,7 @@ function requireReviewConsent(pr, root) {
   // A moved head makes the frozen cut, its review and its consent moot; name that single remedy
   // instead of asking for a consent the merge could never use.
   const equivalent = requireMergedHeadIsFrozenCut(taskId, cut, pr, root);
-  if (!reviewChainClosed(evidence, cut)) {
+  if (reviewConsentGateBlocker(evidence, undefined, cut) !== null) {
     // The consent judgment already ran on the same snapshot, so re-deriving the submitted cut here
     // cannot throw; it only names the ids the printed command must carry.
     const submitted = cuts.find(({ state }) => state === "submitted"),
