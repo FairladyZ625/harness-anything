@@ -70,6 +70,17 @@ export interface StatusVocabulary {
   /** GUI mirror: words must equal the mirrored vocabulary's words plus `plusWords`. */
   readonly mirrorOf?: string;
   readonly plusWords?: readonly string[];
+  /**
+   * The declared state store (`entityKindContracts[*].stateStores[*].id`) whose
+   * vocabulary owns these words. The store must list this id in its `vocabulary`
+   * facet; a word set without an owner uses the shrink-only baseline instead.
+   */
+  readonly ownerStore?: string;
+  /**
+   * A GUI-local view type: not persisted, not exported or imported, and never a
+   * wire or domain vocabulary. Only `"view-local"` is accepted.
+   */
+  readonly scope?: "view-local";
   readonly note?: string;
 }
 
@@ -157,7 +168,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "fallbackState",
     module: "packages/daemon/src/dispatch-stream.ts",
     anchor: "#fallbackState",
-    words: ["scheduled", "exhausted"],
+    words: ["scheduled", "dispatched", "exhausted"],
   },
   {
     id: "dispatch.group-phase",
@@ -338,6 +349,17 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/decision-event-types.ts",
     anchor: "decisionStates",
     words: decisionStates,
+    ownerStore: "decision.events",
+  },
+  {
+    id: "decision.terminal-state-array",
+    entity: "Decision",
+    field: "state",
+    module: "packages/kernel/src/domain/decision-board-projection.ts",
+    anchor: "terminalDecisionStates",
+    words: ["in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+    subsetOf: "decision.state",
+    note: "Terminal decision states used by the board projection's grouping.",
   },
   {
     id: "decision.judgment.target",
@@ -380,6 +402,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/schedule.ts",
     anchor: "scheduleStates",
     words: ["armed", "paused"],
+    ownerStore: "schedule.events",
   },
   {
     id: "schedule.run-outcome",
@@ -415,6 +438,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/relation-state.ts",
     anchor: "relationStates",
     words: relationStates,
+    ownerStore: "relation.events",
   },
   {
     id: "task-blocking.assessment",
@@ -592,14 +616,24 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     note: "A judgment derived from the independent liveness and outcome facts; not a stored field.",
   },
   {
+    id: "runtime.semantic-state-array",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    module: "packages/kernel/src/domain/agent-runtime.ts",
+    anchor: "runtimeSessionSemanticStates",
+    words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
+    subsetOf: "runtime.semantic-state",
+    note: "The pre-validation const array behind the exported semantic-state judgment.",
+  },
+  {
     id: "wire.dispatch-status",
     entity: "DaemonWire",
     field: "status",
-    module: "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
+    module: "packages/daemon/src/protocol/task-dispatch-contract.ts",
     anchor: "#status",
-    words: ["running", "succeeded", "failed", "unknown", "cancelled", "stopped", "blocked"],
+    words: ["running", "succeeded", "failed", "unknown", "cancelled", "stopped", "blocked", "lost"],
     mirrorOf: "runtime.outcome",
-    plusWords: ["running", "blocked"],
+    plusWords: ["running", "blocked", "lost"],
     note: 'TaskDispatchRow.status is the session outcome plus "running" while a dispatch is in flight.',
   },
   {
@@ -712,6 +746,109 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     anchor: "PackageDisposition",
     words: ["active", "archived", "tombstoned"],
     mirrorOf: "package.disposition",
+  },
+  {
+    id: "gui.closeout.readiness",
+    entity: "GuiAdapter",
+    field: "readiness",
+    module: "packages/gui/src/renderer/model/types.ts",
+    anchor: "CloseoutReadiness",
+    words: ["not_required", "missing", "incomplete", "ready", "passed", "failed"],
+    mirrorOf: "closeout.readiness",
+  },
+  {
+    id: "gui.blocking.state",
+    entity: "GuiAdapter",
+    field: "blocking state",
+    module: "packages/gui/src/renderer/model/types.ts",
+    anchor: "BlockingState",
+    words: ["blocked", "clear", "unknown"],
+    mirrorOf: "task-blocking.assessment",
+  },
+  {
+    id: "gui.cadence.review-verdict",
+    entity: "GuiAdapter",
+    field: "verdict",
+    module: "packages/gui/src/renderer/model/cadence.ts",
+    anchor: "CadenceReviewVerdict",
+    words: ["approved", "changes_requested", "dismissed"],
+    mirrorOf: "review.verdict",
+  },
+
+  // GUI view-local unions: presentation state that is not persisted, exported, or imported.
+  {
+    id: "gui.view-local.edge-join-phase",
+    entity: "GuiAdapter",
+    field: "phase",
+    module: "packages/gui/src/renderer/components/EdgeJoinWizard.tsx",
+    anchor: "Phase",
+    words: ["paste", "device", "joining", "done", "failed"],
+    scope: "view-local",
+  },
+  {
+    id: "gui.view-local.decision-response",
+    entity: "GuiAdapter",
+    field: "disposition",
+    module: "packages/gui/src/renderer/components/decisionReview/DecisionRespondTab.tsx",
+    anchor: "Disposition",
+    words: ["adopt", "rebut"],
+    scope: "view-local",
+  },
+  {
+    id: "gui.view-local.graph-state",
+    entity: "GuiAdapter",
+    field: "state",
+    module: "packages/gui/src/renderer/model/readiness-signals.ts",
+    anchor: "GraphState",
+    words: ["ready", "loading", "error"],
+    scope: "view-local",
+  },
+  {
+    id: "gui.view-local.attestation-relation-state",
+    entity: "GuiAdapter",
+    field: "state",
+    module: "packages/gui/src/renderer/views/AttestationPoolView.tsx",
+    anchor: "RelationState",
+    words: ["ready", "loading", "error"],
+    scope: "view-local",
+  },
+  {
+    id: "gui.view-local.decision-pool-relation-state",
+    entity: "GuiAdapter",
+    field: "state",
+    module: "packages/gui/src/renderer/views/decision-pool-section.tsx",
+    anchor: "RelationState",
+    words: ["ready", "loading", "error"],
+    scope: "view-local",
+  },
+  {
+    id: "gui.view-local.fleet-link",
+    entity: "GuiAdapter",
+    field: "link state",
+    module: "packages/gui/src/renderer/views/collaboration/FleetTopology.tsx",
+    anchor: "LinkVisualState",
+    words: ["fresh", "lag", "unsynced", "disconnected", "absent"],
+    scope: "view-local",
+  },
+  {
+    id: "gui.view-local.work-explainer",
+    entity: "GuiAdapter",
+    field: "state",
+    module: "packages/gui/src/renderer/views/workspace/WorkExplainer.tsx",
+    anchor: "WorkExplainerState",
+    words: [
+      "repo-missing",
+      "list-pending",
+      "list-not-ready",
+      "list-error",
+      "missing",
+      "body-pending",
+      "body-error",
+      "not-ready",
+      "not-materialized",
+      "binary",
+    ],
+    scope: "view-local",
   },
 
   // dec_6B912A63D279A922FA1288536D CH2: authored-document vocabularies outside the kernel domain.

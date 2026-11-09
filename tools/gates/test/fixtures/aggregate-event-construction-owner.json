@@ -1,0 +1,25 @@
+{
+  "schema": "harness-anything/aggregate-event-construction-fixture/v1",
+  "authority": "decision/dec_499E4E98A3D4754132B3BCA1E6#CH1",
+  "policy": "A non-owner construction of a registered canonical event schema is refused; the owner kind's declared writer is accepted.",
+  "family": {
+    "schema": "agent-runtime-event/v1",
+    "owner": "runtime-session",
+    "storeId": "runtime-session.agent-runtime-events",
+    "writers": ["packages/kernel/src/domain/agent-runtime.ts"]
+  },
+  "cases": [
+    {
+      "name": "non-owner construction of agent-runtime-event is refused",
+      "path": "packages/rogue/src/rogue.ts",
+      "eventType": "runtime_dispatch_requested",
+      "finding": "outside the declared writers of runtime-session"
+    },
+    {
+      "name": "declared writer construction of agent-runtime-event is accepted",
+      "path": "packages/kernel/src/domain/agent-runtime.ts",
+      "eventType": "runtime_dispatch_requested",
+      "finding": null
+    }
+  ]
+}

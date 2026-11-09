@@ -1,5 +1,6 @@
 import type { EntityKind } from "./base-entity.ts";
 import { scheduleEventTypes } from "./schedule.ts";
+import { taskEventTypes as canonicalTaskEventTypes } from "./task-lifecycle-event.ts";
 
 export type StateStoreRole = "authority" | "replica" | "projection" | "spool" | "operational";
 export type StateStoreResidency = "canonical" | "runtime-local" | "host-local";
@@ -47,12 +48,13 @@ const canonical = (
   schema: string,
   ownerWriter: string,
   vocabulary: readonly string[] = [],
+  types: readonly string[] = ["*"],
 ): StateStoreDeclaration =>
   freeze({
     id,
     role: "authority",
     residency: "canonical",
-    medium: freeze({ kind: "canonical-event", schema, types: ["*"], writers: [ownerWriter] }),
+    medium: freeze({ kind: "canonical-event", schema, types: freeze([...types]), writers: [ownerWriter] }),
     vocabulary: freeze([...vocabulary]),
   });
 
@@ -77,7 +79,7 @@ const projection = (
     projection: freeze({ payloadField, types: freeze([...types]) }),
   });
 
-const taskEventTypes = [
+const taskProjectionEventTypes = [
   "execution_started",
   "lease_renewed",
   "execution_submitted",
@@ -118,7 +120,13 @@ export const hostStateStores: readonly StateStoreDeclaration[] = freeze([
 
 const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> = {
   task: [
-    canonical("task.task-events", "task-event/v1", "packages/kernel/src/domain/task-lifecycle-event.ts"),
+    canonical(
+      "task.task-events",
+      "task-event/v1",
+      "packages/kernel/src/domain/task-lifecycle-event.ts",
+      [],
+      canonicalTaskEventTypes,
+    ),
     canonical("task.bootstrap-events", "task-bootstrap-event/v1", "packages/kernel/src/domain/task-bootstrap-event.ts"),
     canonical("task.progress-events", "task-progress-event/v1", "packages/kernel/src/domain/task-progress-event.ts"),
     canonical("task.preset-snapshot-events", "preset-snapshot-upgrade-event/v1", "packages/preset/src"),
@@ -165,7 +173,14 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
       "ci-run-observation/v4",
       "packages/kernel/src/domain/ci-run-observation-v4.ts",
     ),
-    projection("execution.task-events", "task", "task.task-events", "task-event/v1", "execution", taskEventTypes),
+    projection(
+      "execution.task-events",
+      "task",
+      "task.task-events",
+      "task-event/v1",
+      "execution",
+      taskProjectionEventTypes,
+    ),
   ],
   review: [
     projection("review.task-events", "task", "task.task-events", "task-event/v1", "review", [
