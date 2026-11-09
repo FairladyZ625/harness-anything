@@ -10,8 +10,14 @@ import test from "node:test";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-gate-surface.mjs");
 
+// The crlf-checkout lane checks the tree out with core.autocrlf=true, so a workflow read must
+// normalize before newline-anchored assertions; an LF checkout passes through unchanged.
+function readWorkflow(relativePath) {
+  return readFileSync(path.join(repoRoot, relativePath), "utf8").replaceAll("\r\n", "\n");
+}
+
 test("rewrite CI runs the integration tier on every PR and scopes baseline retirement to the boundaries lane", () => {
-  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
+  const workflow = readWorkflow(".github/workflows/rewrite-ci.yml");
   const sectionFor = (source, job) => {
     const start = source.indexOf(`  ${job}:`);
     assert.notEqual(start, -1, `${job} must exist`);
@@ -58,7 +64,7 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   ]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
   }
-  const prBodyWorkflow = readFileSync(path.join(repoRoot, ".github/workflows/pr-body.yml"), "utf8");
+  const prBodyWorkflow = readWorkflow(".github/workflows/pr-body.yml");
   assert.match(prBodyWorkflow, /\n  merge_group:\n    types: \[checks_requested\]/u);
   for (const job of ["pr-body-lint", "pr-body-advisory"]) {
     assert.match(
@@ -82,7 +88,7 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
 });
 
 test("rewrite CI dependency artifact includes the daemon output built by npm ci", () => {
-  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
+  const workflow = readWorkflow(".github/workflows/rewrite-ci.yml");
   const installBlock = workflow.slice(workflow.indexOf("  install:"), workflow.indexOf("  # Push to main"));
 
   assert.match(
