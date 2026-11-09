@@ -9,7 +9,10 @@ import {
 
 type CodedError = (code: string, message: string) => Error;
 
-function pendingError(page: Extract<DispatchLifecycleRead, { status: "pending" }>, error: CodedError): Error {
+export function dispatchLifecyclePendingError(
+  page: Extract<DispatchLifecycleRead, { status: "pending" }>,
+  error: CodedError,
+): Error {
   return error(
     "dispatch_lifecycle_pending",
     `The dispatch lifecycle read model is at revision ${page.watermark} of ${page.sourceRevision}; retry the dispatch.`,
@@ -27,14 +30,25 @@ export async function assertDispatchAdmission(
   input: { readonly instanceId: string; readonly owner: string },
   error: CodedError,
 ): Promise<void> {
+  const rows = await readActiveDispatchLifecycle(read, error, input.instanceId),
+    blocker = dispatchAdmissionBlocker(rows, input);
+  if (blocker) throw error(blocker.code, blocker.message);
+}
+
+export async function readActiveDispatchLifecycle(
+  read: (query: DispatchLifecycleQuery) => DispatchLifecycleRead | Promise<DispatchLifecycleRead>,
+  error: CodedError,
+  instanceId?: string,
+): Promise<DispatchLifecycleView[]> {
+  const rows: DispatchLifecycleView[] = [];
   let cursor: string | null = null;
   do {
-    const page: DispatchLifecycleRead = await read(activePage(input.instanceId, cursor));
-    if (page.status !== "ready") throw pendingError(page, error);
-    const blocker = dispatchAdmissionBlocker(page.rows, input);
-    if (blocker) throw error(blocker.code, blocker.message);
+    const page: DispatchLifecycleRead = await read(activePage(instanceId, cursor));
+    if (page.status !== "ready") throw dispatchLifecyclePendingError(page, error);
+    rows.push(...page.rows);
     cursor = page.nextCursor;
   } while (cursor !== null);
+  return rows;
 }
 
 /**
@@ -49,12 +63,12 @@ export function requireDispatchLifecycleAdmission(
   error: CodedError,
 ): void {
   const groupRead = read({ by: "group", attemptGroupId: input.attemptGroupId });
-  if (groupRead.status !== "ready") throw pendingError(groupRead, error);
+  if (groupRead.status !== "ready") throw dispatchLifecyclePendingError(groupRead, error);
   const instance: DispatchLifecycleView[] = [];
   let cursor: string | null = null;
   do {
     const page = read(activePage(input.instanceId, cursor));
-    if (page.status !== "ready") throw pendingError(page, error);
+    if (page.status !== "ready") throw dispatchLifecyclePendingError(page, error);
     instance.push(...page.rows);
     cursor = page.nextCursor;
   } while (cursor !== null);
@@ -67,6 +81,11 @@ export function requireDispatchLifecycleAdmission(
   if (refusal) throw error(refusal.code, refusal.message);
 }
 
-function activePage(instanceId: string, cursor: string | null): DispatchLifecycleQuery {
-  return { by: "active", instanceId, limit: DISPATCH_LIFECYCLE_PAGE_LIMIT, ...(cursor === null ? {} : { cursor }) };
+function activePage(instanceId: string | undefined, cursor: string | null): DispatchLifecycleQuery {
+  return {
+    by: "active",
+    limit: DISPATCH_LIFECYCLE_PAGE_LIMIT,
+    ...(instanceId === undefined ? {} : { instanceId }),
+    ...(cursor === null ? {} : { cursor }),
+  };
 }

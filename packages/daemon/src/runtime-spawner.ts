@@ -182,7 +182,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         input,
         input.remote,
         projection,
-        processes,
       );
     resolveRuntimeInstanceCandidates({
       ...(requested === undefined ? {} : { requested }),
@@ -459,13 +458,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
-        await resolveRuntimeDispatchResources(
-          input,
-          input.remote,
-          projection!,
-          processes,
-          providerSessionId ?? undefined,
-        ),
+        await resolveRuntimeDispatchResources(input, input.remote, projection!, providerSessionId ?? undefined),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
         binding,
@@ -1422,7 +1415,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         rootDir: input.rootDir,
         projection: admissionProjection,
         payload,
-        ownsLiveProcess: (runtimeSessionId) => processes.has(runtimeSessionId),
       });
       if (admitted.kind === "replay")
         return {

@@ -12,6 +12,7 @@ import { readDispatchStreamHeader } from "../src/dispatch-stream.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeBinding } from "../src/runtime-spawn-types.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const owner = { nodeId: "node-one" };
 const binding = (source: RuntimeBinding["source"]): RuntimeBinding => ({
@@ -101,6 +102,9 @@ for (const source of ["local", { kind: "node", nodeId: "request-origin" }] as co
             },
           ],
           readRuntimeDispatch: () => ({ ...dispatchBinding, payload: { dispatchId } }),
+          readDispatchLifecycle: lifecycleReadFor([
+            { runtimeSessionId, dispatchId, instanceId: "deepseek-worker", attemptSettled: false, process: "unknown" },
+          ]),
         }),
         publishExit: (active: Parameters<typeof publishExit>[1], code: number | null) =>
           publishExit(context, active, code),
@@ -181,6 +185,16 @@ for (const authorized of [true, false]) {
           { runtimeSessionId, instanceId: "deepseek-worker", liveness: "live", outcome: null },
         ],
         readRuntimeDispatch: () => ({ ...ownerBinding, payload: { dispatchId } }),
+        readDispatchLifecycle: lifecycleReadFor([
+          {
+            runtimeSessionId,
+            dispatchId,
+            instanceId: "deepseek-worker",
+            owner: "node:original-edge",
+            attemptSettled: true,
+            groupSettled: true,
+          },
+        ]),
       }),
       publishExit: (active: Parameters<typeof publishExit>[1], code: number | null) =>
         publishExit(context, active, code),
@@ -244,7 +258,10 @@ test("node-origin recovery observes a living local worker without settling it", 
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const dispatchId = "dispatch_444444444444444444444444",
     runtimeSessionId = "runtime-live-node",
-    ownerBinding = binding({ kind: "node", nodeId: "request-origin" });
+    ownerBinding = binding({ kind: "node", nodeId: "request-origin" }),
+    readDispatchLifecycle = lifecycleReadFor([
+      { runtimeSessionId, dispatchId, instanceId: "deepseek-worker", process: "alive" },
+    ]);
   openDispatchStream(rootDir, {
     dispatchId,
     runtimeSessionId,
@@ -276,42 +293,15 @@ test("node-origin recovery observes a living local worker without settling it", 
       },
       readRuntimeSessions: () => [{ runtimeSessionId, instanceId: "deepseek-worker", liveness: "live", outcome: null }],
       readRuntimeDispatch: () => ({ ...ownerBinding, payload: { dispatchId } }),
+      readDispatchLifecycle,
     }),
     publishExit: () => assert.fail("a living node-origin worker must not settle"),
     runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
   } as unknown as RuntimeSpawnerContext;
   t.after(() => closeRuntimes(context));
   assert.equal((await adoptRuntimes(context))[0]?.outcome, "ready");
-  assert.equal(context.processes.get(runtimeSessionId)?.process.pid, process.pid);
-});
-
-test("recovery preserves a live DeepSeek worker already registered by this local spawner", async () => {
-  const runtimeSessionId = "runtime-live-deepseek",
-    active = { process: { pid: process.pid } },
-    context = {
-      input: { rootDir: tmpdir() },
-      processes: new Map([[runtimeSessionId, active]]),
-      exiting: new Set(),
-      ownsModelSlot: () => true,
-      requiredRuntimeProjection: () => ({
-        readRuntimeSession(id: string) {
-          return (
-            this.readRuntimeSessions().find(
-              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
-            ) ?? null
-          );
-        },
-        readRuntimeSessions: () => [
-          { runtimeSessionId, instanceId: "deepseek-worker", providerSessionId: null, liveness: "live", outcome: null },
-        ],
-        readRuntimeDispatch: () => {
-          throw new Error("a registered launch must keep its existing owner");
-        },
-      }),
-      publishExit: () => {
-        throw new Error("a live worker must not be settled");
-      },
-    } as unknown as RuntimeSpawnerContext;
-  assert.equal((await adoptRuntimes(context))[0]?.outcome, "ready");
-  assert.equal(context.processes.get(runtimeSessionId), active);
+  const lifecycle = await readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+  assert.equal(lifecycle.status, "ready");
+  if (lifecycle.status === "ready") assert.equal(lifecycle.rows[0]?.policy.attemptSettled, false);
+  assert.equal(process.kill(process.pid, 0), true, "adoption leaves the live worker running");
 });

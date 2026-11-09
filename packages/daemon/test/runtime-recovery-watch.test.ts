@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { adoptRuntimes, type RuntimeRecoveryResult } from "../src/runtime-spawn-adoption.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 import { openNodeAutoDispatchLoop, type NodeAutoDispatchCandidate } from "../src/node-auto-dispatch.ts";
 import {
   openRuntimeRecoveryWatch,
@@ -42,6 +43,7 @@ function unadoptableRuntimeContext(rootDir: string, lifecycle: unknown[]): Runti
       remote: {
         readRuntimeSessions: async () => [session],
         readRuntimeDispatch: async () => null,
+        readDispatchLifecycle: emptyDispatchLifecycleRead,
       },
     },
     processes: new Map(),

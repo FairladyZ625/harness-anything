@@ -15,6 +15,7 @@ import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeRecoveryWork } from "../src/runtime-recovery-work.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise<void>) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-isolation-"));
@@ -67,6 +68,14 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
         source: "local",
         payload: { dispatchId: sessions.find((s) => s.runtimeSessionId === id)!.dispatchId },
       }),
+      readDispatchLifecycle: lifecycleReadFor(
+        sessions.map((session) => ({
+          runtimeSessionId: session.runtimeSessionId,
+          dispatchId: session.dispatchId,
+          instanceId: session.instanceId,
+          process: "unknown" as const,
+        })),
+      ),
     }),
     publishExit: settle,
     runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
@@ -230,6 +239,9 @@ test("an exited session with a process still owned locally retains instance capa
             actor: { principal: { personId: "owner" }, executor: null },
             source: { kind: "node", nodeId: "node-a" },
           }),
+          readDispatchLifecycle: lifecycleReadFor([
+            { runtimeSessionId, dispatchId, instanceId: definition.instanceId, owner: "node:node-a", process: "alive" },
+          ]),
         },
       },
       processes: new Map([[runtimeSessionId, { process: { pid: process.pid } }]]),
@@ -360,6 +372,17 @@ test("a missing dispatch stream cannot settle a live or foreign runtime", async 
               source: { kind: "node", nodeId: owner },
             };
           },
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: session.runtimeSessionId,
+              dispatchId,
+              instanceId: "worker",
+              owner: `node:${owner}`,
+              process: session.liveness === "live" ? "alive" : "exited",
+              attemptSettled: session.outcome !== null,
+              groupSettled: session.outcome !== null,
+            },
+          ]),
         },
       },
       processes: new Map(),

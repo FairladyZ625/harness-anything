@@ -17,11 +17,12 @@ import { attachReceiptAcceptance } from "@harness-anything/kernel";
 import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
-import { cancelRuntime, steerRuntime } from "../src/runtime-spawn-control.ts";
+import { cancelRuntime, closeRuntimes, steerRuntime } from "../src/runtime-spawn-control.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { ModelSlotQueue } from "../src/runtime/model-slot-queue.ts";
+import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
-import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
+import { emptyDispatchLifecycleRead, lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 
@@ -46,7 +47,12 @@ test("adoption cannot settle a launch that still owns its model slot before PID 
           ) ?? null
         );
       },
-      readDispatchLifecycle: emptyDispatchLifecycleRead,
+      readDispatchLifecycle: (query) =>
+        lifecycleReadFor(
+          publishedSessionId
+            ? [{ runtimeSessionId: publishedSessionId, dispatchId, instanceId: "worker", owner: "local" }]
+            : [],
+        )(query),
       readRuntimeSessions: () => (publishedSessionId ? [liveSession(publishedSessionId)] : []),
       readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
       currentLease: () => null,
@@ -89,7 +95,7 @@ test("adoption cannot settle a launch that still owns its model slot before PID 
   try {
     publishedSessionId = await entered.promise;
     assert.equal(modelSlotQueue.position(publishedSessionId), 0);
-    assert.equal((await spawner.adopt())[0]?.outcome, "ready", "the launch also owns the pre-header window");
+    assert.deepEqual(await spawner.adopt(), [], "an admitted launch without a header is not yet an adoption candidate");
     // A center publication can become readable before the local process registration.
     openMissingProcessStream(rootDir, dispatchId, publishedSessionId, "held-launch");
     const recovery = await spawner.adopt();
@@ -114,13 +120,14 @@ test("adoption cannot settle a launch that still owns its model slot before PID 
   }
 });
 
-test("adoption settles an owned live session whose dispatch never recorded a process", async () => {
+test("adoption leaves an unproven missing-PID dispatch pending for loss reconciliation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-missing-process-"));
   try {
     const dispatchId = "dispatch_dddddddddddddddddddddddd",
       runtimeSessionId = "runtime_dddddddddddddddddddddddd";
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-missing-process");
     const settled: Array<{ readonly runtimeSessionId: string; readonly reason: string | null }> = [],
+      published: string[] = [],
       context = {
         input: { rootDir, repoId: "missing-process", now: () => "2026-09-13T00:01:00.000Z" },
         requiredRuntimeProjection: () => ({
@@ -131,7 +138,10 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
               ) ?? null
             );
           },
-          readDispatchLifecycle: emptyDispatchLifecycleRead,
+          readDispatchLifecycle: (query) =>
+            lifecycleReadFor([
+              { runtimeSessionId, dispatchId, instanceId: "deepseek-worker", owner: "local", process: "unobserved" },
+            ])(query),
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
@@ -139,15 +149,19 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
         exiting: new Set<string>(),
         reconcileFallback: () => undefined,
         consumeLine: async () => undefined,
+        publishRuntimeEvent: async (type: string) => {
+          published.push(type);
+          return {};
+        },
         publishExit: async (active: { runtimeSessionId: string; lossReason: string | null }) => {
           settled.push({ runtimeSessionId: active.runtimeSessionId, reason: active.lossReason });
           context.processes.delete(active.runtimeSessionId);
         },
       };
-    await adoptRuntimes(context as never);
-    assert.deepEqual(settled, [
-      { runtimeSessionId, reason: "runtime process was never recorded before daemon restart" },
-    ]);
+    const recovery = await adoptRuntimes(context as never);
+    assert.equal(recovery[0]?.outcome, "failed", "without a PID, reconciliation cannot prove the process stopped");
+    assert.deepEqual(settled, [], "the worker is not declared exited from an absent process record");
+    assert.deepEqual(published, ["runtime_session_liveness_changed"]);
     assert.equal(context.processes.size, 0);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -163,7 +177,8 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_646 });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
     archiveDispatchStream(rootDir, dispatchId);
-    const settled: Array<{ readonly runtimeSessionId: string; readonly lossReason: string | null }> = [],
+    let settled = false;
+    const settledSessions: Array<{ readonly runtimeSessionId: string; readonly lossReason: string | null }> = [],
       context = {
         input: { rootDir, repoId: "archived-dead-process", now: () => "2026-10-31T04:00:00.000Z" },
         requiredRuntimeProjection: () => ({
@@ -174,7 +189,18 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
               ) ?? null
             );
           },
-          readDispatchLifecycle: emptyDispatchLifecycleRead,
+          readDispatchLifecycle: (query) =>
+            lifecycleReadFor([
+              {
+                runtimeSessionId,
+                dispatchId,
+                instanceId: "deepseek-worker",
+                owner: "local",
+                attemptSettled: settled,
+                groupSettled: settled,
+                process: settled ? "exited" : "unknown",
+              },
+            ])(query),
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
@@ -182,130 +208,43 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
         exiting: new Set<string>(),
         reconcileFallback: () => undefined,
         consumeLine: async () => undefined,
+        publishRuntimeEvent: async () => ({}),
         publishExit: async (active: { runtimeSessionId: string; lossReason: string | null }) => {
-          settled.push({ runtimeSessionId: active.runtimeSessionId, lossReason: active.lossReason });
+          settledSessions.push({ runtimeSessionId: active.runtimeSessionId, lossReason: active.lossReason });
+          settled = true;
           context.processes.delete(active.runtimeSessionId);
         },
       };
     await adoptRuntimes(context as never);
-    assert.deepEqual(settled, [{ runtimeSessionId, lossReason: null }]);
+    assert.deepEqual(settledSessions, [{ runtimeSessionId, lossReason: null }]);
+    assert.equal(settled, true);
     assert.equal(context.processes.size, 0);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("recovery adoption preserves a runtime already owned by this daemon", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-owned-runtime-adoption-"));
-  try {
-    const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
-      runtimeSessionId = "runtime_aaaaaaaaaaaaaaaaaaaaaaaa";
-    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "owned-runtime");
-    const owned = { runtimeSessionId },
-      processes = new Map([[runtimeSessionId, owned]]);
-    const context = {
-      input: { rootDir, repoId: "owned-runtime", now: () => "2026-09-13T00:01:00.000Z" },
-      requiredRuntimeProjection: () => ({
-        readRuntimeSession(id: string) {
-          return (
-            this.readRuntimeSessions().find(
-              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
-            ) ?? null
-          );
-        },
-        readDispatchLifecycle: emptyDispatchLifecycleRead,
-        readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
-      }),
-      processes,
-      exiting: new Set<string>(),
-      reconcileFallback: () => {
-        throw new Error("a live owned runtime must not be reconciled twice");
-      },
-      consumeLine: async () => undefined,
-      publishExit: async () => {
-        throw new Error("a live owned runtime must not be settled as missing");
-      },
-    };
-    await adoptRuntimes(context as never);
-    await adoptRuntimes(context as never);
-    assert.equal(processes.get(runtimeSessionId), owned);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
-  test(`adoption of a missing process handles ${failurePoint} without orphan ownership`, async () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-retry-"));
-    try {
-      const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
-        runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
-      openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "retry-adoption");
-      let unavailable = true,
-        settled = 0;
-      const context = {
-        input: { rootDir, repoId: "retry-adoption", now: () => "2026-09-13T00:01:00.000Z" },
-        requiredRuntimeProjection: () => ({
-          readRuntimeSession(id: string) {
-            return (
-              this.readRuntimeSessions().find(
-                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
-              ) ?? null
-            );
-          },
-          readDispatchLifecycle: emptyDispatchLifecycleRead,
-          readRuntimeSessions: () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
-          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
-        }),
-        processes: new Map(),
-        exiting: new Set(failurePoint === "in-flight" ? [runtimeSessionId] : []),
-        consumeLine: async () => undefined,
-        publishRuntimeEvent: async () => {
-          assert.fail("a missing process must never publish live before settlement");
-        },
-        publishExit: async (active: { runtimeSessionId: string }) => {
-          if (context.exiting.has(active.runtimeSessionId)) return;
-          if (unavailable && failurePoint === "settlement") throw new Error("center disconnected");
-          settled++;
-          context.processes.delete(active.runtimeSessionId);
-        },
-      };
-      if (failurePoint === "liveness") {
-        await adoptRuntimes(context as never);
-        assert.equal(settled, 1);
-        assert.equal(context.processes.size, 0);
-        return;
-      }
-      if (failurePoint === "in-flight") await adoptRuntimes(context as never);
-      else assert.equal((await adoptRuntimes(context as never))[0]?.outcome, "failed");
-      assert.equal(context.processes.size, 0, "failed or in-flight adoption must not leave an owned runtime");
-      unavailable = false;
-      context.exiting.clear();
-      await adoptRuntimes(context as never);
-      assert.equal(settled, 1);
-      assert.equal(context.processes.size, 0);
-    } finally {
-      rmSync(rootDir, { recursive: true, force: true });
-    }
-  });
-}
-
 test("adoption reports completed restores independently of a pending or failed sibling", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-progress-"));
   const pending = Promise.withResolvers<void>(),
     secondStarted = Promise.withResolvers<void>();
+  let context: RuntimeSpawnerContext | null = null;
   try {
     const sessions = ["a", "b", "c"].map((id) => liveSession(`runtime_${id.repeat(24)}`));
     const progress: number[] = [];
-    for (const [index, session] of sessions.entries())
-      openMissingProcessStream(
-        rootDir,
-        `dispatch_${String(index).repeat(24)}`,
-        session.runtimeSessionId,
-        `op-${index}`,
-      );
-    const context = {
+    const dispatchIds = sessions.map((_, index) => `dispatch_${String(index).repeat(24)}`);
+    for (const [index, session] of sessions.entries()) {
+      openMissingProcessStream(rootDir, dispatchIds[index]!, session.runtimeSessionId, `op-${index}`);
+      appendRuntimeWorkerRecord(rootDir, dispatchIds[index]!, { kind: "process_started", pid: process.pid });
+    }
+    const lifecycleEntries = sessions.map((session, index) => ({
+      runtimeSessionId: session.runtimeSessionId,
+      dispatchId: dispatchIds[index]!,
+      instanceId: "instance-1",
+      owner: "local",
+      process: "unknown" as const,
+    }));
+    context = {
       input: { rootDir, now: () => "2026-09-13T00:01:00.000Z" },
       requiredRuntimeProjection: () => ({
         readRuntimeSession(id: string) {
@@ -315,7 +254,16 @@ test("adoption reports completed restores independently of a pending or failed s
             ) ?? null
           );
         },
-        readDispatchLifecycle: emptyDispatchLifecycleRead,
+        readDispatchLifecycle: async (query) => {
+          if (query.by === "active") return lifecycleReadFor(lifecycleEntries)(query);
+          const dispatchIndex = query.by === "dispatch" ? dispatchIds.indexOf(query.dispatchIds[0]!) : -1;
+          if (dispatchIndex === 1) {
+            secondStarted.resolve();
+            await pending.promise;
+          }
+          if (dispatchIndex === 2) throw new Error("settlement stalled");
+          return lifecycleReadFor(lifecycleEntries)(query);
+        },
         readRuntimeSessions: () => sessions,
         readRuntimeDispatch: (id: string) => ({
           source: "local",
@@ -326,17 +274,9 @@ test("adoption reports completed restores independently of a pending or failed s
       }),
       processes: new Map(),
       exiting: new Set<string>(),
-      consumeLine: async () => undefined,
-      publishExit: async (active: { runtimeSessionId: string }) => {
-        if (active.runtimeSessionId === sessions[1]!.runtimeSessionId) {
-          secondStarted.resolve();
-          await pending.promise;
-        }
-        if (active.runtimeSessionId === sessions[2]!.runtimeSessionId) throw new Error("settlement stalled");
-        context.processes.delete(active.runtimeSessionId);
-      },
-    };
-    const adopting = adoptRuntimes(context as never, (completed) => progress.push(completed));
+      publishRuntimeEvent: async () => ({}),
+    } as unknown as RuntimeSpawnerContext;
+    const adopting = adoptRuntimes(context, (completed) => progress.push(completed));
     await secondStarted.promise;
     pending.resolve();
     assert.deepEqual(
@@ -346,6 +286,7 @@ test("adoption reports completed restores independently of a pending or failed s
     assert.deepEqual(progress, [1, 2]);
   } finally {
     pending.resolve();
+    if (context) closeRuntimes(context);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

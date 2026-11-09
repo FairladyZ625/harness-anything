@@ -4,10 +4,14 @@ import path from "node:path";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import { canonicalEventEntityRefs } from "@harness-anything/kernel";
-import type { CanonicalEventStore, CanonicalEventV1, TaskProjection } from "@harness-anything/kernel";
+import {
+  DISPATCH_LIFECYCLE_PAGE_LIMIT,
+  type CanonicalEventStore,
+  type CanonicalEventV1,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { canonicalEventContentClaims } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { entityKindContracts } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
-import { runtimeSessionIsRunning } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection.ts";
 import { StorageMigrationError, type MigrationTuple } from "./types.ts";
 import { assertMigrationValue } from "./manifest.ts";
@@ -149,8 +153,8 @@ export async function auditMigrationProjection(
   sqliteActual = false,
 ): Promise<unknown> {
   return withMigrationProjection(repoId, tuple, async (expected) => {
-    const sessions = expected.readRuntimeSessions();
-    if (sessions.some((session) => runtimeSessionIsRunning(session) || session.liveness === "live"))
+    const lifecycle = expected.readDispatchLifecycle({ by: "active", limit: DISPATCH_LIFECYCLE_PAGE_LIMIT });
+    if (lifecycle.status !== "ready" || lifecycle.rows.length > 0)
       throw new StorageMigrationError("storage_migration_runtime_active", "in-flight runtime prevents freezing");
     for (const { taskId } of expected.readTaskStatuses().rows) {
       const lease = expected.currentLease(taskId);

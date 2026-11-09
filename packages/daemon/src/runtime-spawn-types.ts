@@ -48,7 +48,16 @@ export interface RuntimeProcess {
   readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
   readonly onErrorOutput: (listener: (chunk: string) => void) => void;
   /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
-  readonly onExit: (listener: (code: number | null, lossReason?: string) => void) => void;
+  readonly onExit: (
+    listener: (
+      code: number | null,
+      lossReason?: string,
+      processObservation?: Extract<
+        AgentRuntimeEventV1,
+        { readonly type: "runtime_session_liveness_changed" }
+      >["payload"],
+    ) => void,
+  ) => void;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
   /** Live descendants of this runtime's root process, excluding the root itself. The probe

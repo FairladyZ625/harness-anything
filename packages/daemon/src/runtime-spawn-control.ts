@@ -102,7 +102,7 @@ export async function cancelRuntime(
     ]);
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
-  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
+  if (!missingOwnedProcess) await assertRuntimeRecoveryReady(context, runtimeSessionId);
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
@@ -349,11 +349,11 @@ export async function steerRuntime(
         : runtimeSpawnError(code, message);
   if (!header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
     throw refuse("execution_scope_mismatch", "This runtime is owned by another node.");
-  assertRuntimeRecoveryReady(context, runtimeSessionId);
+  await assertRuntimeRecoveryReady(context, runtimeSessionId);
   let active = context.processes.get(runtimeSessionId);
   if (!active) {
     await adoptRuntimes(context, undefined, { runtimeSessionId });
-    assertRuntimeRecoveryReady(context, runtimeSessionId);
+    await assertRuntimeRecoveryReady(context, runtimeSessionId);
     active = context.processes.get(runtimeSessionId);
   }
   // No await from here to the append: the comparison and the write are one section of the writer.

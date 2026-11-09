@@ -35,6 +35,7 @@ import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 import { adoptNativeProcess, terminateRuntimeTree } from "../src/runtime-spawn-process.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
 import { getExecutableEntityAction, MIGRATION_IMPORT_SOURCE } from "@harness-anything/kernel";
 
@@ -472,6 +473,14 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
               outcome: null,
             },
           ],
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: "runtime_777777777777777777777777",
+              dispatchId,
+              instanceId: "instance-1",
+              process: "alive",
+            },
+          ]),
         }),
         processes: adopted,
         exiting: new Set<string>(),
@@ -653,6 +662,9 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
             readRuntimeSessions: async () => [
               { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
             ],
+            readDispatchLifecycle: lifecycleReadFor([
+              { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "node:node-a", process: "alive" },
+            ]),
           },
         },
         processes: adopted,
@@ -706,6 +718,9 @@ test("runtime cancel settles a live projection whose recorded process already ex
           readRuntimeSessions: () => [
             { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
           ],
+          readDispatchLifecycle: lifecycleReadFor([
+            { runtimeSessionId, dispatchId, instanceId: "instance-1", process: "exited" },
+          ]),
         }),
         processes: new Map(),
         exiting: new Set<string>(),

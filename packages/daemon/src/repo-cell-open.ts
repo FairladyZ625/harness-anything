@@ -36,7 +36,6 @@ import {
   type AgentRuntimeNativeSignal,
   type AgentRuntimeStreamHub,
 } from "./agent-runtime-stream.ts";
-import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import {
   pruneDispatchStreamArchive,
   readFactEvidenceSources,
@@ -202,15 +201,17 @@ export async function openRepoWriterCell(
   const readSession = (runtimeSessionId: string) => readObservedRuntimeSession(projection, rootDir, runtimeSessionId);
   const workerRuntimeStream = makeAgentRuntimeStreamHub({
       readSession,
-      canAttach: (session) =>
-        session.liveness !== "exited" &&
-        (() => {
-          const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-          return dispatch
-            ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
-            : false;
-        })() &&
-        Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
+      canAttach: (session) => {
+        const lifecycle = projection.readDispatchLifecycle({
+          by: "session",
+          runtimeSessionId: session.runtimeSessionId,
+        });
+        return (
+          lifecycle.status === "ready" &&
+          lifecycle.rows.some(({ attempt, policy }) => !policy.attemptSettled && attempt.process === "alive") &&
+          Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach"))
+        );
+      },
       now: () => new Date(now()),
     }),
     runtimeStream: AgentRuntimeStreamHub = {

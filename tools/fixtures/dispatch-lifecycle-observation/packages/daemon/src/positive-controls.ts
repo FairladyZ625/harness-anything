@@ -10,10 +10,13 @@ export function terminalFromProcessLost(summary: { readonly process_lost: boolea
   return { terminal: summary.process_lost };
 }
 
-export function observeProcess(summary: { readonly pid: number }) {
+export function observeProcess(summary: { readonly pid: number; readonly runtimeSessionId: string }) {
   return submitLifecycleEvent({
-    type: "process_observed",
-    processAlive: runtimePidIsAlive(summary.pid),
+    type: "runtime_session_liveness_changed",
+    payload: {
+      runtimeSessionId: summary.runtimeSessionId,
+      liveness: runtimePidIsAlive(summary.pid) ? "live" : "unknown",
+    },
   });
 }
 
@@ -24,4 +27,11 @@ export function capacityFromLocalTables(
   if (processes.has(session.runtimeSessionId)) return true;
   if (session.fallbackState === "scheduled") return false;
   return session.liveness === "live";
+}
+
+export function adoptionFromProcessTable(
+  processes: ReadonlyMap<string, unknown>,
+  session: { readonly runtimeSessionId: string },
+) {
+  return processes.has(session.runtimeSessionId);
 }

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { TaskProjection } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { readRuntimeSessionActivityEvidence, readTaskDispatchRow, taskDispatchRowSettled } from "./dispatch-read.ts";
+import { readTaskDispatchRow } from "./dispatch-read.ts";
+import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 
@@ -16,9 +17,6 @@ export interface TaskDispatchRecoveryFence {
   readonly executionId: string;
   readonly expectedVersion: number | null;
 }
-
-/** Statuses a stopped worker can be recovered from; every other status is live or not yet known. */
-const RECOVERABLE_SOURCE_STATUSES = new Set(["stopped", "blocked", "failed", "cancelled"]);
 
 /** The deterministic dispatch identity the spawner derives from a dispatch key. */
 export function runtimeDispatchIdentity(
@@ -84,24 +82,17 @@ type DispatchEvent = NonNullable<ReturnType<TaskProjection["readRuntimeDispatchB
 
 /** Whether a dispatch still runs, and whether it reached a settled verdict a recovery may replace. */
 function sourceVerdict(
-  input: Pick<Parameters<typeof admitTaskDispatch>[0], "projection" | "rootDir" | "ownsLiveProcess">,
+  input: Pick<Parameters<typeof admitTaskDispatch>[0], "projection" | "rootDir">,
   source: DispatchEvent,
 ) {
   const row = readTaskDispatchRow(input.projection, source, { rootDir: input.rootDir }),
-    liveness = input.projection.readRuntimeSession(source.payload.runtimeSessionId)?.liveness ?? null,
-    live =
-      liveness === "live" ||
-      input.ownsLiveProcess(source.payload.runtimeSessionId) ||
-      readRuntimeSessionActivityEvidence(input.rootDir, source.payload.dispatchId)?.workerHostAlive === true;
+    lifecycle = input.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [source.payload.dispatchId] });
+  if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, runtimeSpawnError);
+  const view = lifecycle.rows[0];
   return {
     row,
-    liveness,
-    live,
-    recoverable:
-      !live &&
-      row.outcome !== null &&
-      RECOVERABLE_SOURCE_STATUSES.has(row.status) &&
-      taskDispatchRowSettled(row, [row.dispatchId]),
+    view,
+    recoverable: view?.policy.canRecover === true,
   };
 }
 
@@ -131,7 +122,6 @@ export function admitTaskDispatch(input: {
   readonly rootDir: string;
   readonly projection: TaskProjection;
   readonly payload: JsonObject;
-  readonly ownsLiveProcess: (runtimeSessionId: string) => boolean;
 }): TaskDispatchAdmission {
   const { recovery: rawFence, ...payload } = input.payload,
     taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null;
@@ -257,18 +247,13 @@ export function admitTaskDispatch(input: {
       sourceDispatchId: source.payload.dispatchId,
       sourceStatus: verdict.row.status,
       sourceOutcome: verdict.row.outcome,
-      sourceLiveness: verdict.liveness,
+      sourcePhase: verdict.view?.attempt.phase ?? null,
+      sourceProcess: verdict.view?.attempt.process ?? null,
     };
-  if (verdict.live)
-    refuse(
-      "dispatch_recovery_source_live",
-      `Dispatch ${source.payload.dispatchId} still has a live runtime; cancel it before recovering.`,
-      sourceState,
-    );
   if (!verdict.recoverable)
     refuse(
       "dispatch_recovery_source_unsettled",
-      `Dispatch ${source.payload.dispatchId} has no settled stopped/blocked/failed/cancelled verdict.`,
+      `Dispatch ${source.payload.dispatchId} is not recoverable according to the dispatch lifecycle.`,
       sourceState,
     );
   const latest = implementationDispatches(input.projection, taskId, fence.executionId).at(-1),

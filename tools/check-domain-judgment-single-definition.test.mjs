@@ -270,11 +270,13 @@ test("dispatch observation ratchet rejects admission and terminal judgments but 
     "capacityFromLocalTables:fallback-state-branch",
     "capacityFromLocalTables:liveness-comparison",
     "capacityFromLocalTables:process-table-probe",
+    "adoptionFromProcessTable:process-table-probe",
     "terminalFromProcessLost:process-lost-terminal-return",
   ]);
-  // observeProcess reads the same PID fact but only submits a process_observed event: no finding.
+  // observeProcess reads the PID fact into the existing lifecycle event: no finding.
   assert.ok(!sites.some(({ symbol }) => symbol === "observeProcess"));
-  assert.equal(findings.length, 5);
+  assert.equal(findings.length, 6);
+  assert.ok(findings.some((finding) => finding.includes("adoptionFromProcessTable")));
   assert.ok(findings.every((finding) => finding.includes("new ")));
 });
 

@@ -6,8 +6,9 @@ import { admitHandoffDispatch } from "../src/runtime-handoff-store.ts";
 import { assertNativeResumeNotExported } from "../src/runtime-resume-admission.ts";
 import { resolveRuntimeDispatchResources } from "../src/runtime-spawn-allowlist.ts";
 import type { RuntimeSessionSelection, RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
-const settledHistory = 2000;
+const settledHistory = 12_995;
 
 /** A long settled history with three unsettled sessions; every read reports the rows it returned. */
 function sessionHistory() {
@@ -48,6 +49,22 @@ function sessionHistory() {
     },
   );
   const reads: { readonly query: RuntimeSessionReadQuery | undefined; readonly returned: number }[] = [];
+  const events = [
+    lifecycleEvent("R", "runtime-open-a", {
+      instanceId: "instance-a",
+      source: "local",
+    }),
+    lifecycleEvent("S", "runtime-open-a", { instanceId: "instance-a", source: "local" }),
+    lifecycleEvent("R", "runtime-open-b", { instanceId: "instance-b", source: "local" }),
+    lifecycleEvent("R", "runtime-open-c", { instanceId: "instance-a", source: "local" }),
+    lifecycleEvent("S", "runtime-open-c", { instanceId: "instance-a", source: "local" }),
+  ];
+  const lifecycleQueries: import("@harness-anything/kernel").DispatchLifecycleQuery[] = [],
+    readDispatchLifecycle = dispatchLifecycleReadOf(() => events),
+    trackedDispatchLifecycleRead = (query: import("@harness-anything/kernel").DispatchLifecycleQuery) => {
+      lifecycleQueries.push(query);
+      return readDispatchLifecycle(query);
+    };
   const readRuntimeSessions = (query?: RuntimeSessionReadQuery) => {
     const result = rows
       .filter(
@@ -59,75 +76,65 @@ function sessionHistory() {
     reads.push({ query, returned: result.length });
     return result;
   };
-  return { reads, readRuntimeSessions };
+  return { reads, readRuntimeSessions, lifecycleQueries, readDispatchLifecycle: trackedDispatchLifecycleRead };
 }
 
 const projectionOf = (history: ReturnType<typeof sessionHistory>) =>
   ({
     readRuntimeSessions: history.readRuntimeSessions,
+    readDispatchLifecycle: history.readDispatchLifecycle,
     readRuntimeDispatch: () => null,
     getEntity: () => ({ value: { runtime: { allowedInstances: ["instance-a", "instance-b"] } } }),
   }) as unknown as TaskProjection;
 
-test("dispatch reads the unsettled set, not the settled history", async () => {
+test("dispatch reads active lifecycle pages, not the 12,995-session history", async () => {
   const history = sessionHistory();
-  const [local, , allowed] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history), new Map());
+  const [local, , allowed] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history));
   assert.deepEqual(allowed, ["instance-a", "instance-b"]);
   assert.deepEqual(
     local.map(({ runtimeSessionId }) => runtimeSessionId),
     ["runtime-open-a", "runtime-open-b", "runtime-open-c"],
   );
   assert.equal(local.length, 3);
-  assert.equal(
-    history.reads.reduce((sum, read) => sum + read.returned, 0),
-    3,
-    `rows read: ${JSON.stringify(history.reads)}`,
-  );
+  assert.deepEqual(history.reads, []);
+  assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
 });
 
 test("a resume additionally point-reads its native session, settled or not, in id order", async () => {
   const history = sessionHistory();
-  const [local] = await resolveRuntimeDispatchResources(
-    {},
-    undefined,
-    projectionOf(history),
-    new Map(),
-    "native-resumed",
-  );
+  const [local] = await resolveRuntimeDispatchResources({}, undefined, projectionOf(history), "native-resumed");
   // Same order the full history read produced, so `find(providerSessionId)` picks the same row.
   assert.deepEqual(
     local.map(({ runtimeSessionId }) => runtimeSessionId),
     ["runtime-open-a", "runtime-open-b", "runtime-open-c", "runtime-settled-00007"],
   );
   assert.equal(local.find((row) => row.providerSessionId === "native-resumed")?.runtimeSessionId, "runtime-open-c");
-  // The settled row keeps its canonical liveness; unsettled rows follow the local process map.
+  // The session point read contributes resume metadata; active load comes from the lifecycle view.
   assert.deepEqual(
     local.map(({ liveness }) => liveness),
-    ["unknown", "unknown", "unknown", "exited"],
+    ["live", "unknown", "live", "exited"],
   );
-  assert.ok(
-    history.reads.every((read) => read.query !== undefined) &&
-      history.reads.reduce((sum, read) => sum + read.returned, 0) === 3 + 2,
-    `rows read: ${JSON.stringify(history.reads)}`,
-  );
+  assert.deepEqual(history.reads, [{ query: { providerSessionId: "native-resumed" }, returned: 2 }]);
+  assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
 });
 
 test("remote dispatch sends the same bounded queries to its replica", async () => {
   const history = sessionHistory();
   const [local] = await resolveRuntimeDispatchResources(
     {},
-    { readRuntimeSessions: async (query) => history.readRuntimeSessions(query) } as NonNullable<
-      RuntimeSpawnerInput["remote"]
-    >,
+    {
+      readRuntimeSessions: async (query) => history.readRuntimeSessions(query),
+      readDispatchLifecycle: history.readDispatchLifecycle,
+    } as NonNullable<RuntimeSpawnerInput["remote"]>,
     null,
-    new Map(),
     "native-resumed",
   );
   assert.equal(local.length, 4);
   assert.deepEqual(
     history.reads.map(({ query }) => query),
-    [{ unsettledOnly: true }, { providerSessionId: "native-resumed" }],
+    [{ providerSessionId: "native-resumed" }],
   );
+  assert.deepEqual(history.lifecycleQueries, [{ by: "active", limit: 100 }]);
 });
 
 test("native resume export checks read only the named provider session", () => {

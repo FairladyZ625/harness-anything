@@ -241,22 +241,21 @@ export function scanDispatchLifecycleObservationSites(root = process.cwd()) {
         ts.isCallExpression(node) &&
         ts.isIdentifier(node.expression) &&
         node.expression.text === "runtimePidIsAlive" &&
-        !insideProcessObservedPayload(node)
+        !insideDispatchObservationPayload(node)
       )
         add(judgmentContextNode(node), enclosingSymbol(node), "runtimePidIsAlive");
       if (
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression) &&
         ["has", "get"].includes(node.expression.name.text) &&
-        trailingName(node.expression.expression) === "processes" &&
-        !insideProcessObservedPayload(node)
+        trailingName(node.expression.expression) === "processes"
       )
         add(judgmentContextNode(node), enclosingSymbol(node), "process-table-probe");
       if (ts.isBinaryExpression(node) && equalityOperators.has(node.operatorToken.kind)) {
         const names = [trailingName(node.left), trailingName(node.right)];
-        if (names.includes("liveness") && !insideProcessObservedPayload(node))
+        if (names.includes("liveness") && !insideDispatchObservationPayload(node))
           add(judgmentContextNode(node), enclosingSymbol(node), "liveness-comparison");
-        if (names.includes("fallbackState") && !insideProcessObservedPayload(node))
+        if (names.includes("fallbackState") && !insideDispatchObservationPayload(node))
           add(judgmentContextNode(node), enclosingSymbol(node), "fallback-state-branch");
       }
       if (ts.isReturnStatement(node) && node.expression) {
@@ -328,21 +327,26 @@ function readPreviousDispatchObservationEntries(root) {
   return observationEntries(previous) ?? [];
 }
 
-function insideProcessObservedPayload(node) {
+function insideDispatchObservationPayload(node) {
   for (let parent = node.parent; parent; parent = parent.parent) {
     if (ts.isObjectLiteralExpression(parent)) {
       const type = parent.properties.find(
         (property) =>
           ts.isPropertyAssignment(property) &&
           propertyName(property.name) === "type" &&
-          ts.isStringLiteralLike(property.initializer),
+          stringLiteralValue(property.initializer) !== null,
       );
-      if (type && ts.isPropertyAssignment(type) && ts.isStringLiteralLike(type.initializer))
-        return type.initializer.text === "process_observed";
+      if (type && ts.isPropertyAssignment(type))
+        return stringLiteralValue(type.initializer) === "runtime_session_liveness_changed";
     }
     if (ts.isFunctionLike(parent)) return false;
   }
   return false;
+}
+
+function stringLiteralValue(node) {
+  if (ts.isStringLiteralLike(node)) return node.text;
+  return ts.isAsExpression(node) && ts.isStringLiteralLike(node.expression) ? node.expression.text : null;
 }
 
 const equalityOperators = new Set([

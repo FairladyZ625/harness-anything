@@ -10,12 +10,19 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import {
   appendRuntimeWorkerRecord,
   dispatchStreamPath,
+  readDispatchStreamHeader,
   readDispatchStreamSummary,
   readRuntimeWorkerChunk,
   scrubProviderValue,
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
+
+type RuntimeProcessObservation = Extract<
+  AgentRuntimeEventV1,
+  { readonly type: "runtime_session_liveness_changed" }
+>["payload"];
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { childProcessErrorCode, terminateRuntimePid, terminateRuntimeProcess } from "./runtime-process-signals.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
@@ -557,7 +564,9 @@ function observeDispatchProcess(
   pid: number,
   skipPersistedOutputRecords = 0,
 ): RuntimeProcess {
-  const stream = dispatchStreamPath(rootDir, dispatchId);
+  const stream = dispatchStreamPath(rootDir, dispatchId),
+    runtimeSessionId = readDispatchStreamHeader(rootDir, dispatchId)?.runtimeSessionId;
+  if (!runtimeSessionId) throw new Error(`runtime dispatch ${dispatchId} has no session identity`);
   const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
   const errors: string[] = [];
   const decoder = new StringDecoder("utf8");
@@ -566,9 +575,11 @@ function observeDispatchProcess(
   let buffer = "";
   let outputListener: ((chunk: string, persisted?: boolean) => void) | null = null;
   let errorListener: ((chunk: string) => void) | null = null;
-  let exitListener: ((code: number | null, lossReason?: string) => void) | null = null;
+  let exitListener:
+    | ((code: number | null, lossReason?: string, observation?: RuntimeProcessObservation) => void)
+    | null = null;
   let exitCode: number | null = null;
-  let lossReason: string | undefined;
+  let lossReason: string | undefined, processObservation: RuntimeProcessObservation | undefined;
   let exited = false;
   let released = false;
   const emitOutput = (chunk: string): void => {
@@ -579,24 +590,28 @@ function observeDispatchProcess(
     if (errorListener) errorListener(chunk);
     else errors.push(chunk);
   };
-  const emitExit = (code: number | null, reason?: string): void => {
+  const emitExit = (code: number | null, reason?: string, observation?: RuntimeProcessObservation): void => {
     if (exited) return;
     exited = true;
     exitCode = code;
     lossReason = reason;
+    processObservation = observation;
     // Exit or process loss follows the last persisted provider line. Stop here, not in release(), which settlement
     // skips on its early return, on a throw, and behind the writer-thread proxy.
     clearInterval(timer);
-    if (exitListener) exitListener(code, lossReason);
+    if (exitListener) exitListener(code, lossReason, processObservation);
   };
   const drain = (): void => {
     if (released || exited) return;
     try {
-      // Probe before reading: a dead host cannot append a final process_exit after this read.
-      const alive = runtimePidIsAlive(pid);
+      let processAlive = false;
+      const livenessObservation: RuntimeProcessObservation = {
+        runtimeSessionId,
+        liveness: (processAlive = runtimePidIsAlive(pid)) ? "live" : "unknown",
+      };
       const bytes = readRuntimeWorkerChunk(stream, offset);
       if (bytes.length === 0) {
-        if (!alive) {
+        if (!processAlive) {
           const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
           appendRuntimeWorkerRecord(rootDir, dispatchId, {
             kind: "process_lost",
@@ -606,7 +621,7 @@ function observeDispatchProcess(
             signal: null,
           });
           removeRuntimeCallbackRelay(dispatchId);
-          emitExit(null, reason);
+          emitExit(null, reason, { ...livenessObservation, processGroupPid: pid });
         }
         return;
       }
@@ -624,7 +639,7 @@ function observeDispatchProcess(
           else emitOutput(`${String(record.output)}\n`);
         } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
         else if (record?.kind === "process_lost") {
-          emitExit(null, String(record.reason));
+          emitExit(null, String(record.reason), { runtimeSessionId, liveness: "unknown", processGroupPid: pid });
           return;
         } else if (record?.kind === "process_exit") {
           const signal = typeof record.signal === "string" ? record.signal : null;
@@ -654,7 +669,7 @@ function observeDispatchProcess(
     },
     onExit: (listener) => {
       exitListener = listener;
-      if (exited) queueMicrotask(() => listener(exitCode, lossReason));
+      if (exited) queueMicrotask(() => listener(exitCode, lossReason, processObservation));
     },
     terminate: () => {
       requestProcessGroupStop({ pid, dispatch: { rootDir, dispatchId } });

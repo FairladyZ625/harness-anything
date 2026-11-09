@@ -7,6 +7,7 @@ import test from "node:test";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 for (const state of ["dead", "alive", "foreign", "fallback"] as const) {
   test(`terminal archive reconciliation is idempotent and preserves ${state} ownership`, async (t) => {
@@ -53,6 +54,15 @@ for (const state of ["dead", "alive", "foreign", "fallback"] as const) {
           source: state === "foreign" ? { kind: "node", nodeId: "other" } : "local",
           payload: { dispatchId },
         }),
+        readDispatchLifecycle: lifecycleReadFor([
+          {
+            runtimeSessionId,
+            dispatchId,
+            instanceId: "instance",
+            attemptSettled: true,
+            groupSettled: true,
+          },
+        ]),
       }),
       publishExit: () => {
         throw new Error("canonical terminal must not settle the task again");
