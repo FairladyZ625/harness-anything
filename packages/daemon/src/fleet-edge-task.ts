@@ -295,11 +295,6 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
   return paths.size === 1 ? [...paths][0]! : null;
 }
 
-/** Repository read declarations that the edge answers from its own replica cell. */
-export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
-  return commandDescriptorForAction(action.kind).admission["remote-edge"] === "edge-replica";
-}
-
 /** A repository read on an edge: answered by the host's edge cell after this edge's own writes land. */
 export async function runFleetEdgeRepositoryRead(
   input: { readonly rootDir: string; readonly repoId: string; readonly action: FleetTaskAction },

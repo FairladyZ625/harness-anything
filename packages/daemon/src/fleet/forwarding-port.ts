@@ -1,4 +1,5 @@
 import { getExecutableEntityAction, readDaemonRegistry, type IdentitySessionPort } from "@harness-anything/kernel";
+import path from "node:path";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
@@ -51,6 +52,8 @@ export async function forward(input: {
     return input.runRuntime(
       {
         ...config,
+        caPath: path.resolve(workspaceRoot, config.caPath),
+        viewRoot: path.resolve(workspaceRoot, config.viewRoot),
         workspaceRoot,
         method: scheduleAction ? "repo.schedule.run" : "repo.squad.control",
         action: { ...runtimeAction, kind: action.kind } as JsonObject,
