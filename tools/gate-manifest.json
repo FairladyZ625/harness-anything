@@ -2331,17 +2331,20 @@
       "localPathGlobs": [
         "packages/**",
         "tools/check-task-event-aggregate-entry.mjs",
-        "tools/gate-allowlists/task-event-aggregate-entry.mjs"
+        "tools/gate-allowlists/aggregate-event-construction-baseline.mjs"
       ],
       "authoritySource": [
-        "packages/kernel/src/domain/task-lifecycle.contract.ts#TASK_LIFECYCLE_TRANSITIONS",
+        "packages/kernel/src/domain/doc-sync-canonical-events.ts#canonicalEventSchemas.owner",
+        "packages/kernel/src/domain/entity-state-stores.ts#stateStores.medium.writers",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
+        "decision/dec_499E4E98A3D4754132B3BCA1E6#CH1",
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u94c1\u5f8b\u4e00--\u4efb\u4f55\u8de8\u72b6\u6001\u4fee\u6539\u5fc5\u987b\u7ecf\u8fc7\u805a\u5408\u5165\u53e3",
         "task_9178bc1dd384c27084b2a9ab79"
       ],
       "consumerScope": [
-        "production packages/**/src task_* event construction sites",
-        "task-event/v1 constructors with dynamically selected event types"
+        "production packages/**/src construction sites for every registered canonical event schema",
+        "schema+type object literals, dynamic event types, and *Envelope constructors",
+        "bare event-type literals whose vocabulary is declared by a canonical-event state store"
       ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
@@ -2350,16 +2353,16 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/gate-allowlists/task-event-aggregate-entry.mjs#TASK_EVENT_CONSTRUCTION_ALLOWLIST",
+        "location": "tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE",
         "adrOrDecisionRequired": true,
-        "notes": "Ratchet per dec_399F48E3547D831F1199F51E84 CH1: existing task_* construction sites are tolerated at their recorded counts; any new site or additional constructor requires an explicit governance decision."
+        "notes": "Ratchet per dec_399F48E3547D831F1199F51E84 CH1 and dec_499E4E98A3D4754132B3BCA1E6 CH1: a construction site is authorized by the owning kind's declared state-store writers; legacy sites outside those writers are tolerated only at the recorded only-decrease counts. Any new site or additional constructor requires an explicit governance decision."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-task-event-aggregate-entry.mjs",
-          "tools/gate-allowlists/task-event-aggregate-entry.mjs",
+          "tools/gate-allowlists/aggregate-event-construction-baseline.mjs",
           "package.json:scripts.harness:check-task-event-aggregate-entry",
           "tools/gate-manifest.json"
         ]
@@ -4135,30 +4138,35 @@
       "tier": "pr-required",
       "tierReason": null,
       "localPathGlobs": [
-        "packages/kernel/src/domain/**",
-        "packages/gui/src/renderer/model/types.ts",
-        "packages/gui/src/renderer/triadic-data.ts",
-        "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
+        "packages/kernel/src/**",
+        "packages/gui/src/**",
+        "packages/daemon/src/**",
+        "packages/application/src/**",
+        "packages/cli/src/**",
+        "packages/storage/src/**",
+        "packages/preset/src/**",
+        "packages/authorization-builtin/src/**",
+        "packages/authorization-keycloak/src/**",
+        "packages/authorization-gui/src/**",
         "tools/check-status-vocabulary.mjs",
         "tools/generate-daemon-status-vocabulary.mjs",
         "tools/check-status-vocabulary.test.mjs",
-        "tools/fixtures/status-vocabulary-authored-document/**",
-        "packages/daemon/src/**",
-        "packages/application/src/**",
-        "packages/cli/src/**"
+        "tools/gate-allowlists/status-vocabulary-baseline.mjs"
       ],
       "authoritySource": [
         "packages/kernel/src/domain/status-vocabulary.ts",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
         "harness/adr/ADR-0020-decision-entity-adr-boundary.md#d1--decision-\u662f\u627f\u91cd\u9009\u62e9\u7684\u552f\u4e00\u7ed3\u6784\u5316-sot",
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u94c1\u5f8b\u56db--\u4e00\u4e2a\u8bcd\u53ea\u80fd\u6307\u4e00\u4ef6\u4e8b",
-        "decision/dec_6B912A63D279A922FA1288536D#CH2"
+        "decision/dec_6B912A63D279A922FA1288536D#CH2",
+        "decision/dec_499E4E98A3D4754132B3BCA1E6#CH1"
       ],
       "consumerScope": [
-        "kernel domain status vocabularies (every word declared in packages/kernel/src/domain)",
-        "GUI renderer model mirrors of kernel status vocabularies (SnapshotStatus, DecisionState, CanonicalStatus, PackageDisposition)",
+        "status vocabularies declared anywhere in packages/*/src (named literal-union types, named const arrays, and registered inline field unions)",
+        "registered GUI renderer mirrors of kernel status vocabularies and GUI view-local unions",
         "the GUI decision adapter unknown fallback (triadic-data.ts decisionState)",
-        "authored-document readiness, candidate, and replica sync vocabularies declared in daemon, application, and CLI production sources"
+        "every registered ownerStore vocabulary resolving to a declared kernel state store (dec_499E4E98A3D4754132B3BCA1E6 CH1)",
+        "the shrink-only frozen baseline of not-yet-owned declarations (tools/gate-allowlists/status-vocabulary-baseline.mjs)"
       ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
@@ -4166,10 +4174,10 @@
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "Ratchet per dec_399F48E3547D831F1199F51E84 CH1: existing status words are grandfathered through the register itself; a new status word or vocabulary must be registered with its meaning, and mirrors must equal their kernel source. No allowlist."
+        "allowed": true,
+        "location": "tools/gate-allowlists/status-vocabulary-baseline.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Shrink-only frozen baseline per dec_499E4E98A3D4754132B3BCA1E6 CH1: a baselined declaration is not-owned-yet, its words are frozen, and registering the anchor makes the entry stale (the gate refuses it until deleted). New unregistered declarations are never accepted by editing the baseline."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -4202,7 +4210,7 @@
         "status": "covered",
         "evidence": [
           "tools/check-status-vocabulary.test.mjs",
-          "tools/fixtures/status-vocabulary-authored-document/packages/daemon/src/fleet/edge-doc-candidate.ts"
+          "tools/gate-allowlists/status-vocabulary-baseline.mjs"
         ]
       }
     },

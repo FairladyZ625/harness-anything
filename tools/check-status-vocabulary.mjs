@@ -4,47 +4,56 @@
  *
  * Authorization: dec_399F48E3547D831F1199F51E84 CH1 (add ratchet gates only —
  * existing words are grandfathered through the register, new unregistered ones
- * are refused).
+ * are refused); dec_499E4E98A3D4754132B3BCA1E6 CH1 (every persistent status
+ * signal must resolve to a declared state store).
  *
  * The gate judges real declarations, not prose:
  *   1. The register (packages/kernel/src/domain/status-vocabulary.ts) is
  *      well-formed: every row carries a meaning, divergent words carry a
- *      resolution, subsets stay inside their parent, mirrors match their source.
+ *      resolution, subsets stay inside their parent, mirrors match their source,
+ *      and a row carries at most one ownership form (mirrorOf / ownerStore /
+ *      scope: "view-local").
  *   2. Every kernel-domain status vocabulary bound to a runtime export equals the
  *      register exactly — the register and the kernel cannot drift apart.
- *   3. Every status-vocabulary declaration in packages/kernel/src/domain (named
- *      const arrays, literal-union type aliases, inline status-field unions) is
- *      registered with the same words — a new status word cannot appear
- *      unregistered, and a registered entry cannot go stale.
- *   4. The GUI model mirrors equal their kernel vocabularies (plus the explicit
+ *   3. Every status-vocabulary declaration in packages/*\/src (named const
+ *      arrays and literal-union type aliases) is registered with the same words;
+ *      every registered inline `readonly field:` union still exists with the
+ *      registered words. Declarations outside the kernel domain choose one of three forms:
+ *      mirrorOf (a generated/mirrored copy), ownerStore (a word set owned by a
+ *      declared state store), or scope: "view-local" (a GUI-local view type that
+ *      is never persisted or imported). Anything else is a shrink-only baseline
+ *      entry until its owner declares a store.
+ *   4. A view-local declaration is refused when it is exported, imported by
+ *      another module, or its file owns a persistent write.
+ *   5. A registered ownerStore resolves to exactly one declared state store and
+ *      that store lists the vocabulary in its `vocabulary` facet.
+ *   6. The GUI model mirrors equal their kernel vocabularies (plus the explicit
  *      `unknown` where the GUI convention adds it), and the unknown fallback
  *      stays deleted: unrecognised decision states map to "unknown", never to a
  *      plausible neighbour.
- *   5. Authored-document vocabularies declared outside the kernel domain (daemon,
- *      application, CLI production sources) are registered too: a readiness,
- *      candidate, or replica sync word cannot be invented at an adapter
- *      (dec_6B912A63D279A922FA1288536D CH2).
+ *   7. Baseline entries are frozen: a baseline declaration whose words changed,
+ *      whose declaration disappeared, or whose anchor is now registered is
+ *      refused (the baseline only shrinks).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { daemonStatusVocabularyProjectionFinding } from "./generate-daemon-status-vocabulary.mjs";
+import {
+  statusVocabularyBaseline,
+  statusVocabularyUnownedRegister,
+} from "./gate-allowlists/status-vocabulary-baseline.mjs";
+import { entityKindContracts } from "../packages/kernel/src/domain/entity-kind-registry.ts";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
 const REGISTER = "../packages/kernel/src/domain/status-vocabulary.ts";
-const KERNEL_DOMAIN = "packages/kernel/src/domain";
-const GUI_MODEL = "packages/gui/src/renderer/model/types.ts";
+const PACKAGE_SCOPES = ["packages"];
 const GUI_ADAPTER = "packages/gui/src/renderer/triadic-data.ts";
-const DAEMON_PROTOCOL = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
-const DAEMON_MIRROR_CONST = /(?:Status|State|Phase|Disposition|Verdict|Outcome|Liveness)Words$/u;
+const STATUS_WORDS_SUFFIX = /(?:Status|State|Phase|Disposition|Verdict|Outcome|Liveness)Words$/u;
 const LOCAL_MIRROR_CONST =
-  /const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
-const LOCAL_MIRROR_ALIAS = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/gu;
-export const KERNEL_DECLARATION_SUFFIX =
-  /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses|Readiness)$/u;
-const STATUS_FIELD = /(?:status|state|phase|disposition|verdict|outcome|liveness)$/iu;
-const NAMED_CONST =
-  /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
+  /(export\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
+export const STATUS_DECLARATION_SUFFIX =
+  /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses|Readiness|Freshnesses|Freshness|Availabilities|Availability)$/u;
 // The `\|?` after the `=` accepts prettier's canonical multi-line union, which
 // leads with a pipe:
 //
@@ -59,46 +68,37 @@ const NAMED_CONST =
 // site — so the unregistered-vocabulary finding that enforces 铁律四 could not fire
 // on it at all. Found when prettier reformatted RuntimeSessionSemanticState in
 // packages/kernel/src/domain/agent-runtime.ts under task_2c909af2cae0b23abd1e34a2e2.
-const NAMED_TYPE = /export\s+type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\|?\s*("(?:[^"]*)"(?:\s*\|\s*"[^"]*")*)\s*;/gu;
-const INLINE_FIELD = /readonly\s+([A-Za-z_][A-Za-z0-9_]*)\??:\s*("[^"]+"(?:\s*\|\s*"[^"]+")+)/gu;
-const NAMED_TYPE_ANY_EXPORT =
-  /(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\|?\s*("(?:[^"]*)"(?:\s*\|\s*"[^"]*")*)\s*;/gu;
-export const AUTHORED_DOCUMENT_SCOPES = Object.freeze([
-  "packages/daemon/src",
-  "packages/application/src",
-  "packages/cli/src",
-]);
-// The authored-document families: content readiness, local candidate disposition, and replica sync
-// state. Names are matched by camelCase token, so `DoctorCheckStatus` or the fleet-wide
-// `ReplicaSyncPhase` stay outside the family while `DocCandidateState` and `#syncState` fall in.
-const AUTHORED_DOCUMENT_TOKENS = new Set(["doc", "document", "candidate", "readiness", "ready", "visibility", "plan"]);
-const AUTHORED_DOCUMENT_FIELDS = new Set(["#syncState"]);
-const AUTHORED_DOCUMENT_WORDS = new Set([
-  "ready",
-  "not_ready",
-  "complete",
-  "incomplete",
-  "authored",
-  "empty",
-  "candidate",
-  "synced",
-  "unsynced",
-  "awaiting_center",
-]);
-export function isAuthoredDocumentVocabulary(anchor, words = []) {
-  if (AUTHORED_DOCUMENT_FIELDS.has(anchor)) return true;
-  const tokens = anchor.replace(/^#/u, "").match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])/gu) ?? [];
-  if (tokens.some((token) => AUTHORED_DOCUMENT_TOKENS.has(token.toLowerCase()))) return true;
-  return /^(?:Status|State)$/u.test(anchor) && words.some((word) => AUTHORED_DOCUMENT_WORDS.has(word));
-}
+const STRING_LITERAL = String.raw`(?:"[^"]*"|'[^']*')`;
+const NAMED_TYPE = new RegExp(
+  String.raw`(export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\|?\s*(${STRING_LITERAL}(?:\s*\|\s*${STRING_LITERAL})*)\s*;`,
+  "gu",
+);
+const INLINE_FIELD = new RegExp(
+  String.raw`readonly\s+([A-Za-z_][A-Za-z0-9_]*)\??:\s*(${STRING_LITERAL}(?:\s*\|\s*${STRING_LITERAL})+)`,
+  "gu",
+);
+const STATUS_FIELD = /(?:status|state|phase|disposition|verdict|outcome|liveness)$/iu;
+const INLINE_CONTAINER = /(?:export\s+)?(?:default\s+)?(?:interface|type|class)\s+([A-Za-z_][A-Za-z0-9_]*)/gu;
+const EXPORTED_ALIAS = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/gu;
+const EXPORT_SPECIFIERS = /(?:^|\n)\s*export\s+(?:type\s+)?\{([^}]*)\}\s*(?:from\s*["']([^"']+)["'])?\s*;?/gu;
+const FS_IMPORT = /(?:^|\n)\s*import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']((?:node:)?fs(?:\/promises)?)["']/gu;
 const KERNEL_DECISION_FALLBACK = /function\s+decisionState\s*\([^)]*\)[^}]*return\s+"(?!unknown)[a-z_]+"/u;
+const IMPORT_FROM = /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?([\s\S]*?)\s+from\s+["']([^"']+)["']\s*;?/gu;
+// S1/S2 signals from the residue design: a file holding a persistent write cannot
+// also declare a view-local vocabulary.
+const PERSISTENT_WRITE =
+  /\b(?:writeFile|writeFileSync|appendFile|appendFileSync|rename|renameSync|copyFile|copyFileSync|createWriteStream)\s*\(|\bnew\s+DatabaseSync\s*\(|\bCREATE\s+(?:VIRTUAL\s+)?TABLE\b/u;
 
 function literalWords(fragment) {
-  return [...fragment.matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+  return [...fragment.matchAll(/"([^"]+)"|'([^']+)'/gu)].map((match) => match[1] ?? match[2]);
 }
 
 function sameWords(left, right) {
   return left.length === right.length && [...left].sort().join("\0") === [...right].sort().join("\0");
+}
+
+function declarationKey(module, anchor) {
+  return `${module}#${anchor}`;
 }
 
 export function checkRegisterShape({ statusVocabularies, statusWordRegister }, findings = []) {
@@ -110,6 +110,21 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
         findings.push(`statusVocabularies[${vocabulary.id ?? "?"}]: ${field} must be a non-empty string`);
       }
     }
+    const ownershipForms = [vocabulary.mirrorOf, vocabulary.ownerStore, vocabulary.scope].filter(
+      (value) => value !== undefined,
+    );
+    if (ownershipForms.length > 1) {
+      findings.push(`${vocabulary.id}: declare at most one ownership form (mirrorOf / ownerStore / scope)`);
+    }
+    if (vocabulary.scope !== undefined && vocabulary.scope !== "view-local") {
+      findings.push(`${vocabulary.id}: scope must be "view-local" when present`);
+    }
+    if (vocabulary.scope === "view-local" && !vocabulary.module.startsWith("packages/gui/")) {
+      findings.push(`${vocabulary.id}: view-local scope is only for GUI renderer declarations`);
+    }
+    if (vocabulary.ownerStore !== undefined && (typeof vocabulary.ownerStore !== "string" || !vocabulary.ownerStore)) {
+      findings.push(`${vocabulary.id}: ownerStore must be a non-empty state-store id`);
+    }
     if (
       !Array.isArray(vocabulary.words) ||
       vocabulary.words.length === 0 ||
@@ -117,7 +132,7 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
     ) {
       findings.push(`${vocabulary.id}: words must be a non-empty array of non-empty strings`);
     }
-    const anchorKey = `${vocabulary.module}#${vocabulary.anchor}`;
+    const anchorKey = declarationKey(vocabulary.module, vocabulary.anchor);
     if (anchors.has(anchorKey)) findings.push(`duplicate vocabulary anchor ${anchorKey}`);
     anchors.add(anchorKey);
   }
@@ -164,9 +179,9 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
     }
   }
   for (const vocabulary of statusVocabularies) {
-    // Mirrors reuse the mirrored vocabulary's words; their meanings are registered on
-    // the source entity, so mirror words do not need their own GuiAdapter rows.
-    if (vocabulary.mirrorOf !== undefined) continue;
+    // Mirrors reuse the mirrored vocabulary's words; view-local view types are not
+    // persistent state, so neither owns a register meaning of its own.
+    if (vocabulary.mirrorOf !== undefined || vocabulary.scope === "view-local") continue;
     for (const word of vocabulary.words) {
       const covered = statusWordRegister.some(
         (row) => row.word === word && row.entity === vocabulary.entity && row.field === vocabulary.field,
@@ -181,15 +196,105 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
   return findings;
 }
 
+/** Index every declared state store by id; a duplicate id is reported, never silently overwritten. */
+export function buildStateStoreIndex(contracts, findings = []) {
+  const byId = new Map();
+  for (const contract of contracts) {
+    for (const store of contract.stateStores ?? []) {
+      if (byId.has(store.id)) {
+        const owner = byId.get(store.id).kind;
+        findings.push(`state store ${store.id} is claimed by both ${owner} and ${contract.kind}`);
+        continue;
+      }
+      byId.set(store.id, { kind: contract.kind, store });
+    }
+  }
+  return { byId, findings };
+}
+
+export function checkOwnerStoreAgreement(register, stores, findings = []) {
+  const vocabularyById = new Map(register.statusVocabularies.map((vocabulary) => [vocabulary.id, vocabulary]));
+  for (const vocabulary of register.statusVocabularies) {
+    if (vocabulary.ownerStore === undefined) continue;
+    const declared = stores.get(vocabulary.ownerStore);
+    if (!declared) {
+      findings.push(
+        `${vocabulary.id}: ownerStore ${vocabulary.ownerStore} does not resolve to a declared state store (dec_499E4E98A3D4754132B3BCA1E6 CH1)`,
+      );
+    } else if (!declared.store.vocabulary.includes(vocabulary.id)) {
+      findings.push(
+        `${vocabulary.id}: state store ${vocabulary.ownerStore} does not list this vocabulary in its vocabulary facet`,
+      );
+    }
+  }
+  for (const [storeId, { store }] of stores) {
+    for (const vocabularyId of store.vocabulary) {
+      const vocabulary = vocabularyById.get(vocabularyId);
+      // Dangling store vocabulary ids are the registry facet's debt (slice 1); this
+      // gate only judges rows that exist in the status register.
+      if (!vocabulary) continue;
+      if (vocabulary.ownerStore !== storeId) {
+        findings.push(
+          `state store ${storeId} lists ${vocabularyId}, which declares ownerStore ${vocabulary.ownerStore ?? "(none)"}`,
+        );
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * Every status vocabulary declared outside the kernel domain must pick exactly one
+ * ownership form. Rows that predate this slice are frozen in
+ * statusVocabularyUnownedRegister; owning one later makes its entry stale.
+ */
+export function checkExternalOwnership(register, unownedBaseline = [], findings = []) {
+  const baselineById = new Map();
+  for (const entry of unownedBaseline) {
+    if (typeof entry.id !== "string" || !Array.isArray(entry.words)) {
+      findings.push(`unowned-register baseline entry ${entry.id ?? "?"} must carry an id and frozen words`);
+      continue;
+    }
+    if (baselineById.has(entry.id)) findings.push(`duplicate unowned-register baseline entry ${entry.id}`);
+    baselineById.set(entry.id, entry);
+  }
+  for (const vocabulary of register.statusVocabularies) {
+    if (vocabulary.module.startsWith("packages/kernel/src/domain/")) continue;
+    const forms = [vocabulary.mirrorOf, vocabulary.ownerStore, vocabulary.scope].filter((value) => value !== undefined);
+    const frozen = baselineById.get(vocabulary.id);
+    if (forms.length === 1) {
+      if (frozen)
+        findings.push(`${vocabulary.id}: external vocabulary is now owned — delete the unowned-register entry`);
+      continue;
+    }
+    if (!frozen) {
+      findings.push(
+        `${vocabulary.id}: external status vocabulary must declare mirrorOf, ownerStore, or scope: "view-local" (dec_499E4E98A3D4754132B3BCA1E6 CH1)`,
+      );
+      continue;
+    }
+    if (!sameWords(frozen.words, vocabulary.words)) {
+      findings.push(
+        `${vocabulary.id}: words [${vocabulary.words}] drifted from the unowned-register baseline [${frozen.words}]`,
+      );
+    }
+  }
+  const ids = new Set(register.statusVocabularies.map((vocabulary) => vocabulary.id));
+  for (const id of baselineById.keys()) {
+    if (!ids.has(id)) findings.push(`stale unowned-register baseline entry ${id} — the vocabulary no longer exists`);
+  }
+  return findings;
+}
+
 export function checkKernelVocabularyBijection(register, modulesByFile, sites, findings = []) {
   for (const vocabulary of register.statusVocabularies) {
-    if (!vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`) || vocabulary.anchor.startsWith("#")) continue;
+    if (!vocabulary.module.startsWith("packages/kernel/src/domain/") || vocabulary.anchor.startsWith("#")) continue;
     // Only runtime const vocabularies have an export to bijection-check; literal-union
     // type aliases are text-checked by the coverage scan.
     const site = sites.find(
       (candidate) => candidate.module === vocabulary.module && candidate.anchor === vocabulary.anchor,
     );
-    if (site?.kind !== "const") continue;
+    if (site?.kind !== "const" || !site.exported) continue;
     const module = modulesByFile.get(vocabulary.module);
     if (!module) {
       findings.push(`${vocabulary.id}: cannot import ${vocabulary.module}`);
@@ -211,111 +316,351 @@ export function checkKernelVocabularyBijection(register, modulesByFile, sites, f
   return findings;
 }
 
-export function collectKernelDeclarationSites(sourcesByFile, { exportedTypesOnly = true } = {}) {
+/**
+ * Collect every status-vocabulary declaration in the scanned production sources.
+ * Inline `readonly field: "a" | "b"` unions keep the pre-existing kernel/authored-
+ * document coverage: each one carries its enclosing named declaration so two
+ * `#status` fields in one module stay distinct baseline identities.
+ */
+export function collectStatusDeclarationSites(sourcesByFile) {
   const sites = [];
   for (const [module, text] of sourcesByFile) {
-    for (const match of text.matchAll(NAMED_CONST)) {
-      if (!KERNEL_DECLARATION_SUFFIX.test(match[1])) continue;
-      const words = literalWords(match[2]);
-      if (words.length > 0) sites.push({ module, anchor: match[1], kind: "const", words });
+    for (const match of text.matchAll(LOCAL_MIRROR_CONST)) {
+      if (!STATUS_DECLARATION_SUFFIX.test(match[2]) && !STATUS_WORDS_SUFFIX.test(match[2])) continue;
+      const words = literalWords(match[3]);
+      if (words.length > 0) {
+        sites.push({ module, anchor: match[2], kind: "const", exported: match[1] !== undefined, words });
+      }
     }
-    for (const match of text.matchAll(exportedTypesOnly ? NAMED_TYPE : NAMED_TYPE_ANY_EXPORT)) {
-      if (!KERNEL_DECLARATION_SUFFIX.test(match[1])) continue;
-      sites.push({ module, anchor: match[1], kind: "type", words: literalWords(match[1 + 1]) });
+    for (const match of text.matchAll(EXPORTED_ALIAS)) {
+      if (!STATUS_WORDS_SUFFIX.test(match[1])) continue;
+      sites.push({ module, anchor: match[1], kind: "alias", target: match[2] });
     }
+    for (const match of text.matchAll(NAMED_TYPE)) {
+      if (!STATUS_DECLARATION_SUFFIX.test(match[2])) continue;
+      sites.push({
+        module,
+        anchor: match[2],
+        kind: "type",
+        exported: match[1] !== undefined,
+        words: literalWords(match[3]),
+      });
+    }
+    const declarations = [...text.matchAll(INLINE_CONTAINER)].map((match) => ({
+      name: match[1],
+      index: match.index ?? 0,
+    }));
     for (const match of text.matchAll(INLINE_FIELD)) {
       if (!STATUS_FIELD.test(match[1])) continue;
-      const words = literalWords(match[2]);
+      const words = literalWords(match[0]);
       if (words.length < 2) continue;
-      sites.push({ module, anchor: `#${match[1]}`, kind: "field", words });
+      const container =
+        declarations.filter((declaration) => declaration.index < (match.index ?? 0)).at(-1)?.name ?? "?";
+      sites.push({
+        module,
+        anchor: `#${match[1]}`,
+        container,
+        kind: "field",
+        words,
+      });
     }
   }
   return sites;
 }
 
-/** Authored-document vocabulary declarations in daemon, application, and CLI production sources. */
-export function collectAuthoredDocumentVocabularySites(sourcesByFile) {
-  return collectKernelDeclarationSites(sourcesByFile, { exportedTypesOnly: false }).filter((site) =>
-    isAuthoredDocumentVocabulary(site.anchor, site.words),
+function inlineSiteKey(site) {
+  return `${site.module}##${site.container}.${site.anchor.slice(1)}`;
+}
+
+function registeredInlineMatch(register, site) {
+  return register.statusVocabularies.find(
+    (vocabulary) =>
+      vocabulary.anchor.startsWith("#") &&
+      vocabulary.module === site.module &&
+      vocabulary.anchor === site.anchor &&
+      sameWords(vocabulary.words, site.words),
   );
 }
 
-export function checkAuthoredDocumentVocabularyCoverage(register, sites, findings = []) {
-  return checkKernelDeclarationCoverage(register, sites, findings, {
-    inScope: (vocabulary) =>
-      AUTHORED_DOCUMENT_SCOPES.some((scope) => vocabulary.module.startsWith(`${scope}/`)) &&
-      isAuthoredDocumentVocabulary(vocabulary.anchor, vocabulary.words),
-  });
-}
-
-export function checkKernelDeclarationCoverage(
-  register,
-  sites,
-  findings = [],
-  { inScope = (vocabulary) => vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`) } = {},
-) {
-  const registered = register.statusVocabularies.filter(inScope);
-  for (const site of sites) {
-    const match = registered.find(
-      (vocabulary) =>
-        vocabulary.module === site.module &&
-        vocabulary.anchor === site.anchor &&
-        sameWords(vocabulary.words, site.words),
+/**
+ * Inline field coverage. A site is owned when a registered inline anchor in the
+ * same module/field declares exactly its words; otherwise it needs a frozen
+ * baseline entry keyed by module + enclosing declaration + field. A registered
+ * inline anchor that no longer has its declaration is refused.
+ */
+export function checkInlineFieldCoverage(register, sites, findings = [], { baseline = [] } = {}) {
+  const inlineSites = sites.filter((site) => site.kind === "field");
+  const inlineBaseline = baseline.filter((entry) => entry.inline === true);
+  const frozen = new Map();
+  for (const entry of inlineBaseline) {
+    if (typeof entry.key !== "string" || !Array.isArray(entry.words)) {
+      findings.push(`inline status-vocabulary baseline entry ${entry.key ?? "?"} must carry a key and frozen words`);
+      continue;
+    }
+    const pair = `${entry.key}|${[...entry.words].sort().join("\0")}`;
+    if (frozen.has(pair)) findings.push(`duplicate inline status-vocabulary baseline entry ${entry.key}`);
+    frozen.set(pair, entry);
+  }
+  const matchedBaseline = new Set();
+  for (const site of inlineSites) {
+    if (registeredInlineMatch(register, site)) continue;
+    const key = inlineSiteKey(site);
+    const pair = `${key}|${[...site.words].sort().join("\0")}`;
+    if (frozen.has(pair)) {
+      matchedBaseline.add(pair);
+      continue;
+    }
+    findings.push(
+      `${key}: unregistered inline status vocabulary [${site.words}] — register it in status-vocabulary.ts (blueprint 铁律四)`,
     );
-    if (!match) {
-      const anchorRegistered = registered.find(
-        (vocabulary) => vocabulary.module === site.module && vocabulary.anchor === site.anchor,
-      );
+  }
+  for (const vocabulary of register.statusVocabularies) {
+    if (!vocabulary.anchor.startsWith("#")) continue;
+    const hasSite = inlineSites.some(
+      (site) =>
+        site.module === vocabulary.module &&
+        site.anchor === vocabulary.anchor &&
+        sameWords(site.words, vocabulary.words),
+    );
+    if (!hasSite) {
       findings.push(
-        anchorRegistered
-          ? `${site.module}#${site.anchor}: declared words [${site.words}] drift from the register [${anchorRegistered.words}]`
-          : `${site.module}#${site.anchor}: unregistered status vocabulary [${site.words}] — register it in status-vocabulary.ts (blueprint 铁律四)`,
+        `${vocabulary.id}: registered inline anchor ${declarationKey(vocabulary.module, vocabulary.anchor)} no longer declares [${vocabulary.words}]`,
       );
     }
   }
-  for (const vocabulary of registered) {
-    const site = sites.find(
-      (candidate) => candidate.module === vocabulary.module && candidate.anchor === vocabulary.anchor,
+  for (const entry of frozen.values()) {
+    const site = inlineSites.find(
+      (candidate) => inlineSiteKey(candidate) === entry.key && sameWords(candidate.words, entry.words),
     );
-    if (!site)
-      findings.push(`${vocabulary.id}: registered anchor ${vocabulary.module}#${vocabulary.anchor} no longer exists`);
-    else if (!sameWords(site.words, vocabulary.words)) {
+    if (!site) {
+      findings.push(`stale inline status-vocabulary baseline entry ${entry.key} (${entry.words})`);
+    } else if (registeredInlineMatch(register, site)) {
       findings.push(
-        `${vocabulary.id}: declaration at ${vocabulary.module}#${vocabulary.anchor} is [${site.words}] but the register says [${vocabulary.words}]`,
+        `inline status-vocabulary baseline entry ${entry.key} is now registered — delete the baseline entry`,
       );
     }
   }
   return findings;
 }
 
-function parseTypeUnion(text, name) {
-  const match = new RegExp(`export\\s+type\\s+${name}\\s*=\\s*([\\s\\S]*?);`, "u").exec(text);
-  if (!match) return null;
-  const body = match[1];
-  const words = literalWords(body);
-  const remainder = body.replace(/"[^"]*"/gu, "");
-  const pureUnion = words.length > 0 && /^[\s|]*$/u.test(remainder);
-  return pureUnion ? words : null;
+function aliasSiteWords(site, register, findings) {
+  if (site.kind !== "alias") return site.words;
+  const candidates = register.statusVocabularies.filter((vocabulary) => vocabulary.anchor === site.target);
+  if (candidates.length === 1) return candidates[0].words;
+  findings.push(
+    `${declarationKey(site.module, site.anchor)}: status-word alias target "${site.target}" has no unique registered vocabulary (found ${candidates.length})`,
+  );
+  return null;
 }
 
-export function checkGuiMirrorAgreement(register, guiModelText, guiAdapterText, findings = []) {
-  const byAnchor = new Map(
-    register.statusVocabularies
-      .filter((vocabulary) => vocabulary.module === GUI_MODEL)
-      .map((vocabulary) => [vocabulary.anchor, vocabulary]),
+export function checkStatusVocabularyCoverage(register, sites, findings = [], { baseline = [] } = {}) {
+  const registeredByKey = new Map(
+    register.statusVocabularies.map((vocabulary) => [declarationKey(vocabulary.module, vocabulary.anchor), vocabulary]),
   );
-  for (const [anchor, vocabulary] of byAnchor) {
-    const words = parseTypeUnion(guiModelText, anchor);
-    if (words === null) {
-      findings.push(`GUI mirror ${anchor} (${GUI_MODEL}) must be a literal string union`);
+  const siteByKey = new Map();
+  for (const site of sites) {
+    if (site.kind === "field") continue;
+    const key = declarationKey(site.module, site.anchor);
+    if (siteByKey.has(key)) findings.push(`duplicate status declaration ${key}`);
+    siteByKey.set(key, site);
+  }
+  const baselineByKey = new Map();
+  for (const entry of baseline) {
+    if (entry.inline === true) continue;
+    if (typeof entry.key !== "string" || !Array.isArray(entry.words)) {
+      findings.push(`status-vocabulary baseline entry ${entry.key ?? "?"} must carry a key and frozen words`);
       continue;
     }
-    if (!sameWords(words, vocabulary.words)) {
-      findings.push(`GUI mirror ${anchor} is [${words}] but the register says [${vocabulary.words}]`);
+    if (baselineByKey.has(entry.key)) findings.push(`duplicate status-vocabulary baseline entry ${entry.key}`);
+    baselineByKey.set(entry.key, entry);
+  }
+
+  for (const [key, site] of siteByKey) {
+    const words = aliasSiteWords(site, register, findings);
+    if (words === null) continue;
+    const vocabulary = registeredByKey.get(key);
+    if (vocabulary) {
+      if (!sameWords(vocabulary.words, words)) {
+        findings.push(`${key}: declared words [${words}] drift from the register [${vocabulary.words}]`);
+      }
+      continue;
+    }
+    const frozen = baselineByKey.get(key);
+    if (!frozen) {
+      findings.push(
+        `${key}: unregistered status vocabulary [${words}] — register it in status-vocabulary.ts (blueprint 铁律四)`,
+      );
+      continue;
+    }
+    if (!sameWords(frozen.words, words)) {
+      findings.push(`${key}: words [${words}] drifted from the frozen baseline [${frozen.words}]`);
     }
   }
+
+  for (const [key, vocabulary] of registeredByKey) {
+    // Inline anchors are owned by checkInlineFieldCoverage; aliases are resolved above.
+    if (vocabulary.anchor.startsWith("#")) continue;
+    if (!siteByKey.has(key)) findings.push(`${vocabulary.id}: registered anchor ${key} no longer exists`);
+  }
+  for (const key of baselineByKey.keys()) {
+    if (!siteByKey.has(key)) {
+      findings.push(`stale status-vocabulary baseline entry ${key} — the declaration no longer exists`);
+    } else if (registeredByKey.has(key)) {
+      findings.push(`status-vocabulary baseline entry ${key} is now registered — delete the baseline entry`);
+    }
+  }
+  return findings;
+}
+
+function specifierBindings(bindingText) {
+  const braced = /\{([\s\S]*?)\}/u.exec(bindingText.replace(/^type\s+/u, ""));
+  const source = braced ? braced[1] : bindingText;
+  return source
+    .split(",")
+    .map((part) => {
+      const cleaned = part.trim().replace(/^type\s+/u, "");
+      if (!cleaned) return null;
+      const [original, alias] = cleaned.split(/\s+as\s+/u);
+      return { original: original.trim(), alias: (alias ?? original).trim() };
+    })
+    .filter(Boolean);
+}
+
+function resolveSpecifier(fromFile, specifier) {
+  if (!specifier.startsWith(".")) return null;
+  return path.posix
+    .normalize(path.posix.join(path.posix.dirname(fromFile), specifier))
+    .replace(/\.(?:[cm]?[jt]sx?)$/u, "");
+}
+
+/**
+ * Names under which `anchor` leaves its declaring module: the declaration itself,
+ * local `export { Phase as Alias }`, and transitive re-export chains. The result
+ * maps module -> exported alias set.
+ */
+export function anchorExportNames(module, anchor, sourcesByFile, { declaredExported = false } = {}) {
+  const names = new Map();
+  const strip = (value) => value.replace(/\.(?:[cm]?[jt]sx?)$/u, "");
+  const add = (target, name) => {
+    if (!name) return;
+    const moduleName = strip(target);
+    if (!names.has(moduleName)) names.set(moduleName, new Set());
+    names.get(moduleName).add(name);
+  };
+  if (declaredExported) add(module, anchor);
+  const reexports = [];
+  for (const [file, text] of sourcesByFile) {
+    for (const match of text.matchAll(EXPORT_SPECIFIERS)) {
+      const bindings = specifierBindings(match[1]);
+      if (match[2] === undefined) {
+        if (file === module) {
+          for (const binding of bindings) {
+            if (binding.original === anchor) add(module, binding.alias);
+          }
+        }
+        continue;
+      }
+      const target = resolveSpecifier(file, match[2]);
+      if (target === null) continue;
+      for (const binding of bindings) reexports.push({ file, target, ...binding });
+    }
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const reexport of reexports) {
+      if (!names.get(reexport.target)?.has(reexport.original)) continue;
+      const before = names.get(reexport.file)?.size ?? 0;
+      add(reexport.file, reexport.alias);
+      if ((names.get(reexport.file)?.size ?? 0) !== before) changed = true;
+    }
+  }
+  return names;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+export function isAnchorImportedElsewhere(module, anchor, sourcesByFile, options = {}) {
+  const source = sourcesByFile.get(module) ?? "";
+  const declaredExported =
+    options.declaredExported === true ||
+    new RegExp(`export\\s+(?:type\\s+|interface\\s+|const\\s+|class\\s+)?${escapeRegExp(anchor)}\\b`, "u").test(source);
+  const exported = anchorExportNames(module, anchor, sourcesByFile, { declaredExported });
+  for (const [file, text] of sourcesByFile) {
+    if (file === module) continue;
+    for (const match of text.matchAll(IMPORT_FROM)) {
+      const target = resolveSpecifier(file, match[2]);
+      if (target === null) continue;
+      const names = exported.get(target);
+      if (!names) continue;
+      if (specifierBindings(match[1]).some((binding) => names.has(binding.alias))) return true;
+    }
+  }
+  return false;
+}
+
+const FS_WRITE_APIS = new Set([
+  "appendFile",
+  "appendFileSync",
+  "copyFile",
+  "copyFileSync",
+  "createWriteStream",
+  "rename",
+  "renameSync",
+  "writeFile",
+  "writeFileSync",
+]);
+
+export function hasPersistentWrite(source) {
+  if (PERSISTENT_WRITE.test(source)) return true;
+  for (const match of source.matchAll(FS_IMPORT)) {
+    for (const binding of specifierBindings(match[1])) {
+      if (!FS_WRITE_APIS.has(binding.original)) continue;
+      if (new RegExp(`\\b${binding.alias}\\s*\\(`, "u").test(source)) return true;
+    }
+  }
+  return false;
+}
+
+export function checkViewLocalDeclarations(register, sites, sourcesByFile, findings = []) {
+  const siteByKey = new Map(sites.map((site) => [declarationKey(site.module, site.anchor), site]));
+  for (const vocabulary of register.statusVocabularies) {
+    if (vocabulary.scope !== "view-local") continue;
+    const key = declarationKey(vocabulary.module, vocabulary.anchor);
+    const site = siteByKey.get(key);
+    if (!site) continue;
+    const exportedNames = anchorExportNames(vocabulary.module, vocabulary.anchor, sourcesByFile, {
+      declaredExported: site.exported === true,
+    });
+    if (exportedNames.size > 0) {
+      findings.push(`${key}: view-local vocabulary must not be exported (directly or through an alias)`);
+    } else if (isAnchorImportedElsewhere(vocabulary.module, vocabulary.anchor, sourcesByFile)) {
+      findings.push(`${key}: view-local vocabulary must not be imported by another module`);
+    }
+    if (hasPersistentWrite(sourcesByFile.get(vocabulary.module) ?? "")) {
+      findings.push(`${key}: view-local vocabulary cannot live in a file that owns a persistent write`);
+    }
+  }
+  return findings;
+}
+
+export function checkGuiAdapterInvariants(register, sourcesByFile, findings = []) {
+  const model = register.statusVocabularies.find((vocabulary) => vocabulary.id === "gui.task.status")?.module;
+  if (!model) {
+    findings.push("GUI mirror vocabulary gui.task.status is not registered");
+    return findings;
+  }
+  const guiModelText = sourcesByFile.get(model);
+  if (guiModelText === undefined) {
+    findings.push(`GUI mirror module ${model} was not scanned`);
+    return findings;
+  }
+  const snapshot = register.statusVocabularies.find(
+    (vocabulary) => vocabulary.module === model && vocabulary.anchor === "SnapshotStatus",
+  );
   const boardColumns = /export\s+const\s+BOARD_COLUMNS[^=]*=\s*\[([^\]]*)\]/u.exec(guiModelText);
-  const snapshot = byAnchor.get("SnapshotStatus");
   if (boardColumns && snapshot) {
     const columns = literalWords(boardColumns[1]);
     if (!sameWords(columns, snapshot.words)) {
@@ -324,7 +669,10 @@ export function checkGuiMirrorAgreement(register, guiModelText, guiAdapterText, 
   } else if (!boardColumns) {
     findings.push("BOARD_COLUMNS declaration not found in the GUI model");
   }
-  if (KERNEL_DECISION_FALLBACK.test(guiAdapterText)) {
+  const guiAdapterText = sourcesByFile.get(GUI_ADAPTER);
+  if (guiAdapterText === undefined) {
+    findings.push(`GUI adapter ${GUI_ADAPTER} was not scanned`);
+  } else if (KERNEL_DECISION_FALLBACK.test(guiAdapterText)) {
     findings.push(
       `${GUI_ADAPTER}: decisionState must map unrecognised states to "unknown", not to a known neighbour (the deleted proposed-fallback defect)`,
     );
@@ -332,42 +680,21 @@ export function checkGuiMirrorAgreement(register, guiModelText, guiAdapterText, 
   return findings;
 }
 
-export function checkDaemonMirrorAgreement(register, daemonText, findings = []) {
+export function checkDaemonProjectionFreshness(register, sourcesByFile, findings = []) {
   // Core wire vocabularies are generated from their kernel runtime authorities because
-  // the thin CLI path must stay dependency-free. Remaining mirrors stay parity-checked.
-  const registered = register.statusVocabularies.filter((vocabulary) => vocabulary.module === DAEMON_PROTOCOL);
-  const localDeclarations = [...daemonText.matchAll(LOCAL_MIRROR_CONST)].map((match) => ({
-      anchor: match[1],
-      words: literalWords(match[2]),
-    })),
-    aliasDeclarations = [...daemonText.matchAll(LOCAL_MIRROR_ALIAS)],
-    aliases = aliasDeclarations.map((match) => {
-      const source = register.statusVocabularies.find((vocabulary) => vocabulary.anchor === match[2]);
-      if (!source)
-        findings.push(`${DAEMON_PROTOCOL}#${match[1]}: mirror alias ${match[2]} has no registered vocabulary`);
-      return { anchor: match[1], words: source?.words ?? [] };
-    }),
-    declared = [...localDeclarations, ...aliases].filter((entry) => DAEMON_MIRROR_CONST.test(entry.anchor));
-  const projectionFinding = daemonStatusVocabularyProjectionFinding(daemonText);
-  if (projectionFinding) findings.push(`${DAEMON_PROTOCOL}: ${projectionFinding}`);
-  for (const entry of declared) {
-    const match = registered.find(
-      (vocabulary) => vocabulary.anchor === entry.anchor && sameWords(vocabulary.words, entry.words),
-    );
-    if (!match) {
-      const anchorRegistered = registered.find((vocabulary) => vocabulary.anchor === entry.anchor);
-      findings.push(
-        anchorRegistered
-          ? `${DAEMON_PROTOCOL}#${entry.anchor}: mirrored words [${entry.words}] drift from the register [${anchorRegistered.words}]`
-          : `${DAEMON_PROTOCOL}#${entry.anchor}: unregistered status-word mirror [${entry.words}] — register it in status-vocabulary.ts (blueprint 铁律四)`,
-      );
-    }
+  // the thin CLI path must stay dependency-free. The ratchet rejects a stale generated region.
+  const module = register.statusVocabularies.find((vocabulary) => vocabulary.id === "daemon.task.status")?.module;
+  if (!module) {
+    findings.push("daemon wire vocabulary daemon.task.status is not registered");
+    return findings;
   }
-  for (const vocabulary of registered) {
-    if (!declared.some((entry) => entry.anchor === vocabulary.anchor)) {
-      findings.push(`${vocabulary.id}: registered mirror ${DAEMON_PROTOCOL}#${vocabulary.anchor} no longer exists`);
-    }
+  const source = sourcesByFile.get(module);
+  if (source === undefined) {
+    findings.push(`daemon wire vocabulary module ${module} was not scanned`);
+    return findings;
   }
+  const projectionFinding = daemonStatusVocabularyProjectionFinding(source);
+  if (projectionFinding) findings.push(`${module}: ${projectionFinding}`);
   return findings;
 }
 
@@ -399,26 +726,30 @@ function readSources(root, scopes) {
 async function main() {
   const root = process.cwd();
   const register = await import(pathToFileURL(path.resolve(import.meta.dirname, REGISTER)).href);
-  const kernelSources = readSources(root, [KERNEL_DOMAIN]);
-  const authoredSites = collectAuthoredDocumentVocabularySites(readSources(root, AUTHORED_DOCUMENT_SCOPES));
-  const sites = collectKernelDeclarationSites(kernelSources);
+  const sourcesByFile = readSources(root, PACKAGE_SCOPES);
+  const sites = collectStatusDeclarationSites(sourcesByFile);
+  const storeIndex = buildStateStoreIndex(entityKindContracts);
   const kernelModules = await loadModules([
     ...new Set(
       register.statusVocabularies
-        .filter((vocabulary) => vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`) && !vocabulary.anchor.startsWith("#"))
+        .filter(
+          (vocabulary) =>
+            vocabulary.module.startsWith("packages/kernel/src/domain/") && !vocabulary.anchor.startsWith("#"),
+        )
         .map((vocabulary) => vocabulary.module),
     ),
   ]);
-  const guiModelText = readFileSync(path.join(root, GUI_MODEL), "utf8");
-  const guiAdapterText = readFileSync(path.join(root, GUI_ADAPTER), "utf8");
-  const daemonText = readFileSync(path.join(root, DAEMON_PROTOCOL), "utf8");
   const findings = [
     ...checkRegisterShape(register),
+    ...storeIndex.findings,
+    ...checkOwnerStoreAgreement(register, storeIndex.byId),
+    ...checkExternalOwnership(register, statusVocabularyUnownedRegister),
     ...checkKernelVocabularyBijection(register, kernelModules, sites),
-    ...checkKernelDeclarationCoverage(register, sites),
-    ...checkAuthoredDocumentVocabularyCoverage(register, authoredSites),
-    ...checkGuiMirrorAgreement(register, guiModelText, guiAdapterText),
-    ...checkDaemonMirrorAgreement(register, daemonText),
+    ...checkStatusVocabularyCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
+    ...checkInlineFieldCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
+    ...checkViewLocalDeclarations(register, sites, sourcesByFile),
+    ...checkGuiAdapterInvariants(register, sourcesByFile),
+    ...checkDaemonProjectionFreshness(register, sourcesByFile),
   ];
   if (findings.length > 0) {
     console.error("Status vocabulary check failed:");
@@ -426,7 +757,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Status vocabulary check passed (register, kernel vocabularies, authored-document vocabularies, generated daemon mirrors, and GUI mirrors agree).",
+    "Status vocabulary check passed (register, all package status vocabularies, owner stores, view-local scopes, frozen baseline, generated daemon mirrors, and GUI mirrors agree).",
   );
 }
 
