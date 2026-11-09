@@ -179,6 +179,9 @@ function rewritePackagePaths(value: unknown, pairs: readonly PackagePathPair[], 
       // rather than resurrected; a consumer that still reads `packagePath` sees undefined.
     } else if (key === "path" && translatePathFields && typeof nested === "string")
       rewritten[key] = rewritePath(nested, pairs);
+    else if (key === "submission")
+      // A frozen content-addressed value must keep the exact fields the digest covered.
+      rewritten[key] = nested;
     else if (key === "resultDocumentClaim" || key === "artifacts")
       rewritten[key] = rewritePackagePaths(nested, pairs, true);
     else rewritten[key] = rewritePackagePaths(nested, pairs, translatePathFields);
