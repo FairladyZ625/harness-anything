@@ -478,6 +478,14 @@ test("weights refresh from runner duration lines takes each file's median across
   });
 });
 
+test("the repository vocabulary scan weight covers its measured expanded scope", () => {
+  // Failed jobs 129066961834 and 129102988704 had no assertion failures. The scan had
+  // expanded to every package while its declaration still described the old 400ms scan.
+  for (const durationMs of [84_855, 76_915]) {
+    assert.deepEqual(integrationWeightOverruns(new Map([["tools/check-status-vocabulary.test.mjs", durationMs]])), []);
+  }
+});
+
 // Every derived shard must hold a file, so a fixture tree needs at least one file per shard
 // beside the files a test is about.
 function writeShardPadding(testRoot) {
