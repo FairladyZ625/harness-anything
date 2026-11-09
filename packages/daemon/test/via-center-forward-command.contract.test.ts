@@ -6,14 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1, getExecutableEntityAction } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
-import {
-  fleetRuntimeRoute,
-  fleetScheduleRoute,
-  fleetTaskRoute,
-} from "@harness-anything/cli/internal/daemon/fleet-command-route";
+import { serializeFleetAction } from "@harness-anything/cli/internal/daemon/fleet-payload-serializer";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
 import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol-rpc-validation.ts";
+import { forwardingIntentForAction, forwardingIntentIssue } from "../src/fleet/forwarding-intent.ts";
 import { decisionProposalAction, taskCreateAction } from "../src/repo-cell-action-parse.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { readAgentEntityDeclarationSource } from "../src/agent-entities.ts";
@@ -533,8 +530,8 @@ function assertRepoCellActionParsers(root: string, command: Command, action: Rec
     assert.deepEqual(resolved[field], value, `${command.id} repo-cell action parser changed field ${field}`);
 }
 
-test("each remote-edge via-center-forward declaration reaches its matching fleet wire parser", async (t) => {
-  const { root, env } = setupRoot(t),
+test("each remote-edge via-center-forward declaration becomes one validated daemon intent", async (t) => {
+  const { root } = setupRoot(t),
     commands = daemonProtocolCommands.filter((command) => command.admission["remote-edge"] === "via-center-forward"),
     failures: string[] = [];
   assert.ok(commands.length > 0);
@@ -550,58 +547,45 @@ test("each remote-edge via-center-forward declaration reaches its matching fleet
       }
       try {
         const command = parsed.command,
-          schedule = await fleetScheduleRoute(command, env),
-          runtime = schedule ? null : await fleetRuntimeRoute(command, env),
-          task = schedule || runtime ? null : await fleetTaskRoute(command, env),
-          centerRoute = schedule ?? runtime ?? task,
-          action = task?.action as Record<string, unknown> | undefined;
-        assert.ok(centerRoute, `${descriptor.id} has no edge route`);
-        const centerParams = parseDaemonRpcParams("daemon.fleet.task.run", { payload: centerRoute });
+          action = (
+            command.method === "repo.agentRuntime.handoff" ? command.action : serializeFleetAction(command)
+          ) as Record<string, unknown>,
+          intent = forwardingIntentForAction(command.method, action as Record<string, unknown> & { kind: string });
+        assert.equal(forwardingIntentIssue(intent), null, `${descriptor.id} is not accepted as a forwarding intent`);
+        const payload =
+          command.method === "repo.task.run" || command.method === "repo.task.read"
+            ? { action }
+            : command.method === "repo.script.run"
+              ? Object.fromEntries(
+                  Object.entries(action).filter(
+                    ([field, value]) =>
+                      field !== "kind" && field !== "schema" && !(field === "taskId" && value === null),
+                  ),
+                )
+              : Object.fromEntries(Object.entries(action).filter(([field]) => field !== "kind"));
+        const centerParams = parseDaemonRpcParams(command.method, { repo: { repoId: "probe-repo" }, payload });
         assert.ok(
           centerParams.ok,
-          `${descriptor.id} rejected by center daemon.fleet.task.run parser: ${centerParams.ok ? "" : centerParams.errors.join("; ")}`,
+          `${descriptor.id} rejected by its daemon RPC parser: ${centerParams.ok ? "" : centerParams.errors.join("; ")}`,
         );
-        if (schedule) {
-          const payload = (schedule.action as { payload: Record<string, unknown> }).payload,
-            frame = parseFleetFrame(
-              JSON.stringify({
-                schema: "fleet.schedule.command/v1",
-                messageId: "message-one",
-                writerEpoch: 1,
-                opId: "op-one",
-                repoId: "probe-repo",
-                scheduleId: payload.scheduleId,
-                action: payload,
-              }),
-            );
-          assert.deepEqual(
-            (frame as { action: unknown }).action,
-            jsonWire(payload),
-            `${descriptor.id} schedule fields changed on wire`,
-          );
+        if (descriptor.path[0] === "schedule") {
           if (scenario.label === "--mission-file")
-            assert.equal(payload.mission, "Probe body.\n", `${descriptor.id} lost mission-file text`);
-        } else if (runtime) {
-          const routed = runtime.action as { method: string; payload: Record<string, unknown> },
-            original = command.action as Record<string, unknown>,
-            expected = Object.fromEntries(
-              Object.entries(original).filter(
-                ([field]) => !["kind", "executor", "wait", "noStream", "detach"].includes(field),
-              ),
-            );
-          assert.ok(routed.method, descriptor.id);
-          assert.deepEqual(routed.payload, jsonWire(expected), `${descriptor.id} runtime fields changed on edge route`);
-          if (routed.method !== "repo.squad.control") {
-            const centerRuntimeParams = parseDaemonRpcParams(routed.method, {
-              repo: { repoId: runtime.repoId },
-              payload: routed.payload,
-            });
-            assert.ok(
-              centerRuntimeParams.ok,
-              `${descriptor.id} rejected by center ${routed.method} parser: ${centerRuntimeParams.ok ? "" : centerRuntimeParams.errors.join("; ")}`,
-            );
+            assert.equal(action.mission, "Probe body.\n", `${descriptor.id} lost mission-file text`);
+        } else if (command.method === "repo.agentRuntime.handoff") {
+          assert.equal(typeof action.dispatchId, "string", `${descriptor.id} lost its source dispatch`);
+          assert.equal(Object.hasOwn(action, "commit"), false, `${descriptor.id} exposed edge-generated commit data`);
+          assert.equal(
+            Object.hasOwn(action, "candidate"),
+            false,
+            `${descriptor.id} exposed edge-generated upload data`,
+          );
+          if (descriptor.id === "runtime-handoff-claim") {
+            assert.equal(action.runtimeInstanceId, "instance-one", "claim target identity was omitted from the RPC");
+            assert.equal(action.prompt, "Probe prompt", "claim continuation prompt was omitted from the RPC");
           }
-        } else if (action) {
+        } else if (descriptor.id === "squad-run" || descriptor.id === "squad-cancel") {
+          assert.equal(intent.method, "repo.task.run", `${descriptor.id} changed its declared method`);
+        } else {
           let wireAction = action;
           if (
             (action.kind === "agent-install" || action.kind === "squad-install") &&
@@ -641,8 +625,6 @@ test("each remote-edge via-center-forward declaration reaches its matching fleet
             assert.equal(action.plan, "Probe plan.\n", `${descriptor.id} lost edge plan-file text`);
           if (typeof command.action.idsFile === "string")
             assert.deepEqual(action.factIds, [factId], `${descriptor.id} lost edge ids-file values`);
-        } else {
-          failures.push(`${descriptor.id} [${scenario.label}]: no edge route matched its declaration`);
         }
       } catch (error) {
         failures.push(

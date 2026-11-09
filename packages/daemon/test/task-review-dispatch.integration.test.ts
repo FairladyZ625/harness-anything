@@ -1337,6 +1337,15 @@ test(
       const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested"),
         second = dispatches.at(-1)!;
       assert.equal(second.type, "runtime_dispatch_requested");
+      const nextCut = (await showTask(f, taskId)).executions.find(
+        (execution) => execution.executionId === nextExecution,
+      );
+      assert.ok(nextCut?.submission, "the resubmitted rework execution freezes its submission");
+      assert.equal(
+        second.payload.reviewTarget?.digest,
+        submissionDigest(nextCut.submission as Parameters<typeof submissionDigest>[0]),
+        "the rework dispatch target binds the exact submission shown for its execution",
+      );
       // The submit receipt carries its review dispatch as a step; the step must name the fresh
       // fallback identity, not the rejected resume.
       const dispatchStep = ((secondReceipt.steps as readonly Record<string, unknown>[] | undefined) ?? []).find(

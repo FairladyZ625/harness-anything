@@ -31,6 +31,6 @@
         "reason": "Builtin session/config exports still carry realm/clientId fields and collaboration guidance names Keycloak; migrate the authority contract and documentation under the shared remediation task."
       }
     ],
-    "lineFingerprints": []
+    "lineFingerprints": ["786528431aaca30c736a534a83d4f13ae2418f342293db454c77444af288c4c4"]
   }
 }

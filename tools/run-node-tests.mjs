@@ -13,6 +13,7 @@ import {
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
   parseRunnerArgs,
+  partitionTestFiles,
   resolveTestConcurrency,
   runsCliEntry,
   selectTestFiles,
@@ -33,6 +34,7 @@ const WORKER_ENVIRONMENT_VARIABLES = [
   "HARNESS_DAEMON_ID",
   "HARNESS_DAEMON_REPO_ID",
   "HARNESS_DAEMON_RELAY",
+  "HARNESS_DAEMON_REMOTE_EDGE",
   "HARNESS_EXECUTION_CREDENTIAL",
   "HARNESS_EXECUTION_EXPIRES_AT",
   "HARNESS_TASK_BOUND",
@@ -87,6 +89,27 @@ const beforePrefixes = selection.files.length;
 selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
 const beforeFiles = selection.files.length;
 selection.files = filterTestFilesByNames(selection.files, options.files);
+
+try {
+  const runnerPartition =
+    process.env.HARNESS_TEST_PARTITION_TEST_CHILD === "1" ? undefined : process.env.HARNESS_TEST_PARTITION;
+  const sharedFiles = (
+    process.env.HARNESS_TEST_PARTITION_TEST_CHILD === "1" ? "" : (process.env.HARNESS_TEST_PARTITION_SHARED_FILES ?? "")
+  )
+    .split(",")
+    .map((file) => file.trim())
+    .filter(Boolean);
+  const beforePartition = selection.files.length;
+  selection.files = partitionTestFiles(selection.files, runnerPartition, sharedFiles);
+  if (runnerPartition !== undefined)
+    console.error(
+      `[node-test-partition] ${runnerPartition}: ${selection.files.length}/${beforePartition} files` +
+        (sharedFiles.length > 0 ? `; shared=${sharedFiles.join(",")}` : ""),
+    );
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
 
 // A prefix that selects nothing is a typo, not an empty tier. Exiting 0 here
 // would report "ran clean" for a run that executed no assertions at all.
@@ -180,6 +203,7 @@ const childEnvironment = testChildEnvironment({
   parent: process.env,
   temporaryRoot: testTemporaryRoot,
   variableNames: WORKER_ENVIRONMENT_VARIABLES,
+  forwardPartition: true,
 });
 const child = spawn(
   process.execPath,

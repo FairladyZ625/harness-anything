@@ -109,6 +109,7 @@ for (const distinctNode of [false, true])
               [fixture.subject.nodeId, second.nodeId].includes(nodeId) && credential === "machine-secret",
             nodeOwner: fixture.owners.nodeOwner,
             verifyHuman: fixture.owners.verifyHuman,
+            authenticateExecutionPrincipal: fixture.owners.authenticateExecutionPrincipal,
           }),
         );
         const workspaceRoot = path.join(fixture.root, "edge");

@@ -140,15 +140,17 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       path: ["runtime", "handoff", operation, "<dispatch-id>"],
       summary: `${operation} an explicitly enabled, settled Codex session checkpoint.`,
       method: "repo.agentRuntime.handoff",
-      payloadFields:
-        operation === "export"
+      payloadFields: [
+        { field: "operation", type: "string", required: true, enum: [operation] },
+        ...(operation === "export"
           ? [
               { field: "commit", type: "string", required: true, regex: "^[a-f0-9]{40}$" },
               { field: "candidate", type: "json-object", required: true },
             ]
           : operation === "claim"
             ? [{ field: "offset", type: "number", required: false }]
-            : [],
+            : []),
+      ],
       inputs:
         operation === "claim"
           ? [
