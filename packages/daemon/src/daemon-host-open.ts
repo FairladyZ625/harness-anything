@@ -640,6 +640,22 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
           daemonRoute: runtimeDaemonRoute,
           ports: runtimePorts,
+          forwardTaskAction: async (action) => {
+            const receipt = await forward({
+              userRoot: input.userRoot,
+              repoId: request.repoId,
+              rootDir: request.workspaceRoot,
+              intent: forwardingIntentForAction("repo.task.run", action, { requiredNodeId: request.nodeId }),
+              auth: { transportKind: "unix-socket" },
+              oidc,
+              runRuntime: async () => {
+                throw new Error("Squad task actions must use the repository command intent.");
+              },
+            });
+            if (!receipt)
+              throw hostCodedError("fleet_edge_config_invalid", `Remote-edge Squad ${request.repoId} is unavailable.`);
+            return receipt as JsonObject;
+          },
           onTaskSettled: (taskId) => {
             void autoClaimLoop
               .trigger("runtime-terminal", { repoId: request.repoId, taskId })

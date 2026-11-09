@@ -2,7 +2,6 @@ import type { TaskProjection } from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { deriveSquadChildPlan, reacquireSquadTaskLease } from "./repo-cell-squad-child.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
-import { runFleetEdgeTask } from "./fleet-edge-task.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetRuntimeEventClient,
@@ -19,6 +18,7 @@ import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 export function makeFleetSquadCoordinator(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
   readonly peer: FleetPeerOptions;
+  readonly forwardTaskAction: (action: Record<string, unknown> & { kind: string }) => Promise<JsonObject>;
   readonly spawner: Pick<
     ReturnType<typeof makeRuntimeSpawner>,
     "spawnCoordinated" | "spawnScheduledCoordinated" | "cancel"
@@ -37,10 +37,7 @@ export function makeFleetSquadCoordinator(input: {
       (projection) => read(projection as TaskProjection),
     );
   const command = async (action: Record<string, unknown> & { kind: string }): Promise<JsonObject> => {
-    const receipt = await runFleetEdgeTask(
-      { payload: { ...request, workspaceRoot: request.workspaceRoot, action } },
-      input.peer.readAccessToken,
-    );
+    const receipt = await input.forwardTaskAction(action);
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
       // The center's receipt carries the child action's own evidence and message; only its stable
       // code crosses the edge boundary, so a remote's prose never lands in an edge operator's log.

@@ -254,6 +254,7 @@ export function openFleetEdgeRuntime(input: {
   readonly daemonGeneration: number;
   readonly daemonRoute: RuntimeDaemonRoute;
   readonly ports: RuntimePorts;
+  readonly forwardTaskAction: (action: Record<string, unknown> & { kind: string }) => Promise<JsonObject>;
   /** Waits for an in-flight resident stream to publish its first readable generation. */
   readonly waitForReplicaReady?: (signal?: AbortSignal) => Promise<boolean>;
   /** Reports a released task once its canonical runtime outcome is readable on this node. */
@@ -1097,6 +1098,7 @@ export function openFleetEdgeRuntime(input: {
   const squad = makeFleetSquadCoordinator({
     request,
     peer: writePeer,
+    forwardTaskAction: input.forwardTaskAction,
     spawner,
     controlBinding,
     sync: async () => {
