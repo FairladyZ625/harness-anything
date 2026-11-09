@@ -57,7 +57,7 @@ const freeze = <T>(value: T): T => Object.freeze(value);
 const canonical = (
   id: string,
   schema: string,
-  ownerWriter: string,
+  ownerWriter: string | readonly string[],
   vocabulary: readonly string[] = [],
   types: readonly string[] = ["*"],
 ): StateStoreDeclaration =>
@@ -65,7 +65,12 @@ const canonical = (
     id,
     role: "authority",
     residency: "canonical",
-    medium: freeze({ kind: "canonical-event", schema, types: freeze([...types]), writers: [ownerWriter] }),
+    medium: freeze({
+      kind: "canonical-event",
+      schema,
+      types: freeze([...types]),
+      writers: freeze([...(Array.isArray(ownerWriter) ? ownerWriter : [ownerWriter])]),
+    }),
     vocabulary: freeze([...vocabulary]),
   });
 
@@ -542,7 +547,10 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     canonical(
       "task.task-events",
       "task-event/v1",
-      "packages/kernel/src/domain/task-lifecycle-event.ts",
+      [
+        "packages/kernel/src/domain/task-lifecycle-event.ts",
+        "packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts",
+      ],
       [],
       canonicalTaskEventTypes,
     ),

@@ -16,7 +16,7 @@ import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { openRepoReadClient, type RepoReadWorkerFactory } from "./repo-read-pool.ts";
 import { readObserveTail } from "./observe-tail.ts";
-import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
+import { runtimeOutcomeRecheckMs, runtimeOutcomeSettled } from "./runtime-settlement.ts";
 import { preparePersonActionExplanationBinding } from "./task-action-explanation-read.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
@@ -316,13 +316,13 @@ export async function openRepoCellProxy(
       return runtime.attach(runtimeSessionId, afterCursor);
     },
     awaitRuntimeOutcome: async (runtimeSessionId) => {
-      const now = input.now ?? (() => new Date().toISOString());
       for (;;) {
         const observedVersion = runtimeSignalVersion;
-        const session = await query<import("@harness-anything/kernel").RuntimeSession | null>("readSettlementSession", [
-          runtimeSessionId,
-        ]);
-        if (runtimeOutcomeSettled(session, now())) return;
+        const lifecycle = await query<import("@harness-anything/kernel").DispatchLifecycleRead>(
+          "readSettlementSession",
+          [runtimeSessionId],
+        );
+        if (runtimeOutcomeSettled(lifecycle)) return;
         // A notification during the async snapshot invalidates that snapshot; never park on it.
         if (observedVersion !== runtimeSignalVersion) continue;
         const waiters = outcomeWaiters.get(runtimeSessionId) ?? new Set<() => void>();
@@ -376,7 +376,7 @@ function parkRuntimeWait(waiters: Set<() => void>): Promise<void> {
       clearTimeout(timer);
       resolve();
     };
-    const timer = setTimeout(finish, runtimeSettlementGraceMs);
+    const timer = setTimeout(finish, runtimeOutcomeRecheckMs);
     timer.unref?.();
     waiters.add(finish);
   });

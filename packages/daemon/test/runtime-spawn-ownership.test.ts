@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { adoptRuntimes, ownedByRuntimeSpawner } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime, closeRuntimes } from "../src/runtime-spawn-control.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import { readDispatchStreamHeader } from "../src/dispatch-stream.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { DispatchLifecycleQuery } from "@harness-anything/kernel";

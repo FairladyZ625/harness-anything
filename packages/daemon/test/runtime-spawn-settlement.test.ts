@@ -11,7 +11,8 @@ import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
-import { publishExit, runtimeResultText } from "../src/runtime-spawn-settlement.ts";
+import { runtimeResultText } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import {
   attachActiveRuntime,
   disposeActiveRuntimeObservations,
@@ -449,7 +450,7 @@ test("reviewer exit on superseded cut settles as superseded instead of failed", 
     });
     const runtime = active({
       process: {
-        pid: process.pid,
+        pid: 2_147_483_647,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -839,7 +840,7 @@ test("a failed attempt persists a one-line reason that references the dispatch s
     outcomes: Record<string, unknown>[] = [],
     runtime = active({
       process: {
-        pid: 111,
+        pid: 2_147_483_647,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -987,7 +988,7 @@ for (const cancelled of [false, true])
           release: () => {
             released = true;
           },
-          pid: 123,
+          pid: 2_147_483_647,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,
@@ -1089,11 +1090,11 @@ for (const cancelled of [false, true])
     }
   });
 
-test("terminal settlement keeps the worker result when fallback settlement fails", async () => {
+test("terminal settlement leaves the outcome pending when fallback settlement fails", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-failure-")),
     runtime = active({
       process: {
-        pid: 124,
+        pid: 2_147_483_647,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -1163,16 +1164,10 @@ test("terminal settlement keeps the worker result when fallback settlement fails
       },
     } as unknown as RuntimeSpawnerContext;
   try {
-    await publishExit(context, runtime, 0);
-    const expectedBody =
-      "worker delivery\n\nRuntime terminal settlement failed (runtime_lease_release_failed): lease release failed";
-    assert.deepEqual(outcomeBodies, [expectedBody]);
-    assert.equal(outcomes[0]?.outcome, "failed");
-    assert.equal(outcomes[0]?.reasonCode, "runtime_lease_release_failed");
-    assert.equal(
-      outcomes[0]?.resultRef,
-      `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
-    );
+    await assert.rejects(publishExit(context, runtime, 0), { code: "runtime_lease_release_failed" });
+    assert.deepEqual(outcomes, [], "a refused settlement cannot publish a terminal outcome");
+    assert.deepEqual(outcomeBodies, []);
+    assert.equal(runtime.exitSettlement, undefined, "recovery can retry the unsettled attempt");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -1217,7 +1212,7 @@ test("a stalled dispatch settles through the process-tree path and never masks i
       stalledAt: "2026-10-24T00:05:00.000Z",
       stallTimeoutMs: 30_000,
       process: {
-        pid: 4001,
+        pid: 2_147_483_647,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,

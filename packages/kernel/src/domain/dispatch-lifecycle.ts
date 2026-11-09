@@ -456,9 +456,13 @@ function reduceTaskInput(
   let nextTask = task,
     delivery = group.delivery;
   if (task.role === "implementer") {
-    if (lease && lease.executionId === task.executionId)
-      nextTask = { ...task, leaseVersion: lease.version, leaseReleased: false };
-    else if (lease === null && context.taskLease?.executionId === task.executionId && task.leaseVersion !== null)
+    if (lease && lease.executionId === task.executionId) {
+      // A re-start of the same execution after this attempt released its lease belongs to a
+      // newer lease generation. Keep the attempt's original fence so settlement cannot release
+      // that replacement; ordinary renewals before release still advance the generation.
+      if (input.type === "lease_renewed" || !task.leaseReleased)
+        nextTask = { ...task, leaseVersion: lease.version, leaseReleased: false };
+    } else if (lease === null && context.taskLease?.executionId === task.executionId && task.leaseVersion !== null)
       nextTask = { ...task, leaseReleased: true };
     if (
       input.type === "execution_submitted" &&
@@ -702,6 +706,27 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
             : "dispatch_owner_unverified",
     },
   };
+}
+
+/** Preview the current attempt's outcome using the same reducer before its write is accepted. */
+export function previewDispatchLifecycleOutcome(
+  view: DispatchLifecycleView,
+  event: Extract<DispatchLifecycleEvent, { readonly type: "runtime_session_outcome_observed" }>,
+) {
+  const step = reduceDispatchLifecycle(
+    {
+      attemptGroupId: view.attemptGroupId,
+      phase: view.groupPhase,
+      currentDispatchId: view.attempt.dispatchId,
+      attempts: [view.attempt],
+      successor: view.successor,
+      ruling: view.ruling,
+      delivery: view.delivery,
+      revision: view.revision,
+    },
+    event,
+  );
+  return step.kind === "applied" ? { kind: step.kind, groupPhase: step.group.phase, ruling: step.group.ruling } : step;
 }
 
 /** Every group that is not closed belongs to the active index; storage pages it by group id. */

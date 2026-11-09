@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import type { SubmissionV1, TaskProjection } from "@harness-anything/kernel";
 import { publishTaskWorkerBranch, updateTaskPullRequestBody } from "../src/runtime-task-publication.ts";
 import {

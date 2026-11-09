@@ -47,6 +47,7 @@ export function commitRuntimeSessionBundle(
   afterAppend: () => void,
 ): WriteReceipt {
   const appended = store.append(bundle);
+  for (const preceding of bundle.preceding ?? []) projection.apply(preceding.event, preceding.plan);
   projection.apply(bundle.event);
   afterAppend();
   const publication = store.publication(bundle.event),

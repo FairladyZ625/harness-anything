@@ -476,6 +476,7 @@ export {
   dispatchLifecycleView,
   dispatchOwner,
   dispatchOwnerForNode,
+  previewDispatchLifecycleOutcome,
   reduceDispatchLifecycle,
   type DispatchLifecycleGroup,
   type DispatchLifecycleQuery,

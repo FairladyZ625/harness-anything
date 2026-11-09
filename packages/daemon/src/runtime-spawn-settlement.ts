@@ -4,6 +4,7 @@ import type {
   AgentRuntimeEventV1,
   CanonicalEventStore,
   CanonicalSquadRun,
+  DispatchLifecycleView,
   RuntimeResultClaim,
 } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -29,7 +30,7 @@ import {
   type RuntimeRulingArtifact,
 } from "./runtime-ruling.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
-import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
+import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -44,13 +45,14 @@ import { captureDispatchForensics, dispatchForensicsRequired } from "./runtime-d
 import { writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
+import { processGroupRecoveryHint, reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   code: number | null,
-  resumePublishedExit = false,
+  _resumePublishedExit = false,
 ): Promise<void> {
   if (active.exitSettlement) return active.exitSettlement;
   if (context.exiting.has(active.runtimeSessionId)) return;
@@ -61,7 +63,9 @@ export async function publishExit(
   });
   void settlement.catch(() => undefined);
   active.exitSettlement = settlement;
-  let settlementFailed = false;
+  let settlementFailed = false,
+    stopProofPending = false;
+  let preserveEvidence: ((reason: string) => void) | undefined;
   const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true;
   try {
     context.exiting.add(active.runtimeSessionId);
@@ -69,8 +73,10 @@ export async function publishExit(
       // The escalation action returns its pending receipt before the CLI child can exit. Yield
       // that response first, then make terminal settlement own the complete process-tree stop.
       await new Promise<void>((resolve) => setImmediate(resolve));
-      await active.process.terminateTree?.();
     }
+    stopProofPending = true;
+    await proveRuntimeProcessTreeStopped(context, active);
+    stopProofPending = false;
     disposeActiveRuntimeObservations(active);
     // Every terminal path — success, failure, cancellation, and the daemon-restart loss
     // settlement — flows through here, so the run's own temp directory goes with it. A
@@ -99,22 +105,13 @@ export async function publishExit(
     ) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
-      // The stream's terminal append and its ledger settlement are separate steps: a daemon
-      // that dies between them replays this branch on adoption and must still reach the
-      // single settlement entry, or a claimed Schedule occurrence (or task lease) stays
-      // open forever. The settlement is queued ahead of the exit publication in the same
-      // write chain, so a ledger that already shows the exit (resumePublishedExit) has
-      // already taken the settlement — only a ledger with no trace of the terminal replays
-      // it. A fallback chain still holding the attempt leaves settlement to the
-      // continuation's own terminal.
-      if (
-        !resumePublishedExit &&
-        readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled"
-      )
+      const previous = await dispatchLifecycleForTerminal(context, active),
+        lifecycle = await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
+      if (!previous.policy.attemptSettled && lifecycle.groupPhase !== "waiting_backoff")
         await context.input.onAttemptTerminal?.({
           runtimeSessionId: active.runtimeSessionId,
           dispatchId: active.dispatchId,
-          task: active.task,
+          task: null,
           schedule: active.schedule,
           outcome: active.schedule
             ? scheduleOutcomeFromRuntime(persistedTerminal.payload.outcome, persistedTerminal.body)
@@ -129,7 +126,6 @@ export async function publishExit(
           ...(persistedTerminal.payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
           binding: active.binding,
         });
-      await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
       context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
       return;
     }
@@ -519,6 +515,7 @@ export async function publishExit(
         consumeKnownError(error);
       }
     };
+    preserveEvidence = markEvidencePending;
     if (evidenceRequired) {
       try {
         forensics = captureDispatchForensics({
@@ -663,94 +660,31 @@ export async function publishExit(
         cancelBinding,
       );
     }
-    const completedTask = active.task,
-      terminalTask =
-        completedTask &&
-        [...context.processes.values()].some(
-          (candidate) =>
-            candidate !== active &&
-            candidate.task?.taskId === completedTask.taskId &&
-            candidate.task.executionId === completedTask.executionId &&
-            candidate.task.leaseVersion === completedTask.leaseVersion,
-        )
-          ? null
-          : completedTask;
-    if (!escalationStop) {
-      context.processes.delete(active.runtimeSessionId);
-      active.process.release?.();
-    }
+    context.processes.delete(active.runtimeSessionId);
+    if (!escalationStop) active.process.release?.();
     const processGroupPid =
       Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
         ? active.process.pid
         : undefined;
-    // Every sibling archives while the generation that authorized it is still held. The final
-    // live sibling alone releases that generation, after all earlier siblings made their files visible.
-    await context
-      .settleFallback(active, attemptOutcome, {
-        runtimeSessionId: active.runtimeSessionId,
-        dispatchId: active.dispatchId,
-        task: terminalTask,
-        schedule: active.schedule,
-        outcome: active.schedule
-          ? scheduleOutcomeFromRuntime(outcome, active.finalText)
-          : outcome === "succeeded"
-            ? "succeeded"
-            : reviewSuperseded.superseded
-              ? "superseded"
-              : "failed",
-        reason: outcome === "succeeded" ? null : attemptOutcome.reason,
-        endedAt,
-        ...(ruling === null ? {} : { waitingOnOwner: true }),
-        // active.binding is the actor that owns this dispatch's settlement fence: direct task
-        // dispatches store the handed-off RuntimeSession binding, while Schedule and squad paths
-        // retain their coordinator binding.
-        binding: active.binding,
-        ...(processGroupPid === undefined ? {} : { processGroupPid }),
-      })
-      .catch((error: unknown) => {
-        // A Schedule's claim settlement is the occurrence's single-flight witness, so its terminal
-        // outcome must not become visible while the settlement can still be retried. A Fleet edge
-        // writes the two through separate center requests, so publishing the outcome here could
-        // outrun a settlement this catch swallowed. Leaving no terminal snapshot keeps the durable
-        // dispatch stream replayable: the next adoption settles the claim before publishing the
-        // outcome. A definitive center rejection (`retryable: false`) cannot progress by replaying
-        // this terminal, so it keeps the honest-failed publication and leaves the occurrence to the
-        // center's Schedule scheduler.
-        if (active.schedule && (error as { readonly retryable?: unknown }).retryable !== false) throw error;
-        consumeKnownError(error);
-        const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
-        if (
-          escalationStop &&
-          ["runtime_process_group_unproven", "runtime_lease_release_failed"].includes(settlementCode)
-        )
-          throw error;
-        // A remote owner rejection is an authorization boundary, not a worker failure. Leave the
-        // dispatch unresolved so recovery can re-adopt it under the original owner. Likewise, an
-        // unproven process group must stay unknown: publishing a failed outcome would make the
-        // lease appear safely settled while the writer may still be alive.
-        if (context.input.remote && active.task) {
-          // A Fleet Edge cannot prove a terminal lease settlement from the center-side stream while
-          // the owner, credential, transport, or process proof is unresolved. Keep the worker's
-          // terminal result unknown so replay can retry the authoritative release after recovery.
-          outcome = "unknown";
-          if (["lease_conflict", "runtime_lease_release_failed"].includes(settlementCode)) reasonCode = settlementCode;
-        } else if (settlementCode === "runtime_process_group_unproven") {
-          // An exited host does not prove its process group stopped: a child may still write.
-          // Keep the runtime unknown and the lease held until an OS stop proof is available.
-          // A reasonCode would restate `unknown` as `failed` in runtimeSessionOutcomeFromEvidence.
-          outcome = "unknown";
-        } else {
-          reasonCode = settlementCode;
-          outcome = "failed";
-          body = `${body}\n\nRuntime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
-          sha256 = createHash("sha256").update(body).digest("hex");
-          result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
-          resultRef = `artifact:runtime-result/sha256/${sha256}`;
-        }
-      });
-    // settleFallback can still rewrite a successful terminal to failed/unknown. Re-read the final
-    // outcome after that call; if the required evidence was never captured, keep the raw stream
-    // and mark the sidecar pending before the terminal is appended.
+    await context.settleFallback(active, attemptOutcome, {
+      runtimeSessionId: active.runtimeSessionId,
+      dispatchId: active.dispatchId,
+      task: null,
+      schedule: active.schedule,
+      outcome: active.schedule
+        ? scheduleOutcomeFromRuntime(outcome, active.finalText)
+        : outcome === "succeeded"
+          ? "succeeded"
+          : reviewSuperseded.superseded
+            ? "superseded"
+            : "failed",
+      reason: outcome === "succeeded" ? null : attemptOutcome.reason,
+      endedAt,
+      ...(ruling === null ? {} : { waitingOnOwner: true }),
+      binding: active.binding,
+      ...(processGroupPid === undefined ? {} : { processGroupPid }),
+    });
+    // Keep required evidence until the accepted terminal can be archived.
     if (
       !evidencePending &&
       (active.task !== null || active.decisionReviewTarget !== null) &&
@@ -762,6 +696,11 @@ export async function publishExit(
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
+    const observedFallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState,
+      fallbackState =
+        ({ scheduled: "scheduled", exhausted: "exhausted" } as const)[
+          observedFallbackState as "scheduled" | "exhausted"
+        ] ?? null;
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -776,10 +715,7 @@ export async function publishExit(
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
-          ...(() => {
-            const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
-            return fallbackState === "scheduled" || fallbackState === "exhausted" ? { fallbackState } : {};
-          })(),
+          fallbackState,
           ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
           ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
         },
@@ -792,12 +728,9 @@ export async function publishExit(
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome, !evidencePending);
     context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
   } catch (error) {
-    const settlementCode = runtimeErrorCode(error);
-    const stopProofPending =
-      escalationStop &&
-      (settlementCode === "runtime_process_group_unproven" || settlementCode === "runtime_lease_release_failed");
+    preserveEvidence?.("runtime terminal settlement failed");
     if (!stopProofPending) {
-      if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
+      context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
     settlementFailed = true;
@@ -806,9 +739,47 @@ export async function publishExit(
     throw error;
   } finally {
     context.exiting.delete(active.runtimeSessionId);
-    if (context.processes.get(active.runtimeSessionId) !== active) active.releaseAuthorization?.();
+    if (!stopProofPending) active.releaseAuthorization?.();
     if (!settlementFailed) resolveSettlement();
   }
+}
+
+async function proveRuntimeProcessTreeStopped(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {
+  const makeRuntimeError = context.runtimeSpawnError ?? runtimeSpawnError;
+  const pid = active.process.pid;
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid)
+    throw makeRuntimeError(
+      "runtime_process_group_unproven",
+      `Runtime process group for ${active.runtimeSessionId} has no valid owner process identity.${processGroupRecoveryHint()}`,
+    );
+  const identity = {
+    pid,
+    pgid: pid,
+    dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
+  };
+  await active.process.terminateTree?.();
+  const verdict = reconcileProcessGroup(identity);
+  if (verdict !== "proven_stopped")
+    throw makeRuntimeError(
+      "runtime_process_group_unproven",
+      `Runtime process group ${String(pid)} is ${verdict}; lifecycle settlement waits for a stop proof.${processGroupRecoveryHint()}`,
+    );
+}
+
+async function dispatchLifecycleForTerminal(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+): Promise<DispatchLifecycleView> {
+  const query = { by: "dispatch", dispatchIds: [active.dispatchId] } as const,
+    read = context.input.remote
+      ? await context.input.remote.readDispatchLifecycle(query)
+      : context.requiredRuntimeProjection(context.input).readDispatchLifecycle(query);
+  if (read.status !== "ready")
+    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${active.dispatchId} is not ready.`);
+  const view = read.rows.find(({ attempt }) => attempt.dispatchId === active.dispatchId);
+  if (!view)
+    throw context.runtimeSpawnError("runtime_event_missing", `Dispatch lifecycle ${active.dispatchId} has no attempt.`);
+  return view;
 }
 
 async function publishTerminalOutcome(
@@ -817,14 +788,8 @@ async function publishTerminalOutcome(
   terminalBinding: ActiveRuntime["binding"],
   terminal: DispatchTerminalOutcome,
   archiveAllowed = true,
-): Promise<void> {
+): Promise<DispatchLifecycleView> {
   const { payload, body } = terminal;
-  const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
-  if (active.role === "reviewer" && fallbackState !== "scheduled") {
-    const reviewCleanupFailure = await reclaimReviewWorktree(context.input.rootDir, active.cwd);
-    if (reviewCleanupFailure)
-      console.error(`[review-worktree] ${active.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
-  }
   await context.publishRuntimeEvent(
     "runtime_session_exited",
     { runtimeSessionId: active.runtimeSessionId },
@@ -839,6 +804,13 @@ async function publishTerminalOutcome(
     body,
   );
   if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
+  const lifecycle = await dispatchLifecycleForTerminal(context, active),
+    groupSettled = lifecycle.groupPhase === "closed" || lifecycle.groupPhase === "awaiting_ruling";
+  if (active.role === "reviewer" && groupSettled) {
+    const reviewCleanupFailure = await reclaimReviewWorktree(context.input.rootDir, active.cwd);
+    if (reviewCleanupFailure)
+      console.error(`[review-worktree] ${active.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
+  }
   if (
     outcomeEvent.event &&
     active.role === "reviewer" &&
@@ -865,8 +837,7 @@ async function publishTerminalOutcome(
     reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
   });
   context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-  if (archiveAllowed && readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled")
-    archiveDispatchStream(context.input.rootDir, active.dispatchId);
+  if (archiveAllowed && groupSettled) archiveDispatchStream(context.input.rootDir, active.dispatchId);
   const onExitCommand = active.onExitCommand;
   if (typeof onExitCommand === "string")
     setImmediate(() =>
@@ -883,6 +854,7 @@ async function publishTerminalOutcome(
         now: context.input.now,
       }),
     );
+  return lifecycle;
 }
 
 function unsubmittedDeliveryRecovery(

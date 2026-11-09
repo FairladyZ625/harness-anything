@@ -495,7 +495,10 @@ export async function openWriterSupervisor(
         launched.onErrorOutput((chunk) => activePost({ processId: payload.processId, kind: "error", chunk }));
         launched.onExit((code, lossReason) => {
           activePost({ processId: payload.processId, kind: "exit", code, ...(lossReason ? { lossReason } : {}) });
-          runtimeProcesses.delete(payload.processId);
+          // A lost worker host can leave provider descendants alive. Keep the native handle
+          // until settlement proves and terminates the full tree; ordinary process exits have
+          // no remaining tree to clean up and can release the entry immediately.
+          if (!lossReason) runtimeProcesses.delete(payload.processId);
         });
         return { pid: launched.pid, terminateTree: launched.terminateTree !== undefined };
       }
@@ -507,6 +510,7 @@ export async function openWriterSupervisor(
       case "runtimeTerminateTree": {
         const processId = (call.payload as { processId: string }).processId;
         await runtimeProcesses.get(processId)?.terminateTree?.();
+        runtimeProcesses.delete(processId);
         return null;
       }
       case "runtimeLiveDescendantPids": {

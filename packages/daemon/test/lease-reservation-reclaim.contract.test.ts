@@ -1,18 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV2 } from "@harness-anything/kernel";
 import { taskSurfaceWrite } from "../src/repo-cell-task-command-docs.ts";
 import { taskMutation } from "../src/repo-cell-task-mutation.ts";
-import {
-  appendRuntimeWorkerRecord,
-  openDispatchStream,
-  removeDispatchLiveIndexEntries,
-  removeDispatchStream,
-} from "../src/dispatch-stream.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const now = "2026-08-25T03:15:20.000Z";
 const owner = (executorId: string): ActorIdentity => ({
@@ -72,6 +64,31 @@ const snapshot = (): TaskLifecycleSnapshot => ({
   edgesTaken: [],
   lease,
 });
+
+function lifecycleProjection(runtimeSessionId: string, phase: "running" | "stopped", executionId = lease.executionId) {
+  const dispatchId = `dispatch-${runtimeSessionId}`,
+    source = "local" as const,
+    events = [
+      lifecycleEvent("R", runtimeSessionId, {
+        instanceId: "codex-test",
+        source,
+        dispatchId,
+        taskId: task.taskId,
+        executionId,
+      }),
+      ...(phase === "running"
+        ? [lifecycleEvent("S", runtimeSessionId, { instanceId: "codex-test", source })]
+        : [lifecycleEvent("X", runtimeSessionId, { instanceId: "codex-test", source })]),
+    ],
+    session = {
+      runtimeSessionId,
+      taskBindings: [{ taskId: task.taskId, executionId: lease.executionId }],
+    };
+  return {
+    readRuntimeSession: (id: string) => (id === runtimeSessionId ? session : null),
+    readDispatchLifecycle: dispatchLifecycleReadOf(() => events),
+  };
+}
 
 test("same principal can reclaim a live reservation with no published execution", () => {
   const mutation = taskMutation(
@@ -184,9 +201,8 @@ test("a stale RuntimeSession terminal cannot release a newer execution lease", (
   );
 });
 
-test("the task owner reclaims a held lease from an exited holder across execution drift", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-terminal-lease-reclaim-")),
-    runtimeSessionId = "runtime-terminal-owner-reclaim",
+test("the task owner reclaims a held lease from a stopped lifecycle attempt across execution drift", () => {
+  const runtimeSessionId = "runtime-terminal-owner-reclaim",
     taskOwner = owner("task-owner"),
     worker = {
       principal: { personId: "person-worker" },
@@ -234,59 +250,44 @@ test("the task owner reclaims a held lease from an exited holder across executio
     },
     terminalCell = {
       ...cell,
-      rootDir,
       projection: {
+        ...lifecycleProjection(runtimeSessionId, "stopped", "exec-original-dispatch"),
         readRuntimeSession: (id: string) => (id === runtimeSession.runtimeSessionId ? runtimeSession : null),
       },
     },
     terminalSnapshot = { ...snapshot(), task: ownedTask, executions: [execution], lease: heldLease },
     taskOwnerBinding = authorized({ principal: taskOwner.principal, executor: null });
-  try {
-    const proofDispatchId = "dispatch_" + "d".repeat(24);
-    openDispatchStream(rootDir, {
-      dispatchId: proofDispatchId,
-      taskId: heldLease.taskId,
-      executionId: heldLease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
-    });
-    appendRuntimeWorkerRecord(rootDir, proofDispatchId, { kind: "process_started", pid: 2_147_483_647 });
-    const mutation = taskMutation(
-      terminalCell,
-      { kind: "task-release", taskId: task.taskId, reason: "The bound worker exited." },
-      ownedTask,
-      terminalSnapshot,
-      taskOwnerBinding,
-    );
-    assert.equal(mutation.type, "lease_released");
-    assert.equal(mutation.releasedLease, heldLease);
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          { kind: "task-release", taskId: task.taskId },
-          ownedTask,
-          {
-            ...terminalSnapshot,
-            lease: {
-              ...heldLease,
-              actor: { ...worker, executor: { kind: "agent", id: "runtime-session:another-holder" } },
-            },
+  const mutation = taskMutation(
+    terminalCell,
+    { kind: "task-release", taskId: task.taskId, reason: "The bound worker exited." },
+    ownedTask,
+    terminalSnapshot,
+    taskOwnerBinding,
+  );
+  assert.equal(mutation.type, "lease_released");
+  assert.equal(mutation.releasedLease, heldLease);
+  assert.throws(
+    () =>
+      taskMutation(
+        terminalCell,
+        { kind: "task-release", taskId: task.taskId },
+        ownedTask,
+        {
+          ...terminalSnapshot,
+          lease: {
+            ...heldLease,
+            actor: { ...worker, executor: { kind: "agent", id: "runtime-session:another-holder" } },
           },
-          taskOwnerBinding,
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
-      "an exited RuntimeSession cannot prove a newer holder is dead",
-    );
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+        },
+        taskOwnerBinding,
+      ),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
+    "a lifecycle proof for another RuntimeSession cannot release this lease",
+  );
 });
 
-test("the same principal recovers an exited holder after settlement removes its dispatch from the live index", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settled-dispatch-lease-reclaim-")),
-    runtimeSessionId = "runtime-settled-dispatch-reclaim",
+test("the same principal can recover a lease only after the matching lifecycle attempt stops", () => {
+  const runtimeSessionId = "runtime-settled-dispatch-reclaim",
     holder = {
       principal: { personId: "person-worker" },
       executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
@@ -330,168 +331,73 @@ test("the same principal recovers an exited holder after settlement removes its 
       resultRef: liveness === "exited" ? "artifact:runtime-result/test" : null,
       lastObservedAt: now,
     }),
-    cellFor = (session: ReturnType<typeof sessionFor>) => ({
+    cellFor = (session: ReturnType<typeof sessionFor>, phase: "running" | "stopped") => ({
       ...cell,
-      rootDir,
-      projection: { readRuntimeSession: (id: string) => (id === session.runtimeSessionId ? session : null) },
+      projection: {
+        ...lifecycleProjection(runtimeSessionId, phase),
+        readRuntimeSession: (id: string) => (id === session.runtimeSessionId ? session : null),
+      },
     }),
     snapshotFor = () => ({ ...snapshot(), executions: [execution], lease: heldLease }),
     replacement = authorized({
       principal: { personId: "person-worker" },
       executor: { kind: "agent", id: "replacement-worker" },
-    }),
-    dispatchId = "dispatch_cccccccccccccccccccccccc";
-  try {
-    const stream = openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: heldLease.taskId,
-      executionId: heldLease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
     });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
-    stream.appendAttemptOutcome(
-      {
-        classification: "worker_stop",
-        reason: "Worker reached a normal attempt boundary.",
-        provider: { instance: "codex-test", model: "test-model", kind: "codex" },
-        attemptGroupId: dispatchId,
-        attemptIndex: 0,
-      },
-      now,
-    );
-    removeDispatchLiveIndexEntries(rootDir, [{ dispatchId, taskId: heldLease.taskId, runtimeSessionId }]);
 
-    assert.throws(
-      () =>
-        taskMutation(
-          cellFor(sessionFor("live")),
-          { kind: "task-release", taskId: task.taskId, reason: "Explicit handoff cannot release a live runtime." },
-          task,
-          snapshotFor(),
-          replacement,
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
-      "a live holder keeps its lease even when settlement dropped the dispatch from the live index",
-    );
+  assert.throws(
+    () =>
+      taskMutation(
+        cellFor(sessionFor("live"), "running"),
+        { kind: "task-release", taskId: task.taskId, reason: "Explicit handoff cannot release a live runtime." },
+        task,
+        snapshotFor(),
+        replacement,
+      ),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
+    "an unproven lifecycle attempt keeps its lease held",
+  );
 
-    const mutation = taskMutation(
-      cellFor(sessionFor("exited")),
-      { kind: "task-release", taskId: task.taskId, reason: "The holder session exited after settlement." },
-      task,
-      snapshotFor(),
-      replacement,
-    );
-    assert.equal(mutation.type, "lease_released");
-    assert.equal(mutation.releasedLease, heldLease);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+  const mutation = taskMutation(
+    cellFor(sessionFor("exited"), "stopped"),
+    { kind: "task-release", taskId: task.taskId, reason: "The holder session exited after settlement." },
+    task,
+    snapshotFor(),
+    replacement,
+  );
+  assert.equal(mutation.type, "lease_released");
+  assert.equal(mutation.releasedLease, heldLease);
 });
 
-test("the same principal reclaims a live-projected RuntimeSession only after its dispatch process dies", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dead-runtime-lease-reclaim-")),
-    runtimeSessionId = "runtime-dead-process-reclaim",
-    runtimeActor = {
-      principal: { personId: "person-owner" },
-      executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+test("terminal lease release follows the aggregate stop proof", () => {
+  const runtimeSessionId = "runtime-terminal-proof",
+    dispatchId = "dispatch-runtime-terminal-proof",
+    source = "local" as const,
+    orphanedLease = {
+      ...lease,
+      actor: {
+        principal: { personId: "person-owner" },
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      },
+      phase: "orphaned" as const,
     },
-    heldLease = { ...lease, actor: runtimeActor },
-    execution = {
-      schema: "execution/v1" as const,
-      executionId: heldLease.executionId,
-      taskId: heldLease.taskId,
-      nodeId: "implementation" as const,
-      iteration: 0 as const,
-      state: "active" as const,
-      actor: runtimeActor,
-      claimedAt: now,
-      submittedAt: null,
-      closedAt: null,
-      submission: null,
-    },
+    events = [
+      lifecycleEvent("R", runtimeSessionId, {
+        instanceId: "codex-test",
+        source,
+        dispatchId,
+        taskId: task.taskId,
+        executionId: lease.executionId,
+      }),
+    ],
     runtimeSession = {
       runtimeSessionId,
-      instanceId: "codex-test",
-      installationId: "installation-test",
-      kindId: "codex",
-      definitionSnapshotRef: "artifact:runtime-definition/test",
-      providerSessionId: null,
-      transcriptRef: null,
-      launchGeneration: 1,
-      liveness: "live" as const,
-      attachable: true,
-      taskBindings: [
-        {
-          taskId: heldLease.taskId,
-          executionId: heldLease.executionId,
-          providerSessionId: null,
-          transcriptRef: null,
-          boundAt: now,
-        },
-      ],
-      outcome: null,
-      exitCode: null,
-      resultRef: null,
-      lastObservedAt: now,
+      taskBindings: [{ taskId: task.taskId, executionId: lease.executionId }],
     },
-    reclaimCell = {
+    terminalCell = {
       ...cell,
-      rootDir,
       projection: {
-        readRuntimeSession: (id: string) => (id === runtimeSession.runtimeSessionId ? runtimeSession : null),
-      },
-    },
-    heldSnapshot = { ...snapshot(), executions: [execution], lease: heldLease },
-    replacement = authorized(owner("replacement-worker")),
-    dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb";
-  try {
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: heldLease.taskId,
-      executionId: heldLease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
-    assert.throws(
-      () => taskMutation(reclaimCell, { kind: "task-release", taskId: task.taskId }, task, heldSnapshot, replacement),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
-      "a live dispatch process must retain its lease",
-    );
-
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
-    const mutation = taskMutation(
-      reclaimCell,
-      { kind: "task-release", taskId: task.taskId, reason: "The bound dispatch process is gone." },
-      task,
-      heldSnapshot,
-      replacement,
-    );
-    assert.equal(mutation.type, "lease_released");
-    assert.equal(mutation.releasedLease, heldLease);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("terminal runtime lease release requires a process-group stop proof", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-terminal-process-group-proof-")),
-    runtimeSessionId = "runtime-terminal-proof",
-    dispatchId = "dispatch_cccccccccccccccccccccccc",
-    orphanedLease = { ...lease, phase: "orphaned" as const },
-    edgeSource = { kind: "node" as const, nodeId: "edge-terminal-proof" };
-  let runtimeEvents: Array<{ type: string; source: unknown; payload: Record<string, unknown> }> = [];
-  const terminalCell = {
-      ...cell,
-      rootDir,
-      projection: {
-        read: () => ({ status: "ready", snapshot: snapshot(), packagePath: "tasks/task-orphaned-reservation" }),
-        readRuntimeSessionEvents: () => runtimeEvents,
-        readRuntimeSessionEventsByType: () => runtimeEvents,
-        readRuntimeDispatch: () => undefined,
+        readRuntimeSession: (id: string) => (id === runtimeSessionId ? runtimeSession : null),
+        readDispatchLifecycle: dispatchLifecycleReadOf(() => events),
       },
     },
     terminalAction = {
@@ -500,237 +406,16 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
       terminalExecutionId: lease.executionId,
       terminalRuntimeSessionId: runtimeSessionId,
     },
-    sessionStarted = (source: unknown = "local", bindTask = true) => ({
-      type: "runtime_session_started",
-      source,
-      payload: {
-        runtimeSessionId,
-        ...(bindTask ? { taskBinding: { taskId: task.taskId, executionId: lease.executionId } } : {}),
-      },
-    });
-  try {
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          terminalAction,
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          authorized(owner("replacement-worker")),
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-    );
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          authorized(owner("replacement-worker")),
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "an unrelated stopped pid without a matching RuntimeSession start cannot prove this runtime stopped",
-    );
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: task.taskId,
-      executionId: lease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
-    });
-    runtimeEvents = [sessionStarted()];
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          terminalAction,
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          authorized(owner("replacement-worker")),
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "process_exit without a process-group witness only proves the worker host closed",
-    );
-    removeDispatchStream(rootDir, dispatchId);
+    binding = authorized(owner("replacement-worker"));
 
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: task.taskId,
-      executionId: lease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_start_rejected", errorCode: "fixture_refused" });
-    const rejectedLaunchMutation = taskMutation(
-      terminalCell,
-      terminalAction,
-      task,
-      { ...snapshot(), lease: orphanedLease },
-      authorized(owner("replacement-worker")),
-    );
-    assert.equal(
-      rejectedLaunchMutation.type,
-      "lease_released",
-      "explicit pre-spawn rejection proves no process group was created",
-    );
-    removeDispatchStream(rootDir, dispatchId);
+  assert.throws(
+    () => taskMutation(terminalCell, terminalAction, task, { ...snapshot(), lease: orphanedLease }, binding),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+    "an admitted but unstopped attempt keeps its lease",
+  );
 
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: task.taskId,
-      executionId: lease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_start_rejected", errorCode: "fixture_refused" });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          terminalAction,
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          authorized(owner("replacement-worker")),
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "a process_start_rejected record followed by process_exit is not proof that no process group existed",
-    );
-    removeDispatchStream(rootDir, dispatchId);
-
-    runtimeEvents = [sessionStarted()];
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          authorized(owner("replacement-worker")),
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "a local caller cannot substitute an unrecorded process group",
-    );
-
-    runtimeEvents = [sessionStarted({ kind: "node", nodeId: "another-edge" })];
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          { ...authorized(owner("replacement-worker")), source: edgeSource },
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "an Edge PID is bound to the node that published the matching RuntimeSession start",
-    );
-
-    runtimeEvents = [sessionStarted(edgeSource)];
-    const edgeMutation = taskMutation(
-      terminalCell,
-      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-      task,
-      { ...snapshot(), lease: orphanedLease },
-      { ...authorized(owner("replacement-worker")), source: edgeSource },
-    );
-    assert.equal(edgeMutation.type, "lease_released", "a matching Edge start binds its locally proven PID");
-
-    runtimeEvents = [sessionStarted(edgeSource, false)];
-    const unboundEdgeMutation = taskMutation(
-      terminalCell,
-      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-      task,
-      { ...snapshot(), lease: orphanedLease },
-      { ...authorized(owner("replacement-worker")), source: edgeSource },
-    );
-    assert.equal(
-      unboundEdgeMutation.type,
-      "lease_released",
-      "a matching RuntimeSession start with no taskBinding still binds the lease's supplied Edge proof",
-    );
-
-    runtimeEvents = [{ type: "runtime_session_exited", source: "local", payload: { runtimeSessionId } }];
-    const exitedMutation = taskMutation(
-      terminalCell,
-      terminalAction,
-      task,
-      { ...snapshot(), lease: orphanedLease },
-      authorized(owner("replacement-worker")),
-    );
-    assert.equal(exitedMutation.type, "lease_released", "an exited session with no recorded PID is terminal evidence");
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          authorized(owner("replacement-worker")),
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "an unrelated supplied PID cannot replace the exited session's missing process-group witness",
-    );
-
-    runtimeEvents = [
-      sessionStarted(edgeSource),
-      {
-        type: "runtime_session_liveness_changed",
-        source: edgeSource,
-        payload: { runtimeSessionId, liveness: "live", processGroupPid: 12345 },
-      },
-    ];
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          { ...authorized(owner("replacement-worker")), source: edgeSource },
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "a supplied Edge PID cannot contradict a PID recorded by the matching RuntimeSession",
-    );
-
-    runtimeEvents = [];
-
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: task.taskId,
-      executionId: lease.executionId,
-      runtimeSessionId,
-      instanceId: "codex-test",
-      startedAt: now,
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
-    assert.throws(
-      () =>
-        taskMutation(
-          terminalCell,
-          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-          task,
-          { ...snapshot(), lease: orphanedLease },
-          authorized(owner("replacement-worker")),
-        ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
-      "an unrelated stopped process group cannot prove this runtime stopped",
-    );
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
-    const mutation = taskMutation(
-      terminalCell,
-      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
-      task,
-      { ...snapshot(), lease: orphanedLease },
-      authorized(owner("replacement-worker")),
-    );
-    assert.equal(mutation.type, "lease_released");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+  events.push(lifecycleEvent("X", runtimeSessionId, { instanceId: "codex-test", source }));
+  const mutation = taskMutation(terminalCell, terminalAction, task, { ...snapshot(), lease: orphanedLease }, binding);
+  assert.equal(mutation.type, "lease_released", "accepted runtime_session_exited releases the matching lease");
+  assert.equal(mutation.releasedLease, orphanedLease);
 });

@@ -552,6 +552,11 @@ test("a scheduled fallback carries its due time and a delivery is registered aga
     ["registered", "review:review-d-rev", "running"],
     "a registered review is a delivery; the reviewer still runs until it stops",
   );
+  assert.deepEqual(
+    [reviewed.attempt.stopProof, reviewed.policy.capacityDisposition],
+    ["unproven", "busy"],
+    "delivery registration does not release capacity while the review process is still running",
+  );
 });
 
 test("the center writer refuses a second admission into a busy group and a successor from another owner", () => {

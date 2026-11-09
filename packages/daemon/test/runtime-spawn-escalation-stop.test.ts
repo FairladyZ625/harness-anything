@@ -6,8 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
+import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { active } from "./runtime-spawn-settlement.fixtures.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_release_failed"] as const)
   test(`escalation settlement retries ${stopProofCode} after full tree cleanup`, async (context) => {
@@ -34,7 +35,7 @@ for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_re
       }),
       runtime = active({
         process: {
-          pid: process.pid,
+          pid: process.pid + 1_000_000,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,
@@ -67,7 +68,19 @@ for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_re
         } as never,
       }) as ActiveRuntime,
       published: string[] = [],
-      terminals: RuntimeAttemptTerminal[] = [],
+      lifecycleOptions = {
+        instanceId: runtime.instanceId,
+        source: "local" as const,
+        dispatchId: runtime.dispatchId,
+        taskId: runtime.task!.taskId,
+        executionId: runtime.task!.executionId,
+      },
+      lifecycleEvents = [
+        lifecycleEvent("R", runtime.runtimeSessionId, lifecycleOptions),
+        lifecycleEvent("S", runtime.runtimeSessionId, lifecycleOptions),
+      ],
+      readLifecycle = dispatchLifecycleReadOf(() => lifecycleEvents),
+      outcomes: unknown[] = [],
       contextValue = {
         exiting: new Set<string>(),
         processes: new Map([[runtime.runtimeSessionId, runtime]]),
@@ -79,34 +92,42 @@ for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_re
           remote: {
             archive: async () => ({ outcome: "applied" }),
             taskContext: async () => ({ packageRoot }),
+            readDispatchLifecycle: async (query: Parameters<typeof readLifecycle>[0]) => readLifecycle(query),
           },
         },
         resultMediaType: "text/markdown",
+        runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
         runtimeResultText: () => "worker requested an owner ruling",
         markProtocolError: () => undefined,
-        publishRuntimeEvent: async (type: string) => {
+        publishRuntimeEvent: async (type: string, payload: unknown) => {
+          if (type === "runtime_session_outcome_observed") {
+            assert.equal(treeCleaned, true, "settlement must wait for descendants to stop");
+            settlementAttempts += 1;
+            if (!stopProofAvailable)
+              throw Object.assign(new Error("center refused settlement"), { code: stopProofCode });
+            outcomes.push(payload);
+            lifecycleEvents.push(lifecycleEvent("O", runtime.runtimeSessionId, lifecycleOptions));
+          }
+          if (type === "runtime_session_exited")
+            lifecycleEvents.push(lifecycleEvent("X", runtime.runtimeSessionId, lifecycleOptions));
           published.push(type);
           return {};
         },
-        settleFallback: async (_runtime: ActiveRuntime, _attempt: unknown, terminal: RuntimeAttemptTerminal) => {
-          assert.equal(treeCleaned, true, "the lease must not be released before descendants stop");
-          settlementAttempts += 1;
-          if (!stopProofAvailable)
-            throw Object.assign(new Error("process group stop proof is not available yet"), {
-              code: stopProofCode,
-            });
-          terminals.push(terminal);
-        },
+        settleFallback: async () => undefined,
       } as unknown as RuntimeSpawnerContext,
       settlement = publishExit(contextValue, runtime, null);
 
     try {
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.equal(treeCleanupStarted, true, "settlement must join complete process-tree cleanup");
-      assert.equal(terminals.length, 0, "task lease release must wait for process-tree cleanup");
+      assert.equal(outcomes.length, 0, "task lease release must wait for process-tree cleanup");
       assert.deepEqual(published, [], "a terminal dispatch outcome must not be published early");
-      assert.equal(contextValue.processes.has(runtime.runtimeSessionId), true, "the runtime stays retryable");
-      assert.equal(released, false, "the process owner stays available until release is safe");
+      assert.equal(
+        contextValue.processes.has(runtime.runtimeSessionId),
+        true,
+        "the runtime stays retryable before stop proof",
+      );
+      assert.equal(released, false, "the process owner stays available until stop proof");
 
       finishTreeCleanup();
       await assert.rejects(
@@ -114,20 +135,28 @@ for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_re
         (error: unknown) => error instanceof Error && "code" in error && error.code === stopProofCode,
       );
       assert.equal(settlementAttempts, 1);
-      assert.equal(terminals.length, 0, "an unavailable stop proof must not publish unknown or retire the runtime");
-      assert.deepEqual(published, []);
-      assert.equal(contextValue.processes.has(runtime.runtimeSessionId), true);
-      assert.equal(released, false);
+      assert.equal(outcomes.length, 0, "an unavailable stop proof must not publish unknown or retire the runtime");
+      assert.deepEqual(published, ["runtime_session_exited"]);
+      assert.equal(
+        contextValue.processes.has(runtime.runtimeSessionId),
+        false,
+        "a stopped owner can be released after proof",
+      );
+      assert.equal(released, true);
 
       stopProofAvailable = true;
       await publishExit(contextValue, runtime, null);
 
       assert.equal(settlementAttempts, 2);
-      assert.equal(terminals.length, 1);
-      assert.equal(terminals[0]?.waitingOnOwner, true);
+      assert.equal(outcomes.length, 1);
+      assert.equal(outcomes.length === 1, true);
       assert.equal(contextValue.processes.has(runtime.runtimeSessionId), false);
       assert.equal(released, true);
-      assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+      assert.deepEqual(published, [
+        "runtime_session_exited",
+        "runtime_session_exited",
+        "runtime_session_outcome_observed",
+      ]);
     } finally {
       finishTreeCleanup();
       await settlement.catch(() => undefined);

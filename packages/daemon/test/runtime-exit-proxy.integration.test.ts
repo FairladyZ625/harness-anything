@@ -155,8 +155,7 @@ test(
       const stopped = await cell.attach(runtimeSessionId, "stream:0");
       stopped.detach();
       assert.equal(stopped.initial.ok, false);
-      await wait;
-      assert.equal(returned, true, "the parked runtime wait must settle after the archive revocation");
+      assert.equal(returned, false, "a denied local terminal stream must not settle the lifecycle waiter");
       const projection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventReader({ repoId: "proxy-exit", rootDir: root }),
@@ -175,7 +174,7 @@ test(
       assert.equal(observed.settlement, null, "denied publication cannot become a canonical settlement");
       assert.equal(observed.result, null);
       assert.equal(stream.terminalOutcome?.payload.outcome, "failed");
-      assert.equal(stream.terminalOutcome?.payload.reasonCode, "authorization_denied");
+      assert.equal(stream.terminalOutcome?.payload.reasonCode, "runtime_archive_failed");
       const terminal = stream.terminalOutcome!,
         canonicalAction = {
           kind: "event" as const,
@@ -186,8 +185,20 @@ test(
         };
       await assert.rejects(cell.runtimeIngress(canonicalAction, binding), { code: "authorization_denied" });
       const restored = withPolicyGroup(binding, "admin");
+      const exited = await cell.runtimeIngress(
+        {
+          kind: "event" as const,
+          type: "runtime_session_exited" as const,
+          opId: "proxy-canonical-exited",
+          payload: { runtimeSessionId },
+        },
+        restored,
+      );
+      assert.equal(exited.outcome, "applied", JSON.stringify(exited));
       const published = await cell.runtimeIngress(canonicalAction, restored);
       assert.equal(published.outcome, "applied", JSON.stringify(published));
+      await wait;
+      assert.equal(returned, true, "the parked runtime wait settles after the center accepts the outcome");
       const canonical = await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId });
       assert.equal(
         canonical.session.activity.outcome,
@@ -195,7 +206,6 @@ test(
         "canonical outcome must beat the local failed stream",
       );
       assert.equal(readDispatchStreamSummary(root, dispatchId)?.terminalOutcome?.payload.outcome, "failed");
-      await cell.awaitRuntimeOutcome(runtimeSessionId);
     } finally {
       writeFileSync(release, "exit");
       await cell.close();

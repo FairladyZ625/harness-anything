@@ -31,14 +31,14 @@ import {
   parseZcodeFrame,
 } from "../src/runtime-spawn-provider-frames.ts";
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 
 // A real dispatch cwd is its own worktree. The liveness watcher recurses the whole cwd, so a
 // fixture pointed at a shared tmp tree attaches one fs_event handle per entry there and the test
 // process outlives its tests. One empty directory keeps the watched tree the size of a worktree.
 const fixtureWorkspace = mkdtempSync(path.join(tmpdir(), "ha-provider-fixture-"));
 
-function active(kindId = "codex", process = {} as never, extras: Record<string, unknown> = {}) {
+function active(kindId = "codex", process: Record<string, unknown> = {}, extras: Record<string, unknown> = {}) {
   return createActiveRuntime({
     runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
     dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -53,7 +53,14 @@ function active(kindId = "codex", process = {} as never, extras: Record<string, 
     prompt: "metrics fixture",
     startedAt: "2026-09-11T00:00:00.000Z",
     binding: {} as never,
-    process,
+    process: {
+      pid: 2_147_483_647,
+      onOutput: () => undefined,
+      onErrorOutput: () => undefined,
+      onExit: () => undefined,
+      terminate: () => undefined,
+      ...process,
+    },
     stream: { appendProviderEvent: () => undefined } as never,
     ...extras,
   } as never);

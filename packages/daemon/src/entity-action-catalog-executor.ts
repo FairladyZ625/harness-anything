@@ -99,6 +99,7 @@ export interface EntityActionCatalogRuntimes {
   readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
   readonly task?: (...args: Parameters<EntityActionCatalogRunner>) => Promise<WriteReceipt>;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
+  readonly commitRuntimeSession?: (bundle: RuntimeSessionBundle, binding: RepoCellBinding) => Promise<WriteReceipt>;
 }
 
 export function makeEntityActionCatalogExecutor(input: {
@@ -114,7 +115,12 @@ export function makeEntityActionCatalogExecutor(input: {
   const decisions = makeDecisionService({ eventStore: input.store, projection: input.projection }),
     facts = makeFactService({ eventStore: input.store, projection: input.projection });
 
-  const runCompiled = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
+  const runCompiled = (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    opId: string,
+    runtimes: EntityActionCatalogRuntimes,
+  ): WriteReceipt | Promise<WriteReceipt> => {
     const contract = executableAction(action.kind);
     if (contract.execution.read) {
       if (action.kind === "fact-type-list") return readReceipt("fact-type-list", facts.listDomainTypes());
@@ -166,7 +172,8 @@ export function makeEntityActionCatalogExecutor(input: {
         action,
         opId,
       );
-    const receipt = runWrite(contract, action, binding, opId);
+    const receipt = runWrite(contract, action, binding, opId, runtimes);
+    if (receipt instanceof Promise) return receipt;
     reconcileDecisionReviewAwaitAfterWrite(action, binding, opId, input);
     retireDecisionAwaitsAfterWrite({
       action,
@@ -234,7 +241,7 @@ export function makeEntityActionCatalogExecutor(input: {
       contract.execution.implementation !== "task-lifecycle" &&
       contract.execution.implementation !== "task-completion"
     )
-      return runCompiled(preparedAction, binding, opId);
+      return runCompiled(preparedAction, binding, opId, runtimes);
     if (!runtimes.task)
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",
@@ -315,7 +322,8 @@ export function makeEntityActionCatalogExecutor(input: {
     rawAction: RepoTaskAction,
     binding: RepoCellBinding,
     opId: string,
-  ): WriteReceipt => {
+    runtimes: EntityActionCatalogRuntimes,
+  ): WriteReceipt | Promise<WriteReceipt> => {
     rawAction = resolveDecisionReviewAction(input.rootDir ?? "", rawAction);
     const assignment = contract.id === "assign" || contract.id === "unassign";
     if (contract.id === "assign" && typeof rawAction.expiresAt !== "string" && contract.target.kind !== "relation") {
@@ -430,6 +438,12 @@ export function makeEntityActionCatalogExecutor(input: {
       );
     if (isRuntimeSessionBundle(bundle)) {
       if (dryRun) reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
+      if (bundle.event.type === "runtime_session_outcome_observed") {
+        if (!runtimes.commitRuntimeSession) reject("invalid_store", "Runtime settlement requires the RepoCell writer.");
+        return runtimes
+          .commitRuntimeSession(bundle, { ...binding, authorizationDecision })
+          .then((receipt) => deriveActionResult(contract, action, receipt));
+      }
       return deriveActionResult(
         contract,
         action,
