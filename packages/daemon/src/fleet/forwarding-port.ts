@@ -26,15 +26,19 @@ export async function forward(input: {
   );
   if (!edge?.canonicalRoot || (input.rootDir && edge.canonicalRoot !== input.rootDir)) return null;
   const workspaceRoot = edge.canonicalRoot,
-    config = readFleetEdgeConfig(workspaceRoot);
+    storedConfig = readFleetEdgeConfig(workspaceRoot);
   if (
-    !config ||
-    config.repoId !== input.repoId ||
+    !storedConfig ||
+    storedConfig.repoId !== input.repoId ||
     (input.intent.executionContext.requiredNodeId !== undefined &&
-      config.nodeId !== input.intent.executionContext.requiredNodeId)
+      storedConfig.nodeId !== input.intent.executionContext.requiredNodeId)
   )
     return null;
-  const action = input.intent.inputs as RepoTaskAction;
+  const config = {
+      ...storedConfig,
+      caPath: path.resolve(workspaceRoot, storedConfig.caPath),
+    },
+    action = input.intent.inputs as RepoTaskAction;
   const scheduleAction = getExecutableEntityAction(action.kind)?.target.kind === "schedule",
     squadControl = action.kind === "squad-run" || action.kind === "squad-cancel";
   if (scheduleAction || squadControl) {
@@ -52,7 +56,6 @@ export async function forward(input: {
     return input.runRuntime(
       {
         ...config,
-        caPath: path.resolve(workspaceRoot, config.caPath),
         viewRoot: path.resolve(workspaceRoot, config.viewRoot),
         workspaceRoot,
         method: scheduleAction ? "repo.schedule.run" : "repo.squad.control",
