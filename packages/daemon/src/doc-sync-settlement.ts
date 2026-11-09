@@ -447,6 +447,17 @@ export function admissionRejection(
   // together only if the canonical reserve CAS succeeds. Explicit amendment
   // proves the original canonical submission actor/source instead. Other writes
   // require the current node + owner lease. Archives use their exact dispatch.
+  //
+  // A planned task's plan is exempt from the fleet node's class-A rule below: it must be canonical
+  // before start can name an execution at all. Only a content submission is exempt, never a
+  // retirement of that path.
+  const plannedPlanPaths = new Set(
+    (input.taskDocumentChannel ?? "doc-submit") === "doc-submit"
+      ? intent.changes
+          .filter((change) => change.candidate !== null && plannedTaskPlanSubmission(input, change.path))
+          .map((change) => change.path)
+      : [],
+  );
   if (
     (input.taskDocumentChannel ?? "doc-submit") === "doc-submit" &&
     typeof input.binding.source === "object" &&
@@ -460,7 +471,8 @@ export function admissionRejection(
     const taskTouches = intent.changes.filter(
       (change) =>
         intent.executionId === null &&
-        (input.projection.taskIdForDocumentPath(change.path) !== null || isTaskPackagePath(change.path)),
+        (input.projection.taskIdForDocumentPath(change.path) !== null || isTaskPackagePath(change.path)) &&
+        !plannedPlanPaths.has(change.path),
     );
     if (taskTouches.length > 0) {
       const rejected = detail(
@@ -473,8 +485,8 @@ export function admissionRejection(
             change.path,
             "task-command",
             [
-              "task-context documents ride the canonical lease-checked task command; the ",
-              "doc-submit channel cannot write them without naming the held execution",
+              "task-context documents other than a planned task's plan ride the canonical ",
+              "lease-checked task command; this doc-submit names no held execution",
             ].join(""),
           ),
         ),
@@ -493,6 +505,7 @@ export function admissionRejection(
         input,
         intent.changes.map((change) => change.path),
         input.taskDocumentChannel === "task-command" ? input.unleasedTaskCommandId : delegatedTaskId,
+        plannedPlanPaths,
       );
   if (!touches.length) return null;
   const rejected = detail(intent, input.store.currentCut(), "execution_scope_mismatch", lease, touches);
@@ -504,10 +517,30 @@ export function admissionRejection(
   };
 }
 
+/**
+ * A planned task's plan is the one task-package document the plain doc-submit channel may carry.
+ * `ha task start` refuses until the plan is canonical, and a planned task has no execution to name
+ * on the lease-checked task command, so the two guards would otherwise deadlock every fresh task.
+ * The exemption is deliberately narrow: planned status, no effective lease, exactly the package's
+ * task_plan.md. Anything else in a task package still requires the canonical task command.
+ */
+function plannedTaskPlanSubmission(input: Pick<Input, "projection">, path: string): boolean {
+  const taskId = input.projection.taskIdForDocumentPath(path);
+  if (taskId === null) return false;
+  const task = input.projection.read(taskId);
+  return (
+    task.snapshot.task?.status === "planned" &&
+    task.packagePath !== null &&
+    path === `${task.packagePath}/task_plan.md` &&
+    input.projection.currentLease(taskId) === null
+  );
+}
+
 export function scopeTouches(
   input: Pick<Input, "binding" | "workspaceId" | "projection">,
   paths: readonly string[],
   unleasedTaskCommandId?: string,
+  exemptPaths?: ReadonlySet<string>,
 ): readonly ReturnType<typeof touch>[] {
   if (localProseSource(input.binding.source)) return [];
   return paths
@@ -515,6 +548,9 @@ export function scopeTouches(
       const taskId = input.projection.taskIdForDocumentPath(candidate);
       if (!taskId) return isTaskPackagePath(candidate);
       if (taskId === unleasedTaskCommandId) return false;
+      // Admission passes the exact content submissions it already exempted; the read path has no
+      // intent, so it falls back to the path rule (a node may read what it may submit).
+      if (exemptPaths?.has(candidate) ?? plannedTaskPlanSubmission(input, candidate)) return false;
       const lease = input.projection.currentLease(taskId);
       return (
         !lease ||

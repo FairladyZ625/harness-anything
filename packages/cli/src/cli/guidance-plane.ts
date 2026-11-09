@@ -450,12 +450,23 @@ function renderMissingSections(args: GuidanceArgs): string {
             : [],
         )
       : [],
-    sync = `ha doc sync --submit --path ${path}`;
+    // A task plan is addressed by its task, not by a path: a fleet edge forwards `--task` through
+    // the one task-document channel, while `--path` cannot name the task and is refused there.
+    sync = "ha doc sync --submit --task <task-id>";
+  if (rows.length === 0 && args.diskDiffers !== true)
+    return [
+      "Required-section diagnostics:",
+      "- no missing required sections were reported",
+      `Edit ${path}, then run ${sync} and retry.`,
+    ].join("\n");
   return [
-    "Required-section diagnostics:",
-    ...(rows.length ? rows : ["- no missing required sections were reported"]),
+    ...(rows.length ? ["Required-section diagnostics:", ...rows] : []),
+    // diskDiffers means the readiness judgment read the center's accepted body, not the local file.
     args.diskDiffers === true
-      ? `The on-disk ${path} differs; complete it, then run ${sync} and retry.`
+      ? `The canonical version from the center was judged; the on-disk ${path} differs and has not been ` +
+        `submitted. ` +
+        (rows.length ? "Complete those sections, then run " : "Run ") +
+        `${sync}, then retry this command.`
       : `Edit ${path}, then run ${sync} and retry.`,
   ].join("\n");
 }

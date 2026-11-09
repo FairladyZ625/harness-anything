@@ -22,7 +22,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { realizeTaskPlanFixture, realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -69,6 +69,80 @@ test("local doc submit rejects the retired selection assembler", async () => {
     );
     assert.equal(result.outcome, "op_rejected");
     assert.equal(result.code, "invalid_command");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a planned task's plan rides the node doc-submit channel while other task documents and started tasks stay refused", async () => {
+  const fixture = await docCell("planned-node-plan"),
+    taskId = "task-doc-planned",
+    writerBinding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    const created = await fixture.cell.run(
+      { kind: "task-create", taskId, title: "Planned node plan", workKind: "feat" },
+      writerBinding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(fixture.cell, created.opId, writerBinding);
+    const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
+      planPath = `${packagePath}/task_plan.md`,
+      scan = async () =>
+        (await fixture.cell.run({ kind: "doc-status", paths: [] }, localBinding)) as {
+          readonly detail?: {
+            readonly baseLedgerSha?: unknown;
+            readonly paths?: readonly { readonly path: string; readonly baseBlobSha256?: string | null }[];
+          };
+        },
+      pushNodeDoc = async (path: string, body: string, ref: string) => {
+        const before = await scan(),
+          baseBlobSha256 = before.detail?.paths?.find((row) => row.path === path)?.baseBlobSha256 ?? null;
+        writeAuthored(fixture.rootDir, path, body);
+        writeClaim(fixture.rootDir, ref, body);
+        return fixture.cell.run(
+          {
+            kind: "doc-submit",
+            executionId: null,
+            baseLedgerSha: before.detail?.baseLedgerSha,
+            changes: [
+              {
+                path,
+                baseBlobSha256,
+                policyId,
+                candidate: {
+                  ref: `doc-sync-claims/${ref}`,
+                  sha256: sha(body),
+                  size: Buffer.byteLength(body),
+                  mediaType: "text/markdown",
+                },
+              },
+            ],
+          },
+          assignmentBinding("planned-node-plan", [path]),
+        );
+      };
+    // Negative control: the exemption is the plan, not the whole task package.
+    const closeout = await pushNodeDoc(`${packagePath}/closeout.md`, "# Closeout\n", "planned-closeout");
+    assert.equal(closeout.outcome, "op_rejected", JSON.stringify(closeout));
+    assert.equal(closeout.code, "task_docs_require_task_command");
+
+    const submitted = await pushNodeDoc(planPath, realizedTaskPlan("Planned node plan"), "planned-plan");
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const started = await fixture.cell.run({ kind: "task-start", taskId, executionId: "execution-doc" }, writerBinding);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+
+    // Negative control: once the task left planned, the same channel still requires the lease.
+    const afterStart = await pushNodeDoc(planPath, realizedTaskPlan("Changed after start"), "after-start-plan");
+    assert.equal(afterStart.outcome, "op_rejected", JSON.stringify(afterStart));
+    assert.equal(afterStart.code, "task_docs_require_task_command");
+    console.log(
+      `NODE_PLAN_DOC_SYNC ${JSON.stringify({
+        plannedPlan: submitted.outcome,
+        nonPlanTaskDocument: closeout.code,
+        afterStart: afterStart.code,
+        start: started.outcome,
+      })}`,
+    );
   } finally {
     await fixture.close();
   }
