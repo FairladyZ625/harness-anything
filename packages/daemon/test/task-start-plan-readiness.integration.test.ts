@@ -193,3 +193,52 @@ test("a fix task without an authored Recurrence Gate is refused at create and ad
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("task start keeps a conditional template heading out of the outside-template diagnostic", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-start-conditional-heading-"));
+  initRepo(rootDir);
+  const cell = await openBootstrappedRepoCell({
+      repoId: workspaceId("start-conditional-heading"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "start-conditional-heading",
+    }),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task-feat-gate-known",
+        title: "Feat gate known",
+        workKind: "feat",
+      },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
+      planPath = `${packagePath}/task_plan.md`;
+    // The frozen descriptor carries the full template heading set, so a valid fix-only section is
+    // not called outside the template while a different required section is missing.
+    writeFileSync(
+      path.join(rootDir, "harness", planPath),
+      `${realizedTaskPlan("Feat gate known")
+        .replace(/\n## Goal\n\n[^\n]+/u, "")
+        .trimEnd()}\n\n## Recurrence Gate\n\nCriterion: fix tasks only.\n`,
+    );
+    const rejected = await cell.run(
+      {
+        kind: "task-start",
+        taskId: "task-feat-gate-known",
+        executionId: "execution-feat-gate-known",
+      },
+      binding,
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "plan_placeholder");
+    assert.equal(rejected.diagnostic?.kind, "missing-sections");
+    assert.deepEqual(rejected.diagnostic?.missingSections, [{ section: "Goal", reason: "empty" }]);
+    assert.deepEqual(rejected.diagnostic?.unexpectedSections ?? [], []);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

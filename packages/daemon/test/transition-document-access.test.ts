@@ -84,8 +84,10 @@ test("readiness contract resolves from the descriptor-embedded map, then the bun
     ),
     templateRef = "template://planning/task-plan@2",
     embedded = { Brief: ["One-line statement of the task objective and scope."], Verification: [] },
+    knownSections = ["Brief", "Verification", "Recurrence Gate"],
     // A descriptor whose readiness map was frozen at materialization never consults the catalog:
-    // the embedded contract wins even when the templateRef cannot resolve.
+    // the embedded contract wins even when the templateRef cannot resolve, and the heading set
+    // frozen beside the map tells a conditional section from a typo without another file read.
     fromEmbedded = transitionDocumentReadinessContract({
       contract: { locale: "en-US" },
       descriptor: {
@@ -93,22 +95,36 @@ test("readiness contract resolves from the descriptor-embedded map, then the bun
         path: "task_plan.md",
         templateRef: "template://missing/none@0",
         readiness: embedded,
+        readinessKnownSections: knownSections,
       },
     });
   assert.deepEqual(fromEmbedded, {
     requiredSections: ["Brief", "Verification"],
     scaffoldBySection: embedded,
+    knownSections,
   });
   // The frozen map is authoritative and resolving it opens no file: even a templateRef the bundled
   // catalog can resolve yields only the frozen keys, so task start adds no template read.
   const embeddedWithResolvableCatalog = transitionDocumentReadinessContract({
     contract: { locale: "en-US" },
-    descriptor: { slot: "task.plan", path: "task_plan.md", templateRef, readiness: embedded },
+    descriptor: {
+      slot: "task.plan",
+      path: "task_plan.md",
+      templateRef,
+      readiness: embedded,
+      readinessKnownSections: knownSections,
+    },
   });
-  assert.deepEqual(embeddedWithResolvableCatalog, {
-    requiredSections: ["Brief", "Verification"],
-    scaffoldBySection: embedded,
-  });
+  assert.deepEqual(embeddedWithResolvableCatalog, fromEmbedded);
+  // A package frozen before the heading set was recorded still resolves from the map, but carries
+  // no known set; the kernel then declines to guess which authored headings are outside.
+  assert.deepEqual(
+    transitionDocumentReadinessContract({
+      contract: { locale: "en-US" },
+      descriptor: { slot: "task.plan", path: "task_plan.md", templateRef, readiness: embedded },
+    }),
+    { requiredSections: ["Brief", "Verification"], scaffoldBySection: embedded },
+  );
   // A malformed embedded map is not a contract; resolution falls back to the bundled catalog the
   // descriptor's templateRef names, as for packages materialized before descriptors carried it.
   // The fallback uses the catalog's baseline anchors, so a conditional section added later cannot
@@ -173,20 +189,20 @@ function admissionProjection(
   task: Readonly<Record<string, unknown>>,
   planBody = realizedPlan(),
   requiredAnchors?: readonly string[],
+  knownSections?: readonly string[] | null,
 ): TaskProjection {
   const template = readFileSync(
       new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
       "utf8",
     ),
+    readiness = transitionDocumentContract(template, requiredAnchors ?? planHeadings.map((section) => `## ${section}`)),
     contractBody = JSON.stringify({
       documents: [
         {
           slot: "task.plan",
           path: "task_plan.md",
-          readiness: transitionDocumentContract(
-            template,
-            requiredAnchors ?? planHeadings.map((section) => `## ${section}`),
-          ).scaffoldBySection,
+          readiness: readiness.scaffoldBySection,
+          ...(knownSections === null ? {} : { readinessKnownSections: knownSections ?? readiness.knownSections }),
         },
       ],
     });
@@ -327,4 +343,74 @@ test("non-fix admission keeps the Recurrence Gate optional", () => {
     transition: "task.start",
   });
   assert.equal(document.body, realizedPlan());
+});
+
+const optionalGateTask = {
+  taskId: "task-1",
+  taskClass: "standard",
+  status: "planned",
+  currentNode: "implementation",
+  presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
+  metadata: { presetId: "standard-task", workKind: "feat" },
+} as const;
+
+test("frozen readiness recognizes a conditional template heading beside a missing required section", () => {
+  // The descriptor carries the full template heading set, so keeping the fix-only gate is not a
+  // typo even though this feat task does not require it.
+  const plan = `${realizedPlan()
+    .replace("## Goal\n\nImplemented Goal.", "")
+    .trimEnd()}\n\n## Recurrence Gate\n\nCriterion: fix tasks only.\n`;
+  assert.throws(
+    () =>
+      assertTaskTransitionDocumentReady({
+        rootDir: "/tmp",
+        projection: admissionProjection(optionalGateTask, plan),
+        taskId: "task-1",
+        slot: "task.plan",
+        transition: "task.start",
+      }),
+    (error: unknown) => {
+      const failure = error as {
+        readonly code?: unknown;
+        readonly missingSections?: unknown;
+        readonly unexpectedSections?: unknown;
+      };
+      assert.equal(failure.code, "plan_placeholder");
+      assert.deepEqual(failure.missingSections, [{ section: "Goal", reason: "empty" }]);
+      assert.deepEqual(failure.unexpectedSections, []);
+      return true;
+    },
+  );
+});
+
+test("frozen readiness without a heading set declines to claim a heading is outside the template", () => {
+  // Packages materialized before the heading set was frozen cannot tell a typo from a conditional
+  // section; the receipt still lists every missing section but makes no outside-template claim.
+  const plan = realizedPlan()
+    .replace("## Goal\n\nImplemented Goal.", "")
+    .replace("## Verification\n\nImplemented Verification.", "## Acceptance\n\nImplemented Acceptance.");
+  assert.throws(
+    () =>
+      assertTaskTransitionDocumentReady({
+        rootDir: "/tmp",
+        projection: admissionProjection(optionalGateTask, plan, undefined, null),
+        taskId: "task-1",
+        slot: "task.plan",
+        transition: "task.start",
+      }),
+    (error: unknown) => {
+      const failure = error as {
+        readonly code?: unknown;
+        readonly missingSections?: readonly { readonly section: string }[];
+        readonly unexpectedSections?: unknown;
+      };
+      assert.equal(failure.code, "plan_placeholder");
+      assert.deepEqual(
+        failure.missingSections?.map(({ section }) => section),
+        ["Goal", "Verification"],
+      );
+      assert.deepEqual(failure.unexpectedSections, []);
+      return true;
+    },
+  );
 });

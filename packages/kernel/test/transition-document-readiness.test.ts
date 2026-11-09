@@ -189,6 +189,21 @@ test("task plan lists every missing section and names a heading outside the temp
   );
 });
 
+test("a contract without a frozen heading set does not guess at unexpected sections", () => {
+  const frozenWithoutHeadings = {
+      requiredSections: planContract.requiredSections,
+      scaffoldBySection: planContract.scaffoldBySection,
+    },
+    typo = realizedPlan().replace(
+      "## Verification\n\nImplemented Verification.",
+      "## Acceptance\n\nImplemented Acceptance.",
+    ),
+    assessment = assessTransitionDocument("task.plan", typo, frozenWithoutHeadings);
+  // Missing sections stay complete; only the outside-template claim needs the frozen heading set.
+  assert.deepEqual(assessment.missingSections, [{ section: "Verification", reason: "empty" }]);
+  assert.deepEqual(assessment.unexpectedSections, []);
+});
+
 test("a frozen 13-section contract still judges the old section list", () => {
   assert.deepEqual(legacyPlanContract.requiredSections, legacyPlanHeadings);
   assert.deepEqual(

@@ -582,6 +582,20 @@ function descriptor(
   planScaffold: string | null = null,
   workKind?: TaskMetadataV1["workKind"],
 ) {
+  // The readiness contract this scaffold declares, frozen at materialization so judging a
+  // transition document never needs the scaffold blob or the bundled catalog. Only the plan is
+  // readiness-judged; a closeout is authored prose, read at submit without a scaffold comparison
+  // (dec_E369B8616F50A6208B293997E7 CH2). The map's ordered keys are the required sections; a
+  // catalog-declared conditional section enters the map only for the work kinds it names. The full
+  // heading list travels beside it so a start/dispatch receipt can tell a typo from a conditional
+  // section without reading the template again.
+  const readiness =
+    document.slot === "task.plan"
+      ? transitionDocumentContract(
+          planScaffold ?? document.body,
+          effectiveRequiredAnchors(document.requiredAnchors, document.requiredAnchorsByWorkKind, workKind),
+        )
+      : null;
   return {
     slot: document.slot,
     path: document.relativePath,
@@ -590,19 +604,9 @@ function descriptor(
     requiredAnchors: document.requiredAnchors,
     templateRef: document.templateRef,
     contentSha256: document.contentSha256,
-    // The readiness contract this scaffold declares, frozen at materialization so judging a
-    // transition document never needs the scaffold blob or the bundled catalog. Only the plan is
-    // readiness-judged; a closeout is authored prose, read at submit without a scaffold comparison
-    // (dec_E369B8616F50A6208B293997E7 CH2). The map's ordered keys are the required sections; a
-    // catalog-declared conditional section enters the map only for the work kinds it names.
-    ...(document.slot === "task.plan"
-      ? {
-          readiness: transitionDocumentContract(
-            planScaffold ?? document.body,
-            effectiveRequiredAnchors(document.requiredAnchors, document.requiredAnchorsByWorkKind, workKind),
-          ).scaffoldBySection,
-        }
-      : {}),
+    ...(readiness === null
+      ? {}
+      : { readiness: readiness.scaffoldBySection, readinessKnownSections: readiness.knownSections }),
   };
 }
 /**

@@ -51,7 +51,11 @@ interface TransitionDocumentReadiness {
 export type MarkdownDocumentContract = {
   readonly requiredSections: readonly string[];
   readonly scaffoldBySection: Readonly<Record<string, readonly string[]>>;
-  /** Every heading the materialized scaffold declared, including conditional sections this task need not fill. */
+  /**
+   * Every heading the materialized scaffold declared, including conditional sections this task need
+   * not fill. Absent on contracts frozen before this set was recorded; the unexpected-heading
+   * diagnostic then reports nothing instead of guessing.
+   */
   readonly knownSections?: readonly string[];
 };
 
@@ -411,8 +415,10 @@ function missingMarkdownSections(
 
 /** Authored headings the template does not declare; the receipt names them so a typo is visible. */
 function unexpectedMarkdownSections(body: string, contract: MarkdownDocumentContract): readonly string[] {
-  const known = contract.knownSections ?? contract.requiredSections,
-    prefixes = known.map(normalizeHeading),
+  // A contract frozen before the full heading set was recorded cannot tell a typo from a
+  // conditional template heading; report none rather than claim a declared section is outside.
+  if (contract.knownSections === undefined) return Object.freeze([]);
+  const prefixes = contract.knownSections.map(normalizeHeading),
     declared = new Set(prefixes),
     unexpected = new Set<string>();
   for (const [authoredHeading] of markdownSectionSpans(body)) {

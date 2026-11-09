@@ -695,24 +695,33 @@ test("fix plans must author a Recurrence Gate while other work kinds may omit it
       ),
       gateScaffold = transitionDocumentContract(template).scaffoldBySection["Recurrence Gate"]?.[0];
     assert.ok(gateScaffold, "the template carries a Recurrence Gate scaffold");
-    const descriptorReadiness = (taskId: string, plan: string, workKind: "fix" | "feat") => {
-      const compiled = compileTaskPackage({
-          ...common,
-          taskId,
-          title: taskId,
-          presetId: "standard-task",
-          workKind,
-          plan,
-        }),
-        contract = JSON.parse(
-          compiled.documents.find(({ relativePath }) => relativePath === "task-contract.json")!.body,
-        ) as {
-          readonly documents: readonly { readonly slot: string; readonly readiness?: Record<string, unknown> }[];
-        },
-        readiness = contract.documents.find(({ slot }) => slot === "task.plan")?.readiness;
-      assert.ok(readiness);
-      return readiness;
-    };
+    const planDescriptor = (taskId: string, plan: string, workKind: "fix" | "feat") => {
+        const compiled = compileTaskPackage({
+            ...common,
+            taskId,
+            title: taskId,
+            presetId: "standard-task",
+            workKind,
+            plan,
+          }),
+          contract = JSON.parse(
+            compiled.documents.find(({ relativePath }) => relativePath === "task-contract.json")!.body,
+          ) as {
+            readonly documents: readonly {
+              readonly slot: string;
+              readonly readiness?: Record<string, unknown>;
+              readonly readinessKnownSections?: readonly string[];
+            }[];
+          },
+          descriptor = contract.documents.find(({ slot }) => slot === "task.plan");
+        assert.ok(descriptor);
+        return descriptor;
+      },
+      descriptorReadiness = (taskId: string, plan: string, workKind: "fix" | "feat") => {
+        const readiness = planDescriptor(taskId, plan, workKind).readiness;
+        assert.ok(readiness);
+        return readiness;
+      };
     assert.throws(
       () => descriptorReadiness("task-fix-missing", planWithoutGate, "fix"),
       (error: unknown) => {
@@ -738,6 +747,17 @@ test("fix plans must author a Recurrence Gate while other work kinds may omit it
     );
     const featReadiness = descriptorReadiness("task-feat-optional", planWithoutGate, "feat");
     assert.equal(Object.hasOwn(featReadiness, "Recurrence Gate"), false, "other work kinds stay optional");
+    const featDescriptor = planDescriptor("task-feat-known", planWithoutGate, "feat"),
+      allTemplateHeadings = transitionDocumentContract(template).knownSections;
+    assert.deepEqual(
+      featDescriptor.readinessKnownSections,
+      allTemplateHeadings,
+      "the descriptor freezes every template heading, not only this work kind's required ones",
+    );
+    assert.ok(
+      featDescriptor.readinessKnownSections?.includes("Recurrence Gate"),
+      "the frozen heading set keeps a conditional section recognizable",
+    );
     const filled = `${planWithoutGate}\n\n## Recurrence Gate\n\nCriterion: a fix plan can omit its gate.\nGate: task-plan readiness in transition-document-readiness.ts.\nPositive control: a plan without this section is refused with plan_placeholder.\n`,
       fixReadiness = descriptorReadiness("task-fix-filled", filled, "fix");
     assert.ok(fixReadiness["Recurrence Gate"], "the fix descriptor freezes the conditional section");

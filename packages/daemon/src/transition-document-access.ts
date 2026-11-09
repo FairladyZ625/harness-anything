@@ -39,6 +39,8 @@ interface TransitionDocumentDescriptor {
   readonly templateRef?: unknown;
   readonly locale?: unknown;
   readonly readiness?: unknown;
+  /** Every template heading frozen beside the readiness map, when the descriptor carries it. */
+  readonly readinessKnownSections?: unknown;
 }
 
 /**
@@ -52,7 +54,7 @@ export function transitionDocumentReadinessContract(input: {
   readonly contract: unknown;
   readonly descriptor: TransitionDocumentDescriptor;
 }): MarkdownDocumentContract | null {
-  const embedded = embeddedReadinessContract(input.descriptor.readiness);
+  const embedded = embeddedReadinessContract(input.descriptor.readiness, input.descriptor.readinessKnownSections);
   if (embedded) return embedded;
   const catalog = catalogReadinessSource(input.contract, input.descriptor);
   // A package materialized before descriptors carried the frozen contract is judged only by the
@@ -60,14 +62,22 @@ export function transitionDocumentReadinessContract(input: {
   return catalog === null ? null : transitionDocumentContract(catalog.body, catalog.requiredAnchors);
 }
 
-function embeddedReadinessContract(value: unknown): MarkdownDocumentContract | null {
+function embeddedReadinessContract(value: unknown, knownSectionsValue: unknown): MarkdownDocumentContract | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const scaffoldBySection: Record<string, readonly string[]> = {};
   for (const [section, lines] of Object.entries(value)) {
     if (!Array.isArray(lines) || lines.some((line) => typeof line !== "string")) return null;
     scaffoldBySection[section] = lines;
   }
-  return { requiredSections: Object.keys(scaffoldBySection), scaffoldBySection };
+  const knownSections =
+    Array.isArray(knownSectionsValue) && knownSectionsValue.every((section) => typeof section === "string")
+      ? Object.freeze([...knownSectionsValue] as readonly string[])
+      : undefined;
+  return {
+    requiredSections: Object.keys(scaffoldBySection),
+    scaffoldBySection,
+    ...(knownSections === undefined ? {} : { knownSections }),
+  };
 }
 
 // dec_5F7E74F1 renamed the create-milestone plan template to the work plan (same sections). Task contracts are
