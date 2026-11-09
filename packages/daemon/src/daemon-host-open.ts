@@ -1,5 +1,6 @@
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
-import { runFleetEdgeTask } from "./fleet-edge-task.ts";
+import { forward } from "./fleet/forwarding-port.ts";
+import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type {
@@ -15,11 +16,7 @@ import {
   prepareFleetCenterAdmission,
   startFleetCenterAdmission,
 } from "./fleet-center-admission.ts";
-import {
-  authenticateRuntimeExecutionPrincipal,
-  executionCredentialRejected,
-  runtimeExecutionActor,
-} from "./runtime-execution-credential.ts";
+import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -157,6 +154,7 @@ import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-s
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
+import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 
 export function edgeRuntimeCacheKey(
   request: Pick<
@@ -189,6 +187,9 @@ export interface DaemonHostOpenInput {
   /** Reads the operator's GitHub token for a launch; tests substitute it so no host login is read. */
   readonly runtimeGithubToken?: (environment: NodeJS.ProcessEnv) => Promise<string | null>;
   readonly runtimeCredentialPort?: CredentialPort;
+  readonly authenticateExecutionPrincipal?: (
+    credential: string,
+  ) => Promise<import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal>;
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
@@ -349,9 +350,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     }
-    const execution = auth.executionCredential
-      ? await authenticateRuntimeExecutionPrincipal(keycloakCenter, auth.executionCredential)
-      : auth.executionPrincipal;
+    // JSON-RPC admission resolves credentials before repository binding. Keep this host layer
+    // consuming the verified principal so identity has one provider boundary.
+    const execution = auth.executionPrincipal;
     if (execution) {
       if (
         auth.nodePrincipal &&
@@ -592,32 +593,25 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   ): Promise<void> {
     const repo = autoClaimRepos().find((value) => value.repoId === candidate.repoId);
     if (!repo) throw new Error(`auto-dispatch repository ${candidate.repoId} is unavailable`);
-    const edge = readFleetEdgeConfig(repo.rootDir);
-    if (!edge || edge.repoId !== repo.repoId || edge.nodeId !== candidate.requiredNodeId)
-      throw new Error(`auto-dispatch node ${candidate.requiredNodeId} is unavailable`);
-    const owner = await hostBinding(repo.rootDir, { transportKind: "unix-socket" }),
-      session = await oidc.bind({ transportKind: "unix-socket" }, repo.rootDir),
-      accessToken = session.localSessionAccessToken
-        ? await session.localSessionAccessToken()
-        : session.oidcPrincipal?.accessToken;
-    if (!accessToken) throw new Error("The edge owner must sign in before recording review-dispatch state.");
-    const receipt = await runFleetEdgeTask(
-      {
-        payload: {
-          ...edge,
-          caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
-          viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
-          principalId: owner.actor.principal.personId,
-          action: {
-            kind: "task-amend",
-            taskId: candidate.taskId,
-            patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
-          },
-        },
+    const action = {
+        kind: "task-amend",
+        taskId: candidate.taskId,
+        patches: [{ field: "reviewDispatchFailure", value: JSON.stringify(failure) }],
       },
-      async () => accessToken,
-      "domain",
-    );
+      receipt = await forward({
+        userRoot: input.userRoot,
+        repoId: repo.repoId,
+        rootDir: repo.rootDir,
+        intent: forwardingIntentForAction("repo.task.run", action, {
+          requiredNodeId: candidate.requiredNodeId,
+        }),
+        auth: { transportKind: "unix-socket" },
+        oidc,
+        runRuntime: async () => {
+          throw new Error("Review-dispatch state must use the repository command intent.");
+        },
+      });
+    if (!receipt) throw new Error(`auto-dispatch node ${candidate.requiredNodeId} is unavailable`);
     if (!["applied", "no_changes"].includes(String(receipt.outcome)))
       throw Object.assign(new Error(`The center rejected review-dispatch state for task ${candidate.taskId}.`), {
         code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
@@ -1169,7 +1163,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       };
     },
     home,
-    keycloakCenter,
+    identityCenter: keycloakCenter,
     sessionPrincipal: async (auth, method, params) => {
       await rbacResumed;
       if (
@@ -1200,11 +1194,23 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               (row) => row.repoId === repoId && row.state === "enabled" && row.canonicalRoot !== null,
             )
           : undefined,
-        rootDir = requestedRoot ?? registered?.canonicalRoot;
+        rootDir = requestedRoot ?? registered?.canonicalRoot,
+        edgeReplicaRead =
+          registered?.mode === "remote-edge" &&
+          payload?.action !== null &&
+          typeof payload?.action === "object" &&
+          typeof (payload.action as Record<string, unknown>).kind === "string" &&
+          !["fleet-runtime", "fleet-schedule"].includes(String((payload.action as Record<string, unknown>).kind)) &&
+          commandDescriptorForAction(String((payload.action as Record<string, unknown>).kind)).admission[
+            "remote-edge"
+          ] === "edge-replica";
       if (!rootDir && methodContract?.requiresRepo)
         throw hostCodedError("oidc_center_required", "Select a repository with a configured center before continuing.");
       if (!rootDir && !method.startsWith("daemon.skillEval.")) return undefined;
-      return (await oidc.bind(auth, rootDir ?? undefined)).oidcPrincipal;
+      const bound = await oidc.bind(auth, rootDir ?? undefined, edgeReplicaRead);
+      if (edgeReplicaRead && bound.replicaReadDenied)
+        throw hostCodedError("authorization_denied", "The current session does not authorize this replica read.");
+      return bound.oidcPrincipal;
     },
     parkedWaitSignal: parkedWaitController.signal,
     ...createDaemonHostRepositoryApi(hostContext),
@@ -1528,6 +1534,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           buildDraining: input.buildDraining,
           onDeliverySettled: input.onRepoStatusChange,
           recordTraffic: input.recordTraffic,
+          ...(input.authenticateExecutionPrincipal
+            ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
+            : {}),
           userRoot: input.userRoot,
           writerEpochLease: hostContext.writerEpochLease,
           payload: config,

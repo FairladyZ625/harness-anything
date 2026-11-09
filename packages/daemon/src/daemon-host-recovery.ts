@@ -39,7 +39,10 @@ export async function attemptHostRecovery(context: DaemonHostRegistryContext, re
 export async function waitForWarming(context: DaemonHostRegistryContext, repoId: string): Promise<void> {
   const settlement = context.warmingSettlements.get(repoId);
   if (!settlement) return;
-  void context.startInitialAttachments();
+  // A stop request cannot make an attachment usable. Avoid starting the scheduler
+  // behind a request that is already bounded to return `repo_warming`; the scheduler
+  // refresh can otherwise consume that same request's deadline before the timer fires.
+  if (!context.closing && !context.input.shutdownRequested?.()) void context.startInitialAttachments();
   await new Promise<void>((resolve) => {
     // A command may wait for an in-flight attach, but it must return before the attach
     // lifecycle can cross its settlement boundary during the same request. Keep the established

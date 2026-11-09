@@ -213,6 +213,7 @@ export async function fleetFixture(
       port?: number,
       loginAuthorityUrl = owners.url,
       verifyHuman?: Parameters<typeof listenFleetTls>[0]["verifyHuman"],
+      authenticateExecutionPrincipal?: Parameters<typeof listenFleetTls>[0]["authenticateExecutionPrincipal"],
     ) =>
       owned.hold(
         listenFleetTls({
@@ -263,6 +264,7 @@ export async function fleetFixture(
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
             return owners.nodeOwner(nodeId);
           },
+          authenticateExecutionPrincipal: authenticateExecutionPrincipal ?? owners.authenticateExecutionPrincipal,
         }),
       ),
     close: async () => {

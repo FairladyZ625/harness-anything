@@ -177,10 +177,10 @@ test(
     });
     const written = await e.command({ kind: "task-create", taskId: "independent-write", title: "Independent write" });
     assert.equal(written.outcome, "applied", JSON.stringify(written));
-    assert.ok(written.appliedCut);
+    assert.ok(written.cut);
     const read = await e.command({ kind: "task-list" });
     assert.equal(read.ok, true, JSON.stringify(read));
-    assert.ok((read.cut as { revision: number }).revision >= (written.appliedCut as { revision: number }).revision);
+    assert.ok((read.cut as { revision: number }).revision >= (written.cut as { revision: number }).revision);
     assert.ok((read.rows as { taskId: string }[]).some((row) => row.taskId === "independent-write"));
   },
 );

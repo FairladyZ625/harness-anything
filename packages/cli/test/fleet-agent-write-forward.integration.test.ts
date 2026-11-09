@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { fleetTaskRoute } from "../src/daemon/fleet-command-route.ts";
+import { serializeFleetAction } from "../src/daemon/fleet-payload-serializer.ts";
 import { actionDeclarations } from "@harness-anything/kernel";
 import type { DaemonHost } from "@harness-anything/daemon/internal/daemon-host";
 import { fleetNodeClaimFixture, localAuthFixture } from "../../daemon/test/fleet-node-claim.fixtures.ts";
@@ -76,13 +76,12 @@ test(
     );
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
     if (!parsed.ok) throw new Error("agent install must parse");
-    const routed = await fleetTaskRoute(parsed.command, { HARNESS_DAEMON_USER_ROOT: edge.edgeUser });
-    assert.ok(routed, "the actual CLI chooses center forwarding");
+    const action = serializeFleetAction(parsed.command);
     const response = await edge.rpc.handle({
       jsonrpc: "2.0",
       id: 100,
-      method: "daemon.fleet.task.run",
-      params: { payload: routed },
+      method: parsed.command.method,
+      params: { repo: { repoId: "lease-repo" }, payload: { action } },
     });
     assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
     const installed = response.result as Record<string, unknown>;

@@ -21,11 +21,23 @@ function fixtureFindings(t) {
   const fixture = mkdtempSync(path.join(tmpdir(), "ha-domain-judgment-fixture-"));
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   cpSync(path.join(repoRoot, "tools/fixtures/domain-judgment-single-definition"), fixture, { recursive: true });
+  mkdirSync(path.join(fixture, "tools/gate-allowlists"), { recursive: true });
+  writeFileSync(
+    path.join(fixture, "tools/gate-allowlists/dispatch-lifecycle-observation.json"),
+    JSON.stringify({ schema: "harness-anything/gate-allowlist/v1", entries: { observationSites: [] } }, null, 2),
+  );
   for (const args of [
     ["init", "--quiet"],
     ["config", "core.excludesFile", "/dev/null"],
-  ])
-    spawnSync("git", args, { cwd: fixture });
+    ["config", "user.name", "Harness Test Fixture"],
+    ["config", "user.email", "fixture@example.invalid"],
+    ["add", "--all"],
+    ["commit", "--quiet", "-m", "fixture base"],
+    ["update-ref", "refs/remotes/origin/main", "HEAD"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
   return checkDomainJudgmentSingleDefinition(fixture);
 }
 
@@ -41,7 +53,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /twelve judgments resolve to kernel domain services; authored-document reads use the projection port; dispatch observation ratchet is active/u,
+    /thirteen judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active/u,
   );
 });
 
@@ -285,4 +297,15 @@ test("dispatch observation baseline rejects additions and permits reductions", (
   assert.deepEqual(reduced, []);
   assert.ok(expanded.some((finding) => finding.includes("baseline may only shrink")));
   assert.ok(stale.some((finding) => finding.includes("stale baseline entry should be removed")));
+});
+
+test("positive fixture: a second forwarding intent judgment is refused", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("forwardingIntent") && finding.includes("packages/daemon/src/duplicate-judgments.ts"),
+    ),
+    findings.join("\n"),
+  );
 });
