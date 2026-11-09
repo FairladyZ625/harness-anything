@@ -149,7 +149,6 @@ export class KeycloakPolicyAdapter
         request: (path, init, allowNotFound) => this.#request(token, path, init, allowNotFound),
       },
       principal,
-      this.#fetch,
     );
   }
   authenticateExecutionCredential(token: string, credential: string): Promise<RuntimeExecutionPrincipal> {
@@ -173,7 +172,6 @@ export class KeycloakPolicyAdapter
         request: (path, init, allowNotFound) => this.#request(token, path, init, allowNotFound),
       },
       dispatchId,
-      this.#fetch,
     );
   }
   readonly sessionLifetimeBounds = sessionLifetimeBounds;
