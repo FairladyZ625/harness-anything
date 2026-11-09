@@ -301,17 +301,14 @@ function requireCompletionGate(pr, root) {
     );
   }
   const cut = judgedCut(evidence);
-  if (cut === undefined) {
-    // A delivery blocker that names no cut cannot prove the PR head contains the frozen delivery;
-    // a null blocker means the ledger already proved delivery, so there is no merge left to guard.
-    if (blocker !== null)
-      throw new Error(
-        `Harness task show for ${taskId} reported ${blocker.code} without naming its cut; ` +
-          "refusing to merge (fail closed).",
-      );
-    console.log(`Task ${taskId} has no pending delivery judgment (status=${evidence.task.status}).`);
-    return evidence;
-  }
+  // A task PR always owes the frozen-cut comparison: without a server-named submitted execution the
+  // merge cannot prove its head contains the delivery, whatever the blocker says (protocol permits a
+  // null blocker with completionNext: null, and readCut.executionId: null). Fail closed.
+  if (cut === undefined)
+    throw new Error(
+      `Harness task show for ${taskId} named no submitted delivery cut ` +
+        `(blocker=${blocker?.code ?? "none"}); refusing to merge (fail closed).`,
+    );
   const equivalent = requireMergedHeadIsFrozenCut(taskId, cut, pr, root);
   if (equivalent !== null && equivalent !== undefined) {
     evidence.rebaseEquivalent = equivalent;

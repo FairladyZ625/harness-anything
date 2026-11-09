@@ -1168,6 +1168,59 @@ test("fails closed when the receipt carries no completion judgment", (t) => {
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
 });
 
+// F1: a task PR always owes the frozen-cut comparison. The completion protocol permits a null
+// blocker with completionNext: null (a completed task) and a readCut whose executionId is null, so
+// the gate must refuse instead of reading "no cut" as permission to skip the head guard.
+test("refuses a task PR whose completion judgment names no submitted delivery cut", async (t) => {
+  const cases = [
+    {
+      label: "no blocker and no remediation",
+      apply: (receipt) => {
+        receipt.task.status = "done";
+        receipt.completionBlocker = null;
+        receipt.completionNext = null;
+      },
+    },
+    {
+      label: "no blocker and a null readCut execution",
+      apply: (receipt) => {
+        receipt.completionBlocker = null;
+        receipt.completionNext.readCut.executionId = null;
+      },
+    },
+    {
+      label: "delivery blocker and a null readCut execution",
+      apply: (receipt) => {
+        receipt.completionNext.readCut.executionId = null;
+      },
+    },
+  ];
+  for (const { label, apply } of cases) {
+    await t.test(label, (t) => {
+      const setup = fixture(t, {
+        branch: TASK_BRANCH,
+        haState: (head) => {
+          const state = reviewChainWithDeliveryBlockerHaState({ commitSha: head });
+          apply(state.receipt);
+          return state;
+        },
+      });
+
+      const result = run(process.execPath, [helper, "123"], {
+        cwd: setup.main,
+        env: setup.env,
+        allowFailure: true,
+      });
+
+      assert.equal(result.status, 1, result.stdout);
+      assert.match(result.stderr, /named no submitted delivery cut/u);
+      assert.match(result.stderr, /refusing to merge \(fail closed\)/u);
+      assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+      assert.equal(existsSync(setup.annotateLogPath), false);
+    });
+  }
+});
+
 test("merges a lightweight task PR whose review and consent gates were lifted at declaration", (t) => {
   // A lightweight profile owes no review or consent ever; requiring one here would deadlock the
   // very class of low-risk PRs the short path exists for.
