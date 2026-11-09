@@ -8,7 +8,7 @@
 
 -
 
-<!-- After task submit, generate this block with `node tools/gates/render-task-pr-body.mjs --task <task-id>`. -->
+<!-- The delivery path renders this block from the frozen submission after `ha task submit`; do not hand-edit it. -->
 <!-- harness:submission-facts:start -->
 <!-- harness:submission-facts:end -->
 

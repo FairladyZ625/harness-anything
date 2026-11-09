@@ -584,6 +584,21 @@ test("canonical list filters terminal observations by accepted instants, keeps a
   assert.equal(f.reader.list({}).totals.runs, 3);
 });
 
+test("a failed run's status summary carries the terminal error the command receipt would drop", () => {
+  const f = canonicalFixture();
+  f.rows[0] = {
+    ...f.rows[0]!,
+    phase: "failed",
+    error:
+      "leader turn budget 1 exhausted; unexecuted leader work: leader-1: " +
+      "Leader selected invalid or duplicate worker ghost-worker.; last leader turn leader-1 dispatch dispatch_000000000000000000000001",
+  };
+  const summaryText = String(f.reader.status(summary.squadRunId).summary);
+  assert.match(summaryText, /^squad-run core-squad: failed — leader turn budget 1 exhausted/u);
+  assert.match(summaryText, /ghost-worker/u);
+  assert.match(summaryText, /dispatch_000000000000000000000001/u);
+});
+
 test("unknown run is explicit and public reads cannot reveal local control state", () => {
   const f = canonicalFixture();
   assert.throws(() => f.reader.read("squad_333333333333333333333333"), /does not exist/u);

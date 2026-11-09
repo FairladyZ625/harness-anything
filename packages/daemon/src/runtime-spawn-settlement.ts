@@ -35,6 +35,7 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { presetSnapshotReader, reclaimReviewWorktree, taskOutputShape } from "./task-worktree.ts";
 import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
+import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
@@ -365,6 +366,14 @@ export async function publishExit(
           submittedCommitSha = submission?.commitSha,
           hosting = await detectHostingProvider(context.input.rootDir, undefined, true),
           env = hosting ? await context.prepareDaemonGitEnvironment(active.instanceId, hosting.kind) : undefined,
+          renderBody = submission
+            ? taskPrBodyRenderer({
+                rootDir: context.input.rootDir,
+                projection,
+                taskId: active.task.taskId,
+                submission,
+              })
+            : undefined,
           publication = await publishTaskWorkerBranch({
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,
@@ -375,7 +384,14 @@ export async function publishExit(
             classifyRemoteAhead: submittedCommitSha !== undefined,
             env,
             ...(hosting && submission?.commitSha
-              ? { pullRequest: { hosting, taskTitle: snapshot.task?.title ?? active.task.taskId, submission } }
+              ? {
+                  pullRequest: {
+                    hosting,
+                    taskTitle: snapshot.task?.title ?? active.task.taskId,
+                    submission,
+                    ...(renderBody ? { renderBody } : {}),
+                  },
+                }
               : {}),
           }),
           push = publication.push;

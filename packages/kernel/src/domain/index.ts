@@ -100,8 +100,6 @@ export type { BlockingLabel } from "./task-blocking.ts";
 
 export {
   assessTransitionDocument,
-  chineseCloseoutSectionBodies,
-  chineseCloseoutSections,
   missingChineseCloseoutSections,
   submissionFromCloseout,
   assertTransitionDocumentReady,
@@ -134,6 +132,15 @@ export {
   renderSubmissionFacts,
   replaceSubmissionFacts,
 } from "./submission-facts.ts";
+export { classifyProtectedChanges, deriveProtectedSurfaceRules } from "./protected-surface-governance.ts";
+export {
+  describeDependencyChange,
+  hasDependencyChange,
+  readDependencyDeclarations,
+  replaceDependencyDeclaration,
+  validateDependencyDeclaration,
+} from "./dependency-declaration.ts";
+export { governanceDecisionAuthority, renderTaskPrBody } from "./task-pr-body.ts";
 
 export {
   taskBoardPlacement,

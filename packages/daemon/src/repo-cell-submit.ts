@@ -43,6 +43,7 @@ import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 import { assertOldDataCopyReceipt, oldDataCopyReceiptPath } from "./submit-old-data-copy.ts";
 import { detectHostingProvider, publishesPublicPullRequest } from "./hosting-provider.ts";
 import { updateTaskPullRequestBody } from "./runtime-task-publication.ts";
+import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
@@ -791,12 +792,19 @@ export async function refreshSubmittedPullRequest(
     if (typeof instanceId !== "string") return null;
     const env = await cell.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind, cell.input.repoId);
     if (!env) return null;
+    const renderBody = taskPrBodyRenderer({
+      rootDir: cell.rootDir,
+      projection: cell.projection,
+      taskId,
+      submission,
+    });
     await updateTaskPullRequestBody({
       hosting,
       branch: taskId,
       taskTitle: cell.projection.read(taskId).snapshot.task?.title ?? taskId,
       submission,
       env,
+      ...(renderBody ? { renderBody } : {}),
     });
     return null;
   } catch (error) {

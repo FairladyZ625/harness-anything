@@ -284,23 +284,27 @@ If the initial worktree check found approved pre-existing commits, describe the
 complete `origin/main...HEAD` delta in the PR body and explicitly separate
 those commits from the changes authored in the current run.
 
-Generate the body from the live template and frozen submission; the generated
-Delivery Facts block owns the commit, merge base, changed paths, and production
-delta. Never hand-copy those values:
+The delivery path renders the body; you do not run the renderer yourself. Once
+`ha task submit` freezes the cut, `ha task push`, the submit refresh and
+terminal settlement all run the same renderer against the live template, the
+task closeout and the frozen submission. The generated Delivery Facts block
+owns the commit, merge base, changed paths, and production delta. Never
+hand-copy those values.
+
+Fill the human-authored closeout sections before submit; the rendered body takes
+its Summary, What Changed, Verification and Residual Risk prose from the frozen
+closeout. If a later commit changes scope or delta, amend the submission and
+push again: the delivery path re-renders the body and replaces the machine block
+instead of stacking a second one. To supply repository-authored prose, edit the
+rendered body locally and pass it once:
 
 ```bash
-node tools/gates/render-task-pr-body.mjs --task <task-id> > /tmp/harness-anything-pr-body.md
-${EDITOR:-vi} /tmp/harness-anything-pr-body.md
+ha task push <task-id> --body-file /tmp/harness-anything-pr-body.md
 ```
 
-Fill the human-authored sections with real delivery facts. Keep the generated
-Delivery Facts block intact. After an amended submission, rerun the renderer
-against the current body file so the block follows the new frozen cut:
-
-```bash
-node tools/gates/render-task-pr-body.mjs --task <task-id> --body-file /tmp/harness-anything-pr-body.md > /tmp/harness-anything-pr-body.next.md
-mv /tmp/harness-anything-pr-body.next.md /tmp/harness-anything-pr-body.md
-```
+The daemon re-renders that body too, preserving authored sections while
+refreshing the machine facts, governance declaration and Dependency-Change
+line.
 
 The renderer owns both language blocks: it appends `# 中文` with `## 摘要` and
 `## 验证` (plus optional `## 改动内容` / `## 残余风险`) from the same closeout,
@@ -375,11 +379,11 @@ generator serves manual trains and single-PR refreshes.
 docs-only example that exercises every section. It is a fixture, not a template:
 always copy the live repository template for a real PR.
 
-> 中文：task submit 冻结交付 cut 后，用 renderer 生成 PR body 的 Delivery Facts；不得
-> 手抄或重算 SHA、基线、文件清单和 production delta。PR body 按模板填写人写的节；
-> renderer 同时生成 `# 中文` 的 `## 摘要`/`## 验证` 等节；closeout 是同一份文档，必须带
-> `## 摘要` 与 `## 验证`，只有英文的 closeout 会被拒绝，不会把英文塞进中文标题下。手写或
-> 补粘贴的中文段会被下次渲染替换。治理声明按台账授权生成，`Dependency-Change:` 按冻结
+> 中文：task submit 冻结交付 cut 后，PR body 由交付路径自动渲染（`ha task push`、submit 刷新与结算
+> 共用同一个 renderer），不需要手工运行；不得手抄或重算 SHA、基线、文件清单和 production delta。
+> PR body 按模板填写人写的节；renderer 同时生成 `# 中文` 的 `## 摘要`/`## 验证` 等节；closeout 是
+> 同一份文档，必须带 `## 摘要` 与 `## 验证`，只有英文的 closeout 会被拒绝，不会把英文塞进中文标题下。
+> 手写或补粘贴的中文段会被下次渲染替换。治理声明按台账授权生成，`Dependency-Change:` 按冻结
 > cut 的 package manifest 与 lockfile 派生（与 G31 同一判定），都不要手工删除或改写。预检统一用
 > `npm run check:pr-body -- --body-file <path>`：它按 workflow 与 gate-manifest 派生全部正文检查，
 > 逐项跑完再汇总，不再分几条命令逐项暴露。手工合体列车先用 `tools/gates/combine-pr-bodies.mjs`
@@ -392,7 +396,8 @@ always copy the live repository template for a real PR.
 This section is the external-contributor path: it uses the contributor's own
 Git credentials. A different model exists for dispatched, task-bound workers in
 a registered Harness workspace — they publish the branch through the daemon with
-`ha task push <task-id> --body-file /tmp/harness-anything-pr-body.md`, which creates or updates the PR, with direct-push
+`ha task push <task-id>`, which renders the PR body from the frozen cut and
+creates or updates the PR, with direct-push
 protection limiting any push to the task's own branch. Read hosted checks and
 failure logs directly with the hosting platform CLI and your own platform
 credentials. If your session runs as such a worker, use those publishing
