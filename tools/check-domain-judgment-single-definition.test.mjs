@@ -21,11 +21,23 @@ function fixtureFindings(t) {
   const fixture = mkdtempSync(path.join(tmpdir(), "ha-domain-judgment-fixture-"));
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   cpSync(path.join(repoRoot, "tools/fixtures/domain-judgment-single-definition"), fixture, { recursive: true });
+  mkdirSync(path.join(fixture, "tools/gate-allowlists"), { recursive: true });
+  cpSync(
+    path.join(repoRoot, "tools/gate-allowlists/dispatch-lifecycle-observation.json"),
+    path.join(fixture, "tools/gate-allowlists/dispatch-lifecycle-observation.json"),
+  );
   for (const args of [
     ["init", "--quiet"],
     ["config", "core.excludesFile", "/dev/null"],
-  ])
-    spawnSync("git", args, { cwd: fixture });
+    ["config", "user.name", "Harness Test Fixture"],
+    ["config", "user.email", "fixture@example.invalid"],
+    ["add", "--all"],
+    ["commit", "--quiet", "-m", "fixture base"],
+    ["update-ref", "refs/remotes/origin/main", "HEAD"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
   return checkDomainJudgmentSingleDefinition(fixture);
 }
 

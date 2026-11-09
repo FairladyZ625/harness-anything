@@ -268,7 +268,7 @@ export async function runCommandThroughDaemon(
     invokingCommand: command.id,
   };
   if (
-    target.remoteEdge &&
+    (target.remoteEdge || env.HARNESS_DAEMON_RELAY === "1") &&
     descriptor &&
     command.method !== "repo.agentRuntime.handoff" &&
     descriptor.method === command.method &&
