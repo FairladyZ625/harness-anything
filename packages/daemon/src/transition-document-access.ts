@@ -44,34 +44,30 @@ interface TransitionDocumentDescriptor {
 /**
  * Resolves the readiness contract a task package's scaffold declared: the contract frozen into the
  * descriptor at materialization first, then — for packages materialized before descriptors carried
- * it — the bundled template catalog the descriptor's `templateRef` names. A resolvable catalog also
- * supplies the template's full heading set to the frozen contract, so a conditional section is not
- * mistaken for a heading outside the template. Returns null when no source yields the contract.
+ * it — the bundled template catalog the descriptor's `templateRef` names. The frozen map is
+ * authoritative and costs no file read; only a package that predates it falls back to the catalog.
+ * Returns null when no source yields the contract.
  */
 export function transitionDocumentReadinessContract(input: {
   readonly contract: unknown;
   readonly descriptor: TransitionDocumentDescriptor;
 }): MarkdownDocumentContract | null {
-  const catalog = catalogReadinessSource(input.contract, input.descriptor),
-    // A package materialized before descriptors carried the frozen contract is judged only by the
-    // catalog's baseline anchors. A conditional section declared later never backfills an old plan.
-    catalogContract = catalog === null ? null : transitionDocumentContract(catalog.body, catalog.requiredAnchors),
-    embedded = embeddedReadinessContract(input.descriptor.readiness, catalogContract?.knownSections);
-  return embedded ?? catalogContract;
+  const embedded = embeddedReadinessContract(input.descriptor.readiness);
+  if (embedded) return embedded;
+  const catalog = catalogReadinessSource(input.contract, input.descriptor);
+  // A package materialized before descriptors carried the frozen contract is judged only by the
+  // catalog's baseline anchors. A conditional section declared later never backfills an old plan.
+  return catalog === null ? null : transitionDocumentContract(catalog.body, catalog.requiredAnchors);
 }
 
-function embeddedReadinessContract(value: unknown, knownSections?: readonly string[]): MarkdownDocumentContract | null {
+function embeddedReadinessContract(value: unknown): MarkdownDocumentContract | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const scaffoldBySection: Record<string, readonly string[]> = {};
   for (const [section, lines] of Object.entries(value)) {
     if (!Array.isArray(lines) || lines.some((line) => typeof line !== "string")) return null;
     scaffoldBySection[section] = lines;
   }
-  return {
-    requiredSections: Object.keys(scaffoldBySection),
-    scaffoldBySection,
-    ...(knownSections === undefined ? {} : { knownSections }),
-  };
+  return { requiredSections: Object.keys(scaffoldBySection), scaffoldBySection };
 }
 
 // dec_5F7E74F1 renamed the create-milestone plan template to the work plan (same sections). Task contracts are
