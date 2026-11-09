@@ -165,7 +165,10 @@ export function makeSquadCanonicalReader(input: {
       workerCallbackCount: run.workerCallbackCount,
       pendingLeaderCallbackCount: run.pendingLeaderCallbackCount,
       ...(activePhase(run.phase) ? {} : { exitCode: run.phase === "converged" ? 0 : 1 }),
-      summary: `squad-run ${run.squadId}: ${run.phase}`,
+      // The command-receipt envelope drops a top-level `error`, so a terminal failure that only
+      // lives there is invisible in `ha squad status`. The summary is the one owner-visible field
+      // every receipt keeps; carry the terminal reason with it.
+      summary: `squad-run ${run.squadId}: ${run.phase}${run.error === null ? "" : ` — ${run.error}`}`,
     } as unknown as JsonObject;
   }
   return { read, list, status };
