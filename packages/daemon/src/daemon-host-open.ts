@@ -652,14 +652,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       intent: runtimeForwardingIntent(request.method, request.action, request),
       auth: request.auth,
       oidc,
-      decorateRuntime: request.decorate,
       runRuntime: async (value, requestAuth, operation) => {
         startReplicaSyncs();
         const payload = value as unknown as FleetEdgeRuntimeRequest["payload"],
-          runtime = runtimeOwnerFor(payload);
-        return operation === "reconcile"
-          ? (await runtime.reconcile(), { outcome: "applied" })
-          : runtime.run(payload.method, payload.action, requestAuth.connectionSignal);
+          runtime = runtimeOwnerFor(payload),
+          result =
+            operation === "reconcile"
+              ? (await runtime.reconcile(), { outcome: "applied" })
+              : await runtime.run(payload.method, payload.action, requestAuth.connectionSignal);
+        return request.decorate ? request.decorate(payload, result) : result;
       },
     }) as Promise<JsonObject | null>;
   }
@@ -713,16 +714,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               );
         return result as unknown as Readonly<Record<string, unknown>>;
       }
-      const receipt = await forward({
-        userRoot: input.userRoot,
+      const receipt = await forwardRuntime({
         repoId,
-        intent: forwardingIntentForAction("repo.task.run", { ...action, kind: action.kind }),
+        method: "repo.schedule.run",
+        action: action as JsonObject,
         auth: { transportKind: "unix-socket" },
-        oidc,
-        runRuntime: (payload, auth) => {
-          const request = payload as unknown as FleetEdgeRuntimeRequest["payload"];
-          return runtimeOwnerFor(request).run(request.method, request.action, auth.connectionSignal);
-        },
       });
       if (!receipt) throw hostCodedError("fleet_edge_config_invalid", `Remote-edge Schedule ${repoId} is unavailable.`);
       return receipt;

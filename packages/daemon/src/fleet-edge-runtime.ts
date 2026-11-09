@@ -258,10 +258,7 @@ export function openFleetEdgeRuntime(input: {
   const controlBinding = input.controlBinding,
     now = input.now ?? (() => new Date().toISOString()),
     stream = { publish: () => ({}) as never };
-  const context = () => {
-    const request = input.request;
-    return runtimeForwardingContext(request, () => input.readAccessToken(request));
-  };
+  const context = () => runtimeForwardingContext(input.request, () => input.readAccessToken(input.request));
   const readSettings = () => {
     const { request } = context();
     return withEdgeReadModel({ ...request, principalId: replicaOwner }, (projection) => ({

@@ -36,10 +36,6 @@ export async function forward(input: {
     auth: DaemonAuthenticationContext,
     operation?: "run" | "reconcile",
   ) => Promise<Record<string, unknown>>;
-  readonly decorateRuntime?: (
-    payload: FleetEdgeRuntimeRequest["payload"],
-    receipt: JsonObject,
-  ) => JsonObject | Promise<JsonObject>;
 }): Promise<Record<string, unknown> | null> {
   if (input.intent.kind === "command") {
     const issue = forwardingIntentIssue(input.intent);
@@ -65,7 +61,7 @@ export async function forward(input: {
         input.auth,
         input.intent.inputs.operation,
       )) as JsonObject;
-    return input.decorateRuntime ? input.decorateRuntime(payload, receipt) : receipt;
+    return receipt;
   }
   const action = input.intent.inputs as RepoTaskAction;
   const scheduleAction = getExecutableEntityAction(action.kind)?.target.kind === "schedule",
@@ -123,7 +119,6 @@ export async function forward(input: {
   );
 }
 
-/** One snapshot for every runtime operation, including detached publication and recovery. */
 export function resolveRuntimeLocation(userRoot: string | undefined, repoId: string, requiredNodeId?: string) {
   const edge = registeredRemoteEdge(userRoot, repoId);
   return edge ? runtimeLocation(edge, repoId, requiredNodeId) : invalidRuntimeLocation();

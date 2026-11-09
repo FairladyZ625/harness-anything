@@ -75,7 +75,6 @@ export function makeFleetSquadCoordinator(input: {
       });
       await input.sync();
     },
-    // Fleet control starts task-subject runs only; a schedule-occurrence run never reaches this edge.
     settleScheduleOccurrence: async () => {
       throw new Error("The fleet Squad coordinator does not settle schedule occurrences.");
     },
@@ -136,7 +135,6 @@ export function makeFleetSquadCoordinator(input: {
       await input.sync();
     },
     createChildTask: async (child) => {
-      // Fleet control runs task subjects only: a parentless child never reaches this coordinator.
       const parentTaskId = child.parentTaskId;
       if (parentTaskId === null) throw new Error("A fleet Squad run cannot create parentless children.");
       const parentPlan = query((projection) => {
