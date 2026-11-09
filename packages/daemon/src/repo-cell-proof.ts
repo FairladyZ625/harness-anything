@@ -528,6 +528,7 @@ function assertPremiseReviewedPastBudget(
     }, ""),
     found = latestPremiseReview(projection, command.taskId, lastReturn),
     recordCommand = premiseReviewCommand(command.taskId),
+    missing = found?.review.ok === false ? found.review.missing : null,
     rounds = `${String(returned.length)} returns already exceed the rework budget of ${String(budget)}`;
   if (found?.review.ok === true && found.review.conclusion !== "stop") return;
   if (found?.review.ok === true)
@@ -558,7 +559,12 @@ function assertPremiseReviewedPastBudget(
       entity: `task ${command.taskId}`,
       field: "premiseReview",
       actual: found ? found.fact.ref : "none after the last return",
-      expectation: `A standing Fact for this task with source ${PREMISE_REVIEW_SOURCE}, recorded after the last return, concluding continue or narrow`,
+      expectation:
+        found !== null && missing !== null
+          ? `${found.fact.ref} is missing ${missing.join(", ")}; ` +
+            `record the complete premise review with: ${recordCommand}`
+          : `A standing Fact for this task with source ${PREMISE_REVIEW_SOURCE}, recorded after the last return, ` +
+            `concluding continue or narrow; record it with: ${recordCommand}`,
     },
   );
 }
