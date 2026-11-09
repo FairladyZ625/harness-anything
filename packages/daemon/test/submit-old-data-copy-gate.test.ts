@@ -177,13 +177,13 @@ function fixture(t: TestContext, options: FixtureOptions) {
       if (body === null) documents.delete(receiptPath);
       else documents.set(receiptPath, body);
     },
-    derive: () =>
+    derive: (bodyOverrides?: ReadonlyMap<string, string>) =>
       readCloseoutSubmission(
         cell as unknown as Parameters<typeof readCloseoutSubmission>[0],
         "task-1",
         "execution-1",
         snapshot,
-        undefined,
+        bodyOverrides,
         head,
         "local",
       ),
@@ -258,6 +258,14 @@ test("submit accepts a receipt bound to the submitted cut with no failures", asy
   assert.deepEqual(result.submission.riskTierAssessment?.matchedPathReviewers, [
     { agentId: "data-migration", paths: ["packages/storage/src/store/schema.ts"] },
   ]);
+});
+
+test("a receipt carried in the same submit satisfies the gate before the ledger accepts it", async (t) => {
+  const { head, derive } = fixture(t, {
+    pathReviewers: ["data-migration packages/storage/src/store/"],
+  });
+  const result = await derive(new Map([[receiptPath, receiptFor(head)]]));
+  assert.equal(result.ok, true, result.ok ? "" : result.error.message);
 });
 
 test("submit does not require a receipt when the cut misses the data-migration lane", async (t) => {
