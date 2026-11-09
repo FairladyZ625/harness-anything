@@ -88,6 +88,7 @@ export function lifecycleReadFor(
     else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
     else
       rows = views.filter(({ attempt }) => query.instanceId === undefined || attempt.instanceId === query.instanceId);
+    if (query.by === "active") rows = rows.filter(({ policy }) => !policy.groupSettled);
     return { status: "ready", watermark: 1, sourceRevision: 1, rows, nextCursor: null };
   };
 }

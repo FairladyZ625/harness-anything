@@ -7,6 +7,7 @@ import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { sweepOrphanedProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { openRuntimeWorkspaceMonitor } from "./runtime-workspace-monitor-thread.ts";
 import { createWorkspaceActivityQueue } from "./runtime-workspace-activity-queue.ts";
 
@@ -401,6 +402,7 @@ export function attachActiveRuntime(
                   });
             if (stop !== "proven_stopped") return;
             active.lossReason = lossReason ?? "runtime process group was lost";
+            removeRuntimeCallbackRelay(active.dispatchId);
             await consumeDurableOutput(context, active);
             await context.publishExit(active, null);
           }, active.binding);

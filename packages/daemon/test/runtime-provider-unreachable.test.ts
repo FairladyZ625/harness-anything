@@ -20,6 +20,7 @@ import { noteProviderProgress, noteProviderReconnect } from "../src/runtime-prov
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { isStructuredSuccessResult, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 
@@ -560,9 +561,9 @@ test("remote fleet adoption reads the replica unsettled set and clears the repor
     },
     published: { readonly type: string; readonly payload: Record<string, unknown> }[] = [],
     cleared = Promise.withResolvers<Record<string, unknown>>();
+  const readQueries: unknown[] = [];
   let runtime: ReturnType<typeof makeRuntimeSpawner> | undefined,
-    mappedProviderUnreachable: RuntimeProviderUnreachable | null | undefined,
-    readQuery: unknown;
+    mappedProviderUnreachable: RuntimeProviderUnreachable | null | undefined;
   try {
     // A live edge stream already carries a real progress frame. The center has published the
     // executing node's unreachable classification, so this session is adopted while unhealthy.
@@ -611,12 +612,23 @@ test("remote fleet adoption reads the replica unsettled set and clears the repor
         await work();
       },
       remote: {
-        // Adoption's initial read is the unsettled query that the real edge adapter maps.
-        readRuntimeSessions: async (query) => {
-          readQuery = query;
-          const mapped = readEdgeRuntimeSessions(projection(startedAt, evidence), query);
+        // Adoption reads the replica's canonical active lifecycle page.
+        readDispatchLifecycle: async (query) => {
+          readQueries.push(query);
+          return lifecycleReadFor([
+            {
+              runtimeSessionId,
+              dispatchId,
+              instanceId: "instance-codex",
+              owner: "node:edge-node",
+              process: "alive",
+            },
+          ])(query);
+        },
+        readRuntimeSession: async () => {
+          const mapped = readEdgeRuntimeSessions(projection(startedAt, evidence));
           mappedProviderUnreachable = mapped[0]?.providerUnreachable;
-          return mapped;
+          return mapped[0] ?? null;
         },
         readRuntimeDispatch: async () =>
           ({
@@ -642,7 +654,8 @@ test("remote fleet adoption reads the replica unsettled set and clears the repor
 
     const recovery = await runtime.adopt();
     assert.equal(recovery[0]?.outcome, "ready");
-    assert.deepEqual(readQuery, { unsettledOnly: true, executionOwnerNodeId: "edge-node" });
+    assert.equal((readQueries[0] as { readonly by?: string })?.by, "active");
+    assert.ok(readQueries.some((query) => (query as { readonly by?: string }).by === "dispatch"));
     // The replica read is the only source of the persisted classification.
     assert.deepEqual(mappedProviderUnreachable, evidence);
     // Adoption may republish the liveness the center could not observe, but replaying durable

@@ -617,14 +617,6 @@ function observeDispatchProcess(
         switch (livenessEvent.payload.liveness) {
           case "unknown": {
             const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
-            appendRuntimeWorkerRecord(rootDir, dispatchId, {
-              kind: "process_lost",
-              occurredAt: new Date().toISOString(),
-              reason,
-              exitCode: null,
-              signal: null,
-            });
-            removeRuntimeCallbackRelay(dispatchId);
             emitExit(null, reason, livenessEvent.payload);
             break;
           }

@@ -1067,14 +1067,7 @@ test(
       const lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;
       lostProjection.close();
       assert.ok(lostRow, "lost dispatch row missing after daemon restart");
-      assert.equal(
-        dispatchText(root, lostDispatchId)
-          .split(/\r?\n/u)
-          .some((line) => line.includes('"kind":"process_lost"')),
-        true,
-        "daemon restart loss must be durable in the dispatch stream",
-      );
-      // Public dispatch status comes from the canonical outcome; process_lost remains local evidence.
+      // Public dispatch status comes from the canonical lifecycle outcome.
       assert.deepEqual(
         {
           status: lostRow.status,
@@ -1253,13 +1246,6 @@ test(
           { liveness: session.liveness, outcome: session.outcome, exitCode: session.exitCode },
           { liveness: "exited", outcome: "unknown", exitCode: null },
         );
-        const stream = readDispatchStream(root, dispatchId)!;
-        assert.equal(
-          stream.records.some((record) => record.kind === "process_exit"),
-          false,
-        );
-        assert.ok(stream.records.some((record) => record.kind === "process_lost"));
-        assert.match(JSON.stringify(stream.records), /no longer alive/u);
         process.kill(providerPid, "SIGKILL");
         providerPid = 0;
       }

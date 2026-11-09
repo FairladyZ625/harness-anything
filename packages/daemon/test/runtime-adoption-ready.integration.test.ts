@@ -135,7 +135,7 @@ for (const fault of ["authorization hold", "HEAD timeout", "HEAD signal"] as con
           runtimeLaunch: () => {
             launches += 1;
             return {
-              pid: process.pid,
+              pid: 2_147_483_647,
               onOutput: () => undefined,
               onErrorOutput: () => undefined,
               onExit: () => undefined,
@@ -251,7 +251,7 @@ if(args[0]==="-C" && args[1]===${JSON.stringify(path.join(rootDir, "runtime-head
         assert.equal(launches, 2);
         for (const runtimeSessionId of sessions) {
           const session = await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId });
-          // dec_614F7BBB18C8687E7EFC72173D/CH3: a missing process record has no exit evidence.
+          // dec_614F7BBB18C8687E7EFC72173D/CH3: a recorded PID without exit evidence is loss, not success.
           assert.equal(
             (session as AgentRuntimeSessionResult).session.activity.outcome,
             fault !== "authorization hold" && runtimeSessionId === sessions[0] ? null : "unknown",
@@ -393,8 +393,10 @@ test("owner adoption reports process facts through the lifecycle and keeps reser
       if (alive) {
         const firstPublicationCount = published.length;
         centerAvailable = false;
-        const retry = await runtime.adopt();
-        assert.equal(retry[0]?.outcome, "failed");
+        await assert.rejects(
+          () => runtime.adopt(),
+          (error: unknown) => (error as { readonly code?: unknown }).code === "dispatch_lifecycle_pending",
+        );
         assert.equal(
           published.length,
           firstPublicationCount,
@@ -451,6 +453,7 @@ test("restart adopts a live worker once through the lifecycle without stopping i
     daemonGeneration: 2,
     runtimeNode: { nodeId: "owner" },
     now: () => accepted.lastObservedAt,
+    schedule: async (work) => work(),
     prepareLaunch: async () => {
       launches += 1;
       throw new Error("an adopted worker must not be launched a second time");
@@ -467,7 +470,7 @@ test("restart adopts a live worker once through the lifecycle without stopping i
         const event = {
           schema: "agent-runtime-event/v1",
           eventId: `adoption-${lifecycleEvents.length}`,
-          workspaceRevision: lifecycleEvents.length + 1,
+          workspaceRevision: Math.max(...lifecycleEvents.map(({ workspaceRevision }) => workspaceRevision)) + 1,
           opId: draft.opId,
           type: draft.type,
           actor: { principal: { personId: "owner" }, executor: null },
@@ -547,6 +550,7 @@ test("missing PID is loss-reconciled before the lifecycle releases its reservati
     daemonGeneration: 2,
     runtimeNode: { nodeId: "owner" },
     now: () => accepted.lastObservedAt,
+    stream: { publish: () => undefined },
     prepareLaunch: async () => {
       launches += 1;
       throw new Error("a missing worker must not be relaunched during reconciliation");
@@ -558,11 +562,11 @@ test("missing PID is loss-reconciled before the lifecycle releases its reservati
       readDispatchLifecycle: (query) => readDispatchLifecycle(query),
       readRuntimeDispatch: async () => ({ payload: { dispatchId }, source }),
       publish: async (draft) => {
-        published.push(draft.type);
+        published.push(`${draft.type}:${String(draft.payload.liveness ?? "")}`);
         const event = {
           schema: "agent-runtime-event/v1",
           eventId: `adoption-${lifecycleEvents.length}`,
-          workspaceRevision: lifecycleEvents.length + 1,
+          workspaceRevision: Math.max(...lifecycleEvents.map(({ workspaceRevision }) => workspaceRevision)) + 1,
           opId: draft.opId,
           type: draft.type,
           actor: { principal: { personId: "owner" }, executor: null },
@@ -578,11 +582,13 @@ test("missing PID is loss-reconciled before the lifecycle releases its reservati
   try {
     const recovery = await runtime.adopt(),
       lifecycle = readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
-    assert.equal(recovery[0]?.outcome, "settled");
     assert.equal(lifecycle.status, "ready");
     if (lifecycle.status !== "ready") return;
-    assert.equal(published[0], "runtime_session_liveness_changed");
-    assert.ok(published.indexOf("runtime_session_exited") > published.indexOf("runtime_session_liveness_changed"));
+    assert.equal(published[0], "runtime_session_liveness_changed:unknown");
+    assert.equal(recovery[0]?.outcome, "settled");
+    assert.ok(
+      published.indexOf("runtime_session_exited:") > published.indexOf("runtime_session_liveness_changed:unknown"),
+    );
     assert.equal(lifecycle.rows[0]?.attempt.process, "exited");
     assert.equal(lifecycle.rows[0]?.attempt.stopProof, "proven_stopped");
     assert.equal(lifecycle.rows[0]?.policy.capacityDisposition, "free");

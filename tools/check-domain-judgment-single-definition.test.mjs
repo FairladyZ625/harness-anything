@@ -92,6 +92,18 @@ test("positive fixture: daemon start preview and CLI cancellation eligibility co
   );
 });
 
+test("positive fixture: adoption cannot gate recovery on the local process table", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/positive-controls.ts#canAdoptRuntime") &&
+        finding.includes("process-table-probe judgment"),
+    ),
+    findings.join("\n"),
+  );
+});
+
 // The bilingual closeout judgment is the writing boundary `ha task submit` and the PR body
 // renderer share. A second implementation on either side — including a tool-side renderer copy —
 // must fail this gate, which is what makes "same exported function" enforced rather than trusted.

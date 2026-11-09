@@ -95,14 +95,14 @@ test("adoption cannot settle a launch that still owns its model slot before PID 
   try {
     publishedSessionId = await entered.promise;
     assert.equal(modelSlotQueue.position(publishedSessionId), 0);
-    assert.deepEqual(await spawner.adopt(), [], "an admitted launch without a header is not yet an adoption candidate");
+    assert.deepEqual(
+      (await spawner.adopt()).map(({ outcome }) => outcome),
+      ["ready"],
+      "the active reservation protects the attempt before its process header is registered",
+    );
     // A center publication can become readable before the local process registration.
     openMissingProcessStream(rootDir, dispatchId, publishedSessionId, "held-launch");
     const recovery = await spawner.adopt();
-    assert.equal(
-      readDispatchStream(rootDir, dispatchId)!.records.some((record) => record.kind === "process_lost"),
-      false,
-    );
     assert.equal(recovery[0]?.outcome, "ready");
     release.resolve();
     await launch;
@@ -242,10 +242,16 @@ test("adoption reports completed restores independently of a pending or failed s
       dispatchId: dispatchIds[index]!,
       instanceId: "instance-1",
       owner: "local",
-      process: "unknown" as const,
+      process: "alive" as const,
     }));
     context = {
-      input: { rootDir, now: () => "2026-09-13T00:01:00.000Z" },
+      input: {
+        rootDir,
+        now: () => "2026-09-13T00:01:00.000Z",
+        schedule: async (work: () => Promise<void> | void) => {
+          await work();
+        },
+      },
       requiredRuntimeProjection: () => ({
         readRuntimeSession(id: string) {
           return (
@@ -699,7 +705,15 @@ test("runtime cancel settles a live remote session when the owner stream is gone
                 ) ?? null
               );
             },
-            readDispatchLifecycle: emptyDispatchLifecycleRead,
+            readDispatchLifecycle: lifecycleReadFor([
+              {
+                runtimeSessionId,
+                dispatchId,
+                instanceId,
+                owner: "node:edge-a",
+                process: "unknown",
+              },
+            ]),
             readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
             readRuntimeDispatch: async () => owner,
           },

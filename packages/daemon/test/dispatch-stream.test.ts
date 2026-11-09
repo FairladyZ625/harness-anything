@@ -457,6 +457,7 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
     const adopted = new Map(),
       context = {
         input: { rootDir, repoId: "oversized-read" },
+        publishRuntimeEvent: async () => ({}),
         requiredRuntimeProjection: () => ({
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
           readRuntimeSession(id: string) {
@@ -727,6 +728,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
         reconcileFallback: () => undefined,
         restoreDurableOutputRecords: () => undefined,
         consumeLine: async () => undefined,
+        publishRuntimeEvent: async () => ({}),
         publishExit: async (active: { runtimeSessionId: string }) => {
           settled.push(active.runtimeSessionId);
           context.processes.delete(active.runtimeSessionId);

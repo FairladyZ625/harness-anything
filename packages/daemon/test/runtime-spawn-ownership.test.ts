@@ -117,7 +117,11 @@ for (const source of ["local", { kind: "node", nodeId: "request-origin" }] as co
     const result = await adoptRuntimes(context);
     assert.deepEqual(settled, [runtimeSessionId], `recovery result: ${JSON.stringify(result)}`);
     assert.equal(context.processes.size, 0);
-    assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+    assert.deepEqual(published, [
+      "runtime_session_liveness_changed",
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+    ]);
   });
 }
 
@@ -168,6 +172,7 @@ for (const authorized of [true, false]) {
       input: {
         rootDir,
         repoId: "node-cancel",
+        runtimeNode: { nodeId: "original-edge" },
         now: () => "2026-11-02T08:00:00.000Z",
         stream: { publish: () => undefined },
       },
@@ -191,8 +196,7 @@ for (const authorized of [true, false]) {
             dispatchId,
             instanceId: "deepseek-worker",
             owner: "node:original-edge",
-            attemptSettled: true,
-            groupSettled: true,
+            process: "unknown",
           },
         ]),
       }),
@@ -227,7 +231,11 @@ for (const authorized of [true, false]) {
     const cancellation = cancelRuntime(context, { runtimeSessionId }, current);
     if (authorized) {
       await cancellation;
-      assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+      assert.deepEqual(published, [
+        "runtime_session_liveness_changed",
+        "runtime_session_exited",
+        "runtime_session_outcome_observed",
+      ]);
       assert.deepEqual(readDispatchStreamHeader(rootDir, dispatchId)?.binding, ownerBinding);
     } else {
       await assert.rejects(cancellation, { code: "execution_scope_mismatch" });
@@ -260,7 +268,13 @@ test("node-origin recovery observes a living local worker without settling it", 
     runtimeSessionId = "runtime-live-node",
     ownerBinding = binding({ kind: "node", nodeId: "request-origin" }),
     readDispatchLifecycle = lifecycleReadFor([
-      { runtimeSessionId, dispatchId, instanceId: "deepseek-worker", process: "alive" },
+      {
+        runtimeSessionId,
+        dispatchId,
+        instanceId: "deepseek-worker",
+        owner: "node:request-origin",
+        process: "alive",
+      },
     ]);
   openDispatchStream(rootDir, {
     dispatchId,
@@ -280,7 +294,14 @@ test("node-origin recovery observes a living local worker without settling it", 
   });
   appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
   const context = {
-    input: { rootDir, now: () => "2026-11-02T08:00:00.000Z", schedule: () => undefined },
+    input: {
+      rootDir,
+      runtimeNode: { nodeId: "request-origin" },
+      now: () => "2026-11-02T08:00:00.000Z",
+      schedule: async (work: () => Promise<void> | void) => {
+        await work();
+      },
+    },
     processes: new Map(),
     exiting: new Set(),
     requiredRuntimeProjection: () => ({
@@ -296,6 +317,7 @@ test("node-origin recovery observes a living local worker without settling it", 
       readDispatchLifecycle,
     }),
     publishExit: () => assert.fail("a living node-origin worker must not settle"),
+    publishRuntimeEvent: async () => ({}),
     runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
   } as unknown as RuntimeSpawnerContext;
   t.after(() => closeRuntimes(context));

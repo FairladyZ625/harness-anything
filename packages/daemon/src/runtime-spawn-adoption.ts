@@ -74,7 +74,7 @@ export async function adoptRuntimes(
     .filter(([id]) => !options?.runtimeSessionId || id === options.runtimeSessionId)
     .map(([runtimeSessionId, initial]) => {
       const existing = pending.get(runtimeSessionId);
-      if (existing) return existing.promise;
+      if (existing && existing.result?.outcome !== "failed") return existing.promise;
       let restored = false;
       const dispatchId = initial.attempt.dispatchId;
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
@@ -86,7 +86,7 @@ export async function adoptRuntimes(
             if (lifecycle.status === "pending")
               throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
             const view = lifecycle.rows.find(({ attempt }) => attempt.dispatchId === dispatchId);
-            if (!view || view.policy.attemptSettled) return "settled" as const;
+            if (!view) return "settled" as const;
             if (!view.attempt.fence.verified || view.attempt.fence.owner !== owner) return "foreign" as const;
             const session = context.input.remote
               ? await context.input.remote.readRuntimeSession(runtimeSessionId)
@@ -315,7 +315,6 @@ async function restoreRuntime(
     resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
     providerSessionId: stream.providerSessionId,
   });
-  context.processes.set(active.runtimeSessionId, active);
   const processObservation = {
     type: "runtime_session_liveness_changed" as const,
     payload: {
@@ -343,6 +342,7 @@ async function restoreRuntime(
     randomUUID(),
     active.binding,
   );
+  context.processes.set(active.runtimeSessionId, active);
   const observedLifecycle = await readDispatch(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
   if (observedLifecycle.status !== "ready")
     throw dispatchLifecyclePendingError(observedLifecycle, context.runtimeSpawnError);
