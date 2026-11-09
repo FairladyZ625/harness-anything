@@ -246,7 +246,14 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
     authenticateRuntimeExecutionCredential(center, credential, async () => {
       throw new Error("Keycloak offline");
     }),
-    /Keycloak offline/u,
+    (error: Error & { readonly code?: string; readonly cause?: unknown }) => {
+      // The execution credential path exposes the policy adapter's named transport error rather
+      // than unwrapping it; the adapter keeps the original fetch rejection as the cause.
+      assert.equal(error.code, "daemon_error");
+      assert.match(error.message, /Keycloak Admin REST .*could not be reached/u);
+      assert.equal((error.cause as Error).message, "Keycloak offline");
+      return true;
+    },
   );
 });
 
