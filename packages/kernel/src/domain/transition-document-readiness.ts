@@ -44,11 +44,19 @@ interface TransitionDocumentReadiness {
   readonly ready: boolean;
   readonly code: TransitionDocumentPlaceholderCode;
   readonly missingSections: readonly TransitionDocumentMissingSection[];
+  /** Headings the author wrote that the materialized scaffold does not declare. */
+  readonly unexpectedSections: readonly string[];
 }
 
 export type MarkdownDocumentContract = {
   readonly requiredSections: readonly string[];
   readonly scaffoldBySection: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Every heading the materialized scaffold declared, including conditional sections this task need
+   * not fill. Absent on contracts frozen before this set was recorded; the unexpected-heading
+   * diagnostic then reports nothing instead of guessing.
+   */
+  readonly knownSections?: readonly string[];
 };
 
 /**
@@ -100,7 +108,11 @@ function transitionDocumentSections(scaffoldBody: string): MarkdownDocumentContr
     if (heading !== null && line.trim()) phrases.push(line.trim());
   }
   retain();
-  return Object.freeze({ requiredSections: Object.freeze(requiredSections), scaffoldBySection });
+  return Object.freeze({
+    requiredSections: Object.freeze(requiredSections),
+    scaffoldBySection,
+    knownSections: Object.freeze([...requiredSections]),
+  });
 }
 
 /** Keep only the declared sections, in declaration order, and fail closed on an undeclared anchor. */
@@ -124,6 +136,7 @@ function narrowTransitionDocumentContract(
     scaffoldBySection: Object.freeze(
       Object.fromEntries(requiredSections.map((heading) => [heading, contract.scaffoldBySection[heading] ?? []])),
     ),
+    knownSections: Object.freeze([...(contract.knownSections ?? contract.requiredSections)]),
   });
 }
 
@@ -151,16 +164,17 @@ export function assessTransitionDocument(
   body: string,
   contract?: MarkdownDocumentContract,
 ): TransitionDocumentReadiness {
-  const missingSections = transitionDocumentMissingSections(kind, body, contract);
-  if (missingSections === null)
+  const diagnostics = transitionDocumentSectionDiagnostics(kind, body, contract);
+  if (diagnostics === null)
     throw transitionDocumentAccessLikeError(
       "scaffold_unavailable",
       `${kind} readiness requires the document's materialized scaffold.`,
     );
   return Object.freeze({
-    ready: missingSections.length === 0,
+    ready: diagnostics.missingSections.length === 0,
     code: placeholderCodes[kind],
-    missingSections: Object.freeze(missingSections),
+    missingSections: Object.freeze(diagnostics.missingSections),
+    unexpectedSections: Object.freeze(diagnostics.unexpectedSections),
   });
 }
 
@@ -195,13 +209,34 @@ export function assessAuthoredDocumentReadiness(
 }
 
 /** Missing sections per kind; `null` when the kind's readiness needs a scaffold contract that is absent. */
+function transitionDocumentSectionDiagnostics(
+  kind: TransitionDocumentKind,
+  body: string,
+  contract: MarkdownDocumentContract | undefined,
+): {
+  readonly missingSections: readonly TransitionDocumentMissingSection[];
+  readonly unexpectedSections: readonly string[];
+} | null {
+  if (kind === "task.plan")
+    return contract === undefined
+      ? null
+      : {
+          missingSections: missingMarkdownSections(body, contract, kind),
+          unexpectedSections: unexpectedMarkdownSections(body, contract),
+        };
+  return {
+    missingSections:
+      kind === "decision.body" ? decisionBodyMissingSections(body) : declarationMissingSection(kind, body),
+    unexpectedSections: [],
+  };
+}
+
 function transitionDocumentMissingSections(
   kind: TransitionDocumentKind,
   body: string,
   contract: MarkdownDocumentContract | undefined,
 ): readonly TransitionDocumentMissingSection[] | null {
-  if (kind === "task.plan") return contract === undefined ? null : missingMarkdownSections(body, contract, kind);
-  return kind === "decision.body" ? decisionBodyMissingSections(body) : declarationMissingSection(kind, body);
+  return transitionDocumentSectionDiagnostics(kind, body, contract)?.missingSections ?? null;
 }
 
 function transitionDocumentAccessLikeError(code: string, message: string): Error {
@@ -224,15 +259,20 @@ export function assertTransitionDocumentReady(
   const assessment = assessTransitionDocument(kind, body, contract);
   if (assessment.ready) return;
   const sections = assessment.missingSections.map(({ section }) => section).join(", "),
+    unexpected = assessment.unexpectedSections.length
+      ? ` Sections not in the template: ${assessment.unexpectedSections.join(", ")}.`
+      : "",
     error = new Error(
-      `${assessment.code}: ${kind} has empty or scaffold-equivalent required content: ${sections}.` +
+      `${assessment.code}: ${kind} has empty or scaffold-equivalent required content: ${sections}.${unexpected}` +
         (kind === "decision.body" ? " Provide Decision prose with --body or --body-file." : ""),
     ) as Error & {
       code: TransitionDocumentPlaceholderCode;
       missingSections: readonly TransitionDocumentMissingSection[];
+      unexpectedSections: readonly string[];
     };
   error.code = assessment.code;
   error.missingSections = assessment.missingSections;
+  error.unexpectedSections = assessment.unexpectedSections;
   throw error;
 }
 
@@ -373,6 +413,21 @@ function missingMarkdownSections(
   });
 }
 
+/** Authored headings the template does not declare; the receipt names them so a typo is visible. */
+function unexpectedMarkdownSections(body: string, contract: MarkdownDocumentContract): readonly string[] {
+  // A contract frozen before the full heading set was recorded cannot tell a typo from a
+  // conditional template heading; report none rather than claim a declared section is outside.
+  if (contract.knownSections === undefined) return Object.freeze([]);
+  const prefixes = contract.knownSections.map(normalizeHeading),
+    declared = new Set(prefixes),
+    unexpected = new Set<string>();
+  for (const [authoredHeading] of markdownSectionSpans(body)) {
+    const normalized = normalizeHeading(authoredHeading);
+    if (!declared.has(canonicalSectionHeading(normalized, prefixes))) unexpected.add(authoredHeading.trim());
+  }
+  return Object.freeze([...unexpected]);
+}
+
 function decisionBodyMissingSections(body: string): readonly TransitionDocumentMissingSection[] {
   const scaffolds = [
       ["背景", "说明需要裁定的问题与已知事实。"],
@@ -410,18 +465,27 @@ export function markdownSections(body: string, headingPrefixes: readonly string[
   const sections = new Map<string, string>();
   const prefixes = headingPrefixes.map(normalizeHeading);
   for (const [authoredHeading, content] of markdownSectionEntries(body)) {
-    const heading =
-      prefixes.find(
-        (prefix) => authoredHeading.startsWith(prefix) && /^[ \t]*[(—–-]/u.test(authoredHeading.slice(prefix.length)),
-      ) ?? authoredHeading;
-    const previous = sections.get(heading);
+    const heading = canonicalSectionHeading(authoredHeading, prefixes),
+      previous = sections.get(heading);
     sections.set(heading, [previous, content].filter((value) => value !== undefined).join("\n\n"));
   }
   return sections;
 }
 
+function canonicalSectionHeading(authoredHeading: string, prefixes: readonly string[]): string {
+  return (
+    prefixes.find(
+      (prefix) => authoredHeading.startsWith(prefix) && /^[ \t]*[(—–-]/u.test(authoredHeading.slice(prefix.length)),
+    ) ?? authoredHeading
+  );
+}
+
 /** Read each authored occurrence in source order, before any grouping by heading. */
 export function* markdownSectionEntries(body: string): Generator<readonly [string, string]> {
+  for (const [heading, content] of markdownSectionSpans(body)) yield [normalizeHeading(heading), content];
+}
+
+function* markdownSectionSpans(body: string): Generator<readonly [string, string]> {
   let heading: string | null = null;
   let content: string[] = [];
   let fence: { marker: string; length: number } | null = null;
@@ -443,7 +507,7 @@ export function* markdownSectionEntries(body: string): Generator<readonly [strin
     const match = fence === null ? /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line) : null;
     if (match) {
       if (heading !== null) yield [heading, content.join("\n").trim()];
-      heading = normalizeHeading(match[1]!);
+      heading = match[1]!;
       content = [];
     } else content.push(line);
   }

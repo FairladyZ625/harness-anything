@@ -450,10 +450,13 @@ function renderMissingSections(args: GuidanceArgs): string {
             : [],
         )
       : [],
+    unexpected = Array.isArray(args.unexpectedSections)
+      ? args.unexpectedSections.filter((section): section is string => typeof section === "string")
+      : [],
     // A task plan is addressed by its task, not by a path: a fleet edge forwards `--task` through
     // the one task-document channel, while `--path` cannot name the task and is refused there.
     sync = "ha doc sync --submit --task <task-id>";
-  if (rows.length === 0 && args.diskDiffers !== true)
+  if (rows.length === 0 && unexpected.length === 0 && args.diskDiffers !== true)
     return [
       "Required-section diagnostics:",
       "- no missing required sections were reported",
@@ -461,6 +464,7 @@ function renderMissingSections(args: GuidanceArgs): string {
     ].join("\n");
   return [
     ...(rows.length ? ["Required-section diagnostics:", ...rows] : []),
+    ...(unexpected.length ? ["Sections not in the template:", ...unexpected.map((section) => `- ${section}`)] : []),
     // diskDiffers means the readiness judgment read the center's accepted body, not the local file.
     args.diskDiffers === true
       ? `The canonical version from the center was judged; the on-disk ${path} differs and has not been ` +
