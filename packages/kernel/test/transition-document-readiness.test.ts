@@ -2,11 +2,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { markdownSections } from "../src/domain/transition-document-readiness.ts";
 import {
-  assessTransitionDocument,
   chineseCloseoutSectionBodies,
   chineseCloseoutSections,
+  markdownSections,
+} from "../src/domain/transition-document-readiness.ts";
+import {
+  assessTransitionDocument,
   missingChineseCloseoutSections,
   submissionFromCloseout,
   assertTransitionDocumentReady,

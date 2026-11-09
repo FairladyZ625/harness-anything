@@ -114,7 +114,7 @@ const requiredConsumers = new Map([
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#task", "export const taskStatusWords = ["],
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#decision", "export const decisionStateWords = ["],
   ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#fact", "export const factLivenessWords = ["],
-  ["tools/gates/render-task-pr-body.mjs", "missingChineseCloseoutSections("],
+  ["packages/kernel/src/domain/task-pr-body.ts", "missingChineseCloseoutSections("],
   ["packages/daemon/src/repo-cell-submit.ts", "missingChineseCloseoutSections("],
   ["packages/daemon/src/transition-document-access.ts", "assertTransitionDocumentReady("],
   ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts#reverify", "reviewReverifyRoute("],

@@ -266,17 +266,20 @@ test("worker publication commands belong to the delivery mission while review ca
   );
 });
 
-test("the repository guide passes its generated body file to task-bound PR creation", () => {
+test("the repository guide delegates PR-body rendering to the task delivery path", () => {
   const guide = readFileSync(path.join(repositoryRoot, "skills/harness-contributing/SKILL.md"), "utf8"),
     example = readFileSync(
       path.join(repositoryRoot, "skills/harness-contributing/references/example-pr-body.md"),
       "utf8",
     );
-  assert.match(
+  assert.doesNotMatch(
     guide,
-    /node tools\/gates\/render-task-pr-body\.mjs --task <task-id> > \/tmp\/harness-anything-pr-body\.md/u,
+    /node tools\/gates\/render-task-pr-body\.mjs/u,
+    "the worker-facing guide must not require a hand-run renderer",
   );
-  assert.match(guide, /ha task push <task-id> --body-file \/tmp\/harness-anything-pr-body\.md/u);
+  assert.match(guide, /The delivery path renders the body; you do not run the renderer yourself/u);
+  assert.match(guide, /ha task push <task-id> --body-file/u);
+  assert.match(guide, /daemon re-renders that body/u);
   assert.match(example, /frozen submission by `tools\/gates\/render-task-pr-body\.mjs`/u);
   assert.match(example, /read from the PR checks after opening/u);
   assert.doesNotMatch(example, /rewrite-ci` run URL/u);

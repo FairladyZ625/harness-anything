@@ -1,4 +1,10 @@
-import { type SubmissionV1, renderSubmissionFacts, replaceSubmissionFacts } from "@harness-anything/kernel";
+import {
+  SUBMISSION_FACTS_END,
+  SUBMISSION_FACTS_START,
+  type SubmissionV1,
+  renderSubmissionFacts,
+  replaceSubmissionFacts,
+} from "@harness-anything/kernel";
 import type { HostingProvider } from "./hosting-provider.ts";
 import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
@@ -13,6 +19,12 @@ type PullRequestInput = {
   readonly submission: SubmissionV1;
   /** Authored body; the marked machine facts inside it are refreshed from the submission on publication. */
   readonly body?: string;
+  /**
+   * Re-renders the published body from the frozen cut, preserving prose passed in. The daemon
+   * builds it with the same kernel renderer the worker CLI exposes; absent only for repositories
+   * without Harness's PR template and gate manifest.
+   */
+  readonly renderBody?: (body: string | undefined) => string;
 };
 /** The only task publication port: both explicit push and terminal settlement use it. */
 export async function publishTaskWorkerBranch(
@@ -145,8 +157,19 @@ export async function updateTaskPullRequestBody(
 /** Refresh only the marked machine facts; an edited or marker-less body keeps its authored text. */
 function publishedBody(existingBody: unknown, input: PullRequestInput): string | undefined {
   const block = renderSubmissionFacts(input.submission),
-    candidate = typeof input.body === "string" ? input.body : existingBody;
-  return typeof candidate === "string" ? (replaceSubmissionFacts(candidate, block) ?? candidate) : undefined;
+    candidate = typeof input.body === "string" ? input.body : existingBody,
+    authored = typeof candidate === "string" ? candidate : undefined,
+    // The template owns the facts region. A body without it is authored prose, so re-rendering
+    // would replace the author's text with the template; fall back to the facts-only refresh.
+    rendered =
+      input.renderBody && (authored === undefined || hasSubmissionFacts(authored))
+        ? input.renderBody(authored)
+        : authored;
+  return typeof rendered === "string" ? (replaceSubmissionFacts(rendered, block) ?? rendered) : undefined;
+}
+
+function hasSubmissionFacts(body: string): boolean {
+  return body.includes(SUBMISSION_FACTS_START) && body.includes(SUBMISSION_FACTS_END);
 }
 
 /** These are the framework's frozen closeout fields, not a repository PR template. */

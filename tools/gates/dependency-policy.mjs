@@ -3,6 +3,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { changedFiles, git, listWorktreeFiles, pathExistsAt, repoRoot } from "./git.mjs";
 import { writeCiGateResult } from "../ci-gate-result.mjs";
+import {
+  describeDependencyChange as describeDependencyChangeJudgment,
+  hasDependencyChange,
+  readDependencyDeclarations,
+  replaceDependencyDeclaration,
+  validateDependencyDeclaration,
+} from "../../packages/kernel/src/domain/dependency-declaration.ts";
+
+// G31 and the PR-body renderer share the kernel judgment; this module supplies the Git reads.
+export { hasDependencyChange, readDependencyDeclarations, replaceDependencyDeclaration, validateDependencyDeclaration };
 
 const DEPENDENCY_SECTIONS = Object.freeze([
   "dependencies",
@@ -10,7 +20,6 @@ const DEPENDENCY_SECTIONS = Object.freeze([
   "optionalDependencies",
   "peerDependencies",
 ]);
-const DECLARATION = /^Dependency-Change:[ \t]*(.*?)\s*$/gmu;
 
 function packageManifestPaths(rootDir) {
   // Workspace manifests are the package.json files git can see under packages/;
@@ -50,66 +59,6 @@ export function validateLockfile(rootDir) {
   return errors;
 }
 
-/** The dependency surface G31 judges, shared with the PR body renderer so both use one predicate. */
-export function hasDependencyChange(paths) {
-  return paths.some((filePath) => filePath === "package-lock.json" || /(?:^|\/)package\.json$/u.test(filePath));
-}
-
-function record(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-/** Compare exports/conditions by JSON value, not by the object's insertion order. */
-function stableValue(value) {
-  if (Array.isArray(value)) return `[${value.map(stableValue).join(",")}]`;
-  if (record(value))
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableValue(value[key])}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
-
-/** Node's exports sugar: a string/array/conditional map is the `.` subpath. */
-function exportEntries(exportsField) {
-  if (!record(exportsField))
-    return exportsField === undefined || exportsField === null ? new Map() : new Map([[".", exportsField]]);
-  const subpaths = Object.keys(exportsField).filter((key) => key.startsWith("."));
-  return subpaths.length > 0
-    ? new Map(subpaths.map((key) => [key, exportsField[key]]))
-    : new Map([[".", exportsField]]);
-}
-
-function exportChanges(before, after) {
-  const previous = exportEntries(before),
-    next = exportEntries(after),
-    added = [...next.keys()].filter((key) => !previous.has(key)).sort(),
-    removed = [...previous.keys()].filter((key) => !next.has(key)).sort(),
-    changed = [...next.keys()]
-      .filter((key) => previous.has(key) && stableValue(previous.get(key)) !== stableValue(next.get(key)))
-      .sort();
-  return [
-    ...added.map((key) => `exports +${JSON.stringify(key)}`),
-    ...removed.map((key) => `exports -${JSON.stringify(key)}`),
-    ...changed.map((key) => `exports ${JSON.stringify(key)} changed`),
-  ];
-}
-
-function dependencyChanges(section, before, after) {
-  const previous = record(before) ? before : {},
-    next = record(after) ? after : {},
-    changes = [];
-  for (const name of new Set([...Object.keys(previous), ...Object.keys(next)])) {
-    if (Object.hasOwn(next, name) && !Object.hasOwn(previous, name))
-      changes.push(`${section}.${name} added ${JSON.stringify(next[name])}`);
-    else if (Object.hasOwn(previous, name) && !Object.hasOwn(next, name))
-      changes.push(`${section}.${name} removed ${JSON.stringify(previous[name])}`);
-    else if (stableValue(previous[name]) !== stableValue(next[name]))
-      changes.push(`${section}.${name} ${JSON.stringify(previous[name])} -> ${JSON.stringify(next[name])}`);
-  }
-  return changes.sort();
-}
-
 function revisionExists(rootDir, revision) {
   if (typeof revision !== "string" || revision.length === 0) return false;
   try {
@@ -125,71 +74,21 @@ function readManifestAt(rootDir, revision, manifestPath) {
   return JSON.parse(git(rootDir, ["show", `${revision}:${manifestPath}`]));
 }
 
-function manifestDescription(manifestPath, before, after) {
-  const changes = [];
-  if (before === null) changes.push("added");
-  if (after === null) changes.push("removed");
-  const previous = before ?? {},
-    next = after ?? {};
-  changes.push(...exportChanges(previous.exports, next.exports));
-  for (const section of DEPENDENCY_SECTIONS)
-    changes.push(...dependencyChanges(section, previous[section], next[section]));
-  return `${manifestPath}: ${changes.length > 0 ? changes.join("; ") : "no exports or dependency range changes"}`;
-}
-
-/**
- * One deterministic declaration description for the same diff G31 judges. The dependency-surface
- * predicate is hasDependencyChange itself; this function only phrases the manifests it selects.
- * Without a repository root (or when the frozen base/head is missing from it), the selected paths
- * still produce a non-none declaration so publication is never blocked on missing history.
- */
+/** Git is the only IO here; hasDependencyChange and the phrasing stay in the kernel judgment. */
 export function describeDependencyChange({ paths, rootDir, base, head }) {
-  if (!hasDependencyChange(paths)) return "none";
-  const dependencyPaths = [...new Set(paths.filter((filePath) => hasDependencyChange([filePath])))].sort(),
-    manifests = dependencyPaths.filter((filePath) => filePath !== "package-lock.json"),
-    details = [],
-    comparable = typeof rootDir === "string" && revisionExists(rootDir, base) && revisionExists(rootDir, head);
-  for (const manifestPath of manifests)
-    details.push(
-      comparable
-        ? manifestDescription(
-            manifestPath,
-            readManifestAt(rootDir, base, manifestPath),
-            readManifestAt(rootDir, head, manifestPath),
-          )
-        : `${manifestPath}: diff detail unavailable (frozen base or head is missing from this checkout)`,
-    );
-  if (dependencyPaths.includes("package-lock.json")) details.push("package-lock.json changed");
-  return details.length > 0 ? details.join("; ") : "dependency surface changed";
-}
-
-/** The declaration line format G31 parses, shared with the renderer that writes it. */
-export function readDependencyDeclarations(prBody) {
-  return [...prBody.matchAll(DECLARATION)].map((match) => match[1]);
-}
-
-export function replaceDependencyDeclaration(prBody, description) {
-  return prBody.replace(DECLARATION, (declaration) => {
-    // G31's line pattern tolerates whitespace after the value (including CRLF); keep it so
-    // replacing the declaration never changes the body's line structure.
-    const trailingWhitespace = /\s*$/u.exec(declaration)?.[0] ?? "";
-    return `Dependency-Change: ${description}${trailingWhitespace}`;
+  return describeDependencyChangeJudgment({
+    paths,
+    base,
+    head,
+    ...(typeof rootDir === "string"
+      ? {
+          read: {
+            revisionExists: (revision) => revisionExists(rootDir, revision),
+            readManifest: (revision, manifestPath) => readManifestAt(rootDir, revision, manifestPath),
+          },
+        }
+      : {}),
   });
-}
-
-export function validateDependencyDeclaration(paths, prBody, declarationRequired = true) {
-  if (!declarationRequired) return [];
-  if (!hasDependencyChange(paths)) return [];
-  const declarations = readDependencyDeclarations(prBody);
-  if (declarations.length !== 1)
-    return [
-      `dependency changes require exactly one \`Dependency-Change: <description>\` line under ## Machine-Readable Declarations; found ${declarations.length}`,
-    ];
-  if (declarations[0].length === 0 || /^(?:none|n\/a)$/iu.test(declarations[0]))
-    return [
-      "Dependency-Change: must describe the deterministic dependency change; replace `none` with what changed (for example `bump effect to 2.0.0`)",
-    ];
-  return [];
 }
 
 function parseArgs(argv) {

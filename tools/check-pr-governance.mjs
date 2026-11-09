@@ -18,6 +18,14 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { pullRequestBase } from "./gates/git.mjs";
+import {
+  classifyProtectedChanges,
+  deriveProtectedSurfaceRules,
+} from "../packages/kernel/src/domain/protected-surface-governance.ts";
+
+// The manifest-derived protected-surface judgment is a kernel domain service: the PR-body renderer
+// calls the same functions, so the declaration it writes and this lint cannot drift apart.
+export { classifyProtectedChanges, deriveProtectedSurfaceRules };
 
 const DEFAULT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = "tools/gate-manifest.json";
@@ -30,51 +38,6 @@ const GOVERNANCE_REFERENCE = new RegExp(`\\b(?:ADR-\\d{4}|${TASK_ID_SHAPES}|dec_
 const FOLLOW_UP_TASK_ID = new RegExp(`\\b(?:${TASK_ID_SHAPES})\\b`, "u");
 const BREAK_GLASS_YES = /\bbreak-glass\s*[:：]\s*(?:yes|true|required|needed|enabled|是|启用|需要)\b/iu;
 const FIELD_PLACEHOLDER = /^(?:n\/a|na|none|no|not applicable|tbd|todo|\[.*\]|待补|无|不适用)$/iu;
-
-export function deriveProtectedSurfaceRules(manifest) {
-  const rawSurfaces = [];
-  for (const gate of manifest.gates ?? []) {
-    if (!gate.changeControl?.requiresGovernanceEvidence) {
-      continue;
-    }
-    for (const surface of gate.changeControl.protectedSurfaces ?? []) {
-      if (typeof surface === "string" && surface.trim().length > 0) {
-        rawSurfaces.push(surface.trim());
-      }
-    }
-  }
-
-  const rulesByDisplay = new Map();
-  for (const surface of rawSurfaces) {
-    for (const display of normalizeManifestSurface(surface)) {
-      if (!rulesByDisplay.has(display)) {
-        rulesByDisplay.set(display, {
-          display,
-          manifestSurfaces: [],
-          matcher: makeSurfaceMatcher(display),
-        });
-      }
-      rulesByDisplay.get(display).manifestSurfaces.push(surface);
-    }
-  }
-
-  return [...rulesByDisplay.values()].sort((left, right) => left.display.localeCompare(right.display));
-}
-
-export function classifyProtectedChanges(changedFiles, rules) {
-  const matches = [];
-  for (const file of changedFiles.map(normalizePath).filter(Boolean)) {
-    const matchingRules = rules.filter((rule) => rule.matcher(file));
-    if (matchingRules.length === 0) {
-      continue;
-    }
-    matches.push({
-      file,
-      surfaces: matchingRules.map((rule) => rule.display),
-    });
-  }
-  return matches;
-}
 
 export function checkPrGovernance({ body, changedFiles, manifest }) {
   const rules = deriveProtectedSurfaceRules(manifest);
@@ -125,33 +88,6 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
     rules,
     issues,
   };
-}
-
-function normalizeManifestSurface(surface) {
-  const pathSurface = surface.split(":")[0];
-  const normalized = normalizePath(pathSurface);
-  const surfaces = [normalized];
-
-  if (normalized.startsWith(".github/")) {
-    surfaces.push(".github/**");
-  }
-  if (normalized.startsWith("tools/gate-allowlists/")) {
-    surfaces.push("tools/gate-allowlists/**");
-  }
-
-  return [...new Set(surfaces.filter(Boolean))];
-}
-
-function makeSurfaceMatcher(surface) {
-  if (surface.endsWith("/**")) {
-    const prefix = surface.slice(0, -2);
-    return (file) => file.startsWith(prefix);
-  }
-  if (surface.includes("*")) {
-    const pattern = new RegExp(`^${escapeRegex(surface).replaceAll("\\*\\*", ".*").replaceAll("\\*", "[^/]*")}$`, "u");
-    return (file) => pattern.test(file);
-  }
-  return (file) => file === surface;
 }
 
 function extractSections(body, heading) {
@@ -224,10 +160,6 @@ function readBody({ bodyText, bodyPath, bodyEnv }) {
   if (bodyPath) return readFileSync(bodyPath, "utf8");
   if (bodyEnv) return process.env[bodyEnv] ?? "";
   return process.env.PR_BODY ?? "";
-}
-
-function normalizePath(value) {
-  return String(value).replaceAll("\\", "/").replace(/^\.\//u, "").replace(/^\/+/u, "").trim();
 }
 
 function escapeRegex(value) {
