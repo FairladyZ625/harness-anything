@@ -196,6 +196,43 @@ test("residual template placeholders are rejected and named by line number", () 
   }
 });
 
+test("GitHub-rendered HTML tags are formatting, not unfilled placeholders", () => {
+  // Regression shape from PR #4482 line 23: a collapsed evidence block was rejected as an
+  // "angle-bracket placeholder" and the author had to replace the tags with bold text.
+  const body = filledBody(
+    [
+      "",
+      "<details><summary>287 条只减基线条目（PR #4482）</summary>",
+      "",
+      "- The deletion baseline shrank from 1,204 to 287 entries.",
+      "",
+      "</details>",
+      "",
+      "First line<br>",
+      "Second line with <sub>sub</sub>, H<sup>2</sup>O, and <kbd>Ctrl</kbd>+<kbd>C</kbd>.",
+      "",
+      "<details open><summary>already open</summary>body</details>",
+    ].join("\n"),
+  );
+  const result = checkPrBody(body);
+
+  assert.equal(result.placeholderResidue.ok, true, result.issues.join("\n"));
+  assert.equal(result.ok, true, result.issues.join("\n"));
+});
+
+test("angle-bracket template placeholders are still rejected", () => {
+  for (const placeholder of ["<owner>", "<what this CI run proves>", "<operation>"]) {
+    const result = checkTemplatePlaceholderResidue(filledBody(`\n${placeholder}\n`));
+
+    assert.equal(result.ok, false, placeholder);
+    assert.deepEqual(
+      result.residues.map(({ id }) => id),
+      ["angle-placeholder"],
+      placeholder,
+    );
+  }
+});
+
 test("checkboxes, markdown links, code spans, and concrete ids are not residue", () => {
   const body = [
     filledBody(),
