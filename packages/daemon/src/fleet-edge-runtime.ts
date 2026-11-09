@@ -960,30 +960,38 @@ export function openFleetEdgeRuntime(input: {
             "runtime_lease_release_failed",
             `Runtime process group ${String(processGroupPid)} was not proven stopped on the edge.`,
           );
-        const settled = await runFleetEdgeWrite({
-          viewRoot: request.viewRoot,
-          repoId: request.repoId,
-          nodeId: request.nodeId,
-          timeoutMs: centerWriteWaitMs,
-          write: () =>
-            runFleetTaskCommandClient({
-              ...writePeer,
-              repoId: request.repoId,
-              taskId,
-              opId: randomUUID(),
-              waitMs: centerWriteWaitMs,
-              action: {
-                kind: "task-release",
-                taskId,
-                terminalExecutionId: executionId,
-                terminalRuntimeSessionId: terminal.runtimeSessionId,
-                ...(Number.isSafeInteger(processGroupPid) && Number(processGroupPid) > 1
-                  ? { terminalProcessGroupPid: Number(processGroupPid) }
-                  : {}),
-                reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
-              },
-            }),
-        });
+        await pullRuntimeReplica();
+        const leasePhase = withEdgeReadModel(
+          { ...request, principalId: replicaOwner, includeEntries: false },
+          (projection) => projection.currentLease(taskId)?.phase ?? null,
+        );
+        const settled =
+          leasePhase === null || leasePhase === "released"
+            ? { outcome: "no_changes" as const, code: undefined }
+            : await runFleetEdgeWrite({
+                viewRoot: request.viewRoot,
+                repoId: request.repoId,
+                nodeId: request.nodeId,
+                timeoutMs: centerWriteWaitMs,
+                write: () =>
+                  runFleetTaskCommandClient({
+                    ...writePeer,
+                    repoId: request.repoId,
+                    taskId,
+                    opId: randomUUID(),
+                    waitMs: centerWriteWaitMs,
+                    action: {
+                      kind: "task-release",
+                      taskId,
+                      terminalExecutionId: executionId,
+                      terminalRuntimeSessionId: terminal.runtimeSessionId,
+                      ...(Number.isSafeInteger(processGroupPid) && Number(processGroupPid) > 1
+                        ? { terminalProcessGroupPid: Number(processGroupPid) }
+                        : {}),
+                      reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
+                    },
+                  }),
+              });
         if (
           settled.outcome !== "applied" &&
           settled.code !== "lease_not_found" &&
@@ -999,7 +1007,6 @@ export function openFleetEdgeRuntime(input: {
                   : "runtime_lease_release_failed",
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
-        await pullRuntimeReplica();
       }
       await squad.reconcile();
       const scheduled = terminal.schedule;

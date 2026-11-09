@@ -239,15 +239,9 @@ function metricsValidationError(argv: readonly string[], command: string | undef
 // of them). Live runtimes are not — their workers run detached and are re-adopted by pid once a
 // replacement daemon takes the slot — so they must not hold the stop hostage.
 async function forceStopInUseRefusal(userRoot: string, daemonId: string): Promise<Record<string, unknown> | null> {
-  const current = await requestDaemonJsonRpcAt(
-    localUserDaemonEndpoint(userRoot, daemonId),
-    "daemon.status",
-    {},
-    75,
-    75,
-    undefined,
-    true,
-  );
+  const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+  if (!(await daemonSocketProbe(endpoint))) return null;
+  const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, 75, undefined, true);
   const queuedWrites = (Array.isArray(current.repos) ? current.repos.filter(controlRecord) : []).flatMap((repo) =>
     typeof repo.repoId === "string" && typeof repo.queueDepth === "number" && repo.queueDepth > 0
       ? [{ repoId: repo.repoId, queueDepth: repo.queueDepth }]

@@ -561,7 +561,6 @@ function observeDispatchProcess(
 ): RuntimeProcess {
   const stream = dispatchStreamPath(rootDir, dispatchId),
     runtimeSessionId = readDispatchStreamHeader(rootDir, dispatchId)?.runtimeSessionId;
-  if (!runtimeSessionId) throw new Error(`runtime dispatch ${dispatchId} has no session identity`);
   const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
   const errors: string[] = [];
   const decoder = new StringDecoder("utf8");
@@ -600,9 +599,9 @@ function observeDispatchProcess(
     if (released || exited) return;
     try {
       const livenessEvent = {
-        type: "runtime_session_liveness_changed",
+        type: "runtime_session_liveness_changed" as const,
         payload: {
-          runtimeSessionId,
+          runtimeSessionId: runtimeSessionId ?? "",
           liveness: runtimePidIsAlive(pid) ? ("live" as const) : ("unknown" as const),
           processGroupPid: pid,
         },
@@ -614,7 +613,13 @@ function observeDispatchProcess(
             bytes = readRuntimeWorkerChunk(stream, offset);
             if (bytes.length === 0) {
               const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
-              emitExit(null, reason, livenessEvent.payload);
+              appendRuntimeWorkerRecord(rootDir, dispatchId, {
+                kind: "process_lost",
+                occurredAt: new Date().toISOString(),
+                reason,
+              });
+              removeRuntimeCallbackRelay(dispatchId);
+              emitExit(null, reason, runtimeSessionId ? livenessEvent.payload : undefined);
               return;
             }
             break;
@@ -637,7 +642,7 @@ function observeDispatchProcess(
           else emitOutput(`${String(record.output)}\n`);
         } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
         else if (record?.kind === "process_lost") {
-          emitExit(null, String(record.reason), { runtimeSessionId, liveness: "unknown", processGroupPid: pid });
+          emitExit(null, String(record.reason), runtimeSessionId ? livenessEvent.payload : undefined);
           return;
         } else if (record?.kind === "process_exit") {
           const signal = typeof record.signal === "string" ? record.signal : null;

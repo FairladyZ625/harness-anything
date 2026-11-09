@@ -236,9 +236,11 @@ async function restoreRuntime(
       "execution_scope_mismatch",
       "Only the original runtime owner can authorize recovery.",
     );
-  if (lifecycle.policy.attemptSettled) {
-    const stream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
-    if (stream && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
+  if (header.fallbackAttempt)
+    context.reconcileFallback(readDispatchStreamSummary(context.input.rootDir, header.dispatchId));
+  const settledStream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+  if (lifecycle.policy.attemptSettled || session?.outcome) {
+    if (settledStream && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
       archiveDispatchStream(context.input.rootDir, header.dispatchId);
     removeRuntimeCallbackRelay(header.dispatchId);
     return true;
