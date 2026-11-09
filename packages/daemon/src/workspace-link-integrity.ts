@@ -56,6 +56,10 @@ export function checkWorkspaceLinks(rootDir: string): WorkspaceLinkCheck {
 /** Return the first external workspace link across registered local repositories. */
 export function firstWorkspaceLinkFinding(rootDirs: readonly string[]): WorkspaceLinkFinding | null {
   for (const rootDir of [...new Set(rootDirs.map((root) => path.resolve(root)))]) {
+    // A registered root that is gone has no links to inspect. Its caller already diagnoses the
+    // missing checkout (the spawn path reports daemon_spawn_root_missing); resolving it here
+    // would surface a bare ENOENT as a launcher or link failure and hide that diagnosis.
+    if (!existsSync(rootDir)) continue;
     const finding = checkWorkspaceLinks(rootDir).findings[0];
     if (finding) return finding;
   }

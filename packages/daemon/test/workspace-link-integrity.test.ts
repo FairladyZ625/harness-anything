@@ -88,6 +88,15 @@ test("an external scope parent cannot hide a workspace link", (t) => {
   assert.equal(workspaceLinkDoctorCheck(root).status, "ok");
 });
 
+test("a registered root that no longer exists is not a workspace link failure", (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-missing-workspace-root-")),
+    missingRoot = path.join(parent, "repo");
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  // The daemon spawn path owns the missing-root diagnosis; the link check must not preempt it with
+  // an ENOENT raised while resolving a checkout that is not there.
+  assert.equal(firstWorkspaceLinkFinding([missingRoot]), null);
+});
+
 test("daemon startup refuses external workspace links before creating its pid", async (t) => {
   if (process.platform === "win32") t.skip("requires POSIX file-symbolic-link semantics");
   const root = workspaceFixture(),

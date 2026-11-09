@@ -435,6 +435,53 @@ test("a missing spawn cwd is classified as the workspace root being missing, not
   }
 });
 
+test("a registered root that no longer exists keeps the missing spawn root diagnosis", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-registered-missing-")),
+    missingRoot = path.join(userRoot, "edge", "workspace");
+  try {
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "Local", state: "enabled" }],
+        repos: [
+          {
+            repoId: "missing-root",
+            canonicalRoot: missingRoot,
+            displayName: "missing-root",
+            authoredBranch: "main",
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: "2026-11-09T00:00:00.000Z",
+          },
+        ],
+      })}\n`,
+      "utf8",
+    );
+    // The registered checkout is gone, so the pre-start link inspection has no links to inspect;
+    // the spawn path must still report the missing workspace root, not a missing launcher.
+    const result = await ensureLocalDaemonRunning({
+      socketPath: "/tmp/ha-autostart-registered-missing.sock",
+      invokingRoot: missingRoot,
+      launch: () => ({
+        command: process.execPath,
+        args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", "missing-registered"],
+        env: {},
+      }),
+      probe: async () => false,
+      probeIntervalMs: 1,
+      readyTimeoutMs: 5,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "daemon_spawn_root_missing");
+    assert.equal(result.attempts, 1);
+    assert.doesNotMatch(result.hint, /workspace link/u);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("a permission-denied launcher is classified as daemon_spawn_permission", async () => {
   const result = await ensureLocalDaemonRunning({
     socketPath: "/tmp/ha-autostart-eacces.sock",
