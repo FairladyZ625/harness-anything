@@ -15,14 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import {
-  closeoutReadiness,
-  consentedApprovedReviewForExecution,
-  currentExecutionCuts,
-  reviewConsentGateBlocker,
-  reviewDigest,
-  submissionDigest,
-} from "@harness-anything/kernel";
+import { reviewDigest, submissionDigest } from "@harness-anything/kernel";
 
 const helper = fileURLToPath(new URL("./pr-merge.mjs", import.meta.url));
 
@@ -693,11 +686,11 @@ function consentMissingHaState() {
 }
 
 // A historical task-show receipt retains the retired CI gate in its frozen declaration. Its
-// current completion blocker is delivery_missing until merge; review consent is judged separately.
-// The digests use the kernel helpers so the fixture matches the facts production consumes.
+// completion judgment is delivery_missing until merge: the ledger decides review and consent, and
+// the merge gate only reads that `completionBlocker` (never the arrays below). The digests use the
+// kernel helpers so the fixture matches the facts production consumes.
 function reviewChainWithDeliveryBlockerHaState({
   consented = true,
-  staleConsent = false,
   closeoutOverrides,
   commitSha = `5a1f${"0".repeat(36)}`,
   productionBaseSha,
@@ -778,7 +771,7 @@ function reviewChainWithDeliveryBlockerHaState({
       reviewDigest: reviewDigest(review),
       contentDigest: review.contentDigest,
       // A stale pin names a superseded cut: the owner consented, then the worker re-submitted.
-      submissionDigest: staleConsent ? `sha256:${"cd".repeat(32)}` : submissionDigest(submission),
+      submissionDigest: submissionDigest(submission),
       actor: { principal: { personId: "person_zeyu" }, executor: null },
       source: { channel: "cli" },
       consentedAt: "2026-10-05T11:00:00.000Z",
@@ -799,7 +792,7 @@ function reviewChainWithDeliveryBlockerHaState({
         reviews: closeoutOverrides?.review === false ? [] : [review],
         consents: consented ? [consent] : [],
       }),
-      completionBlocker: { code: "delivery_missing" },
+      completionBlocker: { code: "delivery_missing", gate: "delivery" },
       completionNext: {
         action: "ha task complete task",
         reason: "Confirm the delivery is merged to the configured target branch.",
@@ -810,7 +803,7 @@ function reviewChainWithDeliveryBlockerHaState({
   };
 }
 
-test("refuses a task PR whose current execution has no consented approved review", (t) => {
+test("refuses a task PR the ledger's completion judgment places on consent", (t) => {
   const setup = fixture(t, { branch: TASK_BRANCH, haState: consentMissingHaState() });
   const initialHead = git(setup.main, "rev-parse", "HEAD");
 
@@ -821,7 +814,9 @@ test("refuses a task PR whose current execution has no consented approved review
   });
 
   assert.equal(result.status, 1);
+  // The gate prints the ledger's remediation verbatim; it derives no command of its own.
   assert.match(result.stderr, new RegExp(`ha task review-consent ${TASK_BRANCH}`, "u"));
+  assert.match(result.stderr, /blocked from completion by consent_missing \(gate=consent\)/u);
   assert.match(result.stderr, /refusing to merge/u);
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
@@ -831,7 +826,7 @@ test("refuses a task PR whose current execution has no consented approved review
 
 test("merges a consented task PR with a historical CI gate declaration and delivery_missing blocker", (t) => {
   // CH4 keeps frozen CI gates readable as retired history; completion now waits for merge evidence.
-  // The merge command checks the approved review and owner consent before it creates that evidence.
+  // The merge command reads the ledger's delivery blocker before it creates that evidence.
   // The frozen delivery commit is the PR head, so the merge commit will contain it by ancestry.
   const setup = fixture(t, {
     branch: TASK_BRANCH,
@@ -840,20 +835,27 @@ test("merges a consented task PR with a historical CI gate declaration and deliv
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
-  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
+  assert.match(
+    result.stdout,
+    new RegExp(`Task ${TASK_BRANCH} passed the completion check .*blocker=delivery_missing`, "u"),
+  );
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
   assert.equal(existsSync(setup.prWorktree), false);
 });
 
-test("task PR merge follows the ledger consent gate for an accepted cut with later evidence drift", (t) => {
+test("merges a delivery-only task PR whose projected submission digest drifted from the review pin", (t) => {
+  // #4412: the projection re-derives a submission digest that no longer matches the digest the
+  // review and consent pinned, so a local review/consent re-derivation filtered every review out
+  // and refused an already approved + consented cut. The ledger's own completionBlocker says only
+  // delivery is missing; that single judgment is what the merge gate must follow.
   const setup = fixture(t, {
       branch: TASK_BRANCH,
       haState: (head) => {
         const state = reviewChainWithDeliveryBlockerHaState({ commitSha: head }),
           receipt = state.receipt,
           execution = receipt.executions[0],
-          submittedDigest = submissionDigest(execution.submission);
+          pinnedDigest = submissionDigest(execution.submission);
         execution.submission.artifacts = [
           {
             path: "harness/tasks/task/evidence.md",
@@ -861,27 +863,20 @@ test("task PR merge follows the ledger consent gate for an accepted cut with lat
             blobSha256: "a".repeat(64),
           },
         ];
-        execution.state = "accepted";
-        receipt.task.status = "done";
-
-        const cut = currentExecutionCuts(receipt)[0];
-        assert.ok(cut);
-        assert.equal(
-          consentedApprovedReviewForExecution(receipt.reviews, receipt.consents, cut, receipt.reviewDispositions ?? []),
-          undefined,
-          "the recomputed digest no longer matches the consent recorded for the submitted cut",
+        assert.notEqual(
+          submissionDigest(execution.submission),
+          pinnedDigest,
+          "the projection must re-derive a digest that disagrees with the review pin",
         );
-        assert.notEqual(submissionDigest(execution.submission), submittedDigest);
-        assert.equal(reviewConsentGateBlocker(receipt), null);
-        const readiness = closeoutReadiness(receipt);
-        assert.equal(readiness.readiness, "incomplete");
-        assert.equal(readiness.blocker, "gate", "review and consent passed; only delivery remains");
+        assert.notEqual(receipt.reviews[0].submissionDigest, submissionDigest(execution.submission));
+        assert.equal(receipt.completionBlocker.gate, "delivery");
         return state;
       },
     }),
     result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
-  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the completion check`, "u"));
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
 });
 
@@ -1087,25 +1082,43 @@ test("merges a task PR whose receipt exceeds the spawnSync default maxBuffer", (
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
-  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
+  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the completion check`, "u"));
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
 });
 
-test("refuses a task PR whose missing consent is masked by a merge-only gate", async (t) => {
+// Negative control: the projection arrays still hold an approved review and the owner's consent,
+// but the ledger's single completion judgment says the cut is not ready. The merge gate must follow
+// that judgment (and print its remediation), never a locally re-derived review/consent verdict.
+test("refuses a task PR the ledger's completion judgment blocks, even when the projections look satisfied", async (t) => {
   const cases = [
     {
-      label: "no consent recorded",
-      haState: (head) => reviewChainWithDeliveryBlockerHaState({ consented: false, commitSha: head }),
+      label: "consent gate",
+      blocker: { code: "consent_missing", gate: "consent" },
+      action: `ha task review-consent ${TASK_BRANCH} --execution-id exe_cut --review-id rev_approved`,
     },
     {
-      label: "consent pinned to a superseded submission",
-      haState: (head) => reviewChainWithDeliveryBlockerHaState({ staleConsent: true, commitSha: head }),
+      label: "review gate",
+      blocker: { code: "review_pending", gate: "review" },
+      action: `ha task dispatch-review ${TASK_BRANCH}`,
     },
   ];
-  for (const { label, haState } of cases) {
+  for (const { label, blocker, action } of cases) {
     await t.test(label, (t) => {
-      const setup = fixture(t, { branch: TASK_BRANCH, haState });
+      const setup = fixture(t, {
+        branch: TASK_BRANCH,
+        haState: (head) => {
+          const state = reviewChainWithDeliveryBlockerHaState({ commitSha: head });
+          state.receipt.completionBlocker = blocker;
+          state.receipt.completionNext = {
+            action,
+            reason: "The ledger's own remediation.",
+            authority: "person_zeyu",
+            readCut: { revision: 7, iteration: 0, executionId: "exe_cut" },
+          };
+          return state;
+        },
+      });
       const initialHead = git(setup.main, "rev-parse", "HEAD");
 
       const result = run(process.execPath, [helper, "123"], {
@@ -1115,16 +1128,95 @@ test("refuses a task PR whose missing consent is masked by a merge-only gate", a
       });
 
       assert.equal(result.status, 1, result.stdout);
-      // The printed remedy states both ids, so running it as printed never asks for inference.
+      assert.match(result.stderr, /refusing to merge/u);
       assert.match(
         result.stderr,
-        new RegExp(`ha task review-consent ${TASK_BRANCH} --execution-id exe_cut --review-id rev_approved`, "u"),
+        new RegExp(`blocked from completion by ${blocker.code} \\(gate=${blocker.gate}\\)`, "u"),
       );
-      assert.match(result.stderr, /no owner-consented approved review for its current execution/u);
-      assert.match(result.stderr, /refusing to merge/u);
+      assert.ok(
+        result.stderr.includes(`Next: ${action}`),
+        `the ledger's remediation is printed verbatim:\n${result.stderr}`,
+      );
       assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
       assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
       assert.equal(existsSync(setup.prWorktree), true);
+    });
+  }
+});
+
+test("fails closed when the receipt carries no completion judgment", (t) => {
+  // Without completionBlocker the gate has no server judgment to read; it must not fall back to
+  // re-deriving review or consent from the projection arrays.
+  const setup = fixture(t, {
+    branch: TASK_BRANCH,
+    haState: (head) => {
+      const state = reviewChainWithDeliveryBlockerHaState({ commitSha: head });
+      delete state.receipt.completionBlocker;
+      return state;
+    },
+  });
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /returned no completion judgment/u);
+  assert.match(result.stderr, /fail closed/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+});
+
+// F1: a task PR always owes the frozen-cut comparison. The completion protocol permits a null
+// blocker with completionNext: null (a completed task) and a readCut whose executionId is null, so
+// the gate must refuse instead of reading "no cut" as permission to skip the head guard.
+test("refuses a task PR whose completion judgment names no submitted delivery cut", async (t) => {
+  const cases = [
+    {
+      label: "no blocker and no remediation",
+      apply: (receipt) => {
+        receipt.task.status = "done";
+        receipt.completionBlocker = null;
+        receipt.completionNext = null;
+      },
+    },
+    {
+      label: "no blocker and a null readCut execution",
+      apply: (receipt) => {
+        receipt.completionBlocker = null;
+        receipt.completionNext.readCut.executionId = null;
+      },
+    },
+    {
+      label: "delivery blocker and a null readCut execution",
+      apply: (receipt) => {
+        receipt.completionNext.readCut.executionId = null;
+      },
+    },
+  ];
+  for (const { label, apply } of cases) {
+    await t.test(label, (t) => {
+      const setup = fixture(t, {
+        branch: TASK_BRANCH,
+        haState: (head) => {
+          const state = reviewChainWithDeliveryBlockerHaState({ commitSha: head });
+          apply(state.receipt);
+          return state;
+        },
+      });
+
+      const result = run(process.execPath, [helper, "123"], {
+        cwd: setup.main,
+        env: setup.env,
+        allowFailure: true,
+      });
+
+      assert.equal(result.status, 1, result.stdout);
+      assert.match(result.stderr, /named no submitted delivery cut/u);
+      assert.match(result.stderr, /refusing to merge \(fail closed\)/u);
+      assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+      assert.equal(existsSync(setup.annotateLogPath), false);
     });
   }
 });
@@ -1144,7 +1236,7 @@ test("merges a lightweight task PR whose review and consent gates were lifted at
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
-  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
+  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the completion check`, "u"));
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
 });
@@ -1154,7 +1246,7 @@ test("merges a non-task branch with an explanatory note", (t) => {
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
-  assert.match(result.stdout, /codex\/pr-123 is not a task branch; merging without a review-consent check/u);
+  assert.match(result.stdout, /codex\/pr-123 is not a task branch; merging without a completion check/u);
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
 });

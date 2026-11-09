@@ -165,8 +165,8 @@ export function closeoutReadiness(
   };
 }
 
-/** The completion gate's review/consent decision, also used by task-bound PR merging. */
-export function reviewConsentGateBlocker(
+/** The completion gate's review/consent decision, consumed only by {@link closeoutReadiness}. */
+function reviewConsentGateBlocker(
   snapshot: CloseoutSnapshot,
   effectiveGates?: Readonly<Record<CloseoutGate, boolean>>,
   execution?: ProjectedExecution,
