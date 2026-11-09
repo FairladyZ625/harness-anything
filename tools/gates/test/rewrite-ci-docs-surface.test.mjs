@@ -32,14 +32,13 @@ test("a failed change detector never turns a lane green: skips need an explicit 
   // An output read is empty when install fails before setting it; comparing against 'true' would
   // then skip every lane and report the PR green without running anything.
   assert.doesNotMatch(workflow, /needs\.install\.outputs\.(?:code|gui) [!=]= 'true'/u);
+  // The retired boundaries job was the only `code == 'false'` narrowing. Folding it into
+  // quick-gates would make that job's diff-based gates resolve a PR base instead of the fetched
+  // origin/main (workflow-base-sha contract), so the merged job runs the full set on every event.
   const narrowing = [...workflow.matchAll(/needs\.install\.outputs\.code == 'false'/gu)];
-  assert.equal(narrowing.length, 1, "only the boundaries documentation narrowing may read code == 'false'");
-  const boundaries = jobs.get("boundaries") ?? "";
-  assert.match(boundaries, /DOCS_ONLY_BASE: \$\{\{ needs\.install\.outputs\.code == 'false' && .+ \|\| '' \}\}/u);
-  assert.match(
-    boundaries,
-    /run: node tools\/run-manifest-gates\.mjs --workflow-job boundaries \$\{DOCS_ONLY_BASE:\+--changed "\$DOCS_ONLY_BASE"\}/u,
-  );
+  assert.equal(narrowing.length, 0, "no lane narrows on code == 'false' after the merge");
+  const merged = jobs.get("quick-gates") ?? "";
+  assert.doesNotMatch(merged, /DOCS_ONLY_BASE/u);
 });
 
 test("required lanes keep running on a documentation-only change so their contexts report", () => {
@@ -49,7 +48,7 @@ test("required lanes keep running on a documentation-only change so their contex
     (match) => match[1],
   );
   const requiredJobs = [...new Set(required)].filter((id) => jobs.has(id));
-  assert.ok(requiredJobs.includes("integration-shard") && requiredJobs.includes("boundaries"));
+  assert.ok(requiredJobs.includes("integration-shard") && requiredJobs.includes("quick-gates"));
   for (const id of requiredJobs) {
     assert.doesNotMatch(jobLevelIf(jobs.get(id)), /needs\.install\.outputs/u, `${id} must not be skipped at job level`);
   }
