@@ -548,9 +548,9 @@ export function scopeTouches(
       const taskId = input.projection.taskIdForDocumentPath(candidate);
       if (!taskId) return isTaskPackagePath(candidate);
       if (taskId === unleasedTaskCommandId) return false;
-      // Admission passes the exact content submissions it already exempted; the read path has no
-      // intent, so it falls back to the path rule (a node may read what it may submit).
-      if (exemptPaths?.has(candidate) ?? plannedTaskPlanSubmission(input, candidate)) return false;
+      // Only admission passes the exact content submissions it exempted. A read has no intent and
+      // stays bound to the canonical lease scope, even for a planned task's plan.
+      if (exemptPaths?.has(candidate)) return false;
       const lease = input.projection.currentLease(taskId);
       return (
         !lease ||
