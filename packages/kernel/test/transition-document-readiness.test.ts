@@ -142,6 +142,53 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
   assert.equal(plan(realizedPlan()).ready, true);
 });
 
+test("task plan lists every missing section and names a heading outside the template", () => {
+  const allMissing = "# Plan\n\n",
+    allMissingAssessment = plan(allMissing);
+  assert.deepEqual(
+    allMissingAssessment.missingSections.map(({ section }) => section),
+    planHeadings,
+  );
+  assert.deepEqual(allMissingAssessment.unexpectedSections, []);
+
+  const missingOne = realizedPlan().replace("## Verification\n\nImplemented Verification.", ""),
+    missingOneAssessment = plan(missingOne);
+  assert.deepEqual(missingOneAssessment.missingSections, [{ section: "Verification", reason: "empty" }]);
+  assert.deepEqual(missingOneAssessment.unexpectedSections, []);
+
+  const typo = realizedPlan().replace(
+      "## Verification\n\nImplemented Verification.",
+      "## Acceptance\n\nImplemented Acceptance.",
+    ),
+    typoAssessment = plan(typo);
+  assert.equal(typoAssessment.ready, false);
+  assert.deepEqual(typoAssessment.missingSections, [{ section: "Verification", reason: "empty" }]);
+  assert.deepEqual(typoAssessment.unexpectedSections, ["Acceptance"]);
+
+  // A conditional template section stays known even when this task kind does not require it: a feat
+  // plan that keeps the Recurrence Gate section must not be reported as a heading outside the template.
+  const retainedConditional = `${realizedPlan()
+    .replace("## Goal\n\nImplemented Goal.", "")
+    .trimEnd()}\n\n## Recurrence Gate\n\nCriterion: a fix plan can omit its gate.\n`;
+  assert.deepEqual(plan(retainedConditional).missingSections, [{ section: "Goal", reason: "empty" }]);
+  assert.deepEqual(plan(retainedConditional).unexpectedSections, []);
+  assert.throws(
+    () => assertTransitionDocumentReady("task.plan", typo, planContract),
+    (error: unknown) => {
+      const failure = error as {
+        readonly code?: string;
+        readonly message: string;
+        readonly unexpectedSections?: unknown;
+      };
+      assert.equal(failure.code, "plan_placeholder");
+      assert.match(failure.message, /Verification/u);
+      assert.match(failure.message, /Sections not in the template: Acceptance/u);
+      assert.deepEqual(failure.unexpectedSections, ["Acceptance"]);
+      return true;
+    },
+  );
+});
+
 test("a frozen 13-section contract still judges the old section list", () => {
   assert.deepEqual(legacyPlanContract.requiredSections, legacyPlanHeadings);
   assert.deepEqual(

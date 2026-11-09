@@ -99,6 +99,14 @@ test("readiness contract resolves from the descriptor-embedded map, then the bun
     requiredSections: ["Brief", "Verification"],
     scaffoldBySection: embedded,
   });
+  // The frozen map stays authoritative for what this task must fill, while a resolvable catalog
+  // supplies every heading the template declares so a conditional section is not called unexpected.
+  const embeddedWithCatalog = transitionDocumentReadinessContract({
+    contract: { locale: "en-US" },
+    descriptor: { slot: "task.plan", path: "task_plan.md", templateRef, readiness: embedded },
+  });
+  assert.deepEqual(embeddedWithCatalog?.requiredSections, ["Brief", "Verification"]);
+  assert.deepEqual(embeddedWithCatalog?.knownSections, transitionDocumentContract(template).knownSections);
   // A malformed embedded map is not a contract; resolution falls back to the bundled catalog the
   // descriptor's templateRef names, as for packages materialized before descriptors carried it.
   // The fallback uses the catalog's baseline anchors, so a conditional section added later cannot

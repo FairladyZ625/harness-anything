@@ -88,6 +88,19 @@ test("create rejects a plan file missing a template section", async () => {
     assert.equal(inline.diagnostic?.field, "plan");
     assert.match(String(inline.diagnostic?.expectation), /Edit the supplied plan body.*rerun ha task create/u);
     assert.doesNotMatch(String(inline.diagnostic?.expectation), /ha doc sync/u);
+    const typo = realizedTaskPlan("Typo at create").replace(
+      "## Verification\n\nRun the owning test file and require every assertion to pass.",
+      "## Acceptance\n\nImplemented Acceptance.",
+    );
+    writeFileSync(path.join(rootDir, "plans", "typo.md"), typo);
+    const typoCreated = await cell.run(
+      { kind: "task-create", taskId: "task-plan-typo", title: "Plan Typo", planFile: "plans/typo.md" },
+      binding,
+    );
+    assert.equal(typoCreated.outcome, "op_rejected", JSON.stringify(typoCreated));
+    assert.equal(typoCreated.code, "plan_placeholder");
+    assert.match(String(typoCreated.diagnostic?.expectation), /Verification/u);
+    assert.match(String(typoCreated.diagnostic?.expectation), /Sections not in the template: Acceptance/u);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

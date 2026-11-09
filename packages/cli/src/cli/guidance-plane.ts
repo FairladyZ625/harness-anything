@@ -450,10 +450,14 @@ function renderMissingSections(args: GuidanceArgs): string {
             : [],
         )
       : [],
+    unexpected = Array.isArray(args.unexpectedSections)
+      ? args.unexpectedSections.filter((section): section is string => typeof section === "string")
+      : [],
     sync = `ha doc sync --submit --path ${path}`;
   return [
     "Required-section diagnostics:",
     ...(rows.length ? rows : ["- no missing required sections were reported"]),
+    ...(unexpected.length ? ["Sections not in the template:", ...unexpected.map((section) => `- ${section}`)] : []),
     args.diskDiffers === true
       ? `The on-disk ${path} differs; complete it, then run ${sync} and retry.`
       : `Edit ${path}, then run ${sync} and retry.`,

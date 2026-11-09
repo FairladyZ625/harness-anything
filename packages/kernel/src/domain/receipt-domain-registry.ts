@@ -32,6 +32,8 @@ export type ReceiptDiagnostic =
         readonly reason: "empty" | "scaffold";
         readonly retainedScaffold?: string;
       }[];
+      /** Authored headings the template does not declare; present only when the body carries any. */
+      readonly unexpectedSections?: readonly string[];
     }
   | {
       readonly kind: "validation";
@@ -551,20 +553,33 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
       value.allowedValues.every(isNonEmptyString)
     );
   if (value.kind === "failure") return exact(value, ["kind", "code"]) && isNonEmptyString(value.code);
-  return (
-    value.kind === "missing-sections" &&
-    exact(value, ["kind", "documentPath", "diskDiffers", "missingSections"]) &&
-    isNonEmptyString(value.documentPath) &&
-    typeof value.diskDiffers === "boolean" &&
-    Array.isArray(value.missingSections) &&
-    value.missingSections.every(
-      (entry) =>
-        isReceiptDomainRecord(entry) &&
-        exact(entry, entry.reason === "scaffold" ? ["section", "reason", "retainedScaffold"] : ["section", "reason"]) &&
-        isNonEmptyString(entry.section) &&
-        (entry.reason === "empty" || (entry.reason === "scaffold" && isNonEmptyString(entry.retainedScaffold))),
-    )
-  );
+  if (value.kind === "missing-sections") {
+    const unexpectedSections = value.unexpectedSections;
+    return (
+      exact(
+        value,
+        unexpectedSections === undefined
+          ? ["kind", "documentPath", "diskDiffers", "missingSections"]
+          : ["kind", "documentPath", "diskDiffers", "missingSections", "unexpectedSections"],
+      ) &&
+      isNonEmptyString(value.documentPath) &&
+      typeof value.diskDiffers === "boolean" &&
+      Array.isArray(value.missingSections) &&
+      value.missingSections.every(
+        (entry) =>
+          isReceiptDomainRecord(entry) &&
+          exact(
+            entry,
+            entry.reason === "scaffold" ? ["section", "reason", "retainedScaffold"] : ["section", "reason"],
+          ) &&
+          isNonEmptyString(entry.section) &&
+          (entry.reason === "empty" || (entry.reason === "scaffold" && isNonEmptyString(entry.retainedScaffold))),
+      ) &&
+      (unexpectedSections === undefined ||
+        (Array.isArray(unexpectedSections) && unexpectedSections.every(isNonEmptyString)))
+    );
+  }
+  return false;
 }
 function validAuthorizationDecision(value: unknown): value is AuthorizationDecision {
   if (

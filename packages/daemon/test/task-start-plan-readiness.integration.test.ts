@@ -12,7 +12,7 @@ import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
-test("task start reports every incomplete plan section, empty and scaffold alike, in one diagnostic", async () => {
+test("task start reports every incomplete plan section in one diagnostic and names a heading outside the template", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-start-plan-readiness-")),
     template = readFileSync(
       new URL("../../preset/assets/software-coding/templates/task.plan.v2/en-US.md", import.meta.url),
@@ -72,6 +72,25 @@ test("task start reports every incomplete plan section, empty and scaffold alike
       { section: "Deliverable Contract", reason: "empty" },
       { section: "Evidence Protocol", reason: "empty" },
     ]);
+
+    const typo = realizedTaskPlan("Typo readiness plan").replace(
+      "## Verification\n\nRun the owning test file and require every assertion to pass.",
+      "## Acceptance\n\nImplemented Acceptance.",
+    );
+    writeFileSync(path.join(rootDir, "harness", planPath), typo);
+    const typoRejected = await cell.run(
+      {
+        kind: "task-start",
+        taskId: "task-start-plan-readiness",
+        executionId: "execution-plan-readiness-typo",
+      },
+      binding,
+    );
+    assert.equal(typoRejected.outcome, "op_rejected", JSON.stringify(typoRejected));
+    assert.equal(typoRejected.code, "plan_placeholder");
+    assert.equal(typoRejected.diagnostic?.kind, "missing-sections");
+    assert.deepEqual(typoRejected.diagnostic?.missingSections, [{ section: "Verification", reason: "empty" }]);
+    assert.deepEqual(typoRejected.diagnostic?.unexpectedSections, ["Acceptance"]);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

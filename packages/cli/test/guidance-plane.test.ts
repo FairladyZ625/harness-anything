@@ -462,18 +462,21 @@ test("receipt layout roots prefer the store's append-resolved layout and fall ba
 });
 
 test("failure guidance renders structured missing-section, validator, and workspace diagnostics", () => {
+  const missingSectionsHint = humanError({
+    code: "plan_placeholder",
+    diagnostic: {
+      kind: "missing-sections",
+      documentPath: "harness/tasks/task-a/task_plan.md",
+      diskDiffers: false,
+      missingSections: [{ section: "Goal", reason: "scaffold", retainedScaffold: "Describe the result." }],
+      unexpectedSections: ["Acceptance"],
+    },
+  }).hint;
   assert.match(
-    humanError({
-      code: "plan_placeholder",
-      diagnostic: {
-        kind: "missing-sections",
-        documentPath: "harness/tasks/task-a/task_plan.md",
-        diskDiffers: false,
-        missingSections: [{ section: "Goal", reason: "scaffold", retainedScaffold: "Describe the result." }],
-      },
-    }).hint,
+    missingSectionsHint,
     /Goal: still contains scaffold text.*ha doc sync --submit --path harness\/tasks\/task-a\/task_plan\.md/su,
   );
+  assert.match(missingSectionsHint, /Sections not in the template:\n- Acceptance/u);
   assert.equal(
     humanError({
       code: "invalid_result",

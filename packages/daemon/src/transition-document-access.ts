@@ -44,29 +44,34 @@ interface TransitionDocumentDescriptor {
 /**
  * Resolves the readiness contract a task package's scaffold declared: the contract frozen into the
  * descriptor at materialization first, then — for packages materialized before descriptors carried
- * it — the bundled template catalog the descriptor's `templateRef` names. Returns null when no
- * source yields the contract.
+ * it — the bundled template catalog the descriptor's `templateRef` names. A resolvable catalog also
+ * supplies the template's full heading set to the frozen contract, so a conditional section is not
+ * mistaken for a heading outside the template. Returns null when no source yields the contract.
  */
 export function transitionDocumentReadinessContract(input: {
   readonly contract: unknown;
   readonly descriptor: TransitionDocumentDescriptor;
 }): MarkdownDocumentContract | null {
-  const embedded = embeddedReadinessContract(input.descriptor.readiness);
-  if (embedded) return embedded;
-  const catalog = catalogReadinessSource(input.contract, input.descriptor);
-  // A package materialized before descriptors carried the frozen contract is judged only by the
-  // catalog's baseline anchors. A conditional section declared later never backfills an old plan.
-  return catalog === null ? null : transitionDocumentContract(catalog.body, catalog.requiredAnchors);
+  const catalog = catalogReadinessSource(input.contract, input.descriptor),
+    // A package materialized before descriptors carried the frozen contract is judged only by the
+    // catalog's baseline anchors. A conditional section declared later never backfills an old plan.
+    catalogContract = catalog === null ? null : transitionDocumentContract(catalog.body, catalog.requiredAnchors),
+    embedded = embeddedReadinessContract(input.descriptor.readiness, catalogContract?.knownSections);
+  return embedded ?? catalogContract;
 }
 
-function embeddedReadinessContract(value: unknown): MarkdownDocumentContract | null {
+function embeddedReadinessContract(value: unknown, knownSections?: readonly string[]): MarkdownDocumentContract | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const scaffoldBySection: Record<string, readonly string[]> = {};
   for (const [section, lines] of Object.entries(value)) {
     if (!Array.isArray(lines) || lines.some((line) => typeof line !== "string")) return null;
     scaffoldBySection[section] = lines;
   }
-  return { requiredSections: Object.keys(scaffoldBySection), scaffoldBySection };
+  return {
+    requiredSections: Object.keys(scaffoldBySection),
+    scaffoldBySection,
+    ...(knownSections === undefined ? {} : { knownSections }),
+  };
 }
 
 // dec_5F7E74F1 renamed the create-milestone plan template to the work plan (same sections). Task contracts are
@@ -228,26 +233,39 @@ export function assertTaskTransitionDocumentReady(input: {
   } catch (error) {
     if (error && typeof error === "object") {
       // The kernel judgment is pure: re-assessing the same body yields the sections the throw carried.
-      const projectedMissing = assessTransitionDocument(kind, document.body, document.contract).missingSections,
+      const projected = assessTransitionDocument(kind, document.body, document.contract),
+        projectedMissing = projected.missingSections,
+        projectedUnexpected = projected.unexpectedSections,
         diskBody = document.source === "canonical projection" ? readOnDiskBody(input.rootDir, document.path) : null,
         diskDiffers = diskBody !== null && diskBody !== document.body,
-        actionableMissing =
+        actionable =
           diskDiffers && document.contract !== null
-            ? assessTransitionDocument(kind, diskBody, document.contract).missingSections
-            : projectedMissing,
+            ? assessTransitionDocument(kind, diskBody, document.contract)
+            : undefined,
+        actionableMissing = actionable?.missingSections ?? projectedMissing,
+        actionableUnexpected = actionable?.unexpectedSections ?? projectedUnexpected,
         revision =
           document.source === "canonical projection"
             ? `canonical projection document at workspace revision ${document.workspaceRevision}`
             : `submitted candidate against canonical projection workspace revision ${document.workspaceRevision}`,
-        diagnosticSummary = actionableMissing.length
-          ? `${actionableMissing.length} required section` +
-            `${actionableMissing.length === 1 ? " is" : "s are"} incomplete.`
-          : "No missing required sections were reported.";
+        diagnosticSummary = [
+          actionableMissing.length
+            ? `${actionableMissing.length} required section` +
+              `${actionableMissing.length === 1 ? " is" : "s are"} incomplete.`
+            : "No missing required sections were reported.",
+          actionableUnexpected.length
+            ? `${actionableUnexpected.length} section` +
+              `${actionableUnexpected.length === 1 ? " is" : "s are"} not in the template.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
       Object.assign(error, {
         documentPath: documentWorkspacePath(input.rootDir, document.path),
         diskDiffers,
         missingSections: actionableMissing,
         projectedMissingSections: projectedMissing,
+        unexpectedSections: actionableUnexpected,
         message: [
           `${String((error as { readonly code?: unknown }).code ?? "content_not_ready")}:`,
           `${kind} readiness judged the ${revision} (blob sha256 ${document.blobSha256}).`,

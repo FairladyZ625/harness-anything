@@ -90,6 +90,11 @@ export function diagnosticForError(error: unknown): ReceiptDiagnostic | undefine
         ReceiptDiagnostic,
         { readonly kind: "missing-sections" }
       >["missingSections"],
+      ...("unexpectedSections" in error &&
+      Array.isArray(error.unexpectedSections) &&
+      error.unexpectedSections.length > 0
+        ? { unexpectedSections: error.unexpectedSections as readonly string[] }
+        : {}),
     };
   if (
     "field" in error &&
