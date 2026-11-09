@@ -493,8 +493,22 @@ for (const forceTerminate of [false, true])
           },
           { rootDir: root, dispatchId, callbackRelay: spec },
         );
-        await waitForArrival(
-          () => (existsSync(marker) && existsSync(spec.path) ? true : null),
+        const startedRecord = await waitForArrival(
+          () => {
+            if (!existsSync(spec.path)) return null;
+            try {
+              return JSON.parse(readFileSync(marker, "utf8")) as {
+                endpoint: string;
+                userRoot: string;
+                daemonId: string;
+              };
+            } catch (error) {
+              // The provider creates the marker inode before writing its bytes; a partial record is
+              // not an arrival yet.
+              if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT") return null;
+              throw error;
+            }
+          },
           (arrive) => {
             const stopMarker = watchFileArrival(marker)(arrive),
               stopSocket = watchFileArrival(spec.path)(arrive);
@@ -504,7 +518,7 @@ for (const forceTerminate of [false, true])
             };
           },
         );
-        assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), { endpoint: spec.path, userRoot, daemonId });
+        assert.deepEqual(startedRecord, { endpoint: spec.path, userRoot, daemonId });
         runtime.release?.();
         assert.equal(existsSync(spec.path), true);
         const adopted = adoptNativeProcess(root, dispatchId, runtime.pid);

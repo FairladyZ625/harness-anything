@@ -1,4 +1,4 @@
-import { existsSync, watch } from "node:fs";
+import { existsSync, lstatSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 
 /**
@@ -58,28 +58,60 @@ export async function waitForDurableCondition(predicate: () => boolean | Promise
 /**
  * Subscribe to a durable file the process under test publishes: creating it, appending to it, or
  * deleting it wakes the waiter, and the caller's `read` decides whether the awaited state arrived.
- * An existing file is watched directly, which reports appends on every platform; a file that is not
- * there yet is observed through its nearest existing ancestor directory, so a directory created
- * later is still seen and the re-subscription after that wake moves onto the file itself. Like
- * `waitForArrival`, this carries no deadline: the node:test `timeout` option is the hang guard.
+ * Only a regular file or directory is watched directly, which reports appends on every platform; a
+ * file that is not there yet is observed through its nearest existing ancestor directory, so a
+ * directory created later is still seen and the re-subscription after that wake moves onto the file
+ * itself. A socket or FIFO is observed through that directory too: on platforms where the special
+ * inode is not watchable, libuv reports the watch as an asynchronous error rather than a synchronous
+ * one, so watching it directly would either race the awaited unlink or surface as an uncaught watcher
+ * error. Like `waitForArrival`, this carries no deadline: the node:test `timeout` option is the hang
+ * guard.
  */
 export function watchFileArrival(file: string): (arrive: () => void) => () => void {
   return (arrive) => {
-    try {
-      const watcher = watch(file, { persistent: false }, () => arrive());
-      return () => watcher.close();
-    } catch {
-      // The file does not exist yet (or vanished between the caller's read and this subscription).
+    const info = lstatSync(file, { throwIfNoEntry: false });
+    if (info?.isFile() || info?.isDirectory()) {
+      let watcher: FSWatcher | undefined;
+      try {
+        watcher = watch(file, { persistent: false }, () => arrive());
+      } catch {
+        // The file vanished between the caller's read and this subscription.
+      }
+      if (watcher) {
+        let closed = false,
+          fallback: (() => void) | undefined;
+        watcher.once("error", () => {
+          if (closed) return;
+          watcher?.close();
+          fallback = watchNearestDirectory(file, arrive);
+          // The entry may have changed before the directory watch existed; re-read instead of
+          // waiting for a wake that already happened.
+          arrive();
+        });
+        return () => {
+          closed = true;
+          watcher?.close();
+          fallback?.();
+        };
+      }
     }
-    let directory = path.dirname(file);
-    while (!existsSync(directory)) {
-      const parent = path.dirname(directory);
-      if (parent === directory) return () => undefined;
-      directory = parent;
-    }
+    return watchNearestDirectory(file, arrive);
+  };
+}
+
+function watchNearestDirectory(file: string, arrive: () => void): () => void {
+  let directory = path.dirname(file);
+  while (!existsSync(directory)) {
+    const parent = path.dirname(directory);
+    if (parent === directory) return () => undefined;
+    directory = parent;
+  }
+  try {
     const watcher = watch(directory, { persistent: false }, () => arrive());
     return () => watcher.close();
-  };
+  } catch {
+    return () => undefined;
+  }
 }
 
 /**
