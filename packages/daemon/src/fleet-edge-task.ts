@@ -304,7 +304,6 @@ export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
 export async function runFleetEdgeRepositoryRead(
   input: { readonly rootDir: string; readonly repoId: string; readonly action: FleetTaskAction },
   readLocal: () => Promise<Record<string, unknown>>,
-  _readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
   const config = readFleetEdgeConfig(input.rootDir);
   if (!config) return readLocal();

@@ -252,7 +252,6 @@ export async function startDaemon(input: {
       { openDaemonHost },
       { createJsonRpcProtocolServer },
       { openDaemonRequestLog },
-      { createIdentitySession },
       { readRuntimeExecutionPrincipal },
       { openDaemonDiagnostics },
       operations,
@@ -262,7 +261,6 @@ export async function startDaemon(input: {
       import("./daemon-host.ts"),
       import("./protocol/json-rpc-server.ts"),
       import("./request-log.ts"),
-      import("./authorization-provider.ts"),
       import("./runtime-execution-principal-store.ts"),
       import("./daemon-diagnostics.ts"),
       import("./daemon-operation.ts"),
@@ -273,16 +271,14 @@ export async function startDaemon(input: {
       endpoint,
       writeQueues: () => host?.writeQueues() ?? [],
     });
-    const oidc = createIdentitySession(input.userRoot);
     const authenticateExecutionPrincipal = (credential: string) =>
-      authenticateRuntimeExecutionPrincipal(() => oidc.center(), credential);
+      authenticateRuntimeExecutionPrincipal(() => host!.identityCenter(), credential);
     host = await observation.withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
         ...input,
         endpoint,
         authenticateExecutionPrincipal,
         recordLifecycle,
-        oidc,
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
         recordTraffic: connLog.request,

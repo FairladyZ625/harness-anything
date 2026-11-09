@@ -55,6 +55,7 @@ export const daemonRuntimeScopedEnvironmentKeys = [
   "HARNESS_EXECUTION_EXPIRES_AT",
   "HARNESS_DAEMON_ENDPOINT",
   "HARNESS_DAEMON_RELAY",
+  "HARNESS_DAEMON_REMOTE_EDGE",
   "HARNESS_DAEMON_ID",
   "HARNESS_DAEMON_REPO_ID",
   "HARNESS_DAEMON_USER_ROOT",
@@ -270,7 +271,7 @@ export async function runCommandThroughDaemon(
     invokingCommand: command.id,
   };
   if (
-    (target.remoteEdge || env.HARNESS_DAEMON_RELAY === "1") &&
+    target.remoteEdge &&
     descriptor &&
     command.method !== "repo.agentRuntime.handoff" &&
     descriptor.method === command.method &&

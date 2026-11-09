@@ -6,7 +6,6 @@ import { localDefaultBinding } from "../daemon-host-binding.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { RepoTaskAction } from "../repo-cell-types.ts";
 import { FleetEdgeTaskError, runFleetEdgeTask } from "../fleet-edge-task.ts";
-import { commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
 import { forwardingIntentIssue, type ForwardingIntent } from "./forwarding-intent.ts";
 
 export async function forward(input: {
@@ -34,8 +33,7 @@ export async function forward(input: {
       config.nodeId !== input.intent.executionContext.requiredNodeId)
   )
     return null;
-  const action = input.intent.inputs as RepoTaskAction,
-    descriptor = commandDescriptorForAction(input.intent.commandId);
+  const action = input.intent.inputs as RepoTaskAction;
   const scheduleAction = getExecutableEntityAction(action.kind)?.target.kind === "schedule",
     squadControl = action.kind === "squad-run" || action.kind === "squad-cancel";
   if (scheduleAction || squadControl) {
@@ -60,8 +58,6 @@ export async function forward(input: {
       { ...input.auth, ...bound },
     );
   }
-  if (descriptor.method !== input.intent.method)
-    throw new FleetEdgeTaskError("invalid_field", "Forwarding method changed during dispatch.");
   if (input.auth.executionPrincipal && !input.auth.executionCredential) throw executionCredentialRejected();
   // Execution identity is rebuilt from the credential at the center. Match the CLI serializer's
   // declared Fleet action by excluding executor and the local command-line metadata.
@@ -73,7 +69,7 @@ export async function forward(input: {
     planSource: _planSource,
     ...wireAction
   } = action;
-  const bindPersonSessionNow = () => bindPersonSessionForRoot(input.auth, input.oidc, workspaceRoot),
+  const bindPersonSessionNow = () => bindPersonSession(input, workspaceRoot),
     bound = await bindPersonSessionNow(),
     personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
   if (input.auth.executionPrincipal && personId !== localDefaultBinding(bound).actor.principal.personId)
@@ -100,20 +96,9 @@ async function bindPersonSession(
   input: { readonly auth: DaemonAuthenticationContext; readonly oidc: IdentitySessionPort },
   workspaceRoot: string,
 ) {
-  return bindPersonSessionForRoot(input.auth, input.oidc, workspaceRoot);
-}
-
-async function bindPersonSessionForRoot(
-  auth: DaemonAuthenticationContext,
-  oidc: IdentitySessionPort,
-  workspaceRoot: string,
-) {
   // Admission already selected the request's edge session. Rebinding by the
   // workspace root can consult the edge's intentionally secret-less provider
   // configuration and turn a valid device session into rbac_admin_unavailable.
-  if (auth.oidcPrincipal) return auth;
-  const session = await oidc.bind(auth, workspaceRoot),
-    personId = localDefaultBinding(session).actor.principal.personId;
-  if (auth.executionPrincipal && auth.executionPrincipal.personId !== personId) throw executionCredentialRejected();
-  return session;
+  if (input.auth.oidcPrincipal) return input.auth;
+  return input.oidc.bind(input.auth, workspaceRoot);
 }

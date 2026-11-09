@@ -264,7 +264,7 @@ export async function fleetFixture(
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
             return owners.nodeOwner(nodeId);
           },
-          ...(authenticateExecutionPrincipal ? { authenticateExecutionPrincipal } : {}),
+          authenticateExecutionPrincipal: authenticateExecutionPrincipal ?? owners.authenticateExecutionPrincipal,
         }),
       ),
     close: async () => {

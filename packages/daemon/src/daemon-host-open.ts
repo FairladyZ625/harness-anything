@@ -1163,7 +1163,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       };
     },
     home,
-    keycloakCenter,
+    identityCenter: keycloakCenter,
     sessionPrincipal: async (auth, method, params) => {
       await rbacResumed;
       if (

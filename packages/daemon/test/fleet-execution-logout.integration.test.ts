@@ -87,7 +87,7 @@ test(
         undefined,
         loginAuthorityUrl,
         (auth) => IdentitySessionPort(path.join(f.root, "user")).bind(auth),
-        (credential) => authenticateRuntimeExecutionPrincipal(() => f.host.keycloakCenter(), credential),
+        (credential) => authenticateRuntimeExecutionPrincipal(() => f.host.identityCenter(), credential),
       ),
       repoId = f.subject.repoId,
       taskId = f.subject.taskId;
@@ -159,7 +159,7 @@ test(
     if (process.argv[2] === "login" && process.argv[3] === "status") process.exit(0);
     fs.readFileSync(0, "utf8");
     const id = process.env.HARNESS_ACTOR.split(":").at(-1), root = ${JSON.stringify(f.root)};
-    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_ACTOR", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_REPO_ID", "HARNESS_CANONICAL_ROOT", "HARNESS_TASK_BOUND", "HARNESS_DAEMON_RELAY"];
+    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_ACTOR", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_REPO_ID", "HARNESS_CANONICAL_ROOT", "HARNESS_TASK_BOUND", "HARNESS_DAEMON_RELAY", "HARNESS_DAEMON_REMOTE_EDGE"];
     fs.writeFileSync(path.join(root, id + ".tmp"), JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))), { mode: 0o600 });
     fs.renameSync(path.join(root, id + ".tmp"), path.join(root, id + ".json"));
     console.log(JSON.stringify({ type: "thread.started", thread_id: id }));
