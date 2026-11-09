@@ -11,6 +11,8 @@ import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { fleetFixture, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
+import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
@@ -205,6 +207,12 @@ test(
       readonly task?: { readonly reviewDispatchFailure?: { readonly code?: string } };
     };
     assert.equal(recordedTask.task?.reviewDispatchFailure?.code, "runtime_spawn_failed");
+    const agenda = await f.host.read(repoId, "repo.agenda.read", { limit: 50 }, f.auth);
+    assert.match(
+      String((agenda as { readonly summary?: unknown }).summary),
+      /runtime_spawn_failed/u,
+      "agenda must expose the automatic reviewer failure reason",
+    );
     assert.equal(
       (await readCandidates(new AbortController().signal)).some((candidate) => candidate.taskId === taskId),
       false,
@@ -226,6 +234,18 @@ test(
     const reader = makeTaskEventReader({ repoId, rootDir: f.repo });
     const events = reader.read().events,
       accepted = events.find((event) => event.type === "execution_submitted" && event.taskId === taskId),
+      implementation = events.find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.taskId === taskId &&
+          event.payload.executionId === accepted?.payload.execution.executionId &&
+          event.payload.role !== "reviewer",
+      ),
+      declaration = events.find(
+        (event) =>
+          event.type === "execution_executor_declared" &&
+          event.payload.execution.executionId === accepted?.payload.execution.executionId,
+      ),
       review = events.find(
         (event) =>
           event.type === "runtime_dispatch_requested" &&
@@ -233,11 +253,200 @@ test(
           event.payload.role === "reviewer",
       );
     assert.ok(accepted, "the center accepts the worker submission first");
+    assert.ok(
+      implementation?.type === "runtime_dispatch_requested",
+      `the center must retain the implementation dispatch: ${JSON.stringify(
+        events.filter((event) => event.type === "runtime_dispatch_requested"),
+      )}`,
+    );
+    assert.ok(
+      declaration?.type === "execution_executor_declared",
+      `the submit must declare its implementation executor: ${JSON.stringify(
+        events.filter(
+          (event) =>
+            (event.type === "execution_submitted" && event.taskId === taskId) ||
+            (event.type === "execution_executor_declared" &&
+              event.payload.execution.executionId === accepted?.payload.execution.executionId) ||
+            (event.type === "runtime_dispatch_requested" && event.payload.taskId === taskId),
+        ),
+      )}; receipt=${JSON.stringify(submitted)}`,
+    );
+    assert.deepEqual(
+      declaration?.type === "execution_executor_declared" ? declaration.payload.execution.actor.executor : undefined,
+      declaration?.type === "execution_executor_declared"
+        ? {
+            kind: "agent",
+            id: `runtime-session:${
+              implementation?.type === "runtime_dispatch_requested" ? implementation.payload.runtimeSessionId : ""
+            }`,
+          }
+        : undefined,
+      "an edge implementation submit must retain its authoring executor",
+    );
     assert.ok(review, `automatic reviewer dispatch must follow edge submit: ${JSON.stringify(submitted)}`);
     const recovered = await f.host.run(repoId, { kind: "task-show", taskId }, f.auth);
     const recoveredTask = JSON.parse(String(recovered.evidence)) as {
       readonly task?: { readonly reviewDispatchFailure?: unknown };
     };
     assert.equal(recoveredTask.task?.reviewDispatchFailure, undefined, "a successful retry clears the durable failure");
+  },
+);
+
+test(
+  "a resident edge replica confirmation dispatches the reviewer after worker submit",
+  { timeout: 120_000 },
+  async (t) => {
+    const installation = {
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        executablePath: "/usr/bin/true",
+        version: "1.0.0",
+        observedAt: "2026-11-07T00:00:00.000Z",
+      },
+      f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
+        runtimeDiscover: () => [installation],
+      }),
+      repoId = "lease-repo",
+      taskId = "task-real-replica-review",
+      executionId = "execution-real-replica-review";
+    await registerFixtureRuntimeInstance(f.host, repoId, localAuthFixture(), {
+      instanceId: definition.instanceId,
+      name: "Replica review fixture",
+      kindId: definition.kindId,
+      installationId: definition.installationId,
+      providerId: definition.providerId,
+      models: [definition.model],
+      authMode: definition.authMode,
+    });
+    for (const declaration of [
+      {
+        id: "replica-submit-worker",
+        name: "Replica submit worker",
+        instructions: "Implement and submit the task.",
+        role: "worker" as const,
+      },
+      {
+        id: "closeout-reviewer",
+        name: "Replica closeout reviewer",
+        instructions: "Review the submitted cut.",
+        role: "reviewer" as const,
+      },
+    ]) {
+      const installed = await f.host.run(
+        repoId,
+        {
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            ...declaration,
+            runtimes: [{ type: "codex", model: definition.model }],
+            instance: definition.instanceId,
+          },
+        },
+        localAuthFixture(),
+      );
+      assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    }
+    const created = await f.command("node-one", {
+      kind: "task-create",
+      taskId,
+      title: "Real replica reviewer dispatch",
+      presetId: "docs-task",
+    });
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const packagePath = String(
+      (created.receipt as Record<string, unknown> | undefined)?.packagePath ?? created.packagePath,
+    );
+    assert.ok(packagePath && packagePath !== "undefined", JSON.stringify(created));
+    const launches: { readonly prompt: string; readonly env: NodeJS.ProcessEnv; readonly dispatchId: string }[] = [];
+    let reviewerLaunched!: () => void;
+    const reviewerReady = new Promise<void>((resolve) => {
+      reviewerLaunched = resolve;
+    });
+    const launched: { workerDispatchId?: string } = {};
+    const edge = await fleetEdgeHostFixture(t, f, {
+      name: "real-replica-review-edge",
+      repoId,
+      runtimeDiscover: () => [installation],
+      runtimeLaunch: (prepared, persistence) => {
+        launches.push({ prompt: prepared.prompt, env: prepared.env, dispatchId: persistence.dispatchId });
+        if (launched.workerDispatchId !== undefined && persistence.dispatchId !== launched.workerDispatchId)
+          reviewerLaunched();
+        return {
+          pid: 94000 + launches.length,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    await catchUpReplica({ ...f.peer("node-one"), viewRoot: edge.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    await registerFixtureRuntimeInstance(edge.host, repoId, localAuthFixture(), {
+      instanceId: definition.instanceId,
+      name: "Replica review fixture",
+      kindId: definition.kindId,
+      installationId: definition.installationId,
+      providerId: definition.providerId,
+      models: [definition.model],
+      authMode: definition.authMode,
+    });
+    const started = await edge.command({ kind: "task-start", taskId, executionId });
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    const worker = await edge.host.spawnRuntime(
+      repoId,
+      {
+        taskId,
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Implement and submit the task.",
+        dispatchKey: "real-replica-submit-worker",
+      },
+      localAuthFixture(),
+    );
+    assert.equal(worker.outcome, "applied", JSON.stringify(worker));
+    launched.workerDispatchId = worker.dispatchId;
+    const workerCredential = launches.find((launch) => launch.dispatchId === worker.dispatchId)?.env
+      .HARNESS_EXECUTION_CREDENTIAL;
+    assert.ok(workerCredential, "the edge worker must receive an execution credential");
+    mkdirSync(path.dirname(path.join(edge.edgeRoot, "harness", packagePath, "closeout.md")), { recursive: true });
+    writeFileSync(
+      path.join(edge.edgeRoot, "harness", packagePath, "closeout.md"),
+      "## Summary\nEdge worker delivery.\n## Verification\nReplica callback coverage.\n" +
+        "## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nReplica callback.\n",
+    );
+    const submitted = await edge.command({ kind: "task-submit", taskId, executionId }, workerCredential);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await reviewerReady;
+    const events = makeTaskEventReader({ repoId, rootDir: f.repo }).read().events,
+      accepted = events.find(
+        (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
+      ),
+      declaration = events.find(
+        (event) => event.type === "execution_executor_declared" && event.payload.execution.executionId === executionId,
+      ),
+      review = events.find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.taskId === taskId &&
+          event.payload.role === "reviewer",
+      );
+    assert.ok(accepted?.type === "execution_submitted", "the center must record the edge submit");
+    assert.ok(
+      declaration?.type === "execution_executor_declared",
+      `the edge submit must retain its authoring executor: ${JSON.stringify(
+        events.filter(
+          (event) =>
+            event.taskId === taskId &&
+            ["execution_submitted", "execution_executor_declared", "runtime_dispatch_requested"].includes(event.type),
+        ),
+      )}`,
+    );
+    assert.deepEqual(declaration.payload.execution.actor.executor, {
+      kind: "agent",
+      id: `runtime-session:${worker.runtimeSessionId}`,
+    });
+    assert.ok(review, "the production replica confirmation callback must dispatch a reviewer");
+    assert.deepEqual(review?.source, { kind: "node", nodeId: "node-one" });
   },
 );

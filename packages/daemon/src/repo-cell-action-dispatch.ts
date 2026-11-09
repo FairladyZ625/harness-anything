@@ -247,6 +247,7 @@ export function executeRepoAction(
   // Progress has a legacy writer that owns its operation id and document adjudication. Keep that
   // single route when the declaration is catalog-bound so catalog admission does not hash twice or
   // bypass carried document claims.
+  if (action.kind === "task-submit") return submitTask(cell, action, binding);
   if (Array.isArray(action.docChanges))
     return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);

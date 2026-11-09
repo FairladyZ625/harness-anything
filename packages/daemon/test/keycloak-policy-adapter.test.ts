@@ -604,6 +604,38 @@ test("Admin REST rejection exposes a stable code", async () => {
   );
 });
 
+test("execution credential Admin REST refreshes an expired center token once", async () => {
+  const realm = fakeKeycloak();
+  let rejectFirstAdminRequest = true;
+  let refreshCount = 0;
+  const fetchPort: typeof fetch = async (url, init) => {
+    if (rejectFirstAdminRequest && String(url).includes("/admin/realms/")) {
+      rejectFirstAdminRequest = false;
+      return new Response(null, { status: 401 });
+    }
+    return realm.fetch(url, init);
+  };
+  const adapter = new KeycloakPolicyAdapter(config, fetchPort, async () => {
+    refreshCount += 1;
+    return "fresh-center-token";
+  });
+  const p = {
+    personId: "person-expired-center-token",
+    repoId: "repo-refresh",
+    runtimeSessionId: "runtime-refresh",
+    dispatchId: "dispatch-refresh",
+    taskId: null,
+    executionId: null,
+    role: "session" as const,
+    source: "local" as const,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const credential = await adapter.issueExecutionCredential("expired-center-token", p);
+  assert.match(credential, /^harness-execution-dispatch-refresh:/u);
+  assert.equal(refreshCount, 1);
+  assert.deepEqual(await adapter.authenticateExecutionCredential("expired-center-token", credential), p);
+});
+
 test("Admin REST transport failure is infrastructure unavailability, not a policy rejection", async () => {
   const cause = new TypeError("fetch failed", {
     cause: Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }),
