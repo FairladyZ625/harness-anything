@@ -336,7 +336,7 @@ test(
 // readyTimeoutMs * 6. These fixtures pin the window itself: one drain longer than the stop budget,
 // one shorter, and the lifecycle read that used to mistake an exited generation for a starting one.
 test("a drain longer than the stop budget is reported as draining, not as a timeout", async () => {
-  const fixture = await spawnDrainingDaemon("drain-slow", drainMs);
+  const fixture = await spawnDrainingDaemon("drain-slow", true);
   try {
     const stop = runCli(fixture, ["daemon", "stop", "--json"]);
     // Keep the observed receipt: a later independent status may already see the daemon's exit.
@@ -358,6 +358,7 @@ test("a drain longer than the stop budget is reported as draining, not as a time
     assert.equal(reported.ok, true, JSON.stringify(reported));
     assert.match(String(reported.summary), /Stopping: draining \d+ queued write\(s\)/u);
 
+    fixture.releaseDrain();
     await waitForRelease(fixture);
     const status = await runCli(fixture, ["daemon", "status", "--json"]),
       released = JSON.parse(status.stdout) as Record<string, unknown>;
@@ -371,7 +372,7 @@ test("a drain longer than the stop budget is reported as draining, not as a time
 });
 
 test("a drain shorter than the stop budget still reports a plain stop and leaves nothing behind", async () => {
-  const fixture = await spawnDrainingDaemon("drain-fast", 0);
+  const fixture = await spawnDrainingDaemon("drain-fast", false);
   try {
     const stop = await runCli(fixture, ["daemon", "stop", "--json"]),
       stopped = JSON.parse(stop.stdout) as Record<string, unknown>;
@@ -1043,6 +1044,7 @@ interface DrainFixture {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly daemonPid: number;
+  readonly releaseDrain: () => void;
 }
 
 function launchSpec(userRoot: string, daemonId: string): DaemonLaunchSpec {
@@ -1053,15 +1055,35 @@ function launchSpec(userRoot: string, daemonId: string): DaemonLaunchSpec {
   };
 }
 
-// A real startDaemon() whose single repository cell takes a controlled time to close, which is where
-// the WAL drain lives. Nothing else about the daemon is stubbed, so the socket, the pid file and the
-// singleton lock are released by the production shutdown path.
+// A real startDaemon() whose single repository cell waits for an explicit test event before closing,
+// which is where the WAL drain lives. Nothing else about the daemon is stubbed, so the socket, the pid
+// file and the singleton lock are released by the production shutdown path.
 const DRAINING_DAEMON = `import path from "node:path";
 import { pathToFileURL } from "node:url";
-const [repoRoot, userRoot, daemonId, closeDelayMs] = process.argv.slice(2);
+import { existsSync, watch } from "node:fs";
+const [repoRoot, userRoot, daemonId, releasePath] = process.argv.slice(2);
 const load = (rel) => import(pathToFileURL(path.join(repoRoot, rel)).href);
 const { startDaemon } = await load("packages/daemon/src/runtime.ts");
 const { openBootstrappedRepoCell } = await load("packages/daemon/test/repo-settings.fixture.ts");
+const waitForRelease = (target) => {
+  if (!target || existsSync(target)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const watcher = watch(path.dirname(target), (_eventType, filename) => {
+      if (String(filename) === path.basename(target) && existsSync(target)) {
+        watcher.close();
+        resolve();
+      }
+    });
+    watcher.on("error", (error) => {
+      watcher.close();
+      reject(error);
+    });
+    if (existsSync(target)) {
+      watcher.close();
+      resolve();
+    }
+  });
+};
 let stopping = null, daemon;
 const requestStop = () => {
   stopping ??= (async () => {
@@ -1078,7 +1100,7 @@ daemon = await startDaemon({
     const closeCell = cell.close.bind(cell);
     return Object.assign(Object.create(cell), {
       close: async () => {
-        await new Promise((resolve) => setTimeout(resolve, Number(closeDelayMs)));
+        await waitForRelease(releasePath);
         await closeCell();
       },
     });
@@ -1089,13 +1111,14 @@ process.on("SIGINT", requestStop);
 if (stopping) await stopping;
 `;
 
-async function spawnDrainingDaemon(daemonId: string, closeDelayMs: number): Promise<DrainFixture> {
+async function spawnDrainingDaemon(daemonId: string, holdDrain: boolean): Promise<DrainFixture> {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-${daemonId}-`)),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     script = path.join(parent, "draining-daemon.mjs"),
     launcher = path.join(parent, "launcher.mjs"),
-    endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
+    releasePath = holdDrain ? path.join(parent, "release-drain") : "";
   initializeRepo(rootDir, daemonId);
   await realm.control({
     op: "permit",
@@ -1118,14 +1141,14 @@ async function spawnDrainingDaemon(daemonId: string, closeDelayMs: number): Prom
   );
   mkdirSync(path.dirname(endpoint), { recursive: true });
   const nodeOptions = [process.env.NODE_OPTIONS, "--experimental-strip-types"].filter(Boolean).join(" "),
-    launched = spawnSync(process.execPath, [launcher, repoRoot, userRoot, daemonId, String(closeDelayMs)], {
+    launched = spawnSync(process.execPath, [launcher, repoRoot, userRoot, daemonId, releasePath], {
       encoding: "utf8",
       env: { ...process.env, NODE_OPTIONS: nodeOptions },
       timeout: 30_000,
     });
   assert.equal(launched.status, 0, launched.stderr);
   const deadline = Date.now() + 60_000;
-  let fixture: DrainFixture;
+  let fixture: Omit<DrainFixture, "releaseDrain">;
   for (;;) {
     const pid = readDaemonPid(userRoot, daemonId);
     if (pid !== null && (await socketAccepting(endpoint))) {
@@ -1140,10 +1163,15 @@ async function spawnDrainingDaemon(daemonId: string, closeDelayMs: number): Prom
     if (Date.now() > deadline) throw new Error(`fixture daemon ${daemonId} never attached its repository`);
     await delay(100);
   }
-  return fixture;
+  return {
+    ...fixture,
+    releaseDrain: () => {
+      if (releasePath) writeFileSync(releasePath, "release\n", "utf8");
+    },
+  };
 }
 
-async function attached(fixture: DrainFixture): Promise<boolean> {
+async function attached(fixture: Omit<DrainFixture, "releaseDrain">): Promise<boolean> {
   const probe = await runCli(fixture, ["daemon", "status", "--json"]);
   const receipt = JSON.parse(probe.stdout) as { readonly repos?: readonly { readonly state?: string }[] };
   return receipt.repos?.[0]?.state === "attached";
