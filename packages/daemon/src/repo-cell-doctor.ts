@@ -14,6 +14,7 @@ import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
 import { doctorLocalRootResidue } from "./repo-local-root-residue.ts";
 import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
+import { workspaceLinkDoctorCheck } from "./workspace-link-integrity.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -27,7 +28,7 @@ export interface DoctorCheck {
 }
 
 /**
- * `ha doctor` health: eight read-only checks over the canonical projection, local Git state and
+ * `ha doctor` health: nine read-only checks over the canonical projection, local Git state and
  * the local ledger roots. Nothing here appends, scans for writes, or mutates; every check degrades
  * to `indeterminate` rather than guessing when its data source cannot answer (a missing
  * default-branch ref on an unfetched clone, a Git-less edge node, an unreachable object).
@@ -51,6 +52,7 @@ export async function doctorHealth(
       doctorLocalRootResidue(cell.rootDir),
       await docDebtCheck(cell, binding),
       relationCyclesCheck(cell),
+      workspaceLinkDoctorCheck(cell.rootDir),
       doctorBuildDrift(null),
     ],
     cut = cell.projection.readCut(),

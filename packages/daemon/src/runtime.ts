@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { readDaemonRegistry } from "@harness-anything/kernel/daemon-registry";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
@@ -8,6 +9,7 @@ import type { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";
 import { daemonBuildStamp, observeDaemonBuild, type DaemonBuildObserver } from "./build-identity.ts";
+import { firstWorkspaceLinkFinding, workspaceLinkFailure } from "./workspace-link-integrity.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
@@ -72,6 +74,17 @@ export async function startDaemon(input: {
   // one holder.
   const singleton = await acquireDaemonSingleton({ userRoot: input.userRoot, daemonId: input.daemonId, endpoint });
   if (singleton.claim === "incumbent") return { pid: singleton.pid, endpoint, witness: singleton.witness };
+  try {
+    const finding = firstWorkspaceLinkFinding(
+      readDaemonRegistry({ userRoot: input.userRoot })
+        .repos.filter((repo) => repo.state === "enabled" && repo.mode === "local" && repo.canonicalRoot !== null)
+        .map((repo) => repo.canonicalRoot!),
+    );
+    if (finding) throw workspaceLinkFailure(finding);
+  } catch (error) {
+    singleton.release();
+    throw error;
+  }
   const pidPath = daemonPidPath(input.userRoot, input.daemonId);
   mkdirSync(path.dirname(pidPath), { recursive: true });
   writeFileSync(pidPath, `${process.pid}\n`, "utf8");

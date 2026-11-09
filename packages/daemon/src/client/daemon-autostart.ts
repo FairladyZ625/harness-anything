@@ -20,6 +20,7 @@ import {
   type DaemonServiceUnit,
 } from "./daemon-service.ts";
 import { readRegisteredRepos } from "./local-daemon-target.ts";
+import { firstWorkspaceLinkFinding, workspaceLinkFailure } from "../workspace-link-integrity.ts";
 export interface DaemonLaunchSpec {
   readonly command: string;
   readonly args: readonly string[];
@@ -28,6 +29,7 @@ export interface DaemonLaunchSpec {
 export const autostartFailureCodes = [
   "daemon_stopped_by_operator",
   "daemon_start_noncanonical_checkout",
+  "daemon_start_workspace_links_external",
   "daemon_start_runtime_forbidden",
   "daemon_spawn_not_found",
   "daemon_spawn_root_missing",
@@ -112,7 +114,10 @@ export function runtimeDaemonStartRefusal(
 export async function daemonHostStartRefusal(input: {
   readonly invokingRoot: string;
   readonly userRoot: string;
-}): Promise<{ readonly code: "daemon_start_noncanonical_checkout"; readonly hint: string } | null> {
+}): Promise<{
+  readonly code: "daemon_start_noncanonical_checkout" | "daemon_start_workspace_links_external";
+  readonly hint: string;
+} | null> {
   const invokingCheckout = daemonCheckoutRoot(input.invokingRoot),
     registered = (await readRegisteredRepos(input.userRoot))
       .filter((repo) => repo.state === "enabled")
@@ -120,16 +125,30 @@ export async function daemonHostStartRefusal(input: {
       .find(
         (registeredRoot) => registeredRoot === invokingCheckout || sameGitRepository(registeredRoot, invokingCheckout),
       );
-  if (!registered || registered === invokingCheckout) return null;
-  return {
-    code: "daemon_start_noncanonical_checkout",
-    hint: [
-      `Refusing daemon start from non-canonical checkout ${JSON.stringify(invokingCheckout)}.`,
-      `This repository is already registered from ${JSON.stringify(registered)}.`,
-      "A worktree may connect to an existing daemon but cannot host it.",
-      `Run \`ha daemon status --root ${JSON.stringify(registered)}\`, then retry this command.`,
-    ].join(" "),
-  };
+  if (registered && registered !== invokingCheckout)
+    return {
+      code: "daemon_start_noncanonical_checkout",
+      hint: [
+        `Refusing daemon start from non-canonical checkout ${JSON.stringify(invokingCheckout)}.`,
+        `This repository is already registered from ${JSON.stringify(registered)}.`,
+        "A worktree may connect to an existing daemon but cannot host it.",
+        `Run \`ha daemon status --root ${JSON.stringify(registered)}\`, then retry this command.`,
+      ].join(" "),
+    };
+  return workspaceLinkStartRefusal(input.userRoot);
+}
+
+async function workspaceLinkStartRefusal(
+  userRoot: string,
+): Promise<{ readonly code: "daemon_start_workspace_links_external"; readonly hint: string } | null> {
+  const finding = firstWorkspaceLinkFinding(
+    (await readRegisteredRepos(userRoot))
+      .filter((repo) => repo.state === "enabled" && repo.mode === "local")
+      .map((repo) => repo.canonicalRoot),
+  );
+  if (!finding) return null;
+  const error = workspaceLinkFailure(finding);
+  return { code: "daemon_start_workspace_links_external", hint: error.message };
 }
 export async function ensureLocalDaemonRunning(input: {
   readonly socketPath: string;
