@@ -177,7 +177,6 @@
         "crlf-checkout",
         "integration-shard",
         "pglite-node26",
-        "boundaries",
         "package-policy",
         "gui-build",
         "gate-contract-tests",
@@ -196,7 +195,6 @@
         "fast-contract",
         "integration-shard",
         "pglite-node26",
-        "boundaries",
         "ontology-advisory",
         "package-policy",
         "gui-build",
@@ -216,7 +214,6 @@
     },
     "branchProtection": {
       "requiredContexts": [
-        "boundaries",
         "package-policy",
         "quick-gates",
         "fast-contract (1)",
@@ -233,10 +230,6 @@
         "integration-shard (8)",
         "integration-shard (9)",
         "integration-shard (10)",
-        "integration-shard (11)",
-        "integration-shard (12)",
-        "integration-shard (13)",
-        "integration-shard (14)",
         "gui-build",
         "pr-body-lint",
         "crlf-checkout (1)",
@@ -310,7 +303,7 @@
       "localPathGlobs": ["packages/**/src/**", "tools/**"],
       "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH4", "dec_4190D5EA63D9DD208CE946F133#CH1"],
       "consumerScope": ["consumeKnownError, catch substitution, and online full-history reads"],
-      "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
+      "githubContext": { "requiredContexts": ["quick-gates"], "workflowJobs": ["quick-gates"], "nodeVersions": [24] },
       "allowlistPolicy": {
         "allowed": true,
         "location": "tools/gate-allowlists/check-fallback-boundaries.json",
@@ -330,8 +323,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": true, "checkPr": true, "script": "harness:check-fallback-boundaries" },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["local", "pr"]
       },
       "deterministic": true,
@@ -353,7 +346,7 @@
       "consumerScope": [
         "new Keycloak symbols, REST paths, errors, and realm-specific fields outside authorization-keycloak provider packages"
       ],
-      "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
+      "githubContext": { "requiredContexts": ["quick-gates"], "workflowJobs": ["quick-gates"], "nodeVersions": [24] },
       "allowlistPolicy": {
         "allowed": true,
         "location": "tools/gate-allowlists/authorization-provider-boundary.json",
@@ -374,8 +367,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": true, "checkPr": true, "script": "harness:check-authorization-provider-boundary" },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["local", "pr"]
       },
       "deterministic": true,
@@ -399,7 +392,7 @@
       "consumerScope": [
         "committed generated region of packages/gui/src/renderer/entity-docs.ts against the live kernel entity kind registry"
       ],
-      "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
+      "githubContext": { "requiredContexts": ["quick-gates"], "workflowJobs": ["quick-gates"], "nodeVersions": [24] },
       "allowlistPolicy": {
         "allowed": false,
         "location": null,
@@ -418,8 +411,8 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": true, "checkPr": true, "script": "harness:check-entity-doc-contract" },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["local", "pr"]
       },
       "deterministic": true,
@@ -935,8 +928,8 @@
       "authoritySource": ["tools/test-tier-manifest.mjs", "package.json:scripts.harness:check-test-tier-manifest"],
       "consumerScope": ["first-line tier markers for every discovered package and tool test"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -962,12 +955,12 @@
           "script": "harness:check-test-tier-manifest"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr"]
       },
@@ -1179,11 +1172,7 @@
           "integration-shard (7)",
           "integration-shard (8)",
           "integration-shard (9)",
-          "integration-shard (10)",
-          "integration-shard (11)",
-          "integration-shard (12)",
-          "integration-shard (13)",
-          "integration-shard (14)"
+          "integration-shard (10)"
         ],
         "workflowJobs": ["integration-shard", "windows-integration-shard"],
         "nodeVersions": [24]
@@ -1227,11 +1216,7 @@
             "integration-shard (7)",
             "integration-shard (8)",
             "integration-shard (9)",
-            "integration-shard (10)",
-            "integration-shard (11)",
-            "integration-shard (12)",
-            "integration-shard (13)",
-            "integration-shard (14)"
+            "integration-shard (10)"
           ]
         },
         "classes": ["local", "pr"]
@@ -1416,8 +1401,8 @@
       ],
       "consumerScope": ["repository source file size and structural thresholds"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -1443,12 +1428,12 @@
           "script": "harness:check-file-complexity"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1469,7 +1454,7 @@
       "consumerScope": [
         "every tracked source and test file in the lint-staged extension set, checked against prettier.config.mjs"
       ],
-      "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
+      "githubContext": { "requiredContexts": ["quick-gates"], "workflowJobs": ["quick-gates"], "nodeVersions": [24] },
       "allowlistPolicy": {
         "allowed": false,
         "location": null,
@@ -1489,8 +1474,8 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": true, "checkPr": true, "script": "harness:check-format" },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["full-check", "boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["full-check", "quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
@@ -1520,8 +1505,8 @@
         "every write command that accepts a document selection"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -1546,12 +1531,12 @@
           "script": "harness:check-cli-path-contract"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1571,8 +1556,8 @@
       "authoritySource": ["packages/cli/src", "tools/check-cli-structure.mjs"],
       "consumerScope": ["CLI source structure"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -1598,12 +1583,12 @@
           "script": "harness:check-cli-structure"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1636,8 +1621,8 @@
       ],
       "consumerScope": ["CLI and supported-tool help plus shared unknown-option rejection contract"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -1663,12 +1648,12 @@
           "script": "harness:check-cli-help-contract"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1688,8 +1673,8 @@
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-cli-error-codes.mjs"],
       "consumerScope": ["CLI error code registry and CLI source usage"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -1715,12 +1700,12 @@
           "script": "harness:check-cli-error-codes"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1744,8 +1729,8 @@
       ],
       "consumerScope": ["kernel and CLI error classification tables"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -1771,12 +1756,12 @@
           "script": "harness:check-error-classification"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1806,8 +1791,8 @@
         "SQL statements, database drivers, and storage backend branches outside packages/storage"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -1833,12 +1818,12 @@
           "script": "harness:check-import-boundaries"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1866,8 +1851,8 @@
         "metabolic write-admissibility policy modules named by ADR-0022 F6"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -1893,12 +1878,12 @@
           "script": "harness:check-write-coordinator-boundary"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -1939,8 +1924,8 @@
         "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -1968,12 +1953,12 @@
           "script": "harness:check-bypass-write-boundary"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2010,8 +1995,8 @@
         "preset/script declared writes and produces"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2039,12 +2024,12 @@
           "script": "harness:check-write-road-registry"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2072,8 +2057,8 @@
         "kernel public barrel export symbols from packages/kernel/src/index.ts"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2100,12 +2085,12 @@
           "script": "harness:check-kernel-dead-exports"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2133,8 +2118,8 @@
         "non-test packages/** and tools/** source files"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2160,12 +2145,12 @@
           "script": "harness:check-relation-cycle-substrate"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2208,8 +2193,8 @@
         "dispatch lifecycle observations, admission, and terminal judgments across daemon producers and consumers"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2236,12 +2221,12 @@
           "script": "harness:check-domain-judgment-single-definition"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2280,8 +2265,8 @@
         "non-test packages/** sources re-reading the retired invalidated-by alias"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2307,12 +2292,12 @@
           "script": "harness:check-relation-canonical-direction"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2347,8 +2332,8 @@
         "bare event-type literals whose vocabulary is declared by a canonical-event state store"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2375,12 +2360,12 @@
           "script": "harness:check-task-event-aggregate-entry"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2469,8 +2454,8 @@
       ],
       "consumerScope": ["forbidden deprecated architectural symbols under packages/**"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2496,12 +2481,12 @@
           "script": "harness:scan-forbidden-symbols"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2529,8 +2514,8 @@
       ],
       "consumerScope": ["repo-root-relative directory literals under packages/*/src product source"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2556,12 +2541,12 @@
           "script": "harness:check-self-repo-path-literals"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2584,8 +2569,8 @@
       ],
       "consumerScope": ["canonical substrate and integrity single-source declarations"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -2612,12 +2597,12 @@
           "script": "harness:check-integrity-single-source"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2637,8 +2622,8 @@
       "authoritySource": ["AGENTS.md", "harness/AGENTS.md", "harness/governance/standards/repo-governance-standard.md"],
       "consumerScope": ["public repository tracked files and private harness boundary"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2664,12 +2649,12 @@
           "script": "harness:check-private-boundary"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2698,8 +2683,8 @@
         "workflow shards and required contexts must remain aligned"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2728,12 +2713,12 @@
           "script": "harness:check-integration-test-shards"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2758,8 +2743,8 @@
         "GitHub branch rules must require exactly the same contexts as the gate manifest branch-protection surface"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2774,7 +2759,7 @@
         "protectedSurfaces": [
           "tools/check-github-required-contexts.mjs",
           "package.json:scripts.harness:check-github-required-contexts",
-          ".github/workflows/rewrite-ci.yml:jobs.boundaries",
+          ".github/workflows/rewrite-ci.yml:jobs.quick-gates",
           "tools/gate-manifest.json"
         ]
       },
@@ -2786,12 +2771,12 @@
           "script": "harness:check-github-required-contexts"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr"]
       },
@@ -2811,8 +2796,8 @@
       "consumerScope": ["public docs-release map"],
       "localPathGlobs": ["README.md", "docs-release/**", "tools/check-docs-release-map.mjs"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -2838,12 +2823,12 @@
           "script": "harness:check-docs-release-map"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2885,8 +2870,8 @@
         "manifest tier reasons, boundary gate metadata, and boundary allowlist authority location checks"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -2915,12 +2900,12 @@
           "script": "harness:check-gate-surface"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -2956,8 +2941,8 @@
       ],
       "consumerScope": ["deterministic gate execution surfaces", "rewrite-ci workflow job and step topology"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -2985,12 +2970,12 @@
           "script": "harness:check-gate-manifest-invariants"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       }
@@ -3009,8 +2994,8 @@
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-template-command-surface.mjs"],
       "consumerScope": ["seeded task templates and current CLI command registry"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -3036,12 +3021,12 @@
           "script": "harness:check-template-command-surface"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3065,8 +3050,8 @@
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-locale-content.mjs"],
       "consumerScope": ["seeded zh-CN task templates"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3093,12 +3078,12 @@
           "script": "harness:check-locale-content"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3127,8 +3112,8 @@
       ],
       "consumerScope": ["bundled software/coding template catalog schema and bodyPath assets"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3154,12 +3139,12 @@
           "script": "harness:check-catalog-schema"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3194,8 +3179,8 @@
         "tools/run-manifest-gates.mjs"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3221,12 +3206,12 @@
           "script": "harness:check-runtime-release-readiness"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3374,8 +3359,8 @@
       ],
       "consumerScope": ["effect layering, adapter composition, and implementation contract imports"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3401,12 +3386,12 @@
           "script": "harness:check-implementation-contracts"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3426,8 +3411,8 @@
       "authoritySource": ["packages/application/src", "packages/gui/src/api", "tools/check-service-mappability.mjs"],
       "consumerScope": ["service declarations and mappability projections"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -3453,12 +3438,12 @@
           "script": "harness:check-service-mappability"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3483,8 +3468,8 @@
       ],
       "consumerScope": ["GUI API route registry, preload allowlist, bridge handlers, and service methods"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -3512,12 +3497,12 @@
           "script": "harness:check-api-contract-registry"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3545,8 +3530,8 @@
       ],
       "consumerScope": ["published schema contracts and schema references"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3572,12 +3557,12 @@
           "script": "harness:check-schema-contracts"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3605,8 +3590,8 @@
       ],
       "consumerScope": ["entity schema field contract coverage"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -3633,12 +3618,12 @@
           "script": "harness:check-schema-field-coverage"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3658,8 +3643,8 @@
       "consumerScope": ["Legacy Intake readiness and retired full-cutover surface"],
       "localPathGlobs": ["**"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -3685,12 +3670,12 @@
           "script": "harness:check-legacy-intake-readiness"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -3765,8 +3750,8 @@
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/smoke-legacy-intake.mjs"],
       "consumerScope": ["W3 retired Legacy Intake command surface"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries", "full-check"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates", "full-check"],
         "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
@@ -3792,12 +3777,12 @@
           "script": "harness:smoke-legacy-intake"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -4169,8 +4154,8 @@
         "the shrink-only frozen baseline of not-yet-owned declarations (tools/gate-allowlists/status-vocabulary-baseline.mjs)"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4196,12 +4181,12 @@
           "script": "harness:check-status-vocabulary"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -4237,8 +4222,8 @@
         "the frozen path, named semantic scope, syntax kind, content fingerprint, and same-shape occurrence baseline; comments, strings, synchronous filesystem APIs, and unrelated modules are excluded"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4266,12 +4251,12 @@
           "script": "harness:check-sync-subprocess"
         },
         "rewriteCi": {
-          "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": ["full-check", "boundaries"]
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["boundaries"]
+          "contexts": ["quick-gates"]
         },
         "classes": ["local", "pr", "main-full"]
       },
@@ -4402,8 +4387,8 @@
         "registry-external EntityRef kind authorities"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4424,8 +4409,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["pr"]
       },
       "deterministic": true,
@@ -4450,8 +4435,8 @@
         "WriteReceipt authorizationDecision contract"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4472,8 +4457,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["pr"]
       },
       "deterministic": true,
@@ -4494,8 +4479,8 @@
       ],
       "consumerScope": ["daemon task query read model", "daemon WIP snapshot event-projection read"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4516,8 +4501,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["pr"]
       },
       "deterministic": true,
@@ -4538,8 +4523,8 @@
       ],
       "consumerScope": ["kernel entity action catalogs", "entity explain transitions.available output"],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4560,8 +4545,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["pr"]
       },
       "deterministic": true,
@@ -4585,8 +4570,8 @@
         "expectedVersion, lease, occurrence, idempotency, and artifact ownership declarations"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4607,8 +4592,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["pr"]
       },
       "deterministic": true,
@@ -5072,8 +5057,8 @@
         "socket writes that serialize Fleet payloads and must use encodeFleetFrames or serializeFleetFrame"
       ],
       "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -5094,8 +5079,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "rewriteCi": { "pullRequestJobs": ["quick-gates"], "nonPullRequestJobs": ["quick-gates"] },
+        "branchProtection": { "required": true, "contexts": ["quick-gates"] },
         "classes": ["pr"]
       },
       "deterministic": true,

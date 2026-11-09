@@ -17,14 +17,29 @@ import {
   dispatchMissionForPermission,
   explicitPromptMission,
   livingDeliverableProtocol,
+  renderWorkerRootPaths,
   resolveRuntimeMission,
   selfIterationCloseoutSection,
   taskPlanSection,
   taskPrPublicationNote,
   taskQueryGuidance,
+  workerRootPathToken,
 } from "../src/runtime-spawn-mission.ts";
 
 const daemonRoute = { userRoot: "/tmp/ha/user", daemonId: "default", endpoint: "/tmp/ha/user/daemon.sock" };
+
+test("task-bound checkout paths render against the resolved dispatch cwd", () => {
+  const cwd = path.join(process.cwd(), ".worktrees", ".review", "task_x", "a".repeat(40)),
+    mission =
+      `Write the review packet to ${workerRootPathToken}/harness/tasks/task_x/artifacts/reports/d.json; ` +
+      "the canonical /repo/harness/tasks/task_x path stays untouched.";
+  assert.equal(
+    renderWorkerRootPaths(mission, cwd),
+    `Write the review packet to ${path.join(cwd, "harness/tasks/task_x/artifacts/reports/d.json")}; ` +
+      "the canonical /repo/harness/tasks/task_x path stays untouched.",
+  );
+  assert.equal(workerRootPathToken.includes(path.sep), false, "the token is not a native path fragment");
+});
 
 test("unbound Claude prompts do not carry task delivery permission guidance", () => {
   assert.equal(

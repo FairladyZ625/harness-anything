@@ -572,7 +572,7 @@
   "tools/check-package-policy.test.mjs": 600,
   "tools/check-relation-canonical-direction.test.mjs": 600,
   "tools/check-runtime-release-readiness.test.mjs": 2400,
-  "tools/check-status-vocabulary.test.mjs": 400,
+  "tools/check-status-vocabulary.test.mjs": 3000,
   "tools/check-supply-chain.test.mjs": 2200,
   "tools/check-task-event-aggregate-entry.test.mjs": 7800,
   "tools/fixtures/smoke-identity.integration.test.mjs": 88600,

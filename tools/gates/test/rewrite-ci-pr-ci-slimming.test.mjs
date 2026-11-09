@@ -102,13 +102,14 @@ test("CH3 leaves the required PR evidence lanes intact", () => {
     "crlf-checkout",
     "integration-shard",
     "pglite-node26",
-    "boundaries",
+    "quick-gates",
     "gui-build",
     "gate-contract-tests",
     "cost-budget-reads",
   ]) {
     assert.equal(workflow.get(jobId)?.isPullRequestJob, true, `${jobId} must run on pull_request`);
   }
+  assert.equal(workflow.has("boundaries"), false, "the boundary gates run inside quick-gates");
   assert.ok(
     manifest.gates
       .find((gate) => gate.id === "cost-budget")
@@ -117,5 +118,46 @@ test("CH3 leaves the required PR evidence lanes intact", () => {
   );
   assert.equal(workflow.get("quick-gates")?.isPullRequestJob, true);
   assert.equal(manifest.surfaces.branchProtection.requiredContexts.includes("quick-gates"), true);
+  assert.equal(manifest.surfaces.branchProtection.requiredContexts.includes("boundaries"), false);
   assert.equal(manifest.surfaces.branchProtection.requiredContexts.includes("typecheck (24)"), false);
+  const boundaryGates = manifest.gates.filter((gate) => gate.category === "boundary" && gate.tier === "pr-required");
+  assert.ok(boundaryGates.length > 0);
+  for (const gate of boundaryGates) {
+    assert.ok(
+      gate.executionSurfaces.rewriteCi.pullRequestJobs.includes("quick-gates"),
+      `${gate.id} must stay on the merged required PR lane`,
+    );
+    assert.deepEqual(gate.githubContext.requiredContexts, ["quick-gates"], `${gate.id} required context`);
+  }
+});
+
+test("CH2 cuts the integration matrix to ten shards and rebalances from the measured run", () => {
+  assert.match(workflowText, /shard: \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10\]/u);
+  assert.doesNotMatch(workflowText, /shard: \[[^\]]*11/u);
+  const contexts = manifest.surfaces.branchProtection.requiredContexts.filter((context) =>
+    context.startsWith("integration-shard ("),
+  );
+  assert.deepEqual(
+    contexts,
+    Array.from({ length: 10 }, (_, index) => `integration-shard (${index + 1})`),
+  );
+});
+
+test("CH1 merges the G38 read matrix into two PGlite sets and one SQLite set", () => {
+  const reads = workflow.get("cost-budget-reads");
+  const sqlite = workflow.get("cost-budget-reads-sqlite");
+  assert.ok(reads && sqlite);
+  const pgliteSets = [...workflowText.matchAll(/dimensions: ([^\n]+)/gu)].map((match) => match[1]);
+  assert.deepEqual(pgliteSets, [
+    "task-history,runtime-sessions,dispatches,task-outputs",
+    "relations,relation-visibility,event-bytes,source-events",
+  ]);
+  assert.match(workflowText, /G38_DIMENSION: \$\{\{ matrix\.dimensions \}\}/u);
+  assert.match(
+    workflowText,
+    /G38_DIMENSION: task-history,runtime-sessions,dispatches,task-outputs,relations,relation-visibility,event-bytes,source-events/u,
+  );
+  assert.match(workflowText, /name: cost-budget-reads \(pglite, set \$\{\{ matrix\.set \}\}\)/u);
+  assert.match(workflowText, /name: g38-read-pglite-set-\$\{\{ matrix\.set \}\}/u);
+  assert.equal(sqlite.isPullRequestJob, true);
 });

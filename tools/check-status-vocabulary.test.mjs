@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +15,7 @@ import {
   checkStatusVocabularyCoverage,
   checkViewLocalDeclarations,
   collectStatusDeclarationSites,
+  collectStatusVocabularyFindings,
   hasPersistentWrite,
   isAnchorImportedElsewhere,
   STATUS_DECLARATION_SUFFIX,
@@ -62,8 +62,17 @@ const sources = packageSources();
 const sites = collectStatusDeclarationSites(sources);
 const storeIndex = buildStateStoreIndex(entityKindContracts);
 
-function coverageFor(candidateSources, { baseline = statusVocabularyBaseline, candidateRegister = register } = {}) {
-  return checkStatusVocabularyCoverage(candidateRegister, collectStatusDeclarationSites(candidateSources), [], {
+// A fixture overrides one or two modules. Re-scan only those and keep the sites
+// already collected for the rest of the repository: collecting again from a full
+// `new Map([...sources, ...])` re-read all package sources for every fixture, which
+// is where this file's minutes went.
+function sitesWithModules(overrides) {
+  const changed = new Map(overrides);
+  return [...sites.filter((site) => !changed.has(site.module)), ...collectStatusDeclarationSites(changed)];
+}
+
+function coverageFor(candidateSites, { baseline = statusVocabularyBaseline, candidateRegister = register } = {}) {
+  return checkStatusVocabularyCoverage(candidateRegister, candidateSites, [], {
     baseline,
   });
 }
@@ -72,29 +81,18 @@ function emptyRegister() {
   return { statusVocabularies: [], statusWordRegister: [] };
 }
 
-test("status vocabulary check accepts the repository", () => {
-  const result = spawnSync("node", [path.join(repoRoot, "tools/check-status-vocabulary.mjs")], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Status vocabulary check passed/);
-});
-
-test("pure checks accept the real register, declarations, baseline, stores and view-local scopes", () => {
+test("the repository passes every judgment the gate assembles", () => {
+  // `main` calls this same function, so a check missing from the gate wiring fails
+  // here instead of passing both the gate and its test. The CLI entry point itself
+  // is exercised by the boundaries job's `npm run harness:check-status-vocabulary`.
   assert.deepEqual(
-    [
-      ...checkRegisterShape(register),
-      ...storeIndex.findings,
-      ...checkOwnerStoreAgreement(register, storeIndex.byId),
-      ...checkExternalOwnership(register, statusVocabularyUnownedRegister),
-      ...checkKernelVocabularyBijection(register, realModules, sites),
-      ...checkStatusVocabularyCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
-      ...checkInlineFieldCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
-      ...checkViewLocalDeclarations(register, sites, sources),
-      ...checkGuiAdapterInvariants(register, sources),
-      ...checkDaemonProjectionFreshness(register, sources),
-    ],
+    collectStatusVocabularyFindings({
+      register,
+      sourcesByFile: sources,
+      sites,
+      storeIndex,
+      kernelModules: realModules,
+    }),
     [],
   );
 });
@@ -108,7 +106,7 @@ test("the scan root covers every package, not only kernel domain and three mirro
     ["packages/daemon/src/fleet/rogue.ts", 'export type PeerState = "up" | "down";\n'],
     ["packages/cli/src/rogue.ts", 'export type CliState = "up" | "down";\n'],
   ]) {
-    const findings = coverageFor(new Map([...sources, [module, body]]));
+    const findings = coverageFor(sitesWithModules([[module, body]]));
     assert.ok(
       findings.some((finding) => finding.includes(`${module}#`) && finding.includes("unregistered")),
       `${module}: ${findings.join("\n")}`,
@@ -119,14 +117,14 @@ test("the scan root covers every package, not only kernel domain and three mirro
 test("bypass fixture: a new unregistered status vocabulary is refused", () => {
   // Simulates a regression that introduces a brand-new status word family in the
   // kernel domain without registering it: the ratchet must refuse (no allowlist).
-  const candidateSources = new Map([
-    ...sources,
-    [
-      "packages/kernel/src/domain/timewarp.ts",
-      'export const timewarpStates = ["before", "during", "afterlife"] as const;\n',
-    ],
-  ]);
-  const findings = coverageFor(candidateSources);
+  const findings = coverageFor(
+    sitesWithModules([
+      [
+        "packages/kernel/src/domain/timewarp.ts",
+        'export const timewarpStates = ["before", "during", "afterlife"] as const;\n',
+      ],
+    ]),
+  );
   assert.ok(
     findings.some((finding) => finding.includes("timewarp.ts#timewarpStates") && finding.includes("unregistered")),
     findings.join("\n"),
@@ -139,14 +137,14 @@ test("bypass fixture: an unregistered status vocabulary in prettier's multi-line
   // This is the silent half. A site the pattern cannot see is never collected, so
   // the unregistered-vocabulary finding cannot fire on it — the ratchet would let a
   // brand-new unregistered vocabulary through with nothing going red anywhere.
-  const candidateSources = new Map([
-    ...sources,
-    [
-      "packages/kernel/src/domain/timewarp.ts",
-      'export type TimewarpStatus =\n  | "before"\n  | "during"\n  | "afterlife";\n',
-    ],
-  ]);
-  const findings = coverageFor(candidateSources);
+  const findings = coverageFor(
+    sitesWithModules([
+      [
+        "packages/kernel/src/domain/timewarp.ts",
+        'export type TimewarpStatus =\n  | "before"\n  | "during"\n  | "afterlife";\n',
+      ],
+    ]),
+  );
   assert.ok(
     findings.some((finding) => finding.includes("timewarp.ts#TimewarpStatus") && finding.includes("unregistered")),
     findings.join("\n"),
@@ -188,14 +186,14 @@ test("bypass fixture: a kernel vocabulary gaining an unregistered word is refuse
 });
 
 test("bypass fixture: a daemon vocabulary drifting from its registered words is refused", () => {
-  const drifted = new Map([
-    ...sources,
-    [
-      "packages/daemon/src/dispatch-activity.ts",
-      'export type DispatchActivityStatus = "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown" | "paused";\n',
-    ],
-  ]);
-  const findings = coverageFor(drifted);
+  const findings = coverageFor(
+    sitesWithModules([
+      [
+        "packages/daemon/src/dispatch-activity.ts",
+        'export type DispatchActivityStatus = "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown" | "paused";\n',
+      ],
+    ]),
+  );
   assert.ok(
     findings.some(
       (finding) => finding.includes("dispatch-activity.ts#DispatchActivityStatus") && finding.includes("drift"),
@@ -208,12 +206,9 @@ test("bypass fixture: the GUI decision mirror losing a kernel word is refused", 
   // This is the slice-5 defect shape itself: the kernel vocabulary has a word the
   // mirror does not know (superseded), which used to display as awaiting approval.
   const guiModel = (sources.get(GUI_MODEL) ?? "").replace(/  \| "superseded"\r?\n/u, "");
-  const findings = checkStatusVocabularyCoverage(
-    register,
-    collectStatusDeclarationSites(new Map([...sources, [GUI_MODEL, guiModel]])),
-    [],
-    { baseline: statusVocabularyBaseline },
-  );
+  const findings = checkStatusVocabularyCoverage(register, sitesWithModules([[GUI_MODEL, guiModel]]), [], {
+    baseline: statusVocabularyBaseline,
+  });
   assert.ok(
     findings.some((finding) => finding.includes("DecisionState") && finding.includes("superseded")),
     findings.join("\n"),
@@ -254,11 +249,9 @@ test("bypass fixture: a stale generated daemon projection is refused", () => {
 });
 
 test("bypass fixture: a daemon wire mirror drifting from the kernel vocabulary is refused", () => {
-  const drifted = new Map([
-    ...sources,
-    [DAEMON_PROTOCOL, (sources.get(DAEMON_PROTOCOL) ?? "").replace('  "superseded",\n', "")],
-  ]);
-  const findings = coverageFor(drifted);
+  const findings = coverageFor(
+    sitesWithModules([[DAEMON_PROTOCOL, (sources.get(DAEMON_PROTOCOL) ?? "").replace('  "superseded",\n', "")]]),
+  );
   assert.ok(
     findings.some((finding) => finding.includes("decisionStateWords") && finding.includes("drift")),
     findings.join("\n"),
@@ -266,14 +259,14 @@ test("bypass fixture: a daemon wire mirror drifting from the kernel vocabulary i
 });
 
 test("bypass fixture: a new daemon wire mirror const is refused", () => {
-  const appended = new Map([
-    ...sources,
-    [
-      DAEMON_PROTOCOL,
-      `${sources.get(DAEMON_PROTOCOL)}\nexport const timewarpPhaseWords = ["before", "after"] as const;\n`,
-    ],
-  ]);
-  const findings = coverageFor(appended);
+  const findings = coverageFor(
+    sitesWithModules([
+      [
+        DAEMON_PROTOCOL,
+        `${sources.get(DAEMON_PROTOCOL)}\nexport const timewarpPhaseWords = ["before", "after"] as const;\n`,
+      ],
+    ]),
+  );
   assert.ok(
     findings.some((finding) => finding.includes("timewarpPhaseWords") && finding.includes("unregistered")),
     findings.join("\n"),
@@ -314,13 +307,14 @@ test("declaration suffix pattern keeps matching the vocabulary families", () => 
 });
 
 test("bypass fixture: a new inline kernel status union is refused", () => {
-  const inlineSources = new Map([
-    ...sources,
-    ["packages/kernel/src/domain/review-probe.ts", 'export interface Probe { readonly status: "up" | "down"; }\n'],
-  ]);
-  const findings = checkInlineFieldCoverage(register, collectStatusDeclarationSites(inlineSources), [], {
-    baseline: statusVocabularyBaseline,
-  });
+  const findings = checkInlineFieldCoverage(
+    register,
+    sitesWithModules([
+      ["packages/kernel/src/domain/review-probe.ts", 'export interface Probe { readonly status: "up" | "down"; }\n'],
+    ]),
+    [],
+    { baseline: statusVocabularyBaseline },
+  );
   assert.ok(
     findings.some((finding) => finding.includes("review-probe.ts##Probe.status") && finding.includes("unregistered")),
     findings.join("\n"),
@@ -328,16 +322,17 @@ test("bypass fixture: a new inline kernel status union is refused", () => {
 });
 
 test("bypass fixture: an unregistered authored-document inline readiness union is refused", () => {
-  const inlineSources = new Map([
-    ...sources,
-    [
-      "packages/daemon/src/fleet/edge-doc-readiness.ts",
-      'export interface EdgeDocReadiness { readonly readinessState: "ready" | "awaiting_center"; }\n',
-    ],
-  ]);
-  const findings = checkInlineFieldCoverage(register, collectStatusDeclarationSites(inlineSources), [], {
-    baseline: statusVocabularyBaseline,
-  });
+  const findings = checkInlineFieldCoverage(
+    register,
+    sitesWithModules([
+      [
+        "packages/daemon/src/fleet/edge-doc-readiness.ts",
+        'export interface EdgeDocReadiness { readonly readinessState: "ready" | "awaiting_center"; }\n',
+      ],
+    ]),
+    [],
+    { baseline: statusVocabularyBaseline },
+  );
   assert.ok(
     findings.some(
       (finding) =>
@@ -398,7 +393,7 @@ test("bypass fixture: Freshness and Availability families are scanned", () => {
     ["PeerFreshness", 'export type PeerFreshness = "fresh" | "stale";\n'],
     ["PeerAvailability", 'export type PeerAvailability = "up" | "down";\n'],
   ]) {
-    const findings = coverageFor(new Map([...sources, [module, body]]));
+    const findings = coverageFor(sitesWithModules([[module, body]]));
     assert.ok(
       findings.some((finding) => finding.includes(`${module}#${name}`) && finding.includes("unregistered")),
       `${name}: ${findings.join("\n")}`,
@@ -408,7 +403,7 @@ test("bypass fixture: Freshness and Availability families are scanned", () => {
 
 test("bypass fixture: a single-quoted status union is scanned", () => {
   const module = "packages/daemon/src/review-probe.ts";
-  const findings = coverageFor(new Map([...sources, [module, "export type PeerState = 'up' | 'down';\n"]]));
+  const findings = coverageFor(sitesWithModules([[module, "export type PeerState = 'up' | 'down';\n"]]));
   assert.ok(
     findings.some((finding) => finding.includes(`${module}#PeerState`) && finding.includes("unregistered")),
     findings.join("\n"),
@@ -417,11 +412,9 @@ test("bypass fixture: a single-quoted status union is scanned", () => {
 
 test("bypass fixture: a status-word const alias is resolved and refused when unregistered", () => {
   const wire = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
-  const appended = new Map([
-    ...sources,
-    [wire, `${sources.get(wire)}\nexport const timewarpStateWords = taskStatusWords;\n`],
-  ]);
-  const findings = coverageFor(appended);
+  const findings = coverageFor(
+    sitesWithModules([[wire, `${sources.get(wire)}\nexport const timewarpStateWords = taskStatusWords;\n`]]),
+  );
   assert.ok(
     findings.some((finding) => finding.includes("timewarpStateWords") && finding.includes("unregistered")),
     findings.join("\n"),
@@ -430,11 +423,9 @@ test("bypass fixture: a status-word const alias is resolved and refused when unr
 
 test("bypass fixture: a status-word const alias with an unknown target is refused", () => {
   const wire = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
-  const appended = new Map([
-    ...sources,
-    [wire, `${sources.get(wire)}\nexport const timewarpStateWords = missingStates;\n`],
-  ]);
-  const findings = coverageFor(appended);
+  const findings = coverageFor(
+    sitesWithModules([[wire, `${sources.get(wire)}\nexport const timewarpStateWords = missingStates;\n`]]),
+  );
   assert.ok(
     findings.some(
       (finding) => finding.includes("missingStates") && finding.includes("no unique registered vocabulary"),
@@ -462,20 +453,16 @@ test("view-local positive fixture: the GUI wizard phase is registered and accept
 
 test("view-local negative fixture: exporting or importing the view-local type is refused", () => {
   const module = "packages/gui/src/renderer/components/EdgeJoinWizard.tsx";
-  const exportedSources = new Map([
-    ...sources,
+  const overrides = [
     [module, (sources.get(module) ?? "").replace("type Phase =", "export type Phase =")],
     [
       "packages/gui/src/renderer/rogue-importer.ts",
       'import type { Phase } from "./components/EdgeJoinWizard.tsx";\nexport const phase: Phase = "paste";\n',
     ],
-  ]);
+  ];
+  const exportedSources = new Map([...sources, ...overrides]);
   assert.equal(isAnchorImportedElsewhere(module, "Phase", exportedSources), true);
-  const findings = checkViewLocalDeclarations(
-    register,
-    collectStatusDeclarationSites(exportedSources),
-    exportedSources,
-  );
+  const findings = checkViewLocalDeclarations(register, sitesWithModules(overrides), exportedSources);
   assert.ok(
     findings.some(
       (finding) => finding.includes("EdgeJoinWizard.tsx#Phase") && finding.includes("must not be exported"),
@@ -486,20 +473,20 @@ test("view-local negative fixture: exporting or importing the view-local type is
 
 test("view-local negative fixture: a local export alias cannot launder the type out of its module", () => {
   const module = "packages/gui/src/renderer/components/EdgeJoinWizard.tsx";
-  const aliasedSources = new Map([
-    ...sources,
+  const overrides = [
     [module, `${sources.get(module)}\nexport type { Phase as WizardPhase };\n`],
     [
       "packages/gui/src/renderer/rogue-importer.ts",
       'import type { WizardPhase } from "./components/EdgeJoinWizard.tsx";\nexport const phase: WizardPhase = "paste";\n',
     ],
-  ]);
+  ];
+  const aliasedSources = new Map([...sources, ...overrides]);
   assert.equal(
     isAnchorImportedElsewhere(module, "Phase", aliasedSources, { declaredExported: false }),
     true,
     "the exported alias must count as importing the view-local type",
   );
-  const findings = checkViewLocalDeclarations(register, collectStatusDeclarationSites(aliasedSources), aliasedSources);
+  const findings = checkViewLocalDeclarations(register, sitesWithModules(overrides), aliasedSources);
   assert.ok(
     findings.some(
       (finding) => finding.includes("EdgeJoinWizard.tsx#Phase") && finding.includes("directly or through an alias"),
@@ -510,15 +497,15 @@ test("view-local negative fixture: a local export alias cannot launder the type 
 
 test("view-local negative fixture: an aliased persistent-write import is refused", () => {
   const module = "packages/gui/src/renderer/components/EdgeJoinWizard.tsx";
-  const aliasedWrite = new Map([
-    ...sources,
+  const overrides = [
     [
       module,
       `${sources.get(module)}\nimport { writeFileSync as persist } from "node:fs";\npersist("/tmp/phase.json", "paste");\n`,
     ],
-  ]);
+  ];
+  const aliasedWrite = new Map([...sources, ...overrides]);
   assert.equal(hasPersistentWrite(aliasedWrite.get(module)), true);
-  const findings = checkViewLocalDeclarations(register, collectStatusDeclarationSites(aliasedWrite), aliasedWrite);
+  const findings = checkViewLocalDeclarations(register, sitesWithModules(overrides), aliasedWrite);
   assert.ok(
     findings.some((finding) => finding.includes("EdgeJoinWizard.tsx#Phase") && finding.includes("persistent write")),
     findings.join("\n"),
@@ -528,11 +515,9 @@ test("view-local negative fixture: an aliased persistent-write import is refused
 test("view-local negative fixture: a file with a persistent write cannot declare a view-local type", () => {
   const module = "packages/gui/src/renderer/components/EdgeJoinWizard.tsx";
   assert.equal(hasPersistentWrite(sources.get(module) ?? ""), false);
-  const writingSources = new Map([
-    ...sources,
-    [module, `${sources.get(module)}\nwriteFileSync("/tmp/phase.json", "x");\n`],
-  ]);
-  const findings = checkViewLocalDeclarations(register, collectStatusDeclarationSites(writingSources), writingSources);
+  const overrides = [[module, `${sources.get(module)}\nwriteFileSync("/tmp/phase.json", "x");\n`]];
+  const writingSources = new Map([...sources, ...overrides]);
+  const findings = checkViewLocalDeclarations(register, sitesWithModules(overrides), writingSources);
   assert.ok(
     findings.some((finding) => finding.includes("EdgeJoinWizard.tsx#Phase") && finding.includes("persistent write")),
     findings.join("\n"),
@@ -712,8 +697,7 @@ test("register shape: a row carrying two ownership forms is refused", () => {
 
 test("registered inline anchors still have to declare their registered words", () => {
   const module = "packages/daemon/src/dispatch-stream.ts";
-  const drifted = new Map([
-    ...sources,
+  const overrides = [
     [
       module,
       (sources.get(module) ?? "").replace(
@@ -721,8 +705,8 @@ test("registered inline anchors still have to declare their registered words", (
         'readonly fallbackState: "scheduled" | "exhausted" | null',
       ),
     ],
-  ]);
-  const findings = checkInlineFieldCoverage(register, collectStatusDeclarationSites(drifted), [], {
+  ];
+  const findings = checkInlineFieldCoverage(register, sitesWithModules(overrides), [], {
     baseline: statusVocabularyBaseline,
   });
   assert.ok(
@@ -756,14 +740,17 @@ test("authored-document vocabularies are covered by the generic scan", () => {
     ),
     [],
   );
-  const rogue = new Map([
-    ...sources,
+  const rogue = [
     [
       "packages/daemon/src/fleet/edge-doc-candidate.ts",
       'export type EdgeDocCandidateState = "clean" | "candidate_v2";\n',
     ],
-  ]);
-  assert.ok(coverageFor(rogue).some((finding) => finding.includes("edge-doc-candidate.ts#EdgeDocCandidateState")));
+  ];
+  assert.ok(
+    coverageFor(sitesWithModules(rogue)).some((finding) =>
+      finding.includes("edge-doc-candidate.ts#EdgeDocCandidateState"),
+    ),
+  );
 });
 
 test("the deleted fixed-file and authored-document special cases cannot reappear", async () => {
