@@ -17,6 +17,9 @@ import {
 } from "../../../packages/kernel/src/domain/transition-document-readiness.ts";
 
 const taskId = "task-private-example",
+  governanceFixture = JSON.parse(
+    readFileSync(new URL("./fixtures/task-pr-body-governance.json", import.meta.url), "utf8"),
+  ),
   firstSha = "1".repeat(40),
   commitSha = "2".repeat(40),
   baseSha = "3".repeat(40),
@@ -364,6 +367,34 @@ function renderProtected(submission = protectedSubmission(), body = templateWith
     manifest,
   });
 }
+
+test("protected-surface fixture keeps renderer declarations aligned with governance lint", () => {
+  const submission = { ...codeSubmission, changedFiles: governanceFixture.changedFiles },
+    body = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(submission, {}, protectedId),
+      template: templateWithoutGovernance,
+      closeout,
+      manifest: governanceFixture.manifest,
+    }),
+    lint = checkPrGovernance({
+      body,
+      changedFiles: submission.changedFiles,
+      manifest: governanceFixture.manifest,
+    });
+  assert.deepEqual(lint.protectedChanges, governanceFixture.expectedProtectedChanges);
+  assert.equal(lint.ok, true, lint.issues.join("\n"));
+  assert.match(governanceSection(body), /Protected surface touched: yes/u);
+  assert.equal(
+    checkPrGovernance({
+      body: template,
+      changedFiles: submission.changedFiles,
+      manifest: governanceFixture.manifest,
+    }).ok,
+    false,
+    "the same protected cut without the generated declaration stays lint-red",
+  );
+});
 
 test("the default PR template renders current governance authority and passes lint", () => {
   const submission = protectedSubmission(),

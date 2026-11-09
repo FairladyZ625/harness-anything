@@ -1,0 +1,21 @@
+{
+  "schema": "task-pr-body-governance-fixture/v1",
+  "changedFiles": ["tools/gate-allowlists/check-fallback-boundaries.json"],
+  "expectedProtectedChanges": [
+    {
+      "file": "tools/gate-allowlists/check-fallback-boundaries.json",
+      "surfaces": ["tools/gate-allowlists/**"]
+    }
+  ],
+  "manifest": {
+    "gates": [
+      {
+        "id": "pr-governance-lint",
+        "changeControl": {
+          "requiresGovernanceEvidence": true,
+          "protectedSurfaces": ["tools/gate-allowlists/**"]
+        }
+      }
+    ]
+  }
+}
