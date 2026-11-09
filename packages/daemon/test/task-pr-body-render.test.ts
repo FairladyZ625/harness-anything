@@ -287,6 +287,84 @@ test("a marker-less template-shaped existing body gains governance while preserv
   );
 });
 
+test("a marked custom existing body is migrated before rendering and remains safe to refresh", async (context) => {
+  const { fixture, frozen } = publication(context, "pr-body-render-marked-custom"),
+    renderBody = taskPrBodyRenderer({
+      rootDir: fixture.canonical,
+      projection: projection(frozen.commitSha!),
+      taskId,
+      submission: frozen,
+    });
+  assert.ok(renderBody);
+  const authored = [
+    "# Pull request",
+    "",
+    "Authored summary stays.",
+    "",
+    "<!-- harness:submission-facts:start -->",
+    "## Delivery Facts",
+    "- Delivery commit: `1111111111111111111111111111111111111111`",
+    "<!-- harness:submission-facts:end -->",
+    "",
+    "## Custom Notes",
+    "Custom tail stays.",
+  ].join("\n");
+  assert.doesNotMatch(authored, /^## Summary$/mu, "the body intentionally lacks current template sections");
+  const patches: { body: string }[] = [];
+  let existing: Record<string, unknown> | undefined = {
+    number: 42,
+    html_url: "https://github.com/acme/repo/pull/42",
+    body: authored,
+  };
+  context.mock.method(globalThis, "fetch", async (url: string | URL, options: RequestInit = {}) => {
+    if (!String(url).includes("/pulls")) return Response.json({ default_branch: "main" });
+    if ((options.method ?? "GET") === "GET") return Response.json(existing ? [existing] : []);
+    const payload = JSON.parse(String(options.body)) as Record<string, unknown>;
+    patches.push({ body: String(payload.body) });
+    existing = { ...existing, ...payload };
+    return Response.json(existing);
+  });
+
+  const input = {
+    hosting: { kind: "github" as const, host: "github.com", repository: "acme/repo" },
+    branch: taskId,
+    taskTitle: "Delivered task",
+    submission: frozen,
+    env: { GH_TOKEN: "daemon-only-fixture" },
+    renderBody,
+  };
+  await updateTaskPullRequestBody(input);
+  assert.equal(patches.length, 1, "the custom marked body is migrated with one update");
+  const migrated = patches[0]!.body;
+  assert.match(migrated, /Authored summary stays\./u, "authored prose survives migration");
+  assert.match(migrated, /^## Legacy Authored Body \(preserved\)$/mu);
+  assert.match(migrated, /^#### Custom Notes$/mu, "custom headings are demoted below the preserved section");
+  assert.match(migrated, /&lt;!-- harness:submission-facts:start --&gt;/u, "old authored markers are escaped");
+  assert.equal(
+    (migrated.match(/<!-- harness:submission-facts:start -->/gu) ?? []).length,
+    1,
+    "migration emits one current machine facts region",
+  );
+  assert.match(migrated, new RegExp(`Delivery commit: \\x60${frozen.commitSha}\\x60`, "u"));
+  assert.match(migrated, /^## Governance Declaration$/mu);
+  assert.equal(
+    checkPrGovernance({ body: migrated, changedFiles: frozen.changedFiles ?? [], manifest }).ok,
+    true,
+    "the migrated protected cut passes governance lint",
+  );
+
+  await updateTaskPullRequestBody(input);
+  assert.equal(patches.length, 2, "a second refresh remains a successful update after migration");
+  const refreshed = patches[1]!.body;
+  assert.equal(
+    (refreshed.match(/<!-- harness:submission-facts:start -->/gu) ?? []).length,
+    1,
+    "repeated refresh keeps one machine facts region",
+  );
+  assert.match(refreshed, /Authored summary stays\./u);
+  assert.equal(checkPrGovernance({ body: refreshed, changedFiles: frozen.changedFiles ?? [], manifest }).ok, true);
+});
+
 test("an arbitrary marker-less existing body is preserved verbatim in the rendered body", async (context) => {
   const { fixture, frozen } = publication(context, "pr-body-render-arbitrary"),
     renderBody = taskPrBodyRenderer({

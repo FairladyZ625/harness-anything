@@ -168,7 +168,15 @@ function renderedBody(authored: string | undefined, input: PullRequestInput): st
   if (authored === undefined) return input.renderBody(undefined);
   // A marker-less body can still carry the template's four authored sections; insert the one
   // machine region so the renderer preserves that prose while adding governance and facts.
-  const markerized = hasSubmissionFacts(authored) ? authored : markerizedTemplateBody(authored);
+  // A marked body is eligible for direct rendering only when it also has every current template
+  // section. Older/custom marked bodies must go through the same preservation migration as other
+  // non-template prose; otherwise the kernel renderer throws while looking up a missing section.
+  const markerized =
+    hasSubmissionFacts(authored) && hasCurrentTemplateSections(authored)
+      ? authored
+      : hasSubmissionFacts(authored)
+        ? undefined
+        : markerizedTemplateBody(authored);
   if (markerized !== undefined) return input.renderBody(markerized);
   // An arbitrary body has no template anchor, but replacing it would lose authored prose the task
   // contract does not authorize dropping. Render the template, then preserve the original text as
@@ -182,10 +190,14 @@ function hasSubmissionFacts(body: string): boolean {
 
 const TEMPLATE_SECTIONS = ["Summary", "What Changed", "Verification", "Residual Risk"] as const;
 
+function hasCurrentTemplateSections(body: string): boolean {
+  return TEMPLATE_SECTIONS.every((title) => new RegExp(`^##[ \\t]+${title}[ \\t]*$`, "mu").test(body));
+}
+
 /** Add the one machine region to a template-shaped body that predates the marker convention. */
 function markerizedTemplateBody(body: string): string | undefined {
   if (body.includes(SUBMISSION_FACTS_START) || body.includes(SUBMISSION_FACTS_END)) return undefined;
-  if (!TEMPLATE_SECTIONS.every((title) => new RegExp(`^##[ \\t]+${title}[ \\t]*$`, "mu").test(body))) return undefined;
+  if (!hasCurrentTemplateSections(body)) return undefined;
   const heading = /^##[ \t]+What Changed[ \t]*$/mu.exec(body);
   if (!heading) return undefined;
   const after = body.slice(heading.index + heading[0].length),
