@@ -1,11 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import process from "node:process";
-import {
-  approvedReviewHistoryForExecution,
-  currentExecutionCuts,
-  reviewConsentGateBlocker,
-} from "@harness-anything/kernel";
 import { checkWorkspaceLinks, workspaceLinkFailure } from "../packages/daemon/src/workspace-link-integrity.ts";
 
 const MAIN_BRANCH = "main";
@@ -147,9 +142,10 @@ function preflight(selector) {
   return { mainWorktree, pr, prWorktree };
 }
 
-// The task-show receipt is the kernel's lifecycle snapshot. Its read has two callers with different
-// contracts: the pre-merge gate must fail closed, while the post-merge merge-sha annotation is
-// bookkeeping that must never be worded as a merge refusal after GitHub already merged the PR.
+// The task-show receipt carries the kernel's lifecycle snapshot and its one completion judgment:
+// `completionBlocker` ({code, gate} or null) and the `completionNext` remediation. The merge gate
+// reads that judgment instead of re-deriving review or consent from the projection. The post-merge
+// annotation reads the same receipt, but its failures are bookkeeping and never a merge refusal.
 function readTaskLifecycleEvidence(taskId, root) {
   let receipt;
   try {
@@ -170,47 +166,43 @@ function readTaskLifecycleEvidence(taskId, root) {
     throw new Error(`Harness task show for ${taskId} returned a malformed receipt.`);
   }
   if (
-    typeof evidence?.task?.status !== "string" ||
-    evidence.task === null ||
-    !["executions", "reviews", "consents", "gateWitnesses"].every((field) => Array.isArray(evidence[field]))
+    evidence === null ||
+    typeof evidence.task?.status !== "string" ||
+    !Array.isArray(evidence.executions) ||
+    !("completionBlocker" in evidence) ||
+    !("completionNext" in evidence)
   ) {
     throw new Error(`Harness task show for ${taskId} returned no completion judgment.`);
   }
   return evidence;
 }
 
-// The merge gate uses the same completion review/consent judgment as the ledger. The full completion
-// blocker chain is not consulted because it names only the first unfinished step.
-function readTaskReviewConsent(taskId, root) {
+// Fail closed: an unreachable ledger or a receipt without the completion judgment cannot authorize
+// a merge.
+function readTaskCompletionJudgment(taskId, root) {
   try {
     return readTaskLifecycleEvidence(taskId, root);
   } catch (error) {
     throw new Error(
       `${error instanceof Error ? error.message : String(error)} ` +
-        "Refusing to merge while the review-consent state is unknown (fail closed).",
+        "Refusing to merge while the completion judgment is unknown (fail closed).",
     );
   }
 }
 
-// One fail-closed read of the current execution cuts, shared by the head check and the review
-// judgment. currentExecutionCuts keeps the kernel's ambiguity rule: two cuts are never an implicit
-// first choice, so only a single cut can be judged.
-function currentTaskCuts(taskId, evidence) {
-  try {
-    return currentExecutionCuts({
-      task: evidence.task,
-      executions: evidence.executions,
-      reviews: evidence.reviews,
-      consents: evidence.consents,
-      reviewDispositions: Array.isArray(evidence.reviewDispositions) ? evidence.reviewDispositions : [],
-      gateWitnesses: evidence.gateWitnesses,
-    });
-  } catch (error) {
-    throw new Error(
-      `Judging the review-consent chain of harness task ${taskId} failed ` +
-        `(${error instanceof Error ? error.message : String(error)}); refusing to merge (fail closed).`,
-    );
-  }
+// The receipt names the cut its completion judgment is about in completionNext.readCut. The merge
+// gate reads the frozen delivery commit from that server-chosen cut: filtering executions locally is
+// what disagreed with the ledger's submission digest (#4412), and ambiguity is the server's call.
+function judgedCut(evidence) {
+  const readCut = evidence.completionNext?.readCut;
+  if (readCut === null || readCut === undefined) return undefined;
+  return evidence.executions.find(
+    (execution) =>
+      execution?.executionId === readCut.executionId &&
+      execution.iteration === readCut.iteration &&
+      execution.submission !== null &&
+      execution.submission !== undefined,
+  );
 }
 
 // Replay the exact frozen patch in Git's object database and compare the complete head tree.
@@ -285,45 +277,51 @@ function requireMergedHeadIsFrozenCut(taskId, cut, pr, root) {
   );
 }
 
-function requireReviewConsent(pr, root) {
+function requireCompletionGate(pr, root) {
   if (!TASK_BRANCH_PATTERN.test(pr.headRefName)) {
-    console.log(`Branch ${pr.headRefName} is not a task branch; merging without a review-consent check.`);
+    console.log(`Branch ${pr.headRefName} is not a task branch; merging without a completion check.`);
     return null;
   }
   const taskId = pr.headRefName,
-    evidence = readTaskReviewConsent(taskId, root),
-    cuts = currentTaskCuts(taskId, evidence),
-    cut = cuts.length === 1 ? cuts[0] : undefined;
-  // A moved head makes the frozen cut, its review and its consent moot; name that single remedy
-  // instead of asking for a consent the merge could never use.
-  const equivalent = requireMergedHeadIsFrozenCut(taskId, cut, pr, root);
-  if (reviewConsentGateBlocker(evidence, undefined, cut) !== null) {
-    // The consent judgment already ran on the same snapshot, so re-deriving the submitted cut here
-    // cannot throw; it only names the ids the printed command must carry.
-    const submitted = cuts.find(({ state }) => state === "submitted"),
-      // Consent states both ids explicitly; the printed command must work as printed.
-      next =
-        submitted === undefined
-          ? `ha task show ${taskId} for the current execution, then ha task review-consent ${taskId} ` +
-            "--execution-id <execution-id> --review-id <review-id>"
-          : approvedReviewHistoryForExecution(evidence.reviews, submitted)
-              .map(
-                ({ reviewId }) =>
-                  `ha task review-consent ${taskId} --execution-id ${submitted.executionId} --review-id ${reviewId}`,
-              )
-              .join(" or ");
+    evidence = readTaskCompletionJudgment(taskId, root),
+    blocker = evidence.completionBlocker;
+  // The ledger's one completion judgment decides this gate: null means delivery is already proven,
+  // `delivery` means only the merge is missing. Every other gate names work that a merge cannot
+  // finish, so the server's own remediation is printed verbatim instead of a locally derived one.
+  if (blocker !== null && blocker.gate !== "delivery") {
+    const action = evidence.completionNext?.action;
+    if (typeof action !== "string")
+      throw new Error(
+        `Harness task show for ${taskId} reported completion blocker ${blocker.code} ` +
+          `(gate=${blocker.gate}) without its remediation; refusing to merge (fail closed).`,
+      );
     throw new Error(
-      `Task ${taskId} (status=${evidence.task.status}) has no owner-consented approved review for its ` +
-        `current execution; refusing to merge. Next: ${next}`,
+      `Task ${taskId} (status=${evidence.task.status}) is blocked from completion by ` +
+        `${blocker.code} (gate=${blocker.gate}); refusing to merge. Next: ${action}`,
     );
   }
+  const cut = judgedCut(evidence);
+  if (cut === undefined) {
+    // A delivery blocker that names no cut cannot prove the PR head contains the frozen delivery;
+    // a null blocker means the ledger already proved delivery, so there is no merge left to guard.
+    if (blocker !== null)
+      throw new Error(
+        `Harness task show for ${taskId} reported ${blocker.code} without naming its cut; ` +
+          "refusing to merge (fail closed).",
+      );
+    console.log(`Task ${taskId} has no pending delivery judgment (status=${evidence.task.status}).`);
+    return evidence;
+  }
+  const equivalent = requireMergedHeadIsFrozenCut(taskId, cut, pr, root);
   if (equivalent !== null && equivalent !== undefined) {
     evidence.rebaseEquivalent = equivalent;
     console.log(
       `Task ${taskId} accepted a rebase-equivalent delivery patch and advanced its merge cut to ${equivalent.head}.`,
     );
   }
-  console.log(`Task ${taskId} passed the review-consent check (status=${evidence.task.status}).`);
+  console.log(
+    `Task ${taskId} passed the completion check (status=${evidence.task.status}, blocker=${blocker?.code ?? "none"}).`,
+  );
   return evidence;
 }
 
@@ -378,19 +376,17 @@ function recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence) {
     evidence = preMergeEvidence ?? readTaskLifecycleEvidence(taskId, root),
     mergeCommitOid = merged.mergeCommit?.oid ?? readPr(String(pr.number), root).mergeCommit?.oid;
   if (!mergeCommitOid) throw new Error(`GitHub reports no merge commit for PR #${pr.number}.`);
-  const cuts = currentExecutionCuts({
-    task: evidence.task,
-    executions: evidence.executions,
-    reviews: evidence.reviews,
-    consents: evidence.consents,
-    reviewDispositions: evidence.reviewDispositions ?? [],
-    gateWitnesses: evidence.gateWitnesses,
-  });
-  if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);
+  const cut = judgedCut(evidence);
+  // A ledger that already reports no blocker proved this delivery before the merge; its annotation
+  // is present or not required, and there is no server-named cut left to append to.
+  if (cut === undefined) {
+    if (evidence.completionBlocker === null) return;
+    throw new Error(`Task ${taskId} has no server-named delivery cut after merge.`);
+  }
   const equivalent = evidence.rebaseEquivalent;
   if (equivalent !== undefined) {
     const equivalenceNote = `rebase-equivalent:${equivalent.frozen}->${equivalent.head}:base=${equivalent.base}`;
-    if (!cuts[0].annotations?.some((entry) => entry.note === equivalenceNote))
+    if (!cut.annotations?.some((entry) => entry.note === equivalenceNote))
       output(
         "ha",
         [
@@ -398,7 +394,7 @@ function recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence) {
           "annotate",
           taskId,
           "--execution-id",
-          cuts[0].executionId,
+          cut.executionId,
           "--kind",
           "correction",
           "--note",
@@ -408,11 +404,11 @@ function recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence) {
       );
   }
   const note = `merge_commit_sha:${mergeCommitOid}`;
-  const alreadyAnnotated = cuts[0].annotations?.some((entry) => entry.note === note);
+  const alreadyAnnotated = cut.annotations?.some((entry) => entry.note === note);
   if (alreadyAnnotated) return;
   output(
     "ha",
-    ["task", "annotate", taskId, "--execution-id", cuts[0].executionId, "--kind", "correction", "--note", note],
+    ["task", "annotate", taskId, "--execution-id", cut.executionId, "--kind", "correction", "--note", note],
     { cwd: root },
   );
 }
@@ -469,11 +465,13 @@ function printHelp() {
       "From the local main worktree: enqueue one or more PRs after required checks pass, wait for",
       "GitHub's merge queue to merge them, delete their",
       "origin branch, remove its clean local worktree/branch, and fast-forward local main.",
-      "A PR whose head branch is a task id must first have the owner-consented review of its",
-      "current execution recorded in the harness ledger (ha task show); the check fails closed",
-      "when the ledger is unreachable or its judgment cannot be read. Its head must also be the",
-      "execution's frozen delivery commit: a branch that moved after submit (rebase or follow-up",
-      "push) is refused before the merge, because the merge commit would not contain that delivery.",
+      "A PR whose head branch is a task id must first pass the harness ledger's server-side completion",
+      "judgment (ha task show completionBlocker): only a null blocker or a delivery blocker may merge.",
+      "Any other gate refuses before the merge and prints the ledger's own remediation verbatim; the",
+      "check fails closed when the ledger is unreachable or its judgment cannot be read. Its head must",
+      "also be the execution's frozen delivery commit: a branch that moved after submit (rebase or",
+      "follow-up push) is refused before the merge, because the merge commit would not contain that",
+      "delivery.",
       "After a merge every cleanup step runs; any unfinished step is reported with the command that",
       "finishes it, and the exit status is then non-zero.",
       "This helper never pulls the private harness ledger repository.",
@@ -598,7 +596,7 @@ function main(argv) {
   const openEntries = entries.filter(({ pr }) => pr.state === "OPEN"),
     evidenceByNumber = new Map();
   for (const { pr, mainWorktree } of openEntries)
-    evidenceByNumber.set(pr.number, requireReviewConsent(pr, mainWorktree.path));
+    evidenceByNumber.set(pr.number, requireCompletionGate(pr, mainWorktree.path));
   for (const { pr, mainWorktree } of openEntries) enqueueOpenPr(pr, mainWorktree.path);
 
   const unfinishedEntries = [];
