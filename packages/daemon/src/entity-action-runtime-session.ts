@@ -55,7 +55,7 @@ export function commitRuntimeSessionBundle(
     visible =
       publication.cut.opId === bundle.event.opId &&
       publication.cut.revision === bundle.event.workspaceRevision &&
-      projected !== null;
+      (projected !== null || bundle.event.type === "runtime_session_exited");
   return {
     outcome: visible ? "applied" : "pending",
     opId: bundle.event.opId,

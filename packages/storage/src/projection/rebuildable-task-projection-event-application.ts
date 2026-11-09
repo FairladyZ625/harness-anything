@@ -583,7 +583,9 @@ function applyEventProjection(
       );
     const sessionId = runtimeSessionId(event);
     if (sessionId !== null) {
-      const session = reduceRuntimeSession(readRuntimeSession(db, sessionId), event);
+      const session = reduceRuntimeSession(readRuntimeSession(db, sessionId), event, {
+        allowPreSessionExit: event.type === "runtime_session_exited",
+      });
       if (session !== null) {
         runSql(
           db,

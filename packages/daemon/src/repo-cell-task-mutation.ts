@@ -170,15 +170,19 @@ function taskMutationWithStopResult(
           runtimeSessionId: proofRuntimeSessionId,
         }),
         row = lifecycle.status === "ready" ? lifecycle.rows[0] : undefined,
-        matchingTask = row?.attempt.task?.taskId === task.taskId,
+        matchingTask =
+          row?.attempt.task?.taskId === task.taskId && row.attempt.task.executionId === activeLease.executionId,
+        acceptedStopProof = matchingTask && row?.attempt.stopProof === "proven_stopped",
         code = matchingTask ? "runtime_process_group_unproven" : "runtime_terminal_superseded",
         reason =
           code === "runtime_process_group_unproven"
             ? `Runtime process group for ${proofRuntimeSessionId} has no accepted stop proof; lease release waits for the lifecycle projection.`
             : `Runtime session ${proofRuntimeSessionId} does not own execution ${terminalExecutionId ?? activeLease.executionId}.`;
-      if (returnUnprovenStop && code === "runtime_process_group_unproven")
-        return { outcome: "lease_unproven", code, reason };
-      throw cell.cellCodedError(code, reason);
+      if (!acceptedStopProof) {
+        if (returnUnprovenStop && code === "runtime_process_group_unproven")
+          return { outcome: "lease_unproven", code, reason };
+        throw cell.cellCodedError(code, reason);
+      }
     }
     return {
       type: "lease_released",

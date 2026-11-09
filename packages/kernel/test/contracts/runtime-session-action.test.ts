@@ -153,6 +153,32 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
   );
 });
 
+test("RuntimeSession stop proof compiles after dispatch admission before session start", () => {
+  const action = getExecutableEntityAction("runtime_session_exited");
+  assert.ok(action?.execution?.compile);
+  const draft = action.execution.compile({
+    ...compileInput,
+    action: {
+      kind: "runtime_session_exited",
+      runtimeSessionId: "runtime-pre-session",
+      dispatchId: "dispatch-pre-session",
+    },
+  });
+  assert.equal(draft.kind, "runtime-session");
+  if (draft.kind !== "runtime-session") return;
+  assert.equal(draft.event.type, "runtime_session_exited");
+  assert.equal(draft.noChanges, undefined);
+  assert.throws(
+    () =>
+      action.execution!.compile!({
+        ...compileInput,
+        action: { kind: "runtime_session_exited", runtimeSessionId: "runtime-pre-session" },
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "runtime_session_transition_invalid",
+  );
+  assert.equal(reduceRuntimeSession(null, draft.event, { allowPreSessionExit: true }), null);
+});
+
 test("RuntimeSession events use one-time fields, ordered liveness, and terminal outcome completion", () => {
   const event = (type: AgentRuntimeEventV1["type"], payload: Record<string, unknown>) =>
     ({

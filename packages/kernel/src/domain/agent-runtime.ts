@@ -835,6 +835,7 @@ export function reduceRuntimeInstallation(
 export function reduceRuntimeSession(
   current: RuntimeSession | null,
   event: AgentRuntimeEventV1,
+  options: { readonly allowPreSessionExit?: boolean } = {},
 ): RuntimeSession | null {
   if (event.type === "runtime_session_started") {
     const value = event.payload;
@@ -892,6 +893,7 @@ export function reduceRuntimeSession(
     return current;
   const sessionId = runtimeSessionId(event);
   if (sessionId === null) return current;
+  if (current === null && event.type === "runtime_session_exited" && options.allowPreSessionExit) return null;
   if (current === null || current.runtimeSessionId !== sessionId)
     throw new Error(`runtime session ${sessionId} has not started`);
   if (event.type === "runtime_session_provider_bound") {

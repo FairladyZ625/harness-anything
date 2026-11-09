@@ -3,7 +3,7 @@ import {
   executionArrangementAllows,
 } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, dispatchOwnerForNode } from "@harness-anything/kernel";
+import { consumeKnownError, DEFAULT_RUNTIME_STALL_TIMEOUT_MS, dispatchOwnerForNode } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -880,7 +880,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
-    let runtimeSessionStarted = false;
     let stream: DispatchStreamWriter | undefined;
     // Freeze the provider directory this launch's environment actually resolved (explicit
     // config-home, platform home, or the isolated state root) into the dispatch stream before
@@ -955,6 +954,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
+    let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
     const cleanupCallbackRelay = (): void => {
       if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
     };
@@ -975,8 +975,19 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
-      if (runtimeSessionStarted) {
-        await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
+      if (!requested?.event) {
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        return;
+      }
+      const exited = await publishRuntimeEvent(
+        "runtime_session_exited",
+        { runtimeSessionId },
+        randomUUID(),
+        activeBinding,
+      ).catch(consumeKnownError);
+      if (!exited?.event) {
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        return;
       }
       const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed";
       await input.onAttemptTerminal?.({
@@ -993,6 +1004,72 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {
+      await publishRuntimeEvent(
+        "runtime_installation_observed",
+        {
+          installationId: installation.installationId,
+          kindId: installation.kindId,
+          protocolFamily,
+          hostRef: "host:local",
+          version: installation.version,
+          discoverySource: "wrapper",
+          capabilities: runtimeKind.declaredCapabilities,
+        },
+        installationOpId,
+        binding,
+      );
+      onDispatched?.(newDispatchId, runtimeSessionId);
+      requested = await publishRuntimeEvent(
+        "runtime_dispatch_requested",
+        runtimeDispatchRequestedPayload(
+          {
+            dispatchId: newDispatchId,
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: installation.kindId,
+            dispatchKey,
+            definitionSnapshotRef,
+            definitionSnapshot: definition,
+            startedAt: streamStartedAt,
+            ...(payload.squadRun ? { squadRun: payload.squadRun as unknown as SquadDispatchContext } : {}),
+            ...(handoffEnabled ? { handoffEnabled: true } : {}),
+            ...(providerSessionId ? { resumeProviderSessionId: providerSessionId } : {}),
+            ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
+          },
+          {
+            ...(handoff
+              ? { resumedFromDispatchId: handoff.dispatchId }
+              : requestedDispatchId
+                ? { resumedFromDispatchId: requestedDispatchId }
+                : {}),
+            ...(taskBinding ? { taskBinding } : {}),
+            attemptGroupId: fallbackAttempt?.attemptGroupId ?? newDispatchId,
+            attemptIndex: fallbackAttempt?.attemptIndex ?? 0,
+            ...(agent ? { agent } : {}),
+            ...(squad ? { squadId: squad.squadId } : {}),
+            cwd,
+            ...(dispatchRole ? { role: dispatchRole } : {}),
+            ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
+            ...(reviewerBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
+              ? { reviewerSubmission: (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)! }
+              : {}),
+          },
+        ),
+        dispatchOpId,
+        binding,
+        definitionArtifact.body,
+        {
+          role: dispatchRole ?? null,
+          taskId: taskBinding?.taskId ?? null,
+          executionId: taskBinding?.executionId ?? null,
+        },
+      );
+    } catch (error) {
+      await cleanupFailedLaunch(error);
+      throw error;
+    }
+    try {
       assertRuntimeHandoffLaunch(
         handoffEnabled,
         handoff,
@@ -1004,10 +1081,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       await cleanupFailedLaunch(error);
       throw error;
     }
-    // The handoff rollout is installed only after the target launch is prepared and admitted —
-    // into the directory that launch actually resolved — and before any process or event, so a
-    // resumed provider always reads the state selected for it and no earlier mutable-config
-    // lookup can guess a different home.
     if (handoff) {
       try {
         if (!handoffRollout)
@@ -1036,8 +1109,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         runtimeActor,
         taskId,
         trustedSchedule,
-        // A read-only attach mints no execution credential: it executes nothing, and a principal
-        // labeled implementation or reviewer would misstate the session's authority either way.
         ...(taskId && !readOnlyAttach
           ? {
               execution: {
@@ -1056,8 +1127,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               },
             }
           : {}),
-        // The launch context narrows this session principal to read-only when required by its
-        // validated permission ceiling; execution-scope checks enforce the issued role.
         ...(!taskId && !reviewerBinding && !decisionReviewTarget && daemonRoute
           ? {
               execution: {
@@ -1110,85 +1179,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     }
-    let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
-    try {
-      await publishRuntimeEvent(
-        "runtime_installation_observed",
-        {
-          installationId: installation.installationId,
-          kindId: installation.kindId,
-          protocolFamily,
-          hostRef: "host:local",
-          version: installation.version,
-          discoverySource: "wrapper",
-          capabilities: runtimeKind.declaredCapabilities,
-        },
-        installationOpId,
-        binding,
-      );
-      // The predecessor's fallback link must land before this dispatch becomes readable: the
-      // event below projects the successor row, and no read may see that row while the
-      // predecessor stream still says scheduled. A publish that fails after the link settles
-      // exhausted in the continuation's catch instead of dangling on an unpublished dispatch.
-      onDispatched?.(newDispatchId, runtimeSessionId);
-      requested = await publishRuntimeEvent(
-        "runtime_dispatch_requested",
-        runtimeDispatchRequestedPayload(
-          {
-            dispatchId: newDispatchId,
-            runtimeSessionId,
-            instanceId: definition.instanceId,
-            installationId: definition.installationId,
-            kindId: definition.kindId,
-            dispatchKey,
-            definitionSnapshotRef,
-            definitionSnapshot: definition,
-            startedAt: streamStartedAt,
-            ...(payload.squadRun ? { squadRun: payload.squadRun as unknown as SquadDispatchContext } : {}),
-            ...(handoffEnabled ? { handoffEnabled: true } : {}),
-            ...(providerSessionId ? { resumeProviderSessionId: providerSessionId } : {}),
-            ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
-          },
-          {
-            ...(handoff
-              ? { resumedFromDispatchId: handoff.dispatchId }
-              : requestedDispatchId
-                ? { resumedFromDispatchId: requestedDispatchId }
-                : {}),
-            ...(taskBinding ? { taskBinding } : {}),
-            attemptGroupId: fallbackAttempt?.attemptGroupId ?? newDispatchId,
-            attemptIndex: fallbackAttempt?.attemptIndex ?? 0,
-            ...(agent ? { agent } : {}),
-            ...(squad ? { squadId: squad.squadId } : {}),
-            cwd,
-            ...(dispatchRole ? { role: dispatchRole } : {}),
-            ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
-            ...(reviewerBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
-              ? { reviewerSubmission: (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)! }
-              : {}),
-          },
-        ),
-        dispatchOpId,
-        binding,
-        definitionArtifact.body,
-        {
-          role: dispatchRole ?? null,
-          taskId: taskBinding?.taskId ?? null,
-          executionId: taskBinding?.executionId ?? null,
-        },
-      );
-    } catch (error) {
-      await cleanupFailedLaunch(error);
-      throw error;
-    }
-    // The center queue owns the claim: another edge can win after our initial receipt read.
     if (requested.receipt?.reused === true) {
       releaseModelSlot();
       await cloudRelay?.close();
       cleanupCallbackRelay();
-      // The id is deterministic from dispatchKey and may already be the winning stream after a
-      // restart race. Removing it here can delete the winner's Squad state journal, leaving a
-      // resumed coordinator unable to append its next revision.
       return {
         ...requested.receipt,
         runtimeSessionId,
@@ -1196,9 +1190,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
     }
-    // Publish the canonical session before starting the provider. A provider can
-    // immediately call back through the sealed daemon route; its task+dispatch
-    // target must see a session projection before that first callback arrives.
     try {
       await publishRuntimeEvent(
         "runtime_session_started",
@@ -1215,7 +1206,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         randomUUID(),
         binding,
       );
-      runtimeSessionStarted = true;
     } catch (error) {
       await cleanupFailedLaunch(error);
       throw error;
@@ -1289,9 +1279,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       dispatchId: newDispatchId,
       pid: runtimeProcess.pid,
     });
-    // `runtime_session_started` is published before launch so immediate provider
-    // callbacks can resolve the session. Confirm liveness after the process is
-    // actually registered, ahead of any output or exit work those callbacks queue.
     input.schedule(async () => {
       await publishRuntimeEvent(
         "runtime_session_liveness_changed",
@@ -1320,7 +1307,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }
     if (!requested.event || (!requested.receipt && !requested.publication))
       throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
-    // The receipt states which instance was chosen and which rule decided it; without this the
     // operator sees only an id and has to infer why a same-kind sibling was skipped.
     const selectionFields = {
         runtimeSelection: {
@@ -1377,7 +1363,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
     prepareWorktree: async (payload: JsonObject, reviewedCommit?: string | null) => {
       // Explicit-instance and declared-Agent model failures must surface before checkout/setup
-      // work, which can run repository-configured install commands.
       await preflightRuntimeSelection(payload);
       const taskId = payload.role === "reviewer" && typeof payload.taskId === "string" ? payload.taskId : null,
         pinnedCommit =

@@ -250,7 +250,13 @@ function compileRuntimeSessionAction(
   let noChanges = false;
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
-    noChanges = reduceRuntimeSession(current, event) === current;
+    noChanges =
+      event.type === "runtime_session_exited" &&
+      current === null &&
+      typeof input.action.dispatchId === "string" &&
+      input.action.dispatchId.length > 0
+        ? false
+        : reduceRuntimeSession(current, event) === current;
   } catch (error) {
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);

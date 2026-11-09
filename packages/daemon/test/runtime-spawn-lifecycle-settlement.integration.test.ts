@@ -610,6 +610,80 @@ test(
         } finally {
           launchFailureProjection.close();
         }
+
+        const preSessionTaskId = "task-runtime-pre-session-failure",
+          preSessionExecutionId = "execution-runtime-pre-session-failure",
+          preSessionCreated = await cell.run(
+            { kind: "task-create", taskId: preSessionTaskId, title: "Pre-session failure" },
+            binding,
+          );
+        assert.equal(preSessionCreated.outcome, "applied");
+        await waitForFixturePublication(cell, preSessionCreated.opId, binding);
+        await realizeTaskPlanFixture(
+          root,
+          String((preSessionCreated as Record<string, unknown>).packagePath),
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Pre-session failure",
+        );
+        assert.equal(
+          (
+            await cell.run(
+              { kind: "task-start", taskId: preSessionTaskId, executionId: preSessionExecutionId },
+              binding,
+            )
+          ).outcome,
+          "applied",
+        );
+        await assert.rejects(
+          cell.spawnRuntime(
+            {
+              runtimeInstanceId: definition.instanceId,
+              cwd: { scope: "repo-root" },
+              prompt: "Fail before runtime session start acceptance",
+              taskId: preSessionTaskId,
+              dispatchKey: "pre-session-start-failure",
+              handoffEnabled: true,
+            },
+            binding,
+          ),
+          /Handoff is limited to task-bound Codex agent sessions/u,
+        );
+        const preSessionEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+          preSessionDispatch = preSessionEvents.find(
+            (event) =>
+              event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === "pre-session-start-failure",
+          ),
+          preSessionRuntimeSessionId = preSessionDispatch?.payload.runtimeSessionId;
+        assert.equal(typeof preSessionRuntimeSessionId, "string");
+        const preSessionExitedIndex = preSessionEvents.findIndex(
+            (event) =>
+              event.type === "runtime_session_exited" && event.payload.runtimeSessionId === preSessionRuntimeSessionId,
+          ),
+          preSessionStarted = preSessionEvents.some(
+            (event) =>
+              event.type === "runtime_session_started" && event.payload.runtimeSessionId === preSessionRuntimeSessionId,
+          ),
+          preSessionReleasedIndex = preSessionEvents.findIndex(
+            (event, index) =>
+              index > preSessionExitedIndex && event.type === "lease_released" && event.taskId === preSessionTaskId,
+          ),
+          preSessionProjection = makeTaskProjection({
+            rootDir: root,
+            projectionPath: path.join(root, ".harness/cache/runtime-pre-session-failure-observer.sqlite"),
+            eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+          });
+        try {
+          preSessionProjection.catchUp();
+          assert.equal(preSessionStarted, false, "pre-session failure must precede session-start acceptance");
+          assert.ok(preSessionExitedIndex >= 0, "pre-session cleanup must accept the canonical stop proof");
+          assert.ok(
+            preSessionReleasedIndex > preSessionExitedIndex,
+            "pre-session cleanup releases the lease only after stop proof",
+          );
+          assert.equal(preSessionProjection.read(preSessionTaskId).snapshot.lease, null);
+        } finally {
+          preSessionProjection.close();
+        }
       } finally {
         await cell.close();
       }

@@ -196,7 +196,9 @@ export async function materializePgQueryModels(
     if (installation) await put("runtime-installation", installation.installationId, installation);
     const id = runtimeSessionId(event);
     if (id) {
-      const session = reduceRuntimeSession(await get<RuntimeSession>("runtime-session", id), event);
+      const session = reduceRuntimeSession(await get<RuntimeSession>("runtime-session", id), event, {
+        allowPreSessionExit: event.type === "runtime_session_exited",
+      });
       if (session) {
         await put("runtime-session", id, session);
         const contract = entityKindContracts.find(({ kind }) => kind === "runtime-session")!;
