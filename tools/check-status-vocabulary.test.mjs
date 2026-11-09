@@ -9,8 +9,9 @@ import {
   checkDaemonProjectionFreshness,
   checkGuiAdapterInvariants,
   checkKernelVocabularyBijection,
+  checkExternalOwnership,
+  checkInlineFieldCoverage,
   checkOwnerStoreAgreement,
-  checkRegisteredInlineAnchors,
   checkRegisterShape,
   checkStatusVocabularyCoverage,
   checkViewLocalDeclarations,
@@ -19,7 +20,10 @@ import {
   isAnchorImportedElsewhere,
   STATUS_DECLARATION_SUFFIX,
 } from "./check-status-vocabulary.mjs";
-import { statusVocabularyBaseline } from "./gate-allowlists/status-vocabulary-baseline.mjs";
+import {
+  statusVocabularyBaseline,
+  statusVocabularyUnownedRegister,
+} from "./gate-allowlists/status-vocabulary-baseline.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
 import { entityKindContracts } from "../packages/kernel/src/domain/entity-kind-registry.ts";
 
@@ -83,9 +87,10 @@ test("pure checks accept the real register, declarations, baseline, stores and v
       ...checkRegisterShape(register),
       ...storeIndex.findings,
       ...checkOwnerStoreAgreement(register, storeIndex.byId),
+      ...checkExternalOwnership(register, statusVocabularyUnownedRegister),
       ...checkKernelVocabularyBijection(register, realModules, sites),
       ...checkStatusVocabularyCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
-      ...checkRegisteredInlineAnchors(register, sources),
+      ...checkInlineFieldCoverage(register, sites, [], { baseline: statusVocabularyBaseline }),
       ...checkViewLocalDeclarations(register, sites, sources),
       ...checkGuiAdapterInvariants(register, sources),
       ...checkDaemonProjectionFreshness(register, sources),
@@ -308,6 +313,136 @@ test("declaration suffix pattern keeps matching the vocabulary families", () => 
   assert.equal(STATUS_DECLARATION_SUFFIX.test("factMemoryTags"), false);
 });
 
+test("bypass fixture: a new inline kernel status union is refused", () => {
+  const inlineSources = new Map([
+    ...sources,
+    ["packages/kernel/src/domain/review-probe.ts", 'export interface Probe { readonly status: "up" | "down"; }\n'],
+  ]);
+  const findings = checkInlineFieldCoverage(register, collectStatusDeclarationSites(inlineSources), [], {
+    baseline: statusVocabularyBaseline,
+  });
+  assert.ok(
+    findings.some((finding) => finding.includes("review-probe.ts##Probe.status") && finding.includes("unregistered")),
+    findings.join("\n"),
+  );
+});
+
+test("bypass fixture: an unregistered authored-document inline readiness union is refused", () => {
+  const inlineSources = new Map([
+    ...sources,
+    [
+      "packages/daemon/src/fleet/edge-doc-readiness.ts",
+      'export interface EdgeDocReadiness { readonly readinessState: "ready" | "awaiting_center"; }\n',
+    ],
+  ]);
+  const findings = checkInlineFieldCoverage(register, collectStatusDeclarationSites(inlineSources), [], {
+    baseline: statusVocabularyBaseline,
+  });
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("edge-doc-readiness.ts##EdgeDocReadiness.readinessState") &&
+        finding.includes("awaiting_center"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("bypass fixture: an external register row without an ownership form is refused", () => {
+  const module = "packages/daemon/src/review-probe.ts";
+  const row = {
+    id: "probe.state",
+    entity: "Probe",
+    field: "state",
+    module,
+    anchor: "ProbeState",
+    words: ["up", "down"],
+  };
+  const candidate = {
+    statusVocabularies: [...register.statusVocabularies, row],
+    statusWordRegister: [
+      ...register.statusWordRegister,
+      ...row.words.map((word) => ({
+        word,
+        entity: "Probe",
+        field: "state",
+        meaning: `The probe is ${word}.`,
+        divergence: "entity-scoped",
+      })),
+    ],
+  };
+  const findings = checkExternalOwnership(candidate, statusVocabularyUnownedRegister);
+  assert.ok(
+    findings.some((finding) => finding.includes("probe.state") && finding.includes("must declare mirrorOf")),
+    findings.join("\n"),
+  );
+});
+
+test("unowned-register baseline: owning a frozen external row makes the entry stale", () => {
+  const owned = {
+    ...register,
+    statusVocabularies: register.statusVocabularies.map((vocabulary) =>
+      vocabulary.id === "docCandidate.state" ? { ...vocabulary, ownerStore: "document.events" } : vocabulary,
+    ),
+  };
+  const findings = checkExternalOwnership(owned, statusVocabularyUnownedRegister);
+  assert.ok(
+    findings.some((finding) => finding.includes("docCandidate.state") && finding.includes("now owned")),
+    findings.join("\n"),
+  );
+});
+
+test("bypass fixture: Freshness and Availability families are scanned", () => {
+  const module = "packages/daemon/src/review-probe.ts";
+  for (const [name, body] of [
+    ["PeerFreshness", 'export type PeerFreshness = "fresh" | "stale";\n'],
+    ["PeerAvailability", 'export type PeerAvailability = "up" | "down";\n'],
+  ]) {
+    const findings = coverageFor(new Map([...sources, [module, body]]));
+    assert.ok(
+      findings.some((finding) => finding.includes(`${module}#${name}`) && finding.includes("unregistered")),
+      `${name}: ${findings.join("\n")}`,
+    );
+  }
+});
+
+test("bypass fixture: a single-quoted status union is scanned", () => {
+  const module = "packages/daemon/src/review-probe.ts";
+  const findings = coverageFor(new Map([...sources, [module, "export type PeerState = 'up' | 'down';\n"]]));
+  assert.ok(
+    findings.some((finding) => finding.includes(`${module}#PeerState`) && finding.includes("unregistered")),
+    findings.join("\n"),
+  );
+});
+
+test("bypass fixture: a status-word const alias is resolved and refused when unregistered", () => {
+  const wire = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
+  const appended = new Map([
+    ...sources,
+    [wire, `${sources.get(wire)}\nexport const timewarpStateWords = taskStatusWords;\n`],
+  ]);
+  const findings = coverageFor(appended);
+  assert.ok(
+    findings.some((finding) => finding.includes("timewarpStateWords") && finding.includes("unregistered")),
+    findings.join("\n"),
+  );
+});
+
+test("bypass fixture: a status-word const alias with an unknown target is refused", () => {
+  const wire = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
+  const appended = new Map([
+    ...sources,
+    [wire, `${sources.get(wire)}\nexport const timewarpStateWords = missingStates;\n`],
+  ]);
+  const findings = coverageFor(appended);
+  assert.ok(
+    findings.some(
+      (finding) => finding.includes("missingStates") && finding.includes("no unique registered vocabulary"),
+    ),
+    findings.join("\n"),
+  );
+});
+
 // dec_499E4E98A3D4754132B3BCA1E6 CH1: the wizard's local phase union is registered
 // as view-local instead of being special-cased by file path.
 
@@ -345,6 +480,47 @@ test("view-local negative fixture: exporting or importing the view-local type is
     findings.some(
       (finding) => finding.includes("EdgeJoinWizard.tsx#Phase") && finding.includes("must not be exported"),
     ),
+    findings.join("\n"),
+  );
+});
+
+test("view-local negative fixture: a local export alias cannot launder the type out of its module", () => {
+  const module = "packages/gui/src/renderer/components/EdgeJoinWizard.tsx";
+  const aliasedSources = new Map([
+    ...sources,
+    [module, `${sources.get(module)}\nexport type { Phase as WizardPhase };\n`],
+    [
+      "packages/gui/src/renderer/rogue-importer.ts",
+      'import type { WizardPhase } from "./components/EdgeJoinWizard.tsx";\nexport const phase: WizardPhase = "paste";\n',
+    ],
+  ]);
+  assert.equal(
+    isAnchorImportedElsewhere(module, "Phase", aliasedSources, { declaredExported: false }),
+    true,
+    "the exported alias must count as importing the view-local type",
+  );
+  const findings = checkViewLocalDeclarations(register, collectStatusDeclarationSites(aliasedSources), aliasedSources);
+  assert.ok(
+    findings.some(
+      (finding) => finding.includes("EdgeJoinWizard.tsx#Phase") && finding.includes("directly or through an alias"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+test("view-local negative fixture: an aliased persistent-write import is refused", () => {
+  const module = "packages/gui/src/renderer/components/EdgeJoinWizard.tsx";
+  const aliasedWrite = new Map([
+    ...sources,
+    [
+      module,
+      `${sources.get(module)}\nimport { writeFileSync as persist } from "node:fs";\npersist("/tmp/phase.json", "paste");\n`,
+    ],
+  ]);
+  assert.equal(hasPersistentWrite(aliasedWrite.get(module)), true);
+  const findings = checkViewLocalDeclarations(register, collectStatusDeclarationSites(aliasedWrite), aliasedWrite);
+  assert.ok(
+    findings.some((finding) => finding.includes("EdgeJoinWizard.tsx#Phase") && finding.includes("persistent write")),
     findings.join("\n"),
   );
 });
@@ -546,7 +722,9 @@ test("registered inline anchors still have to declare their registered words", (
       ),
     ],
   ]);
-  const findings = checkRegisteredInlineAnchors(register, drifted);
+  const findings = checkInlineFieldCoverage(register, collectStatusDeclarationSites(drifted), [], {
+    baseline: statusVocabularyBaseline,
+  });
   assert.ok(
     findings.some((finding) => finding.includes("dispatch.fallbackState") && finding.includes("no longer declares")),
     findings.join("\n"),
