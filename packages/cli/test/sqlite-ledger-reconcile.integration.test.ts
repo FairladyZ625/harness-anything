@@ -262,7 +262,6 @@ function generateCertificate(keyFile: string, certFile: string): void {
   );
 }
 
-// poll-spin-class: durable-poll - durable predicate read (function waitForAcceptedReceipt(); no product event port at the wait site
 function waitForAcceptedReceipt(
   root: string,
   userRoot: string,

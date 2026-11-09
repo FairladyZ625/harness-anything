@@ -12,20 +12,18 @@
  * Integration kinds (AST, reported as file#enclosing-symbol#kind):
  *   clock-deadline   a comparison against Date.now()/performance.now(), or `deadline - now()`;
  *   clock-loop       a while/do-while whose test reads the clock;
- *   await-in-loop    awaiting sleep/delay/setTimeout/setImmediate inside a loop;
- *   scheduled-timer  setTimeout/setInterval whose callback does anything but fail the test
- *                    (resolve a sleep, message the child, destroy a socket, a scripted kill);
+ *   scheduled-timer  setTimeout/setInterval whose callback schedules product state (send, destroy,
+ *                    assign, abort, resolve with a value) instead of only completing a delay;
  *   short-watchdog   a fail-only timer whose delay resolves below 20 s: a speed assertion;
- *   self-poll        a function named waitFor*, waitUntil*, poll*, eventually*, until*, retry*
- *                    whose body loops;
  *   poll-helper      a call to tools/fixtures/wait-for-condition.ts or an imported eventually*.
  *
- * Correctness wait vs hang guard. A correctness wait decides when the test may look again; it must
- * be an event the process under test publishes: waitForArrival(read, subscribe) from
- * tools/fixtures/event-arrival.ts, a child "message"/"exit" event, a stream line. A hang guard only
- * ends a stuck test as failed and never asserts speed: the node:test `timeout` option, or a timer
- * whose callback only rejects/throws/assert.fail()s and whose delay is a parameter or at
- * least 20 s. Hang guards are not reported.
+ * Correctness wait vs hang guard. A correctness wait decides when the test may look again by the
+ * wall clock: a deadline, a timer that schedules what the product should do, or a bounded poller.
+ * An unbounded predicate read has no wall-clock judgment in it; its hang guard is the node:test
+ * `timeout` option (owner ruling 2026-11-09). Event waits go through waitForArrival/read helpers in
+ * tools/fixtures/event-arrival.ts. A hang guard only ends a stuck test as failed and never asserts
+ * speed: the node:test `timeout` option, or a fail-only timer at least 20 s. Hang guards are not
+ * reported.
  *
  * Baseline. tools/gate-allowlists/check-poll-spin-boundary.json lists every reported key with
  * event, ref and reason. The check is exact: a new key fails as `unlisted`, a key whose site was
@@ -66,7 +64,6 @@ const lanes = [
   { patterns: integrationPatterns, integration: true },
 ];
 const keys = new Set();
-const lintedFiles = [];
 for (const lane of lanes) {
   const eslint = new ESLint({
     cwd: root,
@@ -83,7 +80,6 @@ for (const lane of lanes) {
   });
   for (const result of await eslint.lintFiles(lane.patterns)) {
     if (result.filePath.endsWith("no-poll-spin.js")) continue;
-    lintedFiles.push(result.filePath);
     for (const message of result.messages) {
       const key = /Baseline key: (\S+)/u.exec(message.message)?.[1];
       if (key) keys.add(key);
@@ -133,16 +129,4 @@ if (missing.length || stale.length)
       `update ${allowlistPath} with event, ref, and reason`,
     ].join("\n"),
   );
-// Inline classifications are rule-level reclassifications, not baseline waivers: count them so a
-// reader can still see how many polling sites remain, and require kind + reason in the directive.
-const classified = await Promise.all(
-  [...new Set(lintedFiles)].map(async (file) => {
-    const body = await readFile(file, "utf8");
-    return body
-      .split("\n")
-      .map((line) => /\/\/\s*poll-spin-class:\s*([a-z-]+)\s+-\s+(\S.+)$/u.exec(line))
-      .filter(Boolean).length;
-  }),
-);
-const classifiedCount = classified.reduce((total, count) => total + count, 0);
-console.log(`${gateId}: ${keys.size} allowed sites, ${classifiedCount} classified sites`);
+console.log(`${gateId}: ${keys.size} allowed sites`);

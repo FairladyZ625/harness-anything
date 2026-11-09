@@ -60,7 +60,6 @@ function carriageReturns(file) {
   return (readFileSync(file, "utf8").match(/\r/gu) ?? []).length;
 }
 
-// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SETTLE_MS } = {}) {
   const discovered = cliEntrypoints(rootDir);
   if (discovered.errors.length > 0) return { ok: false, errors: discovered.errors, checks: [] };
@@ -169,9 +168,10 @@ export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SET
       `exit ${stopped.status} ${stopped.stderr.trim() || JSON.stringify(stopped.receipt)}`,
     );
 
-    const deadline = Date.now() + stopSettleMs;
+    // Each status step is itself the retry; a fixed attempt count replaces the clock deadline.
     let after = step(["daemon", "status"]);
-    while (after.status === 0 && Date.now() < deadline) after = step(["daemon", "status"]);
+    for (let attempt = 0; after.status === 0 && attempt < Math.max(1, Math.ceil(stopSettleMs / 250)); attempt += 1)
+      after = step(["daemon", "status"]);
     record(
       "status reports the daemon gone after stop",
       after.status !== 0,

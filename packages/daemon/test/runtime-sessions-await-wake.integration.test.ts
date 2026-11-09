@@ -104,7 +104,6 @@ test("a parked sessions.await does not re-read settlement for provider activity 
         session_id: providerSessionId,
         message: { content: [{ type: "text", text: `activity-frame-${index}` }] },
       });
-      // poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 2));); no product event port at the wait site
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
     // Every frame has been consumed and its activity signal relayed before the count is taken.
@@ -116,7 +115,6 @@ test("a parked sessions.await does not re-read settlement for provider activity 
           : null,
       watchDirectoryArrival(parent),
     );
-    // poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 50));); no product event port at the wait site
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(settled, false, "activity frames must not settle a live session");
     assert.ok(

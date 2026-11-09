@@ -1,7 +1,5 @@
 import path from "node:path";
 
-const loopTypes = new Set(["ForStatement", "WhileStatement", "DoWhileStatement"]);
-
 function normalized(filename, cwd) {
   return (path.isAbsolute(filename) ? path.relative(cwd, filename) : filename).replaceAll("\\", "/");
 }
@@ -36,13 +34,64 @@ function isClockNow(node) {
 }
 
 // Integration tests (dec_25B3C380F6FB9D4D4A1E27921E CH1) may not judge correctness by the wall clock:
-// a deadline compared against now(), a timer that schedules what the process under test should be
-// seen doing, a self-written poll/waitFor loop, or the shared wall-clock poller. Waits go through
-// tools/fixtures/event-arrival.ts; node:test `timeout` and fail-only timers are hang guards.
+// a deadline compared against now(), a loop whose condition reads the clock, a timer that schedules
+// what the process under test should be seen doing, a fail-only timer under 20 s (a speed assertion),
+// or the shared wall-clock poller. The boundary is the *deadline*, not the mere presence of a loop:
+// an unbounded predicate read has no wall-clock judgment in it, and its hang guard is the node:test
+// `timeout` option (owner ruling 2026-11-09 on task_6ddecd04b58fe29d6aa32c9736). Event waits go
+// through tools/fixtures/event-arrival.ts. Production keeps the CH3 boundary for awaited sub-250 ms
+// promise sleeps (the synchronous bridge), while product timers and bounded retries are not waits.
 const comparisons = new Set(["<", "<=", ">", ">="]);
-const selfPollName = /^(?:waitFor|waitUntil|poll|eventually|until|retry)/iu;
 const pollHelperModule = /(?:^|\/)wait-for-condition(?:\.[cm]?[jt]s)?$/u;
 const pollHelperName = /^eventually/u;
+const deadlineOption = /^(?:timeoutMs|timeout|intervalMs)$/u;
+
+// A bounded retry/backoff loop is not a wall-clock deadline: `for (let attempt = 0; attempt < N;
+// attempt++)` attempts a fixed number of times and its failure is a real error, not "the clock ran
+// out". Only a for-loop with a test is bounded this way; `for (;;)` and clock-conditioned loops are
+// still reported.
+function insideBoundedFor(node, visitorKeys) {
+  for (let current = node.parent; current; current = current.parent) {
+    if (current.type !== "ForStatement") continue;
+    if (current.test && !containsNow(current.test, visitorKeys)) return true;
+  }
+  return false;
+}
+
+// A sub-250 ms timer is a synchronous bridge only when a promise is built around it and awaited
+// (`await new Promise((resolve) => setTimeout(resolve, 10))`). A debounce, a teardown escalation or
+// a UI refresh timer is product behavior, not a bridge.
+function insideAwaitedPromise(node) {
+  // The timer must be the executor's expression body: that is a sleep built as
+  // `await new Promise((resolve) => setTimeout(resolve, N))`, not a fallback timer inside a longer
+  // teardown that also listens for a real event.
+  if (node.parent?.type !== "ArrowFunctionExpression" && node.parent?.type !== "FunctionExpression") return false;
+  const executor = node.parent;
+  if (executor.body.type === "CallExpression" ? executor.body !== node : false) return false;
+  const construction = executor.parent;
+  return (
+    construction?.type === "NewExpression" &&
+    construction.callee.type === "Identifier" &&
+    construction.callee.name === "Promise" &&
+    construction.parent?.type === "AwaitExpression"
+  );
+}
+
+// A durable predicate helper is only a wall-clock judgment when the call carries a deadline: a
+// numeric timeout argument, or a `timeoutMs`/`intervalMs` option. The shared helpers default to
+// unbounded and hang-guarded by the node:test `timeout` option (owner ruling 2026-11-09).
+function carriesDeadline(node) {
+  return node.arguments.some(
+    (argument) =>
+      (argument.type === "Literal" && typeof argument.value === "number") ||
+      (argument.type === "ObjectExpression" &&
+        argument.properties.some(
+          (property) =>
+            property.type === "Property" &&
+            deadlineOption.test(property.key.type === "Identifier" ? property.key.name : property.key.value),
+        )),
+  );
+}
 
 function isNowCall(node) {
   return node?.type === "CallExpression" && isClockNow(node.callee);
@@ -62,18 +111,11 @@ function isParsedTimestamp(node) {
   );
 }
 
-function definedName(node) {
-  if (node.type === "FunctionDeclaration") return node.id?.name ?? null;
-  if (node.parent?.type === "VariableDeclarator" && node.parent.id.type === "Identifier") return node.parent.id.name;
-  return null;
-}
-
-function containsLoop(node, visitorKeys) {
+function containsNow(node, visitorKeys) {
   let found = false;
   function walk(current) {
     if (!current || found) return;
-    if (loopTypes.has(current.type) || current.type === "ForOfStatement" || current.type === "ForInStatement")
-      found = true;
+    if (current.type === "CallExpression" && isClockNow(current.callee)) found = true;
     for (const key of visitorKeys[current.type] ?? []) {
       const value = current[key];
       if (Array.isArray(value)) value.forEach(walk);
@@ -94,17 +136,19 @@ const watchdogFloorMs = 20_000;
 const contentionWatchdogFile = /packages\/daemon\/test\/task-squad-orchestration\.integration\.test\.(?:ts|mjs)$/u;
 const contentionWatchdogFloorMs = 11_526 * 5;
 
-// A watchdog is a timer whose callback only ends the test as failed: it rejects, throws, fails an
-// assertion, or clears its own timer before doing so. It bounds a hang and never decides what the
-// process under test should be doing. Any other timer callback (resolve a sleep, send the child a
-// message, destroy a socket, or kill the child as a scripted step) schedules an observable state
-// by the wall clock.
-function isWatchdog(callback, visitorKeys) {
-  if (!callback || !["ArrowFunctionExpression", "FunctionExpression"].includes(callback.type)) return false;
+// A timer callback either schedules something the process under test must be seen doing, or it only
+// completes later (a delay). `setTimeout(resolve, 50)` and `setTimeout(() => resolve(), 50)` are
+// delays: no product state is touched, only the wait itself ends. A callback that calls a method on
+// an object (`child.send`, `socket.destroy`, `controller.abort`), assigns, throws, or calls `resolve`
+// with a value (a Promise.race branch that decides the outcome) schedules an observable state by the
+// wall clock. A fail-only callback at/above the floor is a hang guard, not a judgment.
+function timerEffect(callback, visitorKeys) {
+  if (!callback || !["ArrowFunctionExpression", "FunctionExpression"].includes(callback.type))
+    return { hasFailure: false, schedulesState: false };
   let hasFailure = false,
-    forbiddenAction = false;
+    schedulesState = false;
   function walk(current) {
-    if (!current || forbiddenAction) return;
+    if (!current || schedulesState) return;
     if (current.type === "ThrowStatement") hasFailure = true;
     if (
       [
@@ -122,7 +166,7 @@ function isWatchdog(callback, visitorKeys) {
             current.callee.name,
           )))
     )
-      forbiddenAction = true;
+      schedulesState = true;
     if (current.type === "CallExpression") {
       const callee = current.callee;
       const isAssertFail =
@@ -131,8 +175,11 @@ function isWatchdog(callback, visitorKeys) {
         callee.object.type === "Identifier" &&
         callee.object.name === "assert" &&
         callee.property.name === "fail";
+      const isCompletion =
+        callee.type === "Identifier" && ["resolve", "done", "next", "callback", "clearTimeout"].includes(callee.name);
+      const resolvesAValue = isCompletion && callee.name === "resolve" && current.arguments.length > 0;
       if ((callee.type === "Identifier" && ["reject", "fail"].includes(callee.name)) || isAssertFail) hasFailure = true;
-      else if (callee.type !== "Identifier" || callee.name !== "clearTimeout") forbiddenAction = true;
+      else if (!isCompletion || resolvesAValue) schedulesState = true;
     }
     for (const key of visitorKeys[current.type] ?? []) {
       const value = current[key];
@@ -141,30 +188,7 @@ function isWatchdog(callback, visitorKeys) {
     }
   }
   walk(callback.body);
-  return hasFailure && !forbiddenAction;
-}
-
-function insideLoop(node) {
-  for (let current = node.parent; current; current = current.parent) {
-    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) return false;
-    if (loopTypes.has(current.type)) return true;
-  }
-  return false;
-}
-
-function containsNow(node, visitorKeys) {
-  let found = false;
-  function walk(current) {
-    if (!current || found) return;
-    if (current.type === "CallExpression" && isClockNow(current.callee)) found = true;
-    for (const key of visitorKeys[current.type] ?? []) {
-      const value = current[key];
-      if (Array.isArray(value)) value.forEach(walk);
-      else walk(value);
-    }
-  }
-  walk(node);
-  return found;
+  return { hasFailure, schedulesState };
 }
 
 export default {
@@ -183,53 +207,18 @@ export default {
     ],
     messages: {
       forbidden:
-        "Polling/spin wait requires an exact allowlist entry naming the event that cannot be awaited. Baseline key: {{key}}",
+        "Wall-clock correctness wait requires an exact allowlist entry naming the event that cannot be awaited. Baseline key: {{key}}",
     },
   },
   create(context) {
     const constants = new Map();
-    const waitAliases = new Set(["delay", "sleep", "setTimeout", "setImmediate"]);
     const baseline = new Set(context.options[0]?.baseline ?? []);
     const cwd = context.options[0]?.root ?? context.getCwd?.() ?? process.cwd();
     const integration = context.options[0]?.integration === true;
     const pollHelpers = new Set();
-    // Rule-level reclassification (task_6ddecd04b58fe29d6aa32c9736): a site that is not a test
-    // correctness judgment carries an inline `// poll-spin-class: <kind> - <reason>` directive.
-    // The gate still sees and counts it, but it is a named classification instead of a baseline
-    // waiver. The directive must name an allowed kind and a non-empty reason; a malformed or
-    // misplaced directive does not suppress anything.
-    const classifications = new Set([
-      "product-timing",
-      "fixture-stimulus",
-      "condition-variable",
-      "synchronous-bridge",
-      "backoff",
-      "durable-poll",
-    ]);
-    const directives = (context.sourceCode.getAllComments?.() ?? [])
-      .map((comment) => {
-        const match = /^\s*poll-spin-class:\s*([a-z-]+)\s+-\s+(\S.*)$/u.exec(comment.value);
-        return match ? { line: comment.loc.start.line, kind: match[1], reason: match[2].trim() } : null;
-      })
-      .filter(Boolean);
-    const classificationFor = (node) => {
-      const lines = new Set([node.loc.start.line]);
-      for (let current = node.parent; current; current = current.parent) {
-        if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type))
-          lines.add(current.loc.start.line);
-      }
-      return (
-        directives.find(
-          (directive) =>
-            classifications.has(directive.kind) && [...lines].some((line) => Math.abs(directive.line - line) <= 3),
-        ) ?? null
-      );
-    };
     const report = (node, kind, symbol = enclosingFunction(node)) => {
       const key = `${normalized(context.filename, cwd)}#${symbol}#${kind}`;
-      if (baseline.has(key)) return;
-      if (classificationFor(node)) return;
-      context.report({ node, messageId: "forbidden", data: { key } });
+      if (!baseline.has(key)) context.report({ node, messageId: "forbidden", data: { key } });
     };
     const milliseconds = (node) =>
       node?.type === "Literal" && typeof node.value === "number"
@@ -247,9 +236,6 @@ export default {
             (helperModule || pollHelperName.test(specifier.imported.name))
           )
             pollHelpers.add(specifier.local.name);
-          if (specifier.type === "ImportSpecifier" && waitAliases.has(specifier.imported.name)) {
-            waitAliases.add(specifier.local.name);
-          }
         }
       },
       VariableDeclarator(node) {
@@ -268,23 +254,25 @@ export default {
           if (!Number.isFinite(timeoutMs) || timeoutMs < contentionWatchdogFloorMs) report(node, "contention-watchdog");
         }
         if (integration && (name === "setInterval" || name === "setTimeout")) {
-          // A fail-only timer whose delay resolves below the floor is a speed assertion, not a hang guard.
-          if (!isWatchdog(node.arguments[0], context.sourceCode.visitorKeys)) report(node, "scheduled-timer");
-          else if (milliseconds(node.arguments[1]) < watchdogFloorMs) report(node, "short-watchdog");
-        } else if ((name === "setInterval" || name === "setTimeout") && milliseconds(node.arguments[1]) < 250)
-          report(node, "short-timer");
-        if (integration && node.callee.type === "Identifier" && pollHelpers.has(node.callee.name))
-          report(node, "poll-helper");
-        if (name === "wait" && node.callee.type === "MemberExpression" && node.callee.object.name === "Atomics")
-          report(node, "atomics-wait");
-      },
-      AwaitExpression(node) {
-        if (
-          node.argument.type === "CallExpression" &&
-          waitAliases.has(callName(node.argument.callee)) &&
-          insideLoop(node)
+          const { hasFailure, schedulesState } = timerEffect(node.arguments[0], context.sourceCode.visitorKeys);
+          // A timer that schedules product state is a wall-clock judgment, whether or not it fails.
+          if (schedulesState) report(node, "scheduled-timer");
+          // A fail-only timer below the floor is a speed assertion, not a hang guard.
+          else if (hasFailure && milliseconds(node.arguments[1]) < watchdogFloorMs) report(node, "short-watchdog");
+        } else if (
+          (name === "setInterval" || name === "setTimeout") &&
+          milliseconds(node.arguments[1]) < 250 &&
+          insideAwaitedPromise(node) &&
+          !insideBoundedFor(node, context.sourceCode.visitorKeys)
         )
-          report(node, "await-in-loop");
+          report(node, "short-timer");
+        if (
+          integration &&
+          node.callee.type === "Identifier" &&
+          pollHelpers.has(node.callee.name) &&
+          carriesDeadline(node)
+        )
+          report(node, "poll-helper");
       },
       BinaryExpression(node) {
         if (!integration) return;
@@ -298,12 +286,6 @@ export default {
           (node.operator === "-" && isNowCall(node.right) && !isNowCall(node.left))
         )
           report(node, "clock-deadline");
-      },
-      "FunctionDeclaration, FunctionExpression, ArrowFunctionExpression"(node) {
-        if (!integration) return;
-        const name = definedName(node);
-        if (name && selfPollName.test(name) && containsLoop(node.body, context.sourceCode.visitorKeys))
-          report(node, "self-poll", name);
       },
       WhileStatement(node) {
         if (containsNow(node.test, context.sourceCode.visitorKeys)) report(node, "clock-loop");

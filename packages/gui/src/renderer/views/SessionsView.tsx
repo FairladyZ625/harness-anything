@@ -113,7 +113,6 @@ function renderSessionsPageHeader({ countsNote, headerActions }: SessionsHeaderS
   return <PageHeader title={t("agentRuntime.sessionsTitle")} note={countsNote} actions={headerActions} />;
 }
 
-// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 export function SessionsView({
   repoId,
   relations,

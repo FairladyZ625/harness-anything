@@ -35,225 +35,229 @@ import {
 // ruling contract and before the reviewer note (see taskMissionSections).
 const workerWorktreeBoundary = "# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。";
 
-test("Delegated dispatches archive identity, mission and separate reports and reject invalid delegates", async (context) => {
-  const fixture = createRuntimeFixture(context);
-  const { parent, root, env, userRoot, daemonId } = fixture;
-  installIdentities(parent, root, env);
-  // The stub worker completes its provider turn but never commits, so every task-bound dispatch in
-  // this file settles stopped and each wait/report command honestly exits 1 (F-4C182EEE).
-  const runStopped = (args: readonly string[]): Record<string, unknown> => {
-    const result = runMaybe(root, env, args);
-    assert.equal(result.status, 1, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
-    return result.receipt;
-  };
-  const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "archive");
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const first = runStopped([
-    "agent",
-    "run",
-    "terra",
-    "--prompt",
-    "first report",
-    "--cwd",
-    ".",
-    "--task",
-    taskId,
-    "--no-stream",
-  ]);
-  const firstDispatchId = String((first.spawn as Record<string, unknown>).dispatchId);
-  await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${firstDispatchId}.json`));
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const assembledPromptPrefix =
-      "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
-    boundArgs = [
+test(
+  "Delegated dispatches archive identity, mission and separate reports and reject invalid delegates",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { parent, root, env, userRoot, daemonId } = fixture;
+    installIdentities(parent, root, env);
+    // The stub worker completes its provider turn but never commits, so every task-bound dispatch in
+    // this file settles stopped and each wait/report command honestly exits 1 (F-4C182EEE).
+    const runStopped = (args: readonly string[]): Record<string, unknown> => {
+      const result = runMaybe(root, env, args);
+      assert.equal(result.status, 1, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
+      return result.receipt;
+    };
+    const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "archive");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const first = runStopped([
+      "agent",
+      "run",
+      "terra",
+      "--prompt",
+      "first report",
+      "--cwd",
+      ".",
+      "--task",
+      taskId,
+      "--no-stream",
+    ]);
+    const firstDispatchId = String((first.spawn as Record<string, unknown>).dispatchId);
+    await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${firstDispatchId}.json`));
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const assembledPromptPrefix =
+        "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
+      boundArgs = [
+        "agent",
+        "run",
+        "fable",
+        "--to",
+        "terra",
+        "--prompt",
+        "bound prompt",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--no-stream",
+      ],
+      bound = runStopped(boundArgs),
+      boundSpawn = bound.spawn as Record<string, unknown>,
+      boundDispatchId = String(boundSpawn.dispatchId),
+      boundDispatch = JSON.parse(
+        await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`)),
+      ) as Record<string, unknown>;
+    // #4376: a caller that lost the first receipt retries the same recovery through the real CLI and
+    // daemon RPC; it gets the receipt of the dispatch already produced, and no second worker runs.
+    const boundReplay = runMaybe(root, env, boundArgs),
+      boundReplaySpawn = boundReplay.receipt.spawn as Record<string, unknown> | undefined;
+    assert.equal(boundReplaySpawn?.dispatchId, boundDispatchId, JSON.stringify(boundReplay.receipt));
+    assert.equal(boundReplaySpawn?.opId, boundSpawn.opId, "the replay answers with the original operation");
+    assert.equal(boundReplaySpawn?.status, "accepted_durable", JSON.stringify(boundReplaySpawn));
+    assert.equal((boundReplaySpawn?.recovery as Record<string, unknown> | undefined)?.replayed, true);
+    assert.equal(
+      (runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>).length,
+      2,
+      "the replay leaves the first and the recovered dispatch only",
+    );
+    const assembledPrompt = await readPublishedDispatch(path.join(artifactRoot, "missions", `${boundDispatchId}.md`));
+    assert.ok(assembledPrompt.startsWith(assembledPromptPrefix), assembledPrompt);
+    assert.match(assembledPrompt, /# Worker Role/u);
+    assertTaskMissionPrompt(assembledPrompt, {
+      repoId: "runtime-cli",
+      taskId,
+      workerRoot: realpathSync(root),
+      taskPackageRoot: path.join(realpathSync(root), packagePath),
+      daemonUserRoot: userRoot,
+      daemonId,
+      runtimeSessionId: String(bound.runtimeSessionId),
+      mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(boundDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
+      continuationContext: true,
+    });
+    assert.ok(
+      assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
+        assembledPrompt.indexOf("prompt://review") < assembledPrompt.indexOf("# Standard Task") &&
+        assembledPrompt.indexOf("# Standard Task") < assembledPrompt.indexOf("# Mission"),
+      "a squad-delegated worker must keep its role, prompts, and preset through the real CLI",
+    );
+    const sameNamedReportDispatches = [firstDispatchId, boundDispatchId],
+      sameNamedReportPaths = sameNamedReportDispatches.map((dispatchId) =>
+        path.join(artifactRoot, "reports", `${dispatchId}.md`),
+      ),
+      sameNamedReportArchives = sameNamedReportDispatches.map(
+        (dispatchId) =>
+          JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${dispatchId}.json`), "utf8")) as Record<
+            string,
+            unknown
+          >,
+      );
+    const evidenceRoot = path.join(root, packagePath, "artifacts", "dispatches", boundDispatchId);
+    assert.equal(existsSync(path.join(evidenceRoot, "stream.jsonl")), true, "abnormal stream evidence is published");
+    assert.equal(
+      existsSync(path.join(evidenceRoot, "request-trace.json")),
+      true,
+      "abnormal settlement publishes the correlation trace",
+    );
+    assert.notEqual(firstDispatchId, boundDispatchId, "independent runtime reports must not share an artifact key");
+    assert.equal(sameNamedReportPaths.every(existsSync), true, "each runtime report must remain materialized");
+    assert.equal(
+      sameNamedReportArchives.every(
+        (archive, index) =>
+          archive.dispatchId === sameNamedReportDispatches[index] &&
+          archive.taskId === taskId &&
+          archive.executionId === executionId,
+      ),
+      true,
+      "each dispatch-scoped report must retain its own Task execution owner",
+    );
+    assert.notEqual(
+      readFileSync(sameNamedReportPaths[0]!, "utf8"),
+      readFileSync(sameNamedReportPaths[1]!, "utf8"),
+      "separate report bodies must not overwrite one another",
+    );
+    assert.equal(
+      await readPublishedDispatch(path.join(artifactRoot, "reports", `${boundDispatchId}.md`)),
+      `final:${assembledPrompt}`,
+    );
+    assert.deepEqual(boundDispatch, {
+      schema: "runtime-dispatch/v1",
+      dispatchId: boundDispatchId,
+      taskId,
+      executionId,
+      agentId: "terra",
+      agentName: "Terra",
+      delegatedByAgentId: "fable",
+      delegatedByAgentName: "Fable",
+      squadId: "core-squad",
+      instanceId: "cli-worker",
+      model: "runtime-test-model",
+      reasoningEffort: null,
+      fast: false,
+      cwd: realpathSync(root),
+      missionRef: `${packagePath.replace(/^harness\//u, "")}/artifacts/missions/${boundDispatchId}.md`,
+      runtimeSessionId: bound.runtimeSessionId,
+      providerSessionId: "provider-cli-session",
+      startedAt: boundDispatch.startedAt,
+      endedAt: boundDispatch.endedAt,
+      outcome: "stopped",
+      exitCode: 0,
+      lastConclusion: `final:${assembledPrompt}`.trim().slice(0, 8_192),
+      exitHead: null,
+      resultRef: (bound.result as Record<string, unknown>).ref,
+      eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl`,
+      // A task-bound worker that exits stopped is an abnormal terminal in this task's contract, so
+      // settlement publishes the redacted stream and correlation trace beside the dispatch record.
+      forensicsRef: {
+        stream: `${packagePath.replace(/^harness\//u, "")}/artifacts/dispatches/${boundDispatchId}/stream.jsonl`,
+        requestTrace: `${packagePath.replace(/^harness\//u, "")}/artifacts/dispatches/${boundDispatchId}/request-trace.json`,
+      },
+      attemptGroupId: boundDispatchId,
+      attemptIndex: 0,
+      provider: { instance: "cli-worker", model: "runtime-test-model" },
+      classification: "worker_stop",
+      reason: "Worker stopped after a normal exit without a submitted delivery.",
+    });
+    assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
+    assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
+    assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:OPENAI_API_KEY|sk-runtime-secret-1234567890)/u);
+    assert.ok(readDispatchRecords(root, boundDispatchId).length > 0);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const dispatchRow = (runStopped(["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
+      (row) => row.dispatchId === boundDispatchId,
+    );
+    assert.deepEqual(
+      dispatchRow && {
+        agentId: dispatchRow.agentId,
+        delegatedByAgentId: dispatchRow.delegatedByAgentId,
+        squadId: dispatchRow.squadId,
+      },
+      { agentId: "terra", delegatedByAgentId: "fable", squadId: "core-squad" },
+    );
+    const outsider = runMaybe(root, env, [
       "agent",
       "run",
       "fable",
       "--to",
-      "terra",
+      "outsider",
       "--prompt",
-      "bound prompt",
+      "reject outsider",
       "--cwd",
       ".",
       "--task",
       taskId,
       ...recoverLatest(root, env, taskId),
       "--no-stream",
-    ],
-    bound = runStopped(boundArgs),
-    boundSpawn = bound.spawn as Record<string, unknown>,
-    boundDispatchId = String(boundSpawn.dispatchId),
-    boundDispatch = JSON.parse(
-      await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`)),
-    ) as Record<string, unknown>;
-  // #4376: a caller that lost the first receipt retries the same recovery through the real CLI and
-  // daemon RPC; it gets the receipt of the dispatch already produced, and no second worker runs.
-  const boundReplay = runMaybe(root, env, boundArgs),
-    boundReplaySpawn = boundReplay.receipt.spawn as Record<string, unknown> | undefined;
-  assert.equal(boundReplaySpawn?.dispatchId, boundDispatchId, JSON.stringify(boundReplay.receipt));
-  assert.equal(boundReplaySpawn?.opId, boundSpawn.opId, "the replay answers with the original operation");
-  assert.equal(boundReplaySpawn?.status, "accepted_durable", JSON.stringify(boundReplaySpawn));
-  assert.equal((boundReplaySpawn?.recovery as Record<string, unknown> | undefined)?.replayed, true);
-  assert.equal(
-    (runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>).length,
-    2,
-    "the replay leaves the first and the recovered dispatch only",
-  );
-  const assembledPrompt = await readPublishedDispatch(path.join(artifactRoot, "missions", `${boundDispatchId}.md`));
-  assert.ok(assembledPrompt.startsWith(assembledPromptPrefix), assembledPrompt);
-  assert.match(assembledPrompt, /# Worker Role/u);
-  assertTaskMissionPrompt(assembledPrompt, {
-    repoId: "runtime-cli",
-    taskId,
-    workerRoot: realpathSync(root),
-    taskPackageRoot: path.join(realpathSync(root), packagePath),
-    daemonUserRoot: userRoot,
-    daemonId,
-    runtimeSessionId: String(bound.runtimeSessionId),
-    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(boundDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
-    continuationContext: true,
-  });
-  assert.ok(
-    assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
-      assembledPrompt.indexOf("prompt://review") < assembledPrompt.indexOf("# Standard Task") &&
-      assembledPrompt.indexOf("# Standard Task") < assembledPrompt.indexOf("# Mission"),
-    "a squad-delegated worker must keep its role, prompts, and preset through the real CLI",
-  );
-  const sameNamedReportDispatches = [firstDispatchId, boundDispatchId],
-    sameNamedReportPaths = sameNamedReportDispatches.map((dispatchId) =>
-      path.join(artifactRoot, "reports", `${dispatchId}.md`),
-    ),
-    sameNamedReportArchives = sameNamedReportDispatches.map(
-      (dispatchId) =>
-        JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${dispatchId}.json`), "utf8")) as Record<
-          string,
-          unknown
-        >,
-    );
-  const evidenceRoot = path.join(root, packagePath, "artifacts", "dispatches", boundDispatchId);
-  assert.equal(existsSync(path.join(evidenceRoot, "stream.jsonl")), true, "abnormal stream evidence is published");
-  assert.equal(
-    existsSync(path.join(evidenceRoot, "request-trace.json")),
-    true,
-    "abnormal settlement publishes the correlation trace",
-  );
-  assert.notEqual(firstDispatchId, boundDispatchId, "independent runtime reports must not share an artifact key");
-  assert.equal(sameNamedReportPaths.every(existsSync), true, "each runtime report must remain materialized");
-  assert.equal(
-    sameNamedReportArchives.every(
-      (archive, index) =>
-        archive.dispatchId === sameNamedReportDispatches[index] &&
-        archive.taskId === taskId &&
-        archive.executionId === executionId,
-    ),
-    true,
-    "each dispatch-scoped report must retain its own Task execution owner",
-  );
-  assert.notEqual(
-    readFileSync(sameNamedReportPaths[0]!, "utf8"),
-    readFileSync(sameNamedReportPaths[1]!, "utf8"),
-    "separate report bodies must not overwrite one another",
-  );
-  assert.equal(
-    await readPublishedDispatch(path.join(artifactRoot, "reports", `${boundDispatchId}.md`)),
-    `final:${assembledPrompt}`,
-  );
-  assert.deepEqual(boundDispatch, {
-    schema: "runtime-dispatch/v1",
-    dispatchId: boundDispatchId,
-    taskId,
-    executionId,
-    agentId: "terra",
-    agentName: "Terra",
-    delegatedByAgentId: "fable",
-    delegatedByAgentName: "Fable",
-    squadId: "core-squad",
-    instanceId: "cli-worker",
-    model: "runtime-test-model",
-    reasoningEffort: null,
-    fast: false,
-    cwd: realpathSync(root),
-    missionRef: `${packagePath.replace(/^harness\//u, "")}/artifacts/missions/${boundDispatchId}.md`,
-    runtimeSessionId: bound.runtimeSessionId,
-    providerSessionId: "provider-cli-session",
-    startedAt: boundDispatch.startedAt,
-    endedAt: boundDispatch.endedAt,
-    outcome: "stopped",
-    exitCode: 0,
-    lastConclusion: `final:${assembledPrompt}`.trim().slice(0, 8_192),
-    exitHead: null,
-    resultRef: (bound.result as Record<string, unknown>).ref,
-    eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl`,
-    // A task-bound worker that exits stopped is an abnormal terminal in this task's contract, so
-    // settlement publishes the redacted stream and correlation trace beside the dispatch record.
-    forensicsRef: {
-      stream: `${packagePath.replace(/^harness\//u, "")}/artifacts/dispatches/${boundDispatchId}/stream.jsonl`,
-      requestTrace: `${packagePath.replace(/^harness\//u, "")}/artifacts/dispatches/${boundDispatchId}/request-trace.json`,
-    },
-    attemptGroupId: boundDispatchId,
-    attemptIndex: 0,
-    provider: { instance: "cli-worker", model: "runtime-test-model" },
-    classification: "worker_stop",
-    reason: "Worker stopped after a normal exit without a submitted delivery.",
-  });
-  assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
-  assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
-  assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:OPENAI_API_KEY|sk-runtime-secret-1234567890)/u);
-  assert.ok(readDispatchRecords(root, boundDispatchId).length > 0);
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const dispatchRow = (runStopped(["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
-    (row) => row.dispatchId === boundDispatchId,
-  );
-  assert.deepEqual(
-    dispatchRow && {
-      agentId: dispatchRow.agentId,
-      delegatedByAgentId: dispatchRow.delegatedByAgentId,
-      squadId: dispatchRow.squadId,
-    },
-    { agentId: "terra", delegatedByAgentId: "fable", squadId: "core-squad" },
-  );
-  const outsider = runMaybe(root, env, [
-    "agent",
-    "run",
-    "fable",
-    "--to",
-    "outsider",
-    "--prompt",
-    "reject outsider",
-    "--cwd",
-    ".",
-    "--task",
-    taskId,
-    ...recoverLatest(root, env, taskId),
-    "--no-stream",
-  ]);
-  assert.equal(outsider.status, 1);
-  assert.equal(outsider.receipt.code, "squad_member_not_found");
-  // An explicit instance pin must still serve the target Agent's declaration; a foreign
-  // runtime kind cannot be borrowed by naming the instance directly.
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const crossKind = runMaybe(root, env, [
-    "agent",
-    "run",
-    "fable",
-    "--to",
-    "opencode-worker",
-    "--instance",
-    "cli-worker",
-    "--prompt",
-    "cross-kind dispatch",
-    "--cwd",
-    ".",
-    "--task",
-    taskId,
-    ...recoverLatest(root, env, taskId),
-    "--no-stream",
-  ]);
-  assert.equal(crossKind.status, 1, JSON.stringify(crossKind));
-  assert.equal(crossKind.receipt.code, "agent_runtime_unavailable", JSON.stringify(crossKind));
-});
+    ]);
+    assert.equal(outsider.status, 1);
+    assert.equal(outsider.receipt.code, "squad_member_not_found");
+    // An explicit instance pin must still serve the target Agent's declaration; a foreign
+    // runtime kind cannot be borrowed by naming the instance directly.
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const crossKind = runMaybe(root, env, [
+      "agent",
+      "run",
+      "fable",
+      "--to",
+      "opencode-worker",
+      "--instance",
+      "cli-worker",
+      "--prompt",
+      "cross-kind dispatch",
+      "--cwd",
+      ".",
+      "--task",
+      taskId,
+      ...recoverLatest(root, env, taskId),
+      "--no-stream",
+    ]);
+    assert.equal(crossKind.status, 1, JSON.stringify(crossKind));
+    assert.equal(crossKind.receipt.code, "agent_runtime_unavailable", JSON.stringify(crossKind));
+  },
+);
 
-test("Runtime report is archived after the worker submits its execution", async (context) => {
+test("Runtime report is archived after the worker submits its execution", { timeout: 300_000 }, async (context) => {
   const fixture = createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env);
   const { root, env } = fixture;
@@ -311,7 +315,6 @@ test("Runtime report is archived after the worker submits its execution", async 
     submittedReportPath = `${submittedPackagePath}/artifacts/reports/${submittedDispatchId}.md`;
   // The report is archived by a doc-sync publication after the runtime settles, and the dispatch
   // read derives reportPath from the archived file, so the row is read only after the file exists.
-  // poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(path.join(root, submittedReportPath));); no product event port at the wait site
   await eventuallyFile(path.join(root, submittedReportPath));
   assert.equal(existsSync(path.join(root, submittedReportPath)), true);
   const submittedDispatch = (
@@ -320,398 +323,383 @@ test("Runtime report is archived after the worker submits its execution", async 
   assert.equal(submittedDispatch?.reportPath, submittedReportPath);
 });
 
-test("Task-bound batch enforces one lease holder and archives successful dispatches", async (context) => {
-  const fixture = createRuntimeFixture(context);
-  const { parent, root, env } = fixture;
-  installIdentities(parent, root, env);
-  const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "batch");
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
-  writeFileSync(path.join(artifactRoot, "missions", "existing-mission.md"), "existing mission");
-  run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/artifacts/missions/existing-mission.md`]);
-  const tracker = path.join(root, ".batch-tracker");
-  writeFileSync(
-    path.join(root, "batch.json"),
-    JSON.stringify(
-      {
-        schema: "runtime-batch/v1",
-        maxConcurrency: 2,
-        dispatches: [
-          { instance: "cli-worker", agent: "fable", to: "missing-agent", prompt: "must reject" },
-          {
-            instance: "cli-worker",
-            agent: "fable",
-            to: "terra",
-            model: "runtime-test-model",
-            effort: "high",
-            fast: true,
-            prompt: "batch hold one",
-            task: taskId,
-          },
-          {
-            instance: "cli-worker",
-            agent: "fable",
-            to: "terra",
-            effort: "high",
-            fast: true,
-            prompt: "batch hold two",
-            cwd: ".",
-            task: taskId,
-          },
-          {
-            instance: "cli-worker",
-            agent: "fable",
-            to: "terra",
-            effort: "high",
-            fast: true,
-            mission: "existing-mission",
-            task: taskId,
-          },
-          {
-            instance: "cli-worker",
-            agent: "fable",
-            to: "terra",
-            effort: "high",
-            fast: true,
-            prompt: "batch hold three",
-            task: taskId,
-          },
-        ],
-      },
-      null,
-      2,
-    ),
-  );
-  const batch = runMaybe(root, env, ["runtime", "batch", "batch.json"]);
-  assert.equal(batch.status, 1, `${batch.stderr}\n${JSON.stringify(batch.receipt)}`);
-  assert.equal(batch.receipt.command, "runtime-batch");
-  // The no-delivery task workers settle stopped, so the batch aggregate reports partial_failure
-  // alongside its rejected dispatch instead of restated successes.
-  assert.equal(batch.receipt.outcome, "partial_failure");
-  const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
-  assert.equal(batchRows.length, 5);
-  const taskBatchRows = batchRows.slice(1),
-    // The dispatched task workers settle stopped (no delivery); the ones that lost the single
-    // lease race stay rejected. Both together must cover every task-bound row.
-    settledTaskBatchRows = taskBatchRows.filter((row) => row.status === "stopped"),
-    rejectedTaskBatchRows = taskBatchRows.filter((row) => row.status === "rejected");
-  assert.ok(settledTaskBatchRows.length >= 1, JSON.stringify(batch.receipt));
-  assert.equal(
-    settledTaskBatchRows.length + rejectedTaskBatchRows.length,
-    taskBatchRows.length,
-    JSON.stringify(batch.receipt),
-  );
-  // A row that races a live holder loses the lease; one that arrives after the holder stopped must
-  // name the stopped dispatch instead of silently dispatching a second worker (#4376).
-  assert.equal(
-    rejectedTaskBatchRows.every((row) =>
-      ["runtime_task_lease_required", "dispatch_recovery_fence_required"].includes(String(row.code)),
-    ),
-    true,
-    JSON.stringify(batch.receipt),
-  );
-  assert.equal(batchRows[0]?.code, "squad_member_not_found");
-  assert.equal(
-    settledTaskBatchRows.every((row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string"),
-    true,
-  );
-  const batchDispatchIds = new Set(settledTaskBatchRows.map((row) => String(row.dispatchId))),
-    batchDispatches = (
-      runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
-    ).filter((row) => batchDispatchIds.has(String(row.dispatchId)));
-  assert.equal(batchDispatches.length, settledTaskBatchRows.length);
-  assert.equal(
-    batchDispatches.every(
-      (row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad",
-    ),
-    true,
-    JSON.stringify(batchDispatches),
-  );
-  const batchArchives = settledTaskBatchRows.map((row) =>
-    path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`),
-  );
-  await Promise.all(batchArchives.map(eventuallyFile));
-  assert.deepEqual(
-    batchArchives.filter((archive) => !existsSync(archive)),
-    [],
-    "successful runtime batch dispatch archives must become visible",
-  );
-  const slowBatchArchive = batchArchives[0]!;
-  assert.equal((JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).reasoningEffort, "high");
-  assert.equal((JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).fast, true);
-  const events = existsSync(tracker) ? readFileSync(tracker, "utf8").trim().split("\n").filter(Boolean) : [],
-    trackedBatchDispatches = settledTaskBatchRows.filter((row) => row.index !== 3).length;
-  let active = 0,
-    peak = 0;
-  for (const event of events) {
-    active += event === "start" ? 1 : -1;
-    peak = Math.max(peak, active);
-  }
-  assert.equal(events.filter((event) => event === "start").length, trackedBatchDispatches);
-  assert.equal(events.filter((event) => event === "end").length, trackedBatchDispatches);
-  assert.ok(peak <= 1, `task-bound batch exceeded its single lease holder: ${events.join(",")}`);
-});
-
-test("CLI discovers instances, runs direct prompts, resumes and streams with status retrieval", async (context) => {
-  const fixture = createRuntimeFixture(context);
-  const { root, env, version } = fixture;
-  const { artifactRoot } = seedTask(root, env, "direct");
-  const inventory = run(root, env, ["runtime", "instance", "list"]),
-    installation = (inventory.installations as Array<Record<string, unknown>>).find(
-      (row) => row.kindId === "codex" && row.version === `codex ${version}`,
+test(
+  "Task-bound batch enforces one lease holder and archives successful dispatches",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { parent, root, env } = fixture;
+    installIdentities(parent, root, env);
+    const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "batch");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
+    writeFileSync(path.join(artifactRoot, "missions", "existing-mission.md"), "existing mission");
+    run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/artifacts/missions/existing-mission.md`]);
+    const tracker = path.join(root, ".batch-tracker");
+    writeFileSync(
+      path.join(root, "batch.json"),
+      JSON.stringify(
+        {
+          schema: "runtime-batch/v1",
+          maxConcurrency: 2,
+          dispatches: [
+            { instance: "cli-worker", agent: "fable", to: "missing-agent", prompt: "must reject" },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              model: "runtime-test-model",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold one",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold two",
+              cwd: ".",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              mission: "existing-mission",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold three",
+              task: taskId,
+            },
+          ],
+        },
+        null,
+        2,
+      ),
     );
-  assert.ok(installation, JSON.stringify(inventory));
-  const missingInstance = runMaybe(root, env, [
-    "runtime",
-    "run",
-    "missing-instance",
-    "--prompt",
-    "must reject",
-    "--detach",
-  ]);
-  assert.equal(missingInstance.status, 1);
-  assert.equal(missingInstance.receipt.code, "runtime_instance_not_found");
-  assert.equal(missingInstance.receipt.dispatchId, undefined);
-  const directPrompt = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "file prompt", "--no-stream"]);
-  assert.equal((directPrompt.result as Record<string, unknown>).text, "final:file prompt");
-  for (const directory of ["missions", "dispatches", "reports"])
-    assert.equal(existsSync(path.join(artifactRoot, directory)), false, `${directory} must not exist without --task`);
-  const resumed = run(root, env, [
-    "runtime",
-    "run",
-    "cli-worker",
-    "--prompt",
-    "second turn",
-    "--resume",
-    "provider-cli-session",
-    "--no-stream",
-  ]);
-  assert.equal((resumed.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");
-  assert.equal((resumed.session as Record<string, unknown>).providerSessionId, "provider-cli-session");
-  const streamed = spawnSync(
-    process.execPath,
-    [cli, "--root", root, "runtime", "run", "cli-worker", "--prompt", "stream prompt"],
-    { encoding: "utf8", env },
-  );
-  assert.equal(streamed.status, 0, streamed.stderr);
-  assert.equal(streamed.stdout.trim(), "final:stream prompt");
-  const listed = run(root, env, ["runtime", "status", "--limit", "10"]),
-    sessions = listed.sessions as Array<Record<string, unknown>>;
-  assert.equal(sessions.length, 3);
-  assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions));
-  const detail = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId)]);
-  assert.equal((detail.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");
-  const waited = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId), "--wait", "--no-stream"]);
-  assert.equal(waited.command, "runtime-status");
-  assert.equal(waited.summary, "resumed:provider-cli-session:second turn");
-});
-
-test("Provider failures preserve reasons, redact secrets and publish failed task archives", async (context) => {
-  const fixture = createRuntimeFixture(context);
-  installIdentities(fixture.parent, fixture.root, fixture.env);
-  const { root, env } = fixture;
-  const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "failure");
-  // This file's subject is the terminal record a provider failure leaves behind: its reason,
-  // redaction, archive and resume hint. The retry ladder is provider-fallback.integration.test.ts's
-  // subject, so pin it to zero rounds here and keep each failure one attempt. Repository settings
-  // are principal-owned, so this write runs as the fixture's person, not its runtime executor.
-  run(root, { ...env, HARNESS_ACTOR: "" }, ["settings", "update", "--runtime-provider-max-retries", "0"]);
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const emptyFailure = runMaybe(root, env, [
-    "runtime",
-    "run",
-    "cli-worker",
-    "--prompt",
-    "failure:empty",
-    "--no-stream",
-  ]);
-  assert.equal(emptyFailure.status, 1);
-  assert.equal(emptyFailure.receipt.code, "provider_exit");
-  assert.match(String(emptyFailure.receipt.reason), /^Provider exited with code 1 and produced no output\./u);
-  assert.match(String(emptyFailure.receipt.summary), /^Provider exited with code 1 and produced no output\./u);
-  const secret = "sk-runtime-secret-1234567890",
-    secretFailure = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "failure:secret", "--no-stream"]);
-  assert.equal(secretFailure.status, 1);
-  assert.match(String(secretFailure.receipt.reason), /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u);
-  assert.doesNotMatch(JSON.stringify(secretFailure.receipt), new RegExp(secret, "u"));
-  assert.doesNotMatch(
-    readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8"),
-    new RegExp(secret, "u"),
-  );
-  const structuredFailure = runMaybe(root, env, [
-    "runtime",
-    "run",
-    "cli-worker",
-    "--prompt",
-    "failure:structured",
-    "--no-stream",
-  ]);
-  assert.equal(structuredFailure.status, 1);
-  assert.match(String(structuredFailure.receipt.reason), /structured provider failure/u);
-  assert.doesNotMatch(JSON.stringify(structuredFailure.receipt), new RegExp(secret, "u"));
-  const quotaFailure = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "failure:429", "--no-stream"]);
-  assert.equal(quotaFailure.status, 1);
-  assert.equal(quotaFailure.receipt.code, "quota_exhausted");
-  assert.match(
-    String(quotaFailure.receipt.reason),
-    /faultClass=quota_exhausted; resetAt=2026-09-06T05:06:07\.000Z;.*credit balance exhausted/u,
-  );
-  const quotaAttempt = (
-    (quotaFailure.receipt.session as Record<string, unknown>).attemptChain as {
-      attempts: Array<Record<string, unknown>>;
+    const batch = runMaybe(root, env, ["runtime", "batch", "batch.json"]);
+    assert.equal(batch.status, 1, `${batch.stderr}\n${JSON.stringify(batch.receipt)}`);
+    assert.equal(batch.receipt.command, "runtime-batch");
+    // The no-delivery task workers settle stopped, so the batch aggregate reports partial_failure
+    // alongside its rejected dispatch instead of restated successes.
+    assert.equal(batch.receipt.outcome, "partial_failure");
+    const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
+    assert.equal(batchRows.length, 5);
+    const taskBatchRows = batchRows.slice(1),
+      // The dispatched task workers settle stopped (no delivery); the ones that lost the single
+      // lease race stay rejected. Both together must cover every task-bound row.
+      settledTaskBatchRows = taskBatchRows.filter((row) => row.status === "stopped"),
+      rejectedTaskBatchRows = taskBatchRows.filter((row) => row.status === "rejected");
+    assert.ok(settledTaskBatchRows.length >= 1, JSON.stringify(batch.receipt));
+    assert.equal(
+      settledTaskBatchRows.length + rejectedTaskBatchRows.length,
+      taskBatchRows.length,
+      JSON.stringify(batch.receipt),
+    );
+    // A row that races a live holder loses the lease; one that arrives after the holder stopped must
+    // name the stopped dispatch instead of silently dispatching a second worker (#4376).
+    assert.equal(
+      rejectedTaskBatchRows.every((row) =>
+        ["runtime_task_lease_required", "dispatch_recovery_fence_required"].includes(String(row.code)),
+      ),
+      true,
+      JSON.stringify(batch.receipt),
+    );
+    assert.equal(batchRows[0]?.code, "squad_member_not_found");
+    assert.equal(
+      settledTaskBatchRows.every(
+        (row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string",
+      ),
+      true,
+    );
+    const batchDispatchIds = new Set(settledTaskBatchRows.map((row) => String(row.dispatchId))),
+      batchDispatches = (
+        runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
+      ).filter((row) => batchDispatchIds.has(String(row.dispatchId)));
+    assert.equal(batchDispatches.length, settledTaskBatchRows.length);
+    assert.equal(
+      batchDispatches.every(
+        (row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad",
+      ),
+      true,
+      JSON.stringify(batchDispatches),
+    );
+    const batchArchives = settledTaskBatchRows.map((row) =>
+      path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`),
+    );
+    await Promise.all(batchArchives.map(eventuallyFile));
+    assert.deepEqual(
+      batchArchives.filter((archive) => !existsSync(archive)),
+      [],
+      "successful runtime batch dispatch archives must become visible",
+    );
+    const slowBatchArchive = batchArchives[0]!;
+    assert.equal(
+      (JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).reasoningEffort,
+      "high",
+    );
+    assert.equal((JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).fast, true);
+    const events = existsSync(tracker) ? readFileSync(tracker, "utf8").trim().split("\n").filter(Boolean) : [],
+      trackedBatchDispatches = settledTaskBatchRows.filter((row) => row.index !== 3).length;
+    let active = 0,
+      peak = 0;
+    for (const event of events) {
+      active += event === "start" ? 1 : -1;
+      peak = Math.max(peak, active);
     }
-  ).attempts[0]!;
-  assert.equal(quotaAttempt.classification, "provider_quota");
-  assert.equal(quotaAttempt.resetAt, "2026-09-06T05:06:07.000Z");
-  assert.match(String(quotaAttempt.nextAction), /ha runtime run --resume-dispatch/u);
-  writeFileSync(
-    path.join(root, "failure-batch.json"),
-    JSON.stringify({
-      schema: "runtime-batch/v1",
-      maxConcurrency: 1,
-      dispatches: [{ instance: "cli-worker", prompt: "failure:empty" }],
-    }),
-  );
-  const failureBatch = runMaybe(root, env, ["runtime", "batch", "failure-batch.json"]);
-  assert.equal(failureBatch.status, 1);
-  const failureRow = (failureBatch.receipt.dispatches as Array<Record<string, unknown>>)[0]!;
-  assert.equal(failureRow.code, "provider_exit");
-  assert.match(String(failureRow.reason), /^Provider exited with code 1 and produced no output\./u);
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const detachedFailure = run(root, env, [
-    "agent",
-    "run",
-    "terra",
-    "--prompt",
-    "failure:429",
-    "--cwd",
-    ".",
-    "--task",
-    taskId,
-    "--detach",
-  ]);
-  const failureWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
-  assert.equal(detachedFailure.outcome, "running");
-  assert.equal(failureWait.status, 1, `${failureWait.stderr}\n${JSON.stringify(failureWait.receipt)}`);
-  assert.equal(failureWait.receipt.outcome, "failed");
-  const failedRow = (failureWait.receipt.dispatches as Array<Record<string, unknown>>).find(
-    (row) => row.dispatchId === detachedFailure.dispatchId,
-  );
-  assert.equal(failedRow?.status, "failed");
-  assert.equal(failedRow?.classification, "provider_quota");
-  assert.equal(failedRow?.resetAt, "2026-09-06T05:06:07.000Z");
-  assert.equal(failedRow?.nextAction, `ha agent run terra --resume-dispatch ${String(detachedFailure.dispatchId)}`);
-  assert.equal(failedRow?.exitCode, 1);
-  assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
-  // poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispa); no product event port at the wait site
-  await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispatchId}.md`));
-  const publishedFailureRow = (
-    runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
-  ).find((row) => row.dispatchId === detachedFailure.dispatchId);
-  assert.equal(publishedFailureRow?.reportPath, `${packagePath}/artifacts/reports/${detachedFailure.dispatchId}.md`);
-  const healthAfterRuntimeFailure = (run(root, env, ["daemon", "status"]).repos as Array<Record<string, unknown>>)[0]
-    ?.materialization as Record<string, unknown>;
-  assert.equal(healthAfterRuntimeFailure.state, "ok", JSON.stringify(healthAfterRuntimeFailure));
-  context.diagnostic(
-    `detach -> task wait failure: ${JSON.stringify({
-      detached: detachedFailure,
-      wait: failureWait.receipt,
-      dispatch: failedRow,
-      materialization: healthAfterRuntimeFailure,
-    })}`,
-  );
-});
+    assert.equal(events.filter((event) => event === "start").length, trackedBatchDispatches);
+    assert.equal(events.filter((event) => event === "end").length, trackedBatchDispatches);
+    assert.ok(peak <= 1, `task-bound batch exceeded its single lease holder: ${events.join(",")}`);
+  },
+);
 
-test("Named missions reject invalid inputs and task-derived missions carry dispatch preconditions", async (context) => {
-  const fixture = createRuntimeFixture(context);
-  const { parent, root, env, userRoot, daemonId } = fixture;
-  installIdentities(parent, root, env);
-  const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "mission");
-  const stopGuidance = (dispatchId: string) =>
-    `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
-    `Recover the stopped worker with: ha agent run terra --task ${taskId} --recover-dispatch ${dispatchId} ` +
-    `--execution-id ${executionId} --expected-version <revision> --idempotency-key <key>`;
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
-  const pathLikeMission = runMaybe(root, env, [
-    "agent",
-    "run",
-    "terra",
-    "--mission",
-    existingMissionPath,
-    "--cwd",
-    ".",
-    "--task",
-    taskId,
-    ...recoverLatest(root, env, taskId),
-    "--no-stream",
-  ]);
-  assert.equal(pathLikeMission.status, 1);
-  assert.equal(pathLikeMission.receipt.code, "invalid_runtime_mission");
-  assert.deepEqual(pathLikeMission.receipt.diagnostic, {
-    kind: "validation",
-    entity: "runtime mission",
-    field: "mission",
-    actual: "path-like value",
-    expectation:
-      "Expected a bare mission id. Publish the text as a mission document with " +
-      "ha task artifact add <task-id> --source <file> --destination <workspace-relative-task-package>/artifacts/missions/<name>.md, " +
-      "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
-      "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.",
-  });
-  context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(pathLikeMission.receipt)}`);
-  // The unavailable rejection is only deterministic while the file is absent: once it exists on
-  // disk, the WAL materializer's authored-candidate settlement may auto-submit it after any
-  // flush, racing both this rejection and a doc status that expects "eligible".
-  const unsyncedMission = runMaybe(root, env, [
-    "agent",
-    "run",
-    "terra",
-    "--mission",
-    "existing-mission",
-    "--cwd",
-    ".",
-    "--task",
-    taskId,
-    ...recoverLatest(root, env, taskId),
-    "--no-stream",
-  ]);
-  assert.equal(unsyncedMission.status, 1);
-  assert.equal(unsyncedMission.receipt.code, "runtime_mission_unavailable");
-  mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
-  writeFileSync(path.join(root, existingMissionPath), "existing mission");
-  // Manual sync stays the tested path; a concurrent authored-candidate settlement may have won
-  // the write, which the receipt reports as no_changes — both outcomes leave the doc clean.
-  const missionSync = run(root, env, ["doc", "sync", "--submit", "--path", existingMissionPath]);
-  assert.match(String(run(root, env, ["doc", "status", "--path", existingMissionPath]).evidence), /"state":"clean"/u);
-  const promptFile = runMaybe(root, env, [
-    "agent",
-    "run",
-    "terra",
-    "--prompt-file",
-    path.join(packagePath, "artifacts", "missions", "existing-mission.md"),
-    "--cwd",
-    ".",
-    "--task",
-    taskId,
-    ...recoverLatest(root, env, taskId),
-    "--no-stream",
-  ]);
-  assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
-  assert.ok(promptFile.receipt.spawn, JSON.stringify(promptFile.receipt));
-  const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
-  assert.ok(
-    String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
-      `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
-        `${renderedRulingContract(promptFileDispatchId)}\n\n` +
-        `${workerWorktreeBoundary}\n\n` +
-        // dec_E369B861 CH3: explicit prompts and derived missions both name the reviewer.
-        `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。` +
-        `\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
-        stopGuidance(promptFileDispatchId),
-    ),
-  );
-  const reused = runMaybe(root, env, [
+test(
+  "CLI discovers instances, runs direct prompts, resumes and streams with status retrieval",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { root, env, version } = fixture;
+    const { artifactRoot } = seedTask(root, env, "direct");
+    const inventory = run(root, env, ["runtime", "instance", "list"]),
+      installation = (inventory.installations as Array<Record<string, unknown>>).find(
+        (row) => row.kindId === "codex" && row.version === `codex ${version}`,
+      );
+    assert.ok(installation, JSON.stringify(inventory));
+    const missingInstance = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "missing-instance",
+      "--prompt",
+      "must reject",
+      "--detach",
+    ]);
+    assert.equal(missingInstance.status, 1);
+    assert.equal(missingInstance.receipt.code, "runtime_instance_not_found");
+    assert.equal(missingInstance.receipt.dispatchId, undefined);
+    const directPrompt = run(root, env, ["runtime", "run", "cli-worker", "--prompt", "file prompt", "--no-stream"]);
+    assert.equal((directPrompt.result as Record<string, unknown>).text, "final:file prompt");
+    for (const directory of ["missions", "dispatches", "reports"])
+      assert.equal(existsSync(path.join(artifactRoot, directory)), false, `${directory} must not exist without --task`);
+    const resumed = run(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "second turn",
+      "--resume",
+      "provider-cli-session",
+      "--no-stream",
+    ]);
+    assert.equal((resumed.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");
+    assert.equal((resumed.session as Record<string, unknown>).providerSessionId, "provider-cli-session");
+    const streamed = spawnSync(
+      process.execPath,
+      [cli, "--root", root, "runtime", "run", "cli-worker", "--prompt", "stream prompt"],
+      { encoding: "utf8", env },
+    );
+    assert.equal(streamed.status, 0, streamed.stderr);
+    assert.equal(streamed.stdout.trim(), "final:stream prompt");
+    const listed = run(root, env, ["runtime", "status", "--limit", "10"]),
+      sessions = listed.sessions as Array<Record<string, unknown>>;
+    assert.equal(sessions.length, 3);
+    assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions));
+    const detail = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId)]);
+    assert.equal((detail.result as Record<string, unknown>).text, "resumed:provider-cli-session:second turn");
+    const waited = run(root, env, ["runtime", "status", String(resumed.runtimeSessionId), "--wait", "--no-stream"]);
+    assert.equal(waited.command, "runtime-status");
+    assert.equal(waited.summary, "resumed:provider-cli-session:second turn");
+  },
+);
+
+test(
+  "Provider failures preserve reasons, redact secrets and publish failed task archives",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const { root, env } = fixture;
+    const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "failure");
+    // This file's subject is the terminal record a provider failure leaves behind: its reason,
+    // redaction, archive and resume hint. The retry ladder is provider-fallback.integration.test.ts's
+    // subject, so pin it to zero rounds here and keep each failure one attempt. Repository settings
+    // are principal-owned, so this write runs as the fixture's person, not its runtime executor.
+    run(root, { ...env, HARNESS_ACTOR: "" }, ["settings", "update", "--runtime-provider-max-retries", "0"]);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const emptyFailure = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "failure:empty",
+      "--no-stream",
+    ]);
+    assert.equal(emptyFailure.status, 1);
+    assert.equal(emptyFailure.receipt.code, "provider_exit");
+    assert.match(String(emptyFailure.receipt.reason), /^Provider exited with code 1 and produced no output\./u);
+    assert.match(String(emptyFailure.receipt.summary), /^Provider exited with code 1 and produced no output\./u);
+    const secret = "sk-runtime-secret-1234567890",
+      secretFailure = runMaybe(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        "failure:secret",
+        "--no-stream",
+      ]);
+    assert.equal(secretFailure.status, 1);
+    assert.match(String(secretFailure.receipt.reason), /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u);
+    assert.doesNotMatch(JSON.stringify(secretFailure.receipt), new RegExp(secret, "u"));
+    assert.doesNotMatch(
+      readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8"),
+      new RegExp(secret, "u"),
+    );
+    const structuredFailure = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "failure:structured",
+      "--no-stream",
+    ]);
+    assert.equal(structuredFailure.status, 1);
+    assert.match(String(structuredFailure.receipt.reason), /structured provider failure/u);
+    assert.doesNotMatch(JSON.stringify(structuredFailure.receipt), new RegExp(secret, "u"));
+    const quotaFailure = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "failure:429",
+      "--no-stream",
+    ]);
+    assert.equal(quotaFailure.status, 1);
+    assert.equal(quotaFailure.receipt.code, "quota_exhausted");
+    assert.match(
+      String(quotaFailure.receipt.reason),
+      /faultClass=quota_exhausted; resetAt=2026-09-06T05:06:07\.000Z;.*credit balance exhausted/u,
+    );
+    const quotaAttempt = (
+      (quotaFailure.receipt.session as Record<string, unknown>).attemptChain as {
+        attempts: Array<Record<string, unknown>>;
+      }
+    ).attempts[0]!;
+    assert.equal(quotaAttempt.classification, "provider_quota");
+    assert.equal(quotaAttempt.resetAt, "2026-09-06T05:06:07.000Z");
+    assert.match(String(quotaAttempt.nextAction), /ha runtime run --resume-dispatch/u);
+    writeFileSync(
+      path.join(root, "failure-batch.json"),
+      JSON.stringify({
+        schema: "runtime-batch/v1",
+        maxConcurrency: 1,
+        dispatches: [{ instance: "cli-worker", prompt: "failure:empty" }],
+      }),
+    );
+    const failureBatch = runMaybe(root, env, ["runtime", "batch", "failure-batch.json"]);
+    assert.equal(failureBatch.status, 1);
+    const failureRow = (failureBatch.receipt.dispatches as Array<Record<string, unknown>>)[0]!;
+    assert.equal(failureRow.code, "provider_exit");
+    assert.match(String(failureRow.reason), /^Provider exited with code 1 and produced no output\./u);
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const detachedFailure = run(root, env, [
+      "agent",
+      "run",
+      "terra",
+      "--prompt",
+      "failure:429",
+      "--cwd",
+      ".",
+      "--task",
+      taskId,
+      "--detach",
+    ]);
+    const failureWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
+    assert.equal(detachedFailure.outcome, "running");
+    assert.equal(failureWait.status, 1, `${failureWait.stderr}\n${JSON.stringify(failureWait.receipt)}`);
+    assert.equal(failureWait.receipt.outcome, "failed");
+    const failedRow = (failureWait.receipt.dispatches as Array<Record<string, unknown>>).find(
+      (row) => row.dispatchId === detachedFailure.dispatchId,
+    );
+    assert.equal(failedRow?.status, "failed");
+    assert.equal(failedRow?.classification, "provider_quota");
+    assert.equal(failedRow?.resetAt, "2026-09-06T05:06:07.000Z");
+    assert.equal(failedRow?.nextAction, `ha agent run terra --resume-dispatch ${String(detachedFailure.dispatchId)}`);
+    assert.equal(failedRow?.exitCode, 1);
+    assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
+    await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispatchId}.md`));
+    const publishedFailureRow = (
+      runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
+    ).find((row) => row.dispatchId === detachedFailure.dispatchId);
+    assert.equal(publishedFailureRow?.reportPath, `${packagePath}/artifacts/reports/${detachedFailure.dispatchId}.md`);
+    const healthAfterRuntimeFailure = (run(root, env, ["daemon", "status"]).repos as Array<Record<string, unknown>>)[0]
+      ?.materialization as Record<string, unknown>;
+    assert.equal(healthAfterRuntimeFailure.state, "ok", JSON.stringify(healthAfterRuntimeFailure));
+    context.diagnostic(
+      `detach -> task wait failure: ${JSON.stringify({
+        detached: detachedFailure,
+        wait: failureWait.receipt,
+        dispatch: failedRow,
+        materialization: healthAfterRuntimeFailure,
+      })}`,
+    );
+  },
+);
+
+test(
+  "Named missions reject invalid inputs and task-derived missions carry dispatch preconditions",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    const { parent, root, env, userRoot, daemonId } = fixture;
+    installIdentities(parent, root, env);
+    const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "mission");
+    const stopGuidance = (dispatchId: string) =>
+      `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
+      `Recover the stopped worker with: ha agent run terra --task ${taskId} --recover-dispatch ${dispatchId} ` +
+      `--execution-id ${executionId} --expected-version <revision> --idempotency-key <key>`;
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
+    const pathLikeMission = runMaybe(root, env, [
+      "agent",
+      "run",
+      "terra",
+      "--mission",
+      existingMissionPath,
+      "--cwd",
+      ".",
+      "--task",
+      taskId,
+      ...recoverLatest(root, env, taskId),
+      "--no-stream",
+    ]);
+    assert.equal(pathLikeMission.status, 1);
+    assert.equal(pathLikeMission.receipt.code, "invalid_runtime_mission");
+    assert.deepEqual(pathLikeMission.receipt.diagnostic, {
+      kind: "validation",
+      entity: "runtime mission",
+      field: "mission",
+      actual: "path-like value",
+      expectation:
+        "Expected a bare mission id. Publish the text as a mission document with " +
+        "ha task artifact add <task-id> --source <file> --destination <workspace-relative-task-package>/artifacts/missions/<name>.md, " +
+        "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
+        "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.",
+    });
+    context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(pathLikeMission.receipt)}`);
+    // The unavailable rejection is only deterministic while the file is absent: once it exists on
+    // disk, the WAL materializer's authored-candidate settlement may auto-submit it after any
+    // flush, racing both this rejection and a doc status that expects "eligible".
+    const unsyncedMission = runMaybe(root, env, [
       "agent",
       "run",
       "terra",
@@ -723,265 +711,316 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       taskId,
       ...recoverLatest(root, env, taskId),
       "--no-stream",
-    ]),
-    reusedDispatchId = String((reused.receipt.spawn as Record<string, unknown>).dispatchId),
-    reusedDispatch = JSON.parse(
-      await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`)),
-    ) as Record<string, unknown>;
-  // The mission and report publish after the dispatch record, so they are awaited the same way.
-  const reusedMission = await readPublishedDispatch(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`)),
-    reusedReport = await readPublishedDispatch(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`));
-  context.diagnostic(
-    `hand-written mission route: ${JSON.stringify({
-      before: {
-        outcome: unsyncedMission.receipt.outcome,
-        code: unsyncedMission.receipt.code,
-        diagnostic: unsyncedMission.receipt.diagnostic,
-      },
-      sync: { outcome: missionSync.outcome, summary: missionSync.summary },
-      after: { outcome: reused.receipt.outcome, dispatchId: reusedDispatchId },
-    })}`,
-  );
-  assert.equal(
-    reusedDispatch.missionRef,
-    `${packagePath.replace(/^harness\//u, "")}/artifacts/missions/${reusedDispatchId}.md`,
-  );
-  assert.deepEqual(
-    readdirSync(path.join(artifactRoot, "missions")).sort(),
-    ["existing-mission.md", `${promptFileDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
-  );
-  assert.equal(reusedReport, `final:${reusedMission}${stopGuidance(reusedDispatchId)}`);
-  assertTaskMissionPrompt(reusedMission, {
-    repoId: "runtime-cli",
-    taskId,
-    workerRoot: realpathSync(root),
-    taskPackageRoot: path.join(realpathSync(root), packagePath),
-    daemonUserRoot: userRoot,
-    daemonId,
-    runtimeSessionId: String(reused.receipt.runtimeSessionId),
-    mission:
-      `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), packagePath))}\n\n` +
-      `${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(reusedDispatchId)}\n\n` +
-      `${workerWorktreeBoundary}\n\n` +
-      // dec_E369B861 CH3: the worker mission names who reviews the next submitted cut.
-      `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。` +
-      `\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
-      `${taskPrPublicationNote}\n\n# Mission: existing-mission\n\nexisting mission`,
-    continuationContext: true,
-  });
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const taskPackage = path.join(realpathSync(root), packagePath);
-  // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
-  const derived = runMaybe(root, env, [
+    ]);
+    assert.equal(unsyncedMission.status, 1);
+    assert.equal(unsyncedMission.receipt.code, "runtime_mission_unavailable");
+    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
+    writeFileSync(path.join(root, existingMissionPath), "existing mission");
+    // Manual sync stays the tested path; a concurrent authored-candidate settlement may have won
+    // the write, which the receipt reports as no_changes — both outcomes leave the doc clean.
+    const missionSync = run(root, env, ["doc", "sync", "--submit", "--path", existingMissionPath]);
+    assert.match(String(run(root, env, ["doc", "status", "--path", existingMissionPath]).evidence), /"state":"clean"/u);
+    const promptFile = runMaybe(root, env, [
       "agent",
       "run",
       "terra",
+      "--prompt-file",
+      path.join(packagePath, "artifacts", "missions", "existing-mission.md"),
+      "--cwd",
+      ".",
       "--task",
       taskId,
       ...recoverLatest(root, env, taskId),
-      "--cwd",
-      ".",
       "--no-stream",
-    ]),
-    derivedText = String((derived.receipt.result as Record<string, unknown>).text),
-    derivedMission =
-      `${taskPlanSection(realizedPlan("mission"), taskPackage)}\n\n` +
-      taskQueryGuidance(taskId) +
-      "\n\n" +
-      renderedRulingContract(String((derived.receipt.spawn as Record<string, unknown>).dispatchId)) +
-      "\n\n" +
-      workerWorktreeBoundary +
-      "\n\n" +
-      // dec_E369B861 CH3: the derived worker mission names who reviews the next submitted cut.
-      "本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。" +
-      "\n\n" +
-      livingDeliverableProtocol("baseline")! +
-      "\n\n" +
-      taskPrPublicationNote;
-  assert.match(
-    derivedText,
-    /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,
-  );
-  const derivedStop = stopGuidance(String((derived.receipt.spawn as Record<string, unknown>).dispatchId));
-  assert.ok(derivedText.endsWith(derivedStop), "an unsubmitted exit must carry its continuation entry");
-  assertTaskMissionPrompt(derivedText.slice("final:".length, -derivedStop.length), {
-    repoId: "runtime-cli",
-    taskId,
-    workerRoot: realpathSync(root),
-    taskPackageRoot: taskPackage,
-    daemonUserRoot: userRoot,
-    daemonId,
-    runtimeSessionId: String(derived.receipt.runtimeSessionId),
-    mission: derivedMission,
-    continuationContext: true,
-  });
-  assert.equal(derivedText.includes("Review precisely."), true);
-});
+    ]);
+    assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
+    assert.ok(promptFile.receipt.spawn, JSON.stringify(promptFile.receipt));
+    const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
+    assert.ok(
+      String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
+        `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
+          `${renderedRulingContract(promptFileDispatchId)}\n\n` +
+          `${workerWorktreeBoundary}\n\n` +
+          // dec_E369B861 CH3: explicit prompts and derived missions both name the reviewer.
+          `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。` +
+          `\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
+          stopGuidance(promptFileDispatchId),
+      ),
+    );
+    const reused = runMaybe(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--mission",
+        "existing-mission",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--no-stream",
+      ]),
+      reusedDispatchId = String((reused.receipt.spawn as Record<string, unknown>).dispatchId),
+      reusedDispatch = JSON.parse(
+        await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`)),
+      ) as Record<string, unknown>;
+    // The mission and report publish after the dispatch record, so they are awaited the same way.
+    const reusedMission = await readPublishedDispatch(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`)),
+      reusedReport = await readPublishedDispatch(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`));
+    context.diagnostic(
+      `hand-written mission route: ${JSON.stringify({
+        before: {
+          outcome: unsyncedMission.receipt.outcome,
+          code: unsyncedMission.receipt.code,
+          diagnostic: unsyncedMission.receipt.diagnostic,
+        },
+        sync: { outcome: missionSync.outcome, summary: missionSync.summary },
+        after: { outcome: reused.receipt.outcome, dispatchId: reusedDispatchId },
+      })}`,
+    );
+    assert.equal(
+      reusedDispatch.missionRef,
+      `${packagePath.replace(/^harness\//u, "")}/artifacts/missions/${reusedDispatchId}.md`,
+    );
+    assert.deepEqual(
+      readdirSync(path.join(artifactRoot, "missions")).sort(),
+      ["existing-mission.md", `${promptFileDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
+    );
+    assert.equal(reusedReport, `final:${reusedMission}${stopGuidance(reusedDispatchId)}`);
+    assertTaskMissionPrompt(reusedMission, {
+      repoId: "runtime-cli",
+      taskId,
+      workerRoot: realpathSync(root),
+      taskPackageRoot: path.join(realpathSync(root), packagePath),
+      daemonUserRoot: userRoot,
+      daemonId,
+      runtimeSessionId: String(reused.receipt.runtimeSessionId),
+      mission:
+        `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), packagePath))}\n\n` +
+        `${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(reusedDispatchId)}\n\n` +
+        `${workerWorktreeBoundary}\n\n` +
+        // dec_E369B861 CH3: the worker mission names who reviews the next submitted cut.
+        `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。` +
+        `\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
+        `${taskPrPublicationNote}\n\n# Mission: existing-mission\n\nexisting mission`,
+      continuationContext: true,
+    });
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const taskPackage = path.join(realpathSync(root), packagePath);
+    // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
+    const derived = runMaybe(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--cwd",
+        ".",
+        "--no-stream",
+      ]),
+      derivedText = String((derived.receipt.result as Record<string, unknown>).text),
+      derivedMission =
+        `${taskPlanSection(realizedPlan("mission"), taskPackage)}\n\n` +
+        taskQueryGuidance(taskId) +
+        "\n\n" +
+        renderedRulingContract(String((derived.receipt.spawn as Record<string, unknown>).dispatchId)) +
+        "\n\n" +
+        workerWorktreeBoundary +
+        "\n\n" +
+        // dec_E369B861 CH3: the derived worker mission names who reviews the next submitted cut.
+        "本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。" +
+        "\n\n" +
+        livingDeliverableProtocol("baseline")! +
+        "\n\n" +
+        taskPrPublicationNote;
+    assert.match(
+      derivedText,
+      /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,
+    );
+    const derivedStop = stopGuidance(String((derived.receipt.spawn as Record<string, unknown>).dispatchId));
+    assert.ok(derivedText.endsWith(derivedStop), "an unsubmitted exit must carry its continuation entry");
+    assertTaskMissionPrompt(derivedText.slice("final:".length, -derivedStop.length), {
+      repoId: "runtime-cli",
+      taskId,
+      workerRoot: realpathSync(root),
+      taskPackageRoot: taskPackage,
+      daemonUserRoot: userRoot,
+      daemonId,
+      runtimeSessionId: String(derived.receipt.runtimeSessionId),
+      mission: derivedMission,
+      continuationContext: true,
+    });
+    assert.equal(derivedText.includes("Review precisely."), true);
+  },
+);
 
-test("Missing and nonzero callbacks preserve runtime outcome and redact callback environment", async (context) => {
-  const fixture = createRuntimeFixture(context);
-  installIdentities(fixture.parent, fixture.root, fixture.env);
-  const { parent, root, env } = fixture;
-  const { taskId, executionId, artifactRoot } = seedTask(root, env, "notification-failure");
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const nonzeroTrace = path.join(root, ".notify-nonzero.json");
-  const nonzeroNotifier = writeProviderExecutable(
-    path.join(parent, "notify-nonzero"),
-    `const fs = require("node:fs"), payload = JSON.parse(fs.readFileSync(0, "utf8")); fs.writeFileSync(".notify-nonzero.json", JSON.stringify({ cwd: process.cwd(), environment: process.env, payload })); process.exit(23);\n`,
-  );
-  const invalidOnExit = runMaybe(root, env, [
-    "runtime",
-    "run",
-    "cli-worker",
-    "--prompt",
-    "invalid callback",
-    "--on-exit",
-    nonzeroNotifier,
-  ]);
-  assert.equal(invalidOnExit.status, 2);
-  assert.equal(invalidOnExit.receipt.code, "invalid_field");
-  assert.equal((invalidOnExit.receipt.diagnostic as Record<string, unknown>).kind, "validation");
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const controlNotification = run(root, env, [
-      "agent",
-      "run",
-      "terra",
-      "--prompt",
-      "notification control",
-      "--cwd",
-      ".",
-      "--task",
-      taskId,
-      ...recoverLatest(root, env, taskId),
-      "--detach",
-    ]),
-    controlNotificationWait = runMaybe(root, env, [
-      "runtime",
-      "status",
-      String(controlNotification.runtimeSessionId),
-      "--wait",
-      "--no-stream",
-    ]),
-    controlInvariant = await runtimeInvariantEvidence(
-      root,
-      artifactRoot,
-      controlNotification,
-      controlNotificationWait.receipt,
+test(
+  "Missing and nonzero callbacks preserve runtime outcome and redact callback environment",
+  { timeout: 300_000 },
+  async (context) => {
+    const fixture = createRuntimeFixture(context);
+    installIdentities(fixture.parent, fixture.root, fixture.env);
+    const { parent, root, env } = fixture;
+    const { taskId, executionId, artifactRoot } = seedTask(root, env, "notification-failure");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const nonzeroTrace = path.join(root, ".notify-nonzero.json");
+    const nonzeroNotifier = writeProviderExecutable(
+      path.join(parent, "notify-nonzero"),
+      `const fs = require("node:fs"), payload = JSON.parse(fs.readFileSync(0, "utf8")); fs.writeFileSync(".notify-nonzero.json", JSON.stringify({ cwd: process.cwd(), environment: process.env, payload })); process.exit(23);\n`,
     );
-  assert.equal(controlNotificationWait.status, 1, "a stopped-settled wait must not exit 0");
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const missingNotifier = path.join(parent, "missing-notifier"),
-    missingNotification = run(root, env, [
-      "agent",
-      "run",
-      "terra",
-      "--prompt",
-      "notification missing",
-      "--cwd",
-      ".",
-      "--task",
-      taskId,
-      ...recoverLatest(root, env, taskId),
-      "--detach",
-      "--on-exit",
-      missingNotifier,
-    ]),
-    missingNotificationWait = runMaybe(root, env, [
+    const invalidOnExit = runMaybe(root, env, [
       "runtime",
-      "status",
-      String(missingNotification.runtimeSessionId),
-      "--wait",
-      "--no-stream",
-    ]),
-    // poll-spin-class: durable-poll - durable predicate read (missingTrace = await eventuallyNotification(root, String(missingNotification.dis); no product event port at the wait site
-    missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
-    missingInvariant = await runtimeInvariantEvidence(
-      root,
-      artifactRoot,
-      missingNotification,
-      missingNotificationWait.receipt,
-    );
-  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const nonzeroNotification = run(root, env, [
-      "agent",
       "run",
-      "terra",
+      "cli-worker",
       "--prompt",
-      "notification nonzero",
-      "--cwd",
-      ".",
-      "--task",
-      taskId,
-      ...recoverLatest(root, env, taskId),
-      "--detach",
+      "invalid callback",
       "--on-exit",
       nonzeroNotifier,
-    ]),
-    nonzeroNotificationWait = runMaybe(root, env, [
-      "runtime",
-      "status",
-      String(nonzeroNotification.runtimeSessionId),
-      "--wait",
-      "--no-stream",
-    ]),
-    // poll-spin-class: durable-poll - durable predicate read (nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNoti); no product event port at the wait site
-    nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)),
-    nonzeroInvariant = await runtimeInvariantEvidence(
-      root,
-      artifactRoot,
-      nonzeroNotification,
-      nonzeroNotificationWait.receipt,
-    ),
-    callbackObservation = JSON.parse(readFileSync(nonzeroTrace, "utf8")) as Record<string, unknown>,
-    callbackEnvironment = callbackObservation.environment as Record<string, unknown>,
-    callbackPayload = callbackObservation.payload as Record<string, unknown>;
-  assert.deepEqual(missingInvariant, controlInvariant);
-  assert.deepEqual(nonzeroInvariant, controlInvariant);
-  assert.deepEqual(
-    missingTrace.finished && {
-      started: missingTrace.finished.started,
-      exitCode: missingTrace.finished.exitCode,
-      timedOut: missingTrace.finished.timedOut,
-      errorCode: missingTrace.finished.errorCode,
-    },
-    { started: false, exitCode: null, timedOut: false, errorCode: "ENOENT" },
-  );
-  assert.deepEqual(
-    nonzeroNotificationTrace.finished && {
-      started: nonzeroNotificationTrace.finished.started,
-      exitCode: nonzeroNotificationTrace.finished.exitCode,
-      timedOut: nonzeroNotificationTrace.finished.timedOut,
-    },
-    { started: true, exitCode: 23, timedOut: false },
-  );
-  assert.equal(callbackObservation.cwd, realpathSync(root));
-  assert.equal(callbackEnvironment.OPENAI_API_KEY, undefined);
-  assert.equal(callbackEnvironment.HARNESS_NOTIFY_TEST_SECRET, undefined);
-  assert.deepEqual(callbackPayload, {
-    schema: "runtime-session-exited/v1",
-    runtimeSessionId: nonzeroNotification.runtimeSessionId,
-    outcome: "stopped",
-    exitCode: 0,
-  });
-  assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
-  const missingArchive = JSON.parse(
-      await readPublishedDispatch(
-        path.join(artifactRoot, "dispatches", `${String(missingNotification.dispatchId)}.json`),
+    ]);
+    assert.equal(invalidOnExit.status, 2);
+    assert.equal(invalidOnExit.receipt.code, "invalid_field");
+    assert.equal((invalidOnExit.receipt.diagnostic as Record<string, unknown>).kind, "validation");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const controlNotification = run(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--prompt",
+        "notification control",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--detach",
+      ]),
+      controlNotificationWait = runMaybe(root, env, [
+        "runtime",
+        "status",
+        String(controlNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      controlInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        controlNotification,
+        controlNotificationWait.receipt,
+      );
+    assert.equal(controlNotificationWait.status, 1, "a stopped-settled wait must not exit 0");
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const missingNotifier = path.join(parent, "missing-notifier"),
+      missingNotification = run(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--prompt",
+        "notification missing",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--detach",
+        "--on-exit",
+        missingNotifier,
+      ]),
+      missingNotificationWait = runMaybe(root, env, [
+        "runtime",
+        "status",
+        String(missingNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
+      missingInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        missingNotification,
+        missingNotificationWait.receipt,
+      );
+    run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+    const nonzeroNotification = run(root, env, [
+        "agent",
+        "run",
+        "terra",
+        "--prompt",
+        "notification nonzero",
+        "--cwd",
+        ".",
+        "--task",
+        taskId,
+        ...recoverLatest(root, env, taskId),
+        "--detach",
+        "--on-exit",
+        nonzeroNotifier,
+      ]),
+      nonzeroNotificationWait = runMaybe(root, env, [
+        "runtime",
+        "status",
+        String(nonzeroNotification.runtimeSessionId),
+        "--wait",
+        "--no-stream",
+      ]),
+      nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)),
+      nonzeroInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        nonzeroNotification,
+        nonzeroNotificationWait.receipt,
       ),
-    ) as Record<string, unknown>,
-    nonzeroArchive = JSON.parse(
-      await readPublishedDispatch(
-        path.join(artifactRoot, "dispatches", `${String(nonzeroNotification.dispatchId)}.json`),
-      ),
-    ) as Record<string, unknown>;
-  assert.equal(missingArchive.onExitCommand, missingNotifier);
-  assert.equal(nonzeroArchive.onExitCommand, nonzeroNotifier);
-  context.diagnostic(
-    `failed notification trace: ${JSON.stringify({ missing: missingTrace.finished, nonzero: nonzeroNotificationTrace.finished, invariant: nonzeroInvariant })}`,
-  );
-});
+      callbackObservation = JSON.parse(readFileSync(nonzeroTrace, "utf8")) as Record<string, unknown>,
+      callbackEnvironment = callbackObservation.environment as Record<string, unknown>,
+      callbackPayload = callbackObservation.payload as Record<string, unknown>;
+    assert.deepEqual(missingInvariant, controlInvariant);
+    assert.deepEqual(nonzeroInvariant, controlInvariant);
+    assert.deepEqual(
+      missingTrace.finished && {
+        started: missingTrace.finished.started,
+        exitCode: missingTrace.finished.exitCode,
+        timedOut: missingTrace.finished.timedOut,
+        errorCode: missingTrace.finished.errorCode,
+      },
+      { started: false, exitCode: null, timedOut: false, errorCode: "ENOENT" },
+    );
+    assert.deepEqual(
+      nonzeroNotificationTrace.finished && {
+        started: nonzeroNotificationTrace.finished.started,
+        exitCode: nonzeroNotificationTrace.finished.exitCode,
+        timedOut: nonzeroNotificationTrace.finished.timedOut,
+      },
+      { started: true, exitCode: 23, timedOut: false },
+    );
+    assert.equal(callbackObservation.cwd, realpathSync(root));
+    assert.equal(callbackEnvironment.OPENAI_API_KEY, undefined);
+    assert.equal(callbackEnvironment.HARNESS_NOTIFY_TEST_SECRET, undefined);
+    assert.deepEqual(callbackPayload, {
+      schema: "runtime-session-exited/v1",
+      runtimeSessionId: nonzeroNotification.runtimeSessionId,
+      outcome: "stopped",
+      exitCode: 0,
+    });
+    assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
+    const missingArchive = JSON.parse(
+        await readPublishedDispatch(
+          path.join(artifactRoot, "dispatches", `${String(missingNotification.dispatchId)}.json`),
+        ),
+      ) as Record<string, unknown>,
+      nonzeroArchive = JSON.parse(
+        await readPublishedDispatch(
+          path.join(artifactRoot, "dispatches", `${String(nonzeroNotification.dispatchId)}.json`),
+        ),
+      ) as Record<string, unknown>;
+    assert.equal(missingArchive.onExitCommand, missingNotifier);
+    assert.equal(nonzeroArchive.onExitCommand, nonzeroNotifier);
+    context.diagnostic(
+      `failed notification trace: ${JSON.stringify({ missing: missingTrace.finished, nonzero: nonzeroNotificationTrace.finished, invariant: nonzeroInvariant })}`,
+    );
+  },
+);
 
-test("Repository writes commit while an exit callback is still running", async (context) => {
+test("Repository writes commit while an exit callback is still running", { timeout: 300_000 }, async (context) => {
   const fixture = createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env } = fixture;
@@ -1019,7 +1058,6 @@ test("Repository writes commit while an exit callback is still running", async (
     "--no-stream",
   ]);
   assert.equal(queueSettled.status, 1, "the no-delivery worker settles stopped and its wait exits 1");
-  // poll-spin-class: durable-poll - durable predicate read (await eventuallyFile(notificationStarted);); no product event port at the wait site
   await eventuallyFile(notificationStarted);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const revisionBefore = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
@@ -1041,7 +1079,6 @@ test("Repository writes commit while an exit callback is still running", async (
     "the notification must still be executing when the repo write commits",
   );
   writeFileSync(notificationRelease, "release\n");
-  // poll-spin-class: durable-poll - durable predicate read (const queueNotificationTrace = await eventuallyNotification(root, String(queueNo); no product event port at the wait site
   const queueNotificationTrace = await eventuallyNotification(root, String(queueNotification.dispatchId));
   assert.equal(queueNotificationTrace.started?.phase, "started");
   assert.equal(queueNotificationTrace.finished?.timedOut, false);

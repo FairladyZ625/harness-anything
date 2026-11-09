@@ -81,9 +81,6 @@ async function withAcpDaemon(
   }
 }
 
-// poll-spin-class: durable-poll - durable predicate read (const read = await eventuallyValue(async () => {); no product event port at the wait site
-// poll-spin-class: durable-poll - durable predicate read (outcome = await eventuallyValue(readOutcome);); no product event port at the wait site
-// poll-spin-class: durable-poll - durable predicate read (records = await eventuallyValue(() => {); no product event port at the wait site
 async function spawnSettled(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   root: string,
@@ -141,7 +138,7 @@ function streamOrder(records: readonly Record<string, unknown>[]): string[] {
   );
 }
 
-test("daemon ingress drives an ACP provider through the worker host", async () => {
+test("daemon ingress drives an ACP provider through the worker host", { timeout: 300_000 }, async () => {
   await withAcpDaemon(process.env, async ({ host, root, capture }) => {
     const { receipt, read, outcome } = await spawnSettled(host, root, {
       prompt: "do work",
@@ -151,7 +148,6 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
     assert.equal((read.session as { activity: { outcome: unknown; exitCode: unknown } }).activity.outcome, "succeeded");
     assert.equal((read.session as { activity: { exitCode: unknown } }).activity.exitCode, 0);
     assert.equal((read.result as Record<string, unknown>).text, "devin live content");
-    // poll-spin-class: durable-poll - durable predicate read (const stream = await eventuallyValue(() => {); no product event port at the wait site
     const stream = await eventuallyValue(() => {
       const content = JSON.stringify(readDispatchStream(root, String(receipt.dispatchId)));
       return content.includes('"acp.result"') ? content : null;
@@ -181,7 +177,7 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
   });
 });
 
-test("an ACP provider that exits 0 before its turn completes settles as failed", async () => {
+test("an ACP provider that exits 0 before its turn completes settles as failed", { timeout: 300_000 }, async () => {
   await withAcpDaemon(process.env, async ({ host, root }) => {
     const beforeSession = await spawnSettled(host, root, {
       prompt: "do work",
@@ -215,32 +211,40 @@ test("an ACP provider that exits 0 before its turn completes settles as failed",
   });
 });
 
-test("the worker host does not bind the ACP provider to the editor host the daemon inherited", async () => {
-  // A daemon started from a Windsurf terminal inherits WINDSURF_EXT_HOST_PID; once that editor process
-  // is gone, devin's ACP server exits 0 before answering session/new.
-  const editorHostPid = spawnSync(process.execPath, ["-e", ""]).pid;
-  await withAcpDaemon({ ...process.env, WINDSURF_EXT_HOST_PID: String(editorHostPid) }, async ({ host, root }) => {
-    const { read, records } = await spawnSettled(host, root, {
-      prompt: "do work",
-      dispatchKey: "devin-acp-editor-host",
+test(
+  "the worker host does not bind the ACP provider to the editor host the daemon inherited",
+  { timeout: 300_000 },
+  async () => {
+    // A daemon started from a Windsurf terminal inherits WINDSURF_EXT_HOST_PID; once that editor process
+    // is gone, devin's ACP server exits 0 before answering session/new.
+    const editorHostPid = spawnSync(process.execPath, ["-e", ""]).pid;
+    await withAcpDaemon({ ...process.env, WINDSURF_EXT_HOST_PID: String(editorHostPid) }, async ({ host, root }) => {
+      const { read, records } = await spawnSettled(host, root, {
+        prompt: "do work",
+        dispatchKey: "devin-acp-editor-host",
+      });
+      assert.equal((read.session as Record<string, unknown>).providerSessionId, "devin-acp-session");
+      assert.equal((read.session as { activity: Record<string, unknown> }).activity.outcome, "succeeded");
+      assert.equal((read.result as Record<string, unknown>).text, "devin live content");
+      assert.equal(streamOrder(records).at(-3), "acp.result");
     });
-    assert.equal((read.session as Record<string, unknown>).providerSessionId, "devin-acp-session");
-    assert.equal((read.session as { activity: Record<string, unknown> }).activity.outcome, "succeeded");
-    assert.equal((read.result as Record<string, unknown>).text, "devin live content");
-    assert.equal(streamOrder(records).at(-3), "acp.result");
-  });
-});
+  },
+);
 
-test("a registered ACP executable removed before spawn reports its failure before process exit", async () => {
-  await withAcpDaemon(process.env, async ({ host, root, executablePath }) => {
-    rmSync(executablePath);
-    const { read, records } = await spawnSettled(host, root, {
-      prompt: "do work",
-      dispatchKey: "devin-acp-missing-executable",
+test(
+  "a registered ACP executable removed before spawn reports its failure before process exit",
+  { timeout: 300_000 },
+  async () => {
+    await withAcpDaemon(process.env, async ({ host, root, executablePath }) => {
+      rmSync(executablePath);
+      const { read, records } = await spawnSettled(host, root, {
+        prompt: "do work",
+        dispatchKey: "devin-acp-missing-executable",
+      });
+      assert.equal((read.session as { activity: { outcome: unknown } }).activity.outcome, "failed");
+      assert.deepEqual(streamOrder(records), ["acp.error", "process_exit", "attempt_outcome"]);
+      assert.equal(records.find((record) => record.kind === "process_exit")?.exitCode, null);
+      assert.equal(records.find((record) => record.kind === "attempt_outcome")?.classification, "provider_fault");
     });
-    assert.equal((read.session as { activity: { outcome: unknown } }).activity.outcome, "failed");
-    assert.deepEqual(streamOrder(records), ["acp.error", "process_exit", "attempt_outcome"]);
-    assert.equal(records.find((record) => record.kind === "process_exit")?.exitCode, null);
-    assert.equal(records.find((record) => record.kind === "attempt_outcome")?.classification, "provider_fault");
-  });
-});
+  },
+);

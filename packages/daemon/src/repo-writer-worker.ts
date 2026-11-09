@@ -470,7 +470,6 @@ async function startRepoWriterWorker(): Promise<void> {
     }
   }
 
-  // poll-spin-class: condition-variable - waits on a shared cell whose value is changed by Atomics.notify; the state, not elapsed time, ends the wait
   function syncCapability<T>(capability: RepoWriterCapabilityCallV1["capability"], payload: unknown): T {
     syncState ??= new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
     syncBytes ??= new SharedArrayBuffer(1024 * 1024);

@@ -269,7 +269,6 @@ function checkedTimeout(value: number, label: string): number {
   return value;
 }
 
-// poll-spin-class: condition-variable - waits on a shared cell whose value is changed by Atomics.notify; the state, not elapsed time, ends the wait
 function waitForWorker(
   state: Int32Array,
   port: MessagePort,

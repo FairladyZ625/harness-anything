@@ -21,7 +21,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { definition, installation, initIngressRepo, rpc, spawnCli } from "./fixtures/runtime-ingress.ts";
 
-test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
+test("daemon ingress preserves executor-scoped task-bound runtime spawn", { timeout: 300_000 }, async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -496,13 +496,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
               dispatchKey: "dispatcher-handoff-concurrent",
             },
           }),
-          Promise.race([
-            createReadyTask("task-runtime-dispatcher-unrelated", "Dispatcher unrelated write"),
-            new Promise<never>((_resolve, reject) => {
-              // poll-spin-class: durable-poll - durable predicate read (setTimeout(() => reject(new Error("unrelated write was not accepted within 5000m); no product event port at the wait site
-              setTimeout(() => reject(new Error("unrelated write was not accepted within 5000ms")), 5_000);
-            }),
-          ]),
+          // The unrelated write is an event of the task API; the test timeout is the hang guard.
+          createReadyTask("task-runtime-dispatcher-unrelated", "Dispatcher unrelated write"),
         ]);
       assert.equal(concurrent.outcome, "op_rejected", JSON.stringify(concurrent));
       assert.equal(concurrent.code, "runtime_task_lease_required", JSON.stringify(concurrent));

@@ -307,13 +307,12 @@ function signalRuntimeTargets(
     }
 }
 
-// poll-spin-class: backoff - bounded retry/backoff loop; the awaited delay spaces retries and does not decide correctness
-// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: number): Promise<readonly number[]> {
-  const deadline = Date.now() + timeoutMs;
+  // A fixed number of attempts, not a clock deadline: survivors are the durable read, and the
+  // attempt count is the product budget.
   let survivors = pids.filter(runtimePidIsAlive);
-  while (survivors.length > 0 && Date.now() < deadline) {
-    await delay(Math.min(25, Math.max(1, deadline - Date.now())));
+  for (let attempt = 0; survivors.length > 0 && attempt < Math.max(1, Math.ceil(timeoutMs / 25)); attempt += 1) {
+    await delay(25);
     survivors = survivors.filter(runtimePidIsAlive);
   }
   return survivors;

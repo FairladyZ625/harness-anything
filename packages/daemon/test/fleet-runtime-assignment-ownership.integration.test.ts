@@ -317,7 +317,6 @@ for (const distinctNode of [false, true])
           );
           let repeated: Awaited<ReturnType<typeof reopened.run>> | undefined;
           assert.equal(
-            // poll-spin-class: durable-poll - durable predicate read (await eventually(async () => {); no product event port at the wait site
             await eventually(async () => {
               try {
                 repeated = await reopened.run("repo.agentRuntime.cancel", { runtimeSessionId: b.runtimeSessionId });

@@ -7,90 +7,98 @@ import { reduceDecisionDocument } from "@harness-anything/kernel/internal/domain
 import { proposal } from "../store/relation-graph-projection.fixtures.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 
-test("Decision readiness distinguishes pristine scopes from unknown backfill without read-side writes", async (t) => {
-  const fixture = await pgRuntimeFixture();
-  const pool = new Pool({ connectionString: fixture.connectionString, options: "-c default_transaction_read_only=on" });
-  try {
-    const scope = { tenantId: "empty-decision", projectId: "empty-decision", policyEpoch: 1, readers: ["alice"] };
-    const sourceFor = (selected = scope) =>
-      storage.createPgStorageBackend({ pool, repoId: "empty-decision", scope: selected }).projection;
-    const source = sourceFor();
-    const manage = <T>(run: (client: import("pg").PoolClient) => Promise<T>) =>
-      storage.withPostgresTransaction(fixture.adminPool, run, scope);
-    const assertEmpty = async (projection: typeof source) => {
-      for (const filters of [{}, { state: "proposed" as const, limit: 1 }, { search: "needle", limit: 1 }]) {
-        const result = await projection.listDecisions(filters);
-        assert.equal(result.status, "ready");
-        assert.equal(result.watermark, 0);
-        assert.equal(result.sourceRevision, 0);
-        assert.deepEqual(result.decisions, []);
-      }
-      assert.deepEqual(await projection.listDecisionAgendaPage({ state: "proposed", limit: 1 }), {
-        status: "ready",
-        watermark: 0,
-        sourceRevision: 0,
-        decisions: [],
-        page: { limit: 1, cursor: null, nextCursor: null },
+test(
+  "Decision readiness distinguishes pristine scopes from unknown backfill without read-side writes",
+  { timeout: 300_000 },
+  async (t) => {
+    const fixture = await pgRuntimeFixture();
+    const pool = new Pool({
+      connectionString: fixture.connectionString,
+      options: "-c default_transaction_read_only=on",
+    });
+    try {
+      const scope = { tenantId: "empty-decision", projectId: "empty-decision", policyEpoch: 1, readers: ["alice"] };
+      const sourceFor = (selected = scope) =>
+        storage.createPgStorageBackend({ pool, repoId: "empty-decision", scope: selected }).projection;
+      const source = sourceFor();
+      const manage = <T>(run: (client: import("pg").PoolClient) => Promise<T>) =>
+        storage.withPostgresTransaction(fixture.adminPool, run, scope);
+      const assertEmpty = async (projection: typeof source) => {
+        for (const filters of [{}, { state: "proposed" as const, limit: 1 }, { search: "needle", limit: 1 }]) {
+          const result = await projection.listDecisions(filters);
+          assert.equal(result.status, "ready");
+          assert.equal(result.watermark, 0);
+          assert.equal(result.sourceRevision, 0);
+          assert.deepEqual(result.decisions, []);
+        }
+        assert.deepEqual(await projection.listDecisionAgendaPage({ state: "proposed", limit: 1 }), {
+          status: "ready",
+          watermark: 0,
+          sourceRevision: 0,
+          decisions: [],
+          page: { limit: 1, cursor: null, nextCursor: null },
+        });
+      };
+      const assertPending = async () => {
+        for (const filters of [{}, { state: "proposed" as const, limit: 1 }, { search: "needle", limit: 1 }])
+          await assert.rejects(() => source.listDecisions(filters), { code: "projection_pending" });
+        await assert.rejects(() => source.listDecisionAgendaPage({ state: "proposed", limit: 1 }), {
+          code: "projection_pending",
+        });
+      };
+      await t.test("a new native PG backend serves empty lists, search and agenda before the first event", async () => {
+        await assertEmpty(source);
+        await assertEmpty(sourceFor());
+        assert.equal((await manage((client) => client.query("SELECT * FROM ha_decision_read_status"))).rowCount, 0);
       });
-    };
-    const assertPending = async () => {
-      for (const filters of [{}, { state: "proposed" as const, limit: 1 }, { search: "needle", limit: 1 }])
-        await assert.rejects(() => source.listDecisions(filters), { code: "projection_pending" });
-      await assert.rejects(() => source.listDecisionAgendaPage({ state: "proposed", limit: 1 }), {
-        code: "projection_pending",
-      });
-    };
-    await t.test("a new native PG backend serves empty lists, search and agenda before the first event", async () => {
-      await assertEmpty(source);
-      await assertEmpty(sourceFor());
-      assert.equal((await manage((client) => client.query("SELECT * FROM ha_decision_read_status"))).rowCount, 0);
-    });
-    // Fully populated scalar/search fields do not establish management completion
-    // when an older scope has no summary, even if the reader cannot see its owner.
-    await manage(async (client) => {
-      await client.query(
-        `INSERT INTO ha_decisions(tenant_id,project_id,policy_epoch,decision_id,workspace_revision,readers,value)
-          VALUES($1,$2,$3,'dec_existing',1,ARRAY['bob'],$4::jsonb)`,
-        [
-          scope.tenantId,
-          scope.projectId,
-          scope.policyEpoch,
-          JSON.stringify(reduceDecisionDocument(null, proposal(1, "dec_existing"))),
-        ],
-      );
-      await client.query("UPDATE ha_decisions SET search_ready=true");
-      await client.query("DELETE FROM ha_decision_read_status");
-    });
-    await t.test("an older nonempty scope with no summary stays pending regardless of filters or ACL", assertPending);
-    await t.test("another tenant, project or policy epoch remains empty and ready", async () => {
-      for (const other of [
-        { ...scope, tenantId: "another-tenant" },
-        { ...scope, projectId: "another-project" },
-        { ...scope, policyEpoch: 2 },
-      ])
-        await assertEmpty(sourceFor(other));
-    });
-    await t.test("an explicit unknown summary is pending even without owners", async () => {
+      // Fully populated scalar/search fields do not establish management completion
+      // when an older scope has no summary, even if the reader cannot see its owner.
       await manage(async (client) => {
-        await client.query("DELETE FROM ha_decisions");
-        await client.query("INSERT INTO ha_decision_read_status(tenant_id,project_id,policy_epoch) VALUES($1,$2,$3)", [
-          scope.tenantId,
-          scope.projectId,
-          scope.policyEpoch,
-        ]);
+        await client.query(
+          `INSERT INTO ha_decisions(tenant_id,project_id,policy_epoch,decision_id,workspace_revision,readers,value)
+          VALUES($1,$2,$3,'dec_existing',1,ARRAY['bob'],$4::jsonb)`,
+          [
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            JSON.stringify(reduceDecisionDocument(null, proposal(1, "dec_existing"))),
+          ],
+        );
+        await client.query("UPDATE ha_decisions SET search_ready=true");
+        await client.query("DELETE FROM ha_decision_read_status");
       });
-      await assertPending();
-      await manage((client) => client.query("UPDATE ha_decision_read_status SET scalar_pending=0"));
-      await assert.rejects(() => source.listDecisions({ search: "needle", limit: 1 }), { code: "projection_pending" });
-      await manage((client) => client.query("UPDATE ha_decision_read_status SET search_pending=0"));
-      await assertEmpty(source);
-    });
-  } finally {
-    await pool.end();
-    await fixture.pool.end();
-    await fixture.close();
-  }
-});
+      await t.test("an older nonempty scope with no summary stays pending regardless of filters or ACL", assertPending);
+      await t.test("another tenant, project or policy epoch remains empty and ready", async () => {
+        for (const other of [
+          { ...scope, tenantId: "another-tenant" },
+          { ...scope, projectId: "another-project" },
+          { ...scope, policyEpoch: 2 },
+        ])
+          await assertEmpty(sourceFor(other));
+      });
+      await t.test("an explicit unknown summary is pending even without owners", async () => {
+        await manage(async (client) => {
+          await client.query("DELETE FROM ha_decisions");
+          await client.query(
+            "INSERT INTO ha_decision_read_status(tenant_id,project_id,policy_epoch) VALUES($1,$2,$3)",
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          );
+        });
+        await assertPending();
+        await manage((client) => client.query("UPDATE ha_decision_read_status SET scalar_pending=0"));
+        await assert.rejects(() => source.listDecisions({ search: "needle", limit: 1 }), {
+          code: "projection_pending",
+        });
+        await manage((client) => client.query("UPDATE ha_decision_read_status SET search_pending=0"));
+        await assertEmpty(source);
+      });
+    } finally {
+      await pool.end();
+      await fixture.pool.end();
+      await fixture.close();
+    }
+  },
+);
 
 test("public management backfill completes a previous-writer Decision search expansion", async () => {
   const backfill = storage.backfillPgDecisionSearchPage;
@@ -217,13 +225,10 @@ test("public management backfill completes a previous-writer Decision search exp
       scope,
     );
     try {
-      const pid = await pidReady.promise,
-        deadline = Date.now() + 10000;
+      const pid = await pidReady.promise;
       for (;;) {
         const state = (await peers.query("SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1", [pid])).rows[0];
         if (state?.wait_event_type === "Lock") break;
-        // poll-spin-class: durable-poll - durable predicate read (assert.ok(Date.now() < deadline, "previous writer must wait on management comple); no product event port at the wait site
-        assert.ok(Date.now() < deadline, "previous writer must wait on management completion");
       }
     } finally {
       release.resolve();

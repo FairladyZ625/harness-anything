@@ -56,7 +56,6 @@ test("an oversized dispatch report no longer wedges task completion", { timeout:
       if (delaySettlement) {
         delaySettlement = false;
         // Model a busy authorization boundary after provider exit, beyond the old fixture poll budget.
-        // poll-spin-class: fixture-stimulus - fake external system delay; the timer is test input, not a correctness wait
         await new Promise((resolve) => setTimeout(resolve, 6_500));
       }
       return owner.keycloakAuthorization.session;

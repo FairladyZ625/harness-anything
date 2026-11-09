@@ -138,7 +138,6 @@ test("a Fact archived before attach still protects the expired stream its eviden
     cell = await openRepoCell({ repoId, rootDir, ownerId: "dispatch-retention-archived-fact" });
     // The unprotected stream being gone is the proof the prune ran in this attach.
     for (let round = 0; round < 150 && existsSync(expired); round += 1)
-      // poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 100));); no product event port at the wait site
       await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(existsSync(expired), false, "the prune ran at this attach");
     assert.equal(existsSync(protectedStream), true, "an archived Fact's evidence still holds its stream back");

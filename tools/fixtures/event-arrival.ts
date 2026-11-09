@@ -34,6 +34,28 @@ export async function waitForArrival<T>(
 }
 
 /**
+ * The fallback when the process under test publishes no subscribable event (owner ruling
+ * 2026-11-09 on task_6ddecd04b58fe29d6aa32c9736): read the durable state again until the predicate
+ * holds. There is no deadline and no "not within N ms" failure here; the node:test `timeout` option
+ * is the only hang guard. Yield with setImmediate, not a wall-clock interval: the sample is not
+ * spaced by elapsed time, so the wait never judges by the clock.
+ */
+export async function waitForDurableValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
+  for (;;) {
+    const value = await read();
+    if (value !== null) return value;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+export async function waitForDurableCondition(predicate: () => boolean | Promise<boolean>): Promise<void> {
+  for (;;) {
+    if (await predicate()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+/**
  * Subscribe to a durable file the process under test publishes: creating it, appending to it, or
  * deleting it wakes the waiter, and the caller's `read` decides whether the awaited state arrived.
  * An existing file is watched directly, which reports appends on every platform; a file that is not

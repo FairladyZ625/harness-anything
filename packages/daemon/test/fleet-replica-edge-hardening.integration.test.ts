@@ -400,10 +400,8 @@ test("an idle connected edge costs the center no busy event loop", { timeout: 12
     60_000,
   );
   // The center's sender and the edge's receiver both live in this process; idle, they must sleep.
-  // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
   await new Promise((resolve) => setTimeout(resolve, 500));
   const before = process.cpuUsage();
-  // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   const used = process.cpuUsage(before),
     cpuMs = (used.user + used.system) / 1000;
@@ -456,12 +454,10 @@ test("an idle stream is kept fresh by center keepalives", { timeout: 120_000 }, 
     60_000,
   );
   // Let the convergence round (its trailing progress and ACK) settle before observing idleness.
-  // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
   await new Promise((resolve) => setTimeout(resolve, 1_000));
   const confirmedAt = statSync(path.join(viewDir, "current.json")).mtimeMs;
   // No commits: only keepalives arrive. They must refresh the read freshness and never trip the
   // edge's idle timeout.
-  // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
   await new Promise((resolve) => setTimeout(resolve, 3_000));
   assert.ok(
     statSync(path.join(viewDir, "current.json")).mtimeMs > confirmedAt,

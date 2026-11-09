@@ -56,46 +56,507 @@ const installation: RuntimeInstallationWitness = {
   observedAt: "2026-08-14T00:00:00.000Z",
 };
 
-test("attached task runtime settlement releases its execution lease before publishing the terminal outcome", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
-  let fixtureChild: ReturnType<typeof spawn> | undefined,
-    exit: ((code: number | null) => void) | null = null,
-    output: ((chunk: string, persisted?: boolean) => void) | null = null,
-    failSettlement = false,
-    launchedPrompt: string | undefined;
-  try {
-    initIngressRepo(root, 4310);
-    const cell = await openRepoCell({
-      repoId: workspaceId("runtime-attached-tail"),
-      rootDir: canonicalRoot(root),
-      ownerId: "attached-tail-test",
-      runtimeDaemonRoute: {
-        userRoot: path.join(root, ".daemon-user"),
-        daemonId: "attached-tail-test",
-        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
-      },
-      runtimeInstances: () => [
-        {
-          schemaVersion: 2,
-          instanceId: definition.instanceId,
-          name: "Codex Attached Tail",
-          kindId: definition.kindId,
-          installationId: definition.installationId,
-          providerId: definition.providerId,
-          models: [definition.model],
-          defaultModel: definition.model,
-          enabled: true,
-          permissionMode: "workspace-write",
-          codex: {},
-          authMode: definition.authMode,
-          authState: "configured",
-          authReadiness: { status: "ready", code: null, hint: null },
-          isolationState: "enforced",
+test(
+  "attached task runtime settlement releases its execution lease before publishing the terminal outcome",
+  { timeout: 300_000 },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
+    let fixtureChild: ReturnType<typeof spawn> | undefined,
+      exit: ((code: number | null) => void) | null = null,
+      output: ((chunk: string, persisted?: boolean) => void) | null = null,
+      failSettlement = false,
+      launchedPrompt: string | undefined;
+    try {
+      initIngressRepo(root, 4310);
+      const cell = await openRepoCell({
+        repoId: workspaceId("runtime-attached-tail"),
+        rootDir: canonicalRoot(root),
+        ownerId: "attached-tail-test",
+        runtimeDaemonRoute: {
+          userRoot: path.join(root, ".daemon-user"),
+          daemonId: "attached-tail-test",
+          endpoint: path.join(root, ".daemon-user", "daemon.sock"),
         },
-      ],
-      prepareRuntimeLaunch: async (_instanceId, request) => {
-        launchedPrompt = request.prompt;
-        return {
+        runtimeInstances: () => [
+          {
+            schemaVersion: 2,
+            instanceId: definition.instanceId,
+            name: "Codex Attached Tail",
+            kindId: definition.kindId,
+            installationId: definition.installationId,
+            providerId: definition.providerId,
+            models: [definition.model],
+            defaultModel: definition.model,
+            enabled: true,
+            permissionMode: "workspace-write",
+            codex: {},
+            authMode: definition.authMode,
+            authState: "configured",
+            authReadiness: { status: "ready", code: null, hint: null },
+            isolationState: "enforced",
+          },
+        ],
+        prepareRuntimeLaunch: async (_instanceId, request) => {
+          launchedPrompt = request.prompt;
+          return {
+            definition,
+            installation,
+            executablePath: installation.executablePath,
+            args: ["exec", "--json", "-"],
+            env: process.env,
+            cwd: request.cwd,
+            prompt: request.prompt,
+          };
+        },
+        runtimeLaunch: () => {
+          const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
+            detached: true,
+            stdio: ["pipe", "ignore", "ignore"],
+          });
+          if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+          child.unref();
+          fixtureChild = child;
+          const stop = (): void => stopFixtureGroup(child);
+          return {
+            pid: child.pid,
+            onOutput: (listener) => {
+              output = listener;
+            },
+            onErrorOutput: () => undefined,
+            onExit: (listener) => {
+              exit = listener;
+            },
+            terminate: stop,
+            terminateTree: async () => stop(),
+          };
+        },
+        killpoint: (point) => {
+          if (!failSettlement || point !== "after_store_commit") return;
+          const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
+          if (latest?.type === "lease_released" && latest.taskId === "task-runtime-settlement-failed") {
+            failSettlement = false;
+            throw Object.assign(new Error("injected terminal lease settlement failure"), {
+              code: "runtime_lease_release_failed",
+            });
+          }
+        },
+      });
+      try {
+        const taskId = "task-runtime-attached-tail",
+          executionId = "execution-runtime-attached-tail",
+          binding = withPolicyGroup(
+            {
+              actor: { principal: { personId: "person-attached-tail" }, executor: null },
+              source: "local" as const,
+            },
+            "admin",
+          );
+        const created = await cell.run(
+          { kind: "task-create", taskId, title: "Attached tail lease", presetId: "docs-task" },
+          binding,
+        );
+        assert.equal(created.outcome, "applied");
+        await waitForFixturePublication(cell, created.opId, binding);
+        await realizeTaskPlanFixture(
+          root,
+          String((created as Record<string, unknown>).packagePath),
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Attached tail lease",
+        );
+        assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+        const receipt = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Settle the durable tail after attach",
+            taskId,
+            dispatchKey: "attached-tail",
+          },
+          binding,
+        );
+        assert.match(
+          dispatchText(root, String(receipt.dispatchId)),
+          /"kind":"process_started"/u,
+          "the fixture launcher must record the real child process group",
+        );
+        // A task-bound dispatch without an agent declaration is worker work and carries the shared discipline.
+        assert.match(launchedPrompt ?? "", /^# Harness Execution Discipline/u);
+        assert.match(
+          launchedPrompt ?? "",
+          /Host access: operator\. You may use host tools and services that already exist/u,
+        );
+        const claimedProjection = makeTaskProjection({
+          rootDir: root,
+          eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+        });
+        try {
+          assert.deepEqual(
+            claimedProjection.read(taskId).snapshot.lease?.actor.executor,
+            { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+            "dispatch must hand the lease to the RuntimeSession before provider work starts",
+          );
+        } finally {
+          claimedProjection.close();
+        }
+        const executor = { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` } as const;
+        const released = await cell.run({ kind: "task-release", taskId, executor }, binding);
+        assert.equal(released.outcome, "applied", JSON.stringify(released));
+        // A plain release/start rejoins the same round; returning to planned opens the next one.
+        const rejoined = await cell.run({ kind: "task-start", taskId, executor }, binding);
+        assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+        assert.equal(rejoined.executionId, executionId);
+        assert.equal((await cell.run({ kind: "task-release", taskId, executor }, binding)).outcome, "applied");
+        const returned = await cell.run(
+          { kind: "task-transition", taskId, status: "planned", reason: "New iteration" },
+          binding,
+        );
+        assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+        const restarted = await cell.run({ kind: "task-start", taskId, executor }, binding);
+        assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
+        const nextExecutionId = String(restarted.executionId);
+        assert.notEqual(nextExecutionId, executionId);
+        await waitForFixturePublication(cell, restarted.opId, binding);
+        const reportPath = `${String((created as Record<string, unknown>).packagePath)}/artifacts/report.md`;
+        mkdirSync(path.dirname(path.join(root, "harness", reportPath)), { recursive: true });
+        writeFileSync(path.join(root, "harness", reportPath), "# Current lease report\n");
+        const synced = await cell.run({ kind: "doc-submit", taskId, executor }, binding);
+        assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+        const progress = await cell.run(
+          { kind: "task-progress-append", taskId, text: "New iteration writer", executor },
+          binding,
+        );
+        assert.equal(progress.outcome, "applied", JSON.stringify(progress));
+        const rebuilt = await cell.run({ kind: "projection-rebuild" }, binding);
+        assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
+        const records = [
+          { type: "thread.started", thread_id: "provider-attached-tail" },
+          {
+            type: "item.completed",
+            item: {
+              id: "write",
+              type: "file_change",
+              changes: [{ path: "result.txt", kind: "add" }],
+              status: "completed",
+            },
+          },
+          {
+            type: "item.completed",
+            item: { id: "message", type: "agent_message", text: "attached tail settled" },
+          },
+          { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+        ];
+        for (const event of records) {
+          appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+            kind: "provider_event",
+            occurredAt: "2026-08-24T12:00:00.000Z",
+            event,
+          });
+        }
+        // Match the native observer: persisted provider output is delivered before exit.
+        assert.ok(output, "runtime output listener must be attached before provider output");
+        output(records.map((event) => `${JSON.stringify(event)}\n`).join(""), true);
+        appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+          kind: "process_exit",
+          occurredAt: "2026-08-24T12:00:01.000Z",
+          exitCode: 0,
+          signal: null,
+        });
+        assert.ok(exit, "runtime exit listener must be attached before the provider exits");
+        exit(0);
+        const events = await eventuallyValue(() => {
+            const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
+            return events.some(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === receipt.runtimeSessionId,
+            )
+              ? events
+              : null;
+          }),
+          outcomeIndex = events.findIndex(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === receipt.runtimeSessionId,
+          ),
+          releaseIndex = events.findIndex(
+            (event) =>
+              event.type === "lease_released" &&
+              event.taskId === taskId &&
+              event.payload.execution.executionId === nextExecutionId,
+          ),
+          projection = makeTaskProjection({
+            rootDir: root,
+            projectionPath: path.join(root, ".harness/cache/runtime-attached-tail-observer.sqlite"),
+            eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+          });
+        projection.catchUp();
+        const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!,
+          taskSnapshot = projection.read(taskId).snapshot;
+        projection.close();
+        assert.deepEqual(
+          {
+            liveness: settled.liveness,
+            outcome: settled.outcome,
+            exitCode: settled.exitCode,
+          },
+          { liveness: "exited", outcome: "stopped", exitCode: 0 },
+        );
+        assert.deepEqual(
+          events
+            .filter(
+              (event) =>
+                (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+                event.payload.runtimeSessionId === receipt.runtimeSessionId,
+            )
+            .map((event) => event.actor.executor),
+          [
+            { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+            { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+          ],
+          "terminal Runtime events must use the daemon-derived RuntimeSession claim",
+        );
+        assert.ok(
+          releaseIndex >= 0 && releaseIndex < outcomeIndex,
+          "terminal outcome must not become visible before current lease release",
+        );
+        assert.equal(taskSnapshot.lease, null, "terminal RuntimeSession settlement must release the execution lease");
+
+        const redispatched = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Complete the next iteration",
+            taskId,
+            dispatchKey: "attached-tail-redispatch",
+          },
+          binding,
+        );
+        const nextExecutor = { kind: "agent", id: `runtime-session:${redispatched.runtimeSessionId}` } as const;
+        assert.notEqual(nextExecutor.id, executor.id);
+        const stale = await cell.run({ kind: "task-progress-append", taskId, text: "Old runtime", executor }, binding);
+        assert.equal(stale.code, "executor_binding_invalid");
+        assert.equal(
+          (await cell.run({ kind: "task-release", taskId, executor: nextExecutor }, binding)).outcome,
+          "applied",
+        );
+        assert.equal(
+          (
+            await cell.run(
+              { kind: "task-transition", taskId, status: "planned", reason: "Final delivery round" },
+              binding,
+            )
+          ).outcome,
+          "applied",
+        );
+        const deliveryStart = await cell.run({ kind: "task-start", taskId, executor: nextExecutor }, binding);
+        assert.equal(deliveryStart.outcome, "applied", JSON.stringify(deliveryStart));
+        assert.notEqual(deliveryStart.executionId, nextExecutionId);
+        await waitForFixturePublication(cell, deliveryStart.opId, binding);
+        writeFileSync(
+          path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "closeout.md"),
+          "## Summary\nVerified runtime lease handoff and delivery: artifact:artifacts/report.md.\n## Verification\nIsolated lifecycle assertions.\n" +
+            "## Residual Risk\nNo external provider integration exercised.\n## Same Mechanism Elsewhere\nReplay checked.\n",
+        );
+        const closeout = await cell.run({ kind: "doc-submit", taskId, executor: nextExecutor }, binding);
+        assert.equal(closeout.outcome, "applied", JSON.stringify(closeout));
+        const submitted = await cell.run(
+          { kind: "task-submit", taskId, executionId: deliveryStart.executionId, executor: nextExecutor },
+          binding,
+        );
+        assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+        const deliveryProjection = makeTaskProjection({
+          rootDir: root,
+          eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+        });
+        try {
+          assert.equal(deliveryProjection.read(taskId).snapshot.lease, null, "submit releases the current lease");
+          assert.equal(deliveryProjection.read(taskId).snapshot.executions.at(-1)?.actor.executor?.id, nextExecutor.id);
+        } finally {
+          deliveryProjection.close();
+        }
+
+        const failedTaskId = "task-runtime-settlement-failed",
+          failedExecutionId = "execution-runtime-settlement-failed";
+        const failedCreated = await cell.run(
+          { kind: "task-create", taskId: failedTaskId, title: "Failed settlement" },
+          binding,
+        );
+        assert.equal(failedCreated.outcome, "applied");
+        await waitForFixturePublication(cell, failedCreated.opId, binding);
+        await realizeTaskPlanFixture(
+          root,
+          String((failedCreated as Record<string, unknown>).packagePath),
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Failed settlement",
+        );
+        assert.equal(
+          (
+            await cell.run(
+              {
+                kind: "task-start",
+                taskId: failedTaskId,
+                executionId: failedExecutionId,
+              },
+              binding,
+            )
+          ).outcome,
+          "applied",
+        );
+        const failedReceipt = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Expose a failed terminal lease settlement",
+            taskId: failedTaskId,
+            dispatchKey: "failed-settlement",
+          },
+          binding,
+        );
+        for (const event of records) {
+          appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
+            kind: "provider_event",
+            occurredAt: "2026-08-24T12:01:00.000Z",
+            event,
+          });
+        }
+        appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
+          kind: "process_exit",
+          occurredAt: "2026-08-24T12:01:01.000Z",
+          exitCode: 0,
+          signal: null,
+        });
+        const beforeFailedExitCount = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read()
+          .events.length;
+        failSettlement = true;
+        assert.ok(exit, "failed-settlement runtime must attach its exit listener");
+        exit(0);
+        await eventually(() => {
+          const terminal = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
+            .read()
+            .events.find(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+            );
+          return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "failed";
+        });
+        assert.equal(failSettlement, false, "the failed task lease release must trigger the post-commit fault");
+        const failedEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+          failedExitIndex = failedEvents.findIndex(
+            (event) =>
+              event.type === "runtime_session_exited" &&
+              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+          ),
+          failedOutcomeIndex = failedEvents.findIndex(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+          ),
+          failedOutcome = failedEvents.find(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+          ),
+          failedStatus = await eventuallyValue(async () => {
+            const status = await cell.read("repo.agentRuntime.sessions.read", {
+              runtimeSessionId: failedReceipt.runtimeSessionId,
+            });
+            return status.session.activity.outcome === "failed" ? status : null;
+          });
+        const failedReleaseIndexes = failedEvents.flatMap((event, index) =>
+          index >= beforeFailedExitCount && event.type === "lease_released" && event.taskId === failedTaskId
+            ? [index]
+            : [],
+        );
+        assert.equal(
+          failedReleaseIndexes.length,
+          1,
+          "the post-commit fault does not roll back the accepted lease release",
+        );
+        assert.ok(failedReleaseIndexes[0]! < failedOutcomeIndex);
+        assert.ok(failedExitIndex < failedOutcomeIndex, "the failed settlement still publishes one terminal outcome");
+        assert.equal(
+          failedEvents.filter(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
+          ).length,
+          1,
+        );
+        assert.equal(failedStatus.session.activity.outcome, "failed");
+        assert.equal(
+          failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
+          "publication_indeterminate",
+        );
+        assert.equal(failedStatus.session.activity.reasonCode, "publication_indeterminate");
+        assert.match(failedStatus.result?.text ?? "", /publication_indeterminate/u);
+        failSettlement = false;
+        assert.equal(
+          (
+            await cell.run(
+              { kind: "task-create", taskId: "task-after-settlement-failure", title: "Tail live" },
+              binding,
+            )
+          ).outcome,
+          "applied",
+        );
+        assert.equal(
+          failedEvents.some(
+            (event) =>
+              event.type === "lease_released" &&
+              event.taskId === failedTaskId &&
+              event.payload.execution.executionId === failedExecutionId,
+          ),
+          true,
+        );
+      } finally {
+        await cell.close();
+      }
+    } finally {
+      if (fixtureChild) stopFixtureGroup(fixtureChild);
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "terminal settlement leaves an execution lease generation it never dispatched under held",
+  { timeout: 300_000 },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-lease-generation-"));
+    let fixtureChild: ReturnType<typeof spawn> | undefined,
+      exit: ((code: number | null) => void) | null = null;
+    try {
+      initIngressRepo(root, 4311);
+      const cell = await openRepoCell({
+        repoId: workspaceId("runtime-lease-generation"),
+        rootDir: canonicalRoot(root),
+        ownerId: "lease-generation-test",
+        runtimeDaemonRoute: {
+          userRoot: path.join(root, ".daemon-user"),
+          daemonId: "lease-generation-test",
+          endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+        },
+        runtimeInstances: () => [
+          {
+            schemaVersion: 2,
+            instanceId: definition.instanceId,
+            name: "Codex Lease Generation",
+            kindId: definition.kindId,
+            installationId: definition.installationId,
+            providerId: definition.providerId,
+            models: [definition.model],
+            defaultModel: definition.model,
+            enabled: true,
+            permissionMode: "workspace-write",
+            codex: {},
+            authMode: definition.authMode,
+            authState: "configured",
+            authReadiness: { status: "ready", code: null, hint: null },
+            isolationState: "enforced",
+          },
+        ],
+        prepareRuntimeLaunch: async (_instanceId, request) => ({
           definition,
           installation,
           executablePath: installation.executablePath,
@@ -103,536 +564,318 @@ test("attached task runtime settlement releases its execution lease before publi
           env: process.env,
           cwd: request.cwd,
           prompt: request.prompt,
-        };
-      },
-      runtimeLaunch: () => {
-        const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
-          detached: true,
-          stdio: ["pipe", "ignore", "ignore"],
-        });
-        if (!child.pid) throw new Error("fixture worker child did not expose a pid");
-        child.unref();
-        fixtureChild = child;
-        const stop = (): void => stopFixtureGroup(child);
-        return {
-          pid: child.pid,
-          onOutput: (listener) => {
-            output = listener;
-          },
-          onErrorOutput: () => undefined,
-          onExit: (listener) => {
-            exit = listener;
-          },
-          terminate: stop,
-          terminateTree: async () => stop(),
-        };
-      },
-      killpoint: (point) => {
-        if (!failSettlement || point !== "after_store_commit") return;
-        const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
-        if (latest?.type === "lease_released" && latest.taskId === "task-runtime-settlement-failed") {
-          failSettlement = false;
-          throw Object.assign(new Error("injected terminal lease settlement failure"), {
-            code: "runtime_lease_release_failed",
+        }),
+        runtimeLaunch: () => {
+          const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
+            detached: true,
+            stdio: ["pipe", "ignore", "ignore"],
           });
-        }
-      },
-    });
-    try {
-      const taskId = "task-runtime-attached-tail",
-        executionId = "execution-runtime-attached-tail",
-        binding = withPolicyGroup(
-          {
-            actor: { principal: { personId: "person-attached-tail" }, executor: null },
-            source: "local" as const,
-          },
-          "admin",
-        );
-      const created = await cell.run(
-        { kind: "task-create", taskId, title: "Attached tail lease", presetId: "docs-task" },
-        binding,
-      );
-      assert.equal(created.outcome, "applied");
-      await waitForFixturePublication(cell, created.opId, binding);
-      await realizeTaskPlanFixture(
-        root,
-        String((created as Record<string, unknown>).packagePath),
-        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-        "Attached tail lease",
-      );
-      assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
-      const receipt = await cell.spawnRuntime(
-        {
-          runtimeInstanceId: definition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Settle the durable tail after attach",
-          taskId,
-          dispatchKey: "attached-tail",
+          if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+          child.unref();
+          fixtureChild = child;
+          const stop = (): void => stopFixtureGroup(child);
+          return {
+            pid: child.pid,
+            onOutput: () => undefined,
+            onErrorOutput: () => undefined,
+            onExit: (listener) => {
+              exit = listener;
+            },
+            terminate: stop,
+            terminateTree: async () => stop(),
+          };
         },
-        binding,
-      );
-      assert.match(
-        dispatchText(root, String(receipt.dispatchId)),
-        /"kind":"process_started"/u,
-        "the fixture launcher must record the real child process group",
-      );
-      // A task-bound dispatch without an agent declaration is worker work and carries the shared discipline.
-      assert.match(launchedPrompt ?? "", /^# Harness Execution Discipline/u);
-      assert.match(
-        launchedPrompt ?? "",
-        /Host access: operator\. You may use host tools and services that already exist/u,
-      );
-      const claimedProjection = makeTaskProjection({
-        rootDir: root,
-        eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
       });
       try {
-        assert.deepEqual(
-          claimedProjection.read(taskId).snapshot.lease?.actor.executor,
-          { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
-          "dispatch must hand the lease to the RuntimeSession before provider work starts",
+        const taskId = "task-runtime-lease-generation",
+          executionId = "execution-runtime-lease-generation",
+          binding = withPolicyGroup(
+            {
+              actor: { principal: { personId: "person-lease-generation" }, executor: null },
+              source: "local" as const,
+            },
+            "admin",
+          ),
+          start = async () => (await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome;
+        const created = await cell.run({ kind: "task-create", taskId, title: "Lease generation" }, binding);
+        assert.equal(created.outcome, "applied");
+        await waitForFixturePublication(cell, created.opId, binding);
+        await realizeTaskPlanFixture(
+          root,
+          String((created as Record<string, unknown>).packagePath),
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Lease generation",
         );
-      } finally {
-        claimedProjection.close();
-      }
-      const executor = { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` } as const;
-      const released = await cell.run({ kind: "task-release", taskId, executor }, binding);
-      assert.equal(released.outcome, "applied", JSON.stringify(released));
-      // A plain release/start rejoins the same round; returning to planned opens the next one.
-      const rejoined = await cell.run({ kind: "task-start", taskId, executor }, binding);
-      assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
-      assert.equal(rejoined.executionId, executionId);
-      assert.equal((await cell.run({ kind: "task-release", taskId, executor }, binding)).outcome, "applied");
-      const returned = await cell.run(
-        { kind: "task-transition", taskId, status: "planned", reason: "New iteration" },
-        binding,
-      );
-      assert.equal(returned.outcome, "applied", JSON.stringify(returned));
-      const restarted = await cell.run({ kind: "task-start", taskId, executor }, binding);
-      assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
-      const nextExecutionId = String(restarted.executionId);
-      assert.notEqual(nextExecutionId, executionId);
-      await waitForFixturePublication(cell, restarted.opId, binding);
-      const reportPath = `${String((created as Record<string, unknown>).packagePath)}/artifacts/report.md`;
-      mkdirSync(path.dirname(path.join(root, "harness", reportPath)), { recursive: true });
-      writeFileSync(path.join(root, "harness", reportPath), "# Current lease report\n");
-      const synced = await cell.run({ kind: "doc-submit", taskId, executor }, binding);
-      assert.equal(synced.outcome, "applied", JSON.stringify(synced));
-      const progress = await cell.run(
-        { kind: "task-progress-append", taskId, text: "New iteration writer", executor },
-        binding,
-      );
-      assert.equal(progress.outcome, "applied", JSON.stringify(progress));
-      const rebuilt = await cell.run({ kind: "projection-rebuild" }, binding);
-      assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
-      const records = [
-        { type: "thread.started", thread_id: "provider-attached-tail" },
-        {
-          type: "item.completed",
-          item: {
-            id: "write",
-            type: "file_change",
-            changes: [{ path: "result.txt", kind: "add" }],
-            status: "completed",
+        assert.equal(await start(), "applied");
+        const receipt = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Dispatch under the first lease generation",
+            taskId,
+            dispatchKey: "lease-generation",
           },
-        },
-        {
-          type: "item.completed",
-          item: { id: "message", type: "agent_message", text: "attached tail settled" },
-        },
-        { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
-      ];
-      for (const event of records) {
+          binding,
+        );
+        // The holder hands the execution over — release and restart — while the dispatch is still
+        // live. Both generations carry the same executionId, so only the lease version tells them
+        // apart, and the dispatch below belongs to the first one.
+        const runtimeHolder = {
+          ...binding,
+          actor: {
+            principal: binding.actor.principal,
+            executor: { kind: "agent" as const, id: `runtime-session:${receipt.runtimeSessionId}` },
+          },
+        };
+        assert.equal((await cell.run({ kind: "task-release", taskId }, runtimeHolder)).outcome, "applied");
+        assert.equal(await start(), "applied");
         appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
           kind: "provider_event",
           occurredAt: "2026-08-24T12:00:00.000Z",
-          event,
+          event: { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
         });
-      }
-      // Match the native observer: persisted provider output is delivered before exit.
-      assert.ok(output, "runtime output listener must be attached before provider output");
-      output(records.map((event) => `${JSON.stringify(event)}\n`).join(""), true);
-      appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
-        kind: "process_exit",
-        occurredAt: "2026-08-24T12:00:01.000Z",
-        exitCode: 0,
-        signal: null,
-      });
-      assert.ok(exit, "runtime exit listener must be attached before the provider exits");
-      exit(0);
-      const events = await eventuallyValue(() => {
-          const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
-          return events.some(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === receipt.runtimeSessionId,
-          )
-            ? events
-            : null;
-        }),
-        outcomeIndex = events.findIndex(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === receipt.runtimeSessionId,
-        ),
-        releaseIndex = events.findIndex(
-          (event) =>
-            event.type === "lease_released" &&
-            event.taskId === taskId &&
-            event.payload.execution.executionId === nextExecutionId,
-        ),
-        projection = makeTaskProjection({
-          rootDir: root,
-          projectionPath: path.join(root, ".harness/cache/runtime-attached-tail-observer.sqlite"),
-          eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+        appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
+          kind: "process_exit",
+          occurredAt: "2026-08-24T12:00:01.000Z",
+          exitCode: 0,
+          signal: null,
         });
-      projection.catchUp();
-      const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!,
-        taskSnapshot = projection.read(taskId).snapshot;
-      projection.close();
-      assert.deepEqual(
-        {
-          liveness: settled.liveness,
-          outcome: settled.outcome,
-          exitCode: settled.exitCode,
-        },
-        { liveness: "exited", outcome: "stopped", exitCode: 0 },
-      );
-      assert.deepEqual(
-        events
-          .filter(
-            (event) =>
-              (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
-              event.payload.runtimeSessionId === receipt.runtimeSessionId,
-          )
-          .map((event) => event.actor.executor),
-        [
-          { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
-          { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
-        ],
-        "terminal Runtime events must use the daemon-derived RuntimeSession claim",
-      );
-      assert.ok(
-        releaseIndex >= 0 && releaseIndex < outcomeIndex,
-        "terminal outcome must not become visible before current lease release",
-      );
-      assert.equal(taskSnapshot.lease, null, "terminal RuntimeSession settlement must release the execution lease");
-
-      const redispatched = await cell.spawnRuntime(
-        {
-          runtimeInstanceId: definition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Complete the next iteration",
-          taskId,
-          dispatchKey: "attached-tail-redispatch",
-        },
-        binding,
-      );
-      const nextExecutor = { kind: "agent", id: `runtime-session:${redispatched.runtimeSessionId}` } as const;
-      assert.notEqual(nextExecutor.id, executor.id);
-      const stale = await cell.run({ kind: "task-progress-append", taskId, text: "Old runtime", executor }, binding);
-      assert.equal(stale.code, "executor_binding_invalid");
-      assert.equal(
-        (await cell.run({ kind: "task-release", taskId, executor: nextExecutor }, binding)).outcome,
-        "applied",
-      );
-      assert.equal(
-        (
-          await cell.run(
-            { kind: "task-transition", taskId, status: "planned", reason: "Final delivery round" },
-            binding,
-          )
-        ).outcome,
-        "applied",
-      );
-      const deliveryStart = await cell.run({ kind: "task-start", taskId, executor: nextExecutor }, binding);
-      assert.equal(deliveryStart.outcome, "applied", JSON.stringify(deliveryStart));
-      assert.notEqual(deliveryStart.executionId, nextExecutionId);
-      await waitForFixturePublication(cell, deliveryStart.opId, binding);
-      writeFileSync(
-        path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "closeout.md"),
-        "## Summary\nVerified runtime lease handoff and delivery: artifact:artifacts/report.md.\n## Verification\nIsolated lifecycle assertions.\n" +
-          "## Residual Risk\nNo external provider integration exercised.\n## Same Mechanism Elsewhere\nReplay checked.\n",
-      );
-      const closeout = await cell.run({ kind: "doc-submit", taskId, executor: nextExecutor }, binding);
-      assert.equal(closeout.outcome, "applied", JSON.stringify(closeout));
-      const submitted = await cell.run(
-        { kind: "task-submit", taskId, executionId: deliveryStart.executionId, executor: nextExecutor },
-        binding,
-      );
-      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-      const deliveryProjection = makeTaskProjection({
-        rootDir: root,
-        eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
-      });
-      try {
-        assert.equal(deliveryProjection.read(taskId).snapshot.lease, null, "submit releases the current lease");
-        assert.equal(deliveryProjection.read(taskId).snapshot.executions.at(-1)?.actor.executor?.id, nextExecutor.id);
-      } finally {
-        deliveryProjection.close();
-      }
-
-      const failedTaskId = "task-runtime-settlement-failed",
-        failedExecutionId = "execution-runtime-settlement-failed";
-      const failedCreated = await cell.run(
-        { kind: "task-create", taskId: failedTaskId, title: "Failed settlement" },
-        binding,
-      );
-      assert.equal(failedCreated.outcome, "applied");
-      await waitForFixturePublication(cell, failedCreated.opId, binding);
-      await realizeTaskPlanFixture(
-        root,
-        String((failedCreated as Record<string, unknown>).packagePath),
-        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-        "Failed settlement",
-      );
-      assert.equal(
-        (
-          await cell.run(
-            {
-              kind: "task-start",
-              taskId: failedTaskId,
-              executionId: failedExecutionId,
-            },
-            binding,
-          )
-        ).outcome,
-        "applied",
-      );
-      const failedReceipt = await cell.spawnRuntime(
-        {
-          runtimeInstanceId: definition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Expose a failed terminal lease settlement",
-          taskId: failedTaskId,
-          dispatchKey: "failed-settlement",
-        },
-        binding,
-      );
-      for (const event of records) {
-        appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
-          kind: "provider_event",
-          occurredAt: "2026-08-24T12:01:00.000Z",
-          event,
-        });
-      }
-      appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
-        kind: "process_exit",
-        occurredAt: "2026-08-24T12:01:01.000Z",
-        exitCode: 0,
-        signal: null,
-      });
-      const beforeFailedExitCount = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read()
-        .events.length;
-      failSettlement = true;
-      assert.ok(exit, "failed-settlement runtime must attach its exit listener");
-      exit(0);
-      await eventually(() => {
-        const terminal = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
-          .read()
-          .events.find(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          );
-        return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "failed";
-      });
-      assert.equal(failSettlement, false, "the failed task lease release must trigger the post-commit fault");
-      const failedEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
-        failedExitIndex = failedEvents.findIndex(
-          (event) =>
-            event.type === "runtime_session_exited" &&
-            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-        ),
-        failedOutcomeIndex = failedEvents.findIndex(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-        ),
-        failedOutcome = failedEvents.find(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-        ),
-        failedStatus = await eventuallyValue(async () => {
-          const status = await cell.read("repo.agentRuntime.sessions.read", {
-            runtimeSessionId: failedReceipt.runtimeSessionId,
-          });
-          return status.session.activity.outcome === "failed" ? status : null;
-        });
-      const failedReleaseIndexes = failedEvents.flatMap((event, index) =>
-        index >= beforeFailedExitCount && event.type === "lease_released" && event.taskId === failedTaskId
-          ? [index]
-          : [],
-      );
-      assert.equal(
-        failedReleaseIndexes.length,
-        1,
-        "the post-commit fault does not roll back the accepted lease release",
-      );
-      assert.ok(failedReleaseIndexes[0]! < failedOutcomeIndex);
-      assert.ok(failedExitIndex < failedOutcomeIndex, "the failed settlement still publishes one terminal outcome");
-      assert.equal(
-        failedEvents.filter(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-        ).length,
-        1,
-      );
-      assert.equal(failedStatus.session.activity.outcome, "failed");
-      assert.equal(
-        failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
-        "publication_indeterminate",
-      );
-      assert.equal(failedStatus.session.activity.reasonCode, "publication_indeterminate");
-      assert.match(failedStatus.result?.text ?? "", /publication_indeterminate/u);
-      failSettlement = false;
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId: "task-after-settlement-failure", title: "Tail live" }, binding))
-          .outcome,
-        "applied",
-      );
-      assert.equal(
-        failedEvents.some(
-          (event) =>
-            event.type === "lease_released" &&
-            event.taskId === failedTaskId &&
-            event.payload.execution.executionId === failedExecutionId,
-        ),
-        true,
-      );
-    } finally {
-      await cell.close();
-    }
-  } finally {
-    if (fixtureChild) stopFixtureGroup(fixtureChild);
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("terminal settlement leaves an execution lease generation it never dispatched under held", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-lease-generation-"));
-  let fixtureChild: ReturnType<typeof spawn> | undefined,
-    exit: ((code: number | null) => void) | null = null;
-  try {
-    initIngressRepo(root, 4311);
-    const cell = await openRepoCell({
-      repoId: workspaceId("runtime-lease-generation"),
-      rootDir: canonicalRoot(root),
-      ownerId: "lease-generation-test",
-      runtimeDaemonRoute: {
-        userRoot: path.join(root, ".daemon-user"),
-        daemonId: "lease-generation-test",
-        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
-      },
-      runtimeInstances: () => [
-        {
-          schemaVersion: 2,
-          instanceId: definition.instanceId,
-          name: "Codex Lease Generation",
-          kindId: definition.kindId,
-          installationId: definition.installationId,
-          providerId: definition.providerId,
-          models: [definition.model],
-          defaultModel: definition.model,
-          enabled: true,
-          permissionMode: "workspace-write",
-          codex: {},
-          authMode: definition.authMode,
-          authState: "configured",
-          authReadiness: { status: "ready", code: null, hint: null },
-          isolationState: "enforced",
-        },
-      ],
-      prepareRuntimeLaunch: async (_instanceId, request) => ({
-        definition,
-        installation,
-        executablePath: installation.executablePath,
-        args: ["exec", "--json", "-"],
-        env: process.env,
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
-      runtimeLaunch: () => {
-        const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
-          detached: true,
-          stdio: ["pipe", "ignore", "ignore"],
-        });
-        if (!child.pid) throw new Error("fixture worker child did not expose a pid");
-        child.unref();
-        fixtureChild = child;
-        const stop = (): void => stopFixtureGroup(child);
-        return {
-          pid: child.pid,
-          onOutput: () => undefined,
-          onErrorOutput: () => undefined,
-          onExit: (listener) => {
-            exit = listener;
-          },
-          terminate: stop,
-          terminateTree: async () => stop(),
-        };
-      },
-    });
-    try {
-      const taskId = "task-runtime-lease-generation",
-        executionId = "execution-runtime-lease-generation",
-        binding = withPolicyGroup(
+        assert.ok(exit, "runtime exit listener must be attached before the provider exits");
+        exit(0);
+        await eventually(() =>
+          makeTaskEventReader({ repoId: "runtime-lease-generation", rootDir: root })
+            .read()
+            .events.some(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === receipt.runtimeSessionId,
+            ),
+        );
+        const projection = makeTaskProjection({
+            rootDir: root,
+            eventStore: makeTaskEventReader({ repoId: "runtime-lease-generation", rootDir: root }),
+          }),
+          lease = projection.read(taskId).snapshot.lease;
+        projection.close();
+        assert.equal(lease?.phase, "held", "a stale dispatch must not release the lease generation that replaced it");
+        assert.equal(lease?.executionId, executionId);
+        const spawned = await cell.spawnRuntime(
           {
-            actor: { principal: { personId: "person-lease-generation" }, executor: null },
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Dispatch under the surviving lease generation",
+            taskId,
+            dispatchKey: "lease-generation-next",
+          },
+          binding,
+        );
+        assert.equal(typeof spawned.dispatchId, "string");
+      } finally {
+        await cell.close();
+      }
+    } finally {
+      if (fixtureChild) stopFixtureGroup(fixtureChild);
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "repo-cell restart re-adopts a live native runtime and settles an exit recorded while absent",
+  { timeout: 300_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-re-adopt-")),
+      root = path.join(parent, "repo"),
+      release = path.join(parent, "release"),
+      pidFile = path.join(parent, "provider.pid"),
+      repoId = "runtime-re-adopt",
+      executablePath = writeProviderExecutable(
+        path.join(parent, "re-adopt-provider.mjs"),
+        `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-re-adopt-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon restart" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
+      ),
+      installation = installationFixture("codex", executablePath),
+      definition = {
+        instanceId: "codex-re-adopt",
+        name: "Codex Re-adopt",
+        kindId: "codex" as const,
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["codex-model"],
+        defaultModel: "codex-model",
+        enabled: true,
+        permissionMode: "workspace-write" as const,
+        codex: {},
+        authMode: "subscription" as const,
+        authState: "configured" as const,
+        authReadiness: { status: "ready" as const, code: null, hint: null },
+        isolationState: "enforced" as const,
+        schemaVersion: 2 as const,
+      },
+      preparedDefinition: AgentDefinitionSnapshot = {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: definition.instanceId,
+        installationId: installation.installationId,
+        kindId: "codex",
+        providerId: "openai",
+        model: "codex-model",
+        reasoningEffort: null,
+        baseUrl: null,
+        authMode: "subscription",
+      };
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+      providerPid = 0,
+      oldAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined,
+      newAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined;
+    try {
+      initIngressRepo(root, 4309);
+      const writerEpochStateRoot = path.join(parent, "writer-epochs");
+      const oldAuthorityInstance = openPersistentWriterEpoch({
+        stateRoot: writerEpochStateRoot,
+        holderId: "daemon-old",
+      });
+      oldAuthority = oldAuthorityInstance;
+      const oldLease = oldAuthorityInstance.acquire(repoId, readLedgerWriterEpoch(repoId, root)),
+        oldFence: WriterEpochFenceDescriptor = {
+          schema: "harness-writer-epoch-fence/v1",
+          stateRoot: writerEpochStateRoot,
+          repoId,
+          holderId: oldLease.holderId,
+          epoch: oldLease.epoch,
+        },
+        actor = { principal: { personId: "person-re-adopt" }, executor: null },
+        oldBinding = withPolicyGroup(
+          {
+            actor,
             source: "local" as const,
+            writerEpoch: oldLease.epoch,
+            writerEpochFence: oldFence,
+            withWriterEpochFence: <T>(operation: () => T) =>
+              oldAuthority!.withAppendFence(repoId, oldLease.epoch, oldLease.holderId, operation),
           },
           "admin",
         ),
-        start = async () => (await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome;
-      const created = await cell.run({ kind: "task-create", taskId, title: "Lease generation" }, binding);
-      assert.equal(created.outcome, "applied");
-      await waitForFixturePublication(cell, created.opId, binding);
-      await realizeTaskPlanFixture(
-        root,
-        String((created as Record<string, unknown>).packagePath),
-        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-        "Lease generation",
-      );
-      assert.equal(await start(), "applied");
+        open = (ownerId: string, defaultWriterEpochFence: WriterEpochFenceDescriptor) =>
+          openRepoCell({
+            repoId: workspaceId(repoId),
+            rootDir: canonicalRoot(root),
+            ownerId,
+            defaultWriterEpochFence,
+            keycloakSession: async () => oldBinding.keycloakAuthorization.session,
+            runtimeDaemonRoute: {
+              userRoot: path.join(parent, "daemon-user"),
+              daemonId: "runtime-re-adopt-test",
+              endpoint: path.join(parent, "daemon.sock"),
+            },
+            runtimeInstances: () => [definition],
+            prepareRuntimeLaunch: async (_instanceId, request) => ({
+              definition: preparedDefinition,
+              installation,
+              executablePath,
+              args: ["exec", "--json", "--model", "codex-model", "-"],
+              env: process.env,
+              cwd: request.cwd,
+              prompt: request.prompt,
+            }),
+          });
+      assert.equal(oldLease.epoch, 1);
+      cell = await open("re-adopt-before", oldFence);
       const receipt = await cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,
           cwd: { scope: "repo-root" },
-          prompt: "Dispatch under the first lease generation",
-          taskId,
-          dispatchKey: "lease-generation",
+          prompt: "Stay alive across restart",
+          taskId: null,
+          dispatchKey: "re-adopt",
         },
-        binding,
+        oldBinding,
       );
-      // The holder hands the execution over — release and restart — while the dispatch is still
-      // live. Both generations carry the same executionId, so only the lease version tells them
-      // apart, and the dispatch below belongs to the first one.
-      const runtimeHolder = {
-        ...binding,
-        actor: {
-          principal: binding.actor.principal,
-          executor: { kind: "agent" as const, id: `runtime-session:${receipt.runtimeSessionId}` },
+      providerPid = await eventuallyValue(() => {
+        try {
+          const value = Number(readFileSync(pidFile, "utf8"));
+          return Number.isInteger(value) && value > 0 ? value : null;
+        } catch {
+          return null;
+        }
+      });
+      await eventually(() => dispatchText(root, String(receipt.dispatchId)).includes("provider-re-adopt-session"));
+      const firstDispatchPath = path.join(
+          root,
+          ".harness",
+          "runtime",
+          "dispatches",
+          `${String(receipt.dispatchId)}.jsonl`,
+        ),
+        firstDispatchLines = readFileSync(firstDispatchPath, "utf8").trimEnd().split(/\r?\n/u),
+        firstHeader = JSON.parse(firstDispatchLines[0]!) as Record<string, unknown>;
+      assert.equal(Object.hasOwn(firstHeader.binding as object, "writerEpoch"), false);
+      assert.equal(Object.hasOwn(firstHeader.binding as object, "writerEpochFence"), false);
+      firstDispatchLines[0] = JSON.stringify({
+        ...firstHeader,
+        binding: {
+          ...(firstHeader.binding as Record<string, unknown>),
+          writerEpoch: oldLease.epoch,
+          writerEpochFence: oldFence,
         },
-      };
-      assert.equal((await cell.run({ kind: "task-release", taskId }, runtimeHolder)).outcome, "applied");
-      assert.equal(await start(), "applied");
-      appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
-        kind: "provider_event",
-        occurredAt: "2026-08-24T12:00:00.000Z",
-        event: { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
       });
-      appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
-        kind: "process_exit",
-        occurredAt: "2026-08-24T12:00:01.000Z",
-        exitCode: 0,
-        signal: null,
+      writeFileSync(firstDispatchPath, `${firstDispatchLines.join("\n")}\n`);
+      const reAdoptHostPid = await eventuallyValue(() => {
+        const started = dispatchText(root, String(receipt.dispatchId))
+          .trim()
+          .split(/\r?\n/u)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .find((record) => record.kind === "process_started");
+        return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
       });
-      assert.ok(exit, "runtime exit listener must be attached before the provider exits");
-      exit(0);
+      await cell.close();
+      cell = undefined;
+      assert.doesNotThrow(() => process.kill(providerPid, 0), "repo-cell close must not terminate its runtime worker");
+      const newAuthorityInstance = openPersistentWriterEpoch({
+        stateRoot: writerEpochStateRoot,
+        holderId: "daemon-new",
+      });
+      newAuthority = newAuthorityInstance;
+      const newLease = newAuthorityInstance.acquire(repoId, readLedgerWriterEpoch(repoId, root)),
+        newFence: WriterEpochFenceDescriptor = {
+          schema: "harness-writer-epoch-fence/v1",
+          stateRoot: writerEpochStateRoot,
+          repoId,
+          holderId: newLease.holderId,
+          epoch: newLease.epoch,
+        },
+        newBinding = withPolicyGroup(
+          {
+            actor,
+            source: "local" as const,
+            writerEpoch: newLease.epoch,
+            writerEpochFence: newFence,
+            withWriterEpochFence: <T>(operation: () => T) =>
+              newAuthority!.withAppendFence(repoId, newLease.epoch, newLease.holderId, operation),
+          },
+          "admin",
+        );
+      assert.equal(newLease.epoch, 2);
+      cell = await open("re-adopt-after", newFence);
+      await assert.rejects(
+        cell.run(
+          { kind: "task-create", taskId: "task-stale-runtime-writer", title: "stale runtime writer" },
+          oldBinding,
+        ),
+        (error: unknown) => (error as { readonly code?: string }).code === "writer_epoch_stale",
+      );
+      const liveProjection = makeTaskProjection({
+        rootDir: root,
+        projectionPath: path.join(parent, "runtime-re-adopt-live-before-exit.sqlite"),
+        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+      });
+      liveProjection.catchUp();
+      const adopted = liveProjection.readRuntimeSession(String(receipt.runtimeSessionId))!;
+      liveProjection.close();
+      assert.deepEqual({ liveness: adopted.liveness, outcome: adopted.outcome }, { liveness: "live", outcome: null });
+      assert.doesNotThrow(() => process.kill(reAdoptHostPid, 0), "adopted runtime worker must still be alive");
+      writeFileSync(release, "release");
       await eventually(() =>
-        makeTaskEventReader({ repoId: "runtime-lease-generation", rootDir: root })
+        makeTaskEventReader({ repoId, rootDir: root })
           .read()
           .events.some(
             (event) =>
@@ -641,444 +884,228 @@ test("terminal settlement leaves an execution lease generation it never dispatch
           ),
       );
       const projection = makeTaskProjection({
-          rootDir: root,
-          eventStore: makeTaskEventReader({ repoId: "runtime-lease-generation", rootDir: root }),
-        }),
-        lease = projection.read(taskId).snapshot.lease;
+        rootDir: root,
+        projectionPath: path.join(parent, "runtime-re-adopt-live-observer.sqlite"),
+        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+      });
+      projection.catchUp();
+      const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
       projection.close();
-      assert.equal(lease?.phase, "held", "a stale dispatch must not release the lease generation that replaced it");
-      assert.equal(lease?.executionId, executionId);
-      const spawned = await cell.spawnRuntime(
+      assert.deepEqual(
+        {
+          liveness: settled.liveness,
+          outcome: settled.outcome,
+          exitCode: settled.exitCode,
+        },
+        { liveness: "exited", outcome: "succeeded", exitCode: 0 },
+      );
+      assert.match(String(settled.resultRef), /^artifact:runtime-result\/sha256\//u);
+      await eventually(() => {
+        try {
+          process.kill(reAdoptHostPid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+      assert.match(dispatchText(root, String(receipt.dispatchId)), /survived daemon restart/u);
+      rmSync(release, { force: true });
+      const absentReceipt = await cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,
           cwd: { scope: "repo-root" },
-          prompt: "Dispatch under the surviving lease generation",
+          prompt: "Exit while daemon is absent",
+          taskId: null,
+          dispatchKey: "re-adopt-absent-exit",
+        },
+        newBinding,
+      );
+      providerPid = await eventuallyValue(() => {
+        try {
+          const value = Number(readFileSync(pidFile, "utf8"));
+          return Number.isInteger(value) && value > 0 && value !== providerPid ? value : null;
+        } catch {
+          return null;
+        }
+      });
+      await eventually(() =>
+        dispatchText(root, String(absentReceipt.dispatchId)).includes("provider-re-adopt-session"),
+      );
+      await cell.close();
+      cell = undefined;
+      writeFileSync(release, "release");
+      await eventually(() => dispatchText(root, String(absentReceipt.dispatchId)).includes('"kind":"process_exit"'));
+      cell = await open("re-adopt-dead", newFence);
+      await eventually(() =>
+        makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === absentReceipt.runtimeSessionId,
+          ),
+      );
+      const reopenedProjection = makeTaskProjection({
+        rootDir: root,
+        projectionPath: path.join(parent, "runtime-re-adopt-dead-observer.sqlite"),
+        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+      });
+      reopenedProjection.catchUp();
+      const daemonlessSettlement = reopenedProjection.readRuntimeSession(String(absentReceipt.runtimeSessionId))!;
+      reopenedProjection.close();
+      assert.deepEqual(
+        {
+          liveness: daemonlessSettlement.liveness,
+          outcome: daemonlessSettlement.outcome,
+          exitCode: daemonlessSettlement.exitCode,
+        },
+        { liveness: "exited", outcome: "succeeded", exitCode: 0 },
+      );
+      assert.match(String(daemonlessSettlement.resultRef), /^artifact:runtime-result\/sha256\//u);
+      const nextReceipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Dispatch after runtime adoption",
+          taskId: null,
+          dispatchKey: "re-adopt-next-dispatch",
+        },
+        newBinding,
+      );
+      assert.equal(typeof nextReceipt.dispatchId, "string");
+      await eventually(() =>
+        makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === nextReceipt.runtimeSessionId,
+          ),
+      );
+
+      const taskId = "task-runtime-lost",
+        executionId = "execution-runtime-lost",
+        binding = withPolicyGroup(
+          {
+            actor,
+            source: "local" as const,
+          },
+          "admin",
+        );
+      const taskCreateReceipt = await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding);
+      assert.equal(taskCreateReceipt.outcome, "applied", JSON.stringify(taskCreateReceipt));
+      await waitForFixturePublication(cell, taskCreateReceipt.opId, binding);
+      await realizeTaskPlanFixture(
+        root,
+        String((taskCreateReceipt as Record<string, unknown>).packagePath),
+        (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Runtime Lost",
+      );
+      assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+      rmSync(release, { force: true });
+      const lostReceipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Lose the worker host while the daemon is absent",
           taskId,
-          dispatchKey: "lease-generation-next",
+          dispatchKey: "re-adopt-lost",
         },
         binding,
       );
-      assert.equal(typeof spawned.dispatchId, "string");
-    } finally {
-      await cell.close();
-    }
-  } finally {
-    if (fixtureChild) stopFixtureGroup(fixtureChild);
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("repo-cell restart re-adopts a live native runtime and settles an exit recorded while absent", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-re-adopt-")),
-    root = path.join(parent, "repo"),
-    release = path.join(parent, "release"),
-    pidFile = path.join(parent, "provider.pid"),
-    repoId = "runtime-re-adopt",
-    executablePath = writeProviderExecutable(
-      path.join(parent, "re-adopt-provider.mjs"),
-      `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-re-adopt-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon restart" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
-    ),
-    installation = installationFixture("codex", executablePath),
-    definition = {
-      instanceId: "codex-re-adopt",
-      name: "Codex Re-adopt",
-      kindId: "codex" as const,
-      installationId: installation.installationId,
-      providerId: "openai",
-      models: ["codex-model"],
-      defaultModel: "codex-model",
-      enabled: true,
-      permissionMode: "workspace-write" as const,
-      codex: {},
-      authMode: "subscription" as const,
-      authState: "configured" as const,
-      authReadiness: { status: "ready" as const, code: null, hint: null },
-      isolationState: "enforced" as const,
-      schemaVersion: 2 as const,
-    },
-    preparedDefinition: AgentDefinitionSnapshot = {
-      schema: "agent-definition-snapshot/v1",
-      configVersion: 1,
-      instanceId: definition.instanceId,
-      installationId: installation.installationId,
-      kindId: "codex",
-      providerId: "openai",
-      model: "codex-model",
-      reasoningEffort: null,
-      baseUrl: null,
-      authMode: "subscription",
-    };
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
-    providerPid = 0,
-    oldAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined,
-    newAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined;
-  try {
-    initIngressRepo(root, 4309);
-    const writerEpochStateRoot = path.join(parent, "writer-epochs");
-    const oldAuthorityInstance = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot, holderId: "daemon-old" });
-    oldAuthority = oldAuthorityInstance;
-    const oldLease = oldAuthorityInstance.acquire(repoId, readLedgerWriterEpoch(repoId, root)),
-      oldFence: WriterEpochFenceDescriptor = {
-        schema: "harness-writer-epoch-fence/v1",
-        stateRoot: writerEpochStateRoot,
-        repoId,
-        holderId: oldLease.holderId,
-        epoch: oldLease.epoch,
-      },
-      actor = { principal: { personId: "person-re-adopt" }, executor: null },
-      oldBinding = withPolicyGroup(
-        {
-          actor,
-          source: "local" as const,
-          writerEpoch: oldLease.epoch,
-          writerEpochFence: oldFence,
-          withWriterEpochFence: <T>(operation: () => T) =>
-            oldAuthority!.withAppendFence(repoId, oldLease.epoch, oldLease.holderId, operation),
-        },
-        "admin",
-      ),
-      open = (ownerId: string, defaultWriterEpochFence: WriterEpochFenceDescriptor) =>
-        openRepoCell({
-          repoId: workspaceId(repoId),
-          rootDir: canonicalRoot(root),
-          ownerId,
-          defaultWriterEpochFence,
-          keycloakSession: async () => oldBinding.keycloakAuthorization.session,
-          runtimeDaemonRoute: {
-            userRoot: path.join(parent, "daemon-user"),
-            daemonId: "runtime-re-adopt-test",
-            endpoint: path.join(parent, "daemon.sock"),
-          },
-          runtimeInstances: () => [definition],
-          prepareRuntimeLaunch: async (_instanceId, request) => ({
-            definition: preparedDefinition,
-            installation,
-            executablePath,
-            args: ["exec", "--json", "--model", "codex-model", "-"],
-            env: process.env,
-            cwd: request.cwd,
-            prompt: request.prompt,
-          }),
+      providerPid = await eventuallyValue(() => {
+        try {
+          const value = Number(readFileSync(pidFile, "utf8"));
+          return Number.isInteger(value) && value > 0 ? value : null;
+        } catch {
+          return null;
+        }
+      });
+      const lostDispatchId = String(lostReceipt.dispatchId),
+        hostPid = await eventuallyValue(() => {
+          const started = dispatchText(root, lostDispatchId)
+            .trim()
+            .split(/\r?\n/u)
+            .map((line) => JSON.parse(line) as Record<string, unknown>)
+            .find((record) => record.kind === "process_started");
+          return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
         });
-    assert.equal(oldLease.epoch, 1);
-    cell = await open("re-adopt-before", oldFence);
-    const receipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: definition.instanceId,
-        cwd: { scope: "repo-root" },
-        prompt: "Stay alive across restart",
-        taskId: null,
-        dispatchKey: "re-adopt",
-      },
-      oldBinding,
-    );
-    providerPid = await eventuallyValue(() => {
+      await cell.close();
+      cell = undefined;
+      process.kill(hostPid, "SIGKILL");
       try {
-        const value = Number(readFileSync(pidFile, "utf8"));
-        return Number.isInteger(value) && value > 0 ? value : null;
-      } catch {
-        return null;
-      }
-    });
-    await eventually(() => dispatchText(root, String(receipt.dispatchId)).includes("provider-re-adopt-session"));
-    const firstDispatchPath = path.join(
-        root,
-        ".harness",
-        "runtime",
-        "dispatches",
-        `${String(receipt.dispatchId)}.jsonl`,
-      ),
-      firstDispatchLines = readFileSync(firstDispatchPath, "utf8").trimEnd().split(/\r?\n/u),
-      firstHeader = JSON.parse(firstDispatchLines[0]!) as Record<string, unknown>;
-    assert.equal(Object.hasOwn(firstHeader.binding as object, "writerEpoch"), false);
-    assert.equal(Object.hasOwn(firstHeader.binding as object, "writerEpochFence"), false);
-    firstDispatchLines[0] = JSON.stringify({
-      ...firstHeader,
-      binding: {
-        ...(firstHeader.binding as Record<string, unknown>),
-        writerEpoch: oldLease.epoch,
-        writerEpochFence: oldFence,
-      },
-    });
-    writeFileSync(firstDispatchPath, `${firstDispatchLines.join("\n")}\n`);
-    const reAdoptHostPid = await eventuallyValue(() => {
-      const started = dispatchText(root, String(receipt.dispatchId))
-        .trim()
-        .split(/\r?\n/u)
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
-        .find((record) => record.kind === "process_started");
-      return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
-    });
-    await cell.close();
-    cell = undefined;
-    assert.doesNotThrow(() => process.kill(providerPid, 0), "repo-cell close must not terminate its runtime worker");
-    const newAuthorityInstance = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot, holderId: "daemon-new" });
-    newAuthority = newAuthorityInstance;
-    const newLease = newAuthorityInstance.acquire(repoId, readLedgerWriterEpoch(repoId, root)),
-      newFence: WriterEpochFenceDescriptor = {
-        schema: "harness-writer-epoch-fence/v1",
-        stateRoot: writerEpochStateRoot,
-        repoId,
-        holderId: newLease.holderId,
-        epoch: newLease.epoch,
-      },
-      newBinding = withPolicyGroup(
-        {
-          actor,
-          source: "local" as const,
-          writerEpoch: newLease.epoch,
-          writerEpochFence: newFence,
-          withWriterEpochFence: <T>(operation: () => T) =>
-            newAuthority!.withAppendFence(repoId, newLease.epoch, newLease.holderId, operation),
-        },
-        "admin",
-      );
-    assert.equal(newLease.epoch, 2);
-    cell = await open("re-adopt-after", newFence);
-    await assert.rejects(
-      cell.run({ kind: "task-create", taskId: "task-stale-runtime-writer", title: "stale runtime writer" }, oldBinding),
-      (error: unknown) => (error as { readonly code?: string }).code === "writer_epoch_stale",
-    );
-    const liveProjection = makeTaskProjection({
-      rootDir: root,
-      projectionPath: path.join(parent, "runtime-re-adopt-live-before-exit.sqlite"),
-      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-    });
-    liveProjection.catchUp();
-    const adopted = liveProjection.readRuntimeSession(String(receipt.runtimeSessionId))!;
-    liveProjection.close();
-    assert.deepEqual({ liveness: adopted.liveness, outcome: adopted.outcome }, { liveness: "live", outcome: null });
-    assert.doesNotThrow(() => process.kill(reAdoptHostPid, 0), "adopted runtime worker must still be alive");
-    writeFileSync(release, "release");
-    await eventually(() =>
-      makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === receipt.runtimeSessionId,
-        ),
-    );
-    const projection = makeTaskProjection({
-      rootDir: root,
-      projectionPath: path.join(parent, "runtime-re-adopt-live-observer.sqlite"),
-      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-    });
-    projection.catchUp();
-    const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
-    projection.close();
-    assert.deepEqual(
-      {
-        liveness: settled.liveness,
-        outcome: settled.outcome,
-        exitCode: settled.exitCode,
-      },
-      { liveness: "exited", outcome: "succeeded", exitCode: 0 },
-    );
-    assert.match(String(settled.resultRef), /^artifact:runtime-result\/sha256\//u);
-    await eventually(() => {
-      try {
-        process.kill(reAdoptHostPid, 0);
-        return false;
-      } catch {
-        return true;
-      }
-    });
-    assert.match(dispatchText(root, String(receipt.dispatchId)), /survived daemon restart/u);
-    rmSync(release, { force: true });
-    const absentReceipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: definition.instanceId,
-        cwd: { scope: "repo-root" },
-        prompt: "Exit while daemon is absent",
-        taskId: null,
-        dispatchKey: "re-adopt-absent-exit",
-      },
-      newBinding,
-    );
-    providerPid = await eventuallyValue(() => {
-      try {
-        const value = Number(readFileSync(pidFile, "utf8"));
-        return Number.isInteger(value) && value > 0 && value !== providerPid ? value : null;
-      } catch {
-        return null;
-      }
-    });
-    await eventually(() => dispatchText(root, String(absentReceipt.dispatchId)).includes("provider-re-adopt-session"));
-    await cell.close();
-    cell = undefined;
-    writeFileSync(release, "release");
-    await eventually(() => dispatchText(root, String(absentReceipt.dispatchId)).includes('"kind":"process_exit"'));
-    cell = await open("re-adopt-dead", newFence);
-    await eventually(() =>
-      makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === absentReceipt.runtimeSessionId,
-        ),
-    );
-    const reopenedProjection = makeTaskProjection({
-      rootDir: root,
-      projectionPath: path.join(parent, "runtime-re-adopt-dead-observer.sqlite"),
-      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-    });
-    reopenedProjection.catchUp();
-    const daemonlessSettlement = reopenedProjection.readRuntimeSession(String(absentReceipt.runtimeSessionId))!;
-    reopenedProjection.close();
-    assert.deepEqual(
-      {
-        liveness: daemonlessSettlement.liveness,
-        outcome: daemonlessSettlement.outcome,
-        exitCode: daemonlessSettlement.exitCode,
-      },
-      { liveness: "exited", outcome: "succeeded", exitCode: 0 },
-    );
-    assert.match(String(daemonlessSettlement.resultRef), /^artifact:runtime-result\/sha256\//u);
-    const nextReceipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: definition.instanceId,
-        cwd: { scope: "repo-root" },
-        prompt: "Dispatch after runtime adoption",
-        taskId: null,
-        dispatchKey: "re-adopt-next-dispatch",
-      },
-      newBinding,
-    );
-    assert.equal(typeof nextReceipt.dispatchId, "string");
-    await eventually(() =>
-      makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === nextReceipt.runtimeSessionId,
-        ),
-    );
-
-    const taskId = "task-runtime-lost",
-      executionId = "execution-runtime-lost",
-      binding = withPolicyGroup(
-        {
-          actor,
-          source: "local" as const,
-        },
-        "admin",
-      );
-    const taskCreateReceipt = await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding);
-    assert.equal(taskCreateReceipt.outcome, "applied", JSON.stringify(taskCreateReceipt));
-    await waitForFixturePublication(cell, taskCreateReceipt.opId, binding);
-    await realizeTaskPlanFixture(
-      root,
-      String((taskCreateReceipt as Record<string, unknown>).packagePath),
-      (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
-      "Runtime Lost",
-    );
-    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
-    rmSync(release, { force: true });
-    const lostReceipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: definition.instanceId,
-        cwd: { scope: "repo-root" },
-        prompt: "Lose the worker host while the daemon is absent",
-        taskId,
-        dispatchKey: "re-adopt-lost",
-      },
-      binding,
-    );
-    providerPid = await eventuallyValue(() => {
-      try {
-        const value = Number(readFileSync(pidFile, "utf8"));
-        return Number.isInteger(value) && value > 0 ? value : null;
-      } catch {
-        return null;
-      }
-    });
-    const lostDispatchId = String(lostReceipt.dispatchId),
-      hostPid = await eventuallyValue(() => {
-        const started = dispatchText(root, lostDispatchId)
-          .trim()
-          .split(/\r?\n/u)
-          .map((line) => JSON.parse(line) as Record<string, unknown>)
-          .find((record) => record.kind === "process_started");
-        return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
-      });
-    await cell.close();
-    cell = undefined;
-    process.kill(hostPid, "SIGKILL");
-    try {
-      process.kill(providerPid, "SIGKILL");
-    } catch (error) {
-      consumeKnownError(error);
-    }
-    await eventuallyValue(() => {
-      try {
-        process.kill(hostPid, 0);
-        return null;
-      } catch {
-        return true;
-      }
-    });
-    cell = await open("re-adopt-lost", newFence);
-    await eventually(() =>
-      makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === lostReceipt.runtimeSessionId,
-        ),
-    );
-    rmSync(path.join(root, ".harness", "runtime", "dispatches", "runtime-sessions.json"), { force: true });
-    const lostDispatches = await cell.read("repo.task.dispatches", { taskId }),
-      lostRow = lostDispatches.dispatches.find((row) => row.dispatchId === lostDispatchId),
-      lostProjection = makeTaskProjection({
-        rootDir: root,
-        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-      });
-    lostProjection.catchUp();
-    const lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;
-    lostProjection.close();
-    assert.ok(lostRow, "lost dispatch row missing after daemon restart");
-    assert.equal(
-      dispatchText(root, lostDispatchId)
-        .split(/\r?\n/u)
-        .some((line) => line.includes('"kind":"process_lost"')),
-      true,
-      "daemon restart loss must be durable in the dispatch stream",
-    );
-    // Public dispatch status comes from the canonical outcome; process_lost remains local evidence.
-    assert.deepEqual(
-      {
-        status: lostRow.status,
-        outcome: lostRow.outcome,
-        exitCode: lostRow.exitCode,
-        resultRef: lostRow.resultRef,
-        liveness: lostSession.liveness,
-      },
-      {
-        status: "unknown",
-        outcome: "unknown",
-        exitCode: null,
-        resultRef: lostSession.resultRef,
-        liveness: "exited",
-      },
-    );
-  } finally {
-    writeFileSync(release, "release");
-    await cell?.close();
-    oldAuthority?.close();
-    newAuthority?.close();
-    if (providerPid > 0)
-      try {
-        process.kill(providerPid, "SIGTERM");
+        process.kill(providerPid, "SIGKILL");
       } catch (error) {
         consumeKnownError(error);
       }
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+      await eventuallyValue(() => {
+        try {
+          process.kill(hostPid, 0);
+          return null;
+        } catch {
+          return true;
+        }
+      });
+      cell = await open("re-adopt-lost", newFence);
+      await eventually(() =>
+        makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === lostReceipt.runtimeSessionId,
+          ),
+      );
+      rmSync(path.join(root, ".harness", "runtime", "dispatches", "runtime-sessions.json"), { force: true });
+      const lostDispatches = await cell.read("repo.task.dispatches", { taskId }),
+        lostRow = lostDispatches.dispatches.find((row) => row.dispatchId === lostDispatchId),
+        lostProjection = makeTaskProjection({
+          rootDir: root,
+          eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+        });
+      lostProjection.catchUp();
+      const lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;
+      lostProjection.close();
+      assert.ok(lostRow, "lost dispatch row missing after daemon restart");
+      assert.equal(
+        dispatchText(root, lostDispatchId)
+          .split(/\r?\n/u)
+          .some((line) => line.includes('"kind":"process_lost"')),
+        true,
+        "daemon restart loss must be durable in the dispatch stream",
+      );
+      // Public dispatch status comes from the canonical outcome; process_lost remains local evidence.
+      assert.deepEqual(
+        {
+          status: lostRow.status,
+          outcome: lostRow.outcome,
+          exitCode: lostRow.exitCode,
+          resultRef: lostRow.resultRef,
+          liveness: lostSession.liveness,
+        },
+        {
+          status: "unknown",
+          outcome: "unknown",
+          exitCode: null,
+          resultRef: lostSession.resultRef,
+          liveness: "exited",
+        },
+      );
+    } finally {
+      writeFileSync(release, "release");
+      await cell?.close();
+      oldAuthority?.close();
+      newAuthority?.close();
+      if (providerPid > 0)
+        try {
+          process.kill(providerPid, "SIGTERM");
+        } catch (error) {
+          consumeKnownError(error);
+        }
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 test(
   "a native worker-host lost without process_exit settles and wakes the runtime wait",
@@ -1250,7 +1277,7 @@ test(
   },
 );
 
-test("runtime exit notification records a bounded timeout", async () => {
+test("runtime exit notification records a bounded timeout", { timeout: 300_000 }, async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-notification-")),
     executablePath = writeProviderExecutable(
       path.join(root, "hold-notification.mjs"),
@@ -1293,176 +1320,180 @@ test("runtime exit notification records a bounded timeout", async () => {
   }
 });
 
-test("a real dispatch that stops for an owner ruling settles awaiting_ruling and shows the ask in the agenda", async () => {
-  // The production shape measured on task_936005e1: the worker writes its ruling artifact into the
-  // task package, no doc sync publishes it, and the provider exits non-zero. These assertions drive
-  // the real settlement, the single archive publication, and the real dispatch/agenda reads.
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-ruling-dispatch-")),
-    root = path.join(parent, "repo"),
-    uid = process.getuid?.() ?? 0,
-    question = "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
-    options = ["保留 GUI 验收（推荐）", "low 档不要求 GUI 验收"],
-    rulingBody =
-      `---\nruling: awaiting\nquestion: ${question}\noptions:\n` +
-      `${options.map((option) => `  - ${option}`).join("\n")}\n---\n\n${question}\n`,
-    executablePath = writeProviderExecutable(
-      path.join(parent, "ruling-provider.mjs"),
-      [
-        'import fs from "node:fs";',
-        'import path from "node:path";',
-        'let prompt = "";',
-        "for await (const chunk of process.stdin) prompt += chunk;",
-        // The dispatch id is rendered into every mission; the prompt names the package the worker
-        // must write into, exactly as the mission's ruling channel does.
-        "const dispatchId = prompt.match(/(dispatch_[a-f0-9]{24})/u)?.[1];",
-        "const packagePath = prompt.match(/^package: (\\S+)$/mu)?.[1];",
-        `if (dispatchId && packagePath) { const target = path.join(process.cwd(), "harness", packagePath, "artifacts", "rulings", dispatchId + ".md"); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, ${JSON.stringify(rulingBody)}); }`,
-        'process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "provider-ruling" }) + "\\n");',
-        `process.stdout.write(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: ${JSON.stringify(question)} } }) + "\\n");`,
-        'process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");',
-        "process.exitCode = 2;",
-      ].join("\n"),
-    ),
-    installation = installationFixture("codex", executablePath);
-  try {
-    mkdirSync(root);
-    initIngressRepo(root, uid);
-    const cell = await openRepoCell({
-      repoId: workspaceId("runtime-ruling-dispatch"),
-      rootDir: canonicalRoot(root),
-      ownerId: "ruling-dispatch-test",
-      runtimeDaemonRoute: {
-        userRoot: path.join(root, ".daemon-user"),
-        daemonId: "ruling-dispatch-test",
-        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
-      },
-      runtimeInstances: () => [
-        {
-          schemaVersion: 2,
-          instanceId: definition.instanceId,
-          name: "Codex Ruling",
-          kindId: definition.kindId,
-          installationId: definition.installationId,
-          providerId: definition.providerId,
-          models: [definition.model],
-          defaultModel: definition.model,
-          enabled: true,
-          permissionMode: "workspace-write",
-          codex: {},
-          authMode: definition.authMode,
-          authState: "configured",
-          authReadiness: { status: "ready", code: null, hint: null },
-          isolationState: "enforced",
-        },
-      ],
-      prepareRuntimeLaunch: async (_instanceId, request) => ({
-        definition,
-        installation,
-        executablePath: installation.executablePath,
-        args: ["exec", "--json", "-"],
-        env: process.env,
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
-    });
+test(
+  "a real dispatch that stops for an owner ruling settles awaiting_ruling and shows the ask in the agenda",
+  { timeout: 300_000 },
+  async () => {
+    // The production shape measured on task_936005e1: the worker writes its ruling artifact into the
+    // task package, no doc sync publishes it, and the provider exits non-zero. These assertions drive
+    // the real settlement, the single archive publication, and the real dispatch/agenda reads.
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-ruling-dispatch-")),
+      root = path.join(parent, "repo"),
+      uid = process.getuid?.() ?? 0,
+      question = "low 档含 GUI 改动时，是否仍必须通过 GUI 行为验收？",
+      options = ["保留 GUI 验收（推荐）", "low 档不要求 GUI 验收"],
+      rulingBody =
+        `---\nruling: awaiting\nquestion: ${question}\noptions:\n` +
+        `${options.map((option) => `  - ${option}`).join("\n")}\n---\n\n${question}\n`,
+      executablePath = writeProviderExecutable(
+        path.join(parent, "ruling-provider.mjs"),
+        [
+          'import fs from "node:fs";',
+          'import path from "node:path";',
+          'let prompt = "";',
+          "for await (const chunk of process.stdin) prompt += chunk;",
+          // The dispatch id is rendered into every mission; the prompt names the package the worker
+          // must write into, exactly as the mission's ruling channel does.
+          "const dispatchId = prompt.match(/(dispatch_[a-f0-9]{24})/u)?.[1];",
+          "const packagePath = prompt.match(/^package: (\\S+)$/mu)?.[1];",
+          `if (dispatchId && packagePath) { const target = path.join(process.cwd(), "harness", packagePath, "artifacts", "rulings", dispatchId + ".md"); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, ${JSON.stringify(rulingBody)}); }`,
+          'process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "provider-ruling" }) + "\\n");',
+          `process.stdout.write(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: ${JSON.stringify(question)} } }) + "\\n");`,
+          'process.stdout.write(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");',
+          "process.exitCode = 2;",
+        ].join("\n"),
+      ),
+      installation = installationFixture("codex", executablePath);
     try {
-      const taskId = "task-runtime-ruling-dispatch",
-        binding = withPolicyGroup(
-          { actor: { principal: { personId: "person-attached-tail" }, executor: null }, source: "local" as const },
-          "admin",
-        );
-      const created = await cell.run({ kind: "task-create", taskId, title: "Ruling dispatch" }, binding);
-      assert.equal(created.outcome, "applied");
-      await waitForFixturePublication(cell, created.opId, binding);
-      const packagePath = String((created as Record<string, unknown>).packagePath);
-      await realizeTaskPlanFixture(
-        root,
-        packagePath,
-        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-        "Ruling dispatch",
-      );
-      assert.equal((await cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
-      const receipt = await cell.spawnRuntime(
-        {
-          runtimeInstanceId: definition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: `Ask for a ruling and stop.\npackage: ${packagePath}\nruling artifact: artifacts/rulings/__HARNESS_DISPATCH_ID__.md`,
-          taskId,
-          dispatchKey: "ruling-dispatch",
+      mkdirSync(root);
+      initIngressRepo(root, uid);
+      const cell = await openRepoCell({
+        repoId: workspaceId("runtime-ruling-dispatch"),
+        rootDir: canonicalRoot(root),
+        ownerId: "ruling-dispatch-test",
+        runtimeDaemonRoute: {
+          userRoot: path.join(root, ".daemon-user"),
+          daemonId: "ruling-dispatch-test",
+          endpoint: path.join(root, ".daemon-user", "daemon.sock"),
         },
-        binding,
-      );
-      const settled = await eventuallyValue(async () => {
-        const read = await cell.read("repo.agentRuntime.sessions.read", {
-          runtimeSessionId: String(receipt.runtimeSessionId),
-        });
-        return read.session.activity.outcome === null ? null : read;
-      });
-      assert.equal(settled.session.activity.outcome, "stopped", JSON.stringify(settled));
-      const dispatches = await cell.read("repo.task.dispatches", { taskId }, binding),
-        row = dispatches.dispatches.find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
-      assert.equal(row?.classification, "awaiting_ruling", JSON.stringify(dispatches));
-      assert.equal(dispatches.dispatches.length, 1, "an owner ruling must not trigger incident redispatch");
-      assert.deepEqual(row?.ruling, {
-        question,
-        options,
-        path: `${packagePath}/artifacts/rulings/${String(receipt.dispatchId)}.md`,
-      });
-      assert.match(settled.result?.text ?? "", new RegExp(`Awaiting owner ruling: ${question}`, "u"));
-      for (const option of options) assert.match(settled.result?.text ?? "", new RegExp(option, "u"));
-      const agenda = await cell.read("repo.agenda.read", { limit: 50 }),
-        rulingRow = (agenda.awaitingRuling ?? []).find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
-      assert.equal(rulingRow?.attention, "question");
-      assert.equal(rulingRow?.question, question, JSON.stringify(agenda.awaitingRuling));
-      assert.deepEqual(rulingRow?.options, options);
-      assert.equal(rulingRow?.executionId, row?.executionId);
-      assert.equal(rulingRow?.rulingPath, `${packagePath}/artifacts/rulings/${String(receipt.dispatchId)}.md`);
-      assert.equal(
-        agenda.attentionItems.some(
-          ({ kind, ref }) => kind === "ruling" && ref === `dispatch/${String(receipt.dispatchId)}`,
-        ),
-        true,
-        JSON.stringify(agenda.attentionItems),
-      );
-      assert.match(agenda.summary, /待你处理 \(1\)/u);
-      assert.match(agenda.summary, new RegExp(question, "u"));
-      const settledProjection = makeTaskProjection({
-        rootDir: root,
-        projectionPath: path.join(root, ".harness/cache/runtime-ruling-observer.sqlite"),
-        eventStore: makeTaskEventReader({ repoId: "runtime-ruling-dispatch", rootDir: root }),
+        runtimeInstances: () => [
+          {
+            schemaVersion: 2,
+            instanceId: definition.instanceId,
+            name: "Codex Ruling",
+            kindId: definition.kindId,
+            installationId: definition.installationId,
+            providerId: definition.providerId,
+            models: [definition.model],
+            defaultModel: definition.model,
+            enabled: true,
+            permissionMode: "workspace-write",
+            codex: {},
+            authMode: definition.authMode,
+            authState: "configured",
+            authReadiness: { status: "ready", code: null, hint: null },
+            isolationState: "enforced",
+          },
+        ],
+        prepareRuntimeLaunch: async (_instanceId, request) => ({
+          definition,
+          installation,
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: process.env,
+          cwd: request.cwd,
+          prompt: request.prompt,
+        }),
       });
       try {
-        settledProjection.catchUp();
-        const settledTask = settledProjection.read(taskId).snapshot;
-        assert.equal(settledTask.task?.status, "blocked", "owner ruling must park the task visibly");
-        assert.equal(settledTask.lease, null, "owner ruling must release the runtime lease before blocking");
+        const taskId = "task-runtime-ruling-dispatch",
+          binding = withPolicyGroup(
+            { actor: { principal: { personId: "person-attached-tail" }, executor: null }, source: "local" as const },
+            "admin",
+          );
+        const created = await cell.run({ kind: "task-create", taskId, title: "Ruling dispatch" }, binding);
+        assert.equal(created.outcome, "applied");
+        await waitForFixturePublication(cell, created.opId, binding);
+        const packagePath = String((created as Record<string, unknown>).packagePath);
+        await realizeTaskPlanFixture(
+          root,
+          packagePath,
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Ruling dispatch",
+        );
+        assert.equal((await cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
+        const receipt = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: `Ask for a ruling and stop.\npackage: ${packagePath}\nruling artifact: artifacts/rulings/__HARNESS_DISPATCH_ID__.md`,
+            taskId,
+            dispatchKey: "ruling-dispatch",
+          },
+          binding,
+        );
+        const settled = await eventuallyValue(async () => {
+          const read = await cell.read("repo.agentRuntime.sessions.read", {
+            runtimeSessionId: String(receipt.runtimeSessionId),
+          });
+          return read.session.activity.outcome === null ? null : read;
+        });
+        assert.equal(settled.session.activity.outcome, "stopped", JSON.stringify(settled));
+        const dispatches = await cell.read("repo.task.dispatches", { taskId }, binding),
+          row = dispatches.dispatches.find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
+        assert.equal(row?.classification, "awaiting_ruling", JSON.stringify(dispatches));
+        assert.equal(dispatches.dispatches.length, 1, "an owner ruling must not trigger incident redispatch");
+        assert.deepEqual(row?.ruling, {
+          question,
+          options,
+          path: `${packagePath}/artifacts/rulings/${String(receipt.dispatchId)}.md`,
+        });
+        assert.match(settled.result?.text ?? "", new RegExp(`Awaiting owner ruling: ${question}`, "u"));
+        for (const option of options) assert.match(settled.result?.text ?? "", new RegExp(option, "u"));
+        const agenda = await cell.read("repo.agenda.read", { limit: 50 }),
+          rulingRow = (agenda.awaitingRuling ?? []).find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
+        assert.equal(rulingRow?.attention, "question");
+        assert.equal(rulingRow?.question, question, JSON.stringify(agenda.awaitingRuling));
+        assert.deepEqual(rulingRow?.options, options);
+        assert.equal(rulingRow?.executionId, row?.executionId);
+        assert.equal(rulingRow?.rulingPath, `${packagePath}/artifacts/rulings/${String(receipt.dispatchId)}.md`);
+        assert.equal(
+          agenda.attentionItems.some(
+            ({ kind, ref }) => kind === "ruling" && ref === `dispatch/${String(receipt.dispatchId)}`,
+          ),
+          true,
+          JSON.stringify(agenda.attentionItems),
+        );
+        assert.match(agenda.summary, /待你处理 \(1\)/u);
+        assert.match(agenda.summary, new RegExp(question, "u"));
+        const settledProjection = makeTaskProjection({
+          rootDir: root,
+          projectionPath: path.join(root, ".harness/cache/runtime-ruling-observer.sqlite"),
+          eventStore: makeTaskEventReader({ repoId: "runtime-ruling-dispatch", rootDir: root }),
+        });
+        try {
+          settledProjection.catchUp();
+          const settledTask = settledProjection.read(taskId).snapshot;
+          assert.equal(settledTask.task?.status, "blocked", "owner ruling must park the task visibly");
+          assert.equal(settledTask.lease, null, "owner ruling must release the runtime lease before blocking");
+        } finally {
+          settledProjection.close();
+        }
+        const resumed = await cell.run(
+          { kind: "task-transition", taskId, status: "active", reason: "Owner completed the ruling." },
+          binding,
+        );
+        assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+        const continued = await cell.run({ kind: "task-start", taskId, executionId: row?.executionId }, binding);
+        assert.equal(continued.outcome, "applied", JSON.stringify(continued));
+        assert.equal(
+          (await cell.run({ kind: "task-release", taskId }, binding)).outcome,
+          "applied",
+          "CEO must be able to release the resumed execution",
+        );
+        const published = readFileSync(
+          path.join(root, "harness", packagePath, "artifacts", "rulings", `${String(receipt.dispatchId)}.md`),
+          "utf8",
+        );
+        assert.equal(published, rulingBody, "the published artifact is the exact ask the worker wrote");
       } finally {
-        settledProjection.close();
+        await cell.close();
       }
-      const resumed = await cell.run(
-        { kind: "task-transition", taskId, status: "active", reason: "Owner completed the ruling." },
-        binding,
-      );
-      assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
-      const continued = await cell.run({ kind: "task-start", taskId, executionId: row?.executionId }, binding);
-      assert.equal(continued.outcome, "applied", JSON.stringify(continued));
-      assert.equal(
-        (await cell.run({ kind: "task-release", taskId }, binding)).outcome,
-        "applied",
-        "CEO must be able to release the resumed execution",
-      );
-      const published = readFileSync(
-        path.join(root, "harness", packagePath, "artifacts", "rulings", `${String(receipt.dispatchId)}.md`),
-        "utf8",
-      );
-      assert.equal(published, rulingBody, "the published artifact is the exact ask the worker wrote");
     } finally {
-      await cell.close();
+      rmSync(parent, { recursive: true, force: true });
     }
-  } finally {
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 function initIngressRepo(root: string, uid: number): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
@@ -1484,15 +1515,12 @@ function initIngressRepo(root: string, uid: number): void {
 async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
   await eventuallyValue(async () => ((await check()) ? true : null));
 }
-// poll-spin-class: durable-poll - durable predicate read (async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Pro); no product event port at the wait site
-// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
 async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
+  for (;;) {
     const value = await read();
     if (value !== null) return value;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("runtime provider event did not arrive");
 }
 
 function installationFixture(kindId: "claude" | "codex", executablePath: string): RuntimeInstallationWitness {

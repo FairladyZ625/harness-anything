@@ -44,191 +44,198 @@ const bindingSessionId = "runtime_89abcdef0123456789abcdef",
     observedAt: "2026-08-28T00:00:00.000Z",
   };
 
-test("a local binding executor names the parent runtime session when the caller passes none", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-binding-")),
-    root = path.join(parent, "repo");
-  mkdirSync(root);
-  grantTestPolicyGroups(["person-parent-session"], "admin");
-  git(root, "init", "-q");
-  git(root, "config", "user.name", "Parent Session Test");
-  git(root, "config", "user.email", "parent-session@example.invalid");
-  git(root, "commit", "--allow-empty", "-qm", "base");
-  const cell = await openRepoCell({
-    repoId: workspaceId("parent-session-binding"),
-    rootDir: canonicalRoot(root),
-    ownerId: "parent-session-test",
-    runtimeInstances: () => [{ ...runtimeInstance("codex-parent"), permissionMode: "workspace-write" }],
-    prepareRuntimeLaunch: async (instanceId, request) => ({
-      definition: definition(instanceId, request.model ?? "codex-parent-model"),
-      installation,
-      executablePath: installation.executablePath,
-      args: ["exec", "--json", "-"],
-      env: {},
-      cwd: request.cwd,
-      prompt: request.prompt,
-    }),
-    runtimeLaunch: () => fakeProcess(7102, "success"),
-  });
-  try {
-    await installSquad(cell);
-    const receipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: "codex-parent",
-        agentId: "parent-leader",
-        targetAgentId: "parent-worker",
-        squadId: "parent-squad",
-        cwd: { scope: "repo-root" },
-        prompt: "Delegate one worker without an explicit parent field.",
-        taskId: null,
-        dispatchKey: "parent-session-binding",
-      },
-      executorBinding,
-    );
-    const stream = readDispatchStream(root, String(receipt.dispatchId));
-    assert.ok(stream, "delegated dispatch stream exists");
-    assert.equal(stream.header.parentRuntimeSessionId, bindingSessionId);
-  } finally {
-    await cell.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
-
-test("a leader-only squad decision keeps attribution and settles success or failure from its process exit", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-archive-")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    taskId = "task_parent_session_archive",
-    executionId = "execution-parent-session-archive";
-  const eventually = <T>(read: () => T | null | Promise<T | null>, ..._rest: unknown[]): Promise<T> =>
-    waitForArrival(read, watchDirectoryArrival(parent));
-  let launches = 0;
-  mkdirSync(root);
-  grantTestPolicyGroups(["person-parent-session"], "admin");
-  git(root, "init", "-q");
-  git(root, "config", "user.name", "Parent Session Test");
-  git(root, "config", "user.email", "parent-session@example.invalid");
-  git(root, "commit", "--allow-empty", "-qm", "base");
-  const cell = await openRepoCell({
-    repoId: workspaceId("parent-session-archive"),
-    rootDir: canonicalRoot(root),
-    ownerId: "parent-session-test",
-    runtimeDaemonRoute: {
-      userRoot,
-      daemonId: "parent-session-archive",
-      endpoint: path.join(userRoot, "parent-session-archive.sock"),
-    },
-    runtimeInstances: () => [{ ...runtimeInstance("codex-parent"), permissionMode: "workspace-write" }],
-    prepareRuntimeLaunch: async (instanceId, request) => ({
-      definition: definition(instanceId, request.model ?? "codex-parent-model"),
-      installation,
-      executablePath: installation.executablePath,
-      args: ["exec", "--json", "-"],
-      env: {},
-      cwd: request.cwd,
-      prompt: request.prompt,
-    }),
-    runtimeLaunch: () => {
-      const attempt = launches;
-      launches += 1;
-      return fakeProcess(7103 + attempt, attempt === 0 ? "converged" : "failed-converged");
-    },
-  });
-  try {
-    await installSquad(cell);
-    await startTask(cell, root, taskId, executionId);
-    const receipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: "codex-parent",
-        agentId: "parent-leader",
-        squadId: "parent-squad",
-        cwd: { scope: "repo-root" },
-        prompt: "Run as the attributed squad leader.",
-        taskId,
-        dispatchKey: "parent-session-archive",
-      },
-      personBinding,
-    );
-    const stream = readDispatchStream(root, String(receipt.dispatchId));
-    assert.ok(stream, "leader dispatch stream exists");
-    assert.equal(stream.header.squadId, "parent-squad");
-    assert.equal(Object.hasOwn(stream.header, "parentRuntimeSessionId"), false);
-    assert.equal(Object.hasOwn(stream.header, "delegatedByAgentId"), false);
-    const rows = await eventually(async () => {
-      const result = (await cell.read("repo.task.dispatches", { taskId })) as {
-        readonly dispatches: readonly {
-          readonly squadId?: string;
-          readonly parentRuntimeSessionId?: string;
-          readonly endedAt: string | null;
-          readonly outcome: string | null;
-          readonly status: string;
-          readonly dispatchPath?: string | null;
-        }[];
-      };
-      const settled = result.dispatches.find((row) => row.endedAt !== null);
-      return settled?.dispatchPath ? result.dispatches : null;
+test(
+  "a local binding executor names the parent runtime session when the caller passes none",
+  { timeout: 300_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-binding-")),
+      root = path.join(parent, "repo");
+    mkdirSync(root);
+    grantTestPolicyGroups(["person-parent-session"], "admin");
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Parent Session Test");
+    git(root, "config", "user.email", "parent-session@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const cell = await openRepoCell({
+      repoId: workspaceId("parent-session-binding"),
+      rootDir: canonicalRoot(root),
+      ownerId: "parent-session-test",
+      runtimeInstances: () => [{ ...runtimeInstance("codex-parent"), permissionMode: "workspace-write" }],
+      prepareRuntimeLaunch: async (instanceId, request) => ({
+        definition: definition(instanceId, request.model ?? "codex-parent-model"),
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => fakeProcess(7102, "success"),
     });
-    const leaderRow = rows.find((row) => row.squadId === "parent-squad");
-    assert.ok(leaderRow, "settled leader row keeps its squad attribution");
-    assert.equal(Object.hasOwn(leaderRow, "parentRuntimeSessionId"), false);
-    assert.equal(leaderRow.squadId, "parent-squad");
-    assert.equal(leaderRow.outcome, "succeeded");
-    assert.equal(leaderRow.status, "succeeded");
-    const document = (await cell.read("repo.tasks.document.read", {
-        taskId,
-        path: `artifacts/dispatches/${String(receipt.dispatchId)}.json`,
-      })) as { readonly body: string },
-      archived = JSON.parse(document.body) as Record<string, unknown>;
-    assert.equal(archived.squadId, "parent-squad");
-    // The leader's structured squad decision witnesses the turn, so the settled archive and the
-    // dispatch row agree on success instead of the row restating an archived unknown.
-    assert.equal(archived.outcome, "succeeded");
-    assert.equal(Object.hasOwn(archived, "parentRuntimeSessionId"), false);
-    assert.equal(Object.hasOwn(archived, "delegatedByAgentId"), false);
-    await assertLeaseReleasedBeforeOutcome(root, taskId, executionId, String(receipt.runtimeSessionId));
+    try {
+      await installSquad(cell);
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: "codex-parent",
+          agentId: "parent-leader",
+          targetAgentId: "parent-worker",
+          squadId: "parent-squad",
+          cwd: { scope: "repo-root" },
+          prompt: "Delegate one worker without an explicit parent field.",
+          taskId: null,
+          dispatchKey: "parent-session-binding",
+        },
+        executorBinding,
+      );
+      const stream = readDispatchStream(root, String(receipt.dispatchId));
+      assert.ok(stream, "delegated dispatch stream exists");
+      assert.equal(stream.header.parentRuntimeSessionId, bindingSessionId);
+    } finally {
+      await cell.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
-    const failedTaskId = "task_parent_session_archive_failed",
-      failedExecutionId = "execution-parent-session-archive-failed";
-    await startTask(cell, root, failedTaskId, failedExecutionId);
-    const failedReceipt = await cell.spawnRuntime(
-      {
-        runtimeInstanceId: "codex-parent",
-        agentId: "parent-leader",
-        squadId: "parent-squad",
-        cwd: { scope: "repo-root" },
-        prompt: "Exit non-zero after declaring convergence.",
-        taskId: failedTaskId,
-        dispatchKey: "parent-session-archive-failed",
+test(
+  "a leader-only squad decision keeps attribution and settles success or failure from its process exit",
+  { timeout: 300_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-archive-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      taskId = "task_parent_session_archive",
+      executionId = "execution-parent-session-archive";
+    const eventually = <T>(read: () => T | null | Promise<T | null>, ..._rest: unknown[]): Promise<T> =>
+      waitForArrival(read, watchDirectoryArrival(parent));
+    let launches = 0;
+    mkdirSync(root);
+    grantTestPolicyGroups(["person-parent-session"], "admin");
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Parent Session Test");
+    git(root, "config", "user.email", "parent-session@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const cell = await openRepoCell({
+      repoId: workspaceId("parent-session-archive"),
+      rootDir: canonicalRoot(root),
+      ownerId: "parent-session-test",
+      runtimeDaemonRoute: {
+        userRoot,
+        daemonId: "parent-session-archive",
+        endpoint: path.join(userRoot, "parent-session-archive.sock"),
       },
-      personBinding,
-    );
-    const failedRows = await eventually(async () => {
-        const result = (await cell.read("repo.task.dispatches", { taskId: failedTaskId })) as {
+      runtimeInstances: () => [{ ...runtimeInstance("codex-parent"), permissionMode: "workspace-write" }],
+      prepareRuntimeLaunch: async (instanceId, request) => ({
+        definition: definition(instanceId, request.model ?? "codex-parent-model"),
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => {
+        const attempt = launches;
+        launches += 1;
+        return fakeProcess(7103 + attempt, attempt === 0 ? "converged" : "failed-converged");
+      },
+    });
+    try {
+      await installSquad(cell);
+      await startTask(cell, root, taskId, executionId);
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: "codex-parent",
+          agentId: "parent-leader",
+          squadId: "parent-squad",
+          cwd: { scope: "repo-root" },
+          prompt: "Run as the attributed squad leader.",
+          taskId,
+          dispatchKey: "parent-session-archive",
+        },
+        personBinding,
+      );
+      const stream = readDispatchStream(root, String(receipt.dispatchId));
+      assert.ok(stream, "leader dispatch stream exists");
+      assert.equal(stream.header.squadId, "parent-squad");
+      assert.equal(Object.hasOwn(stream.header, "parentRuntimeSessionId"), false);
+      assert.equal(Object.hasOwn(stream.header, "delegatedByAgentId"), false);
+      const rows = await eventually(async () => {
+        const result = (await cell.read("repo.task.dispatches", { taskId })) as {
           readonly dispatches: readonly {
-            readonly runtimeSessionId: string;
+            readonly squadId?: string;
+            readonly parentRuntimeSessionId?: string;
             readonly endedAt: string | null;
             readonly outcome: string | null;
             readonly status: string;
+            readonly dispatchPath?: string | null;
           }[];
         };
-        return result.dispatches.some((row) => row.endedAt !== null) ? result.dispatches : null;
-      }),
-      failedRow = failedRows.find((row) => row.runtimeSessionId === failedReceipt.runtimeSessionId);
-    assert.ok(failedRow, "failed leader dispatch settles");
-    assert.equal(failedRow.outcome, "failed");
-    assert.equal(failedRow.status, "failed");
-    await assertLeaseReleasedBeforeOutcome(
-      root,
-      failedTaskId,
-      failedExecutionId,
-      String(failedReceipt.runtimeSessionId),
-    );
-  } finally {
-    await cell.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+        const settled = result.dispatches.find((row) => row.endedAt !== null);
+        return settled?.dispatchPath ? result.dispatches : null;
+      });
+      const leaderRow = rows.find((row) => row.squadId === "parent-squad");
+      assert.ok(leaderRow, "settled leader row keeps its squad attribution");
+      assert.equal(Object.hasOwn(leaderRow, "parentRuntimeSessionId"), false);
+      assert.equal(leaderRow.squadId, "parent-squad");
+      assert.equal(leaderRow.outcome, "succeeded");
+      assert.equal(leaderRow.status, "succeeded");
+      const document = (await cell.read("repo.tasks.document.read", {
+          taskId,
+          path: `artifacts/dispatches/${String(receipt.dispatchId)}.json`,
+        })) as { readonly body: string },
+        archived = JSON.parse(document.body) as Record<string, unknown>;
+      assert.equal(archived.squadId, "parent-squad");
+      // The leader's structured squad decision witnesses the turn, so the settled archive and the
+      // dispatch row agree on success instead of the row restating an archived unknown.
+      assert.equal(archived.outcome, "succeeded");
+      assert.equal(Object.hasOwn(archived, "parentRuntimeSessionId"), false);
+      assert.equal(Object.hasOwn(archived, "delegatedByAgentId"), false);
+      await assertLeaseReleasedBeforeOutcome(root, taskId, executionId, String(receipt.runtimeSessionId));
 
-// poll-spin-class: durable-poll - durable predicate read (if (outcomeIndex < 0) await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
+      const failedTaskId = "task_parent_session_archive_failed",
+        failedExecutionId = "execution-parent-session-archive-failed";
+      await startTask(cell, root, failedTaskId, failedExecutionId);
+      const failedReceipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: "codex-parent",
+          agentId: "parent-leader",
+          squadId: "parent-squad",
+          cwd: { scope: "repo-root" },
+          prompt: "Exit non-zero after declaring convergence.",
+          taskId: failedTaskId,
+          dispatchKey: "parent-session-archive-failed",
+        },
+        personBinding,
+      );
+      const failedRows = await eventually(async () => {
+          const result = (await cell.read("repo.task.dispatches", { taskId: failedTaskId })) as {
+            readonly dispatches: readonly {
+              readonly runtimeSessionId: string;
+              readonly endedAt: string | null;
+              readonly outcome: string | null;
+              readonly status: string;
+            }[];
+          };
+          return result.dispatches.some((row) => row.endedAt !== null) ? result.dispatches : null;
+        }),
+        failedRow = failedRows.find((row) => row.runtimeSessionId === failedReceipt.runtimeSessionId);
+      assert.ok(failedRow, "failed leader dispatch settles");
+      assert.equal(failedRow.outcome, "failed");
+      assert.equal(failedRow.status, "failed");
+      await assertLeaseReleasedBeforeOutcome(
+        root,
+        failedTaskId,
+        failedExecutionId,
+        String(failedReceipt.runtimeSessionId),
+      );
+    } finally {
+      await cell.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
 async function assertLeaseReleasedBeforeOutcome(
   rootDir: string,
   taskId: string,
@@ -237,7 +244,7 @@ async function assertLeaseReleasedBeforeOutcome(
 ): Promise<void> {
   let releaseIndex = -1,
     outcomeIndex = -1;
-  for (let attempt = 0; attempt < 1_500 && outcomeIndex < 0; attempt += 1) {
+  while (outcomeIndex < 0) {
     const store = makeTaskEventReader({ repoId: "parent-session-archive", rootDir });
     try {
       const events = store.read().events;

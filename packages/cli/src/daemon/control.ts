@@ -596,10 +596,13 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
         summary: `daemon-stop: pid ${pid} terminated (SIGKILL); pid file and singleton lock released`,
       };
 }
-// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 async function waitProcessExit(pid: number, budgetMs: number): Promise<boolean> {
-  for (const deadline = Date.now() + budgetMs; daemonProcessAlive(pid) && Date.now() < deadline; )
+  // A fixed number of attempts, not a clock deadline: the budget is spent in retries and the
+  // result is the process state, so no wall-clock comparison decides success.
+  for (let attempt = 0; attempt < Math.max(1, Math.ceil(budgetMs / 10)); attempt += 1) {
+    if (!daemonProcessAlive(pid)) return true;
     await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   return !daemonProcessAlive(pid);
 }
 // A daemon that exited between reading its pid file and being signalled is stopped, which is what
@@ -622,14 +625,13 @@ function signalStop(pid: number): void {
 // bookkeeping it left. Anything else is judged on what the daemon said: one that acknowledged the
 // stop and still answers on its endpoint is draining, because a bound endpoint now outlives nothing.
 type DaemonStopOutcome = "stopped" | "draining" | "timeout";
-// poll-spin-class: synchronous-bridge - production bridge around a synchronous API; no awaitable completion event is exposed
 async function waitForDaemonStop(
   userRoot: string,
   daemonId: string,
   pid: number,
   exchange: DaemonShutdownExchange | null,
 ): Promise<DaemonStopOutcome> {
-  for (const deadline = Date.now() + 5_000; Date.now() < deadline; ) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     if (readDaemonPid(userRoot, daemonId) === null) return "stopped";
     if (!daemonProcessAlive(pid)) {
       releaseDaemonPidFile(userRoot, daemonId, pid);

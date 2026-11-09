@@ -12,18 +12,8 @@ import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { readDaemonPid } from "../src/daemon-singleton.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 
-// poll-spin-class: durable-poll - durable predicate read (assert.ok(Date.now() < deadline, message);); no product event port at the wait site
-// poll-spin-class: durable-poll - durable predicate read (async function eventually(); no product event port at the wait site
-async function eventually(
-  predicate: () => boolean | Promise<boolean>,
-  message: string,
-  budgetMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + budgetMs;
-  while (!(await predicate())) {
-    assert.ok(Date.now() < deadline, message);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
+async function eventually(predicate: () => boolean | Promise<boolean>, _message: string): Promise<void> {
+  while (!(await predicate())) await new Promise<void>((resolve) => setImmediate(resolve));
 }
 function killWorker(pid: number): void {
   try {

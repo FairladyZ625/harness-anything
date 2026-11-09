@@ -233,16 +233,13 @@ test(
         // A same-release request observes the changed disk marker and initiates the real drain.
         await devCli("status").catch((error) => console.log("DEVELOPMENT TRANSITION", error.stdout ?? error.message));
         const lifecycle = path.join(devUser, "logs", `daemon-${devId}-lifecycle.jsonl`);
-        const deadline = Date.now() + 15_000;
+        // The lifecycle record is the daemon's published arrival; the file timeout is the hang guard.
         for (;;) {
           const entries = existsSync(lifecycle) ? readFileSync(lifecycle, "utf8") : "";
           if (entries.includes("build_superseded")) {
             console.log("DEVELOPMENT CONTROL", entries);
             break;
           }
-          // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
-          assert.ok(Date.now() < deadline, `No build_superseded in ${lifecycle}`);
-          // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
       } finally {

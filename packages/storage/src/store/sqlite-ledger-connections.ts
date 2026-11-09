@@ -56,7 +56,6 @@ const OPEN_BUSY_BUDGET_MS = 5000,
 // connection holds RESERVED (deadlock avoidance), so with several openers on one fresh ledger a
 // concurrent opener gets SQLITE_BUSY at once no matter the timeout. A bounded retry within the same
 // budget is the only remedy the engine leaves; every pragma here is idempotent.
-// poll-spin-class: condition-variable - waits on a shared cell whose value is changed by Atomics.notify; the state, not elapsed time, ends the wait
 export function configureLedgerConnection(executePragma: (sql: string) => void, readOnly = false): void {
   const deadline = Date.now() + OPEN_BUSY_BUDGET_MS;
   for (;;) {

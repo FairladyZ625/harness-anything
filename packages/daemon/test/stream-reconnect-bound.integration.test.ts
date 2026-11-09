@@ -14,7 +14,7 @@ import { streamAgentRuntimeAt, type DaemonStreamLost } from "../src/client/local
 // is that incident in miniature: the "daemon" accepts one attach, dies, and then destroys every
 // further connection instantly. The stream must back off, spend a bounded attempt budget, and
 // finish with an observable failure instead of spinning.
-test("an attached stream exhausts a bounded reconnect budget and reports the loss", async () => {
+test("an attached stream exhausts a bounded reconnect budget and reports the loss", { timeout: 300_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stream-bound-")),
     socketPath = localUserDaemonEndpoint(parent, "stream-bound");
   try {
@@ -64,8 +64,7 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
     try {
       const started = Date.now();
       assert.equal((values[0] as { readonly ok: boolean }).ok, true, "the initial attach must succeed");
-      // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
-      for (const deadline = Date.now() + 30_000; lost === undefined && Date.now() < deadline; ) await delay(50);
+      while (lost === undefined) await delay(50);
       assert.ok(lost, "the stream must report its loss");
       assert.equal(lost.code, "daemon_stream_lost");
       // One successful reconnect refreshed the budget, so the fatal episode gets its full five
@@ -89,7 +88,6 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
   }
 });
 
-// poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

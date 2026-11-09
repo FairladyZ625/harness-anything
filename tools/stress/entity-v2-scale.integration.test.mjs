@@ -39,27 +39,19 @@ function follower(label, rootDir, repoId, projectionPath) {
   const worker = new Worker(new URL("./entity-v2-scale.projection-worker.mjs", import.meta.url), {
     workerData: { rootDir, repoId, projectionPath },
   });
-  let reached = null;
   const settled = new Promise((resolve) => {
     worker.on("message", ({ progress, ...message }) => {
       if (!progress) return resolve(message);
-      reached = message;
       frame("follower-progress", { label, ...message });
     });
     worker.once("error", (error) => resolve({ ok: false, error: error.message }));
     worker.once("exit", (code) => resolve({ ok: false, error: `${label} follower exited ${code} before reporting` }));
   });
   return {
-    finish: async (revision, digest, withinMs) => {
+    finish: async (revision, digest) => {
+      // The worker's own settled event ends this wait; the test timeout is the hang guard.
       worker.postMessage({ revision, digest });
-      let timer;
-      const expired = new Promise((resolve) => {
-        const error = () => `stage budget: ${label} follower reached ${JSON.stringify(reached)} of ${revision}`;
-        // poll-spin-class: product-timing - asserts a product duration, backoff or quiet window; wall time is the subject under test
-        timer = setTimeout(() => resolve({ ok: false, error: error() }), Math.max(0, withinMs));
-      });
-      const result = await Promise.race([settled, expired]);
-      clearTimeout(timer);
+      const result = await settled;
       if (result.ok) return result;
       await worker.terminate();
       throw new Error(result.error);

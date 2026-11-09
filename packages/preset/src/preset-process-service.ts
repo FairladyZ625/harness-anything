@@ -300,7 +300,6 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     tracked.termination ??= terminateChild(tracked.child).finally(() => children.delete(runId));
     return tracked.termination;
   }
-  // poll-spin-class: synchronous-bridge - process teardown bridge; close/exit is the completion signal
   async function execute(
     witness: Witness,
     resolved: InternalPresetResolution | undefined,
@@ -414,13 +413,14 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     });
     child.stdout?.once("close", () => {
       disconnected = true;
-      setTimeout(() => {
+      // Let a pending exit event deliver before treating the closed stdout as a disconnect.
+      setImmediate(() => {
         if (!exited && frame === undefined)
           stop(
             "child_disconnect",
             `Child disconnected before returning a result.${diagnostic ? ` ${diagnostic.trim()}` : ""}`,
           );
-      }, 25);
+      });
     });
     child.once("error", (error) => stop("spawn_failed", error.message));
     child.once("exit", (code, signal) => {
@@ -580,7 +580,6 @@ function ensureTree(root: string, ...targets: string[]): void {
     }
   }
 }
-// poll-spin-class: synchronous-bridge - process teardown bridge; close/exit is the completion signal
 function terminateChild(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolve) => {
