@@ -21,6 +21,7 @@ import {
 } from "@harness-anything/kernel";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { reviewerArtifactFiles } from "../src/reviewer-artifact-publication.ts";
+import { oldDataCopyReceiptPath } from "../src/submit-old-data-copy.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import {
   executionId,
@@ -93,6 +94,25 @@ async function requestChanges(f: Awaited<ReturnType<typeof fixture>>, runtimeSes
       },
       "admin",
     ),
+  );
+}
+
+/** A cut that seats the data-migration lane must carry the receipt the real worker gets from
+ *  `tools/old-data-copy-evidence.mjs`. This writes the same receipt shape at the exact path the
+ *  submit admission reads, bound to the cut, so the seat fixture goes through the real gate. */
+function writeOldDataCopyReceipt(root: string, packagePath: string, headCommit: string): void {
+  const target = path.join(root, "harness", oldDataCopyReceiptPath(packagePath));
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(
+    target,
+    JSON.stringify({
+      schema: "old-data-copy-evidence/v1",
+      at: "2026-11-09T00:00:00.000Z",
+      ok: true,
+      build: { headCommit },
+      attach: { outcome: "terminal-record", record: { event: "repo_attach_completed" } },
+      failures: [],
+    }),
   );
 }
 
@@ -1570,6 +1590,7 @@ test(
           writeFileSync(path.join(checkout, surface), body);
           execFileSync("git", ["-C", checkout, "add", surface]);
           execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: narrow a persisted field"]);
+          return execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
         };
       // The mechanism is off by default: with no configured rule the cut still dispatches exactly
       // one default-seat reviewer, never an extra professional one.
@@ -1608,7 +1629,10 @@ test(
       // The amended cut's frozen manifest now hits the configured path: its one seat is the
       // professional reviewer, and the default reviewer is not dispatched beside it.
       const beforeSeat = f.launches.length;
-      commitSchemaSurface("// second schema surface\n");
+      // The second cut now seats data-migration, so the real flow would have run the copy tool and
+      // landed its receipt in the task package before submit. Bind it to this cut, not the first.
+      const seatCut = commitSchemaSurface("// second schema surface\n");
+      writeOldDataCopyReceipt(f.root, f.packagePath, seatCut);
       const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       assert.equal(amended.outcome, "applied", JSON.stringify(amended));
       const seatDispatches = f
