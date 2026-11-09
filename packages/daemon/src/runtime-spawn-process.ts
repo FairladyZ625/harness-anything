@@ -611,8 +611,6 @@ function observeDispatchProcess(
       if (bytes.length === 0) {
         switch (livenessEvent.payload.liveness) {
           case "unknown": {
-            // The host appends process_exit before it exits. Re-read after observing the dead PID so
-            // an empty read racing that append does not replace its exit code with a loss report.
             bytes = readRuntimeWorkerChunk(stream, offset);
             if (bytes.length === 0) {
               const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;

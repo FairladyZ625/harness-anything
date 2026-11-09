@@ -300,8 +300,6 @@ function runtimeSessionBundles(
       },
     });
   }
-  // Import converts the stored observation into its existing event shape. Imported sessions have
-  // no destination dispatch, so this is serialization of legacy history, not recovery authority.
   const observationKind = { live: null, stale: "stale", unknown: "unknown", exited: "exited" }[session.liveness];
   if (observationKind)
     specs.push({
@@ -313,9 +311,6 @@ function runtimeSessionBundles(
           ? { runtimeSessionId: session.runtimeSessionId }
           : { runtimeSessionId: session.runtimeSessionId, liveness: observationKind },
     });
-  // A source session without an outcome cannot be recovered in the destination because its
-  // process and dispatch are not part of the snapshot. Record the same terminal result as the
-  // first-discovery recovery path so reruns remain unchanged.
   if (session.outcome === null) {
     const terminalResult = importedRuntimeTerminalResult();
     if (observationKind !== "exited")

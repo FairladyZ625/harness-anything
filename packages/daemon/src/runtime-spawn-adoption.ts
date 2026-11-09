@@ -32,6 +32,7 @@ import { isRuntimeKindId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { dispatchLifecyclePendingError, readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { sweepUntilProvenStopped } from "./runtime/process-group-reconciler.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
@@ -243,7 +244,25 @@ async function restoreRuntime(
     stream = fullStream ?? streamSummary;
   if (!stream) return false;
   const processState = stream.process,
-    processPid = processState?.pid ?? 0;
+    processPid = processState?.pid ?? 0,
+    binding = authorizationBinding
+      ? { ...authorizationBinding, ...metadata.binding, authorizationDecision: undefined }
+      : metadata.binding,
+    livenessEvent = {
+      type: "runtime_session_liveness_changed",
+      payload: {
+        runtimeSessionId: stream.header.runtimeSessionId,
+        liveness: runtimePidIsAlive(processPid) ? ("live" as const) : ("unknown" as const),
+        ...(processPid > 1 ? { processGroupPid: processPid } : {}),
+      },
+    } as const;
+  await context.publishRuntimeEvent(
+    livenessEvent.type,
+    livenessEvent.payload,
+    `runtime-observation-${stream.header.dispatchId}-${livenessEvent.payload.liveness}`,
+    binding,
+  );
+  if (context.closed?.()) return false;
   const runtimeProcess = adoptNativeProcess(
     context.input.rootDir,
     stream.header.dispatchId,
@@ -275,9 +294,7 @@ async function restoreRuntime(
     parentRuntimeSessionId: stream.header.parentRuntimeSessionId ?? null,
     // Explicit owner cancellation supplies fresh credentials, while the original actor/source
     // remain the settlement fence. Startup recovery never borrows a local operator session.
-    binding: authorizationBinding
-      ? { ...authorizationBinding, ...metadata.binding, authorizationDecision: undefined }
-      : metadata.binding,
+    binding,
     task:
       stream.header.taskId && stream.header.executionId
         ? {
@@ -358,9 +375,6 @@ async function restoreRuntime(
       exitCode: active.lossExitCode,
       signal: active.lossSignal,
     });
-  // A host that vanished without a process_exit record follows loss reconciliation. Every recorded
-  // process still requires an OS stop proof; a stream record is only a hint to wait for natural
-  // group shutdown before requesting a kill.
   const stop = processState
     ? await sweepUntilProvenStopped({
         pid: processState.pid,
