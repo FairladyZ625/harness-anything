@@ -107,7 +107,9 @@ export function closeoutReadiness(
         gates: gateResults(snapshot, availability, undefined, undefined, undefined, delivery),
       };
     const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission, cut?.iteration, delivery),
+      reviewBlocker = reviewConsentGateBlocker(snapshot, effectiveGates, cut),
       missing = gates.some(({ status }) => !gateSatisfied(status));
+    if (reviewBlocker) return { readiness: "incomplete", executionId: cut.executionId, blocker: reviewBlocker, gates };
     return {
       readiness: missing ? "incomplete" : "passed",
       ...(cut ? { executionId: cut.executionId } : {}),
@@ -121,7 +123,7 @@ export function closeoutReadiness(
   if (task.status === "submitted" && effectiveGates?.review !== false)
     return {
       readiness: "incomplete",
-      blocker: "review_pending",
+      blocker: reviewConsentGateBlocker(snapshot, effectiveGates, cut) ?? "review_pending",
       gates: gateResults(snapshot, availability, undefined, undefined, undefined, delivery),
     };
   if (task.status !== "in_review" && task.status !== "submitted")
@@ -149,40 +151,9 @@ export function closeoutReadiness(
     gates.some(({ status }) => status === "unknown")
   )
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
-  const currentReviews = reviewsForExecution(snapshot.reviews, execution),
-    approved = currentReviews.filter((review) => review.verdict === "approved"),
-    consented = consentedApprovedReviewForExecution(
-      snapshot.reviews,
-      snapshot.consents,
-      execution,
-      snapshot.reviewDispositions ?? [],
-    );
-  // The owner's forward adjudication is the review requirement a lifted profile skipped: the cut
-  // it named owes its verdict even though the frozen profile lifted review. Keyed on the journal's
-  // forward record, not the in_review position — a preset upgrade resets task-bound overrides and
-  // snapshots reach in_review by other paths, so only the order itself buys the verdict.
-  const forwarded = (snapshot.forwardedCuts ?? []).some(
-    (record) => record.executionId === execution.executionId && record.iteration === execution.iteration,
-  );
-  const reviewOwed = effectiveGates?.review !== false || forwarded,
-    disposed = disposedReviewIdsForSubmission(
-      snapshot.reviewDispositions ?? [],
-      submissionDigest(execution.submission),
-    ),
-    rejected = currentReviews.some(
-      (review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId),
-    );
-  if (reviewOwed && !consented && rejected)
-    return {
-      readiness: "incomplete",
-      executionId: execution.executionId,
-      blocker: "review_rejected",
-      gates,
-    };
-  if (reviewOwed && !consented && approved.length === 0)
-    return { readiness: "incomplete", executionId: execution.executionId, blocker: "review_pending", gates };
-  if (effectiveGates?.consent !== false && !consented)
-    return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
+  const reviewBlocker = reviewConsentGateBlocker(snapshot, effectiveGates, execution);
+  if (reviewBlocker)
+    return { readiness: "incomplete", executionId: execution.executionId, blocker: reviewBlocker, gates };
   const failed = gates.some(({ status }) => status === "failed"),
     missing = gates.some(({ status }) => !gateSatisfied(status));
   const orphan = lineageOrphan(task, snapshot.decisionRelations ?? []);
@@ -192,6 +163,43 @@ export function closeoutReadiness(
     ...(missing ? { blocker: "gate" as const } : orphan ? { blocker: "lineage" as const } : {}),
     gates,
   };
+}
+
+/** The completion gate's review/consent decision, also used by task-bound PR merging. */
+export function reviewConsentGateBlocker(
+  snapshot: CloseoutSnapshot,
+  effectiveGates?: Readonly<Record<CloseoutGate, boolean>>,
+  execution?: ProjectedExecution,
+): Extract<CloseoutBlocker, "execution" | "review_pending" | "review_rejected" | "consent"> | null {
+  const task = snapshot.task;
+  if (!task) return "execution";
+  const cuts = currentExecutionCuts(snapshot),
+    cut = execution ?? (cuts.length === 1 ? cuts[0] : undefined);
+  if (task.status === "done") return cut?.state === "accepted" ? null : "execution";
+  if (!cut || cut.state !== "submitted" || !cut.submission) return "execution";
+  const forwarded = (snapshot.forwardedCuts ?? []).some(
+      (record) => record.executionId === cut.executionId && record.iteration === cut.iteration,
+    ),
+    reviewOwed = (task.closeoutOverrides?.review ?? effectiveGates?.review) !== false || forwarded;
+  if (task.status === "submitted" && reviewOwed) return "review_pending";
+  if (task.status !== "submitted" && task.status !== "in_review") return "execution";
+  const currentReviews = reviewsForExecution(snapshot.reviews, cut),
+    consented = consentedApprovedReviewForExecution(
+      snapshot.reviews,
+      snapshot.consents,
+      cut,
+      snapshot.reviewDispositions ?? [],
+    ),
+    disposed = disposedReviewIdsForSubmission(snapshot.reviewDispositions ?? [], submissionDigest(cut.submission));
+  if (
+    reviewOwed &&
+    !consented &&
+    currentReviews.some((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId))
+  )
+    return "review_rejected";
+  if (reviewOwed && !consented && !currentReviews.some((review) => review.verdict === "approved"))
+    return "review_pending";
+  return (task.closeoutOverrides?.consent ?? effectiveGates?.consent) !== false && !consented ? "consent" : null;
 }
 
 /** Native submitted content cuts on the Task's current iteration. Multiple results are ambiguity, never an implicit first choice. */

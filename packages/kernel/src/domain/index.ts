@@ -79,6 +79,7 @@ export {
   type CompletionDeliveryStatus,
   deliveryTargetRef,
   closeoutReadiness,
+  reviewConsentGateBlocker,
   completionGateIds,
   currentExecutionCuts,
   gateResults,

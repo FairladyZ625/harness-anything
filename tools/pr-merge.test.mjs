@@ -6,7 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { reviewDigest, submissionDigest } from "@harness-anything/kernel";
+import {
+  closeoutReadiness,
+  consentedApprovedReviewForExecution,
+  currentExecutionCuts,
+  reviewConsentGateBlocker,
+  reviewDigest,
+  submissionDigest,
+} from "@harness-anything/kernel";
 
 const helper = fileURLToPath(new URL("./pr-merge.mjs", import.meta.url));
 
@@ -796,6 +803,45 @@ test("merges a consented task PR with a historical CI gate declaration and deliv
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
   assert.equal(existsSync(setup.prWorktree), false);
+});
+
+test("task PR merge follows the ledger consent gate for an accepted cut with later evidence drift", (t) => {
+  const setup = fixture(t, {
+      branch: TASK_BRANCH,
+      haState: (head) => {
+        const state = reviewChainWithDeliveryBlockerHaState({ commitSha: head }),
+          receipt = state.receipt,
+          execution = receipt.executions[0],
+          submittedDigest = submissionDigest(execution.submission);
+        execution.submission.artifacts = [
+          {
+            path: "harness/tasks/task/evidence.md",
+            revision: 2,
+            blobSha256: "a".repeat(64),
+          },
+        ];
+        execution.state = "accepted";
+        receipt.task.status = "done";
+
+        const cut = currentExecutionCuts(receipt)[0];
+        assert.ok(cut);
+        assert.equal(
+          consentedApprovedReviewForExecution(receipt.reviews, receipt.consents, cut, receipt.reviewDispositions ?? []),
+          undefined,
+          "the recomputed digest no longer matches the consent recorded for the submitted cut",
+        );
+        assert.notEqual(submissionDigest(execution.submission), submittedDigest);
+        assert.equal(reviewConsentGateBlocker(receipt), null);
+        const readiness = closeoutReadiness(receipt);
+        assert.equal(readiness.readiness, "incomplete");
+        assert.equal(readiness.blocker, "gate", "review and consent passed; only delivery remains");
+        return state;
+      },
+    }),
+    result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
 });
 
 test("refuses a task PR whose rebased head is not the frozen delivery commit", (t) => {
