@@ -287,7 +287,7 @@ test("a marker-less template-shaped existing body gains governance while preserv
   );
 });
 
-test("an arbitrary marker-less existing body is migrated to the rendered template", async (context) => {
+test("an arbitrary marker-less existing body is preserved verbatim in the rendered body", async (context) => {
   const { fixture, frozen } = publication(context, "pr-body-render-arbitrary"),
     renderBody = taskPrBodyRenderer({
       rootDir: fixture.canonical,
@@ -300,7 +300,7 @@ test("an arbitrary marker-less existing body is migrated to the rendered templat
   let existing: Record<string, unknown> | undefined = {
     number: 42,
     html_url: "https://github.com/acme/repo/pull/42",
-    body: "Legacy prose only.\n",
+    body: "# Legacy title\n\nLegacy prose only.\n\n## Injected section\n\n<!-- harness:submission-facts:start -->\n",
   };
   context.mock.method(globalThis, "fetch", async (url: string | URL, options: RequestInit = {}) => {
     if (!String(url).includes("/pulls")) return Response.json({ default_branch: "main" });
@@ -320,7 +320,16 @@ test("an arbitrary marker-less existing body is migrated to the rendered templat
     renderBody,
   });
   assert.equal(patches.length, 1);
-  assert.doesNotMatch(patches[0]!.body, /Legacy prose only\./u, "an unanchorable body is replaced by the template");
+  assert.match(patches[0]!.body, /^## Legacy Authored Body \(preserved\)$/mu);
+  assert.match(patches[0]!.body, /^### Legacy title$/mu, "authored headings are demoted below the preserved section");
+  assert.match(patches[0]!.body, /Legacy prose only\./u, "authored prose survives");
+  assert.match(patches[0]!.body, /^#### Injected section$/mu);
+  assert.match(patches[0]!.body, /&lt;!-- harness:submission-facts:start --&gt;/u, "authored markers are escaped");
+  assert.equal(
+    (patches[0]!.body.match(/<!-- harness:submission-facts:start -->/gu) ?? []).length,
+    1,
+    "only the machine region carries the real marker",
+  );
   assert.match(patches[0]!.body, /^## Governance Declaration$/mu);
   assert.equal(
     checkPrGovernance({ body: patches[0]!.body, changedFiles: frozen.changedFiles ?? [], manifest }).ok,

@@ -159,18 +159,21 @@ function publishedBody(existingBody: unknown, input: PullRequestInput): string |
   const block = renderSubmissionFacts(input.submission),
     candidate = typeof input.body === "string" ? input.body : existingBody,
     authored = typeof candidate === "string" ? candidate : undefined,
-    // A marker-less body can still carry the template's four authored sections; insert the one
-    // machine region so the renderer preserves that prose while adding governance and facts. An
-    // arbitrary marker-less body has no safe anchor, so the template render replaces it instead of
-    // republishing protected prose that can never satisfy the governance lint.
-    renderInput =
-      input.renderBody === undefined || authored === undefined
-        ? undefined
-        : hasSubmissionFacts(authored)
-          ? authored
-          : markerizedTemplateBody(authored),
-    rendered = input.renderBody ? input.renderBody(renderInput) : authored;
+    rendered = renderedBody(authored, input);
   return typeof rendered === "string" ? (replaceSubmissionFacts(rendered, block) ?? rendered) : undefined;
+}
+
+function renderedBody(authored: string | undefined, input: PullRequestInput): string | undefined {
+  if (input.renderBody === undefined) return authored;
+  if (authored === undefined) return input.renderBody(undefined);
+  // A marker-less body can still carry the template's four authored sections; insert the one
+  // machine region so the renderer preserves that prose while adding governance and facts.
+  const markerized = hasSubmissionFacts(authored) ? authored : markerizedTemplateBody(authored);
+  if (markerized !== undefined) return input.renderBody(markerized);
+  // An arbitrary body has no template anchor, but replacing it would lose authored prose the task
+  // contract does not authorize dropping. Render the template, then preserve the original text as
+  // its own section with heading levels demoted so it cannot mint template or machine structure.
+  return preserveLegacyBody(input.renderBody(undefined), authored);
 }
 
 function hasSubmissionFacts(body: string): boolean {
@@ -189,6 +192,21 @@ function markerizedTemplateBody(body: string): string | undefined {
     next = /^##[ \t]+/mu.exec(after),
     insertAt = heading.index + heading[0].length + (next?.index ?? after.length);
   return `${body.slice(0, insertAt)}\n${SUBMISSION_FACTS_START}\n${SUBMISSION_FACTS_END}\n${body.slice(insertAt)}`;
+}
+
+/** Keep an arbitrary authored body verbatim as one explicit section of the rendered template. */
+function preserveLegacyBody(rendered: string, legacy: string): string {
+  const text = legacy.trim();
+  if (text.length === 0) return rendered;
+  const preserved = text
+      .replace(/^#{1,6}(?=[ \t])/gmu, (heading) => "#".repeat(Math.min(6, heading.length + 2)))
+      .replaceAll(SUBMISSION_FACTS_START, "&lt;!-- harness:submission-facts:start --&gt;")
+      .replaceAll(SUBMISSION_FACTS_END, "&lt;!-- harness:submission-facts:end --&gt;"),
+    section = `## Legacy Authored Body (preserved)\n\n${preserved}\n\n`,
+    verification = /^##[ \t]+Verification[ \t]*$/mu.exec(rendered);
+  return verification
+    ? `${rendered.slice(0, verification.index)}${section}${rendered.slice(verification.index)}`
+    : `${rendered.replace(/\s+$/u, "")}\n\n${section}`;
 }
 
 /** These are the framework's frozen closeout fields, not a repository PR template. */
