@@ -41,35 +41,34 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const LOCK_DIR = "/tmp/harness-local-check.lock";
 const LOCK_PID_FILE = path.join(LOCK_DIR, "pid");
 
-// Step list. Each step is [label, npmScriptName]. The boundaries/package-policy
+// Step list. Each step is [label, npmScriptName]. The quick-gates/package-policy
 // portion is DERIVED from tools/gate-manifest.json (the same authority CI's
 // run-manifest-gates.mjs consumes), so the local set cannot drift from CI for
-// those jobs. Gates qualify when they run in a local-relevant PR job, expose an
+// those jobs. Gates qualify when they run in a local-relevant PR job, are
+// PR-required (the pr-advisory light gates stay on their own paths), expose an
 // npm script, participate in check:pr, and are deterministic (no network/PR
 // context needed).
-const LOCAL_MANIFEST_JOBS = new Set(["boundaries", "package-policy"]);
+const LOCAL_MANIFEST_JOBS = new Set(["quick-gates", "package-policy"]);
 
-// The boundaries job declares its exclude list in the workflow itself. Read it from
-// there so this runner never grows a second hand-maintained copy. Anchored on the
-// command, not on a step name: a step's prose label is free to change, and the
-// previous anchor ("Run rebuild-compatible boundary gates") named a step that the
-// rebuild-lane collapse deleted. Exactly one such command must exist — two would
-// mean the job runs different gate sets on different lanes again, and this runner
-// would have to pick one and be silently wrong on the other.
-export function excludedBoundaryGateIds() {
+// The merged quick-gates job declares its exclude list in the workflow itself. Read it
+// from there so this runner never grows a second hand-maintained copy. Anchored on the
+// command, not on a step name: a step's prose label is free to change. Exactly one such
+// command must exist — two would mean the job runs different gate sets on different
+// lanes again, and this runner would have to pick one and be silently wrong on the other.
+export function excludedMergedGateIds() {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
-  const commands = [...workflow.matchAll(/--workflow-job boundaries(?:\s+--exclude\s+(\S+))?/gu)];
+  const commands = [...workflow.matchAll(/--workflow-job quick-gates(?:\s+--exclude\s+(\S+))?/gu)];
   if (commands.length !== 1) {
     throw new Error(
-      `run-local-check: expected exactly one boundaries gate command in rewrite-ci.yml, found ${commands.length}`,
+      `run-local-check: expected exactly one quick-gates gate command in rewrite-ci.yml, found ${commands.length}`,
     );
   }
   return new Set(commands[0][1] ? commands[0][1].split(",") : []);
 }
 
-function manifestDerivedSteps() {
+function manifestDerivedSteps(coveredScripts = new Set()) {
   const manifest = JSON.parse(readFileSync(path.join(repoRoot, "tools/gate-manifest.json"), "utf8"));
-  const excluded = excludedBoundaryGateIds();
+  const excluded = excludedMergedGateIds();
   return manifest.gates
     .filter((gate) => {
       const surfaces = gate.executionSurfaces ?? {};
@@ -77,7 +76,9 @@ function manifestDerivedSteps() {
       const pkg = surfaces.packageJson ?? {};
       return (
         jobs.some((job) => LOCAL_MANIFEST_JOBS.has(job)) &&
+        gate.tier === "pr-required" &&
         !excluded.has(gate.id) &&
+        !coveredScripts.has(pkg.script) &&
         typeof pkg.script === "string" &&
         pkg.checkPr === true &&
         gate.deterministic === true
@@ -89,14 +90,18 @@ function manifestDerivedSteps() {
     ]);
 }
 
-// Static fast steps; the boundaries/package-policy gate set is derived from the
-// gate manifest so the local set cannot drift from CI.
-const FAST_STEPS = [
+// Static fast steps; the quick-gates/package-policy gate set is derived from the
+// gate manifest so the local set cannot drift from CI. Scripts already run by the
+// fixed steps above (typecheck, lint) are not repeated by the derived set.
+const BASE_FAST_STEPS = [
   ["typecheck", "typecheck"],
   ["lint", "lint"],
   ["test:fast", "test:fast"],
   ["test:contract", "test:contract"],
-  ...manifestDerivedSteps(),
+];
+const FAST_STEPS = [
+  ...BASE_FAST_STEPS,
+  ...manifestDerivedSteps(new Set(BASE_FAST_STEPS.map(([, script]) => script))),
   ["contracts: derived-contracts", "check:local:derived-contracts"],
   ["contracts: schema-closure", "check:local:schema-closure"],
 ];

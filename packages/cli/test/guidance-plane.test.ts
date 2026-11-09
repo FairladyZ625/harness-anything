@@ -472,9 +472,34 @@ test("failure guidance renders structured missing-section, validator, and worksp
       unexpectedSections: ["Acceptance"],
     },
   }).hint;
+  assert.match(missingSectionsHint, /Goal: still contains scaffold text.*ha doc sync --submit --task <task-id>/su);
+  // diskDiffers with no section rows is the incident shape: the local plan was complete but the
+  // judgment read the center's accepted template. The hint must name that and the one valid command,
+  // not print an empty diagnostics block or "no missing required sections were reported".
+  const differs = humanError({
+    code: "plan_placeholder",
+    diagnostic: {
+      kind: "missing-sections",
+      documentPath: "harness/tasks/task-a/task_plan.md",
+      diskDiffers: true,
+      missingSections: [],
+    },
+  }).hint;
+  assert.match(differs, /canonical version from the center was judged/iu);
+  assert.match(differs, /on-disk harness\/tasks\/task-a\/task_plan\.md differs and has not been submitted/u);
+  assert.match(differs, /ha doc sync --submit --task <task-id>, then retry this command/u);
+  assert.doesNotMatch(differs, /no missing required sections were reported/iu);
   assert.match(
-    missingSectionsHint,
-    /Goal: still contains scaffold text.*ha doc sync --submit --path harness\/tasks\/task-a\/task_plan\.md/su,
+    humanError({
+      code: "plan_placeholder",
+      diagnostic: {
+        kind: "missing-sections",
+        documentPath: "harness/tasks/task-a/task_plan.md",
+        diskDiffers: true,
+        missingSections: [{ section: "Brief", reason: "empty" }],
+      },
+    }).hint,
+    /Brief: empty[\s\S]*Complete those sections, then run ha doc sync --submit --task <task-id>/u,
   );
   assert.match(missingSectionsHint, /Sections not in the template:\n- Acceptance/u);
   assert.equal(

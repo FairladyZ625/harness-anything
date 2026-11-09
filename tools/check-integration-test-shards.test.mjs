@@ -478,12 +478,19 @@ test("weights refresh from runner duration lines takes each file's median across
   });
 });
 
-test("the repository vocabulary scan weight covers its measured expanded scope", () => {
-  // Failed jobs 129066961834, 129102988704, 129094030222, 129114323428, and 129119533868
-  // had no assertion failures. The scan covered every package while its weight still described
-  // the old 400ms scope. The declaration uses the runner's rounded median of these five samples.
+test("the repository vocabulary scan weight refuses the pre-fix 84s regression", () => {
+  // Jobs 129066961834, 129102988704, 129094030222, 129114323428, and 129119533868 failed the
+  // shard budget because the scan covered every package at 76–86s. Sharing one re-export parse
+  // and rescanning only the overridden fixture modules brought it back to about a second, so the
+  // declared weight is the new measurement and the old durations must fail the overrun check
+  // instead of being grandfathered as the 400ms-scope declaration did.
+  const file = "tools/check-status-vocabulary.test.mjs";
   for (const durationMs of [84_855, 76_915, 86_014, 83_729, 76_175]) {
-    assert.deepEqual(integrationWeightOverruns(new Map([["tools/check-status-vocabulary.test.mjs", durationMs]])), []);
+    assert.deepEqual(
+      integrationWeightOverruns(new Map([[file, durationMs]])).map((entry) => entry.file),
+      [file],
+      `${durationMs}ms is the pre-fix regression and must exceed the declared weight`,
+    );
   }
 });
 

@@ -9,7 +9,7 @@ import {
   buildSteps,
   localChangedPaths,
   parseLocalCheckArgs,
-  excludedBoundaryGateIds,
+  excludedMergedGateIds,
   selectQosPrefix,
 } from "./run-local-check.mjs";
 
@@ -41,17 +41,18 @@ test("buildSteps keeps unchanged work fast and forces all extra lanes with full"
   assert.ok(fullScripts.includes("test:gui:e2e"));
   assert.equal(fullScripts.length, fastScripts.length + 3);
 
-  // Fast tier derives the CI boundaries + package-policy surface from the gate
-  // manifest, so every deterministic checkPr gate in those jobs must be present.
+  // Fast tier derives the CI quick-gates + package-policy surface from the gate
+  // manifest, so every deterministic PR-required checkPr gate in those jobs must be present.
   const manifest = JSON.parse(readFileSync(new URL("./gate-manifest.json", import.meta.url), "utf8"));
-  const excluded = excludedBoundaryGateIds();
+  const excluded = excludedMergedGateIds();
   const expectedScripts = manifest.gates
     .filter((gate) => {
       const surfaces = gate.executionSurfaces ?? {};
       const jobs = surfaces.rewriteCi?.pullRequestJobs ?? [];
       const pkg = surfaces.packageJson ?? {};
       return (
-        jobs.some((job) => job === "boundaries" || job === "package-policy") &&
+        jobs.some((job) => job === "quick-gates" || job === "package-policy") &&
+        gate.tier === "pr-required" &&
         !excluded.has(gate.id) &&
         typeof pkg.script === "string" &&
         pkg.checkPr === true &&
@@ -65,7 +66,7 @@ test("buildSteps keeps unchanged work fast and forces all extra lanes with full"
   assert.ok(fastScripts.includes("lint"));
   // Positive control: the gate PR #1358 slipped through on must be present.
   assert.ok(fastScripts.includes("harness:check-cli-help-contract"));
-  // CI's boundaries exclusions must be honored locally too — and only those.
+  // CI's merged-job exclusions must be honored locally too — and only those.
   assert.deepEqual([...excluded], []);
   assert.deepEqual(fastScripts.slice(-2), ["check:local:derived-contracts", "check:local:schema-closure"]);
 });

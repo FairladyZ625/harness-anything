@@ -344,9 +344,18 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
     summary = jobs["cost-budget-read-summary"];
   const quick = jobs["quick-gates"];
   assert.ok(quick.steps.some((step) => step.env?.G38_PHASE === "legacy"));
-  assert.deepEqual(reads.strategy.matrix.backend, ["pglite"]);
-  assert.deepEqual(reads.strategy.matrix.dimension, [...READ_DIMENSIONS]);
+  const pgliteSets = reads.strategy.matrix.include;
+  assert.deepEqual(
+    pgliteSets.map((set) => set.set),
+    [1, 2],
+  );
+  assert.deepEqual(
+    pgliteSets.flatMap((set) => set.dimensions.split(",")),
+    [...READ_DIMENSIONS],
+    "the two PGlite sets cover every dimension once, in declared order",
+  );
   assert.equal(reads.strategy["fail-fast"], false);
+  assert.match(reads.name, /set \$\{\{ matrix\.set \}\}/u);
   assert.ok(reads.steps.some((step) => step.with?.["node-version"] === 26));
   assert.ok(
     reads.steps.some((step) => step.run === "npm ci"),
@@ -362,7 +371,9 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
         step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_PHASE === "read" && !step["continue-on-error"],
     ),
   );
-  assert.deepEqual(sqliteReads.strategy.matrix.dimension, [...READ_DIMENSIONS]);
+  assert.equal(sqliteReads.strategy, undefined, "the SQLite set is one job, not a matrix");
+  const sqliteRead = sqliteReads.steps.find((step) => step.env?.G38_BACKEND === "sqlite");
+  assert.equal(sqliteRead.env.G38_DIMENSION, READ_DIMENSIONS.join(","));
   assert.equal(sqliteReads.steps.find((step) => step.run === "npm ci") !== undefined, true);
   assert.ok(
     sqliteReads.steps.some(

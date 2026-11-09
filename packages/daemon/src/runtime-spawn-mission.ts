@@ -901,6 +901,18 @@ function readMissionDocument(
   return read.document.body;
 }
 
+/**
+ * A task-bound mission authored before its checkout is resolved names the checkout with this
+ * token; the spawner renders it once the dispatch's actual cwd (including a resumed reviewer's
+ * inherited checkout) is known. Missions that carry no token are returned unchanged.
+ */
+export const workerRootPathToken = "<worker-root-path>";
+
+/** Renders a mission's checkout paths against the resolved dispatch cwd. */
+export function renderWorkerRootPaths(mission: string, cwd: string): string {
+  return mission.includes(workerRootPathToken) ? mission.replaceAll(workerRootPathToken, cwd) : mission;
+}
+
 export function assembleTaskMission(input: {
   readonly mission: string;
   readonly repoId: string;
@@ -1070,7 +1082,10 @@ export async function resolveRuntimeMission(input: {
             remoteTask?.riskTierFlowVersion ?? taskSnapshot?.task?.metadata?.riskTierFlowVersion,
             reviewerNote,
           ),
-    mission = continuationSection === null ? baseMission : `${baseMission}\n\n${continuationSection}`;
+    mission =
+      continuationSection === null
+        ? renderWorkerRootPaths(baseMission, cwd)
+        : renderWorkerRootPaths(`${baseMission}\n\n${continuationSection}`, cwd);
   return {
     taskMission: taskMission === null ? null : { ...taskMission, mission },
     mission: mission,

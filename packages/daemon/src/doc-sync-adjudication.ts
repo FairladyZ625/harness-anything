@@ -28,9 +28,11 @@ import { admissionRejection, workspacePathOf } from "./doc-sync-settlement.ts";
 // than an explicit `ha doc sync` submission.
 //
 // Task-package documents have exactly ONE fleet entry: the canonical lease-checked task
-// command (design §3 — 绕过自动入口的提交直接拒绝). A fleet doc submit that
-// touches a task package without naming the held execution is refused here;
-// the local repo-prose channel keeps its pre-start edit flow.
+// command (design §3 — 绕过自动入口的提交直接拒绝). The single exception is a planned task's
+// task_plan.md: start refuses until that plan is canonical, and a planned task has no execution
+// to name, so the doc-submit channel carries it (plannedTaskPlanSubmission in settlement). Every
+// other fleet doc submit that touches a task package without naming the held execution is refused
+// here; the local repo-prose channel keeps its pre-start edit flow.
 export type DocIntentChannel = "doc-submit" | "task-command";
 
 export type DocIntentAdjudication =
