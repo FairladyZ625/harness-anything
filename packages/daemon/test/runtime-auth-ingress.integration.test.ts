@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import { revokeTestPolicyActions, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
@@ -48,6 +49,14 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
     executablePath = writeProviderExecutable(path.join(parent, "codex-signin-stub"), stubBody),
     repoId = "runtime-auth-ingress",
     uid = process.getuid?.() ?? 0;
+  const eventually = (check: () => boolean | Promise<boolean>): Promise<void> =>
+    waitForArrival(
+      async () => ((await check()) ? true : null),
+      (arrive) => {
+        frameWaiters.add(arrive);
+        return () => frameWaiters.delete(arrive);
+      },
+    );
   const installation: RuntimeInstallationWitness = {
     installationId: "installation-codex-signin",
     kindId: "codex",
@@ -310,6 +319,8 @@ async function rpc(
     server.close();
   }
 }
+const frameWaiters = new Set<() => void>();
+
 async function rpcTerminalAttach(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   auth: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
@@ -323,6 +334,7 @@ async function rpcTerminalAttach(
     authContext: auth,
     emit: async (_method, params) => {
       frames.push(params);
+      for (const wake of frameWaiters) wake();
     },
   });
   await server.handle({
@@ -341,15 +353,7 @@ async function rpcTerminalAttach(
   assert.equal((response as { result: { ok: boolean } }).result.ok, true, JSON.stringify(response));
   return { close: server.close };
 }
-// poll-spin-class: durable-poll - durable predicate read (async function eventually(check: () => boolean | Promise<boolean>): Promise<void); no product event port at the wait site
-// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 20));); no product event port at the wait site
-async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
-  for (let attempt = 0; attempt < 300; attempt += 1) {
-    if (await check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error("terminal frame did not arrive");
-}
+
 function terminalOutput(frames: readonly Record<string, unknown>[]): string {
   return frames
     .filter((frame) => frame.kind === "output" && typeof frame.utf8 === "string")

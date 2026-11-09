@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { fork, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -10,15 +11,6 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/clien
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { daemonSocketProbe, readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 
-// poll-spin-class: durable-poll - durable predicate read (assert.ok(Date.now() < deadline, message);); no product event port at the wait site
-// poll-spin-class: durable-poll - durable predicate read (async function waitFor(predicate: () => boolean, message: string): Promise<void>); no product event port at the wait site
-async function waitFor(predicate: () => boolean, message: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (!predicate()) {
-    assert.ok(Date.now() < deadline, message);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-}
 function killGroup(pid: number): void {
   try {
     process.kill(-pid, "SIGKILL");
@@ -38,6 +30,8 @@ test(
       marker = path.join(parent, "runtime/dist/build-id.txt"),
       providerReady = path.join(parent, "provider-ready"),
       daemonId = "superseded-pid-holder";
+    const waitFor = (predicate: () => boolean, _message?: string): Promise<void> =>
+      waitForArrival(() => (predicate() ? true : null), watchDirectoryArrival(parent));
     mkdirSync(path.dirname(runtimeFile), { recursive: true });
     mkdirSync(rootDir, { recursive: true });
     writeFileSync(runtimeFile, "// fixture\n");

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -88,6 +89,8 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     instances = [...behaviors.keys()].map((instanceId) => runtimeInstance(instanceId, acpKind(instanceId))),
     prompts = new Map<string, string[]>(),
     models = new Map<string, string | undefined>();
+  const eventually = <T>(read: () => T | null | Promise<T | null>, _timeoutMs?: number): Promise<T> =>
+    waitForArrival(read, watchDirectoryArrival(parent));
   let pid = 9000;
   let availableInstances = instances;
   let retryOnceLaunches = 0;
@@ -867,6 +870,8 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     now = () => new Date().toISOString(),
     receipts = new Map<string, Record<string, unknown>>(),
     published: AgentRuntimeEventV1[] = [];
+  const eventually = <T>(read: () => T | null | Promise<T | null>, _timeoutMs?: number): Promise<T> =>
+    waitForArrival(read, watchDirectoryArrival(root));
   let pid = 10_000,
     revision = 0,
     nextLaunches = 0,
@@ -1354,17 +1359,6 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
       terminated = true;
     },
   };
-}
-
-// poll-spin-class: durable-poll - durable predicate read (async function eventually<T>(read: () => Promise<T | null>): Promise<T> {); no product event port at the wait site
-// poll-spin-class: durable-poll - durable predicate read (await new Promise((resolve) => setTimeout(resolve, 10));); no product event port at the wait site
-async function eventually<T>(read: () => Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 1_500; attempt += 1) {
-    const value = await read();
-    if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("provider fallback did not settle");
 }
 
 function git(root: string, ...args: string[]): void {
