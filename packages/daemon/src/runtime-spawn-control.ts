@@ -229,6 +229,13 @@ export async function cancelRuntime(
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       },
     };
+    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
+    await context.publishRuntimeEvent(
+      "runtime_session_exited",
+      { runtimeSessionId },
+      `${opId}-exited`,
+      terminalBinding,
+    );
     if (matchingHeader?.taskId && matchingHeader.executionId) {
       const settlement = await context.input.onAttemptTerminal?.({
         runtimeSessionId,
@@ -247,13 +254,6 @@ export async function cancelRuntime(
       });
       if (settlement?.outcome === "lease_unproven") throw runtimeSpawnError(settlement.code, settlement.reason);
     }
-    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
-    await context.publishRuntimeEvent(
-      "runtime_session_exited",
-      { runtimeSessionId },
-      `${opId}-exited`,
-      terminalBinding,
-    );
     const resultBody = "Runtime session cancelled after its worker process was no longer available.",
       resultSha256 = createHash("sha256").update(resultBody).digest("hex");
     await context.publishRuntimeEvent(

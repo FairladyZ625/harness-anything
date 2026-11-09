@@ -880,6 +880,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
+    let runtimeSessionStarted = false;
     let stream: DispatchStreamWriter | undefined;
     // Freeze the provider directory this launch's environment actually resolved (explicit
     // config-home, platform home, or the isolated state root) into the dispatch stream before
@@ -974,21 +975,21 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
-      const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed",
-        settlement = await input.onAttemptTerminal?.({
-          runtimeSessionId,
-          dispatchId: newDispatchId,
-          task: taskBinding,
-          schedule: trustedSchedule ?? null,
-          outcome: "failed",
-          reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
-          endedAt: input.now(),
-          binding: activeBinding,
-          ...(preservePrimaryError ? { preservePrimaryError: true } : {}),
-        });
-      if (settlement?.outcome === "lease_unproven") {
-        return;
+      if (runtimeSessionStarted) {
+        await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
       }
+      const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed";
+      await input.onAttemptTerminal?.({
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        task: taskBinding,
+        schedule: trustedSchedule ?? null,
+        outcome: "failed",
+        reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+        endedAt: input.now(),
+        binding: activeBinding,
+        ...(preservePrimaryError ? { preservePrimaryError: true } : {}),
+      });
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {
@@ -1214,6 +1215,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         randomUUID(),
         binding,
       );
+      runtimeSessionStarted = true;
     } catch (error) {
       await cleanupFailedLaunch(error);
       throw error;

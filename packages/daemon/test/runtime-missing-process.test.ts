@@ -406,6 +406,8 @@ test("runtime cancel settles the task lease before closing a missing-process tas
       terminals: unknown[] = [],
       published: string[] = [],
       order: string[] = [];
+    let stopProofAccepted = false,
+      leaseReleased = false;
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-cancel-missing-task-process", {
       taskId,
       executionId,
@@ -418,6 +420,8 @@ test("runtime cancel settles the task lease before closing a missing-process tas
         onAttemptTerminal: async (terminal: unknown) => {
           order.push("settle-attempt");
           terminals.push(terminal);
+          assert.equal(stopProofAccepted, true, "the settlement writer must observe accepted stop proof");
+          leaseReleased = true;
         },
       },
       requiredRuntimeProjection: () => ({
@@ -439,6 +443,7 @@ test("runtime cancel settles the task lease before closing a missing-process tas
       publishRuntimeEvent: async (type: string) => {
         order.push(type);
         published.push(type);
+        if (type === "runtime_session_exited") stopProofAccepted = true;
         return {};
       },
       controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
@@ -451,6 +456,7 @@ test("runtime cancel settles the task lease before closing a missing-process tas
     );
 
     assert.equal(receipt.detail, "cancelled");
+    assert.equal(leaseReleased, true, "accepted stop proof permits the shared settlement writer to release the lease");
     assert.deepEqual(terminals, [
       {
         runtimeSessionId,
@@ -473,9 +479,9 @@ test("runtime cancel settles the task lease before closing a missing-process tas
       "runtime_session_outcome_observed",
     ]);
     assert.deepEqual(order, [
-      "settle-attempt",
       "runtime_session_cancelled",
       "runtime_session_exited",
+      "settle-attempt",
       "runtime_session_outcome_observed",
     ]);
   } finally {
@@ -483,13 +489,14 @@ test("runtime cancel settles the task lease before closing a missing-process tas
   }
 });
 
-test("runtime cancel leaves a missing-process task dispatch live when lease settlement is unproven", async () => {
+test("runtime cancel leaves a missing-process task dispatch live when stop proof is unaccepted", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-unproven-task-process-"));
   try {
     const dispatchId = "dispatch_cccccccccccccccccccccccc",
       runtimeSessionId = "runtime_dddddddddddddddddddddddd",
       published: string[] = [],
       terminals: unknown[] = [];
+    let leaseHeld = true;
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "unproven-task-cancel", {
       taskId: "task-cancel-unproven",
       executionId: "execution-cancel-unproven",
@@ -501,11 +508,8 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
         now: () => "2026-11-02T00:00:00.000Z",
         onAttemptTerminal: async (terminal: unknown) => {
           terminals.push(terminal);
-          return {
-            outcome: "lease_unproven" as const,
-            code: "runtime_process_group_unproven" as const,
-            reason: "Runtime process group is unknown; lease release waits for a stop proof.",
-          };
+          leaseHeld = false;
+          assert.fail("the settlement writer must not run before lifecycle accepts stop proof");
         },
       },
       requiredRuntimeProjection: () => ({
@@ -526,6 +530,10 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
       exiting: new Set<string>(),
       publishRuntimeEvent: async (type: string) => {
         published.push(type);
+        if (type === "runtime_session_exited")
+          throw Object.assign(new Error("lifecycle rejected stop proof"), {
+            code: "runtime_transition_rejected",
+          });
         return {};
       },
       controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
@@ -537,10 +545,15 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
         { runtimeSessionId },
         { actor: binding.actor, source: { kind: "node", nodeId: "edge-a" } },
       ),
-      { code: "runtime_process_group_unproven" },
+      { code: "runtime_transition_rejected" },
     );
-    assert.equal(terminals.length, 1, "the stopped group must reach the independent task lease settlement guard");
-    assert.deepEqual(published, []);
+    assert.equal(terminals.length, 0, "an unaccepted stop proof must not reach the settlement writer");
+    assert.equal(leaseHeld, true, "a rejected stop proof keeps the task lease held");
+    assert.deepEqual(
+      published,
+      ["runtime_session_cancelled", "runtime_session_exited"],
+      "stop proof is published before the release guard; the refused lease still suppresses the outcome",
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

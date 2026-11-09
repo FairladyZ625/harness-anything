@@ -66,6 +66,7 @@ test(
       exit: ((code: number | null) => void) | null = null,
       output: ((chunk: string, persisted?: boolean) => void) | null = null,
       failSettlement = false,
+      failLaunch = false,
       launchedPrompt: string | undefined;
     try {
       initIngressRepo(root, 4310);
@@ -110,6 +111,10 @@ test(
           };
         },
         runtimeLaunch: () => {
+          if (failLaunch) {
+            failLaunch = false;
+            throw new Error("injected provider launch failure");
+          }
           const child = spawn(
             process.execPath,
             ["-e", "process.stdin.once('data', () => process.exit(0)); process.stdin.resume()"],
@@ -517,6 +522,94 @@ test(
           ),
           true,
         );
+        const launchFailureTaskId = "task-runtime-launch-failure",
+          launchFailureExecutionId = "execution-runtime-launch-failure",
+          launchFailureCreated = await cell.run(
+            { kind: "task-create", taskId: launchFailureTaskId, title: "Failed provider launch" },
+            binding,
+          );
+        assert.equal(launchFailureCreated.outcome, "applied");
+        await waitForFixturePublication(cell, launchFailureCreated.opId, binding);
+        await realizeTaskPlanFixture(
+          root,
+          String((launchFailureCreated as Record<string, unknown>).packagePath),
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Failed provider launch",
+        );
+        assert.equal(
+          (
+            await cell.run(
+              { kind: "task-start", taskId: launchFailureTaskId, executionId: launchFailureExecutionId },
+              binding,
+            )
+          ).outcome,
+          "applied",
+        );
+        failLaunch = true;
+        await assert.rejects(
+          cell.spawnRuntime(
+            {
+              runtimeInstanceId: definition.instanceId,
+              cwd: { scope: "repo-root" },
+              prompt: "Fail after the canonical runtime session starts",
+              taskId: launchFailureTaskId,
+              dispatchKey: "provider-launch-failure",
+            },
+            binding,
+          ),
+          /injected provider launch failure/u,
+        );
+        const launchFailureEvents = await eventuallyValue(() => {
+            const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+              dispatch = events.find(
+                (event) =>
+                  event.type === "runtime_dispatch_requested" &&
+                  event.payload.dispatchKey === "provider-launch-failure",
+              );
+            if (!dispatch) return null;
+            const runtimeSessionId = dispatch.payload.runtimeSessionId;
+            return events.some(
+              (event) => event.type === "runtime_session_exited" && event.payload.runtimeSessionId === runtimeSessionId,
+            )
+              ? events
+              : null;
+          }),
+          launchFailureDispatch = launchFailureEvents.find(
+            (event) =>
+              event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === "provider-launch-failure",
+          ),
+          launchFailureRuntimeSessionId = launchFailureDispatch?.payload.runtimeSessionId;
+        assert.equal(typeof launchFailureRuntimeSessionId, "string");
+        const exitedIndex = launchFailureEvents.findIndex(
+            (event) =>
+              event.type === "runtime_session_exited" &&
+              event.payload.runtimeSessionId === launchFailureRuntimeSessionId,
+          ),
+          releasedIndex = launchFailureEvents.findIndex(
+            (event, index) =>
+              index > exitedIndex && event.type === "lease_released" && event.taskId === launchFailureTaskId,
+          ),
+          launchFailureProjection = makeTaskProjection({
+            rootDir: root,
+            projectionPath: path.join(root, ".harness/cache/runtime-launch-failure-observer.sqlite"),
+            eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+          });
+        try {
+          launchFailureProjection.catchUp();
+          assert.ok(exitedIndex >= 0, "failed launch must accept the canonical stop proof");
+          assert.ok(
+            releasedIndex > exitedIndex,
+            `failed launch releases the lease only after stop proof: ${JSON.stringify({
+              exitedIndex,
+              releasedIndex,
+              launchFailureTaskId,
+              launchFailureRuntimeSessionId,
+            })}`,
+          );
+          assert.equal(launchFailureProjection.read(launchFailureTaskId).snapshot.lease, null);
+        } finally {
+          launchFailureProjection.close();
+        }
       } finally {
         await cell.close();
       }
