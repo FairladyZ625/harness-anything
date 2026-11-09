@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 // 打开仓库(attach)是保留策略的唯一执行点:这里从真实 openRepoCell 走一遍,证明默认 60 天
 // 设置在 attach 时删掉超期归档流、保留未超期的归档与仍在运行的 live 流。
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -84,10 +85,9 @@ test("opening a repository prunes archived dispatch streams past the default 60-
       ownerId: "dispatch-retention-test",
     });
 
-    // The prune rides the attach write queue behind git-backed publication work; poll the file
-    // itself (the queue counter drops before the queued work runs) with a bounded deadline.
-    for (let round = 0; round < 150 && existsSync(expired); round += 1)
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    // The prune rides the attach write queue behind git-backed publication work; the deletion of
+    // the expired stream is the arrival, not the queue counter that drops before it runs.
+    await waitForArrival(() => (existsSync(expired) ? null : true), watchFileArrival(expired));
     assert.equal(existsSync(expired), false, "the 61-day-old archived stream is pruned at attach");
     assert.equal(existsSync(retained), true, "the 30-day-old archived stream is inside retention");
     assert.equal(existsSync(liveFile), true, "a still-live stream is never touched");

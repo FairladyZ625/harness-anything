@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,7 +15,7 @@ import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-s
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture, realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
-import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
+import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
@@ -206,10 +207,12 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     assert.equal(result.outcome, "applied", JSON.stringify(result));
     live.add(String(result.runtimeSessionId));
     const runtime = String(result.runtimeSessionId),
-      env = await eventuallyValue(async () =>
-        existsSync(path.join(parent, `${runtime}.json`))
-          ? (JSON.parse(readFileSync(path.join(parent, `${runtime}.json`), "utf8")) as NodeJS.ProcessEnv)
-          : null,
+      env = await waitForArrival(
+        async () =>
+          existsSync(path.join(parent, `${runtime}.json`))
+            ? (JSON.parse(readFileSync(path.join(parent, `${runtime}.json`), "utf8")) as NodeJS.ProcessEnv)
+            : null,
+        watchFileArrival(path.join(parent, `${runtime}.json`)),
       );
     assert.equal(env.HARNESS_DAEMON_USER_ROOT, userRoot);
     assert.equal(env.HARNESS_DAEMON_ID, daemonId);
@@ -424,10 +427,12 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     // The stream records the outcome before the ledger does; settlement archives the stream only
     // after both terminal ledger events land, and only then is the credential's session settled.
     const dispatchId = String(runtime.result.dispatchId);
-    const terminal = await eventuallyValue(async () =>
-      dispatchStreamPath(root, dispatchId).endsWith(path.join("archive", `${dispatchId}.jsonl`))
-        ? (readDispatchStreamSummary(root, dispatchId)?.terminalOutcome ?? null)
-        : null,
+    const terminal = await waitForArrival(
+      async () =>
+        dispatchStreamPath(root, dispatchId).endsWith(path.join("archive", `${dispatchId}.jsonl`))
+          ? (readDispatchStreamSummary(root, dispatchId)?.terminalOutcome ?? null)
+          : null,
+      watchFileArrival(dispatchStreamPath(root, dispatchId)),
     );
     assert.equal(
       terminal.payload.outcome,

@@ -52,7 +52,7 @@ const root = path.resolve(rootArg ?? process.cwd());
 // as a number that did not move. Growth past the ceiling fails, which is the point: a new wait site
 // must be converted or carry an explicit decision, not a quiet append. Fixture runs pass an explicit
 // root and test exact-sync against their own allowlist, so they are not ratcheted.
-const allowlistCeiling = 183;
+const allowlistCeiling = 107;
 const enforceCeiling = rootArg === undefined && !update;
 // Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and integration tests
 // (dec_25B3C380F6FB9D4D4A1E27921E CH1) share one rule, one baseline and one exact-sync ratchet; the

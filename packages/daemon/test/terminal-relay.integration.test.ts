@@ -17,9 +17,13 @@ test("terminal relay shares one control connection for resize, input, and exit l
   let connections = 0,
     hellos = 0,
     streamSocket: net.Socket | undefined,
-    inputSeen!: () => void;
+    inputSeen!: () => void,
+    attachSeen!: () => void;
   const input = new Promise<void>((resolve) => {
       inputSeen = resolve;
+    }),
+    attached = new Promise<void>((resolve) => {
+      attachSeen = resolve;
     }),
     server = net.createServer((socket) => {
       connections += 1;
@@ -36,6 +40,7 @@ test("terminal relay shares one control connection for resize, input, and exit l
             reply(socket, request.id, fixtureDaemonHello());
           } else if (request.method === "repo.terminal.attach") {
             streamSocket = socket;
+            attachSeen();
             reply(socket, request.id, {
               schema: "terminal-attach/v1",
               ok: true,
@@ -69,7 +74,8 @@ test("terminal relay shares one control connection for resize, input, and exit l
       write: () => undefined,
       stdin,
     });
-    await waitFor(() => streamSocket !== undefined);
+    await attached;
+    assert.notEqual(streamSocket, undefined);
     stdin.write("x");
     await input;
     streamSocket!.write(
@@ -99,12 +105,4 @@ test("terminal relay shares one control connection for resize, input, and exit l
 
 function reply(socket: net.Socket, id: number, result: Record<string, unknown>): void {
   socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
-}
-
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (const deadline = Date.now() + 2_000; Date.now() < deadline; ) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("terminal relay did not attach");
 }

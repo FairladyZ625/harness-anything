@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -515,9 +516,8 @@ test(
     // runtime_session_liveness_changed event, so a ledger sample taken straight after the receipt
     // still races that append. Wait for the discrete landed event instead of tolerating a drift.
     const waitLivenessPublished = async (runtimeSessionIds: readonly string[]): Promise<void> => {
-      const deadline = performance.now() + 15_000;
-      for (;;) {
-        const live = new Set(
+      const live = () =>
+        new Set(
           makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
             .read()
             .events.flatMap((event) =>
@@ -526,11 +526,10 @@ test(
                 : [],
             ),
         );
-        if (runtimeSessionIds.every((runtimeSessionId) => live.has(runtimeSessionId))) return;
-        if (performance.now() >= deadline)
-          throw new Error(`Runtime liveness did not publish for ${runtimeSessionIds.join(", ")}.`);
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
+      await waitForArrival(
+        () => (runtimeSessionIds.every((runtimeSessionId) => live().has(runtimeSessionId)) ? true : null),
+        watchLedgerArrival(fixture.repo),
+      );
     };
     // A changes_requested review verdict reopens each rework round automatically
     // (dec_E369B861 CH3); the reviewer records under its own agent actor.

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -98,6 +99,8 @@ test("a leader-only squad decision keeps attribution and settles success or fail
     userRoot = path.join(parent, "user"),
     taskId = "task_parent_session_archive",
     executionId = "execution-parent-session-archive";
+  const eventually = <T>(read: () => T | null | Promise<T | null>, ..._rest: unknown[]): Promise<T> =>
+    waitForArrival(read, watchDirectoryArrival(parent));
   let launches = 0;
   mkdirSync(root);
   grantTestPolicyGroups(["person-parent-session"], "admin");
@@ -394,15 +397,6 @@ function fakeProcess(pid: number, behavior: "success" | "converged" | "failed-co
       terminated = true;
     },
   };
-}
-
-async function eventually<T>(read: () => Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 1_500; attempt += 1) {
-    const value = await read();
-    if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("parent-session dispatch did not settle");
 }
 
 function git(root: string, ...args: string[]): void {

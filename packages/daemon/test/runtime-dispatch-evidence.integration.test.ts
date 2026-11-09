@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { waitForArrival, watchFileArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { purgeRepoCache } from "../src/repo-cache-purge.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -122,7 +123,10 @@ test(
           .map((record) => `${record}\n`)
           .join(""),
       );
-      await eventually(() => readDispatchStreamSummary(root, dispatchId)?.providerSessionId === providerSessionId);
+      await waitForArrival(
+        () => (readDispatchStreamSummary(root, dispatchId)?.providerSessionId === providerSessionId ? true : null),
+        watchFileArrival(dispatchStreamPath(root, dispatchId)),
+      );
       const rollout = path.join(
         providerHome,
         "sessions",
@@ -140,25 +144,35 @@ test(
         })}\n`,
       );
       exit(1);
-      const terminal = await eventuallyValue(() => readDispatchStreamSummary(root, dispatchId)?.terminalOutcome);
+      const terminal = await waitForArrival(
+        () => readDispatchStreamSummary(root, dispatchId)?.terminalOutcome ?? null,
+        watchFileArrival(dispatchStreamPath(root, dispatchId)),
+      );
       assert.ok(
         ["failed", "stopped", "unknown"].includes(terminal.payload.outcome),
         `abnormal settlement expected, got ${terminal.payload.outcome}`,
       );
-      await eventually(() =>
-        makeTaskEventReader({ repoId: workspaceId("dispatch-evidence"), rootDir: root })
-          .read()
-          .events.some(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === String(receipt.runtimeSessionId),
-          ),
+      await waitForArrival(
+        () =>
+          makeTaskEventReader({ repoId: workspaceId("dispatch-evidence"), rootDir: root })
+            .read()
+            .events.some(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === String(receipt.runtimeSessionId),
+            )
+            ? true
+            : null,
+        watchLedgerArrival(root),
       );
       const evidenceDir = path.join(root, "harness", packagePath, "artifacts", "dispatches", dispatchId),
         streamPath = path.join(evidenceDir, "stream.jsonl"),
         rolloutPath = path.join(evidenceDir, "provider-rollout.jsonl"),
         tracePath = path.join(evidenceDir, "request-trace.json");
-      await eventually(() => existsSync(tracePath) && existsSync(streamPath) && existsSync(rolloutPath));
+      await waitForArrival(
+        () => (existsSync(tracePath) && existsSync(streamPath) && existsSync(rolloutPath) ? true : null),
+        watchFileArrival(tracePath),
+      );
       const streamBody = readFileSync(streamPath, "utf8"),
         rolloutBody = readFileSync(rolloutPath, "utf8"),
         traceBody = readFileSync(tracePath, "utf8");
@@ -169,7 +183,7 @@ test(
       // The runtime outcome is the canonical settlement witness; the write-queue drain covers the
       // compaction that runs after the outcome event, so the purge cannot race the same archive.
       await cell.awaitRuntimeOutcome(String(receipt.runtimeSessionId));
-      await eventually(() => cell.status().queueDepth === 0);
+      await cell.settlePendingMaterialization("runtime dispatch evidence");
       assert.deepEqual(
         settlementErrors.filter((line) => /runtime-(?:archive|forensics)|ENOENT/u.test(line)),
         [],
@@ -189,21 +203,3 @@ test(
     }
   },
 );
-
-async function eventually(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (!check()) {
-    assert.ok(Date.now() < deadline, "expected dispatch evidence did not arrive");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
-async function eventuallyValue<T>(check: () => T | null | undefined): Promise<T> {
-  const deadline = Date.now() + 10_000;
-  while (true) {
-    const value = check();
-    if (value !== null && value !== undefined) return value;
-    assert.ok(Date.now() < deadline, "expected dispatch evidence did not arrive");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}

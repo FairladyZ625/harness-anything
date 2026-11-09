@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -32,14 +33,6 @@ function killIfAlive(pid: number, signal: NodeJS.Signals): void {
     process.kill(pid, signal);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-  }
-}
-
-async function until(predicate: () => boolean | Promise<boolean>, message: string, ms = 20_000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!(await predicate())) {
-    assert.ok(Date.now() < deadline, message);
-    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
 
@@ -87,6 +80,8 @@ function probe() { if (fs.existsSync(${JSON.stringify(release)})) return; execFi
 probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({type:"item.completed",item:{id:"message",type:"agent_message",text:"survived"}})); console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_tokens:1}})); }, 10);
 `,
         );
+      const until = (predicate: () => boolean | Promise<boolean>, _message: string): Promise<void> =>
+        waitForArrival(async () => ((await predicate()) ? true : null), watchDirectoryArrival(parent));
       mkdirSync(rootDir, { recursive: true });
       for (const args of [
         ["init", "--quiet"],

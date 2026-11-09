@@ -48,6 +48,20 @@ function isNowCall(node) {
   return node?.type === "CallExpression" && isClockNow(node.callee);
 }
 
+// A product timestamp compared with now() is a content assertion, not a deadline: the test reads
+// "the credential expires in the future", not "wait until this instant". A loop that uses the same
+// comparison as its condition is still caught by clock-loop.
+function isParsedTimestamp(node) {
+  return (
+    node?.type === "CallExpression" &&
+    node.callee?.type === "MemberExpression" &&
+    !node.callee.computed &&
+    node.callee.object?.type === "Identifier" &&
+    node.callee.object.name === "Date" &&
+    node.callee.property?.name === "parse"
+  );
+}
+
 function definedName(node) {
   if (node.type === "FunctionDeclaration") return node.id?.name ?? null;
   if (node.parent?.type === "VariableDeclarator" && node.parent.id.type === "Identifier") return node.parent.id.name;
@@ -240,6 +254,11 @@ export default {
       },
       BinaryExpression(node) {
         if (!integration) return;
+        const contentAssertion =
+          comparisons.has(node.operator) &&
+          ((isNowCall(node.left) && isParsedTimestamp(node.right)) ||
+            (isNowCall(node.right) && isParsedTimestamp(node.left)));
+        if (contentAssertion) return;
         if (
           (comparisons.has(node.operator) && (isNowCall(node.left) || isNowCall(node.right))) ||
           (node.operator === "-" && isNowCall(node.right) && !isNowCall(node.left))

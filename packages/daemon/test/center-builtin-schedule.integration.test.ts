@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -101,10 +102,10 @@ async function fireDueOccurrences(mode: DaemonRepoMode, identityDrift = false) {
     const builtinPending = (current: readonly ScheduleRow[]) =>
       current.find(({ scheduleId }) => scheduleId === builtinLedgerBackupScheduleId)?.status.lastRun == null;
     let rows = await list();
-    for (let attempt = 0; attempt < 200 && builtinPending(rows); attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitForArrival(async () => {
       rows = await list();
-    }
+      return builtinPending(rows) ? null : true;
+    }, watchLedgerArrival(rootDir));
     const events = await scheduleEvents("repo", rootDir),
       backups = existsSync(path.join(rootDir, scheduledLedgerBackupRoot))
         ? readdirSync(path.join(rootDir, scheduledLedgerBackupRoot))

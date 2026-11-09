@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
@@ -25,8 +26,24 @@ test("stop retains ownership until a timed-out attach has really closed", { time
   });
   let stderr = "";
   child.stderr!.on("data", (chunk) => (stderr += String(chunk)));
-  const messages: string[] = [];
-  child.on("message", (message) => messages.push(String(message)));
+  const messages: string[] = [],
+    messageWaiters = new Set<() => void>();
+  child.on("message", (message) => {
+    messages.push(String(message));
+    for (const wake of messageWaiters) wake();
+  });
+  const waitUntil = (predicate: () => boolean | Promise<boolean>): Promise<void> =>
+    waitForArrival(
+      async () => ((await predicate()) ? true : null),
+      (arrive) => {
+        messageWaiters.add(arrive);
+        const stopDirectory = watchDirectoryArrival(parent)(arrive);
+        return () => {
+          messageWaiters.delete(arrive);
+          stopDirectory();
+        };
+      },
+    );
   const exited = once(child, "exit");
   try {
     await waitUntil(() => messages.includes("ready"));
@@ -60,14 +77,6 @@ test("stop retains ownership until a timed-out attach has really closed", { time
   }
 });
 
-async function waitUntil(predicate: () => boolean | Promise<boolean>): Promise<void> {
-  const deadline = Date.now() + 15_000;
-  while (!(await predicate())) {
-    assert.ok(Date.now() < deadline, "fixture state did not arrive");
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-}
-
 test(
   "an attach that never closes forces process exit with a recorded deadline reason",
   { timeout: 30_000 },
@@ -83,6 +92,8 @@ test(
       userRoot,
       createConvenienceLinks: false,
     });
+    const waitUntil = (predicate: () => boolean | Promise<boolean>): Promise<void> =>
+      waitForArrival(async () => ((await predicate()) ? true : null), watchDirectoryArrival(parent));
     const child = fork(
       new URL("./fixtures/daemon-stop-attach-child.ts", import.meta.url),
       [userRoot, daemonId, "100"],

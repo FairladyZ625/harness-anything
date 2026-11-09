@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import { openRemoteProxyManager } from "../src/remote-proxy.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
@@ -50,6 +51,8 @@ test(
       userRoot: userRootB,
       createConvenienceLinks: false,
     });
+    const eventually = (predicate: () => boolean | Promise<boolean>, _timeoutMs = 2_000): Promise<void> =>
+      waitForArrival(async () => ((await predicate()) ? true : null), watchDirectoryArrival(parent));
     const vaultA = providerVault(),
       vaultB = providerVault();
     let providerOutput: ((chunk: string) => void) | undefined;
@@ -501,15 +504,6 @@ async function mismatchEndpoint(): Promise<{ endpoint: string; close: () => void
       server.close();
     },
   };
-}
-
-async function eventually(predicate: () => boolean | Promise<boolean>, timeoutMs = 2_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`condition did not settle within ${timeoutMs}ms`);
 }
 
 function initRepo(root: string, repoId: string, uid: number): void {

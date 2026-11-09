@@ -126,7 +126,10 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
       auth,
     );
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
-    await eventually(() =>
+    // The daemon-side parked wait is the settlement event; the event-store read below cannot race
+    // the outcome append it waits for.
+    await host.awaitRuntimeSessions(repoId, { runtimeSessionIds: [spawned.runtimeSessionId] }, auth);
+    assert.ok(
       makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.some(
@@ -134,6 +137,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
             event.type === "runtime_session_outcome_observed" &&
             event.payload.runtimeSessionId === spawned.runtimeSessionId,
         ),
+      "the settled runtime outcome must be recorded",
     );
   } finally {
     await host.close();
@@ -206,14 +210,6 @@ function initRepo(root: string, uid: number): void {
   );
   git(root, "add", "harness");
   git(root, "commit", "-qm", "fixture");
-}
-
-async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (await check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("runtime session did not settle");
 }
 
 function git(root: string, ...args: string[]): void {

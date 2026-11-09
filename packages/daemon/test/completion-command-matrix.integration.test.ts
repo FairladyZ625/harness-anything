@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -217,21 +218,21 @@ for (const order of ["old-first", "new-first"] as const) {
     );
     const waiting: Promise<unknown>[] = [];
     const started = async (seed: number) => {
-      const deadline = Date.now() + 4000,
-        count = seed === 42 ? 1 : 2;
-      while (
-        !f
-          .events()
-          .some(
-            (event) =>
-              event.type === "gate_run_changed" &&
-              event.payload.operation === "claim" &&
-              event.payload.execution.gateRuns.length === count,
-          )
-      ) {
-        assert.ok(Date.now() < deadline, `source ${seed} never claimed`);
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      const count = seed === 42 ? 1 : 2;
+      await waitForArrival(
+        () =>
+          f
+            .events()
+            .some(
+              (event) =>
+                event.type === "gate_run_changed" &&
+                event.payload.operation === "claim" &&
+                event.payload.execution.gateRuns.length === count,
+            )
+            ? true
+            : null,
+        watchLedgerArrival(f.cell.status().rootDir),
+      );
     };
     try {
       const first = f.applied(f.submit);

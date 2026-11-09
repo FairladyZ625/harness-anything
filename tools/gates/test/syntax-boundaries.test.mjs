@@ -126,6 +126,10 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
     ),
     ["clock-loop", "clock-deadline"],
   );
+  // A product timestamp compared with now() is a content assertion, not a deadline. A loop using
+  // the same comparison is still a clock-loop.
+  assert.deepEqual(kinds("assert.ok(Date.parse(env.EXPIRES_AT) > Date.now());"), []);
+  assert.deepEqual(kinds("while (Date.parse(nextRunAt) < Date.now()) await next();"), ["clock-loop"]);
   assert.deepEqual(kinds("test('x', async () => { setTimeout(() => child.send('stop'), 2000); });"), [
     "scheduled-timer",
   ]);

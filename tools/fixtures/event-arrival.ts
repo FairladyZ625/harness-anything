@@ -59,3 +59,39 @@ export function watchFileArrival(file: string): (arrive: () => void) => () => vo
     return () => watcher.close();
   };
 }
+
+/**
+ * Subscribe to every change under a directory tree. Git does not write a single file a caller can
+ * watch for "a commit landed": the ref, the reflog and the index change together, and branches move
+ * under subdirectories. A recursive watch over the git directory wakes the waiter for any of them and
+ * the caller's read decides whether HEAD already carries the awaited content. No deadline.
+ */
+export function watchDirectoryArrival(directory: string): (arrive: () => void) => () => void {
+  return (arrive) => {
+    const watcher = watch(directory, { persistent: false, recursive: true }, () => arrive());
+    return () => watcher.close();
+  };
+}
+
+/**
+ * Subscribe to the SQLite ledger writes a repository cell publishes (canonical event store and
+ * projection at `<rootDir>/.harness/cache/task.sqlite`). A test that waits for a projection or
+ * write-queue state derives that state from a ledger write, so the commit is the arrival; the
+ * caller's `read` still decides whether the awaited value is visible. The database file covers
+ * rollback-journal writes, the `-wal` file covers the commit path, and the cache directory covers
+ * creating or rotating either of them. No deadline: the node:test timeout is the hang guard.
+ */
+export function watchLedgerArrival(rootDir: string): (arrive: () => void) => () => void {
+  const cache = path.join(rootDir, ".harness", "cache"),
+    database = path.join(cache, "task.sqlite");
+  return (arrive) => {
+    const stops = [
+      watchFileArrival(database)(arrive),
+      watchFileArrival(`${database}-wal`)(arrive),
+      watchFileArrival(path.join(cache, "ledger-rotation"))(arrive),
+    ];
+    return () => {
+      for (const stop of stops) stop();
+    };
+  };
+}

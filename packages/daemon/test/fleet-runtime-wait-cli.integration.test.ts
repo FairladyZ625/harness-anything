@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
@@ -19,7 +20,6 @@ import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { eventually } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned", "offline"] as const)
@@ -451,6 +451,6 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           fixture.auth,
         )
       ).session.activity.outcome;
-    await eventually(async () => (await settled()) !== null, "runtime archive outcome to be observed");
+    await waitForArrival(async () => (await settled()) ?? null, watchLedgerArrival(fixture.repo));
     assert.equal(await settled(), expectedOutcome, JSON.stringify(fixture.runtimeArchiveReceipts));
   });

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -54,6 +55,8 @@ test(
         version: "1.0.0",
         observedAt: new Date().toISOString(),
       };
+    const until = (check: () => boolean): Promise<void> =>
+      waitForArrival(() => (check() ? true : null), watchDirectoryArrival(root));
     for (const args of [
       ["init", "-q"],
       ["config", "user.name", "Test"],
@@ -152,8 +155,8 @@ test(
       const stopped = await cell.attach(runtimeSessionId, "stream:0");
       stopped.detach();
       assert.equal(stopped.initial.ok, false);
-      await until(() => returned);
       await wait;
+      assert.equal(returned, true, "the parked runtime wait must settle after the archive revocation");
       const projection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventReader({ repoId: "proxy-exit", rootDir: root }),
@@ -200,11 +203,3 @@ test(
     }
   },
 );
-
-async function until(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 12000;
-  while (!check()) {
-    assert.ok(Date.now() < deadline, "expected runtime observation did not arrive");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}

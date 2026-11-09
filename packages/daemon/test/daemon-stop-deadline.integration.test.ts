@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
@@ -13,19 +14,13 @@ import { readDaemonSingletonLockPid } from "../src/daemon-singleton.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 
-async function waitUntil(predicate: () => boolean | Promise<boolean>): Promise<void> {
-  const deadline = Date.now() + 15_000;
-  while (!(await predicate())) {
-    assert.ok(Date.now() < deadline, "fixture state did not arrive");
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-}
-
 test("a cell that never closes forces process exit with a recorded deadline reason", { timeout: 30_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stop-deadline-")),
     userRoot = path.join(parent, "user"),
     rootDir = path.join(parent, "repo"),
     daemonId = "stop-deadline";
+  const waitUntil = (predicate: () => boolean | Promise<boolean>): Promise<void> =>
+    waitForArrival(async () => ((await predicate()) ? true : null), watchDirectoryArrival(parent));
   rosterRepo(rootDir, daemonId);
   registerBootstrappedDaemonRepo({
     canonicalRoot: rootDir,
@@ -73,6 +68,8 @@ for (const { buildSuperseded, rejectDrain } of [
       userRoot = path.join(parent, "user"),
       rootDir = path.join(parent, "repo"),
       daemonId = "deadline-recovery";
+    const waitUntil = (predicate: () => boolean | Promise<boolean>): Promise<void> =>
+      waitForArrival(async () => ((await predicate()) ? true : null), watchDirectoryArrival(parent));
     rosterRepo(rootDir, daemonId);
     registerBootstrappedDaemonRepo({
       canonicalRoot: rootDir,

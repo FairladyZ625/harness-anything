@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -28,6 +29,7 @@ test(
       release = path.join(scratch, "write-after-adoption"),
       writeResult = path.join(scratch, "worker-write.json"),
       oldCliStamp = path.join(scratch, "release-A.mjs"),
+      waitFor = <T>(read: () => T | null): Promise<T> => waitForArrival(read, watchDirectoryArrival(scratch)),
       oldCliIdentity = path.join(scratch, "release-A-identity.json");
     mkdirSync(repo, { recursive: true });
     mkdirSync(bin, { recursive: true });
@@ -223,14 +225,4 @@ function cliMaybe(root: string, env: NodeJS.ProcessEnv, args: readonly string[])
     receipt: result.stdout.trim() ? JSON.parse(result.stdout) : {},
     stderr: result.stderr,
   };
-}
-
-async function waitFor<T>(read: () => T | null, timeoutMs = 30_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = read();
-    if (value !== null) return value;
-    if (Date.now() >= deadline) throw new Error(`condition did not settle within ${timeoutMs}ms`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
 }

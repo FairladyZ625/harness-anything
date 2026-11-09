@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
@@ -396,10 +397,8 @@ test(
       );
     assert.deepEqual(settlingEvents, [], "edge must not publish exited while center settlement is pending");
     taskReleaseBarrier.release();
-    const waitForOutcome = async (runtimeSessionId: unknown) => {
-      const deadline = Date.now() + 20_000;
-      let status: Awaited<ReturnType<typeof fixture.host.read>> | null = null;
-      do {
+    const waitForOutcome = async (runtimeSessionId: unknown) =>
+      await waitForArrival(async () => {
         try {
           const candidate = await fixture.host.read(
             fixture.subject.repoId,
@@ -407,14 +406,11 @@ test(
             { runtimeSessionId },
             fixture.auth,
           );
-          if (candidate.session.activity.outcome !== null) return candidate;
+          return candidate.session.activity.outcome !== null ? candidate : null;
         } catch {
-          status = null;
+          return null;
         }
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      } while (Date.now() < deadline);
-      return status;
-    };
+      }, watchLedgerArrival(fixture.repo));
     // The mocked repo-root worker makes no delivery the edge could witness, so its settlement
     // stays stopped; a zero exit plus a result reference does not imply delivery.
     assert.equal(

@@ -85,13 +85,14 @@ test("production writer requests open the epoch database once and never block on
     }
     assert.equal(epochOpens.length, 1, "per-request and append-fence checks must share one epoch handle");
     assert.deepEqual(blockingCalls, [], "a write must not block the writer thread on a host round trip");
-    const ledger = makeTaskEventReader({ repoId, rootDir });
+    const ledger = makeTaskEventReader({ repoId, rootDir }),
+      completedAt = Date.now();
     try {
       for (const opId of opIds) {
         const occurredAt = Date.parse(String(ledger.readEvent(opId)?.occurredAt));
         assert.ok(
-          occurredAt >= startedAt - 1_000 && occurredAt <= Date.now(),
-          "the writer stamps events with its own clock",
+          occurredAt >= startedAt - 1_000 && occurredAt <= completedAt,
+          "the writer stamps events with its own clock, not one in the future",
         );
       }
     } finally {

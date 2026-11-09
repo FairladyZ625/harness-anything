@@ -9,6 +9,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import { sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo, ownerBinding, write } from "./doc-sync-slice-a.fixtures.ts";
 
@@ -220,14 +221,12 @@ function gitHasPath(rootDir: string, target: string): boolean {
 }
 
 async function waitForHeadBody(rootDir: string, logical: string, expected: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    if (
-      gitHasPath(rootDir, `harness/${logical}`) &&
-      git(rootDir, "show", `HEAD:harness/${logical}`) === expected.trim()
-    )
-      return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  await waitForArrival(
+    () =>
+      gitHasPath(rootDir, `harness/${logical}`) && git(rootDir, "show", `HEAD:harness/${logical}`) === expected.trim()
+        ? true
+        : null,
+    watchDirectoryArrival(path.join(rootDir, ".git")),
+  );
   assert.equal(git(rootDir, "show", `HEAD:harness/${logical}`), expected.trim());
 }
