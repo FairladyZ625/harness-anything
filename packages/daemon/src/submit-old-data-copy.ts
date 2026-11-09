@@ -58,15 +58,14 @@ export function judgeOldDataCopyReceipt(text: string, cutSha: string): OldDataCo
       typeof build.headCommit === "string" ? build.headCommit : typeof build.commit === "string" ? build.commit : null;
   if (bound === null) return { ok: false, reason: "does not name the build commit it ran" };
   if (bound !== cutSha) return { ok: false, reason: `is bound to cut ${bound}, not the submitted cut ${cutSha}` };
-  const failures = Array.isArray(receipt.failures)
-    ? receipt.failures.map(failurePhase).filter((phase) => phase !== null)
-    : [];
+  const failures = Array.isArray(receipt.failures) ? receipt.failures : [],
+    phases = failures.map(failurePhase).filter((phase) => phase !== null);
   if (receipt.ok !== true || failures.length > 0)
     return {
       ok: false,
       reason:
         failures.length > 0
-          ? `records ${String(failures.length)} failure(s): ${failures.join(", ")}`
+          ? `records ${String(failures.length)} failure(s)${phases.length > 0 ? `: ${phases.join(", ")}` : ""}`
           : "records ok=false",
     };
   return { ok: true };
