@@ -40,6 +40,7 @@ import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktre
 import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
+import { assertOldDataCopyReceipt, oldDataCopyReceiptPath } from "./submit-old-data-copy.ts";
 import { detectHostingProvider, publishesPublicPullRequest } from "./hosting-provider.ts";
 import { updateTaskPullRequestBody } from "./runtime-task-publication.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
@@ -63,6 +64,7 @@ function deriveCloseoutSubmissionData(
 ): {
   readonly submission: SubmissionV1;
   readonly rootDir: string;
+  readonly packagePath: string;
   readonly baseSha: string | null;
   readonly headSha: string | null;
 } {
@@ -156,6 +158,7 @@ function deriveCloseoutSubmissionData(
         completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
       },
       rootDir: cell.rootDir,
+      packagePath: document.packagePath,
       baseSha: null,
       headSha: null,
     };
@@ -375,7 +378,7 @@ function deriveCloseoutSubmissionData(
     delete artifactOnly.productionDelta;
     submission = { ...artifactOnly, commitSha: null, artifacts };
   }
-  return { submission, rootDir: root, baseSha: riskBaseSha, headSha: commitSha };
+  return { submission, rootDir: root, packagePath: document.packagePath, baseSha: riskBaseSha, headSha: commitSha };
 }
 
 export function deriveCloseoutSubmission(...args: Parameters<typeof deriveCloseoutSubmissionData>): SubmissionV1 {
@@ -1173,6 +1176,18 @@ export async function readCloseoutSubmission(
         () => riskTierCompletionContract(derived.submission.completionContract, riskTierAssessment),
         preserveLegacyCut,
       );
+    // The frozen path lanes are the review routing evidence; a cut that seats the data-migration
+    // reviewer must carry its real old-data-copy receipt. Read the same place doc submit accepted
+    // it, including a receipt carried in this very submit.
+    const packagePath = derived.packagePath,
+      receiptPath = oldDataCopyReceiptPath(packagePath);
+    assertOldDataCopyReceipt({
+      taskId,
+      packagePath,
+      submission,
+      readReceipt: () =>
+        deriveArgs[4]?.get(receiptPath) ?? cell.projection.readDocument(receiptPath).document?.body ?? null,
+    });
     return {
       ok: true,
       submission,
