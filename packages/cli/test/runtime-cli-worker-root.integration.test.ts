@@ -54,6 +54,7 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
   // settles unknown and exits 1 (F-4C182EEE); the path scoping below is what this case verifies.
   const probeRun = runMaybe(root, env, ["agent", "run", "terra", "--task", task.taskId, "--no-stream"]);
   assert.equal(probeRun.status, 1, `${probeRun.stderr}\n${JSON.stringify(probeRun.receipt)}`);
+  assert.equal(probeRun.receipt.outcome, "unknown", `${probeRun.stderr}\n${JSON.stringify(probeRun.receipt)}`);
   // The probe was written through the worker root and is read here from the canonical ledger: one ledger.
   const transcript = JSON.parse(await readPublishedDispatch(path.join(task.artifactRoot, "worker-probe.json"))) as {
     readonly stdout: string;

@@ -261,7 +261,9 @@ export async function runCommandThroughDaemon(
       autostartOptions: (target) =>
         daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId, "operation"),
     });
-  const descriptor = maybeCommandDescriptorForAction(command.action.kind);
+  // Only parsed CLI routes still carry CLI inputs. Programmatic actions (for example an
+  // artifact --run transcript) already carry domain fields and use the daemon's closed schema.
+  const descriptor = command.id ? maybeCommandDescriptorForAction(command.action.kind) : undefined;
   const target = {
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
