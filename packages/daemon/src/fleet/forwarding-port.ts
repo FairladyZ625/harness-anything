@@ -41,19 +41,16 @@ export async function forward(input: {
     const issue = forwardingIntentIssue(input.intent);
     if (issue) throw new FleetEdgeTaskError("invalid_field", issue);
   }
+  if (input.auth.transportKind !== "unix-socket" || input.auth.nodePrincipal) return null;
   const edge = registeredRemoteEdge(input.userRoot, input.repoId);
   if (!edge) return null;
-  if (input.auth.transportKind !== "unix-socket" || input.auth.nodePrincipal)
-    throw new FleetEdgeTaskError(
-      "local_transport_required",
-      "Remote-edge forwarding requires the local session transport.",
-    );
   const requiredNodeId =
       input.intent.kind === "runtime"
         ? input.intent.inputs.requiredNodeId
         : input.intent.executionContext.requiredNodeId,
-    config = runtimeLocation(edge, input.repoId, requiredNodeId),
-    { workspaceRoot } = config;
+    config = runtimeLocation(edge, input.repoId, requiredNodeId);
+  if (!config) return null;
+  const { workspaceRoot } = config;
   if (input.intent.kind === "runtime") {
     const payload = { ...config, method: input.intent.method, action: input.intent.inputs.action },
       receipt = (await input.runRuntime(
@@ -121,7 +118,7 @@ export async function forward(input: {
 
 export function resolveRuntimeLocation(userRoot: string | undefined, repoId: string, requiredNodeId?: string) {
   const edge = registeredRemoteEdge(userRoot, repoId);
-  return edge ? runtimeLocation(edge, repoId, requiredNodeId) : invalidRuntimeLocation();
+  return edge ? (runtimeLocation(edge, repoId, requiredNodeId) ?? invalidRuntimeLocation()) : invalidRuntimeLocation();
 }
 
 function runtimeLocation(
@@ -131,7 +128,7 @@ function runtimeLocation(
 ) {
   const { config } = edge;
   if (!config || config.repoId !== repoId || (requiredNodeId !== undefined && config.nodeId !== requiredNodeId))
-    return invalidRuntimeLocation();
+    return null;
   const workspaceRoot = edge.workspaceRoot;
   return {
     ...config,

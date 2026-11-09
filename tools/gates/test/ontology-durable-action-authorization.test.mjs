@@ -172,8 +172,8 @@ partitionedTest("a declared local-transport route is red once its transport exit
     edit(
       dir,
       "packages/daemon/src/daemon-host-runtime-api.ts",
-      "may sync.\n        context.localOnly(auth);",
-      "may sync.",
+      "        context.localOnly(auth);\n        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),",
+      "        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),",
     ),
   );
   threeStage(t, ["repo-bootstrap"], (dir) =>
