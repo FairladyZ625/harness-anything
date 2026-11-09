@@ -9,11 +9,76 @@ const EVENT_MIGRATION = /^Event-Migration:[ \t]*(.*?)\s*$/gmu;
 const ACCEPTED_CANONICAL_EVENT_SAMPLE =
   /^packages\/kernel\/fixtures\/canonical-events\/[^/]+\/accepted(?:-[^/]+)?\.json$/u;
 
+// GitHub renders these HTML tags in Markdown bodies, so their angle brackets are formatting, not
+// a template placeholder a worker forgot to fill: PR #4482's `<details><summary>` evidence block
+// was rejected as one. This follows the github/markup sanitizer allowlist plus the documented
+// `<picture>`/`<source>` image pair. Tag names match case-insensitively (HTML semantics) and only
+// at a tag boundary, so `<DETAILS>` is HTML while `<detailsx>` and `<owner>` stay placeholders;
+// closing tags (`</details>`) never matched this rule at all.
+const GITHUB_HTML_TAG_NAMES = Object.freeze([
+  "a",
+  "b",
+  "blockquote",
+  "br",
+  "code",
+  "dd",
+  "del",
+  "details",
+  "div",
+  "dl",
+  "dt",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "hr",
+  "i",
+  "img",
+  "ins",
+  "kbd",
+  "li",
+  "ol",
+  "p",
+  "picture",
+  "pre",
+  "q",
+  "rp",
+  "rt",
+  "ruby",
+  "s",
+  "samp",
+  "source",
+  "strike",
+  "strong",
+  "sub",
+  "summary",
+  "sup",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "tt",
+  "ul",
+  "var",
+]);
+
+const ANGLE_PLACEHOLDER_PATTERN = new RegExp(
+  `<(?!(?:${GITHUB_HTML_TAG_NAMES.join("|")})(?:[\\s/>]|$))[A-Za-z][A-Za-z0-9 ,_-]*>`,
+  // HTML tag names are case-insensitive, so `<DETAILS>` is the same supported tag as `<details>`.
+  "iu",
+);
+
 const PLACEHOLDER_RESIDUE_PATTERNS = Object.freeze([
   {
     id: "angle-placeholder",
     label: "angle-bracket placeholder",
-    pattern: /<[A-Za-z][A-Za-z0-9 ,_-]*>/u,
+    pattern: ANGLE_PLACEHOLDER_PATTERN,
   },
   {
     id: "choice-list",

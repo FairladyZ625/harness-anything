@@ -15,7 +15,9 @@ This repository accepts work through pull requests against `main`.
 
 The `rewrite-ci` workflow is the required CI surface for pull requests. Pull
 request checks are split by evidence tier so failures are attributable and PRs
-do not pay for duplicate full-check matrix runs.
+do not pay for duplicate full-check matrix runs. dec_127E3F9C47D2842DA7AB86E0F4
+moves the boundary gates into `quick-gates` and cuts the integration matrix to
+ten shards; the CEO updates the hosted ruleset in the same merge.
 
 Required pull request checks must cover:
 
@@ -25,9 +27,12 @@ Required pull request checks must cover:
 - architecture boundaries
 - package policy
 - GUI build smoke
-`quick-gates` owns the merged typecheck, lint, supply-chain, dependency-policy,
-test-selection, schema-closure, entity-id-links, derived-contracts,
-canonical-event-compat, cost-budget, and Ubuntu smoke controls.
+`quick-gates` owns the merged quick gates (typecheck, lint, supply-chain,
+dependency-policy, test-selection, schema-closure, entity-id-links,
+derived-contracts, canonical-event-compat, cost-budget, and Ubuntu smoke) and
+the architecture-boundary gates that used to run in the separate `boundaries`
+job. The two sets run one after the other in the same job; every gate command
+and verdict is unchanged.
 Platform coverage is required through `crlf-checkout` and the Ubuntu positive
 controls inside `quick-gates`. The Windows platform smoke and Windows
 first-run arm run on `main` pushes and the daily schedule under
@@ -65,7 +70,6 @@ is already active.
 
 The active GitHub ruleset enforcement for `main` requires these status contexts:
 
-- boundaries
 - package-policy
 - quick-gates
 - fast-contract (1)
@@ -82,10 +86,6 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (8)
 - integration-shard (9)
 - integration-shard (10)
-- integration-shard (11)
-- integration-shard (12)
-- integration-shard (13)
-- integration-shard (14)
 - gui-build
 - pr-body-lint
 - crlf-checkout (1)
@@ -93,7 +93,7 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - crlf-checkout (3)
 - crlf-checkout (4)
 
-Integration tests are required through the fourteen `integration-shard (N)`
+Integration tests are required through the ten `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.
 
 GUI Electron E2E is an explicit local closeout gate for GUI-related tasks and

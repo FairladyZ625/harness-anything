@@ -61,17 +61,17 @@ test("contract markers require an exact ID beside a test declaration", () => {
     ]);
 });
 
-test("implementation contracts remain on the required boundaries path", () => {
+test("implementation contracts remain on the required merged PR gate path", () => {
   const manifest = JSON.parse(readFileSync(path.join(root, "tools/gate-manifest.json"), "utf8"));
   const gate = manifest.gates.find((entry) => entry.id === "check-implementation-contracts");
   assert.equal(gate.tier, "pr-required");
-  assert.ok(gate.githubContext.requiredContexts.includes("boundaries"));
-  assert.ok(gate.githubContext.workflowJobs.includes("boundaries"));
+  assert.ok(gate.githubContext.requiredContexts.includes("quick-gates"));
+  assert.ok(gate.githubContext.workflowJobs.includes("quick-gates"));
   const scripts = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).scripts;
   assert.equal(scripts["harness:check-implementation-contracts"], "node tools/check-implementation-contracts.mjs");
   assert.match(
     readFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), "utf8"),
-    /node tools\/run-manifest-gates\.mjs --workflow-job boundaries/,
+    /node tools\/run-manifest-gates\.mjs --workflow-job quick-gates/,
   );
 });
 

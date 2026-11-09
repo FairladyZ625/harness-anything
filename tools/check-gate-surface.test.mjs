@@ -16,7 +16,7 @@ function readWorkflow(relativePath) {
   return readFileSync(path.join(repoRoot, relativePath), "utf8").replaceAll("\r\n", "\n");
 }
 
-test("rewrite CI runs the integration tier on every PR and scopes baseline retirement to the boundaries lane", () => {
+test("rewrite CI runs the integration tier on every PR and merges the boundary gates into quick-gates", () => {
   const workflow = readWorkflow(".github/workflows/rewrite-ci.yml");
   const sectionFor = (source, job) => {
     const start = source.indexOf(`  ${job}:`);
@@ -32,7 +32,6 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
     "quick-gates",
     "fast-contract",
     "integration-shard",
-    "boundaries",
     "package-policy",
     "gui-build",
     "crlf-checkout",
@@ -42,26 +41,22 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   // The integration shards once skipped rebuild-base PRs on the claim that they
   // only exercised retired 07-11 machinery. 66 tier-marked files falsified it,
   // so the tier runs on every PR again; nothing may re-scope it by base branch.
-  const integrationBlock = workflow.slice(workflow.indexOf("  integration-shard:"), workflow.indexOf("  boundaries:"));
+  const integrationBlock = workflow.slice(
+    workflow.indexOf("  integration-shard:"),
+    workflow.indexOf("  pglite-node26:"),
+  );
   assert.doesNotMatch(integrationBlock, /base_ref/u);
 
-  // The rebuild lane once excluded eight boundary gates and ran them from a second
-  // step the baseline lane never took. All eight are repaired, so the job is back to
-  // one step and one exclusion. Both facts are asserted exactly, not by membership:
-  // re-excluding a gate, or re-splitting the job by base branch so a gate can be
-  // satisfied by a lane no pull request travels, has to be a deliberate edit here.
-  const boundaryCommands = [...workflow.matchAll(/--workflow-job boundaries(?:\s+--exclude\s+(\S+))?/gu)];
-  assert.equal(boundaryCommands.length, 1, "boundaries must run one gate set for every base branch");
-  assert.equal(boundaryCommands[0][1], undefined);
+  // The boundary gates used to run in their own lane, then were excluded from it and run from a
+  // second step the baseline lane never took. dec_127E3F9C47D2842DA7AB86E0F4/CH2 folds them into
+  // quick-gates: one lane, one manifest-runner step, no exclusion. Re-splitting the job, or
+  // re-excluding a gate, has to be a deliberate edit here.
+  const mergedCommands = [...workflow.matchAll(/--workflow-job quick-gates(?:\s+--exclude\s+(\S+))?/gu)];
+  assert.equal(mergedCommands.length, 1, "quick-gates must run one gate set for every base branch");
+  assert.equal(mergedCommands[0][1], undefined);
+  assert.equal(workflow.includes("\n  boundaries:"), false, "the separate boundaries lane is retiered");
 
-  for (const job of [
-    "quick-gates",
-    "fast-contract",
-    "integration-shard",
-    "boundaries",
-    "package-policy",
-    "gui-build",
-  ]) {
+  for (const job of ["quick-gates", "fast-contract", "integration-shard", "package-policy", "gui-build"]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
   }
   const prBodyWorkflow = readWorkflow(".github/workflows/pr-body.yml");
