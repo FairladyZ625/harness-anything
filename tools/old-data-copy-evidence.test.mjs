@@ -247,6 +247,14 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     const cacheStep = receipt.copy.steps.find((step) => step.item === "cache/task.sqlite");
     assert.ok(cacheStep, "the cache database is part of the snapshot steps");
     assert.equal(receipt.copy.coldAttach, true);
+    assert.equal(receipt.census.ledger.eventRows, 1);
+    assert.deepEqual(receipt.census.ledger.eventSchemas, [{ schema: "settings-event/v1", count: 1 }]);
+    assert.equal(receipt.census.ledger.documentHeads, 1);
+    assert.equal(receipt.census.ledger.entityDeclarationHeads, 0);
+    assert.deepEqual(receipt.census.ledger.settingsAndVerticalDocumentHeads, [{ surface: "settings", count: 1 }]);
+    assert.ok(receipt.census.projections.tableCount > 0);
+    assert.equal(receipt.census.projections.tables.find((table) => table.table === "task")?.rows ?? 0, 0);
+    assert.equal(receipt.census.projections.presetSnapshotRows, 0);
     assert.equal(
       receipt.copy.steps.find((step) => step.item === "cache/task.sqlite" && step.discarded)?.discarded,
       true,
@@ -291,7 +299,13 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     const headCommit = repoHead();
     if (headCommit.status === 0) assert.equal(receipt.build.headCommit, headCommit.stdout.trim());
     assert.equal(receipt.reads.storeHead.revision, 1);
-    assert.ok(Array.isArray(receipt.reads.taskIndex.first) && receipt.reads.taskIndex.first.length === 0);
+    assert.equal(receipt.reads.taskIndex.count, 0);
+    assert.equal(receipt.reads.taskIndex.hasAnyTask, false);
+    assert.equal(
+      Object.hasOwn(receipt.reads.taskIndex, "first"),
+      false,
+      "receipts contain counts, not authored content",
+    );
     assert.ok(Array.isArray(receipt.reads.events) && receipt.reads.events.length === 1);
     assert.equal(receipt.reads.events[0].schema, "settings-event/v1");
     assert.equal(receipt.coldRebuild.watermark, 1);
