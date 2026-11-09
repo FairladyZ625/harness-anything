@@ -701,23 +701,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     remoteEdgeAction: async (repoId, _rootDir, action) => {
       if (typeof action.kind !== "string") throw hostCodedError("invalid_field", "Schedule action kind is required.");
-      if (action.kind === "schedule-list" || action.kind === "runtime-session-read") {
-        const auth = { transportKind: "unix-socket" } as const;
-        const result =
-          action.kind === "schedule-list"
-            ? await host.run(repoId, { kind: "schedule-list" }, auth)
-            : await host.read(
-                repoId,
-                "repo.agentRuntime.sessions.read",
-                { runtimeSessionId: action.runtimeSessionId },
-                auth,
-              );
-        return result as unknown as Readonly<Record<string, unknown>>;
-      }
+      const runtimeSessionRead = action.kind === "runtime-session-read",
+        method = runtimeSessionRead ? "repo.agentRuntime.sessions.read" : "repo.schedule.run",
+        forwardedAction = runtimeSessionRead ? { runtimeSessionId: action.runtimeSessionId } : action;
       const receipt = await forwardRuntime({
         repoId,
-        method: "repo.schedule.run",
-        action: action as JsonObject,
+        method,
+        action: forwardedAction as JsonObject,
         auth: { transportKind: "unix-socket" },
       });
       if (!receipt) throw hostCodedError("fleet_edge_config_invalid", `Remote-edge Schedule ${repoId} is unavailable.`);
