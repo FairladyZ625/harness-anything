@@ -291,7 +291,8 @@ test("positive fixture: a second forwarding intent judgment is refused", (t) => 
   const findings = fixtureFindings(t);
   assert.ok(
     findings.some(
-      (finding) => finding.includes("forwardingIntent") && finding.includes("packages/daemon/src/duplicate-judgments.ts"),
+      (finding) =>
+        finding.includes("forwardingIntent") && finding.includes("packages/daemon/src/duplicate-judgments.ts"),
     ),
     findings.join("\n"),
   );
