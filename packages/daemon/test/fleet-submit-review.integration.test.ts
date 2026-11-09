@@ -363,14 +363,15 @@ test(
     const reviewerReady = new Promise<void>((resolve) => {
       reviewerLaunched = resolve;
     });
-    let workerDispatchId: string | undefined;
+    const launched: { workerDispatchId?: string } = {};
     const edge = await fleetEdgeHostFixture(t, f, {
       name: "real-replica-review-edge",
       repoId,
       runtimeDiscover: () => [installation],
       runtimeLaunch: (prepared, persistence) => {
         launches.push({ prompt: prepared.prompt, env: prepared.env, dispatchId: persistence.dispatchId });
-        if (workerDispatchId !== undefined && persistence.dispatchId !== workerDispatchId) reviewerLaunched();
+        if (launched.workerDispatchId !== undefined && persistence.dispatchId !== launched.workerDispatchId)
+          reviewerLaunched();
         return {
           pid: 94000 + launches.length,
           onOutput: () => undefined,
@@ -404,7 +405,7 @@ test(
       localAuthFixture(),
     );
     assert.equal(worker.outcome, "applied", JSON.stringify(worker));
-    workerDispatchId = worker.dispatchId;
+    launched.workerDispatchId = worker.dispatchId;
     const workerCredential = launches.find((launch) => launch.dispatchId === worker.dispatchId)?.env
       .HARNESS_EXECUTION_CREDENTIAL;
     assert.ok(workerCredential, "the edge worker must receive an execution credential");
