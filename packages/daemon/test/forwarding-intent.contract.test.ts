@@ -194,14 +194,14 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
     assert.equal(requests[index]?.host, `center-${index}`);
     assert.equal(requests[index]?.nodeId, `node-${index}`);
   }
-  assert.equal(
-    await forward({
+  await assert.rejects(
+    forward({
       userRoot,
       repoId: "repo",
       intent: runtimeForwardingIntent("repo.agentRuntime.overview", {}),
       auth: { transportKind: "fleet-tls", nodePrincipal: { nodeId: "node-1" } } as never,
       runRuntime: async () => ({ outcome: "applied" }),
     }),
-    null,
+    { code: "local_transport_required" },
   );
 });

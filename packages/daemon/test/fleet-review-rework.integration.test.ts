@@ -53,6 +53,7 @@ test(
       launched: { readonly output: (chunk: string) => void; readonly exit: (code: number | null) => void }[] = [];
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding("node-one"),
+      readAccessToken: fixture.owners.readAccessToken("node-one"),
       controlBinding: () => fixture.owners.binding("node-one"),
       request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
       daemonGeneration: 1,
@@ -257,6 +258,7 @@ test(
         daemonRoot = path.join(fixture.root, `${nodeId}-auto-dispatch`),
         runtime = openFleetEdgeRuntime({
           readBinding: () => fixture.owners.binding(nodeId),
+          readAccessToken: fixture.owners.readAccessToken(nodeId),
           controlBinding: () => fixture.owners.binding(nodeId),
           request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
           daemonGeneration: 1,
@@ -473,6 +475,7 @@ test(
     const launchedPrompts: string[] = [];
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding("node-one"),
+      readAccessToken: fixture.owners.readAccessToken("node-one"),
       controlBinding: () => fixture.owners.binding("node-one"),
       request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
       daemonGeneration: 1,

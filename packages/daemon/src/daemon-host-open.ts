@@ -1,5 +1,5 @@
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
-import { forward } from "./fleet/forwarding-port.ts";
+import { forward, resolveRuntimeLocation, type RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";
 import { forwardingIntentForAction, runtimeForwardingIntent } from "./fleet/forwarding-intent.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
@@ -156,22 +156,6 @@ import type { FleetVersionWarning } from "./fleet/peer.ts";
 import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 
-export function edgeRuntimeCacheKey(
-  request: Pick<
-    FleetEdgeRuntimeRequest["payload"],
-    "repoId" | "nodeId" | "host" | "port" | "workspaceRoot" | "viewRoot" | "caPath"
-  >,
-): string {
-  return JSON.stringify([
-    request.repoId,
-    request.nodeId,
-    request.host,
-    request.port,
-    request.workspaceRoot,
-    request.viewRoot,
-    request.caPath,
-  ]);
-}
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
   readonly daemonId: string;
@@ -267,8 +251,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       refreshDiscovery,
       env: input.runtimeEnv,
       resolveCredential: vault.resolve,
-      // Resolved by the resident daemon entry (the one process that owns the operator login);
-      // host constructors that supply nothing inject no GitHub credential.
       resolveGithubToken: input.runtimeGithubToken,
     }),
     instances = { ...instanceStore, ...runtimeInstanceCredentialService(instanceStore, vault) },
@@ -295,9 +277,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       closeDaemonWriterEpoch,
       daemonWriterBinding,
     } = openDaemonWriterEpochs({ userRoot: input.userRoot, daemonId: input.daemonId, now, storage: input.storage });
-  // Assigned once the managed identity center's resume is fired below; every center consultation
-  // awaits it, so a center still resuming reads as a slow startup instead of a broken repo (a
-  // build-superseded successor's first attach lost exactly that race and latched its repo).
   let rbacResumed: Promise<void> = Promise.resolve();
   const keycloakCenter: KeycloakCenterAuthority = async (rejectedAccessToken) => {
     await rbacResumed;
@@ -314,8 +293,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       ...principal.authority,
     };
   };
-  // The automatic disposition launches through the same local session source as a manual
-  // `ha agent run`: the persisted dispatch binding has no credential of its own.
   const decisionPointExecutorFor = openDecisionPointExecutorFactory({
     providers: { list: decisionProviders.list, port: decisionProviders.port },
     now,
@@ -329,7 +306,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     writerRepoId,
     replicaRead = false,
   ) => {
-    // Session authorization also consults Keycloak, without using the center supplier.
     await rbacResumed;
     const replicaPrincipal = auth.fleetReplicaPrincipal;
     if (replicaPrincipal) {
@@ -350,8 +326,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     }
-    // JSON-RPC admission resolves credentials before repository binding. Keep this host layer
-    // consuming the verified principal so identity has one provider boundary.
     const execution = auth.executionPrincipal;
     if (execution) {
       if (
@@ -422,25 +396,23 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       .filter((repo): repo is AutoClaimRepo => repo.mode === "remote-edge");
   const autoClaimBinding = async (repo: AutoClaimRepo): Promise<RepoCellBinding | null> => {
     if (repo.mode !== "remote-edge") return null;
-    const config = readFleetEdgeConfig(repo.rootDir);
-    if (!config || config.repoId !== repo.repoId) return null;
-    const binding = {
-      ...(await hostBinding(repo.rootDir, { transportKind: "unix-socket" })),
-      source: { kind: "node", nodeId: config.nodeId } as const,
-    };
-    // edgeReplicaRead validates this signed-in person against the center-admitted readerProfile.
+    const { nodeId } = resolveRuntimeLocation(input.userRoot, repo.repoId),
+      binding = {
+        ...(await hostBinding(repo.rootDir, { transportKind: "unix-socket" })),
+        source: { kind: "node", nodeId } as const,
+      };
     await repo.cell.readNodeAutoClaimAssignments(binding);
     return binding;
   };
   const readAutoClaimSnapshot = async (repo: AutoClaimRepo): Promise<NodeAutoClaimSnapshot> => {
     const binding = await autoClaimBinding(repo);
     if (!binding) return { candidates: [], activeTaskIds: [] };
-    const result = await forwardRuntime(
-      repo.repoId,
-      "repo.tasks.autoClaimCandidates",
-      {},
-      { transportKind: "unix-socket" },
-    );
+    const result = await forwardRuntime({
+      repoId: repo.repoId,
+      method: "repo.tasks.autoClaimCandidates",
+      action: {},
+      auth: { transportKind: "unix-socket" },
+    });
     if (!result) throw hostCodedError("fleet_edge_config_invalid", `Remote-edge ${repo.repoId} is unavailable.`);
     return parseNodeAutoClaimSnapshot(result);
   };
@@ -474,19 +446,21 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (!binding) throw new Error("authentication_required: node identity is unavailable");
       if (signal.aborted) throw new Error("node auto-claim was cancelled");
       const spawnAction = { agentId, taskId: candidate.taskId, dispatchKey },
-        receipt = await forwardRuntime(repo.repoId, "repo.agentRuntime.spawn", spawnAction, {
-          transportKind: "unix-socket",
-          connectionSignal: signal,
+        receipt = await forwardRuntime({
+          repoId: repo.repoId,
+          method: "repo.agentRuntime.spawn",
+          action: spawnAction,
+          auth: { transportKind: "unix-socket", connectionSignal: signal },
         });
       if (!receipt) throw new Error("node auto-claim runtime is unavailable");
       const runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
       if (!runtimeSessionId) throw new Error("runtime spawn did not return a runtimeSessionId");
-      const awaited = await forwardRuntime(
-        repo.repoId,
-        "repo.agentRuntime.sessions.await",
-        { runtimeSessionIds: [runtimeSessionId], mode: "all" },
-        { transportKind: "unix-socket", connectionSignal: signal },
-      );
+      const awaited = await forwardRuntime({
+        repoId: repo.repoId,
+        method: "repo.agentRuntime.sessions.await",
+        action: { runtimeSessionIds: [runtimeSessionId], mode: "all" },
+        auth: { transportKind: "unix-socket", connectionSignal: signal },
+      });
       if (!awaited) throw new Error("node auto-claim runtime is unavailable while awaiting completion");
     },
     onDiagnostic: (row: NodeAutoClaimDiagnosticRow) => {
@@ -504,15 +478,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     repo: AutoClaimRepo,
     signal: AbortSignal,
   ): Promise<readonly NodeAutoDispatchCandidate[]> => {
-    const result = await forwardRuntime(
-      repo.repoId,
-      "repo.tasks.autoDispatchCandidates",
-      {},
-      {
-        transportKind: "unix-socket",
-        connectionSignal: signal,
-      },
-    );
+    const result = await forwardRuntime({
+      repoId: repo.repoId,
+      method: "repo.tasks.autoDispatchCandidates",
+      action: {},
+      auth: { transportKind: "unix-socket", connectionSignal: signal },
+    });
     if (!result) throw hostCodedError("fleet_edge_config_invalid", `Remote-edge ${repo.repoId} is unavailable.`);
     return parseNodeAutoDispatchSnapshot(result).candidates;
   };
@@ -523,16 +494,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const repo = autoClaimRepos().find((value) => value.repoId === candidate.repoId);
       if (!repo) throw new Error(`required node repository for ${candidate.taskId} is unavailable`);
       const spawn = (payload: JsonObject) =>
-        forwardRuntime(
-          repo.repoId,
-          "repo.agentRuntime.spawn",
-          payload,
-          {
-            transportKind: "unix-socket",
-            connectionSignal: signal,
-          },
-          { requiredNodeId: candidate.requiredNodeId },
-        );
+        forwardRuntime({
+          repoId: repo.repoId,
+          method: "repo.agentRuntime.spawn",
+          action: payload,
+          auth: { transportKind: "unix-socket", connectionSignal: signal },
+          requiredNodeId: candidate.requiredNodeId,
+        });
       let receipt: JsonObject;
       try {
         receipt = (await spawn(candidate.payload)) ?? {};
@@ -552,16 +520,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           { code: typeof receipt.code === "string" ? receipt.code : "node_auto_dispatch_failed" },
         );
       return {
-        completion: forwardRuntime(
-          repo.repoId,
-          "repo.agentRuntime.sessions.await",
-          {
-            runtimeSessionIds: [runtimeSessionId],
-            mode: "all",
-          },
-          { transportKind: "unix-socket", connectionSignal: signal },
-          { requiredNodeId: candidate.requiredNodeId },
-        ).then((result) => {
+        completion: forwardRuntime({
+          repoId: repo.repoId,
+          method: "repo.agentRuntime.sessions.await",
+          action: { runtimeSessionIds: [runtimeSessionId], mode: "all" },
+          auth: { transportKind: "unix-socket", connectionSignal: signal },
+          requiredNodeId: candidate.requiredNodeId,
+        }).then((result) => {
           if (!result) throw new Error(`auto-dispatch node ${candidate.requiredNodeId} is unavailable`);
         }),
       };
@@ -598,7 +563,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       receipt = await forward({
         userRoot: input.userRoot,
         repoId: repo.repoId,
-        rootDir: repo.rootDir,
         intent: forwardingIntentForAction("repo.task.run", action, {
           requiredNodeId: candidate.requiredNodeId,
         }),
@@ -614,13 +578,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         code: typeof receipt.code === "string" ? receipt.code : "review_dispatch_state_rejected",
       });
   }
-  function runtimeOwnerFor(request: FleetEdgeRuntimeRequest["payload"]): ReturnType<typeof openFleetEdgeRuntime> {
-    const key = edgeRuntimeCacheKey(request),
+  function runtimeOwnerFor({
+    repoId,
+    nodeId,
+  }: Pick<FleetEdgeRuntimeRequest["payload"], "repoId" | "nodeId">): ReturnType<typeof openFleetEdgeRuntime> {
+    const location = () => resolveRuntimeLocation(input.userRoot, repoId, nodeId),
+      key = JSON.stringify([repoId, nodeId]),
       runtime =
         fleetEdgeRuntimes.get(key) ??
         openFleetEdgeRuntime({
-          request,
-          readBinding: async () => {
+          get request() {
+            return location();
+          },
+          readBinding: async (request = location()) => {
             const binding = await hostBinding(
               request.workspaceRoot,
               { transportKind: "unix-socket" },
@@ -628,11 +598,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               undefined,
               true,
             );
-            return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+            return { ...binding, source: { kind: "node", nodeId } };
           },
-          controlBinding: async () => {
+          readAccessToken: async (request) => {
+            const auth = await oidc.bind({ transportKind: "unix-socket" }, request.workspaceRoot);
+            return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
+          },
+          controlBinding: async (request = location()) => {
             const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
-            return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+            return { ...binding, source: { kind: "node", nodeId } };
           },
           daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
           daemonRoute: runtimeDaemonRoute,
@@ -640,9 +614,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           forwardTaskAction: async (action) => {
             const receipt = await forward({
               userRoot: input.userRoot,
-              repoId: request.repoId,
-              rootDir: request.workspaceRoot,
-              intent: forwardingIntentForAction("repo.task.run", action, { requiredNodeId: request.nodeId }),
+              repoId,
+              intent: forwardingIntentForAction("repo.task.run", action, { requiredNodeId: nodeId }),
               auth: { transportKind: "unix-socket" },
               oidc,
               runRuntime: async () => {
@@ -650,63 +623,43 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               },
             });
             if (!receipt)
-              throw hostCodedError("fleet_edge_config_invalid", `Remote-edge Squad ${request.repoId} is unavailable.`);
+              throw hostCodedError("fleet_edge_config_invalid", `Remote-edge Squad ${repoId} is unavailable.`);
             return receipt as JsonObject;
           },
           onTaskSettled: (taskId) => {
-            void autoClaimLoop
-              .trigger("runtime-terminal", { repoId: request.repoId, taskId })
-              .catch((error: unknown) => {
-                process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
-                  code: "NODE_AUTO_CLAIM_SCAN_FAILED",
-                });
+            void autoClaimLoop.trigger("runtime-terminal", { repoId, taskId }).catch((error: unknown) => {
+              process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
+                code: "NODE_AUTO_CLAIM_SCAN_FAILED",
               });
+            });
             void autoDispatchLoop.trigger("runtime-terminal").catch((error: unknown) => {
               process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
                 code: "NODE_AUTO_DISPATCH_SCAN_FAILED",
               });
             });
           },
-          waitForReplicaReady: () =>
-            waitForFleetReplicaReady({
-              viewRoot: path.isAbsolute(request.viewRoot)
-                ? request.viewRoot
-                : path.resolve(request.workspaceRoot, request.viewRoot),
-              repoId: request.repoId,
-              nodeId: request.nodeId,
-            }),
+          waitForReplicaReady: (request) => waitForFleetReplicaReady(request),
           ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
           now,
         });
     fleetEdgeRuntimes.set(key, runtime);
     return runtime;
   }
-  function forwardRuntime(
-    repoId: string,
-    method: FleetEdgeRuntimeRequest["payload"]["method"],
-    action: JsonObject,
-    auth: import("./transport/auth-context.ts").DaemonAuthenticationContext,
-    options: {
-      readonly requiredNodeId?: string;
-      readonly operation?: "run" | "reconcile";
-      readonly decorate?: NonNullable<Parameters<typeof forward>[0]["decorateRuntime"]>;
-    } = {},
-  ): Promise<JsonObject | null> {
+  function forwardRuntime(request: RuntimeForwardingRequest): Promise<JsonObject | null> {
     return forward({
       userRoot: input.userRoot,
-      repoId,
-      intent: runtimeForwardingIntent(method, action, {
-        ...options,
-      }),
-      auth,
+      repoId: request.repoId,
+      intent: runtimeForwardingIntent(request.method, request.action, request),
+      auth: request.auth,
       oidc,
-      decorateRuntime: options.decorate,
-      runRuntime: async (value, auth, operation) => {
+      decorateRuntime: request.decorate,
+      runRuntime: async (value, requestAuth, operation) => {
+        startReplicaSyncs();
         const payload = value as unknown as FleetEdgeRuntimeRequest["payload"],
           runtime = runtimeOwnerFor(payload);
         return operation === "reconcile"
           ? (await runtime.reconcile(), { outcome: "applied" })
-          : runtime.run(payload.method, payload.action, auth.connectionSignal);
+          : runtime.run(payload.method, payload.action, requestAuth.connectionSignal);
       },
     }) as Promise<JsonObject | null>;
   }
@@ -716,12 +669,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       running.controller.abort();
       await running.task;
       replicaSyncControllers.delete(repoId);
-    }
-    const runtimeKeyPrefix = `[${JSON.stringify(repoId)},`;
-    for (const [key, runtime] of fleetEdgeRuntimes) {
-      if (!key.startsWith(runtimeKeyPrefix)) continue;
-      fleetEdgeRuntimes.delete(key);
-      runtime.close();
     }
     try {
       migrateFleetEdgeWorkspace(oldRoot, newRoot, repoId, input.userRoot);
@@ -788,8 +735,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     replicaSyncStartQueued = false,
     closing = false;
   const replicaSyncTasks = new Set<Promise<void>>();
-  // An unavailable row reports no writer generation or queue: the cell that would own them
-  // never opened, so a zero would be a fabricated measurement rather than an unknown.
   const unavailableStatus = (
     repoId: string,
     rootDir: string,
@@ -894,7 +839,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         });
       });
     },
-    forwardRuntime: (request) => forwardRuntime(request.repoId, request.method, request.action, request.auth, request),
+    forwardRuntime,
     invalidRepoId,
     closeCell,
     unavailableProbes,
@@ -958,8 +903,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         "registry_repo_invalid",
         `Workspace repository ${repoId} has no authored branch or canonical root.`,
       );
-    // The registry row, not the caller's path, is what the attach is opened against: registering a
-    // subdirectory records the enclosing harness root, and publication re-reads that same row.
     const registeredRoot = canonicalRoot(registered.repo.canonicalRoot);
     if (!cells.has(repoId))
       try {
@@ -1113,7 +1056,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimeRecoveryWatch,
     runtimeDaemonRoute,
     scheduleScheduler,
-    forwardRuntime: (request) => forwardRuntime(request.repoId, request.method, request.action, request.auth, request),
+    forwardRuntime,
     migrateEdgeWorkspace,
     instances,
     decisionProviders,
@@ -1130,7 +1073,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     openings,
     replicaSyncTasks,
     replicaSyncControllers,
-    // Declared below; resolved when an edge sync calls it.
     startReplicaSyncs: () => startReplicaSyncs(),
     settleControl,
     buildObserver,
@@ -1153,8 +1095,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     startedAt,
   };
-  // A node removal settles in the access-admin queue; the fleet center owns the node's
-  // live TLS sessions, so the settled cut is handed from one to the other here.
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
     daemonId: input.daemonId,
     nodeRetirement: createNodeRetirement({
@@ -1173,11 +1113,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
-  // Every center consultation awaits this start barrier. A failed resume is therefore not absorbed:
-  // the same rejection refuses the request with the real cause instead of letting it reach a center
-  // whose policy sync never completed. The recording handler only observes the failure; it does not
-  // turn the barrier into a resolved promise. The same settlement is the startup readiness fact the
-  // CLI's single wait port reads: either the managed services are up or their real failure is known.
   const resumed = managedRbac.resume();
   rbacResumed = resumed;
   void resumed.then(
@@ -1293,7 +1228,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.operation === "edge-join-create" && request.joinMode === "member-device" && loginTarget) {
           const edge = readFleetEdgeConfig(loginTarget);
           if (edge) {
-            // Identity and permissions are checked by the center; this daemon forwards only intent.
             return {
               ...(await createFleetMemberDeviceLink(
                 {
@@ -1435,8 +1369,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }
         return requireAuthorizedHostAction({
           kind: "rbac-bootstrap",
-          // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
-          // identity authority before an OIDC session exists, but it cannot run repository actions.
           binding: localSystemBinding(input.userRoot),
           actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
           evaluatedAtCut: "daemon-rbac:current",
@@ -1460,10 +1392,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   };
   const startReplicaSyncs = (): void => {
     if (closing) return;
-    // A registry refresh can arrive while the initial attach fan-out is still opening cells. Starting
-    // a remote-edge stream here races the cell's publication boundary and exposes sync failures
-    // before the host reports attachment. Defer that refresh until the same initial barrier used by
-    // attachmentsSettled(); calls made after startup remain immediate.
     if (initialAttachments && !initialAttachmentsSettled) {
       if (!replicaSyncStartQueued) {
         replicaSyncStartQueued = true;
@@ -1486,7 +1414,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         continue;
       }
       activeRemoteEdges.add(repo.repoId);
-      // A stream follows its fleet-edge.json: an edge sync that changed the connection restarts it.
       const running = replicaSyncControllers.get(repo.repoId),
         connection = JSON.stringify([rootDir, config]);
       if (running?.config === connection) continue;
@@ -1526,15 +1453,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
           await runReplicaConfirmedRound({
             reconcile: async () => {
-              const result = await forwardRuntime(
-                repo.repoId,
-                "repo.squad.control",
-                {},
-                { transportKind: "unix-socket" },
-                {
-                  operation: "reconcile",
-                },
-              );
+              const result = await forwardRuntime({
+                repoId: repo.repoId,
+                method: "repo.squad.control",
+                action: {},
+                auth: { transportKind: "unix-socket" },
+                operation: "reconcile",
+              });
               if (!result)
                 throw hostCodedError("fleet_edge_config_invalid", `Remote-edge ${repo.repoId} is unavailable.`);
             },
@@ -1572,8 +1497,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       fleetVersionWarnings.delete(repoId);
     }
   };
-  // Restore only a previously authorized successful start, after every callback's captured
-  // host and service has been initialized. No user session is stored or replayed here.
   try {
     const config = readFleetCenterConfig(input.userRoot, input.daemonId);
     if (config) {
@@ -1635,7 +1558,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       event: "fleet_center_restore_failed",
       error: error instanceof Error ? error.message : String(error),
     });
-    // The local control daemon remains available to repair the listener with an authorized start.
     return host;
   }
   return host;

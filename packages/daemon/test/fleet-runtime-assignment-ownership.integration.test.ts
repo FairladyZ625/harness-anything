@@ -121,6 +121,7 @@ for (const distinctNode of [false, true])
         const open = (subject: typeof fixture.subject) => {
           const runtime = openFleetEdgeRuntime({
             readBinding: () => fixture.owners.binding(subject.nodeId),
+            readAccessToken: fixture.owners.readAccessToken(subject.nodeId),
             controlBinding: () => fixture.owners.binding(subject.nodeId),
             request: {
               host: "127.0.0.1",

@@ -2,7 +2,10 @@
 import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { type AgentDefinitionSnapshot, type IdentitySessionPort } from "@harness-anything/kernel";
+import { updateDaemonRepo, writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
+import { forward, resolveRuntimeLocation } from "../src/fleet/forwarding-port.ts";
+import { runtimeForwardingIntent } from "../src/fleet/forwarding-intent.ts";
 import assert from "node:assert/strict";
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -1030,28 +1033,41 @@ test(
     const initialCenter = await fixture.center(),
       unavailablePort = initialCenter.port;
     await initialCenter.close();
-    const workspaceRoot = path.join(fixture.root, "startup-recovery-edge");
+    const workspaceRoot = path.join(fixture.root, "startup-recovery-edge"),
+      userRoot = path.join(fixture.root, "startup-recovery-user"),
+      repoId = fixture.subject.repoId;
+
     mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
     writeFileSync(
       path.join(workspaceRoot, "harness/harness.yaml"),
       "schema: harness-anything/v1\nname: startup-recovery-edge\n" +
         "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
+    copyFileSync(fixture.certFile, path.join(workspaceRoot, "center-ca.pem"));
+    writeFleetEdgeConfig(workspaceRoot, {
+      host: "127.0.0.1",
+      port: unavailablePort,
+      caPath: "center-ca.pem",
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId,
+      viewRoot: "replica",
+      quotaBytes: replicaQuota,
+    });
+    writeDaemonRegistryRepo({
+      canonicalRoot: workspaceRoot,
+      repoId,
+      userRoot,
+      mode: "remote-edge",
+      authoredBranch: "main",
+      createConvenienceLinks: false,
+    });
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-      request: {
-        host: "127.0.0.1",
-        port: unavailablePort,
-        caPath: fixture.certFile,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        repoId: fixture.subject.repoId,
-        viewRoot: path.join(fixture.root, "startup-recovery-view"),
-        quotaBytes: replicaQuota,
-        workspaceRoot,
-        method: "repo.agentRuntime.overview",
-        action: { limit: 1 },
+      get request() {
+        return resolveRuntimeLocation(userRoot, repoId);
       },
       daemonGeneration: 1,
       daemonRoute: {
@@ -1082,7 +1098,7 @@ test(
       nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
       repoId: fixture.subject.repoId,
-      viewRoot: path.join(fixture.root, "startup-recovery-view"),
+      viewRoot: path.join(workspaceRoot, "replica"),
       diskQuotaBytes: replicaQuota,
     });
     const concurrent = await Promise.all([awaitMissing(), awaitMissing()]);
@@ -1094,6 +1110,23 @@ test(
     const recovered = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
     assert.deepEqual(recovered.sessions, []);
     assert.ok(recovered.cut, "successful control preparation materializes the owner-bound read cut");
+    // Reuse this resident owner: no close/reopen or cache-key change can hide a stale closure.
+    const movedRoot = `${workspaceRoot}-moved`;
+    renameSync(workspaceRoot, movedRoot);
+    updateDaemonRepo({ repoId, userRoot, canonicalRoot: movedRoot, createConvenienceLinks: false });
+    const moved = await forward({
+      userRoot,
+      repoId,
+      intent: runtimeForwardingIntent("repo.tasks.autoClaimCandidates", {}),
+      auth: { transportKind: "unix-socket" },
+      oidc: {} as IdentitySessionPort,
+      runRuntime: (payload) => runtime.run(payload.method as "repo.tasks.autoClaimCandidates", payload.action as never),
+    });
+    assert.ok(
+      Array.isArray(moved?.candidates),
+      "the same runtime owner sends through the moved CA and endpoint snapshot",
+    );
+    assert.equal(existsSync(workspaceRoot), false, "no effect recreates the retired workspace");
   },
 );
 
@@ -1137,6 +1170,7 @@ test(
     );
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",

@@ -773,7 +773,6 @@ export function createDaemonHostRepositoryApi(
           const forwarded = await forward({
             userRoot: context.input.userRoot,
             repoId,
-            rootDir: context.cells.get(repoId)?.status().rootDir,
             intent: forwardingIntentForAction(descriptor.method, action),
             auth,
             oidc: context.oidc,

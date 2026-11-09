@@ -6,7 +6,7 @@ import type { RuntimeInstanceSummary, openRuntimeInstanceStore } from "./agent-r
 import type { DaemonBuildObserver } from "./build-identity.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
-import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
+import type { RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
@@ -98,18 +98,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
     reason: string,
     releasedTask?: { readonly repoId: string; readonly taskId: string },
   ) => void;
-  readonly forwardRuntime: (input: {
-    readonly repoId: string;
-    readonly requiredNodeId?: string;
-    readonly method: FleetEdgeRuntimeRequest["payload"]["method"];
-    readonly action: JsonObject;
-    readonly operation?: "run" | "reconcile";
-    readonly decorate?: (
-      payload: FleetEdgeRuntimeRequest["payload"],
-      receipt: JsonObject,
-    ) => JsonObject | Promise<JsonObject>;
-    readonly auth: DaemonAuthenticationContext;
-  }) => Promise<JsonObject | null>;
+  readonly forwardRuntime: (input: RuntimeForwardingRequest) => Promise<JsonObject | null>;
   readonly invalidRepoId: (repo: InvalidDaemonRegistryRepo) => string;
   readonly closeCell: (repoId: string) => Promise<void>;
   readonly unavailableProbes: Map<string, ReturnType<typeof makeRecoveryProbe>>;

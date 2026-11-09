@@ -676,6 +676,7 @@ test(
           initHarnessRepo(workspaceRoot, "schedule-center");
           const runtime = openFleetEdgeRuntime({
             readBinding: () => owners!.binding(subject.nodeId),
+            readAccessToken: owners!.readAccessToken(subject.nodeId),
             controlBinding: () => owners!.binding(subject.nodeId),
             request: {
               host: "127.0.0.1",

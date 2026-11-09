@@ -144,6 +144,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
         action: {},
       },
       readBinding: () => owners!.binding(nodeId),
+      readAccessToken: owners!.readAccessToken(nodeId),
       controlBinding: () => owners!.binding(nodeId),
       daemonGeneration: 1,
       daemonRoute: {

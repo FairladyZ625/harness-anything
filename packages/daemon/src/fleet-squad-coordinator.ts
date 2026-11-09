@@ -16,7 +16,7 @@ import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 
 /** Owner control uses the same coordinator, with task writes admitted by the center. */
 export function makeFleetSquadCoordinator(input: {
-  readonly request: FleetEdgeRuntimeRequest["payload"];
+  readonly request: Omit<FleetEdgeRuntimeRequest["payload"], "method" | "action">;
   readonly peer: FleetPeerOptions;
   readonly forwardTaskAction: (action: Record<string, unknown> & { kind: string }) => Promise<JsonObject>;
   readonly spawner: Pick<
@@ -29,13 +29,14 @@ export function makeFleetSquadCoordinator(input: {
   readonly readWorktreeSetup: () => WorktreeSetupSettings;
   readonly readResult: (ref: string) => string;
 }) {
-  const { request } = input;
   let principalId: string | undefined;
-  const query = <T>(read: (projection: TaskProjection) => T): T =>
-    withEdgeReadModel(
+  const query = <T>(read: (projection: TaskProjection) => T): T => {
+    const request = input.request;
+    return withEdgeReadModel(
       { viewRoot: request.viewRoot, repoId: request.repoId, nodeId: request.nodeId, principalId },
       (projection) => read(projection as TaskProjection),
     );
+  };
   const command = async (action: Record<string, unknown> & { kind: string }): Promise<JsonObject> => {
     const receipt = await input.forwardTaskAction(action);
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
@@ -48,20 +49,24 @@ export function makeFleetSquadCoordinator(input: {
     return receipt as JsonObject;
   };
   const coordinator = makeSquadCoordinator({
-    rootDir: request.workspaceRoot,
+    get rootDir() {
+      return input.request.workspaceRoot;
+    },
     now: () => new Date().toISOString(),
     query,
     readResult: input.readResult,
     readWorktreeSetup: input.readWorktreeSetup,
     publishObservation: async (observation) => {
+      const request = input.request,
+        peer = input.peer;
       await runFleetEdgeWrite({
         viewRoot: request.viewRoot,
         repoId: request.repoId,
         nodeId: request.nodeId,
-        timeoutMs: input.peer.timeoutMs ?? 60_000,
+        timeoutMs: peer.timeoutMs ?? 60_000,
         write: () =>
           runFleetRuntimeEventClient({
-            ...input.peer,
+            ...peer,
             repoId: request.repoId,
             opId: `squad-observed-${observation.squadRunId}-${observation.runRevision}`,
             eventType: "runtime_squad_run_observed",
@@ -182,7 +187,8 @@ export function makeFleetSquadCoordinator(input: {
     }),
   });
   async function binding(): Promise<RuntimeBinding> {
-    const metadata = await readFleetRepositoryMetadataClient(input.peer);
+    const request = input.request,
+      metadata = await readFleetRepositoryMetadataClient(input.peer);
     principalId = metadata.personId;
     return {
       actor: { principal: { personId: principalId }, executor: null },
