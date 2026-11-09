@@ -390,7 +390,7 @@ test(
 );
 
 test(
-  "runtime status --wait bridges a daemon_stopping handoff whose successor pid is already written",
+  "runtime status --wait bridges daemon_stopping and retries when the successor await socket resets",
   { timeout: 300_000 },
   async () => {
     // The pid baseline must come from before the request: a build-superseded handoff answers a
@@ -420,15 +420,39 @@ test(
       assert.equal(request.method, "repo.agentRuntime.sessions.read");
       reply(socket, request.id, runtimeStatus(false));
     };
-    const invocation = runWait(fixture);
+    // Inject at the real socket's write boundary, after JsonRpcLineClient has installed its
+    // reader and parked the waiter. No kernel scheduling is needed to select ECONNRESET over EOF.
+    const resetOnSecondAwait = `
+      import net from "node:net";
+      const write = net.Socket.prototype.write;
+      let awaits = 0;
+      net.Socket.prototype.write = function (chunk, ...args) {
+        if (String(chunk).includes('"method":"repo.agentRuntime.sessions.await"') && ++awaits === 2) {
+          net.Socket.prototype.write = write;
+          process.stderr.write("injected handoff ECONNRESET\\n");
+          queueMicrotask(() => this.destroy(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" })));
+          return true;
+        }
+        return write.call(this, chunk, ...args);
+      };
+    `;
+    const invocation = runWait(fixture, undefined, true, [
+      "--import",
+      `data:text/javascript,${encodeURIComponent(resetOnSecondAwait)}`,
+    ]);
     try {
       await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+      if (invocation.closed) {
+        const result = await invocation.result(hangGuardMs);
+        assert.fail(`the bridge must reissue the await on the successor daemon: ${result.stdout}\n${result.stderr}`);
+      }
       assert.equal(pendingAwait.length, 1, "the bridge must reissue the await on the successor daemon");
       assert.ok(!invocation.closed, "the wait must stay parked across the handoff bridge");
       for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
       const result = await invocation.result(hangGuardMs);
       assert.equal(result.code, 0, result.stderr);
       assert.equal(result.receipt.outcome, "succeeded");
+      assert.match(result.stderr, /injected handoff ECONNRESET/u);
       assert.equal(awaitRequests, 2, "the daemon_stopping bridge must reissue the idempotent await");
     } finally {
       invocation.stop();
@@ -1239,13 +1263,14 @@ function runWait(
   fixture: FixtureDaemon,
   args: readonly string[] = ["runtime", "status", runtimeSessionId, "--wait", "--no-stream"],
   json = true,
+  nodeArgs: readonly string[] = [],
 ): {
   readonly closed: boolean;
   readonly result: (guardMs: number) => Promise<InvocationResult>;
   readonly stop: () => void;
 } {
   const { HARNESS_DAEMON_ENDPOINT: _endpoint, HARNESS_DAEMON_REPO_ID: _repoId, ...baseEnv } = process.env,
-    child = spawn(process.execPath, [cli, "--root", fixture.root, ...(json ? ["--json"] : []), ...args], {
+    child = spawn(process.execPath, [...nodeArgs, cli, "--root", fixture.root, ...(json ? ["--json"] : []), ...args], {
       env: {
         ...baseEnv,
         HARNESS_DAEMON_USER_ROOT: fixture.userRoot,

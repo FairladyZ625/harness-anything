@@ -321,6 +321,7 @@ function recoverableSubscriptionFailure(error: unknown): boolean {
         : null,
     message = cliErrorMessage(error);
   return (
+    String(code) === "daemon_unavailable" ||
     ["daemon_response_timeout", "daemon_closed", "ECONNREFUSED", "ECONNRESET", "ENOENT"].includes(String(code)) ||
     message === "daemon_unavailable" ||
     message === "daemon_stream_unavailable"
