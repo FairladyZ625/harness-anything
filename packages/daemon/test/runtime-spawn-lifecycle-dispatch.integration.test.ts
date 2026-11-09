@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -45,6 +46,8 @@ const installation: RuntimeInstallationWitness = {
 
 test("runtime spawn publishes a canonical session and makes it visible in overview", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-"));
+  const eventuallyValue = <T>(read: () => T | null | Promise<T | null>, ..._rest: unknown[]): Promise<T> =>
+    waitForArrival(read, watchDirectoryArrival(root));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.name", "Spawn Test");
@@ -528,6 +531,8 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
 
 test("runtime claim rejects a retired Agent through the spawn entry", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-retired-agent-"));
+  const eventuallyValue = <T>(read: () => T | null | Promise<T | null>, ..._rest: unknown[]): Promise<T> =>
+    waitForArrival(read, watchDirectoryArrival(root));
   git(root, "init", "-q");
   git(root, "config", "user.name", "Retired Agent Test");
   git(root, "config", "user.email", "retired-agent@example.invalid");
@@ -701,6 +706,8 @@ test(
         baseUrl: null,
         authMode: "subscription",
       };
+    const eventuallyValue = <T>(read: () => T | null | Promise<T | null>, ..._rest: unknown[]): Promise<T> =>
+      waitForArrival(read, watchDirectoryArrival(parent));
     let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
       runtimeSessionId = "",
       pids: number[] = [];
@@ -1155,15 +1162,6 @@ function initIngressRepo(root: string, uid: number): void {
   );
   git(root, "add", "harness");
   git(root, "commit", "-qm", "fixture");
-}
-
-async function eventuallyValue<T>(read: () => T | null | Promise<T | null>, attempts = 500): Promise<T> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const value = await read();
-    if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("runtime provider event did not arrive");
 }
 
 function installationFixture(kindId: "claude" | "codex", executablePath: string): RuntimeInstallationWitness {

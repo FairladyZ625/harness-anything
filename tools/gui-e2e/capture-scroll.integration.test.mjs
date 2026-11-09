@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
+import { insertHeadingAfter } from "./fixtures/insert-heading.mjs";
 import { prepareE2EProbeGui, resolveE2EProbeElectronForTest } from "../e2e-probe.mjs";
 import { resolveScrollTarget, scrollTargetToTop } from "./capture-scroll.mjs";
 
@@ -50,21 +51,6 @@ const LAST_SECTION_PAGE = `<!doctype html><html><body style="margin:0;font:16px 
 <p style="padding:0 20px">84 个任务</p>
 <div style="height:40px"></div>
 </body></html>`;
-
-const insertHeadingAfter = (page, delayMs) =>
-  page.evaluate(
-    ({ delay }) =>
-      new Promise((resolve) =>
-        globalThis.setTimeout(() => {
-          const heading = globalThis.document.createElement("h2");
-          heading.id = "section-running";
-          heading.textContent = "在干活";
-          globalThis.document.getElementById("section-slot").append(heading);
-          resolve();
-        }, delay),
-      ),
-    { delay: delayMs },
-  );
 
 const rectOf = (locator) =>
   locator.evaluate((element) => {

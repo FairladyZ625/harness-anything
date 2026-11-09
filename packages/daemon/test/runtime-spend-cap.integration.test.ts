@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -34,6 +35,8 @@ const installation: RuntimeInstallationWitness = {
 
 test("a dispatch over its declared token limit is terminated and settled with the cap reason", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spend-cap-"));
+  const eventuallyValue = <T>(read: () => T | null | Promise<T | null>): Promise<T> =>
+    waitForArrival(read, watchLedgerArrival(root));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.name", "Spend Cap Test");
@@ -147,15 +150,6 @@ test("a dispatch over its declared token limit is terminated and settled with th
     rmSync(root, { recursive: true, force: true });
   }
 });
-
-async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    const value = await read();
-    if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("runtime spend cap did not settle");
-}
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", ["-C", root, ...args]);

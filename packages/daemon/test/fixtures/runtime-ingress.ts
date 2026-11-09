@@ -125,10 +125,9 @@ export async function eventually(check: () => boolean | Promise<boolean>): Promi
 }
 export async function eventuallyValue<T>(
   read: () => T | null | Promise<T | null>,
-  timeoutMs = 5_000,
   label = "runtime provider event",
 ): Promise<T> {
-  return waitForValue(read, label, { timeoutMs });
+  return waitForValue(read, label);
 }
 export function writeProviderStub(
   target: string,

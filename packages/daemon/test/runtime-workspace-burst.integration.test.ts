@@ -332,17 +332,11 @@ syncBuiltinESMExports();
       assert.equal(Atomics.load(shutdownGate, 0), 1, "monitor shutdown must be requested and deliberately held open");
       const beforeExitWrite = Atomics.load(stopChurn, 1),
         exitWriteStarted = performance.now();
-      let timeout: NodeJS.Timeout | undefined;
-      const exitReceipt = await Promise.race([
-        supervisor.request<{ readonly outcome: string }>(
-          "run",
-          { action: { kind: "task-create", taskId: "task_during_monitor_close", title: "Write during monitor close" } },
-          binding,
-        ),
-        new Promise<never>((_resolve, reject) => {
-          timeout = setTimeout(() => reject(new Error("ordinary write was blocked by monitor shutdown")), 5_000);
-        }),
-      ]).finally(() => clearTimeout(timeout));
+      const exitReceipt = await supervisor.request<{ readonly outcome: string }>(
+        "run",
+        { action: { kind: "task-create", taskId: "task_during_monitor_close", title: "Write during monitor close" } },
+        binding,
+      );
       const exitWriteMs = Math.round(performance.now() - exitWriteStarted);
       assert.equal(exitReceipt.outcome, "applied", JSON.stringify(exitReceipt));
       assert.ok(exitWriteMs < maxWriteMs, `ordinary write during monitor shutdown took ${String(exitWriteMs)} ms`);

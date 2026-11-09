@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -476,11 +477,11 @@ async function waitForReceiptCommit(
   opId: string,
   binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
 ): Promise<void> {
-  const deadline = performance.now() + 15_000;
-  do {
-    const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
-    if (typeof receipt.commitSha === "string") return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  } while (performance.now() < deadline);
-  throw new Error(`Git materialization did not publish ${opId} within the bounded wait`);
+  const rootDir = host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
+  if (rootDir === undefined) throw new Error(`repository ${repoId} is not loaded`);
+  await waitForArrival(
+    async () =>
+      typeof (await host.run(repoId, { kind: "receipt-show", opId }, binding)).commitSha === "string" ? true : null,
+    watchLedgerArrival(rootDir),
+  );
 }

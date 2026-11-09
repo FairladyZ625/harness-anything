@@ -71,9 +71,11 @@ export function findExpiredWaivers(waivers, today) {
 }
 
 export function checkAuthorizationProviderBoundary(rootDir) {
+  // A multi-hundred-file rework legitimately produces a diff larger than spawnSync's 1 MiB default.
   const diff = execFileSync("git", ["diff", "--unified=0", "origin/main", "--", "packages"], {
     cwd: rootDir,
     encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
   });
   const allowlist = JSON.parse(readFileSync(path.join(rootDir, WAIVER_PATH), "utf8"));
   const today = new Date().toISOString().slice(0, 10);

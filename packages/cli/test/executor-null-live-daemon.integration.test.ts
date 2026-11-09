@@ -50,187 +50,198 @@ type TaskSnapshot = {
   readonly reviews: readonly { readonly verdict: string }[];
 };
 
-test("a live installed-bin daemon refuses to declare an executor for a reviewed execution that was never dispatched", async (context) => {
-  const parent = mkdtempSync(path.join(process.env.HARNESS_TEST_TEMP_ROOT!, "executor-null-live.")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "edge-user-root"),
-    daemonId = `edge-executor-null-${process.pid}`,
-    taskId = "task-executor-null-live",
-    executionId = "execution-executor-null-live",
-    reviewId = "review-executor-null-live";
-  let daemon: ChildProcess | undefined;
-  initialize(root);
-  realm.bind(userRoot);
-  signInAt(userRoot, "owner");
-  seedSettingsEvent({ rootDir: root, repoId: "executor-null-live" });
-  try {
-    daemon = spawnBinDaemon(root, userRoot, daemonId);
-    const status = waitForDaemon(root, userRoot, daemonId),
-      daemonPid = readDaemonPid(userRoot, daemonId);
-    assert.equal(status.ok, true, JSON.stringify(status));
-    assert.equal(daemonPid, daemon.pid, "the responding daemon must be the explicitly spawned source process");
-    assert.deepEqual(status.target, {
-      endpoint: localUserDaemonEndpoint(userRoot, daemonId),
-      daemonId,
-      userRoot,
-      repoId: null,
-      canonicalRoot: null,
-    });
-
-    assert.equal(
-      run(root, userRoot, daemonId, ["daemon", "repo", "register", "--repo-id", "executor-null-live", "--root", root])
-        .outcome,
-      "applied",
-    );
-    assert.equal(
-      run(root, userRoot, daemonId, ["settings", "update", "--closeout-profile", "strict"]).outcome,
-      "applied",
-    );
-    const created = run(root, userRoot, daemonId, [
-        "task",
-        "create",
-        "--id",
-        taskId,
-        "--admin",
-        "--title",
-        "Executor null live",
-      ]),
-      packagePath = String(created.workspacePackagePath),
-      planPath = `${packagePath}/task_plan.md`,
-      closeoutPath = `${packagePath}/closeout.md`;
-    assert.equal(created.outcome, "applied", JSON.stringify(created));
-    published(root, userRoot, daemonId, created);
-    writeFileSync(path.join(root, planPath), realizedTaskPlan("Executor null live"));
-    assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
-    assert.equal(
-      run(root, userRoot, daemonId, [
-        "fact",
-        "record",
-        "--task",
-        taskId,
-        "--statement",
-        "The reviewed execution can recover its omitted executor through the live daemon.",
-        "--source",
-        "test:executor-null-live",
-      ]).outcome,
-      "applied",
-    );
-    const started = run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]);
-    assert.equal(started.outcome, "applied", JSON.stringify(started));
-    // The delivery commit below writes repo Git directly, so the daemon must finish publishing the
-    // cuts of the writes above first; otherwise the two HEAD writers race and git dies with
-    // `cannot lock ref 'HEAD'`.
-    published(root, userRoot, daemonId, started);
-    // Deliver in the checkout whose HEAD task submit freezes.
-    const deliveryRoot = path.join(root, ".worktrees", taskId);
-    writeFileSync(path.join(deliveryRoot, "README.md"), "# Executor null live\n\nDelivered change.\n");
-    git(deliveryRoot, "commit", "--quiet", "-am", "executor null delivery");
-    const closeoutBody = `# Closeout\n\n## Summary\n\nExecutor attribution recovered at ${git(deliveryRoot, "rev-parse", "HEAD")}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n`;
-    for (const closeoutRoot of [root, deliveryRoot]) {
-      const file = path.join(closeoutRoot, closeoutPath);
-      mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(file, closeoutBody);
-    }
-    const closeoutSync = run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]);
-    assert.equal(closeoutSync.outcome, "applied");
-    published(root, userRoot, daemonId, closeoutSync);
-    assert.equal(
-      run(root, userRoot, daemonId, ["task", "submit", taskId, "--execution-id", executionId]).outcome,
-      "applied",
-    );
-    writeFileSync(
-      path.join(root, "review.json"),
-      JSON.stringify({
-        verdict: "approved",
-        reason: "Independent agent review passed.",
-        evidenceChecked: ["live installed-bin daemon route"],
-        findings: [],
-        resolutions: [],
-      }),
-    );
-    const reviewReportDir = path.join(root, packagePath, "artifacts", "reports");
-    mkdirSync(reviewReportDir, { recursive: true });
-    writeFileSync(
-      path.join(reviewReportDir, "executor-null-live.md"),
-      "# Review review-executor-null-live\n\nIndependent agent review passed.\n",
-    );
-    const reviewed = run(
-      root,
-      userRoot,
-      daemonId,
-      [
-        "task",
-        "review-execution",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--review-id",
-        reviewId,
-        "--from-file",
-        "review.json",
-      ],
-      "agent:reviewer",
-    );
-    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    const before = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
-    assert.equal(before.executions[0]?.actor.executor, null);
-    assert.equal(before.reviews[0]?.verdict, "approved");
-
-    const declaredResult = runMaybe(
-      root,
-      userRoot,
-      daemonId,
-      [
-        "task",
-        "declare-executor",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--reason",
-        "The original principal names the agent that performed the approved work.",
-      ],
-      "agent:worker",
-    );
-    assert.equal(declaredResult.status, 1, `${declaredResult.stderr}\n${declaredResult.stdout}`);
-    const declared = JSON.parse(declaredResult.stdout) as Record<string, unknown>;
-    assert.equal(declared.outcome, "op_rejected", JSON.stringify(declared));
-    assert.equal(declared.code, "invalid_proof", JSON.stringify(declared));
-    const after = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
-    assert.equal(after.executions[0]?.actor.executor, null);
-    assert.equal(after.task.status, before.task.status);
-    context.diagnostic(
-      `executor-null-live-receipt=${JSON.stringify({
+test(
+  "a live installed-bin daemon refuses to declare an executor for a reviewed execution that was never dispatched",
+  { timeout: 300_000 },
+  async (context) => {
+    const parent = mkdtempSync(path.join(process.env.HARNESS_TEST_TEMP_ROOT!, "executor-null-live.")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "edge-user-root"),
+      daemonId = `edge-executor-null-${process.pid}`,
+      taskId = "task-executor-null-live",
+      executionId = "execution-executor-null-live",
+      reviewId = "review-executor-null-live";
+    let daemon: ChildProcess | undefined;
+    initialize(root);
+    realm.bind(userRoot);
+    signInAt(userRoot, "owner");
+    seedSettingsEvent({ rootDir: root, repoId: "executor-null-live" });
+    try {
+      daemon = spawnBinDaemon(root, userRoot, daemonId);
+      const status = waitForDaemon(root, userRoot, daemonId),
+        daemonPid = readDaemonPid(userRoot, daemonId);
+      assert.equal(status.ok, true, JSON.stringify(status));
+      assert.equal(daemonPid, daemon.pid, "the responding daemon must be the explicitly spawned source process");
+      assert.deepEqual(status.target, {
+        endpoint: localUserDaemonEndpoint(userRoot, daemonId),
         daemonId,
         userRoot,
-        sourceEntry: cli,
-        nodeEntry: process.execPath,
-        pid: daemonPid,
-        target: status.target,
-        before: {
-          taskStatus: before.task.status,
-          currentNode: before.task.currentNode,
-          executionState: before.executions[0]?.state,
-          executor: before.executions[0]?.actor.executor,
-          reviewVerdict: before.reviews[0]?.verdict,
-        },
-        declared: { outcome: declared.outcome, code: declared.code, opId: declared.opId },
-        after: { taskStatus: after.task.status, executor: after.executions[0]?.actor.executor },
-      })}`,
-    );
+        repoId: null,
+        canonicalRoot: null,
+      });
 
-    const stopped = run(root, userRoot, daemonId, ["daemon", "stop", "--user-root", userRoot, "--daemon-id", daemonId]);
-    assert.equal(stopped.ok, true, JSON.stringify(stopped));
-    await childExit(daemon);
-    daemon = undefined;
-    assert.equal(readDaemonPid(userRoot, daemonId), null);
-    assert.equal(existsSync(localUserDaemonEndpoint(userRoot, daemonId)), false);
-  } finally {
-    if (readDaemonPid(userRoot, daemonId) !== null)
-      runMaybe(root, userRoot, daemonId, ["daemon", "stop", "--user-root", userRoot, "--daemon-id", daemonId]);
-    if (daemon && daemon.exitCode === null) daemon.kill("SIGKILL");
-    if (daemon) await childExit(daemon);
-  }
-});
+      assert.equal(
+        run(root, userRoot, daemonId, ["daemon", "repo", "register", "--repo-id", "executor-null-live", "--root", root])
+          .outcome,
+        "applied",
+      );
+      assert.equal(
+        run(root, userRoot, daemonId, ["settings", "update", "--closeout-profile", "strict"]).outcome,
+        "applied",
+      );
+      const created = run(root, userRoot, daemonId, [
+          "task",
+          "create",
+          "--id",
+          taskId,
+          "--admin",
+          "--title",
+          "Executor null live",
+        ]),
+        packagePath = String(created.workspacePackagePath),
+        planPath = `${packagePath}/task_plan.md`,
+        closeoutPath = `${packagePath}/closeout.md`;
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      published(root, userRoot, daemonId, created);
+      writeFileSync(path.join(root, planPath), realizedTaskPlan("Executor null live"));
+      assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
+      assert.equal(
+        run(root, userRoot, daemonId, [
+          "fact",
+          "record",
+          "--task",
+          taskId,
+          "--statement",
+          "The reviewed execution can recover its omitted executor through the live daemon.",
+          "--source",
+          "test:executor-null-live",
+        ]).outcome,
+        "applied",
+      );
+      const started = run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]);
+      assert.equal(started.outcome, "applied", JSON.stringify(started));
+      // The delivery commit below writes repo Git directly, so the daemon must finish publishing the
+      // cuts of the writes above first; otherwise the two HEAD writers race and git dies with
+      // `cannot lock ref 'HEAD'`.
+      published(root, userRoot, daemonId, started);
+      // Deliver in the checkout whose HEAD task submit freezes.
+      const deliveryRoot = path.join(root, ".worktrees", taskId);
+      writeFileSync(path.join(deliveryRoot, "README.md"), "# Executor null live\n\nDelivered change.\n");
+      git(deliveryRoot, "commit", "--quiet", "-am", "executor null delivery");
+      const closeoutBody = `# Closeout\n\n## Summary\n\nExecutor attribution recovered at ${git(deliveryRoot, "rev-parse", "HEAD")}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n`;
+      for (const closeoutRoot of [root, deliveryRoot]) {
+        const file = path.join(closeoutRoot, closeoutPath);
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, closeoutBody);
+      }
+      const closeoutSync = run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]);
+      assert.equal(closeoutSync.outcome, "applied");
+      published(root, userRoot, daemonId, closeoutSync);
+      assert.equal(
+        run(root, userRoot, daemonId, ["task", "submit", taskId, "--execution-id", executionId]).outcome,
+        "applied",
+      );
+      writeFileSync(
+        path.join(root, "review.json"),
+        JSON.stringify({
+          verdict: "approved",
+          reason: "Independent agent review passed.",
+          evidenceChecked: ["live installed-bin daemon route"],
+          findings: [],
+          resolutions: [],
+        }),
+      );
+      const reviewReportDir = path.join(root, packagePath, "artifacts", "reports");
+      mkdirSync(reviewReportDir, { recursive: true });
+      writeFileSync(
+        path.join(reviewReportDir, "executor-null-live.md"),
+        "# Review review-executor-null-live\n\nIndependent agent review passed.\n",
+      );
+      const reviewed = run(
+        root,
+        userRoot,
+        daemonId,
+        [
+          "task",
+          "review-execution",
+          taskId,
+          "--execution-id",
+          executionId,
+          "--review-id",
+          reviewId,
+          "--from-file",
+          "review.json",
+        ],
+        "agent:reviewer",
+      );
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      const before = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
+      assert.equal(before.executions[0]?.actor.executor, null);
+      assert.equal(before.reviews[0]?.verdict, "approved");
+
+      const declaredResult = runMaybe(
+        root,
+        userRoot,
+        daemonId,
+        [
+          "task",
+          "declare-executor",
+          taskId,
+          "--execution-id",
+          executionId,
+          "--reason",
+          "The original principal names the agent that performed the approved work.",
+        ],
+        "agent:worker",
+      );
+      assert.equal(declaredResult.status, 1, `${declaredResult.stderr}\n${declaredResult.stdout}`);
+      const declared = JSON.parse(declaredResult.stdout) as Record<string, unknown>;
+      assert.equal(declared.outcome, "op_rejected", JSON.stringify(declared));
+      assert.equal(declared.code, "invalid_proof", JSON.stringify(declared));
+      const after = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
+      assert.equal(after.executions[0]?.actor.executor, null);
+      assert.equal(after.task.status, before.task.status);
+      context.diagnostic(
+        `executor-null-live-receipt=${JSON.stringify({
+          daemonId,
+          userRoot,
+          sourceEntry: cli,
+          nodeEntry: process.execPath,
+          pid: daemonPid,
+          target: status.target,
+          before: {
+            taskStatus: before.task.status,
+            currentNode: before.task.currentNode,
+            executionState: before.executions[0]?.state,
+            executor: before.executions[0]?.actor.executor,
+            reviewVerdict: before.reviews[0]?.verdict,
+          },
+          declared: { outcome: declared.outcome, code: declared.code, opId: declared.opId },
+          after: { taskStatus: after.task.status, executor: after.executions[0]?.actor.executor },
+        })}`,
+      );
+
+      const stopped = run(root, userRoot, daemonId, [
+        "daemon",
+        "stop",
+        "--user-root",
+        userRoot,
+        "--daemon-id",
+        daemonId,
+      ]);
+      assert.equal(stopped.ok, true, JSON.stringify(stopped));
+      await childExit(daemon);
+      daemon = undefined;
+      assert.equal(readDaemonPid(userRoot, daemonId), null);
+      assert.equal(existsSync(localUserDaemonEndpoint(userRoot, daemonId)), false);
+    } finally {
+      if (readDaemonPid(userRoot, daemonId) !== null)
+        runMaybe(root, userRoot, daemonId, ["daemon", "stop", "--user-root", userRoot, "--daemon-id", daemonId]);
+      if (daemon && daemon.exitCode === null) daemon.kill("SIGKILL");
+      if (daemon) await childExit(daemon);
+    }
+  },
+);
 
 function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
@@ -258,7 +269,8 @@ function spawnBinDaemon(root: string, userRoot: string, daemonId: string): Child
 
 function waitForDaemon(root: string, userRoot: string, daemonId: string): Record<string, unknown> {
   let last = runMaybe(root, userRoot, daemonId, ["daemon", "status", "--user-root", userRoot, "--daemon-id", daemonId]);
-  for (let attempt = 0; attempt < 300 && last.status !== 0; attempt += 1) {
+  // Unbounded: the test timeout is the hang guard; the daemon's status is the durable predicate.
+  while (last.status !== 0) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
     last = runMaybe(root, userRoot, daemonId, ["daemon", "status", "--user-root", userRoot, "--daemon-id", daemonId]);
   }

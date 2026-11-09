@@ -101,21 +101,24 @@ function lint(rule, source, options = {}, filename = "packages/example/src/new.j
   );
 }
 
-test("G3 rejects short timers and loop waits while accepting event-driven waits", () => {
-  assert.equal(lint(noPollSpin, "setInterval(tick, 20);").length, 1);
-  assert.equal(lint(noPollSpin, "async function run() { while (ready()) await delay(25); }").length, 1);
+test("G3 rejects wall-clock deadlines while accepting unbounded waits", () => {
+  assert.equal(
+    lint(noPollSpin, "const deadline = Date.now() + 1000; while (Date.now() < deadline) await tick();").length,
+    1,
+  );
+  assert.equal(lint(noPollSpin, "async function run() { while (ready()) await delay(25); }").length, 0);
   assert.equal(
     lint(
       noPollSpin,
       "import { setImmediate as yieldToEventLoop } from 'node:timers/promises'; async function run() { for (;;) await yieldToEventLoop(); }",
     ).length,
-    1,
+    0,
   );
   assert.equal(lint(noPollSpin, "await completionEvent;").length, 0);
 });
 
 // dec_25B3C380F6FB9D4D4A1E27921E CH1: integration tests may not judge correctness by the wall clock.
-test("G3 integration lane rejects wall-clock deadlines, scheduled timers and self-written polls", () => {
+test("G3 integration lane rejects wall-clock deadlines and scheduled product states", () => {
   const integration = { integration: true },
     filename = "packages/example/test/new.integration.test.mjs",
     kinds = (source, options = integration, name = filename) =>
@@ -126,12 +129,15 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
     ),
     ["clock-loop", "clock-deadline"],
   );
+  // A product timestamp compared with now() is a content assertion, not a deadline. A loop using
+  // the same comparison is still a clock-loop.
+  assert.deepEqual(kinds("assert.ok(Date.parse(env.EXPIRES_AT) > Date.now());"), []);
+  assert.deepEqual(kinds("while (Date.parse(nextRunAt) < Date.now()) await next();"), ["clock-loop"]);
   assert.deepEqual(kinds("test('x', async () => { setTimeout(() => child.send('stop'), 2000); });"), [
     "scheduled-timer",
   ]);
-  assert.deepEqual(kinds("const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));"), [
-    "scheduled-timer",
-  ]);
+  // A delay helper only completes the wait; it schedules no product state.
+  assert.deepEqual(kinds("const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));"), []);
   // A timer that resolves a sentinel the test compares is a correctness decision, not a watchdog,
   // even when it is raced against the process event the test is waiting for.
   assert.deepEqual(
@@ -219,16 +225,50 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
     ),
     [],
   );
-  assert.deepEqual(kinds("async function waitForReady() { for (;;) { if (await ready()) return; } }"), ["self-poll"]);
+  // An unbounded predicate read is hang-guarded by the node:test timeout and has no wall-clock
+  // judgment; only a call that carries a deadline is a bounded poller.
+  assert.deepEqual(kinds("async function waitForReady() { for (;;) { if (await ready()) return; } }"), []);
   assert.deepEqual(
     kinds(
       "import { waitForCondition } from '../../tools/fixtures/wait-for-condition.ts'; await waitForCondition(ready, 'ready');",
+    ),
+    [],
+  );
+  assert.deepEqual(
+    kinds(
+      "import { waitForCondition } from '../../tools/fixtures/wait-for-condition.ts'; await waitForCondition(ready, 'ready', { timeoutMs: 1 });",
     ),
     ["poll-helper"],
   );
   assert.deepEqual(
     kinds("import { eventuallyValue } from './fixtures/runtime-ingress.ts'; await eventuallyValue(read);"),
+    [],
+  );
+  assert.deepEqual(
+    kinds("import { eventuallyValue } from './fixtures/runtime-ingress.ts'; await eventuallyValue(read, 10_000);"),
     ["poll-helper"],
+  );
+  // A bounded retry loop is backoff, not a wall-clock deadline, and an Atomics.wait blocks on the
+  // state another thread publishes (a condition variable), not on elapsed time.
+  assert.deepEqual(
+    kinds("for (let attempt = 0; attempt < 4; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));"),
+    [],
+  );
+  assert.deepEqual(kinds("Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);"), []);
+  // Promise.race against a resolving timer decides by the wall clock, not by an event. It is pinned
+  // explicitly so a refactor of scheduled-timer cannot quietly stop reporting this shape.
+  assert.deepEqual(
+    kinds(
+      "const outcome = await Promise.race([exited, new Promise((resolve) => setTimeout(() => resolve('hung'), 5_000))]);",
+    ),
+    ["scheduled-timer"],
+  );
+  // The same race with a fail-only timer at the hang-guard floor is a watchdog, not a judgment.
+  assert.deepEqual(
+    kinds(
+      "const outcome = await Promise.race([exited, new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hung')), 20_000))]);",
+    ),
+    [],
   );
   const eventDriven =
     "import { waitForArrival } from '../../tools/fixtures/event-arrival.ts';\n" +
@@ -239,6 +279,40 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
     lint(noPollSpin, "const deadline = Date.now() + 5000; if (Date.now() > deadline) stop(); setTimeout(stop, 2000);")
       .length,
     0,
+  );
+});
+
+// A synchronous bridge is an awaited sub-250 ms promise sleep, not a product timer or a UI debounce.
+test("G3 production lane reports awaited short sleeps but not product timers", () => {
+  const production = { integration: false },
+    kinds = (source) =>
+      lint(noPollSpin, source, production, "packages/example/src/bridge.mjs").map(
+        (message) => /#([a-z-]+)$/u.exec(message.message)?.[1],
+      );
+  assert.deepEqual(kinds("await new Promise((resolve) => setTimeout(resolve, 10));"), ["short-timer"]);
+  assert.deepEqual(kinds("for (;;) { await new Promise((resolve) => setTimeout(resolve, 10)); }"), ["short-timer"]);
+  assert.deepEqual(
+    kinds("for (let attempt = 0; attempt < 4; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));"),
+    [],
+  );
+  assert.deepEqual(kinds("const force = setTimeout(() => child.kill('SIGKILL'), 100);"), []);
+  assert.deepEqual(kinds("window.setTimeout(() => setDebounced(search), 150);"), []);
+});
+
+// The ceiling is a shrink-only ratchet: every batch that deletes entries must lower it in the same
+// commit, so "the exemptions stopped shrinking" shows up here even though the gate's fixture runs
+// deliberately skip the ceiling. This is the exact-sync half of the ratchet.
+test("G3 poll-spin allowlist ceiling equals the current exception count", () => {
+  const source = readFileSync(path.join(repoRoot, "tools/check-poll-spin-boundary.mjs"), "utf8"),
+    ceiling = /const allowlistCeiling = (\d+);/u.exec(source)?.[1],
+    allowlist = JSON.parse(
+      readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-poll-spin-boundary.json"), "utf8"),
+    );
+  assert.ok(ceiling, "check-poll-spin-boundary.mjs must declare allowlistCeiling");
+  assert.equal(
+    Number(ceiling),
+    allowlist.entries.exceptions.length,
+    "lower allowlistCeiling to the new exception count in the same commit that deletes entries",
   );
 });
 

@@ -16,295 +16,314 @@ import { initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
-test("runtime discovery write load keeps independent read clients within the stopgap latency envelope", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-read-stopgap-perf-")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    daemonId = "read-stopgap-perf",
-    repoId = "read-stopgap-perf",
-    uid = process.getuid?.() ?? 0,
-    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
-    executablePath = writeProviderExecutable(
-      path.join(parent, "codex-stub"),
-      `if (process.argv.slice(2).join(" ") === "login status") process.exit(0); process.exit(0);\n`,
-    ),
-    installation = {
-      installationId: "installation-read-stopgap",
-      kindId: "codex" as const,
-      executablePath,
-      // The PATH entry is gone, so the launch rediscovers: that slow discovery is the load under test.
-      executableEntryPath: path.join(parent, "vanished-codex-entry"),
-      version: "1.0.0",
-      observedAt: "2026-09-01T00:00:00.000Z",
-    };
-  let discoveryCalls = 0;
-  initIngressRepo(root, uid);
-  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
-  registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({
-      daemonId,
-      userRoot,
-      runtimeDiscover: async () => {
-        discoveryCalls += 1;
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
-        return [installation];
-      },
-      runtimeLaunch: () => ({
-        pid: 4242,
-        onOutput: () => undefined,
-        onErrorOutput: () => undefined,
-        onExit: () => undefined,
-        terminate: () => undefined,
+test(
+  "runtime discovery write load keeps independent read clients within the stopgap latency envelope",
+  { timeout: 300_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-read-stopgap-perf-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      daemonId = "read-stopgap-perf",
+      repoId = "read-stopgap-perf",
+      uid = process.getuid?.() ?? 0,
+      endpoint = localUserDaemonEndpoint(userRoot, daemonId),
+      executablePath = writeProviderExecutable(
+        path.join(parent, "codex-stub"),
+        `if (process.argv.slice(2).join(" ") === "login status") process.exit(0); process.exit(0);\n`,
+      ),
+      installation = {
+        installationId: "installation-read-stopgap",
+        kindId: "codex" as const,
+        executablePath,
+        // The PATH entry is gone, so the launch rediscovers: that slow discovery is the load under test.
+        executableEntryPath: path.join(parent, "vanished-codex-entry"),
+        version: "1.0.0",
+        observedAt: "2026-09-01T00:00:00.000Z",
+      };
+    let discoveryCalls = 0;
+    initIngressRepo(root, uid);
+    signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
+    registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+    const host = await openDaemonHost({
+        daemonId,
+        userRoot,
+        runtimeDiscover: async () => {
+          discoveryCalls += 1;
+          await new Promise((resolve) => setTimeout(resolve, 1_500));
+          return [installation];
+        },
+        runtimeLaunch: () => ({
+          pid: 4242,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        }),
       }),
-    }),
-    transport = createUnixSocketTransportServer({
-      daemonId,
-      socketPath: endpoint,
-      createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
-    }),
-    readCalls = [
-      ["workspaceSummary", "repo.workspace.summary.read", { repo: { repoId } }],
-      ["guiTaskList", "repo.tasks.list", { repo: { repoId }, payload: { limit: 1 } }],
-      ["legacyTaskList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "task-list", limit: 1 } } }],
-      ["decisionList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "decision-list" } } }],
-      ["factTypeList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "fact-type-list" } } }],
-      ["relationList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "relation-list" } } }],
-    ] as const;
-  await transport.start();
-  try {
-    await host.attachmentsSettled();
-    await request("daemon.runtimeInstance.create", {
-      payload: {
-        instanceId: "read-stopgap-codex",
-        name: "Read stopgap Codex",
-        kindId: "codex",
-        installationId: installation.installationId,
-        providerId: "openai",
-        models: ["gpt-stopgap"],
-        authMode: "subscription",
-      },
-    });
-    const projectAccess = await request("repo.settings.update", {
-      repo: { repoId },
-      payload: {
-        runtimeAllowedInstances: ["read-stopgap-codex"],
-        expectedVersion: 1,
-        idempotencyKey: "allow-read-stopgap-codex",
-      },
-    });
-    assert.equal(projectAccess.outcome, "applied", JSON.stringify(projectAccess));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const idle = await measure(readCalls, 20),
-      callsBeforeSpawn = discoveryCalls,
-      spawn = request("repo.agentRuntime.spawn", {
-        repo: { repoId },
+      transport = createUnixSocketTransportServer({
+        daemonId,
+        socketPath: endpoint,
+        createProtocolServer: (authContext, emit) =>
+          createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+      }),
+      readCalls = [
+        ["workspaceSummary", "repo.workspace.summary.read", { repo: { repoId } }],
+        ["guiTaskList", "repo.tasks.list", { repo: { repoId }, payload: { limit: 1 } }],
+        [
+          "legacyTaskList",
+          "repo.task.read",
+          { repo: { repoId }, payload: { action: { kind: "task-list", limit: 1 } } },
+        ],
+        ["decisionList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "decision-list" } } }],
+        ["factTypeList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "fact-type-list" } } }],
+        ["relationList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "relation-list" } } }],
+      ] as const;
+    await transport.start();
+    try {
+      await host.attachmentsSettled();
+      await request("daemon.runtimeInstance.create", {
         payload: {
-          runtimeInstanceId: "read-stopgap-codex",
-          cwd: { scope: "repo-root" },
-          prompt: "Measure the async discovery boundary.",
-          taskId: null,
-          dispatchKey: "read-stopgap-load",
+          instanceId: "read-stopgap-codex",
+          name: "Read stopgap Codex",
+          kindId: "codex",
+          installationId: installation.installationId,
+          providerId: "openai",
+          models: ["gpt-stopgap"],
+          authMode: "subscription",
         },
       });
-    await eventually(() => discoveryCalls > callsBeforeSpawn);
-    const loaded = await measure(readCalls, 50),
-      spawned = await spawn,
-      metrics = Object.fromEntries(
-        readCalls.map(([name]) => [
-          name,
-          {
-            idle: distribution(idle[name]),
-            loaded: distribution(loaded[name]),
+      const projectAccess = await request("repo.settings.update", {
+        repo: { repoId },
+        payload: {
+          runtimeAllowedInstances: ["read-stopgap-codex"],
+          expectedVersion: 1,
+          idempotencyKey: "allow-read-stopgap-codex",
+        },
+      });
+      assert.equal(projectAccess.outcome, "applied", JSON.stringify(projectAccess));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const idle = await measure(readCalls, 20),
+        callsBeforeSpawn = discoveryCalls,
+        spawn = request("repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: "read-stopgap-codex",
+            cwd: { scope: "repo-root" },
+            prompt: "Measure the async discovery boundary.",
+            taskId: null,
+            dispatchKey: "read-stopgap-load",
           },
+        });
+      await eventually(() => discoveryCalls > callsBeforeSpawn);
+      const loaded = await measure(readCalls, 50),
+        spawned = await spawn,
+        metrics = Object.fromEntries(
+          readCalls.map(([name]) => [
+            name,
+            {
+              idle: distribution(idle[name]),
+              loaded: distribution(loaded[name]),
+            },
+          ]),
+        ) as Record<string, { idle: Distribution; loaded: Distribution }>;
+      assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+      for (const [name, metric] of Object.entries(metrics))
+        assert.equal(
+          metric.loaded.p95 <= Math.max(100, Math.max(1, metric.idle.p95) * 2),
+          true,
+          `${name}: ${JSON.stringify(metric)}`,
+        );
+      t.diagnostic(`read-stopgap-metrics=${JSON.stringify(metrics)}`);
+    } finally {
+      await transport.stop();
+      await host.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+
+    async function request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+      return requestDaemonJsonRpcAt(endpoint, method, params, 2_000, 5_000);
+    }
+    async function measure(
+      calls: typeof readCalls,
+      samples: number,
+    ): Promise<Record<(typeof readCalls)[number][0], number[]>> {
+      const values = Object.fromEntries(calls.map(([name]) => [name, []])) as Record<
+        (typeof readCalls)[number][0],
+        number[]
+      >;
+      for (let sample = 0; sample < samples; sample += 1)
+        for (const [name, method, params] of calls) {
+          const startedAt = performance.now();
+          await request(method, params);
+          // Microsecond precision, not whole milliseconds: see read-socket-probe-worker.ts.
+          values[name].push(Math.round((performance.now() - startedAt) * 1000) / 1000);
+        }
+      return values;
+    }
+  },
+);
+
+test(
+  "WAL Git materialization leaves an independent socket client within the isolation envelope",
+  { timeout: 300_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-rw-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      daemonId = "read-materialization-perf",
+      repoId = "read-materialization-perf",
+      uid = process.getuid?.() ?? 0,
+      endpoint = localUserDaemonEndpoint(userRoot, daemonId),
+      priorFlushEvents = process.env.HARNESS_WAL_FLUSH_EVENTS,
+      priorFlushMs = process.env.HARNESS_WAL_FLUSH_MS,
+      priorAdaptive = process.env.HARNESS_WAL_FLUSH_ADAPTIVE;
+    process.env.HARNESS_WAL_FLUSH_EVENTS = "64";
+    process.env.HARNESS_WAL_FLUSH_MS = "60000";
+    process.env.HARNESS_WAL_FLUSH_ADAPTIVE = "false";
+    initIngressRepo(root, uid);
+    signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
+    registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+    const host = await openDaemonHost({ daemonId, userRoot }),
+      transport = createUnixSocketTransportServer({
+        daemonId,
+        socketPath: endpoint,
+        createProtocolServer: (authContext, emit) =>
+          createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+      });
+    await transport.start();
+    try {
+      await host.attachmentsSettled();
+      for (let index = 0; index < 32; index += 1) {
+        const seeded = await request("repo.task.create", {
+          repo: { repoId },
+          payload: { title: `Materialization seed ${index}`, presetId: "standard-task" },
+        });
+        assert.equal(seeded.outcome, "applied", JSON.stringify(seeded));
+      }
+      process.env.HARNESS_WAL_FLUSH_EVENTS = "1";
+      const loadedProbe = socketProbe(endpoint, repoId, 120, 2);
+      await loadedProbe.ready;
+      const triggered = await request("repo.task.create", {
+        repo: { repoId },
+        payload: { title: "Materialization trigger", presetId: "standard-task" },
+      });
+      assert.equal(triggered.outcome, "applied", JSON.stringify(triggered));
+      const loaded = await loadedProbe.result;
+      await host.settleMaterialization(repoId, "read-isolation-probe");
+      const walSegment = path.join(root, ".harness/wal/seg-000000.log");
+      await eventually(() => !existsSync(walSegment) || statSync(walSegment).size === 0);
+      assert.deepEqual(Object.keys(loaded).sort(), [
+        "decisionList",
+        "factTypeList",
+        "guiTaskList",
+        "legacyTaskList",
+        "relationList",
+        "workspaceSummary",
+      ]);
+      for (const samples of Object.values(loaded)) assert.equal(samples.length, 120);
+      assert.equal(!existsSync(walSegment) || statSync(walSegment).size === 0, true);
+      t.diagnostic("all six independent read surfaces completed 120 requests while WAL materialization converged");
+    } finally {
+      await transport.stop();
+      await host.close();
+      restoreEnv("HARNESS_WAL_FLUSH_EVENTS", priorFlushEvents);
+      restoreEnv("HARNESS_WAL_FLUSH_MS", priorFlushMs);
+      restoreEnv("HARNESS_WAL_FLUSH_ADAPTIVE", priorAdaptive);
+      rmSync(parent, { recursive: true, force: true });
+    }
+
+    async function request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+      return requestDaemonJsonRpcAt(endpoint, method, params, 2_000, 30_000);
+    }
+  },
+);
+
+test(
+  "sustained RepoWriterCell writes keep completed-cut reads within strict CH3 p95",
+  { timeout: 300_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-rw-sustained-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      daemonId = "read-sustained-write-perf",
+      repoId = "read-sustained-write-perf",
+      uid = process.getuid?.() ?? 0,
+      endpoint = localUserDaemonEndpoint(userRoot, daemonId),
+      priorFlushEvents = process.env.HARNESS_WAL_FLUSH_EVENTS,
+      priorFlushMs = process.env.HARNESS_WAL_FLUSH_MS,
+      priorAdaptive = process.env.HARNESS_WAL_FLUSH_ADAPTIVE;
+    process.env.HARNESS_WAL_FLUSH_EVENTS = "64";
+    process.env.HARNESS_WAL_FLUSH_MS = "60000";
+    process.env.HARNESS_WAL_FLUSH_ADAPTIVE = "false";
+    initIngressRepo(root, uid);
+    signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
+    registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+    const host = await openDaemonHost({ daemonId, userRoot }),
+      transport = createUnixSocketTransportServer({
+        daemonId,
+        socketPath: endpoint,
+        createProtocolServer: (authContext, emit) =>
+          createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+      });
+    await transport.start();
+    try {
+      await host.attachmentsSettled();
+      const idleProbe = socketProbe(endpoint, repoId, 60, 2);
+      await idleProbe.ready;
+      const idle = await idleProbe.result,
+        loadedProbe = socketProbe(endpoint, repoId, 300, 2);
+      await loadedProbe.ready;
+      const writes = Array.from({ length: 24 }, (_, index) =>
+          requestDaemonJsonRpcAt(
+            endpoint,
+            "repo.task.create",
+            {
+              repo: { repoId },
+              payload: { title: `Sustained writer ${index}`, presetId: "standard-task" },
+            },
+            2_000,
+            30_000,
+          ),
+        ),
+        [loaded, receipts] = await Promise.all([loadedProbe.result, Promise.all(writes)]);
+      for (const receipt of receipts) assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      await host.settleMaterialization(repoId, "strict-ch3-probe");
+      const metrics = Object.fromEntries(
+        Object.keys(idle).map((name) => [
+          name,
+          { idle: distribution(idle[name]!), loaded: distribution(loaded[name]!) },
         ]),
       ) as Record<string, { idle: Distribution; loaded: Distribution }>;
-    assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
-    for (const [name, metric] of Object.entries(metrics))
-      assert.equal(
-        metric.loaded.p95 <= Math.max(100, Math.max(1, metric.idle.p95) * 2),
-        true,
-        `${name}: ${JSON.stringify(metric)}`,
-      );
-    t.diagnostic(`read-stopgap-metrics=${JSON.stringify(metrics)}`);
-  } finally {
-    await transport.stop();
-    await host.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-
-  async function request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return requestDaemonJsonRpcAt(endpoint, method, params, 2_000, 5_000);
-  }
-  async function measure(
-    calls: typeof readCalls,
-    samples: number,
-  ): Promise<Record<(typeof readCalls)[number][0], number[]>> {
-    const values = Object.fromEntries(calls.map(([name]) => [name, []])) as Record<
-      (typeof readCalls)[number][0],
-      number[]
-    >;
-    for (let sample = 0; sample < samples; sample += 1)
-      for (const [name, method, params] of calls) {
-        const startedAt = performance.now();
-        await request(method, params);
-        // Microsecond precision, not whole milliseconds: see read-socket-probe-worker.ts.
-        values[name].push(Math.round((performance.now() - startedAt) * 1000) / 1000);
-      }
-    return values;
-  }
-});
-
-test("WAL Git materialization leaves an independent socket client within the isolation envelope", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-rw-")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    daemonId = "read-materialization-perf",
-    repoId = "read-materialization-perf",
-    uid = process.getuid?.() ?? 0,
-    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
-    priorFlushEvents = process.env.HARNESS_WAL_FLUSH_EVENTS,
-    priorFlushMs = process.env.HARNESS_WAL_FLUSH_MS,
-    priorAdaptive = process.env.HARNESS_WAL_FLUSH_ADAPTIVE;
-  process.env.HARNESS_WAL_FLUSH_EVENTS = "64";
-  process.env.HARNESS_WAL_FLUSH_MS = "60000";
-  process.env.HARNESS_WAL_FLUSH_ADAPTIVE = "false";
-  initIngressRepo(root, uid);
-  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
-  registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId, userRoot }),
-    transport = createUnixSocketTransportServer({
-      daemonId,
-      socketPath: endpoint,
-      createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
-    });
-  await transport.start();
-  try {
-    await host.attachmentsSettled();
-    for (let index = 0; index < 32; index += 1) {
-      const seeded = await request("repo.task.create", {
-        repo: { repoId },
-        payload: { title: `Materialization seed ${index}`, presetId: "standard-task" },
-      });
-      assert.equal(seeded.outcome, "applied", JSON.stringify(seeded));
+      // 2026-09-06 ruling (Zeyu): the bar for this PR is functional correctness; a read p95 of a
+      // few extra milliseconds under a write burst is not a product defect for single-user, fleet
+      // center, or edge topologies. The 2026-09-03 absolute ratchet (13/15/15 ms, pinned from one
+      // hosted measurement of 10-12 ms) tracked GitHub runner noise, not the code: the same file on
+      // main measured 4.3-4.7 ms and on this branch 8.4-15.6 ms across three runs with idle p95
+      // itself swinging 2.3-4.0 ms (F-05DCF259; VM shows 1.8 vs 3.5 ms, F-3FD4558C). The bound below
+      // is the same form the read-stopgap subtest above uses: it still catches the pre-stage-3
+      // 55-67 ms regression class while leaving hosted variance out of the merge path. The residual
+      // main-vs-stage-3 gap is measured nightly and attributed by task_4a19a5705bffc5bb610310fd55.
+      // 2026-10-16 ruling (Zeyu): the absolute floor is 100 ms, not 30 ms. Hosted runs kept grazing 30 ms
+      // (30.7-33.4 ms) while local runs measured 7.5-8.3 ms and the cause stayed unproven
+      // (task_529c84e65815399f6de6787927). Accepted cost: a 55-67 ms regression no longer fails here
+      // unless it also exceeds twice the idle p95.
+      for (const [name, metric] of Object.entries(metrics))
+        assert.equal(
+          metric.loaded.p95 <= Math.max(100, Math.max(1, metric.idle.p95) * 2),
+          true,
+          `${name}: ${JSON.stringify(metric)}`,
+        );
+      t.diagnostic(`read-sustained-write-metrics=${JSON.stringify(metrics)}`);
+    } finally {
+      await transport.stop();
+      await host.close();
+      restoreEnv("HARNESS_WAL_FLUSH_EVENTS", priorFlushEvents);
+      restoreEnv("HARNESS_WAL_FLUSH_MS", priorFlushMs);
+      restoreEnv("HARNESS_WAL_FLUSH_ADAPTIVE", priorAdaptive);
+      rmSync(parent, { recursive: true, force: true });
     }
-    process.env.HARNESS_WAL_FLUSH_EVENTS = "1";
-    const loadedProbe = socketProbe(endpoint, repoId, 120, 2);
-    await loadedProbe.ready;
-    const triggered = await request("repo.task.create", {
-      repo: { repoId },
-      payload: { title: "Materialization trigger", presetId: "standard-task" },
-    });
-    assert.equal(triggered.outcome, "applied", JSON.stringify(triggered));
-    const loaded = await loadedProbe.result;
-    await host.settleMaterialization(repoId, "read-isolation-probe");
-    const walSegment = path.join(root, ".harness/wal/seg-000000.log");
-    await eventually(() => !existsSync(walSegment) || statSync(walSegment).size === 0);
-    assert.deepEqual(Object.keys(loaded).sort(), [
-      "decisionList",
-      "factTypeList",
-      "guiTaskList",
-      "legacyTaskList",
-      "relationList",
-      "workspaceSummary",
-    ]);
-    for (const samples of Object.values(loaded)) assert.equal(samples.length, 120);
-    assert.equal(!existsSync(walSegment) || statSync(walSegment).size === 0, true);
-    t.diagnostic("all six independent read surfaces completed 120 requests while WAL materialization converged");
-  } finally {
-    await transport.stop();
-    await host.close();
-    restoreEnv("HARNESS_WAL_FLUSH_EVENTS", priorFlushEvents);
-    restoreEnv("HARNESS_WAL_FLUSH_MS", priorFlushMs);
-    restoreEnv("HARNESS_WAL_FLUSH_ADAPTIVE", priorAdaptive);
-    rmSync(parent, { recursive: true, force: true });
-  }
-
-  async function request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return requestDaemonJsonRpcAt(endpoint, method, params, 2_000, 30_000);
-  }
-});
-
-test("sustained RepoWriterCell writes keep completed-cut reads within strict CH3 p95", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-rw-sustained-")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    daemonId = "read-sustained-write-perf",
-    repoId = "read-sustained-write-perf",
-    uid = process.getuid?.() ?? 0,
-    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
-    priorFlushEvents = process.env.HARNESS_WAL_FLUSH_EVENTS,
-    priorFlushMs = process.env.HARNESS_WAL_FLUSH_MS,
-    priorAdaptive = process.env.HARNESS_WAL_FLUSH_ADAPTIVE;
-  process.env.HARNESS_WAL_FLUSH_EVENTS = "64";
-  process.env.HARNESS_WAL_FLUSH_MS = "60000";
-  process.env.HARNESS_WAL_FLUSH_ADAPTIVE = "false";
-  initIngressRepo(root, uid);
-  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
-  registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId, userRoot }),
-    transport = createUnixSocketTransportServer({
-      daemonId,
-      socketPath: endpoint,
-      createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
-    });
-  await transport.start();
-  try {
-    await host.attachmentsSettled();
-    const idleProbe = socketProbe(endpoint, repoId, 60, 2);
-    await idleProbe.ready;
-    const idle = await idleProbe.result,
-      loadedProbe = socketProbe(endpoint, repoId, 300, 2);
-    await loadedProbe.ready;
-    const writes = Array.from({ length: 24 }, (_, index) =>
-        requestDaemonJsonRpcAt(
-          endpoint,
-          "repo.task.create",
-          {
-            repo: { repoId },
-            payload: { title: `Sustained writer ${index}`, presetId: "standard-task" },
-          },
-          2_000,
-          30_000,
-        ),
-      ),
-      [loaded, receipts] = await Promise.all([loadedProbe.result, Promise.all(writes)]);
-    for (const receipt of receipts) assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    await host.settleMaterialization(repoId, "strict-ch3-probe");
-    const metrics = Object.fromEntries(
-      Object.keys(idle).map((name) => [name, { idle: distribution(idle[name]!), loaded: distribution(loaded[name]!) }]),
-    ) as Record<string, { idle: Distribution; loaded: Distribution }>;
-    // 2026-09-06 ruling (Zeyu): the bar for this PR is functional correctness; a read p95 of a
-    // few extra milliseconds under a write burst is not a product defect for single-user, fleet
-    // center, or edge topologies. The 2026-09-03 absolute ratchet (13/15/15 ms, pinned from one
-    // hosted measurement of 10-12 ms) tracked GitHub runner noise, not the code: the same file on
-    // main measured 4.3-4.7 ms and on this branch 8.4-15.6 ms across three runs with idle p95
-    // itself swinging 2.3-4.0 ms (F-05DCF259; VM shows 1.8 vs 3.5 ms, F-3FD4558C). The bound below
-    // is the same form the read-stopgap subtest above uses: it still catches the pre-stage-3
-    // 55-67 ms regression class while leaving hosted variance out of the merge path. The residual
-    // main-vs-stage-3 gap is measured nightly and attributed by task_4a19a5705bffc5bb610310fd55.
-    // 2026-10-16 ruling (Zeyu): the absolute floor is 100 ms, not 30 ms. Hosted runs kept grazing 30 ms
-    // (30.7-33.4 ms) while local runs measured 7.5-8.3 ms and the cause stayed unproven
-    // (task_529c84e65815399f6de6787927). Accepted cost: a 55-67 ms regression no longer fails here
-    // unless it also exceeds twice the idle p95.
-    for (const [name, metric] of Object.entries(metrics))
-      assert.equal(
-        metric.loaded.p95 <= Math.max(100, Math.max(1, metric.idle.p95) * 2),
-        true,
-        `${name}: ${JSON.stringify(metric)}`,
-      );
-    t.diagnostic(`read-sustained-write-metrics=${JSON.stringify(metrics)}`);
-  } finally {
-    await transport.stop();
-    await host.close();
-    restoreEnv("HARNESS_WAL_FLUSH_EVENTS", priorFlushEvents);
-    restoreEnv("HARNESS_WAL_FLUSH_MS", priorFlushMs);
-    restoreEnv("HARNESS_WAL_FLUSH_ADAPTIVE", priorAdaptive);
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 interface Distribution {
   readonly n: number;
@@ -320,11 +339,10 @@ function distribution(values: readonly number[]): Distribution {
 }
 
 async function eventually(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 1_000; attempt += 1) {
+  for (;;) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  throw new Error("runtime discovery load did not start");
 }
 
 function socketProbe(

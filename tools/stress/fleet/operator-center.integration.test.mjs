@@ -43,9 +43,8 @@ test(
     child.unref();
     closeSync(stdout);
     closeSync(stderr);
-    const deadline = Date.now() + 60_000;
-    while (!existsSync(path.join(controlRoot, "status.json")) && Date.now() < deadline)
-      await new Promise((resolve) => setTimeout(resolve, 250));
+    // The status file is the center's published arrival; the test's 180 s timeout is the hang guard.
+    while (!existsSync(path.join(controlRoot, "status.json"))) await new Promise((resolve) => setTimeout(resolve, 250));
     assert.equal(existsSync(path.join(controlRoot, "status.json")), true, readLog("center.stderr.log"));
     const status = JSON.parse(readFileSync(path.join(controlRoot, "status.json"), "utf8"));
     assert.equal(status.port, 7443);

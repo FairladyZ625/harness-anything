@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import assert from "node:assert/strict";
@@ -9,7 +10,7 @@ import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
-import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
+import { scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("edge terminal task settlement rejects a changed node owner", { timeout: 120_000 }, async (t) => {
@@ -101,14 +102,16 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 12
   assert.equal(launched.outcome, "applied", JSON.stringify(launched));
   assert.ok(terminal);
   const events = () => makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo }).read().events;
-  await eventually(
-    async () =>
+  await waitForArrival(
+    () =>
       events().some(
         (event) =>
           event.type === "runtime_session_liveness_changed" &&
           event.payload.runtimeSessionId === launched.runtimeSessionId,
-      ),
-    "runtime session liveness to reach the center journal",
+      )
+        ? true
+        : null,
+    watchLedgerArrival(fixture.repo),
   );
   const live = events().find(
     (event) =>
@@ -169,7 +172,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 12
   fixture.setOwner("person-owner");
   await syncReplica();
   await runtime.reconcile();
-  await eventually(async () => outcomes().length > 0, "recovered runtime terminal outcome to be recorded");
+  await waitForArrival(() => (outcomes().length > 0 ? true : null), watchLedgerArrival(fixture.repo));
   // dec_614F7BBB18C8687E7EFC72173D: no recorded process means no exit evidence, so outcome stays unknown.
   assert.equal(outcomes()[0]?.outcome, "unknown", JSON.stringify(outcomes()));
   // Ownership is rejected before archive publication. The injected PID is recorded in
@@ -304,7 +307,7 @@ for (const restart of [false, true])
               event.payload.runtimeSessionId === launched.runtimeSessionId,
           )
           .map((event) => event.payload);
-      await eventually(async () => outcomes().length > 0, "recovered runtime terminal outcome to be recorded");
+      await waitForArrival(() => (outcomes().length > 0 ? true : null), watchLedgerArrival(fixture.repo));
       assert.equal(outcomes().length, 1, "recovery publishes one canonical terminal outcome");
       await syncReplica();
       await runtime.reconcile();

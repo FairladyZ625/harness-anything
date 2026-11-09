@@ -9,6 +9,7 @@ import { openDaemonDiagnostics } from "../src/daemon-diagnostics.ts";
 import { withDaemonObservation, observeDaemonOperation, markDaemonOperationPhase } from "../src/daemon-operation.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { measureCpuWindow } from "./fixtures/diagnostics-cpu-window.ts";
 
 const REGISTRATIONS_PER_SECOND = 100,
   REGISTRATIONS_PER_TICK = REGISTRATIONS_PER_SECOND / 10, // one 100 ms tick
@@ -22,28 +23,6 @@ const REGISTRATIONS_PER_SECOND = 100,
 // workload that produces the CPU: registrations are published through the shared in-flight table,
 // so no registration may cross the thread boundary as a message (or as a batch of them), and no
 // registration may persist a record. Total CPU is still asserted against the unchanged 2 % budget.
-async function measure(ticks: number, work: () => void) {
-  const cpu = process.cpuUsage(),
-    start = performance.now();
-  await new Promise<void>((resolve) => {
-    let done = 0;
-    const timer = setInterval(() => {
-      for (let node = 0; node < REGISTRATIONS_PER_TICK; node++) work();
-      if (++done === ticks) {
-        clearInterval(timer);
-        resolve();
-      }
-    }, 100);
-  });
-  const usage = process.cpuUsage(cpu),
-    elapsedMs = performance.now() - start;
-  return {
-    cpuMs: (usage.user + usage.system) / 1_000,
-    elapsedMs,
-    cpuPercent: (usage.user + usage.system) / (elapsedMs * 10),
-  };
-}
-
 // Count the real main-thread → worker messages, not observer calls, so a per-registration send or a
 // batch send fails even when it bypasses the observer contract.
 function monitorWorkerMessages() {
@@ -80,15 +59,17 @@ test(
       const diagnostics = await openDaemonDiagnostics({ userRoot: root, daemonId: "cpu", endpoint }),
         monitored = monitorWorkerMessages(),
         held = diagnostics.observer.begin({ method: "fixture.held", phase: "measuring" });
-      let observed: Awaited<ReturnType<typeof measure>> = { cpuMs: 0, elapsedMs: 1, cpuPercent: 0 };
+      let observed: Awaited<ReturnType<typeof measureCpuWindow>> = { cpuMs: 0, elapsedMs: 1, cpuPercent: 0 };
       const messages = { begin: 0, update: 0, end: 0, batches: 0, other: 0 };
       try {
         // Settle the worker's one-time startup and JIT outside the measured window; otherwise the
         // first window reports startup as resident overhead and overstates the budget.
-        await withDaemonObservation(diagnostics.observer, () => measure(10, register));
+        await withDaemonObservation(diagnostics.observer, () => measureCpuWindow(10, REGISTRATIONS_PER_TICK, register));
         const firstMeasuredMessage = monitored.types.length,
           firstMeasuredRegistration = registrations;
-        observed = await withDaemonObservation(diagnostics.observer, () => measure(MEASURED_TICKS, register));
+        observed = await withDaemonObservation(diagnostics.observer, () =>
+          measureCpuWindow(MEASURED_TICKS, REGISTRATIONS_PER_TICK, register),
+        );
         for (const type of monitored.types.slice(firstMeasuredMessage)) {
           if (type === "begin") messages.begin += 1;
           else if (type === "update") messages.update += 1;

@@ -1,8 +1,8 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { eventually } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -220,7 +220,10 @@ test(
 
         // Wait for the spawner to subscribe the stub's listeners, then observe
         // the transcript through the same runtime attach surface exposed to clients.
-        await eventually(() => output !== null && exit !== null, "scheduled spawn output listener subscription");
+        await waitForArrival(
+          async () => ((await (() => output !== null && exit !== null)()) ? true : null),
+          watchDirectoryArrival(root),
+        );
         const runtimeSessionId = running.activeRun!.runtimeSessionId;
         assert.notEqual(runtimeSessionId, null);
         const attached = await cell.attach(runtimeSessionId!, "stream:0");
@@ -248,14 +251,20 @@ test(
           attached.detach();
         }
         exit?.(0);
-        await eventually(async () => {
-          const read = await list();
-          const row = read.schedules[0] as ScheduleGuiRowDto;
-          if (row.activeRun !== null || row.lastRun === null) return false;
-          if (row.lastRun.outcome !== "succeeded")
-            throw new Error(`settlement outcome was ${row.lastRun.outcome}: ${row.lastRun.detail ?? ""}`);
-          return true;
-        }, "scheduled run to settle");
+        await waitForArrival(
+          async () =>
+            (await (async () => {
+              const read = await list();
+              const row = read.schedules[0] as ScheduleGuiRowDto;
+              if (row.activeRun !== null || row.lastRun === null) return false;
+              if (row.lastRun.outcome !== "succeeded")
+                throw new Error(`settlement outcome was ${row.lastRun.outcome}: ${row.lastRun.detail ?? ""}`);
+              return true;
+            })())
+              ? true
+              : null,
+          watchDirectoryArrival(root),
+        );
         const afterRun = (await list()).schedules[0] as ScheduleGuiRowDto;
         assert.notEqual(afterRun.lastRun!.runtimeSessionId, null);
         assert.equal(afterRun.lastRun!.nodeId, "local");

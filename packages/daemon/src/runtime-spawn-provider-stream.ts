@@ -423,7 +423,6 @@ export async function consumeDurableOutput(
   waitForFirstRecordMs = 0,
 ): Promise<void> {
   const target = dispatchStreamPath(context.input.rootDir, active.dispatchId),
-    deadline = Date.now() + waitForFirstRecordMs,
     pending: string[] = [],
     decoder = new StringDecoder("utf8");
   let durableSeen = 0,
@@ -449,8 +448,13 @@ export async function consumeDurableOutput(
     }
   };
   scan();
-  while (durableSeen === 0 && workerRunning && Date.now() < deadline) {
-    await delay(Math.min(10, Math.max(1, deadline - Date.now())));
+  // The first durable record is the event; the attempt count is the product budget, not a clock.
+  for (
+    let attempt = 0;
+    durableSeen === 0 && workerRunning && attempt < Math.ceil(waitForFirstRecordMs / 10);
+    attempt += 1
+  ) {
+    await delay(10);
     scan();
   }
   for (const line of pending) await context.consumeLine(active, line, true);

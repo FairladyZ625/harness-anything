@@ -35,6 +35,7 @@ import {
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 /** Real relay sockets share one per-user namespace across concurrently running test files,
  * so every live-socket test mints its own dispatch id instead of reusing a fixed one. */
@@ -42,7 +43,7 @@ const uniqueDispatchId = (): string => `dispatch_${randomBytes(12).toString("hex
 
 test(
   "callback relay attributes a credential-omitting runtime write to its execution",
-  { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
+  { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32", timeout: 60_000 },
   async () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-identity-")),
       userRoot = path.join(parent, "daemon-user"),
@@ -90,6 +91,7 @@ test(
         `import net from "node:net"; let buffered = ""; let sentWrite = false; const socket = net.createConnection(process.env.HARNESS_DAEMON_ENDPOINT); socket.on("connect", () => socket.write(${JSON.stringify(`${JSON.stringify(hello)}\n`)})); socket.on("data", (chunk) => { buffered += chunk.toString("utf8"); const lines = buffered.split("\\n"); buffered = lines.pop() ?? ""; for (const line of lines) { const frame = JSON.parse(line); if (frame.id === 1 && !sentWrite) { sentWrite = true; socket.write(${JSON.stringify(`${JSON.stringify(write)}\n`)}); } else if (frame.id === 2) { socket.destroy(); process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: "callback-relay-identity" }) + "\\n"); process.exit(0); } } });`,
       );
     let recordedActor: unknown;
+    const actorWaiters = new Set<() => void>();
     const privateServer = net.createServer((socket) => {
       serveJsonRpcStream({
         input: socket,
@@ -103,6 +105,7 @@ test(
                 recordedActor = auth.executionPrincipal
                   ? runtimeExecutionActor(auth.executionPrincipal)
                   : { principal: { personId: auth.oidcPrincipal?.personId }, executor: null };
+                for (const wake of actorWaiters) wake();
                 return { outcome: "applied" };
               },
             } as never,
@@ -145,7 +148,13 @@ test(
         } as never,
         { rootDir: root, dispatchId, callbackRelay: spec },
       );
-      await eventuallyRelay(() => recordedActor !== undefined);
+      await waitForArrival(
+        () => (recordedActor !== undefined ? true : null),
+        (arrive) => {
+          actorWaiters.add(arrive);
+          return () => actorWaiters.delete(arrive);
+        },
+      );
       assert.deepEqual(recordedActor, {
         principal: { personId: "owner" },
         executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
@@ -423,7 +432,7 @@ for (const forceTerminate of [false, true])
     forceTerminate
       ? "adopted observer cleans up the relay after forced termination"
       : "observer release preserves a live relay until the worker settles",
-    { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
+    { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32", timeout: 60_000 },
     async () => {
       const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-release-")),
         root = path.join(parent, "repo"),
@@ -484,8 +493,32 @@ for (const forceTerminate of [false, true])
           },
           { rootDir: root, dispatchId, callbackRelay: spec },
         );
-        await eventuallyRelay(() => existsSync(marker) && existsSync(spec.path));
-        assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), { endpoint: spec.path, userRoot, daemonId });
+        const startedRecord = await waitForArrival(
+          () => {
+            if (!existsSync(spec.path)) return null;
+            try {
+              return JSON.parse(readFileSync(marker, "utf8")) as {
+                endpoint: string;
+                userRoot: string;
+                daemonId: string;
+              };
+            } catch (error) {
+              // The provider creates the marker inode before writing its bytes; a partial record is
+              // not an arrival yet.
+              if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT") return null;
+              throw error;
+            }
+          },
+          (arrive) => {
+            const stopMarker = watchFileArrival(marker)(arrive),
+              stopSocket = watchFileArrival(spec.path)(arrive);
+            return () => {
+              stopMarker();
+              stopSocket();
+            };
+          },
+        );
+        assert.deepEqual(startedRecord, { endpoint: spec.path, userRoot, daemonId });
         runtime.release?.();
         assert.equal(existsSync(spec.path), true);
         const adopted = adoptNativeProcess(root, dispatchId, runtime.pid);
@@ -505,7 +538,7 @@ for (const forceTerminate of [false, true])
           adopted.release?.();
         }
         writeFileSync(settle, "settle");
-        await eventuallyRelay(() => !existsSync(spec.path));
+        await waitForArrival(() => (!existsSync(spec.path) ? true : null), watchFileArrival(spec.path));
       } finally {
         await runtime?.terminateTree?.();
         await new Promise<void>((resolve) => privateServer.close(() => resolve()));
@@ -617,14 +650,6 @@ async function echo(endpoint: string, payload: string): Promise<string> {
   } finally {
     client.destroy();
   }
-}
-
-async function eventuallyRelay(check: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    if (check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("callback relay did not start");
 }
 
 async function listen(server: net.Server, endpoint: string): Promise<void> {

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -19,386 +20,396 @@ import {
   initIngressRepo,
   rpc,
   rpcAttach,
-  eventually,
-  eventuallyValue,
   writeProviderStub,
   installationFixture,
   spawnCli,
 } from "./fixtures/runtime-ingress.ts";
 
-test("daemon ingress persists scrubbed provider JSONL while returning canonical results for both runtime kinds", async (t) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-provider-events-")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    repoId = "runtime-provider-events",
-    uid = process.getuid?.() ?? 0;
-  initIngressRepo(root, uid);
-  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
-  registerDaemonRepo({
-    canonicalRoot: root,
-    repoId,
-    userRoot,
-    createConvenienceLinks: false,
-  });
-  const installations = (["claude", "codex"] as const).map((kindId) => {
-    const executablePath = writeProviderStub(
-      path.join(parent, `${kindId}-stub.mjs`),
-      kindId,
-      undefined,
-      kindId === "claude" ? 1_000 : 40,
-    );
-    return {
-      installationId: `installation-${kindId}`,
-      kindId,
-      executablePath,
-      version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
-      observedAt: "2026-08-19T00:00:00.000Z",
-    } as const;
-  });
-  const auth = {
-      transportKind: "unix-socket",
-      unixSocketOwnerBoundary: {
-        ownerUid: uid,
-        source: "unix-socket-filesystem-owner-boundary",
-      },
-    } as const,
-    host = await openDaemonHost({
-      daemonId: "runtime-provider-events",
+test(
+  "daemon ingress persists scrubbed provider JSONL while returning canonical results for both runtime kinds",
+  { timeout: 300_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-provider-events-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      repoId = "runtime-provider-events",
+      uid = process.getuid?.() ?? 0;
+    initIngressRepo(root, uid);
+    signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
+    registerDaemonRepo({
+      canonicalRoot: root,
+      repoId,
       userRoot,
-      runtimeDiscover: () => installations,
+      createConvenienceLinks: false,
     });
-  await host.attachmentsSettled();
-  try {
-    for (const kindId of ["claude", "codex"] as const)
+    const installations = (["claude", "codex"] as const).map((kindId) => {
+      const executablePath = writeProviderStub(
+        path.join(parent, `${kindId}-stub.mjs`),
+        kindId,
+        undefined,
+        kindId === "claude" ? 1_000 : 40,
+      );
+      return {
+        installationId: `installation-${kindId}`,
+        kindId,
+        executablePath,
+        version: kindId === "claude" ? "2.1.305 (Claude Code)" : "1.0.0",
+        observedAt: "2026-08-19T00:00:00.000Z",
+      } as const;
+    });
+    const auth = {
+        transportKind: "unix-socket",
+        unixSocketOwnerBoundary: {
+          ownerUid: uid,
+          source: "unix-socket-filesystem-owner-boundary",
+        },
+      } as const,
+      host = await openDaemonHost({
+        daemonId: "runtime-provider-events",
+        userRoot,
+        runtimeDiscover: () => installations,
+      });
+    await host.attachmentsSettled();
+    try {
+      for (const kindId of ["claude", "codex"] as const)
+        await host.runtimeInstance(
+          "daemon.runtimeInstance.create",
+          {
+            instanceId: `${kindId}-provider`,
+            name: `${kindId} provider`,
+            kindId,
+            installationId: `installation-${kindId}`,
+            providerId: kindId === "claude" ? "anthropic" : "openai",
+            models: [`${kindId}-model`],
+            authMode: "subscription",
+          },
+          auth,
+        );
       await host.runtimeInstance(
         "daemon.runtimeInstance.create",
         {
-          instanceId: `${kindId}-provider`,
-          name: `${kindId} provider`,
-          kindId,
-          installationId: `installation-${kindId}`,
-          providerId: kindId === "claude" ? "anthropic" : "openai",
-          models: [`${kindId}-model`],
+          instanceId: "codex-read-only",
+          name: "codex read only",
+          kindId: "codex",
+          installationId: "installation-codex",
+          providerId: "openai",
+          models: ["codex-model"],
+          permissionMode: "read-only",
           authMode: "subscription",
         },
         auth,
       );
-    await host.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: "codex-read-only",
-        name: "codex read only",
-        kindId: "codex",
-        installationId: "installation-codex",
-        providerId: "openai",
-        models: ["codex-model"],
-        permissionMode: "read-only",
-        authMode: "subscription",
-      },
-      auth,
-    );
-    for (const kindId of ["claude", "codex"] as const)
-      await t.test(kindId, async () => {
-        const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+      for (const kindId of ["claude", "codex"] as const)
+        await t.test(kindId, async () => {
+          const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+            repo: { repoId },
+            payload: {
+              runtimeInstanceId: `${kindId}-provider`,
+              cwd: { scope: "repo-root" },
+              prompt: `Run ${kindId}`,
+              taskId: null,
+              dispatchKey: `${kindId}-provider-events`,
+            },
+          });
+          assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+          // Keep Claude active while its first message is already buffered so it covers the attach
+          // response's replay path; Codex continues to cover live notifications after attachment.
+          if (kindId === "claude") await new Promise((resolve) => setTimeout(resolve, 2_000));
+          const frames: Record<string, unknown>[] = [],
+            attached = await rpcAttach(host, auth, repoId, String(receipt.runtimeSessionId), frames);
+          try {
+            await waitForArrival(
+              async () =>
+                (await (async () =>
+                  frames.some(
+                    (frame) =>
+                      frame.type === "activity" &&
+                      frame.activity === "message" &&
+                      frame.content === `${kindId} live content`,
+                  ))())
+                  ? true
+                  : null,
+              watchDirectoryArrival(parent),
+            );
+            const read = await waitForArrival(async () => {
+              const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+                repo: { repoId },
+                payload: { runtimeSessionId: receipt.runtimeSessionId },
+              });
+              return value.result ? value : null;
+            }, watchDirectoryArrival(parent));
+            assert.equal((read.session as Record<string, unknown>).providerSessionId, `${kindId}-provider-session`);
+            assert.deepEqual((read.session as { activity: unknown }).activity, {
+              lastObservedAt: (read.session as { activity: { lastObservedAt: string } }).activity.lastObservedAt,
+              outcome: "succeeded",
+              exitCode: 0,
+              resultRef: (read.result as Record<string, unknown>).ref,
+              missingEvidence: null,
+            });
+            assert.deepEqual(read.result, {
+              ref: (read.result as Record<string, unknown>).ref,
+              text: `${kindId} final result`,
+            });
+            assert.match(
+              String((read.result as Record<string, unknown>).ref),
+              /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u,
+            );
+            const stream = await waitForArrival(() => {
+              const value = readDispatchStream(root, receipt.dispatchId);
+              return value ? value.records.map((record) => JSON.stringify(record)).join("\n") : null;
+            }, watchDirectoryArrival(parent));
+            assert.match(stream, /"kind":"provider_event"/u);
+            if (kindId === "codex") {
+              assert.doesNotMatch(
+                stream,
+                /credentialRef|executablePath|apiToken|sk-provider-secret|\/provider\/private/u,
+              );
+            }
+            // A readable local terminal result does not imply canonical publication has finished.
+            const outcome = await waitForArrival(
+              () =>
+                makeTaskEventReader({ repoId, rootDir: root })
+                  .read()
+                  .events.find(
+                    (event) =>
+                      event.type === "runtime_session_outcome_observed" &&
+                      event.payload.runtimeSessionId === receipt.runtimeSessionId,
+                  ) ?? null,
+              watchDirectoryArrival(parent),
+            );
+            assert.equal(outcome?.type, "runtime_session_outcome_observed");
+            if (outcome?.type === "runtime_session_outcome_observed") {
+              assert.equal(outcome.payload.outcome, "succeeded");
+              assert.equal(outcome.payload.exitCode, 0);
+              assert.equal(
+                Buffer.from(
+                  makeTaskEventReader({ repoId, rootDir: root }).readContentBlob(outcome.payload.result!.sha256)!,
+                ).toString("utf8"),
+                `${kindId} final result`,
+              );
+            }
+          } finally {
+            attached.close();
+          }
+        });
+      const readOnly = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: "codex-read-only",
+          agentId: "ask-agent",
+          model: "codex-model",
+          cwd: { scope: "repo-root" },
+          prompt: "read-only",
+          taskId: null,
+          dispatchKey: "codex-read-only",
+        },
+      });
+      assert.equal(readOnly.outcome, "applied", JSON.stringify(readOnly));
+      const readOnlyRead = await waitForArrival(async () => {
+        const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+          repo: { repoId },
+          payload: { runtimeSessionId: readOnly.runtimeSessionId },
+        });
+        // A read racing the writer's projection catch-up can observe the session before it is
+        // projected (runtime_session_not_found), which returns a receipt with no `session` at
+        // all -- keep polling rather than crashing on that transient shape.
+        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+      }, watchDirectoryArrival(parent));
+      assert.deepEqual(
+        (
+          readOnlyRead.session as {
+            activity: { outcome: unknown; exitCode: unknown };
+          }
+        ).activity && {
+          outcome: (readOnlyRead.session as { activity: { outcome: unknown } }).activity.outcome,
+          exitCode: (readOnlyRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
+        },
+        { outcome: "succeeded", exitCode: 0 },
+      );
+      const noAction = await rpc(host, auth, "repo.agentRuntime.spawn", {
           repo: { repoId },
           payload: {
-            runtimeInstanceId: `${kindId}-provider`,
+            runtimeInstanceId: "codex-provider",
             cwd: { scope: "repo-root" },
-            prompt: `Run ${kindId}`,
+            prompt: "no-action",
             taskId: null,
-            dispatchKey: `${kindId}-provider-events`,
+            dispatchKey: "codex-no-action",
+          },
+        }),
+        noActionRead = await waitForArrival(async () => {
+          const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+            repo: { repoId },
+            payload: { runtimeSessionId: noAction.runtimeSessionId },
+          });
+          // A read racing the writer's projection catch-up can observe the session before it is
+          // projected (runtime_session_not_found), which returns a receipt with no `session` at
+          // all -- keep polling rather than crashing on that transient shape.
+          return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+        }, watchDirectoryArrival(parent));
+      assert.deepEqual(
+        (
+          noActionRead.session as {
+            activity: { outcome: unknown; exitCode: unknown };
+          }
+        ).activity && {
+          outcome: (noActionRead.session as { activity: { outcome: unknown } }).activity.outcome,
+          exitCode: (noActionRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
+        },
+        { outcome: "succeeded", exitCode: 0 },
+      );
+      const noWrite = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: "codex-provider",
+            cwd: { scope: "repo-root" },
+            prompt: "no-write",
+            taskId: null,
+            dispatchKey: "codex-no-write",
+          },
+        }),
+        noWriteRead = await waitForArrival(async () => {
+          const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+            repo: { repoId },
+            payload: { runtimeSessionId: noWrite.runtimeSessionId },
+          });
+          // A read racing the writer's projection catch-up can observe the session before it is
+          // projected (runtime_session_not_found), which returns a receipt with no `session` at
+          // all -- keep polling rather than crashing on that transient shape.
+          return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+        }, watchDirectoryArrival(parent));
+      assert.deepEqual(
+        (
+          noWriteRead.session as {
+            activity: { outcome: unknown; exitCode: unknown };
+          }
+        ).activity && {
+          outcome: (noWriteRead.session as { activity: { outcome: unknown } }).activity.outcome,
+          exitCode: (noWriteRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
+        },
+        { outcome: "succeeded", exitCode: 0 },
+      );
+      const denied = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: "claude-provider",
+            cwd: { scope: "repo-root" },
+            prompt: "permission-denied",
+            taskId: null,
+            dispatchKey: "claude-permission-denied",
+          },
+        }),
+        deniedRead = await waitForArrival(async () => {
+          const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+            repo: { repoId },
+            payload: { runtimeSessionId: denied.runtimeSessionId },
+          });
+          // A read racing the writer's projection catch-up can observe the session before it is
+          // projected (runtime_session_not_found), which returns a receipt with no `session` at
+          // all -- keep polling rather than crashing on that transient shape.
+          return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+        }, watchDirectoryArrival(parent));
+      // Permission denials prevent a successful delivery witness. A final message and normal exit
+      // still produce a named failed turn instead of treating exit 0 as a delivery receipt.
+      assert.deepEqual(
+        (
+          deniedRead.session as {
+            activity: { outcome: unknown; exitCode: unknown };
+          }
+        ).activity && {
+          outcome: (deniedRead.session as { activity: { outcome: unknown } }).activity.outcome,
+          exitCode: (deniedRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
+        },
+        { outcome: "failed", exitCode: 0 },
+      );
+      const empty = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: "codex-provider",
+          cwd: { scope: "repo-root" },
+          prompt: "failure:empty",
+          taskId: null,
+          dispatchKey: "codex-empty-failure",
+        },
+      });
+      const emptyRead = await waitForArrival(async () => {
+        const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+          repo: { repoId },
+          payload: { runtimeSessionId: empty.runtimeSessionId },
+        });
+        // See the comment above the first occurrence of this guard: a read racing the writer's
+        // projection catch-up can return a receipt with no `session` yet.
+        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+      }, watchDirectoryArrival(parent));
+      assert.deepEqual(
+        (
+          emptyRead.session as {
+            activity: { outcome: unknown; exitCode: unknown };
+          }
+        ).activity && {
+          outcome: (emptyRead.session as { activity: { outcome: unknown } }).activity.outcome,
+          exitCode: (emptyRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
+        },
+        { outcome: "failed", exitCode: 1 },
+      );
+      assert.match(
+        String((emptyRead.result as Record<string, unknown>).text),
+        /^Provider exited with code 1 and produced no output\./u,
+      );
+      const secret = "sk-runtime-secret-1234567890",
+        stderrFailure = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: "codex-provider",
+            cwd: { scope: "repo-root" },
+            prompt: "failure:secret",
+            taskId: null,
+            dispatchKey: "codex-stderr-failure",
           },
         });
-        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-        // Keep Claude active while its first message is already buffered so it covers the attach
-        // response's replay path; Codex continues to cover live notifications after attachment.
-        if (kindId === "claude") await new Promise((resolve) => setTimeout(resolve, 2_000));
-        const frames: Record<string, unknown>[] = [],
-          attached = await rpcAttach(host, auth, repoId, String(receipt.runtimeSessionId), frames);
-        try {
-          await eventually(async () =>
-            frames.some(
-              (frame) =>
-                frame.type === "activity" && frame.activity === "message" && frame.content === `${kindId} live content`,
-            ),
-          );
-          const read = await eventuallyValue(async () => {
-            const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-              repo: { repoId },
-              payload: { runtimeSessionId: receipt.runtimeSessionId },
-            });
-            return value.result ? value : null;
-          });
-          assert.equal((read.session as Record<string, unknown>).providerSessionId, `${kindId}-provider-session`);
-          assert.deepEqual((read.session as { activity: unknown }).activity, {
-            lastObservedAt: (read.session as { activity: { lastObservedAt: string } }).activity.lastObservedAt,
-            outcome: "succeeded",
-            exitCode: 0,
-            resultRef: (read.result as Record<string, unknown>).ref,
-            missingEvidence: null,
-          });
-          assert.deepEqual(read.result, {
-            ref: (read.result as Record<string, unknown>).ref,
-            text: `${kindId} final result`,
-          });
-          assert.match(
-            String((read.result as Record<string, unknown>).ref),
-            /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u,
-          );
-          const stream = await eventuallyValue(() => {
-            const value = readDispatchStream(root, receipt.dispatchId);
-            return value ? value.records.map((record) => JSON.stringify(record)).join("\n") : null;
-          });
-          assert.match(stream, /"kind":"provider_event"/u);
-          if (kindId === "codex") {
-            assert.doesNotMatch(
-              stream,
-              /credentialRef|executablePath|apiToken|sk-provider-secret|\/provider\/private/u,
-            );
-          }
-          // A readable local terminal result does not imply canonical publication has finished.
-          const outcome = await eventuallyValue(
-            () =>
-              makeTaskEventReader({ repoId, rootDir: root })
-                .read()
-                .events.find(
-                  (event) =>
-                    event.type === "runtime_session_outcome_observed" &&
-                    event.payload.runtimeSessionId === receipt.runtimeSessionId,
-                ) ?? null,
-          );
-          assert.equal(outcome?.type, "runtime_session_outcome_observed");
-          if (outcome?.type === "runtime_session_outcome_observed") {
-            assert.equal(outcome.payload.outcome, "succeeded");
-            assert.equal(outcome.payload.exitCode, 0);
-            assert.equal(
-              Buffer.from(
-                makeTaskEventReader({ repoId, rootDir: root }).readContentBlob(outcome.payload.result!.sha256)!,
-              ).toString("utf8"),
-              `${kindId} final result`,
-            );
-          }
-        } finally {
-          attached.close();
-        }
-      });
-    const readOnly = await rpc(host, auth, "repo.agentRuntime.spawn", {
-      repo: { repoId },
-      payload: {
-        runtimeInstanceId: "codex-read-only",
-        agentId: "ask-agent",
-        model: "codex-model",
-        cwd: { scope: "repo-root" },
-        prompt: "read-only",
-        taskId: null,
-        dispatchKey: "codex-read-only",
-      },
-    });
-    assert.equal(readOnly.outcome, "applied", JSON.stringify(readOnly));
-    const readOnlyRead = await eventuallyValue(async () => {
-      const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-        repo: { repoId },
-        payload: { runtimeSessionId: readOnly.runtimeSessionId },
-      });
-      // A read racing the writer's projection catch-up can observe the session before it is
-      // projected (runtime_session_not_found), which returns a receipt with no `session` at
-      // all -- keep polling rather than crashing on that transient shape.
-      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
-    assert.deepEqual(
-      (
-        readOnlyRead.session as {
-          activity: { outcome: unknown; exitCode: unknown };
-        }
-      ).activity && {
-        outcome: (readOnlyRead.session as { activity: { outcome: unknown } }).activity.outcome,
-        exitCode: (readOnlyRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
-      },
-      { outcome: "succeeded", exitCode: 0 },
-    );
-    const noAction = await rpc(host, auth, "repo.agentRuntime.spawn", {
+      const stderrRead = await waitForArrival(async () => {
+        const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+          repo: { repoId },
+          payload: { runtimeSessionId: stderrFailure.runtimeSessionId },
+        });
+        // See the comment above the first occurrence of this guard: a read racing the writer's
+        // projection catch-up can return a receipt with no `session` yet.
+        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
+      }, watchDirectoryArrival(parent));
+      assert.match(
+        String((stderrRead.result as Record<string, unknown>).text),
+        /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u,
+      );
+      assert.doesNotMatch(JSON.stringify(stderrRead), new RegExp(secret, "u"));
+      assert.doesNotMatch(JSON.stringify(readDispatchStream(root, stderrFailure.dispatchId)), new RegExp(secret, "u"));
+      const structured = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {
           runtimeInstanceId: "codex-provider",
           cwd: { scope: "repo-root" },
-          prompt: "no-action",
+          prompt: "failure:structured",
           taskId: null,
-          dispatchKey: "codex-no-action",
+          dispatchKey: "codex-structured-failure",
         },
-      }),
-      noActionRead = await eventuallyValue(async () => {
+      });
+      const structuredRead = await waitForArrival(async () => {
         const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
           repo: { repoId },
-          payload: { runtimeSessionId: noAction.runtimeSessionId },
+          payload: { runtimeSessionId: structured.runtimeSessionId },
         });
-        // A read racing the writer's projection catch-up can observe the session before it is
-        // projected (runtime_session_not_found), which returns a receipt with no `session` at
-        // all -- keep polling rather than crashing on that transient shape.
+        // See the comment above the first occurrence of this guard: a read racing the writer's
+        // projection catch-up can return a receipt with no `session` yet.
         return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-      });
-    assert.deepEqual(
-      (
-        noActionRead.session as {
-          activity: { outcome: unknown; exitCode: unknown };
-        }
-      ).activity && {
-        outcome: (noActionRead.session as { activity: { outcome: unknown } }).activity.outcome,
-        exitCode: (noActionRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
-      },
-      { outcome: "succeeded", exitCode: 0 },
-    );
-    const noWrite = await rpc(host, auth, "repo.agentRuntime.spawn", {
-        repo: { repoId },
-        payload: {
-          runtimeInstanceId: "codex-provider",
-          cwd: { scope: "repo-root" },
-          prompt: "no-write",
-          taskId: null,
-          dispatchKey: "codex-no-write",
-        },
-      }),
-      noWriteRead = await eventuallyValue(async () => {
-        const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-          repo: { repoId },
-          payload: { runtimeSessionId: noWrite.runtimeSessionId },
-        });
-        // A read racing the writer's projection catch-up can observe the session before it is
-        // projected (runtime_session_not_found), which returns a receipt with no `session` at
-        // all -- keep polling rather than crashing on that transient shape.
-        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-      });
-    assert.deepEqual(
-      (
-        noWriteRead.session as {
-          activity: { outcome: unknown; exitCode: unknown };
-        }
-      ).activity && {
-        outcome: (noWriteRead.session as { activity: { outcome: unknown } }).activity.outcome,
-        exitCode: (noWriteRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
-      },
-      { outcome: "succeeded", exitCode: 0 },
-    );
-    const denied = await rpc(host, auth, "repo.agentRuntime.spawn", {
-        repo: { repoId },
-        payload: {
-          runtimeInstanceId: "claude-provider",
-          cwd: { scope: "repo-root" },
-          prompt: "permission-denied",
-          taskId: null,
-          dispatchKey: "claude-permission-denied",
-        },
-      }),
-      deniedRead = await eventuallyValue(async () => {
-        const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-          repo: { repoId },
-          payload: { runtimeSessionId: denied.runtimeSessionId },
-        });
-        // A read racing the writer's projection catch-up can observe the session before it is
-        // projected (runtime_session_not_found), which returns a receipt with no `session` at
-        // all -- keep polling rather than crashing on that transient shape.
-        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-      });
-    // Permission denials prevent a successful delivery witness. A final message and normal exit
-    // still produce a named failed turn instead of treating exit 0 as a delivery receipt.
-    assert.deepEqual(
-      (
-        deniedRead.session as {
-          activity: { outcome: unknown; exitCode: unknown };
-        }
-      ).activity && {
-        outcome: (deniedRead.session as { activity: { outcome: unknown } }).activity.outcome,
-        exitCode: (deniedRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
-      },
-      { outcome: "failed", exitCode: 0 },
-    );
-    const empty = await rpc(host, auth, "repo.agentRuntime.spawn", {
-      repo: { repoId },
-      payload: {
-        runtimeInstanceId: "codex-provider",
-        cwd: { scope: "repo-root" },
-        prompt: "failure:empty",
-        taskId: null,
-        dispatchKey: "codex-empty-failure",
-      },
-    });
-    const emptyRead = await eventuallyValue(async () => {
-      const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-        repo: { repoId },
-        payload: { runtimeSessionId: empty.runtimeSessionId },
-      });
-      // See the comment above the first occurrence of this guard: a read racing the writer's
-      // projection catch-up can return a receipt with no `session` yet.
-      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
-    assert.deepEqual(
-      (
-        emptyRead.session as {
-          activity: { outcome: unknown; exitCode: unknown };
-        }
-      ).activity && {
-        outcome: (emptyRead.session as { activity: { outcome: unknown } }).activity.outcome,
-        exitCode: (emptyRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
-      },
-      { outcome: "failed", exitCode: 1 },
-    );
-    assert.match(
-      String((emptyRead.result as Record<string, unknown>).text),
-      /^Provider exited with code 1 and produced no output\./u,
-    );
-    const secret = "sk-runtime-secret-1234567890",
-      stderrFailure = await rpc(host, auth, "repo.agentRuntime.spawn", {
-        repo: { repoId },
-        payload: {
-          runtimeInstanceId: "codex-provider",
-          cwd: { scope: "repo-root" },
-          prompt: "failure:secret",
-          taskId: null,
-          dispatchKey: "codex-stderr-failure",
-        },
-      });
-    const stderrRead = await eventuallyValue(async () => {
-      const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-        repo: { repoId },
-        payload: { runtimeSessionId: stderrFailure.runtimeSessionId },
-      });
-      // See the comment above the first occurrence of this guard: a read racing the writer's
-      // projection catch-up can return a receipt with no `session` yet.
-      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
-    assert.match(
-      String((stderrRead.result as Record<string, unknown>).text),
-      /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u,
-    );
-    assert.doesNotMatch(JSON.stringify(stderrRead), new RegExp(secret, "u"));
-    assert.doesNotMatch(JSON.stringify(readDispatchStream(root, stderrFailure.dispatchId)), new RegExp(secret, "u"));
-    const structured = await rpc(host, auth, "repo.agentRuntime.spawn", {
-      repo: { repoId },
-      payload: {
-        runtimeInstanceId: "codex-provider",
-        cwd: { scope: "repo-root" },
-        prompt: "failure:structured",
-        taskId: null,
-        dispatchKey: "codex-structured-failure",
-      },
-    });
-    const structuredRead = await eventuallyValue(async () => {
-      const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-        repo: { repoId },
-        payload: { runtimeSessionId: structured.runtimeSessionId },
-      });
-      // See the comment above the first occurrence of this guard: a read racing the writer's
-      // projection catch-up can return a receipt with no `session` yet.
-      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
-    assert.match(String((structuredRead.result as Record<string, unknown>).text), /structured provider failure/u);
-    assert.doesNotMatch(JSON.stringify(structuredRead), new RegExp(secret, "u"));
-  } finally {
-    await host.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+      }, watchDirectoryArrival(parent));
+      assert.match(String((structuredRead.result as Record<string, unknown>).text), /structured provider failure/u);
+      assert.doesNotMatch(JSON.stringify(structuredRead), new RegExp(secret, "u"));
+    } finally {
+      await host.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
-test("daemon ingress resumes the same provider session for Claude and Codex", async (t) => {
+test("daemon ingress resumes the same provider session for Claude and Codex", { timeout: 300_000 }, async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-resume-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -535,14 +546,19 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
           },
         });
         assert.equal(first.outcome, "applied", JSON.stringify(first));
-        await eventually(async () =>
-          makeTaskEventReader({ repoId, rootDir: root })
-            .read()
-            .events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === first.runtimeSessionId,
-            ),
+        await waitForArrival(
+          async () =>
+            (await (async () =>
+              makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.some(
+                  (event) =>
+                    event.type === "runtime_session_outcome_observed" &&
+                    event.payload.runtimeSessionId === first.runtimeSessionId,
+                ))())
+              ? true
+              : null,
+          watchDirectoryArrival(parent),
         );
         const providerSessionId = kindId === "claude" ? "claude-resume-session" : "codex-resume-session",
           second = await rpc(host, auth, "repo.agentRuntime.spawn", {
@@ -556,22 +572,27 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
               dispatchKey: `${kindId}-resume-second`,
             },
           });
-        await eventually(async () =>
-          makeTaskEventReader({ repoId, rootDir: root })
-            .read()
-            .events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === second.runtimeSessionId,
-            ),
+        await waitForArrival(
+          async () =>
+            (await (async () =>
+              makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.some(
+                  (event) =>
+                    event.type === "runtime_session_outcome_observed" &&
+                    event.payload.runtimeSessionId === second.runtimeSessionId,
+                ))())
+              ? true
+              : null,
+          watchDirectoryArrival(parent),
         );
-        const read = await eventuallyValue(async () => {
+        const read = await waitForArrival(async () => {
           const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
             repo: { repoId },
             payload: { runtimeSessionId: second.runtimeSessionId },
           });
           return value.result ? value : null;
-        });
+        }, watchDirectoryArrival(parent));
         assert.equal((read.session as Record<string, unknown>).providerSessionId, providerSessionId);
         assert.equal(
           (read.result as Record<string, unknown>).text,
@@ -590,7 +611,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
   }
 });
 
-test("daemon ingress cancellation is explicit and idempotent for an active runtime", async () => {
+test("daemon ingress cancellation is explicit and idempotent for an active runtime", { timeout: 300_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -660,7 +681,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
       });
       assert.equal(cancelled.outcome, "applied");
       assert.equal(cancelled.command, "runtime-cancel");
-      const read = await eventuallyValue(async () => {
+      const read = await waitForArrival(async () => {
         const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
           repo: { repoId },
           payload: { runtimeSessionId: spawned.runtimeSessionId },
@@ -668,7 +689,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         // See the comment above the `.activity` polling guards: a read racing the writer's
         // projection catch-up can return a receipt with no `session` yet.
         return (value.session as Record<string, unknown> | undefined)?.liveness === "exited" ? value : null;
-      });
+      }, watchDirectoryArrival(parent));
       assert.equal(
         (read.session as Record<string, unknown>).activity &&
           ((read.session as Record<string, unknown>).activity as Record<string, unknown>).outcome,
@@ -679,7 +700,13 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         executor: null,
       });
       assert.equal(lifecycle.find((entry) => entry.event === "runtime_exit")?.reason, "Worker stop was requested.");
-      await eventually(() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"));
+      await waitForArrival(
+        async () =>
+          (await (() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"))())
+            ? true
+            : null,
+        watchDirectoryArrival(parent),
+      );
       const events = makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.filter(
@@ -721,7 +748,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
   }
 });
 
-test("agy consumes only its closed stream-json event protocol", async () => {
+test("agy consumes only its closed stream-json event protocol", { timeout: 300_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-events-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -831,13 +858,13 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       },
     });
     assert.equal(succeeded.outcome, "applied", JSON.stringify(succeeded));
-    const read = await eventuallyValue(async () => {
+    const read = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: succeeded.runtimeSessionId },
       });
       return value.result ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     assert.equal((read.session as Record<string, unknown>).providerSessionId, "agy-conversation");
     assert.equal((read.result as Record<string, unknown>).text, "AGY-OK");
     assert.equal((read.session as { activity: { outcome: string } }).activity.outcome, "succeeded");
@@ -854,7 +881,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       },
     });
     assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
-    const rejectedRead = await eventuallyValue(async () => {
+    const rejectedRead = await waitForArrival(async () => {
       const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
         repo: { repoId },
         payload: { runtimeSessionId: rejected.runtimeSessionId },
@@ -862,7 +889,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       // See the comment above the first occurrence of this guard: a read racing the writer's
       // projection catch-up can return a receipt with no `session` yet.
       return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
-    });
+    }, watchDirectoryArrival(parent));
     // The out-of-protocol event never becomes a result, and with no structured provider outcome
     // the zero exit alone settles unknown instead of restating success.
     assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "unknown");
@@ -873,105 +900,163 @@ test("agy consumes only its closed stream-json event protocol", async () => {
   }
 });
 
-test("daemon ingress passes Claude effort and Codex fast through to the witnessed CLIs", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-ingress-")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    repoId = "runtime-claude-effort-ingress",
-    uid = process.getuid?.() ?? 0,
-    argsPath = path.join(parent, "claude-args.json"),
-    codexArgsPath = path.join(parent, "codex-args.json"),
-    executablePath = writeProviderStub(path.join(parent, "claude-stub"), "claude", argsPath),
-    codexExecutablePath = writeProviderStub(path.join(parent, "codex-stub"), "codex", codexArgsPath),
-    claudeInstallation = {
-      installationId: "installation-claude-effort",
-      kindId: "claude" as const,
-      executablePath,
-      version: "2.1.305 (Claude Code)",
-      observedAt: "2026-08-30T00:00:00.000Z",
-    },
-    codexInstallation = {
-      installationId: "installation-codex-fast",
-      kindId: "codex" as const,
-      executablePath: codexExecutablePath,
-      version: "0.150.1",
-      observedAt: "2026-08-30T00:00:00.000Z",
-    },
-    auth = {
-      transportKind: "unix-socket",
-      unixSocketOwnerBoundary: {
-        ownerUid: uid,
-        source: "unix-socket-filesystem-owner-boundary",
+test(
+  "daemon ingress passes Claude effort and Codex fast through to the witnessed CLIs",
+  { timeout: 300_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-ingress-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      repoId = "runtime-claude-effort-ingress",
+      uid = process.getuid?.() ?? 0,
+      argsPath = path.join(parent, "claude-args.json"),
+      codexArgsPath = path.join(parent, "codex-args.json"),
+      executablePath = writeProviderStub(path.join(parent, "claude-stub"), "claude", argsPath),
+      codexExecutablePath = writeProviderStub(path.join(parent, "codex-stub"), "codex", codexArgsPath),
+      claudeInstallation = {
+        installationId: "installation-claude-effort",
+        kindId: "claude" as const,
+        executablePath,
+        version: "2.1.305 (Claude Code)",
+        observedAt: "2026-08-30T00:00:00.000Z",
       },
-    } as const;
-  initIngressRepo(root, uid);
-  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
-  registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({
-      daemonId: "runtime-claude-effort-ingress",
-      userRoot,
-      runtimeDiscover: () => [claudeInstallation, codexInstallation],
-    }),
-    endpoint = localUserDaemonEndpoint(userRoot, "runtime-claude-effort-ingress"),
-    transport = createUnixSocketTransportServer({
-      daemonId: "runtime-claude-effort-ingress",
-      socketPath: endpoint,
-      createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
-    });
-  await transport.start();
-  try {
-    await host.attachmentsSettled();
-    await host.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: "claude-effort-provider",
-        name: "Claude effort provider",
-        kindId: "claude",
-        installationId: claudeInstallation.installationId,
-        providerId: "anthropic",
-        models: ["claude-fable-5"],
-        claude: {},
-        authMode: "subscription",
+      codexInstallation = {
+        installationId: "installation-codex-fast",
+        kindId: "codex" as const,
+        executablePath: codexExecutablePath,
+        version: "0.150.1",
+        observedAt: "2026-08-30T00:00:00.000Z",
       },
-      auth,
-    );
-    await host.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: "codex-fast-provider",
-        name: "Codex fast provider",
-        kindId: "codex",
-        installationId: codexInstallation.installationId,
-        providerId: "openai",
-        models: ["gpt-5.6-sol"],
-        codex: {},
-        authMode: "subscription",
-      },
-      auth,
-    );
-    const childEnv = {
-        ...process.env,
-        HARNESS_DAEMON_USER_ROOT: userRoot,
-        HARNESS_DAEMON_ID: "runtime-claude-effort-ingress",
-        HARNESS_DAEMON_REPO_ID: repoId,
-        HARNESS_DAEMON_ENDPOINT: endpoint,
-      },
-      expectedArgs = [
-        "-p",
-        "--verbose",
-        "--settings",
-        '{"attribution":{"commit":"","pr":"","sessionUrl":false}}',
-        "--output-format",
-        "stream-json",
-        "--permission-mode",
-        "bypassPermissions",
+      auth = {
+        transportKind: "unix-socket",
+        unixSocketOwnerBoundary: {
+          ownerUid: uid,
+          source: "unix-socket-filesystem-owner-boundary",
+        },
+      } as const;
+    initIngressRepo(root, uid);
+    signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
+    registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+    const host = await openDaemonHost({
+        daemonId: "runtime-claude-effort-ingress",
+        userRoot,
+        runtimeDiscover: () => [claudeInstallation, codexInstallation],
+      }),
+      endpoint = localUserDaemonEndpoint(userRoot, "runtime-claude-effort-ingress"),
+      transport = createUnixSocketTransportServer({
+        daemonId: "runtime-claude-effort-ingress",
+        socketPath: endpoint,
+        createProtocolServer: (authContext, emit) =>
+          createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+      });
+    await transport.start();
+    try {
+      await host.attachmentsSettled();
+      await host.runtimeInstance(
+        "daemon.runtimeInstance.create",
+        {
+          instanceId: "claude-effort-provider",
+          name: "Claude effort provider",
+          kindId: "claude",
+          installationId: claudeInstallation.installationId,
+          providerId: "anthropic",
+          models: ["claude-fable-5"],
+          claude: {},
+          authMode: "subscription",
+        },
+        auth,
+      );
+      await host.runtimeInstance(
+        "daemon.runtimeInstance.create",
+        {
+          instanceId: "codex-fast-provider",
+          name: "Codex fast provider",
+          kindId: "codex",
+          installationId: codexInstallation.installationId,
+          providerId: "openai",
+          models: ["gpt-5.6-sol"],
+          codex: {},
+          authMode: "subscription",
+        },
+        auth,
+      );
+      const childEnv = {
+          ...process.env,
+          HARNESS_DAEMON_USER_ROOT: userRoot,
+          HARNESS_DAEMON_ID: "runtime-claude-effort-ingress",
+          HARNESS_DAEMON_REPO_ID: repoId,
+          HARNESS_DAEMON_ENDPOINT: endpoint,
+        },
+        expectedArgs = [
+          "-p",
+          "--verbose",
+          "--settings",
+          '{"attribution":{"commit":"","pr":"","sessionUrl":false}}',
+          "--output-format",
+          "stream-json",
+          "--permission-mode",
+          "bypassPermissions",
+          "--model",
+          "claude-fable-5",
+          "--effort",
+          "high",
+        ],
+        spawned = await spawnCli(
+          [
+            "--root",
+            root,
+            "--json",
+            "runtime",
+            "run",
+            "claude-effort-provider",
+            "--effort",
+            "high",
+            "--prompt",
+            "probe",
+            "--detach",
+          ],
+          childEnv,
+        );
+      assert.equal(spawned.status, 0, `${spawned.stderr}\n${spawned.stdout}`);
+      // This case witnesses provider argv; settlement is covered above. Wait for the witness
+      // directly instead of including canonical settlement in spawnCli's process deadline.
+      assert.deepEqual(await recordedArgs(argsPath), expectedArgs);
+      const fastSpawned = await spawnCli(
+        ["--root", root, "--json", "runtime", "run", "codex-fast-provider", "--fast", "--prompt", "probe", "--detach"],
+        childEnv,
+      );
+      assert.equal(fastSpawned.status, 0, `${fastSpawned.stderr}\n${fastSpawned.stdout}`);
+      assert.deepEqual(await recordedArgs(codexArgsPath), [
+        "exec",
+        "--json",
+        "--sandbox",
+        "danger-full-access",
         "--model",
-        "claude-fable-5",
-        "--effort",
-        "high",
-      ],
-      spawned = await spawnCli(
+        "gpt-5.6-sol",
+        "--config",
+        'service_tier="fast"',
+        "--config",
+        'web_search="disabled"',
+        "-",
+      ]);
+      const unsupported = await spawnCli(
+        [
+          "--root",
+          root,
+          "--json",
+          "runtime",
+          "run",
+          "claude-effort-provider",
+          "--fast",
+          "--prompt",
+          "reject",
+          "--no-stream",
+        ],
+        childEnv,
+      );
+      assert.notEqual(unsupported.status, 0);
+      assert.equal((JSON.parse(unsupported.stdout) as Record<string, unknown>).code, "invalid_runtime_fast");
+      const rejected = await spawnCli(
         [
           "--root",
           root,
@@ -980,97 +1065,43 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
           "run",
           "claude-effort-provider",
           "--effort",
-          "high",
+          "turbo",
           "--prompt",
-          "probe",
-          "--detach",
+          "reject",
+          "--no-stream",
         ],
         childEnv,
       );
-    assert.equal(spawned.status, 0, `${spawned.stderr}\n${spawned.stdout}`);
-    // This case witnesses provider argv; settlement is covered above. Wait for the witness
-    // directly instead of including canonical settlement in spawnCli's process deadline.
-    assert.deepEqual(await recordedArgs(argsPath), expectedArgs);
-    const fastSpawned = await spawnCli(
-      ["--root", root, "--json", "runtime", "run", "codex-fast-provider", "--fast", "--prompt", "probe", "--detach"],
-      childEnv,
-    );
-    assert.equal(fastSpawned.status, 0, `${fastSpawned.stderr}\n${fastSpawned.stdout}`);
-    assert.deepEqual(await recordedArgs(codexArgsPath), [
-      "exec",
-      "--json",
-      "--sandbox",
-      "danger-full-access",
-      "--model",
-      "gpt-5.6-sol",
-      "--config",
-      'service_tier="fast"',
-      "--config",
-      'web_search="disabled"',
-      "-",
-    ]);
-    const unsupported = await spawnCli(
-      [
-        "--root",
-        root,
-        "--json",
-        "runtime",
-        "run",
-        "claude-effort-provider",
-        "--fast",
-        "--prompt",
-        "reject",
-        "--no-stream",
-      ],
-      childEnv,
-    );
-    assert.notEqual(unsupported.status, 0);
-    assert.equal((JSON.parse(unsupported.stdout) as Record<string, unknown>).code, "invalid_runtime_fast");
-    const rejected = await spawnCli(
-      [
-        "--root",
-        root,
-        "--json",
-        "runtime",
-        "run",
-        "claude-effort-provider",
-        "--effort",
-        "turbo",
-        "--prompt",
-        "reject",
-        "--no-stream",
-      ],
-      childEnv,
-    );
-    assert.equal(rejected.status, 2, `${rejected.stderr}\n${rejected.stdout}`);
-    assert.equal((JSON.parse(rejected.stdout) as Record<string, unknown>).code, "invalid_runtime_effort");
-    const rejectedIngress = await rpc(host, auth, "repo.agentRuntime.spawn", {
-      repo: { repoId },
-      payload: {
-        runtimeInstanceId: "claude-effort-provider",
-        cwd: { scope: "repo-root" },
-        prompt: "reject",
-        effort: "turbo",
-        taskId: null,
-        dispatchKey: "claude-effort-turbo",
-      },
-    });
-    assert.equal(rejectedIngress.outcome, "op_rejected", JSON.stringify(rejectedIngress));
-    assert.equal(rejectedIngress.code, "invalid_runtime_effort");
-    assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
-  } finally {
-    await transport.stop();
-    await host.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+      assert.equal(rejected.status, 2, `${rejected.stderr}\n${rejected.stdout}`);
+      assert.equal((JSON.parse(rejected.stdout) as Record<string, unknown>).code, "invalid_runtime_effort");
+      const rejectedIngress = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: "claude-effort-provider",
+          cwd: { scope: "repo-root" },
+          prompt: "reject",
+          effort: "turbo",
+          taskId: null,
+          dispatchKey: "claude-effort-turbo",
+        },
+      });
+      assert.equal(rejectedIngress.outcome, "op_rejected", JSON.stringify(rejectedIngress));
+      assert.equal(rejectedIngress.code, "invalid_runtime_effort");
+      assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
+    } finally {
+      await transport.stop();
+      await host.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 /**
  * The stub records provider argv with one writeFileSync; file existence races its content, so
  * readiness means the record parses as a non-empty argv array, not that the path exists.
  */
 async function recordedArgs(argsPath: string): Promise<readonly string[]> {
-  return eventuallyValue(() => {
+  return await waitForArrival(() => {
     if (!existsSync(argsPath)) return null;
     try {
       const parsed: unknown = JSON.parse(readFileSync(argsPath, "utf8"));
@@ -1079,5 +1110,5 @@ async function recordedArgs(argsPath: string): Promise<readonly string[]> {
       consumeKnownError(error);
       return null;
     }
-  });
+  }, watchFileArrival(argsPath));
 }

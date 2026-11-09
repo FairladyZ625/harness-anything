@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -122,11 +123,11 @@ test("the center admits no unauthenticated source and the edge admits no local l
       createConvenienceLinks: false,
     });
     signInAt(path.join(parent, "user"), "writer");
-    const refreshed = await host.requestControl({ kind: "refresh", authorityRepoId: "center" }, auth);
-    for (let attempt = 0; host.status().repos.every(({ repoId }) => repoId !== "bare"); attempt++) {
-      assert.ok(attempt < 200, `refresh ${refreshed.operationId} never attached the roster-free center`);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    await host.requestControl({ kind: "refresh", authorityRepoId: "center" }, auth);
+    await waitForArrival(
+      () => (host.status().repos.some(({ repoId }) => repoId === "bare") ? true : null),
+      watchDirectoryArrival(parent),
+    );
     await host.attachmentsSettled();
     signOutAt(path.join(parent, "user"));
     const unauthenticated = (await host.run(

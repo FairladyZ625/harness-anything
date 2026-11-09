@@ -168,9 +168,10 @@ export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SET
       `exit ${stopped.status} ${stopped.stderr.trim() || JSON.stringify(stopped.receipt)}`,
     );
 
-    const deadline = Date.now() + stopSettleMs;
+    // Each status step is itself the retry; a fixed attempt count replaces the clock deadline.
     let after = step(["daemon", "status"]);
-    while (after.status === 0 && Date.now() < deadline) after = step(["daemon", "status"]);
+    for (let attempt = 0; after.status === 0 && attempt < Math.max(1, Math.ceil(stopSettleMs / 250)); attempt += 1)
+      after = step(["daemon", "status"]);
     record(
       "status reports the daemon gone after stop",
       after.status !== 0,

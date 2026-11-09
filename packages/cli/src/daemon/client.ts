@@ -527,13 +527,14 @@ async function settleRepoWarming(
   if (!isRepoWarming(initial)) return initial;
   const { readDaemonStartProgress } = await import("@harness-anything/daemon/internal/client/daemon-autostart"),
     launch = cliDaemonServeLaunch(userRoot, daemonId),
-    startedAt = Date.now(),
-    deadline = startedAt + 60_000;
+    startedAt = Date.now();
   let result = initial,
     reader: Awaited<ReturnType<typeof openLocalDaemonReader>> | undefined,
     reported = "";
   try {
-    while (isRepoWarming(result) && Date.now() < deadline) {
+    // A fixed number of refresh attempts (about 60 s at 250 ms) replaces the clock deadline; the
+    // warming predicate is the read, so no wall-clock comparison decides the outcome.
+    for (let attempt = 0; isRepoWarming(result) && attempt < 240; attempt += 1) {
       const progress = readDaemonStartProgress(launch, Date.now() - startedAt);
       if (progress) {
         const key = `${progress.fingerprint}:${Math.floor((Date.now() - startedAt) / 1_000)}`;

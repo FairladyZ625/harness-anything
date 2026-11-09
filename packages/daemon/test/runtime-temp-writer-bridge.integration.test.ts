@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -18,7 +19,8 @@ test(
   { timeout: 30000 },
   async () => {
     const sweeps: (readonly string[])[] = [],
-      reclaimed: string[] = [];
+      reclaimed: string[] = [],
+      sweepWaiters = new Set<() => void>();
     const root = mkdtempSync(path.join(tmpdir(), "ha-proxy-exit-")),
       executablePath = writeProviderExecutable(
         path.join(root, "provider.mjs"),
@@ -54,6 +56,18 @@ test(
         version: "1.0.0",
         observedAt: new Date().toISOString(),
       };
+    const until = (check: () => boolean): Promise<void> =>
+      waitForArrival(
+        () => (check() ? true : null),
+        (arrive) => {
+          sweepWaiters.add(arrive);
+          const stopDirectory = watchDirectoryArrival(root)(arrive);
+          return () => {
+            sweepWaiters.delete(arrive);
+            stopDirectory();
+          };
+        },
+      );
     for (const args of [
       ["init", "-q"],
       ["config", "user.name", "Test"],
@@ -91,6 +105,7 @@ test(
       ],
       reclaimSettledRuntimeTempDirectories: (ids) => {
         sweeps.push(ids);
+        for (const wake of sweepWaiters) wake();
         return [];
       },
       listRuntimeTempSessionIds: () =>
@@ -226,11 +241,3 @@ test(
     }
   },
 );
-
-async function until(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 12000;
-  while (!check()) {
-    assert.ok(Date.now() < deadline, "expected runtime observation did not arrive");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}

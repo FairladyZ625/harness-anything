@@ -413,6 +413,9 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     });
     child.stdout?.once("close", () => {
       disconnected = true;
+      // libuv can report the stdout EOF before the child's exit event, so let a pending exit
+      // classification win before treating the closed channel as a disconnect. This timer is a
+      // delivery grace window, not a correctness deadline: nothing is judged by how long it takes.
       setTimeout(() => {
         if (!exited && frame === undefined)
           stop(

@@ -238,55 +238,15 @@ test(
           },
         };
       };
-      const launchDiagnostics = async (
-        edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>,
-        taskId: string,
-      ): Promise<string> => {
-        const detail = readNodeAutoClaimDiagnostics(edge.edgeUser).slice(-20),
-          centerTask = await fixture.host.read(
-            "lease-repo",
-            "repo.tasks.runtimeContext.read",
-            { taskId },
-            fixture.owners.auth({ nodeId: "node-one" }),
-          ),
-          centerRuntime = await fixture.host.read(
-            "lease-repo",
-            "repo.agentRuntime.overview",
-            { taskId },
-            fixture.owners.auth({ nodeId: "node-one" }),
-          );
-        return (
-          `launches=${JSON.stringify(launches.map((launch) => launch.taskId))}; ` +
-          `auto-claim=${JSON.stringify(detail)}; lease=${JSON.stringify(centerTask.snapshot.lease)}; ` +
-          `runtime=${JSON.stringify(centerRuntime.sessions)}`
-        );
-      };
       const waitForLaunch = async (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, taskId: string) => {
         // A launch is an event of the edge runtime, not a poll deadline. Claiming crosses the edge
         // lease write, the center command and the center-to-edge spawn before runtimeLaunch fires;
-        // no product hop promises to finish that chain within 5s. The test's own timeout bounds
-        // this wait, and the checkpoint below leaves the diagnostics a deadline used to throw.
-        const diagnosed = setTimeout(() => {
-          if (launches.some((candidate) => candidate.taskId === taskId)) return;
-          void launchDiagnostics(edge, taskId)
-            .then((diagnostics) =>
-              console.error(`[node-auto-claim integration] ${taskId} has not launched after 5000ms; ${diagnostics}`),
-            )
-            .catch((error: unknown) =>
-              console.error(
-                `[node-auto-claim integration] ${taskId} has not launched after 5000ms; diagnostics unavailable`,
-                error,
-              ),
-            );
-        }, 5_000);
-        try {
-          await new Promise<void>((resolve) => {
-            if (launches.some((candidate) => candidate.taskId === taskId)) resolve();
-            else launchWaiters.set(taskId, resolve);
-          });
-        } finally {
-          clearTimeout(diagnosed);
-        }
+        // no product hop promises to finish that chain within a wall-clock window. The test's own
+        // timeout bounds this wait.
+        await new Promise<void>((resolve) => {
+          if (launches.some((candidate) => candidate.taskId === taskId)) resolve();
+          else launchWaiters.set(taskId, resolve);
+        });
         await launches.find((candidate) => candidate.taskId === taskId)!.ready;
       };
       const createAssignedTask = async (

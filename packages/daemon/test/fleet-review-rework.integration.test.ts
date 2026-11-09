@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -120,18 +121,9 @@ test(
     provider.output(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
     provider.exit(0);
 
-    const deadline = performance.now() + 30_000;
-    for (;;) {
-      const terminalObserved = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-        );
-      if (terminalObserved) break;
-      if (performance.now() >= deadline) throw new Error(`Edge reviewer ${runtimeSessionId} did not settle at center.`);
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    // The daemon-side parked wait is the settlement event: it returns when the center records the
+    // session's terminal outcome, so the ledger read below cannot miss the append it waits for.
+    await fixture.awaitRuntimeSessions([runtimeSessionId]);
     const events = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo }).read().events,
       review = events.find(
         (event) => event.type === "review_recorded" && event.payload.review.reviewId === `review-${dispatchId}`,
@@ -524,9 +516,8 @@ test(
     // runtime_session_liveness_changed event, so a ledger sample taken straight after the receipt
     // still races that append. Wait for the discrete landed event instead of tolerating a drift.
     const waitLivenessPublished = async (runtimeSessionIds: readonly string[]): Promise<void> => {
-      const deadline = performance.now() + 15_000;
-      for (;;) {
-        const live = new Set(
+      const live = () =>
+        new Set(
           makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
             .read()
             .events.flatMap((event) =>
@@ -535,11 +526,10 @@ test(
                 : [],
             ),
         );
-        if (runtimeSessionIds.every((runtimeSessionId) => live.has(runtimeSessionId))) return;
-        if (performance.now() >= deadline)
-          throw new Error(`Runtime liveness did not publish for ${runtimeSessionIds.join(", ")}.`);
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
+      await waitForArrival(
+        () => (runtimeSessionIds.every((runtimeSessionId) => live().has(runtimeSessionId)) ? true : null),
+        watchLedgerArrival(fixture.repo),
+      );
     };
     // A changes_requested review verdict reopens each rework round automatically
     // (dec_E369B861 CH3); the reviewer records under its own agent actor.

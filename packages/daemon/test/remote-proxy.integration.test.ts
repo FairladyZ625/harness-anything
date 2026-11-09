@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import { openRemoteProxyManager } from "../src/remote-proxy.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
@@ -313,8 +314,17 @@ test(
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const runtimeSessionId = String(spawned.runtimeSessionId),
-      streamValues: Record<string, unknown>[] = [];
-    await eventually(async () => {
+      streamValues: Record<string, unknown>[] = [],
+      streamArrivals = new Set<() => void>();
+    const waitForStreamValue = (predicate: (value: Record<string, unknown>) => boolean) =>
+      waitForArrival(
+        () => (streamValues.some(predicate) ? true : null),
+        (arrive) => {
+          streamArrivals.add(arrive);
+          return () => streamArrivals.delete(arrive);
+        },
+      );
+    await waitForDurableCondition(async () => {
       const overview = await rpcA("repo.agentRuntime.overview", { repo: { repoId }, payload: {} });
       return JSON.stringify(overview).includes("proxy-provider-session");
     });
@@ -324,7 +334,10 @@ test(
       method: "repo.agentRuntime.attach",
       payload: { runtimeSessionId, afterCursor: "stream:0" },
       timeoutMs: 2_000,
-      onValue: (value) => streamValues.push(value as Record<string, unknown>),
+      onValue: (value) => {
+        streamValues.push(value as Record<string, unknown>);
+        for (const wake of streamArrivals) wake();
+      },
     });
     t.after(detach);
 
@@ -332,7 +345,7 @@ test(
       providerOutput?.(
         `${JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live proxy event" } })}\n`,
       );
-      await eventually(() => streamValues.some((value) => value.content === "live proxy event"));
+      await waitForStreamValue((value) => value.content === "live proxy event");
     });
 
     await t.test(
@@ -346,7 +359,7 @@ test(
           `${JSON.stringify({ type: "item.completed", item: { id: "offline", type: "agent_message", text: "replayed after restart" } })}\n`,
         );
         await tcpB.start();
-        await eventually(() => streamValues.some((value) => value.content === "replayed after restart"), 5_000);
+        await waitForStreamValue((value) => value.content === "replayed after restart");
         assert.equal((await rpcA("repo.settings.read", { repo: { repoId } })).ok, true);
       },
     );
@@ -501,15 +514,6 @@ async function mismatchEndpoint(): Promise<{ endpoint: string; close: () => void
       server.close();
     },
   };
-}
-
-async function eventually(predicate: () => boolean | Promise<boolean>, timeoutMs = 2_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`condition did not settle within ${timeoutMs}ms`);
 }
 
 function initRepo(root: string, repoId: string, uid: number): void {

@@ -15,6 +15,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 // Each test injects one external command that never answers until the test releases it (or deletes its
 // directory), then proves an unrelated write to the same repository is still accepted.
@@ -22,14 +23,6 @@ const binding = withPolicyGroup(
   { actor: { principal: { personId: "person-write-queue" }, executor: null }, source: "local" as const },
   "contributor",
 );
-
-async function waitForFile(file: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (!existsSync(file)) {
-    assert.ok(Date.now() < deadline, `${path.basename(file)} never appeared`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
 
 // Waits settle on the receipts production itself bounds (the write-queue timeouts under test);
 // the runner's per-file timeout is the last resort if one of those bounds is ever lost.
@@ -399,7 +392,7 @@ test("a credential lookup nobody answers fails the spawn and releases the reposi
       (receipt) => ({ receipt }),
       (error: unknown) => ({ error }),
     );
-    await waitForFile(started);
+    await waitForArrival(() => (existsSync(started) ? true : null), watchFileArrival(started));
     // The write queues while the credential lookup is still unanswered: the injected lookup
     // timeout bounds the spawn, the failed spawn releases the queue, and the write settles
     // causally — whenever that happens — instead of inside a wall-clock window.

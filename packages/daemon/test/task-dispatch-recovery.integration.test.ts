@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -50,6 +51,8 @@ type Launch = {
 test("a stopped dispatch is recovered once through the fenced compare-and-dispatch", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-dispatch-recovery-")),
     launches: Launch[] = [];
+  const eventually = (check: () => boolean | Promise<boolean>, ..._rest: unknown[]): Promise<void> =>
+    waitForArrival(async () => ((await check()) ? true : null), watchDirectoryArrival(root));
   try {
     initRepo(root);
     const cell = await openBootstrappedRepoCell({
@@ -392,14 +395,4 @@ function initRepo(root: string): void {
   );
   git("add", "harness");
   git("commit", "-qm", "fixture");
-}
-
-async function eventually(check: () => boolean): Promise<void> {
-  // Polls the canonical event log for a discrete state change; the bound only stops a hung run.
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    if (check()) return;
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("runtime outcome did not arrive");
 }

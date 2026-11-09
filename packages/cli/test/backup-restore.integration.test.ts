@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -69,16 +70,6 @@ function applied(side: Side | null, args: readonly string[]): Record<string, unk
   return receipt;
 }
 
-// Polls the daemon's own registry state until the predicate holds; the deadline, not a fixed
-// sleep, is the failure mode.
-async function waitFor(description: string, probe: () => boolean, deadlineMs = 120_000): Promise<void> {
-  const deadline = Date.now() + deadlineMs;
-  while (!probe()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${description}`);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-}
-
 function repoRow(statusReceipt: Record<string, unknown>): Record<string, unknown> | undefined {
   return (statusReceipt.repos as readonly Record<string, unknown>[] | undefined)?.find((row) => row.repoId === repoId);
 }
@@ -115,6 +106,8 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
       daemonId: "center-restore-center",
     },
     backupDir = path.join(parent, "backup");
+  const waitFor = (_description: string, probe: () => boolean): Promise<void> =>
+    waitForArrival(() => (probe() ? true : null), watchDirectoryArrival(parent));
   t.after(() => {
     run(source, ["daemon", "stop"]);
     run(center, ["daemon", "stop"]);

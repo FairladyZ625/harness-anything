@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -120,7 +121,9 @@ test("writer supervisor observes internal runtime work draining to zero", { time
           if (event.type === "runtime_session_outcome_observed") runtimeExited.resolve();
         },
       },
-      { onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth) },
+      {
+        onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth),
+      },
     );
     const spawned = await supervisor.request<{ readonly runtimeSessionId: string }>(
       "spawnRuntime",
@@ -137,7 +140,10 @@ test("writer supervisor observes internal runtime work draining to zero", { time
     const lookupsBeforeExit = runtimeSessionLookups;
     writeFileSync(releasePath, "release");
     await runtimeExited.promise;
-    await waitUntil(() => supervisor!.status().queueDepth === 0);
+    // The response path decrements the local queue depth without necessarily publishing another
+    // status, so the drained predicate is the durable read; `waitForDurableCondition` re-reads it
+    // without a wall-clock deadline and the node:test timeout is the hang guard.
+    await waitForDurableCondition(() => supervisor!.status().queueDepth === 0);
     assert.equal(supervisor.status().queueDepth, 0);
     assert.ok(
       runtimeSessionLookups > lookupsBeforeExit,
@@ -154,13 +160,4 @@ test("writer supervisor observes internal runtime work draining to zero", { time
 function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   return { promise: new Promise<T>((settle) => (resolve = settle)), resolve };
-}
-
-async function waitUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (predicate()) return;
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-  }
-  assert.fail(`condition did not become true within ${String(timeoutMs)}ms`);
 }

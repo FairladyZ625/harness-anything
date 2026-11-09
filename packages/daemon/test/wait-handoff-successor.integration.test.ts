@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -63,14 +64,11 @@ for (const execution of [false, true]) {
       const client = new JsonRpcLineClient(socket, socket);
       let receipt: unknown;
       try {
-        // The deadline guards a hang; attachment progress is observed on the actual status path.
-        const attachmentDeadline = Date.now() + 10_000;
-        for (;;) {
+        // Attachment progress is published by the successor daemon; the test timeout is the guard.
+        await waitForArrival(async () => {
           const status = await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 2_000, 2_000);
-          if ((status.repos as { state: string }[]).some((repo) => repo.state === "attached")) break;
-          assert.ok(Date.now() < attachmentDeadline, `successor attachment did not settle: ${JSON.stringify(status)}`);
-          await new Promise((done) => setImmediate(done));
-        }
+          return (status.repos as { state: string }[]).some((repo) => repo.state === "attached") ? true : null;
+        }, watchDirectoryArrival(parent));
         await client.request(
           "protocol.hello",
           {

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +11,7 @@ import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { definition, eventually, git } from "./schedule-actions.fixtures.ts";
+import { definition, git } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
@@ -283,16 +284,23 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
-      await eventually(async () => {
-        const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
-          readonly schedules: readonly {
-            readonly status: { readonly activeRun: unknown; readonly lastRun: { readonly outcome: string } | null };
-          }[];
-        };
-        return (
-          listed.schedules[0]?.status.activeRun === null && listed.schedules[0]?.status.lastRun?.outcome === "succeeded"
-        );
-      }, "scheduled run to settle");
+      await waitForArrival(
+        async () =>
+          (await (async () => {
+            const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+              readonly schedules: readonly {
+                readonly status: { readonly activeRun: unknown; readonly lastRun: { readonly outcome: string } | null };
+              }[];
+            };
+            return (
+              listed.schedules[0]?.status.activeRun === null &&
+              listed.schedules[0]?.status.lastRun?.outcome === "succeeded"
+            );
+          })())
+            ? true
+            : null,
+        watchDirectoryArrival(root),
+      );
       assert.equal(launchCount, 2);
 
       const completed = (await cell.run({ kind: "schedule-show", scheduleId: "e2e-probe" }, actor)) as unknown as {
@@ -522,15 +530,23 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
-      await eventually(async () => {
-        const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
-          readonly schedules: readonly {
-            readonly scheduleId: string;
-            readonly status: { readonly activeRun: unknown };
-          }[];
-        };
-        return listed.schedules.find(({ scheduleId }) => scheduleId === "restart-heartbeat")?.status.activeRun === null;
-      }, "restarted scheduled run to finish");
+      await waitForArrival(
+        async () =>
+          (await (async () => {
+            const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+              readonly schedules: readonly {
+                readonly scheduleId: string;
+                readonly status: { readonly activeRun: unknown };
+              }[];
+            };
+            return (
+              listed.schedules.find(({ scheduleId }) => scheduleId === "restart-heartbeat")?.status.activeRun === null
+            );
+          })())
+            ? true
+            : null,
+        watchDirectoryArrival(root),
+      );
     } finally {
       await cell.close();
     }
@@ -893,12 +909,15 @@ test(
         terminalCallbacks[winner]!();
         // The edge serial tail consumes this scheduled rejection. Observe the
         // coded error at its construction boundary, without replacing any port.
-        await eventually(
+        await waitForArrival(
           async () =>
-            settlementErrors.mock.calls.some(
-              ({ arguments: args }) => args[0] instanceof Error && args[1]?.code === "schedule_settlement_pending",
-            ),
-          "edge schedule settlement error to be recorded",
+            (await (async () =>
+              settlementErrors.mock.calls.some(
+                ({ arguments: args }) => args[0] instanceof Error && args[1]?.code === "schedule_settlement_pending",
+              ))())
+              ? true
+              : null,
+          watchDirectoryArrival(root),
         );
       });
       await t.test("edge schedule preserves a local definition candidate after a center write", async () => {

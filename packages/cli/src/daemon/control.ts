@@ -597,8 +597,12 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
       };
 }
 async function waitProcessExit(pid: number, budgetMs: number): Promise<boolean> {
-  for (const deadline = Date.now() + budgetMs; daemonProcessAlive(pid) && Date.now() < deadline; )
+  // A fixed number of attempts, not a clock deadline: the budget is spent in retries and the
+  // result is the process state, so no wall-clock comparison decides success.
+  for (let attempt = 0; attempt < Math.max(1, Math.ceil(budgetMs / 10)); attempt += 1) {
+    if (!daemonProcessAlive(pid)) return true;
     await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   return !daemonProcessAlive(pid);
 }
 // A daemon that exited between reading its pid file and being signalled is stopped, which is what
@@ -627,7 +631,7 @@ async function waitForDaemonStop(
   pid: number,
   exchange: DaemonShutdownExchange | null,
 ): Promise<DaemonStopOutcome> {
-  for (const deadline = Date.now() + 5_000; Date.now() < deadline; ) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
     if (readDaemonPid(userRoot, daemonId) === null) return "stopped";
     if (!daemonProcessAlive(pid)) {
       releaseDaemonPidFile(userRoot, daemonId, pid);

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { triggerOnFirstWalWrite } from "./fixtures/wal-write-trigger.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -38,7 +39,7 @@ test(
     mkdirSync(childTmp, { recursive: true });
     realm.bind(userRoot);
     signInAt(userRoot, "owner");
-    let walPoll: NodeJS.Timeout | undefined;
+    let stopWalPoll: (() => void) | undefined;
     try {
       // One legacy Git source holding several event kinds (task, fact, decision, relation).
       multiSourceFixture(source, "alpha", "person_alpha");
@@ -83,10 +84,7 @@ test(
       assert.ok(child.stdout !== null && child.stderr !== null, "stdio pipe must be captured");
       child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
       child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
-      walPoll = setInterval(() => {
-        const size = walSize();
-        if (size === walBaseline) return;
-        clearInterval(walPoll);
+      stopWalPoll = triggerOnFirstWalWrite(walPath, walBaseline, (size) => {
         sigtermTrigger = `ledger.sqlite-wal@${size}`;
         stdoutAtSignal = stdout;
         try {
@@ -94,7 +92,7 @@ test(
         } catch (error) {
           signalFailure = error;
         }
-      }, 15);
+      });
 
       const status = await new Promise<number | null>((resolve, reject) => {
         const bounded = setTimeout(
@@ -114,7 +112,7 @@ test(
         sigtermTrigger !== null,
         `the first ledger write must be observed; stdout:\n${stdout}\nstderr:\n${stderr}`,
       );
-      clearInterval(walPoll);
+      stopWalPoll?.();
       assert.equal(
         signalFailure,
         undefined,
@@ -181,7 +179,7 @@ test(
         ].join("\n"),
       );
     } finally {
-      clearInterval(walPoll);
+      stopWalPoll?.();
       stop(userRoot, interrupted);
       rmSync(parent, { recursive: true, force: true });
     }

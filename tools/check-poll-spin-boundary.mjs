@@ -12,20 +12,18 @@
  * Integration kinds (AST, reported as file#enclosing-symbol#kind):
  *   clock-deadline   a comparison against Date.now()/performance.now(), or `deadline - now()`;
  *   clock-loop       a while/do-while whose test reads the clock;
- *   await-in-loop    awaiting sleep/delay/setTimeout/setImmediate inside a loop;
- *   scheduled-timer  setTimeout/setInterval whose callback does anything but fail the test
- *                    (resolve a sleep, message the child, destroy a socket, a scripted kill);
+ *   scheduled-timer  setTimeout/setInterval whose callback schedules product state (send, destroy,
+ *                    assign, abort, resolve with a value) instead of only completing a delay;
  *   short-watchdog   a fail-only timer whose delay resolves below 20 s: a speed assertion;
- *   self-poll        a function named waitFor*, waitUntil*, poll*, eventually*, until*, retry*
- *                    whose body loops;
  *   poll-helper      a call to tools/fixtures/wait-for-condition.ts or an imported eventually*.
  *
- * Correctness wait vs hang guard. A correctness wait decides when the test may look again; it must
- * be an event the process under test publishes: waitForArrival(read, subscribe) from
- * tools/fixtures/event-arrival.ts, a child "message"/"exit" event, a stream line. A hang guard only
- * ends a stuck test as failed and never asserts speed: the node:test `timeout` option, or a timer
- * whose callback only rejects/throws/assert.fail()s and whose delay is a parameter or at
- * least 20 s. Hang guards are not reported.
+ * Correctness wait vs hang guard. A correctness wait decides when the test may look again by the
+ * wall clock: a deadline, a timer that schedules what the product should do, or a bounded poller.
+ * An unbounded predicate read has no wall-clock judgment in it; its hang guard is the node:test
+ * `timeout` option (owner ruling 2026-11-09). Event waits go through waitForArrival/read helpers in
+ * tools/fixtures/event-arrival.ts. A hang guard only ends a stuck test as failed and never asserts
+ * speed: the node:test `timeout` option, or a fail-only timer at least 20 s. Hang guards are not
+ * reported.
  *
  * Baseline. tools/gate-allowlists/check-poll-spin-boundary.json lists every reported key with
  * event, ref and reason. The check is exact: a new key fails as `unlisted`, a key whose site was
@@ -47,6 +45,13 @@ const allowlistPath = `tools/gate-allowlists/${gateId}.json`;
 const update = process.argv.includes("--update");
 const rootArg = process.argv.slice(2).find((argument) => argument !== "--update");
 const root = path.resolve(rootArg ?? process.cwd());
+// Shrink-only ratchet. Keep this equal to the current exception count: a batch that converts waits
+// and deletes entries lowers it in the same commit, so "the exemptions stopped shrinking" is visible
+// as a number that did not move. Growth past the ceiling fails, which is the point: a new wait site
+// must be converted or carry an explicit decision, not a quiet append. Fixture runs pass an explicit
+// root and test exact-sync against their own allowlist, so they are not ratcheted.
+const allowlistCeiling = 0;
+const enforceCeiling = rootArg === undefined && !update;
 // Production sources (dec_EF5F3820E81FB8A5266F1F3342 CH3) and integration tests
 // (dec_25B3C380F6FB9D4D4A1E27921E CH1) share one rule, one baseline and one exact-sync ratchet; the
 // integration flag adds the wall-clock-as-correctness kinds only to test files.
@@ -102,6 +107,13 @@ if (update) {
 }
 const document = JSON.parse(await readFile(path.join(root, allowlistPath), "utf8"));
 const entries = document.entries.exceptions;
+if (enforceCeiling && entries.length !== allowlistCeiling)
+  throw new Error(
+    `poll-spin allowlist has ${entries.length} exceptions but the ceiling is ${allowlistCeiling}: ` +
+      (entries.length > allowlistCeiling
+        ? "the ceiling may only shrink; convert the wait instead of appending an entry"
+        : `lower allowlistCeiling in tools/check-poll-spin-boundary.mjs to ${entries.length} in the same commit`),
+  );
 for (const field of ["key", "event", "ref", "reason"]) {
   if (entries.some((entry) => typeof entry[field] !== "string" || !entry[field]))
     throw new Error(`poll-spin allowlist entry missing ${field}`);

@@ -214,6 +214,10 @@ export async function dualSyncFixture(
   };
   const centerRun = (action: Record<string, unknown>): Promise<Record<string, unknown>> =>
     host.run("dual-repo", action as never, localAuth) as Promise<Record<string, unknown>>;
+  // The daemon-side parked wait over runtime sessions: a test that needs a session's terminal
+  // outcome waits here instead of sampling the center ledger until the append happens to land.
+  const awaitRuntimeSessions = (runtimeSessionIds: readonly string[]): Promise<Record<string, unknown>> =>
+    host.awaitRuntimeSessions("dual-repo", { runtimeSessionIds }, localAuth) as Promise<Record<string, unknown>>;
   const waitPublished = async (opId: string): Promise<void> => {
     const deadline = performance.now() + 15_000;
     for (;;) {
@@ -273,6 +277,7 @@ export async function dualSyncFixture(
     conflictsRoot,
     createTask,
     centerRun,
+    awaitRuntimeSessions,
     waitPublished,
     registerRuntimeInstance: (declaration: Readonly<Record<string, unknown>>) =>
       registerFixtureRuntimeInstance(host, "dual-repo", localAuth, declaration),

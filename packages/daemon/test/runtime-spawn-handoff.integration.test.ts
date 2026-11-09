@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -12,7 +13,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { definition, installation, initIngressRepo, rpc, eventuallyValue, git } from "./fixtures/runtime-ingress.ts";
+import { definition, installation, initIngressRepo, rpc, git } from "./fixtures/runtime-ingress.ts";
 
 test("a settled dispatch re-enters its unsubmitted execution as a same-principal handoff", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-handoff-")),
@@ -111,7 +112,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
         },
       });
     assert.equal(first.outcome, "applied", JSON.stringify(first));
-    const firstBinding = await eventuallyValue(
+    const firstBinding = await waitForArrival(
       async () =>
         makeTaskEventReader({ repoId, rootDir: root })
           .read()
@@ -119,6 +120,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
             (event) =>
               event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === first.runtimeSessionId,
           ) ?? null,
+      watchDirectoryArrival(parent),
     );
     assert.equal(firstBinding?.type, "runtime_session_task_bound");
     if (firstBinding?.type !== "runtime_session_task_bound") throw new Error("missing first task binding");
@@ -142,7 +144,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
       signal: null,
     });
     exitListeners[exitsBeforeFirst]!(0);
-    await eventuallyValue(async () => {
+    await waitForArrival(async () => {
       const events = makeTaskEventReader({ repoId, rootDir: root }).read().events;
       return events.some(
         (event) =>
@@ -157,7 +159,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
         )
         ? events
         : null;
-    });
+    }, watchDirectoryArrival(parent));
     const settledState = makeTaskProjection({
       rootDir: root,
       eventStore: makeTaskEventReader({ repoId, rootDir: root }),
@@ -188,7 +190,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
       },
     });
     assert.equal(outsider.outcome, "applied", JSON.stringify(outsider));
-    await eventuallyValue(
+    await waitForArrival(
       async () =>
         makeTaskEventReader({ repoId, rootDir: root })
           .read()
@@ -197,6 +199,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
               event.type === "runtime_session_task_bound" &&
               event.payload.runtimeSessionId === outsider.runtimeSessionId,
           ) ?? null,
+      watchDirectoryArrival(parent),
     );
     const launchesBeforeOutsiderClaim = launchCount,
       outsiderClaim = await rpc(host, auth, "repo.agentRuntime.spawn", {
@@ -225,7 +228,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
       },
     });
     assert.equal(second.outcome, "applied", JSON.stringify(second));
-    const secondBinding = await eventuallyValue(
+    const secondBinding = await waitForArrival(
       async () =>
         makeTaskEventReader({ repoId, rootDir: root })
           .read()
@@ -233,6 +236,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
             (event) =>
               event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === second.runtimeSessionId,
           ) ?? null,
+      watchDirectoryArrival(parent),
     );
     assert.equal(secondBinding?.type, "runtime_session_task_bound");
     if (secondBinding?.type !== "runtime_session_task_bound") throw new Error("missing second task binding");

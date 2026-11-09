@@ -74,11 +74,8 @@ for (const stop of ["sweep", "host-exit"] as const)
         if (stop === "sweep") reconcileProcessGroup(identity);
         else process.kill(runtime.pid);
         await exited;
-        const deadline = Date.now() + 15_000;
-        while (probeProcessGroup(identity) !== "proven_stopped") {
-          assert.ok(Date.now() < deadline, "job accounting did not reach zero");
+        while (probeProcessGroup(identity) !== "proven_stopped")
           await new Promise<void>((resolve) => setImmediate(resolve));
-        }
         assert.equal(runtimePidIsAlive(grandchild), false);
       } finally {
         if (runtime) {

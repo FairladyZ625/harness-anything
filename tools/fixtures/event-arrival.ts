@@ -1,3 +1,6 @@
+import { existsSync, lstatSync, watch, type FSWatcher } from "node:fs";
+import path from "node:path";
+
 /**
  * The shared event-driven wait for tests (dec_25B3C380F6FB9D4D4A1E27921E CH1): an integration test
  * waits for the process under test to publish something, never for the wall clock to pass.
@@ -28,4 +31,121 @@ export async function waitForArrival<T>(
       unsubscribe();
     }
   }
+}
+
+/**
+ * The fallback when the process under test publishes no subscribable event (owner ruling
+ * 2026-11-09 on task_6ddecd04b58fe29d6aa32c9736): read the durable state again until the predicate
+ * holds. There is no deadline and no "not within N ms" failure here; the node:test `timeout` option
+ * is the only hang guard. Yield with setImmediate, not a wall-clock interval: the sample is not
+ * spaced by elapsed time, so the wait never judges by the clock.
+ */
+export async function waitForDurableValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
+  for (;;) {
+    const value = await read();
+    if (value !== null) return value;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+export async function waitForDurableCondition(predicate: () => boolean | Promise<boolean>): Promise<void> {
+  for (;;) {
+    if (await predicate()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+/**
+ * Subscribe to a durable file the process under test publishes: creating it, appending to it, or
+ * deleting it wakes the waiter, and the caller's `read` decides whether the awaited state arrived.
+ * Only a regular file or directory is watched directly, which reports appends on every platform; a
+ * file that is not there yet is observed through its nearest existing ancestor directory, so a
+ * directory created later is still seen and the re-subscription after that wake moves onto the file
+ * itself. A socket or FIFO is observed through that directory too: on platforms where the special
+ * inode is not watchable, libuv reports the watch as an asynchronous error rather than a synchronous
+ * one, so watching it directly would either race the awaited unlink or surface as an uncaught watcher
+ * error. Like `waitForArrival`, this carries no deadline: the node:test `timeout` option is the hang
+ * guard.
+ */
+export function watchFileArrival(file: string): (arrive: () => void) => () => void {
+  return (arrive) => {
+    const info = lstatSync(file, { throwIfNoEntry: false });
+    if (info?.isFile() || info?.isDirectory()) {
+      let watcher: FSWatcher | undefined;
+      try {
+        watcher = watch(file, { persistent: false }, () => arrive());
+      } catch {
+        // The file vanished between the caller's read and this subscription.
+      }
+      if (watcher) {
+        let closed = false,
+          fallback: (() => void) | undefined;
+        watcher.once("error", () => {
+          if (closed) return;
+          watcher?.close();
+          fallback = watchNearestDirectory(file, arrive);
+          // The entry may have changed before the directory watch existed; re-read instead of
+          // waiting for a wake that already happened.
+          arrive();
+        });
+        return () => {
+          closed = true;
+          watcher?.close();
+          fallback?.();
+        };
+      }
+    }
+    return watchNearestDirectory(file, arrive);
+  };
+}
+
+function watchNearestDirectory(file: string, arrive: () => void): () => void {
+  let directory = path.dirname(file);
+  while (!existsSync(directory)) {
+    const parent = path.dirname(directory);
+    if (parent === directory) return () => undefined;
+    directory = parent;
+  }
+  try {
+    const watcher = watch(directory, { persistent: false }, () => arrive());
+    return () => watcher.close();
+  } catch {
+    return () => undefined;
+  }
+}
+
+/**
+ * Subscribe to every change under a directory tree. Git does not write a single file a caller can
+ * watch for "a commit landed": the ref, the reflog and the index change together, and branches move
+ * under subdirectories. A recursive watch over the git directory wakes the waiter for any of them and
+ * the caller's read decides whether HEAD already carries the awaited content. No deadline.
+ */
+export function watchDirectoryArrival(directory: string): (arrive: () => void) => () => void {
+  return (arrive) => {
+    const watcher = watch(directory, { persistent: false, recursive: true }, () => arrive());
+    return () => watcher.close();
+  };
+}
+
+/**
+ * Subscribe to the SQLite ledger writes a repository cell publishes (canonical event store and
+ * projection at `<rootDir>/.harness/cache/task.sqlite`). A test that waits for a projection or
+ * write-queue state derives that state from a ledger write, so the commit is the arrival; the
+ * caller's `read` still decides whether the awaited value is visible. The database file covers
+ * rollback-journal writes, the `-wal` file covers the commit path, and the cache directory covers
+ * creating or rotating either of them. No deadline: the node:test timeout is the hang guard.
+ */
+export function watchLedgerArrival(rootDir: string): (arrive: () => void) => () => void {
+  const cache = path.join(rootDir, ".harness", "cache"),
+    database = path.join(cache, "task.sqlite");
+  return (arrive) => {
+    const stops = [
+      watchFileArrival(database)(arrive),
+      watchFileArrival(`${database}-wal`)(arrive),
+      watchFileArrival(path.join(cache, "ledger-rotation"))(arrive),
+    ];
+    return () => {
+      for (const stop of stops) stop();
+    };
+  };
 }
