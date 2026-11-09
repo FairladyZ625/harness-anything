@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -90,8 +90,7 @@ test("writer supervisor observes internal runtime work draining to zero", { time
       })
     ).close();
     const runtimeExited = deferred<void>(),
-      publishedQueueDepths: (number | null)[] = [],
-      queueDepthWaiters = new Set<() => void>();
+      publishedQueueDepths: (number | null)[] = [];
     const binding = withPolicyGroup(
       { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
       "contributor",
@@ -123,10 +122,7 @@ test("writer supervisor observes internal runtime work draining to zero", { time
         },
       },
       {
-        onPublishedStatus: (status) => {
-          publishedQueueDepths.push(status.queueDepth);
-          for (const wake of queueDepthWaiters) wake();
-        },
+        onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth),
       },
     );
     const spawned = await supervisor.request<{ readonly runtimeSessionId: string }>(
@@ -144,13 +140,10 @@ test("writer supervisor observes internal runtime work draining to zero", { time
     const lookupsBeforeExit = runtimeSessionLookups;
     writeFileSync(releasePath, "release");
     await runtimeExited.promise;
-    await waitForArrival(
-      () => (supervisor!.status().queueDepth === 0 ? true : null),
-      (arrive) => {
-        queueDepthWaiters.add(arrive);
-        return () => queueDepthWaiters.delete(arrive);
-      },
-    );
+    // The response path decrements the local queue depth without necessarily publishing another
+    // status, so the drained predicate is the durable read; `waitForDurableCondition` re-reads it
+    // without a wall-clock deadline and the node:test timeout is the hang guard.
+    await waitForDurableCondition(() => supervisor!.status().queueDepth === 0);
     assert.equal(supervisor.status().queueDepth, 0);
     assert.ok(
       runtimeSessionLookups > lookupsBeforeExit,
