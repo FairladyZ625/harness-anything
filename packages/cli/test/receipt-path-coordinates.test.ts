@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { submissionDigest } from "@harness-anything/kernel";
 import { translateReceiptPathCoordinates } from "../src/cli-receipt-path-coordinates.ts";
 
 const canonical = "tasks/task_a";
@@ -42,7 +43,7 @@ test("task-list translates every row and the human summary, and leaves the rest 
   assert.equal(translated.summary, `task_b  task_a  packagePath=${canonical}`);
 });
 
-test("task show nests the same package under task, progress and artifacts; all are translated", () => {
+test("task show translates receipt paths but preserves the frozen submission", () => {
   const translated = translateReceiptPathCoordinates({
     ok: true,
     packagePath: canonical,
@@ -63,7 +64,7 @@ test("task show nests the same package under task, progress and artifacts; all a
   assert.equal(Object.hasOwn(payload, "packagePath"), false);
   assert.equal(payload.ledgerPackagePath, canonical);
   assert.equal(payload.progress[0].payload.resultDocumentClaim.path, `${workspace}/progress.md`);
-  assert.equal(payload.executions[0].submission.artifacts[0].path, `${workspace}/artifacts/report.md`);
+  assert.equal(payload.executions[0].submission.artifacts[0].path, `${canonical}/artifacts/report.md`);
   assert.equal(
     translated.summary,
     `task: taskId=task_a  packagePath=${canonical}\npackagePath=${canonical}  workspacePackagePath=${workspace}`,
@@ -115,10 +116,31 @@ test("package translation changes typed paths only and matches complete path seg
   assert.equal(payload.progress[0].payload.resultDocumentClaim.path, `${workspace}/results/progress.md`);
   assert.equal(payload.executions[0].submission.completionClaim, completionClaim);
   assert.deepEqual(payload.executions[0].submission.artifacts, [
-    { path: `${workspace}/artifacts/report.md` },
+    { path: `${canonical}/artifacts/report.md` },
     { path: "tasks/task_audit/artifacts/report.md" },
   ]);
   assert.equal(translated.summary, summary);
+});
+
+test("receipt coordinate translation cannot change a frozen submission digest", () => {
+  const submission = {
+    commitSha: "a".repeat(40),
+    artifacts: [{ path: `${canonical}/artifacts/report.md`, revision: 1, blobSha256: "b".repeat(64) }],
+  };
+  const translated = translateReceiptPathCoordinates({
+    ok: true,
+    packagePath: canonical,
+    workspacePackagePath: workspace,
+    evidence: JSON.stringify({ executions: [{ submission }] }),
+  });
+  const projected = JSON.parse(String(translated.evidence)).executions[0].submission;
+  assert.deepEqual(projected, submission);
+  assert.equal(submissionDigest(projected), submissionDigest(submission));
+  const amended = {
+    ...projected,
+    artifacts: [{ ...projected.artifacts[0], path: `${workspace}/artifacts/report.md` }],
+  };
+  assert.notEqual(submissionDigest(amended), submissionDigest(submission));
 });
 
 test("task-create translates the receipt field, not an evidence payload", () => {

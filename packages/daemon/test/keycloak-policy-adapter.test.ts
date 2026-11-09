@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -636,6 +636,69 @@ test("execution credential Admin REST refreshes an expired center token once", a
   assert.deepEqual(await adapter.authenticateExecutionCredential("expired-center-token", credential), p);
 });
 
+test("execution credential Admin REST keeps the adapter's named transport error", async () => {
+  const cause = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }),
+    }),
+    adapter = new KeycloakPolicyAdapter(config, async () => {
+      throw cause;
+    }),
+    p = {
+      personId: "person-transport-failure",
+      repoId: "repo-transport",
+      runtimeSessionId: "runtime-transport",
+      dispatchId: "dispatch-transport",
+      taskId: null,
+      executionId: null,
+      role: "session" as const,
+      source: "local" as const,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+  await assert.rejects(adapter.issueExecutionCredential("center-token", p), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal((error as Error & { readonly code?: string }).code, "daemon_error");
+    assert.match(error.message, /Keycloak Admin REST \/clients could not be reached/u);
+    assert.equal((error as Error & { readonly cause?: unknown }).cause, cause);
+    return true;
+  });
+});
+
+test("execution credential Admin REST surfaces a still-rejected 401 refresh once", async () => {
+  let adminCalls = 0,
+    refreshCount = 0;
+  const adapter = new KeycloakPolicyAdapter(
+      config,
+      async () => {
+        adminCalls += 1;
+        return new Response(null, { status: 401 });
+      },
+      async () => {
+        refreshCount += 1;
+        return "fresh-center-token";
+      },
+    ),
+    p = {
+      personId: "person-refresh-rejected",
+      repoId: "repo-refresh-rejected",
+      runtimeSessionId: "runtime-refresh-rejected",
+      dispatchId: "dispatch-refresh-rejected",
+      taskId: null,
+      executionId: null,
+      role: "session" as const,
+      source: "local" as const,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+  await assert.rejects(adapter.issueExecutionCredential("expired-center-token", p), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal((error as Error & { readonly code?: string }).code, "keycloak_admin_rejected");
+    assert.equal((error as Error & { readonly status?: number }).status, 401);
+    assert.match(error.message, /Keycloak Admin REST \/clients returned HTTP 401/u);
+    return true;
+  });
+  assert.equal(adminCalls, 2, "the rejected request is retried exactly once after the refresh");
+  assert.equal(refreshCount, 1, "the 401 refresh happens exactly once");
+});
+
 test("Admin REST transport failure is infrastructure unavailability, not a policy rejection", async () => {
   const cause = new TypeError("fetch failed", {
     cause: Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }),
@@ -1089,4 +1152,23 @@ test("a process that did not compile the registry syncs canonical Artifact scope
   });
   assert.equal(denied.outcome, "denied");
   assert.equal(coldRealm.scopes.has(customScope), false);
+});
+
+// 防再犯门: issue #4469 removed the compatibility wrapper that classified an adapter failure by
+// its message prefix. Callers may only branch on the adapter's named code, never on message text.
+const messageClassification = /\bmessage\.(?:startsWith|includes)\s*\(/u;
+
+test("authorization-keycloak production code never classifies errors by message text", () => {
+  const sourceRoot = new URL("../../authorization-keycloak/src/", import.meta.url),
+    violations = readdirSync(sourceRoot, { recursive: true })
+      .map(String)
+      .filter((file) => file.endsWith(".ts"))
+      .flatMap((file) =>
+        readFileSync(new URL(file, sourceRoot), "utf8")
+          .split(/\r?\n/u)
+          .flatMap((line, index) => (messageClassification.test(line) ? [`${file}:${index + 1}`] : [])),
+      );
+  assert.deepEqual(violations, [], "classify errors with the adapter's named code, not message text");
+  // Positive control: the detector catches the wrapper this task removed.
+  assert.match('error.message.startsWith("Keycloak Admin REST ")', messageClassification);
 });
