@@ -176,7 +176,7 @@ The registry records:
   `check:pr`, and 43 execute in pull-request workflow jobs. The only
   `harness:*` gate outside the PR workflow is the non-deterministic,
   schedule-only `check-enforcement-debt-sunset`.
-- 10 formerly main-only deterministic gates added to the existing `boundaries`
+- 10 formerly main-only deterministic gates added to the `quick-gates`
   required context: `check-cli-help-contract`, `check-cli-error-codes`,
   `check-error-classification`, `check-integrity-single-source`,
   `check-docs-release-map`, `check-template-command-surface`,
@@ -184,14 +184,16 @@ The registry records:
   `check-schema-field-coverage`, and `smoke-legacy-intake`.
   (`check-duplicate-definitions` was retired 2026-09-14; exported-name
   collisions remain covered by `npm run typecheck`.)
-- `check-gate-manifest-invariants` executes locally, in `boundaries`, and in
+- `check-gate-manifest-invariants` executes locally, in `quick-gates`, and in
   non-PR `full-check` confirmation runs.
-- 21 GitHub branch-protection required contexts:
-  `boundaries`, `package-policy`, `quick-gates`, `fast-contract`,
-  `integration-shard (1)` through `integration-shard (14)`, `gui-build`,
-  `pr-body-lint`, and `crlf-checkout`. `quick-gates` carries the former
-  `typecheck (24)` and `supply-chain` checks plus the Ubuntu first-run smoke;
-  the Windows smoke arms run on main pushes and the daily schedule under
+- 15 GitHub branch-protection required contexts:
+  `package-policy`, `quick-gates`, `fast-contract`, `integration-shard (1)`
+  through `integration-shard (10)`, `gui-build`, `pr-body-lint`, and
+  `crlf-checkout`. `quick-gates` carries the former `typecheck (24)` and
+  `supply-chain` checks, the Ubuntu first-run smoke, and the architecture
+  boundary gates that used to be the separate `boundaries` context
+  (dec_127E3F9C47D2842DA7AB86E0F4/CH2). The Windows smoke arms run on main
+  pushes and the daily schedule under
   decision dec_7467B04DD9EFC2D18A656D2FB3/CH1.
   (`node26-compatibility` was removed by decision
   dec_F5B2CBF8B45042B6DA2824A7FA/CH3: every one of its 25 real catches in 60

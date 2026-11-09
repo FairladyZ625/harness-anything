@@ -1,15 +1,16 @@
 import { readFileSync } from "node:fs";
 
-export const integrationShardCount = 14;
+export const integrationShardCount = 10;
 // The median cost of an integration file added between 2026-10-25 and 2026-11-08 was 8.7s; the
 // previous 1s default let 354 unweighted files pile into shards that looked light.
 export const defaultIntegrationTestWeightMs = 10_000;
 // Budgets are in the weights' unit: one file's serial duration on a GitHub ubuntu runner, which
-// runs three files at a time on four cores. A shard's wall is at most about its weight sum / 2.6
-// (measured 2026-11-08 in task_34470c99bb4b77644b9ce3a246; raising the concurrency to 4 or 6 made
-// no shard faster and failed timing-sensitive tests), so this sum keeps the test step near
-// 6 minutes, under the 7-minute job line. The 14 shards start at 85% of it.
-export const integrationShardBudgetMs = 1_000_000;
+// runs three files at a time on four cores. Run 42562323998 measured 4,091s of test step across
+// the 14-shard matrix for 11,988s of declared weight, an effective factor of 2.93 (the previous
+// comment used 2.6). dec_127E3F9C47D2842DA7AB86E0F4/CH2 moves the PR matrix to 10 shards with a
+// 9-minute job target: 1,250,000ms / 2.93 is about 7.1 minutes of test step, leaving room for the
+// ~40s install/extract steps. The budget stays a ceiling per shard, not a per-shard allowance.
+export const integrationShardBudgetMs = 1_250_000;
 // A file runs its tests serially, so one file is a floor on its shard's wall. Files above this
 // either split or name their reason in entries.overBudgetFiles of
 // tools/gate-allowlists/check-integration-test-shards.json.
