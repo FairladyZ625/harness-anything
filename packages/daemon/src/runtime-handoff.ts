@@ -69,7 +69,7 @@ export async function runRuntimeHandoff(input: {
   // prepared target launch resolves, immediately before that process starts.
   const resumed = await input.spawn(checkpoint, { runtimeInstanceId, prompt, dispatchKey }, body);
   if (resumed.replayed === true) return publicResult(await input.command(action));
-  return { ...resumed, handoffResumed: true };
+  return publicResult({ ...resumed, handoffResumed: true });
 }
 
 function publicResult(receipt: JsonObject): JsonObject {

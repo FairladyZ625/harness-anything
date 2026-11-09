@@ -836,13 +836,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           "runtime-handoff-claim",
           { kind: "runtime-handoff-claim", dispatchId: checkpoint.dispatchId },
           binding,
-          async (authorized) => ({
-            ...(await context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree, rollout)),
-            // This publication is the durable result of the handoff claim. Keep
-            // its receipt on the declared GUI command rather than the internal
-            // runtime-ingress transport label.
-            command: "runtime-handoff-claim",
-          }),
+          (authorized) => context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree, rollout),
           queueObservation,
         );
       },

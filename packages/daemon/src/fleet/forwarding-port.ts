@@ -63,12 +63,16 @@ export async function forward(input: {
   if (descriptor.method !== input.intent.method)
     throw new FleetEdgeTaskError("invalid_field", "Forwarding method changed during dispatch.");
   if (input.auth.executionPrincipal && !input.auth.executionCredential) throw executionCredentialRejected();
-  // Executor attribution is part of the declared action intent. It must cross the
-  // center boundary so the center can bind execution-scoped review and task writes
-  // to the originating runtime session instead of the local interactive user.
-  // `planSource` is a local CLI diagnostic label. It may contain an edge-only
-  // workspace path and is intentionally absent from the declared Fleet action.
-  const { planSource: _planSource, ...wireAction } = action;
+  // Execution identity is rebuilt from the credential at the center. Match the CLI serializer's
+  // declared Fleet action by excluding executor and the local command-line metadata.
+  const {
+    executor: _executor,
+    createMode: _createMode,
+    verb: _verb,
+    commandType: _commandType,
+    planSource: _planSource,
+    ...wireAction
+  } = action;
   const bindPersonSessionNow = () => bindPersonSessionForRoot(input.auth, input.oidc, workspaceRoot),
     bound = await bindPersonSessionNow(),
     personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;

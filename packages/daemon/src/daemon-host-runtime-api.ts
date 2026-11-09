@@ -488,6 +488,9 @@ export function createDaemonHostRuntimeApi(
             host: context.host,
             buildDraining: context.input.buildDraining,
             onDeliverySettled: context.input.onRepoStatusChange,
+            ...(context.input.authenticateExecutionPrincipal
+              ? { authenticateExecutionPrincipal: context.input.authenticateExecutionPrincipal }
+              : {}),
             userRoot: context.input.userRoot,
             writerEpochLease: context.writerEpochLease,
             payload: request,

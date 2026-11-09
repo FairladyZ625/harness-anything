@@ -274,10 +274,13 @@ export async function startDaemon(input: {
       writeQueues: () => host?.writeQueues() ?? [],
     });
     const oidc = createIdentitySession(input.userRoot);
+    const authenticateExecutionPrincipal = (credential: string) =>
+      authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
     host = await observation.withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
         ...input,
         endpoint,
+        authenticateExecutionPrincipal,
         recordLifecycle,
         oidc,
         onRepoStatusChange: requestDrainCheck,
@@ -318,7 +321,7 @@ export async function startDaemon(input: {
             const edgeRoot = edgeRepo?.canonicalRoot;
             const principal = edgeRoot
               ? readRuntimeExecutionPrincipal(edgeRoot, credential)
-              : await authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
+              : await authenticateExecutionPrincipal(credential);
             if (!principal)
               throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
                 code: "authorization_denied",

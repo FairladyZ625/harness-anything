@@ -22,7 +22,7 @@ export function daemonDiagnosticsEndpoint(endpoint: string): string {
 export interface LocalDaemonTarget {
   readonly repoId: WorkspaceId;
   readonly canonicalRoot: CanonicalRoot;
-  readonly remoteEdge: boolean;
+  readonly remoteEdge?: boolean;
   readonly userRoot: string;
   readonly daemonId: string;
   readonly socketPath: EndpointIdentity;
@@ -154,7 +154,7 @@ function resolveRelayedDaemonTarget(
     if (!isDaemonTargetConflict(error)) throw error;
     throw fail("HARNESS_DAEMON_ENDPOINT is not this dispatch's per-dispatch relay socket");
   }
-  return { repoId: workspaceId(injectedRepoId), canonicalRoot, remoteEdge: false, userRoot, daemonId, socketPath };
+  return { repoId: workspaceId(injectedRepoId), canonicalRoot, userRoot, daemonId, socketPath };
 }
 
 function isDaemonTargetConflict(error: unknown): boolean {

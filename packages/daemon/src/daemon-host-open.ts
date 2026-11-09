@@ -16,11 +16,7 @@ import {
   prepareFleetCenterAdmission,
   startFleetCenterAdmission,
 } from "./fleet-center-admission.ts";
-import {
-  authenticateRuntimeExecutionPrincipal,
-  executionCredentialRejected,
-  runtimeExecutionActor,
-} from "./runtime-execution-credential.ts";
+import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -191,6 +187,9 @@ export interface DaemonHostOpenInput {
   /** Reads the operator's GitHub token for a launch; tests substitute it so no host login is read. */
   readonly runtimeGithubToken?: (environment: NodeJS.ProcessEnv) => Promise<string | null>;
   readonly runtimeCredentialPort?: CredentialPort;
+  readonly authenticateExecutionPrincipal?: (
+    credential: string,
+  ) => Promise<import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal>;
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
@@ -351,14 +350,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     }
-    // The protocol server has already authenticated a relayed execution credential. Reusing that
-    // principal is required on a secret-less edge: asking the center credential provider again
-    // would turn a valid edge-local execution into rbac_admin_unavailable.
-    const execution =
-      auth.executionPrincipal ??
-      (auth.executionCredential
-        ? await authenticateRuntimeExecutionPrincipal(keycloakCenter, auth.executionCredential)
-        : undefined);
+    // JSON-RPC admission resolves credentials before repository binding. Keep this host layer
+    // consuming the verified principal so identity has one provider boundary.
+    const execution = auth.executionPrincipal;
     if (execution) {
       if (
         auth.nodePrincipal &&
@@ -1540,6 +1534,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           buildDraining: input.buildDraining,
           onDeliverySettled: input.onRepoStatusChange,
           recordTraffic: input.recordTraffic,
+          ...(input.authenticateExecutionPrincipal
+            ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
+            : {}),
           userRoot: input.userRoot,
           writerEpochLease: hostContext.writerEpochLease,
           payload: config,

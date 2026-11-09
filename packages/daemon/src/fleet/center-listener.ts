@@ -170,10 +170,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       node: { nodeId: string; repoId: string; accessToken?: string },
       accessToken?: string,
       executionCredential?: string,
-    ): Promise<DaemonAuthenticationContext> => ({
-      ...(await readerAuth({ ...node, accessToken: accessToken ?? node.accessToken })),
-      ...(executionCredential ? { executionCredential } : {}),
-    }),
+    ): Promise<DaemonAuthenticationContext> => {
+      const principal = await readerAuth({ ...node, accessToken: accessToken ?? node.accessToken });
+      if (!executionCredential) return principal;
+      if (!options.authenticateExecutionPrincipal)
+        throw new FleetFault("execution_credential_rejected", "Execution credential authentication is unavailable.");
+      const executionPrincipal = await options.authenticateExecutionPrincipal(executionCredential);
+      if (
+        executionPrincipal.repoId !== node.repoId ||
+        executionPrincipal.personId !== principal.oidcPrincipal?.personId
+      )
+        throw new FleetFault(
+          "execution_credential_rejected",
+          "Execution credential does not match this repository session.",
+        );
+      return { ...principal, executionCredential, executionPrincipal };
+    },
     writerAuth = async (
       node: { nodeId: string; repoId: string; accessToken?: string },
       accessToken?: string,
