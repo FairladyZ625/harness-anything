@@ -18,6 +18,7 @@ import {
 } from "@harness-anything/kernel";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { localProseSource } from "./doc-sync-files.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 interface BlockedCandidate {
   readonly path: string;
@@ -28,10 +29,11 @@ interface BlockedCandidate {
 export function blockedCandidateNextAction(
   candidate: BlockedCandidate,
   nextStep = "rerun ha doc sync --submit with --task <task-id> or --path <path>",
+  workspacePath: (document: string) => string = (document) => document,
 ): string {
   const route = candidate.requiredRoute ?? resolveDocRoute(documentPath(candidate.path)).requiredRoute;
   return (
-    `${candidate.path} is daemon-managed; use ${route}: ${candidate.reason ?? "candidate is blocked"}; ` +
+    `${workspacePath(candidate.path)} is daemon-managed; use ${route}: ${candidate.reason ?? "candidate is blocked"}; ` +
     `then ${nextStep}`
   );
 }
@@ -168,7 +170,9 @@ export function observe(
   const authored = resolveHarnessLayout(rootDir).authoredRoot;
   return documents.every((document) => {
     const target = path.join(authored, document!.path);
-    return existsSync(target) && sha256Bytes(readFileSync(target)) === document!.blobSha256;
+    return (
+      existsSync(target) && sha256Bytes(readAuthoredDocumentBytes(authored, document!.path)) === document!.blobSha256
+    );
   });
 }
 

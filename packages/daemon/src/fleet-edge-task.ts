@@ -65,6 +65,7 @@ import {
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import { runFleetEdgeTaskCommand, runFleetEdgeWrite } from "./fleet-edge-write.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
@@ -359,7 +360,9 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
     const match = /^(tasks\/[^/]+)\/INDEX\.md$/u.exec(logical);
     if (!match) continue;
     try {
-      const body = readFileSync(path.join(materializedRoot, ...logical.split("/")), "utf8");
+      const body = new TextDecoder("utf-8", { fatal: true }).decode(
+        readAuthoredDocumentBytes(materializedRoot, logical),
+      );
       if (body.split(/\r?\n/u).some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`))
         paths.add(match[1]!);
     } catch (error) {

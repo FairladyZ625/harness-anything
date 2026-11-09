@@ -132,6 +132,14 @@ test("G3 integration lane rejects wall-clock deadlines, scheduled timers and sel
   assert.deepEqual(kinds("const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));"), [
     "scheduled-timer",
   ]);
+  // A timer that resolves a sentinel the test compares is a correctness decision, not a watchdog,
+  // even when it is raced against the process event the test is waiting for.
+  assert.deepEqual(
+    kinds(
+      "const outcome = await Promise.race([exited, new Promise((resolve) => setTimeout(() => resolve('hung'), 5000))]);",
+    ),
+    ["scheduled-timer"],
+  );
   // Negative fixtures: a watchdog that only fails the test bounds a hang and is not a correctness wait.
   assert.deepEqual(
     kinds(

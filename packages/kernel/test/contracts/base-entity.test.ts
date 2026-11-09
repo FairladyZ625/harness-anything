@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assertUniqueBaseEntityIdentities,
   baseEntityActionIds,
+  entityTypeContracts,
   projectBaseEntityAtCut,
   rebuildBaseEntityProjection,
   validateBaseEntity,
@@ -33,14 +34,15 @@ const identityByKind: Readonly<Record<EntityKind, string>> = {
   migration: "repository",
   "script-execution": "vertical:software:catalog",
   "vertical-declaration": "default",
+  host: "singleton",
 };
 
 test("all registered kinds are referenceable relation endpoints from one type contract", () => {
-  const registeredKinds = entityKindContracts.map(({ kind }) => kind).sort();
+  const registeredKinds = entityTypeContracts.map(({ kind }) => kind).sort();
   const referenceableKinds: EntityKind[] = [];
   const endpointKinds: EntityKind[] = [];
 
-  for (const contract of entityKindContracts) {
+  for (const contract of entityTypeContracts) {
     const id = identityByKind[contract.kind];
     const ref = formatEntityRef(contract.kind, id);
     const parsed = parseEntityRef(ref);
@@ -52,7 +54,7 @@ test("all registered kinds are referenceable relation endpoints from one type co
     if (isRelationEndpointKind(contract.kind)) endpointKinds.push(contract.kind);
   }
 
-  assert.equal(registeredKinds.length, 18);
+  assert.equal(registeredKinds.length, 19);
   assert.deepEqual(referenceableKinds.sort(), registeredKinds);
   assert.deepEqual(endpointKinds.sort(), registeredKinds);
   assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {

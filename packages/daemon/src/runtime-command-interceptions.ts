@@ -65,8 +65,11 @@ function intercept(rules: CommandInterceptions, format: NativeHookFormat): void 
       deny("HA command interception: provider supplied no shell command text.");
       return;
     }
-    const rule = rules.find(({ pattern }) => new RegExp(pattern, "u").test(command));
-    if (rule) deny(`HA command interception '${rule.id}' matched /${rule.pattern}/.`);
+    const rule = rules.find((candidate) => {
+      if (!("pattern" in candidate)) return false;
+      return new RegExp(candidate.pattern, "u").test(command);
+    });
+    if (rule && "pattern" in rule) deny(`HA command interception '${rule.id}' matched /${rule.pattern}/.`);
     else if (format === "cursor") process.stdout.write(JSON.stringify({ permission: "allow" }));
   });
 }

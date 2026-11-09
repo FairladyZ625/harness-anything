@@ -1,4 +1,5 @@
 export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-envelope.ts";
+export { commandInterceptionIssues } from "./command-interceptions.ts";
 export { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
@@ -65,8 +66,10 @@ export {
 } from "./review.ts";
 export type { ReviewFindingV1, ReviewV1 } from "./review.ts";
 
-export { reviewFindingLabels, reviewFindingCategories } from "./review.ts";
-export type { ReviewFindingCategory, ReviewFindingLabel } from "./review.ts";
+export { reviewFindingLabels, reviewFindingCategories, reviewReverifyModes } from "./review.ts";
+export type { ReviewFindingCategory, ReviewFindingLabel, ReviewReverifyMode } from "./review.ts";
+export { ownerVerifiableFindingCategories, reviewReverifyRoute } from "./review-reverify.ts";
+export type { ReviewReverifyRoute } from "./review-reverify.ts";
 
 export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
 export type { DomainStatus } from "./lifecycle-status.ts";
@@ -105,7 +108,7 @@ export {
   requireTransitionDocumentKind,
   transitionDocumentContract,
 } from "./transition-document-readiness.ts";
-export type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
+export type { MarkdownDocumentContract } from "./transition-document-readiness.ts";
 
 export { freshnessReasonOf } from "./decision-coverage.ts";
 export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";

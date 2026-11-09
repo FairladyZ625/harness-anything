@@ -11,7 +11,10 @@ import { realizedTaskPlan } from "./fixtures/task-plan.mjs";
 
 const taskId = "task_receipt_truth",
   executionId = "exe_receipt_truth";
-const packagePath = "tasks/server-returned-path-no-guessed-slug";
+// `task create` prints the workspace spelling (`harness/tasks/...`) and keeps the authored key in
+// `ledgerPackagePath`; the driver must resolve the package from the workspace root, not rejoin it.
+const packagePath = "harness/tasks/server-returned-path-no-guessed-slug",
+  ledgerPackagePath = "tasks/server-returned-path-no-guessed-slug";
 const dispatchId = `dispatch_${"a".repeat(24)}`,
   runtimeSessionId = "runtime_receipt_truth";
 
@@ -21,8 +24,11 @@ function successfulRunner(workspaceRoot, overrides = {}) {
     calls.push({ step, args });
     if (overrides[step]) return overrides[step]({ step, args, calls });
     if (step === "task-create") {
-      mkdirSync(path.join(workspaceRoot, "harness", ...packagePath.split("/")), { recursive: true });
-      return { command: ["ha", ...args], receipt: { ok: true, taskId, packagePath } };
+      mkdirSync(path.join(workspaceRoot, ...packagePath.split("/")), { recursive: true });
+      return {
+        command: ["ha", ...args],
+        receipt: { ok: true, taskId, workspacePackagePath: packagePath, ledgerPackagePath },
+      };
     }
     if (step === "task-start") return { command: ["ha", ...args], receipt: { ok: true, taskId, executionId } };
     return {
@@ -44,8 +50,9 @@ test("dispatch driver walks create, returned package path, start, detach, and fo
       { workspaceRoot, run: fixture.run },
     );
     assert.equal(readFileSync(receipt.planPath, "utf8"), readFileSync(planFile, "utf8"));
-    assert.equal(receipt.packagePath, packagePath);
-    assert.equal(receipt.planPath, path.join(workspaceRoot, "harness", ...packagePath.split("/"), "task_plan.md"));
+    assert.equal(receipt.workspacePackagePath, packagePath);
+    assert.equal(receipt.planPath, path.join(workspaceRoot, ...packagePath.split("/"), "task_plan.md"));
+    assert.equal(existsSync(path.join(workspaceRoot, "harness", "harness")), false);
     assert.equal(
       existsSync(path.join(workspaceRoot, "harness", "tasks", "a-title-whose-slug-must-not-be-guessed")),
       false,
@@ -74,7 +81,7 @@ test("dispatch driver walks create, returned package path, start, detach, and fo
   }
 });
 
-test("task create receipt without packagePath stops instead of guessing a package directory", () => {
+test("task create receipt without workspacePackagePath stops instead of guessing a package directory", () => {
   const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-no-path-"));
   const planFile = path.join(workspaceRoot, "plan.md");
   writeFileSync(planFile, realizedTaskPlan("Missing package path"), "utf8");
@@ -88,7 +95,7 @@ test("task create receipt without packagePath stops instead of guessing a packag
           { planFile, preset: "standard-task", title: "Never guess me", instance: "codex-worker" },
           { workspaceRoot, run: fixture.run },
         ),
-      /receipt has no packagePath; refusing to infer/u,
+      /receipt has no workspacePackagePath; refusing to infer/u,
     );
     assert.deepEqual(
       fixture.calls.map((call) => call.step),

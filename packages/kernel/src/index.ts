@@ -48,7 +48,7 @@ export {
 } from "./domain/task-lifecycle.contract.ts";
 export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
 export { revisionIssues } from "./domain/task-lifecycle-contract-support.ts";
-export { taskAmendment } from "./domain/task-lifecycle-event.ts";
+export { supersededTaskState, taskAmendment } from "./domain/task-lifecycle-event.ts";
 export {
   isTaskBoundRuntimeWriter,
   isReturnedRuntimeContinuation,
@@ -239,14 +239,16 @@ export type { HandoffPacketV1 } from "./handoff-packet.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {
   DEFAULT_HARNESS_LOCAL_ROOT,
+  documentWorkspacePath,
   normalizeRelativeDocumentPath,
   readFrontmatter,
   readScalar,
   resolveHarnessLayout,
+  resolveWorkspaceDocumentPath,
   slugifyTaskTitle,
   validateTaskIdSyntax,
 } from "./layout/index.ts";
-export type { HarnessLayoutOverrides } from "./layout/index.ts";
+export type { HarnessLayout, HarnessLayoutOverrides } from "./layout/index.ts";
 export * from "./ports/index.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";

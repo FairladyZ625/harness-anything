@@ -7,7 +7,7 @@ import type { EntityKindContract } from "./entity-kind-registry.ts";
 export type EntityProjectionContract = Pick<
   EntityKindContract,
   "kind" | "schema" | "id" | "relations" | "canonicalProjection"
->;
+> & { readonly stateStores?: EntityKindContract["stateStores"] };
 
 export interface InterpretedEntityValue {
   readonly kind: string;
@@ -135,7 +135,18 @@ export function interpretEmbeddedEntityProjections(
     payload.execution === undefined
   )
     return [];
-  return declaration.embeddedEvents
+  const embeddedEvents = (contract.stateStores ?? []).flatMap((store) => {
+    if (store.medium.kind !== "canonical-event" || store.medium.schema === undefined || store.projection === undefined)
+      return [];
+    return [
+      {
+        schema: store.medium.schema,
+        types: store.projection.types,
+        payloadField: store.projection.payloadField,
+      },
+    ];
+  });
+  return embeddedEvents
     .filter((source) => source.schema === event.schema && source.types.includes(event.type))
     .map((source) => {
       // 下一次代际转换跑过 settings-roles 与 settings-wal-flush 迁移后删除此读取规范化。

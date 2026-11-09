@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { listWorktreeFiles } from "./git.mjs";
@@ -141,6 +141,7 @@ export function loadActionCoverageSnapshot(rootDir) {
     "const [registry, declarations, commands, gui] = await Promise.all(process.argv.slice(1, 5).map((url) => import(url)));",
     "const result = {",
     "  kinds: registry.entityKindContracts.map((contract) => contract.kind),",
+    "  stateStores: registry.entityKindContracts.map((contract) => ({ kind: contract.kind, stateStores: contract.stateStores ?? null })),",
     "  effects: registry.entityKindContracts.flatMap((contract) => (contract.actionCatalog?.actions ?? [])",
     "    .filter((action) => action.execution && !action.execution.read)",
     "    .map((action) => ({ kind: contract.kind, action: action.id, ingress: action.execution.ingress,",
@@ -155,6 +156,21 @@ export function loadActionCoverageSnapshot(rootDir) {
     "process.stdout.write(JSON.stringify(result));",
   ].join("\n");
   return JSON.parse(runTypeScriptProbe(modules[0], script, ...modules.slice(1)));
+}
+
+export function loadStateAuthoritySnapshot(rootDir) {
+  const action = loadActionCoverageSnapshot(rootDir);
+  const eventPath = path.join(rootDir, "packages/kernel/src/domain/doc-sync-canonical-events.ts");
+  if (!existsSync(eventPath)) return { ...action, canonicalEvents: [] };
+  const script = [
+    "const events = await import(process.argv[1]);",
+    "process.stdout.write(JSON.stringify(events.canonicalEventSchemas.map(({ schema, owner }) => ({ schema, owner }))));",
+  ].join("\n");
+  try {
+    return { ...action, canonicalEvents: JSON.parse(runTypeScriptProbe(eventPath, script)) };
+  } catch (error) {
+    throw new Error(`cannot load canonical event registry: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function runTypeScriptProbe(modulePath, script, ...otherModulePaths) {

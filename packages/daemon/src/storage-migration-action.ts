@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { runStorageMigration, type StorageMigrationLocation } from "@harness-anything/storage";
+import { workspaceText } from "./repo-cell-packets.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoTaskAction, RepoCellBinding } from "./repo-cell-types.ts";
 
@@ -17,7 +17,7 @@ export async function runStorageMigrationAction(
     );
   const load = (field: string, backend: unknown): StorageMigrationLocation => {
     const file = cell.requiredCellText(action[field], field),
-      location = JSON.parse(readFileSync(path.resolve(cell.rootDir, file), "utf8")) as StorageMigrationLocation;
+      location = JSON.parse(workspaceText(cell.rootDir, file, field)) as StorageMigrationLocation;
     if (!location.storage || (location.storage.backend ?? "sqlite") !== backend)
       throw cell.cellCodedError("invalid_field", `${field} backend differs from --from/--to`);
     return location;

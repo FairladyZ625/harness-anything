@@ -1460,7 +1460,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             assert.equal(denied.code, "lease_conflict", JSON.stringify(denied));
             assert.equal(readFileSync(syncedTarget, "utf8"), "# Runtime doc sync artifact\n");
             const cliRetirement = await spawnCli(
-              ["--root", workerRoot, "--json", "doc", "retire", "--path", syncedPath, "--reason", reason],
+              ["--root", workerRoot, "--json", "doc", "retire", "--path", `harness/${syncedPath}`, "--reason", reason],
               {
                 ...process.env,
                 HARNESS_DAEMON_USER_ROOT: userRoot,

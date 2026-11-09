@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readlinkSync } from "node:fs";
+import { lstatSync, readlinkSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, type ArchivedExecutionV0 } from "@harness-anything/kernel";
 import { hasExactMigrationFields, hasNonEmptyMigrationStrings, timestamp } from "./migration-import-report.ts";
 import { isMigrationImportRecord, nonEmpty } from "@harness-anything/storage";
 import type { AuthoredNode, DestinationNode } from "./migration-import-types.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export type LegacyLocator =
   | { readonly substrate: "inline"; readonly text: string }
@@ -180,7 +181,7 @@ export function legacySubmission(value: unknown): boolean {
 
 export function utf8File(root: string, sourcePath: string): string | null {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path.join(root, sourcePath)));
+    return new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(root, sourcePath));
   } catch (error) {
     consumeKnownError(error);
     return null;
@@ -285,7 +286,7 @@ export function destinationNode(root: string, sourcePath: string): DestinationNo
     }
     return authoredNode("symbolic-link", bytes, linkTarget);
   }
-  return info.isFile() ? authoredNode("file", readFileSync(target)) : { nodeKind: "directory" };
+  return info.isFile() ? authoredNode("file", readAuthoredDocumentBytes(root, sourcePath)) : { nodeKind: "directory" };
 }
 
 export function nodeSummary(label: string, node: DestinationNode): string {

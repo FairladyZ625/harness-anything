@@ -348,6 +348,22 @@ export function taskAmendment(
   };
 }
 
+/**
+ * The one supersede transition: the replaced Task is cancelled (terminal) and its package is
+ * archived because of that terminal replacement lineage, never as a second, independently written
+ * disposition. `pinned` clears like every other terminal transition. The writer and the replay
+ * reducer both call this, so a fresh event and a rebuilt projection cannot disagree.
+ */
+export function supersededTaskState(task: TaskV2, supersededBy: string | null): TaskV2 {
+  return {
+    ...task,
+    status: "cancelled",
+    pinned: false,
+    packageDisposition: "archived",
+    ...(supersededBy === null ? {} : { supersededBy }),
+  };
+}
+
 export type TaskEventV1 =
   | TaskCreatedEvent
   | ExecutionStartedEvent
@@ -730,6 +746,20 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     issues.push(invalidEventPayloadIssue("task mutation audit fields are invalid"));
   if (isRecord(payload.task) && "graph" in payload.task)
     issues.push(...validateTaskGraph(payload.task.graph, allowUnknownFields));
+  // New admission refuses the split state that produced the supersede bug: a superseded Task is
+  // terminal (cancelled) and its archive is derived, never an independently written disposition
+  // beside a live status. Historical events stay readable through the lenient replay validator and
+  // are normalized by the reducer.
+  if (
+    !allowUnknownFields &&
+    value.type === "task_superseded" &&
+    isRecord(payload.task) &&
+    payload.task.packageDisposition === "archived" &&
+    payload.task.status !== "cancelled"
+  )
+    issues.push(
+      invalidEventPayloadIssue("a supersede event must record the terminal cancelled status, not archived+active"),
+    );
   if (isRecord(payload.task) && payload.task.taskId !== value.taskId)
     issues.push(invalidEventPayloadIssue("payload Task identity must match the envelope"));
   return issues;

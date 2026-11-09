@@ -3,6 +3,7 @@ import { ciStatusWordRegister } from "./status-word-register-ci.ts";
 import type { StatusWordRegistration } from "./status-vocabulary.ts";
 import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
 import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
+import { authoredDocumentStatusWordRegister } from "./status-word-register-authored-document.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
@@ -1030,6 +1031,9 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
 
   // ---- TaskCloseout gate status and readiness (status-word-register-closeout.ts) ----
   ...closeoutStatusWordRegister,
+
+  // ---- AuthoredDocument candidate state and replica syncState (status-word-register-authored-document.ts) ----
+  ...authoredDocumentStatusWordRegister,
 
   // ---- Task.sessionBinding disposition (witness availability) ----
   {

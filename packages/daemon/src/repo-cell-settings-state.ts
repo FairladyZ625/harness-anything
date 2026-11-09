@@ -28,6 +28,7 @@ import {
 } from "@harness-anything/kernel";
 import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import type { DispatchArchiveRetention } from "./dispatch-stream-archive.ts";
 import type {
   AuthoredSettingsInitialization,
@@ -236,7 +237,9 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
   const authoredInitialization = (): AuthoredSettingsInitialization | null => {
     const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
     if (!existsSync(configPath) || projectedRepositorySettings(cell.projection) !== null) return null;
-    const documentBody = readFileSync(configPath, "utf8");
+    const documentBody = new TextDecoder("utf-8", { fatal: true }).decode(
+      readAuthoredDocumentBytes(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
+    );
     // The authored facet is user input. A malformed one must name itself and the file it is in, not
     // surface as a codeless `service_rejected` from the declaration parser.
     let settings: SettingsV1;

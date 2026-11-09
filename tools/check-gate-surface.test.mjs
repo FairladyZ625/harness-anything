@@ -12,6 +12,27 @@ const checkerPath = path.join(repoRoot, "tools/check-gate-surface.mjs");
 
 test("rewrite CI runs the integration tier on every PR and scopes baseline retirement to the boundaries lane", () => {
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8");
+  const sectionFor = (source, job) => {
+    const start = source.indexOf(`  ${job}:`);
+    assert.notEqual(start, -1, `${job} must exist`);
+    const remainder = source.slice(start + job.length + 3),
+      next = remainder.search(/\n  [A-Za-z0-9_-]+:/u);
+    return source.slice(start, next === -1 ? source.length : start + job.length + 3 + next);
+  };
+  // Every required check must also report on the merge queue's temporary merge ref, or the queue
+  // waits forever for a context that its merge_group event never starts.
+  assert.match(workflow, /\n  merge_group:\n    types: \[checks_requested\]/u);
+  for (const job of [
+    "quick-gates",
+    "fast-contract",
+    "integration-shard",
+    "boundaries",
+    "package-policy",
+    "gui-build",
+    "crlf-checkout",
+  ]) {
+    assert.match(sectionFor(workflow, job), /github\.event_name == 'merge_group'/u, `${job} must run for merge groups`);
+  }
   // The integration shards once skipped rebuild-base PRs on the claim that they
   // only exercised retired 07-11 machinery. 66 tier-marked files falsified it,
   // so the tier runs on every PR again; nothing may re-scope it by base branch.
@@ -38,6 +59,14 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
   }
   const prBodyWorkflow = readFileSync(path.join(repoRoot, ".github/workflows/pr-body.yml"), "utf8");
+  assert.match(prBodyWorkflow, /\n  merge_group:\n    types: \[checks_requested\]/u);
+  for (const job of ["pr-body-lint", "pr-body-advisory"]) {
+    assert.match(
+      sectionFor(prBodyWorkflow, job),
+      /github\.event_name == 'merge_group'/u,
+      `${job} must run for merge groups`,
+    );
+  }
   // Two aggregate jobs keep the existing enforcement: the required body/governance checks block,
   // while the advisory checks stay non-blocking. Both run their full manifest plan before failing,
   // so a run reports every check without letting an earlier failure hide the rest.

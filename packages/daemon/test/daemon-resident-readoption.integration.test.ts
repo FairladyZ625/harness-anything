@@ -2,12 +2,23 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { daemonServiceUnit } from "../src/client/daemon-service.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
@@ -230,11 +241,7 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           );
           writeFileSync(failureRelease, "release");
         }
-        const outcome = await Promise.race([
-          oldExit,
-          new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 5000)),
-        ]);
-        assert.notEqual(outcome, "hung", `resident failed to exit after supersession: ${stderr}`);
+        const outcome = await oldExit;
         assert.deepEqual(outcome, [supervised ? 75 : 1, null], stderr);
         if (failDrain) assert.match(stderr, /injected resident drain failure/u);
         if (failSuccessor) assert.match(stderr, /injected successor callback failure/u);
@@ -343,7 +350,13 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           const pid = readDaemonPid(userRoot, repoId);
           if (pid && pid !== old.pid) {
             killIfAlive(pid, "SIGTERM");
-            await until(() => readDaemonPid(userRoot, repoId) === null, "on-demand successor did not stop");
+            await waitForArrival(
+              () => (readDaemonPid(userRoot, repoId) === null ? true : null),
+              (arrive) => {
+                const watcher = watch(userRoot, arrive);
+                return () => watcher.close();
+              },
+            );
           }
         }
         if (workerPid) killIfAlive(-workerPid, "SIGKILL");

@@ -17,6 +17,7 @@ import {
 } from "@harness-anything/kernel";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export interface FleetMirrorBlob {
   readonly sha256: string;
@@ -281,7 +282,7 @@ export function scanFleetMirrorWorktree(
         fileSize,
         base?.policyId ?? null,
         base !== undefined,
-        () => readFileSync(file),
+        () => readAuthoredDocumentBytes(root, logical),
       );
     // Raw artifacts — a PNG, a PDF, a log with stray bytes, a JSON evidence file — are doc-sync
     // candidates inside a task package's artifacts subtree. Outside that subtree the edge keeps the

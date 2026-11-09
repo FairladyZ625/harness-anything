@@ -14,10 +14,13 @@ const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/rewrit
 );
 const attributes = readFileSync(path.join(process.cwd(), ".gitattributes"), "utf8");
 
-test("the shared install job is scoped to PR and push artifact consumers", () => {
+test("the shared install job is scoped to PR, merge-group, and push artifact consumers", () => {
   const section = workflow.split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu).find((candidate) => candidate.startsWith("install:"));
   assert.ok(section);
-  assert.match(section, /^    if: github\.event_name == 'pull_request' \|\| github\.event_name == 'push'/mu);
+  assert.match(
+    section,
+    /^    if: github\.event_name == 'pull_request' \|\| github\.event_name == 'merge_group' \|\| github\.event_name == 'push'/mu,
+  );
 });
 
 test("every npm ci job primes the version-keyed Electron cache before installing", () => {
@@ -66,11 +69,14 @@ test("crlf checkout orders PR artifact consumption and retains its nightly lane"
   assert.match(section, /^    needs: install/mu);
   assert.match(
     section,
-    /^    if: always\(\) && \(github\.event_name == 'pull_request' \|\| github\.event_name == 'push'\)$/mu,
+    /^    if: always\(\) && \(github\.event_name == 'pull_request' \|\| github\.event_name == 'merge_group' \|\| github\.event_name == 'push'\)$/mu,
   );
-  assert.match(section, /- run: npm ci\n\s+if: github\.event_name != 'pull_request' && github\.event_name != 'push'/u);
   assert.match(
     section,
-    /- uses: actions\/download-artifact@v4\n\s+if: github\.event_name == 'pull_request' \|\| github\.event_name == 'push'/u,
+    /- run: npm ci\n\s+if: github\.event_name != 'pull_request' && github\.event_name != 'merge_group' && github\.event_name != 'push'/u,
+  );
+  assert.match(
+    section,
+    /- uses: actions\/download-artifact@v4\n\s+if: github\.event_name == 'pull_request' \|\| github\.event_name == 'merge_group' \|\| github\.event_name == 'push'/u,
   );
 });

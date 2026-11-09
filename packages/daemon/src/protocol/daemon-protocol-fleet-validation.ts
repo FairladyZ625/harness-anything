@@ -4,6 +4,14 @@ export type { EntityActionInputField } from "@harness-anything/kernel";
 /** The maximum number of rows in a Fleet action array on both edge and center. */
 export const FLEET_ACTION_PAGE_ROWS = 128;
 
+/** Preserve the caller's path coordinate across the edge/center transport boundary. */
+export const FLEET_PATH_COORDINATE_FIELD: EntityActionInputField = {
+  field: "pathCoordinate",
+  type: "string",
+  required: false,
+  wire: { enum: ["workspace", "task-artifact"] },
+};
+
 const record = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const patternCache = new Map<string, RegExp>();

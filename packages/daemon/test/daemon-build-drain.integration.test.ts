@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -12,12 +12,13 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection, registerDaemonRepo } from "@harness-anything/storage";
 import { consumeKnownError, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { observeDaemonBuild } from "../src/build-identity.ts";
-import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
+import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -137,14 +138,21 @@ for (const detached of [false, true]) {
       repoId = "proxy-stream-drain",
       runtimeFile = builtRuntime(path.join(parent, "runtime"), "build-a"),
       buildIdPath = path.join(parent, "runtime/packages/cli/dist/build-id.txt"),
-      proxy = openRemoteProxyManager(proxyRoot);
+      proxy = openRemoteProxyManager(proxyRoot),
+      superseded = deferred<void>();
     let daemon: RunningDaemon | undefined;
     initializeRepo(rootDir, repoId);
     signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
     registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
     try {
       daemon = runningDaemon(
-        await startDaemon({ daemonId: repoId, userRoot, runtimeFile, openCell: openBootstrappedRepoCell }),
+        await startDaemon({
+          daemonId: repoId,
+          userRoot,
+          runtimeFile,
+          openCell: openBootstrappedRepoCell,
+          onSupersededExit: () => superseded.resolve(),
+        }),
       );
       await waitUntil(async () => {
         const status = await requestDaemonJsonRpcAt(daemon!.endpoint, "daemon.status", {}, 2_000, 2_000);
@@ -191,7 +199,9 @@ for (const detached of [false, true]) {
         );
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       // Keep the manager alive throughout: closing it would conceal the cached hello leak.
-      await waitUntil(() => readDaemonPid(userRoot, repoId) === null);
+      // The superseded daemon's exit hook is the completion event; a wall-clock deadline here
+      // reddened shard 12 whenever the drain outlived three seconds under CI load.
+      await superseded.promise;
       assert.equal(
         readDaemonLifecycleRecords(userRoot, repoId).some(
           (record) => record.event === "process_exit" && record.outcome === "build_superseded",
@@ -1009,15 +1019,18 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       { liveness: settled.liveness, outcome: settled.outcome, exitCode: settled.exitCode },
       { liveness: "exited", outcome: "succeeded", exitCode: 0 },
     );
-    await waitUntil(() => {
-      try {
-        process.kill(providerPid, 0);
-        return false;
-      } catch (error) {
-        consumeKnownError(error);
-        return true;
-      }
-    });
+    const runtimeExit = await waitForArrival(
+      () =>
+        readDaemonLifecycleRecords(userRoot, repoId).find(
+          (record) => record.event === "runtime_exit" && record.runtimeSessionId === spawnReceipt!.runtimeSessionId,
+        ) ?? null,
+      (arrive) => {
+        const watcher = watch(path.dirname(daemonLifecycleLogPath(userRoot, repoId)), arrive);
+        return () => watcher.close();
+      },
+    );
+    assert.equal(runtimeExit.runtimeSessionId, spawnReceipt!.runtimeSessionId);
+    assert.equal(runtimeExit.outcome, "succeeded", JSON.stringify(runtimeExit));
   } finally {
     // A failed assertion can leave the successor mid-start: the drifted daemon's own teardown is
     // what calls onSupersededExit, so stop it first, settle the in-flight successor start, and only

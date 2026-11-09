@@ -1,6 +1,7 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 /** Read-only probes that decide whether an authored path is runtime state or a dependency
  * tree. Shared by the authored audit and its classifier without either importing the other. */
@@ -55,8 +56,11 @@ export function installedDependencyTree(directory: string): boolean {
 
 export function appleDesktopMetadata(root: string, sourcePath: string): boolean {
   try {
-    const bytes = readFileSync(path.join(root, sourcePath));
-    return bytes.byteLength >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0, 0, 0, 1, 0x42, 0x75, 0x64, 0x31]));
+    const bytes = readAuthoredDocumentBytes(root, sourcePath);
+    return (
+      bytes.byteLength >= 8 &&
+      Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([0, 0, 0, 1, 0x42, 0x75, 0x64, 0x31]))
+    );
   } catch (error) {
     consumeKnownError(error);
     return false;

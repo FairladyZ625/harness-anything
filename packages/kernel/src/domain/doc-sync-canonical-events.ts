@@ -37,8 +37,9 @@ import { validateCurrentRelationEvent, validateRelationEvent } from "./relation-
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
 
-interface CanonicalEventSchemaRegistration {
+export interface CanonicalEventSchemaRegistration {
   readonly schema: string;
+  readonly owner: string;
   readonly validate: (value: unknown) => readonly string[];
   readonly validateCurrent?: (value: unknown) => readonly string[];
 }
@@ -46,104 +47,129 @@ interface CanonicalEventSchemaRegistration {
 export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] = Object.freeze([
   {
     schema: "execution-delegation-event/v1",
+    owner: "execution",
     validate: validateExecutionDelegationEvent,
     validateCurrent: validateCurrentExecutionDelegationEvent,
   },
-  { schema: "entity-pin-event/v1", validate: validateEntityPinEvent, validateCurrent: validateCurrentEntityPinEvent },
-  { schema: "ci-run-observation/v2", validate: validateRetiredCiRunObservationEvent },
-  { schema: "ci-run-observation/v1", validate: validateRetiredCiRunObservationEvent },
-  { schema: "ci-run-observation/v3", validate: validateRetiredCiRunObservationEvent },
-  { schema: "ci-run-observation/v4", validate: validateRetiredCiRunObservationEvent },
+  {
+    schema: "entity-pin-event/v1",
+    owner: "runtime-instance",
+    validate: validateEntityPinEvent,
+    validateCurrent: validateCurrentEntityPinEvent,
+  },
+  { schema: "ci-run-observation/v2", owner: "execution", validate: validateRetiredCiRunObservationEvent },
+  { schema: "ci-run-observation/v1", owner: "execution", validate: validateRetiredCiRunObservationEvent },
+  { schema: "ci-run-observation/v3", owner: "execution", validate: validateRetiredCiRunObservationEvent },
+  { schema: "ci-run-observation/v4", owner: "execution", validate: validateRetiredCiRunObservationEvent },
   {
     schema: "task-event/v1",
+    owner: "task",
     validate: (value: unknown) => validateTaskEvent(value).map((issue) => issue.message),
     validateCurrent: (value: unknown) => validateCurrentTaskEvent(value).map((issue) => issue.message),
   },
   {
     schema: "doc-event/v1",
+    owner: "document",
     validate: validateDocEvent,
     validateCurrent: validateCurrentDocEvent,
   },
   {
     schema: "agent-runtime-event/v1",
+    owner: "runtime-session",
     validate: validateAgentRuntimeEvent,
     validateCurrent: validateCurrentAgentRuntimeEvent,
   },
   {
     schema: "schedule-event/v1",
+    owner: "schedule",
     validate: validateScheduleEvent,
     validateCurrent: validateCurrentScheduleEvent,
   },
   {
     schema: "settings-event/v1",
+    owner: "settings",
     validate: validateSettingsEvent,
     validateCurrent: validateCurrentSettingsEvent,
   },
   {
     schema: "vertical-declaration-event/v1",
+    owner: "vertical-declaration",
     validate: validateVerticalDeclarationEvent,
     validateCurrent: validateCurrentVerticalDeclarationEvent,
   },
   {
     schema: "people-event/v1",
+    owner: "agent",
     validate: validateRetiredPeopleEvent,
   },
   {
     schema: "task-bootstrap-event/v1",
+    owner: "task",
     validate: validateTaskBootstrapEvent,
     validateCurrent: validateCurrentTaskBootstrapEvent,
   },
   {
     schema: "task-progress-event/v1",
+    owner: "task",
     validate: validateTaskProgressEvent,
     validateCurrent: validateCurrentTaskProgressEvent,
   },
   {
     schema: "preset-snapshot-upgrade-event/v1",
+    owner: "task",
     validate: validatePresetSnapshotUpgradeEvent,
     validateCurrent: validateCurrentPresetSnapshotUpgradeEvent,
   },
   {
     schema: "entity-event/v1",
+    owner: "todo",
     validate: validateEntityEvent,
     validateCurrent: validateCurrentEntityEvent,
   },
   {
     schema: "agent-entity-event/v1",
+    owner: "agent",
     validate: validateEntityEvent,
   },
   {
     schema: "fact-event/v1",
+    owner: "fact",
     validate: validateFactEvent,
     validateCurrent: validateCurrentFactEvent,
   },
   {
     schema: "entity-document-event/v1",
+    owner: "document",
     validate: validateEntityDocumentEvent,
     validateCurrent: validateCurrentEntityDocumentEvent,
   },
   {
     schema: "decision-event/v1",
+    owner: "decision",
     validate: validateDecisionEvent,
     validateCurrent: validateCurrentDecisionEvent,
   },
   {
     schema: "relation-event/v1",
+    owner: "relation",
     validate: validateRelationEvent,
     validateCurrent: validateCurrentRelationEvent,
   },
   {
     schema: "migration-import-event/v1",
+    owner: "migration",
     validate: validateMigrationImportEvent,
     validateCurrent: validateCurrentMigrationImportEvent,
   },
   {
     schema: "ledger-layout-event/v1",
+    owner: "migration",
     validate: validateLedgerLayoutMigrationEvent,
     validateCurrent: validateCurrentLedgerLayoutMigrationEvent,
   },
   {
     schema: "event-shape-migration/v1",
+    owner: "migration",
     validate: validateEventShapeMigrationEvent,
     validateCurrent: validateCurrentEventShapeMigrationEvent,
   },

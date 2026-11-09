@@ -2,11 +2,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { readDaemonPid } from "../src/daemon-singleton.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
@@ -93,8 +94,7 @@ for (const supervised of [true, false])
       const old = start(),
         exited = once(old, "exit");
       let successor: ReturnType<typeof spawn> | undefined,
-        workerPid = 0,
-        timer: ReturnType<typeof setTimeout> | undefined;
+        workerPid = 0;
       try {
         await eventually(() => existsSync(workerFile) && existsSync(providerReady), "runtime did not start");
         workerPid = Number(readFileSync(workerFile, "utf8"));
@@ -109,17 +109,7 @@ for (const supervised of [true, false])
         }, "daemon did not start");
         writeFileSync(marker, "build-b\n");
         await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2000, 2000, undefined, true);
-        const outcome = await Promise.race([
-          exited,
-          new Promise<"hung">((resolve) => {
-            timer = setTimeout(() => resolve("hung"), 5000);
-          }),
-        ]);
-        assert.notEqual(
-          outcome,
-          "hung",
-          "the supervised process must exit even while the detached runtime stays alive",
-        );
+        const outcome = await exited;
         assert.deepEqual(outcome, [supervised ? 75 : 0, null]);
         assert.doesNotThrow(() => process.kill(workerPid, 0));
         if (supervised) successor = start();
@@ -133,7 +123,6 @@ for (const supervised of [true, false])
         }, "supervisor did not start the disk build");
         assert.doesNotThrow(() => process.kill(workerPid, 0));
       } finally {
-        clearTimeout(timer);
         old.kill("SIGKILL");
         successor?.kill("SIGTERM");
         if (workerPid) killWorker(workerPid);
@@ -143,7 +132,13 @@ for (const supervised of [true, false])
           const successorPid = readDaemonPid(userRoot, daemonId);
           if (successorPid !== null && successorPid !== old.pid) {
             terminateDaemon(successorPid);
-            await eventually(() => readDaemonPid(userRoot, daemonId) === null, "successor did not release its pid");
+            await waitForArrival(
+              () => (readDaemonPid(userRoot, daemonId) === null ? true : null),
+              (arrive) => {
+                const watcher = watch(userRoot, arrive);
+                return () => watcher.close();
+              },
+            );
           }
         }
         rmSync(parent, { recursive: true, force: true });

@@ -865,7 +865,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       [["title", "byTaskId"]],
     ),
     "invalid_disposition",
-    "The old Task is active, unleased, and names or creates one valid replacement.",
+    "The old Task is active, unleased, has no unsettled dispatch, and names or creates one valid replacement.",
     "Archive old work and preserve explicit replacement lineage.",
     "oldTaskId",
   ),
@@ -950,6 +950,9 @@ const createResult = Object.freeze({
     wire(field("taskId", "string", true), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
     field("taskStatus", "string", true, ["planned"]),
     field("packagePath", "string", true),
+    // The workspace spelling the CLI prints beside the canonical `packagePath`; GUI receipts
+    // validate the field, so it is part of the result schema even though it is optional.
+    field("workspacePackagePath", "string", false),
     field("generatedPaths", "string-array", true),
     field("presetDigest", "string", true),
     field("scaffoldDigest", "string", true),

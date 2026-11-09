@@ -417,6 +417,7 @@ export {
   commandDescriptorForAction,
   commandIdForDaemonMethod,
   daemonProtocolCommands,
+  hasCommandDescriptor,
   hiddenCliCommands,
   hiddenSince,
   resolveThinCliCommand,

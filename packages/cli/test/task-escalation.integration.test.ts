@@ -90,7 +90,7 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
   assert.deepEqual(agendaRow?.options, ["Keep boundary", "Expand scope"]);
   assert.match(String(agenda.summary), /待你处理/u);
 
-  const rulingPath = path.join(root, "harness", task.packagePath, "artifacts", "rulings", `${dispatchId}.md`),
+  const rulingPath = path.join(root, task.packagePath, "artifacts", "rulings", `${dispatchId}.md`),
     resolutionSource = path.join(parent, "owner-resolution.json");
   writeFileSync(rulingPath, "");
   run(root, env, ["doc", "sync", "--submit", "--path", `${task.packagePath}/artifacts/rulings/${dispatchId}.md`]);
@@ -112,7 +112,7 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
     "--source",
     resolutionSource,
     "--destination",
-    `artifacts/rulings/${dispatchId}.resolution.md`,
+    `${task.packagePath}/artifacts/rulings/${dispatchId}.resolution.md`,
   ]);
   run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
   const shownAfterResolution = run(root, env, ["task", "show", task.taskId]);

@@ -289,7 +289,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     "--source",
     "incoming.md",
     "--destination",
-    "report.md",
+    `harness/${packagePath}/artifacts/report.md`,
   ]);
   assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
   writeFileSync(

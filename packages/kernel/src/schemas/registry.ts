@@ -1,6 +1,6 @@
 import {
   commandInterceptionsSchema,
-  commandInterceptionPatternIssues,
+  commandInterceptionIssues,
   type CommandInterception,
 } from "../domain/command-interceptions.ts";
 import { validateEntityJsonSchema } from "../domain/entity-json-schema.ts";
@@ -126,7 +126,7 @@ function authoredSettingSchema(declaration: SettingsFieldDeclaration): Schema.Sc
               },
               { rules: value },
               "commandInterceptions",
-            ).length === 0 && commandInterceptionPatternIssues(value as readonly CommandInterception[]).length === 0,
+            ).length === 0 && commandInterceptionIssues(value as readonly CommandInterception[]).length === 0,
         ),
       );
     case "gate-mappings":

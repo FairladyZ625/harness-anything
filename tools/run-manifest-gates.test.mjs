@@ -355,6 +355,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     lint: "packages/cli/src/index.ts",
     "check-test-tier-manifest": "packages/storage/test/store/task-event-store.test.ts",
     "check-cli-structure": "packages/cli/src/new-command.ts",
+    "check-cli-path-contract": "tools/check-cli-path-contract.mjs",
     "check-cli-help-contract": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
     "check-cli-error-codes": "packages/cli/src/new-command.ts",
     "check-error-classification": "packages/cli/src/cli/thin-command.ts",

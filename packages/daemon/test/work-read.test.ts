@@ -167,11 +167,19 @@ test("work reads consume the kernel's presented root status while open and child
   assert.match(renderWorkPayload(shown)!, /^work all-done \[done\] all-done title/u);
 });
 
-test("work show drops superseded archived leaves from open tasks and pending counts", () => {
+test("work show leaves a superseded leaf out of open tasks by its terminal status and counts it cancelled", () => {
   const retired = [
     task("declared", null, "planned", "work"),
     task("leaf-live", "declared", "planned"),
-    task("leaf-retired", "declared", "planned", "standard", "2026-09-20T00:00:00.000Z", "archived", "task_replacement"),
+    task(
+      "leaf-retired",
+      "declared",
+      "cancelled",
+      "standard",
+      "2026-09-20T00:00:00.000Z",
+      "archived",
+      "task_replacement",
+    ),
   ];
   const projection = {
     readTaskIndex: () => ({ status: "ready", rows: retired, watermark: 3, sourceRevision: 3, warnings: [] }),
@@ -185,8 +193,9 @@ test("work show drops superseded archived leaves from open tasks and pending cou
     ["leaf-live"],
   );
   assert.equal(shown.counts.planned, 1);
+  assert.equal(shown.counts.cancelled, 1);
   assert.equal(shown.scope.descendantCount, 2);
-  assert.equal(shown.scope.executableLeafCount, 1);
+  assert.equal(shown.scope.executableLeafCount, 2);
   assert.equal(shown.scope.archivedCount, 1);
   assert.doesNotMatch(renderWorkPayload(shown)!, /leaf-retired/u);
 });

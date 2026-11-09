@@ -693,8 +693,9 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     action: { field: "runtimeCommandInterceptions", type: "json-object-array" },
     cli: { name: "--runtime-command-interceptions", kind: "single", projection: "json-object-array" },
     defaultValue: Object.freeze([] as readonly CommandInterception[]),
-    description: "Named regular expressions that deny matching shell commands, optionally scoped to an agent id.",
-    effect: "Every dispatch injects matching rules into native provider hooks; unsupported runtimes refuse to launch.",
+    description: "Named shell deny patterns or reviewed exact commands, optionally scoped to an Agent id.",
+    effect:
+      "Deny patterns use native hooks; reviewed commands need Claude workspace-write and keep sandbox and HA checks.",
     group: "worker-permissions",
   }),
   defineSettingsField({

@@ -1,14 +1,15 @@
+import { reviewReverifyRoute } from "./review-reverify.ts";
 import { arrangeExecution, clearExecutionArrangement } from "./task-execution-arrangement.ts";
 import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
-import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
+import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue, type TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
-import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
+import { TaskLifecycleContractError, supersededTaskState, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
@@ -399,7 +400,21 @@ export function reduceTaskEvent(
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue("invalid_transition", "event revision or aggregate identity is not replayable"),
     ]);
-  if (event.type === "gate_run_changed") return replayGateRunChange(snapshot, event);
+  // A gate write was admitted while the task still read submitted/in_review. The supersede
+  // transition now presents that task as terminal, so replay the gate history against the task
+  // the event recorded and restore the terminal state afterwards. Without this, a real ledger
+  // that received gate writes after a supersede can no longer cold-rebuild.
+  if (event.type === "gate_run_changed") {
+    const task = snapshot.task,
+      supersededReplay =
+        task?.status === "cancelled" &&
+        task.supersededBy !== null &&
+        task.supersededBy !== undefined &&
+        event.payload.task.supersededBy === task.supersededBy;
+    if (!supersededReplay) return replayGateRunChange(snapshot, event);
+    const replayed = replayGateRunChange({ ...snapshot, task: event.payload.task }, event);
+    return { ...replayed, task };
+  }
   let next: TaskLifecycleSnapshot;
   if (event.type === "task_created")
     next = {
@@ -519,6 +534,14 @@ export function reduceTaskEvent(
       executions: replaceExecution(snapshot.executions, event.payload.execution),
       lease: null,
     };
+  else if (event.type === "task_superseded")
+    // The supersede transition owns the terminal status. Deriving it here as well as in the writer
+    // makes a projection rebuild normalize historical events that recorded archived+active.
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: supersededTaskState(event.payload.task, event.payload.task.supersededBy ?? null),
+    };
   else if (event.type !== "task_completed")
     next = {
       ...snapshot,
@@ -538,6 +561,13 @@ export function reduceTaskEvent(
       lease: null,
     };
   assertReplay(snapshot, event, next);
+  // A superseded package is terminal. Historical events after a supersede can still carry the
+  // same supersededBy beside a non-terminal status (a legacy transition/retirement/migration);
+  // normalize them so a rebuilt projection never shows archived+active. This runs after the
+  // event-specific replay check, which compares the recorded historical task, not this normalized
+  // terminal view.
+  if (next.task?.supersededBy !== undefined && next.task.supersededBy !== null && next.task.status !== "cancelled")
+    next = { ...next, task: supersededTaskState(next.task, next.task.supersededBy) };
   return next;
 }
 function sameReleasedLease(current: LeaseV1, released: LeaseV1): boolean {
@@ -553,9 +583,27 @@ function sameReleasedLease(current: LeaseV1, released: LeaseV1): boolean {
 }
 function sameReplayTask(current: TaskLifecycleSnapshot["task"], recorded: TaskLifecycleSnapshot["task"]): boolean {
   if (!current || !recorded) return current === recorded;
-  return stableStringify(currentTaskForWrite(current)) === stableStringify(currentTaskForWrite(recorded));
+  // A superseded Task is terminal by contract. Historical writes after a supersede still recorded
+  // the live status they saw, so compare both sides through the same terminal transition instead
+  // of rejecting history the old writer legitimately accepted.
+  const normalize = (task: NonNullable<TaskLifecycleSnapshot["task"]>) =>
+    task.supersededBy ? supersededTaskState(task, task.supersededBy) : task;
+  return (
+    stableStringify(currentTaskForWrite(normalize(current))) ===
+    stableStringify(currentTaskForWrite(normalize(recorded)))
+  );
 }
 function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next: TaskLifecycleSnapshot): void {
+  // Replay checks compare the state the historical writer saw. When this task is already terminal
+  // through a supersede, use the task recorded on the event (same replacement lineage) but keep the
+  // pre-event iteration: review-return checks still need the iteration this event advances from.
+  const recorded = (event.payload as { readonly task?: TaskV2 }).task;
+  if (
+    snapshot.task?.supersededBy !== undefined &&
+    snapshot.task.supersededBy !== null &&
+    recorded?.supersededBy === snapshot.task.supersededBy
+  )
+    snapshot = { ...snapshot, task: { ...recorded, iteration: snapshot.task.iteration } };
   if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed") {
     // The retired envelope must still name its own task and execution; it owns no other state.
     if (event.payload.execution.taskId !== event.taskId || event.payload.task.taskId !== event.taskId)
@@ -809,10 +857,24 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue("invalid_proof", "replayed consent is not content pinned"),
     ]);
+  // dec_BEFCF7D0484E901F187C2C8EC6 CH2: the one cross-submission disposition is the owner-verify
+  // citation of the previous round, admitted by the same kernel reverify route the write used.
+  const ownerVerifiedIds =
+    event.type === "review_consent_overridden"
+      ? (() => {
+          const route = reviewReverifyRoute({
+            reviews: snapshot.reviews,
+            reviewResponses: snapshot.reviewResponses,
+            execution: event.payload.execution,
+          });
+          return route.kind === "owner-verify" ? new Set(route.reviews.map((review) => review.reviewId)) : new Set();
+        })()
+      : new Set();
   if (
     event.type === "review_consent_overridden" &&
     event.payload.disposition.disposedReviewIds.some(
       (reviewId) =>
+        !(reviewId === event.payload.consent.reviewId && ownerVerifiedIds.has(reviewId)) &&
         !snapshot.reviews.some(
           (review) =>
             review.reviewId === reviewId &&

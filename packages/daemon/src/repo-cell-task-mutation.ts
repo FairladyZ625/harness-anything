@@ -6,6 +6,7 @@ import {
   runtimeSessionSemanticState,
   runtimeSessionIdFromActor,
   sameWriteSource,
+  supersededTaskState,
   taskClasses,
   taskAmendment,
   type AuthorizationDecision,
@@ -380,20 +381,24 @@ function taskMutationWithStopResult(
         "replacement_not_found",
         `Create replacement task ${byTaskId} before superseding ${task.taskId}.`,
       );
+    const unsettled = unsettledTaskDispatch(cell, task.taskId);
+    if (unsettled !== null)
+      throw cell.cellCodedError(
+        "unsettled_dispatch",
+        `Task ${task.taskId} still has unsettled dispatch ${unsettled.dispatchId}; run ` +
+          `ha runtime cancel ${unsettled.runtimeSessionId}, then retry ha task supersede ${task.taskId} ` +
+          `--by ${byTaskId} --confirm ${task.taskId}.`,
+      );
     return {
       type: "task_superseded",
-      task: {
-        ...task,
-        packageDisposition: "archived",
-        supersededBy: byTaskId,
-      },
+      task: supersededTaskState(task, byTaskId),
       audit: {
         command: "supersede",
         reason:
           typeof action.reason === "string" && action.reason.trim()
             ? action.reason.trim()
             : `Task superseded by ${byTaskId}`,
-        fields: ["packageDisposition", "supersededBy"],
+        fields: ["status", "supersededBy"],
       },
     };
   }
@@ -663,4 +668,26 @@ function dispatchProcessIsOrphaned(stream: NonNullable<ReturnType<typeof readDis
     stream.process !== undefined &&
     (stream.process.exited || !runtimePidIsAlive(stream.process.pid))
   );
+}
+
+/** Supersede retires a Task for good, so it must not race a dispatch that can still write to it.
+ * A queued or running dispatch is in flight; a settled/terminal attempt or a process that already
+ * exited is history. A scheduled/dispatched fallback keeps the dispatch live even after an exit,
+ * because its successor still owns the task. */
+function taskDispatchIsSettled(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
+  if (stream.terminalOutcome !== null && stream.terminalOutcome !== undefined) return true;
+  if (dispatchReachedTerminalAttempt(stream)) return true;
+  if (stream.fallbackState === "scheduled" || stream.fallbackState === "dispatched") return false;
+  return dispatchProcessIsOrphaned(stream);
+}
+
+function unsettledTaskDispatch(
+  cell: RepoCellActionContext,
+  taskId: string,
+): { readonly dispatchId: string; readonly runtimeSessionId: string } | null {
+  for (const entry of readDispatchLiveIndex(cell.rootDir, [taskId]).entries) {
+    const stream = readDispatchStreamSummary(cell.rootDir, entry.dispatchId);
+    if (stream !== null && !taskDispatchIsSettled(stream)) return entry;
+  }
+  return null;
 }

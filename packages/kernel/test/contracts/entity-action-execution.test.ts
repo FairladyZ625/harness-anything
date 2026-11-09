@@ -368,7 +368,6 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
   ]);
   assert.equal(explanation.transitions.available.filter((id) => id === "run").length, 1);
   assert.deepEqual(explanation.canonicalProjection, {
-    embeddedEvents: [],
     row: { idField: "runtimeSessionId", ownerField: null },
   });
   assert.equal(run?.target.kind, "runtime-session");

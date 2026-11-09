@@ -5,12 +5,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
+  checkAuthoredDocumentVocabularyCoverage,
   checkDaemonMirrorAgreement,
   checkGuiMirrorAgreement,
   checkKernelDeclarationCoverage,
   checkKernelVocabularyBijection,
   checkRegisterShape,
+  collectAuthoredDocumentVocabularySites,
   collectKernelDeclarationSites,
+  isAuthoredDocumentVocabulary,
   KERNEL_DECLARATION_SUFFIX,
 } from "./check-status-vocabulary.mjs";
 
@@ -217,9 +220,81 @@ test("declaration suffix pattern keeps matching the vocabulary families", () => 
     "writeReceiptOutcomes",
     "runtimeLivenessStates",
     "closeoutReadinesses",
+    "PlanReadiness",
   ]) {
     assert.ok(KERNEL_DECLARATION_SUFFIX.test(name), name);
   }
   assert.equal(KERNEL_DECLARATION_SUFFIX.test("taskClasses"), false);
   assert.equal(KERNEL_DECLARATION_SUFFIX.test("factMemoryTags"), false);
+});
+
+// dec_6B912A63D279A922FA1288536D CH2: authored-document words outside the kernel are registered first.
+function authoredDocumentSources() {
+  return new Map(
+    [
+      "packages/daemon/src/doc-sync-candidate-scanner.ts",
+      "packages/daemon/src/doc-sync-reads.ts",
+      "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
+    ].map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]),
+  );
+}
+
+test("authored-document vocabularies in the daemon are registered", () => {
+  const sites = collectAuthoredDocumentVocabularySites(authoredDocumentSources());
+  assert.deepEqual(sites.map(({ module, anchor }) => `${module} ${anchor}`).sort(), [
+    "packages/daemon/src/doc-sync-candidate-scanner.ts DocCandidateState",
+    "packages/daemon/src/doc-sync-reads.ts #syncState",
+    "packages/daemon/src/doc-sync-reads.ts ProjectedDocumentSyncState",
+    "packages/daemon/src/protocol/daemon-protocol-gui-types.ts #syncState",
+  ]);
+  assert.deepEqual(checkAuthoredDocumentVocabularyCoverage(register, sites), []);
+});
+
+test("positive fixture: an unregistered edge candidate or readiness word is refused", () => {
+  const fixture = "tools/fixtures/status-vocabulary-authored-document/packages/daemon/src/fleet/edge-doc-candidate.ts",
+    module = "packages/daemon/src/fleet/edge-doc-candidate.ts",
+    sources = new Map([...authoredDocumentSources(), [module, readFileSync(path.join(repoRoot, fixture), "utf8")]]),
+    findings = checkAuthoredDocumentVocabularyCoverage(register, collectAuthoredDocumentVocabularySites(sources));
+  assert.ok(
+    findings.some((finding) => finding.includes(`${module}#EdgeDocCandidateState`) && finding.includes("candidate_v2")),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) => finding.includes(`${module}##readinessState`) && finding.includes("awaiting_center")),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) => finding.includes(`${module}#Status`) && finding.includes("complete")),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) => finding.includes(`${module}#PlanReadiness`) && finding.includes("not_ready")),
+    findings.join("\n"),
+  );
+});
+
+test("positive fixture: a registered authored-document vocabulary gaining a word is refused", () => {
+  const sources = authoredDocumentSources(),
+    scanner = "packages/daemon/src/doc-sync-candidate-scanner.ts";
+  sources.set(scanner, sources.get(scanner).replace('| "conflict";', '| "conflict" | "candidate_v2";'));
+  const findings = checkAuthoredDocumentVocabularyCoverage(register, collectAuthoredDocumentVocabularySites(sources));
+  assert.ok(
+    findings.some((finding) => finding.includes(`${scanner}#DocCandidateState`) && finding.includes("drift")),
+    findings.join("\n"),
+  );
+});
+
+test("authored-document family matches by camelCase token, not substring", () => {
+  for (const anchor of [
+    "DocCandidateState",
+    "ProjectedDocumentSyncState",
+    "#syncState",
+    "#readinessState",
+    "PlanReadiness",
+  ])
+    assert.equal(isAuthoredDocumentVocabulary(anchor), true, anchor);
+  assert.equal(isAuthoredDocumentVocabulary("Status", ["complete", "incomplete"]), true);
+  assert.equal(isAuthoredDocumentVocabulary("State", ["queued", "running"]), false);
+  for (const anchor of ["DoctorCheckStatus", "ReplicaSyncPhase", "#status", "#fallbackState"])
+    assert.equal(isAuthoredDocumentVocabulary(anchor), false, anchor);
 });

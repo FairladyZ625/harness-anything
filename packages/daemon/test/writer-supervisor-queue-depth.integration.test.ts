@@ -12,7 +12,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
-test("writer supervisor observes internal runtime work draining to zero", async () => {
+test("writer supervisor observes internal runtime work draining to zero", { timeout: 60_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
     repoId = workspaceId("writer-queue-depth"),
     stateRoot = path.join(parent, "writer-epochs"),
@@ -136,12 +136,7 @@ test("writer supervisor observes internal runtime work draining to zero", async 
     assert.equal(typeof spawned.runtimeSessionId, "string");
     const lookupsBeforeExit = runtimeSessionLookups;
     writeFileSync(releasePath, "release");
-    await Promise.race([
-      runtimeExited.promise,
-      new Promise<never>((_resolve, reject) =>
-        setTimeout(() => reject(new Error("runtime did not exit within 10000ms")), 10_000),
-      ),
-    ]);
+    await runtimeExited.promise;
     await waitUntil(() => supervisor!.status().queueDepth === 0);
     assert.equal(supervisor.status().queueDepth, 0);
     assert.ok(

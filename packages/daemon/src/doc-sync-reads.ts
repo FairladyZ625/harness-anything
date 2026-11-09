@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   consumeKnownError,
@@ -11,6 +11,7 @@ import {
   canonicalEventCut,
   classifyRawArtifactPath,
   documentPath,
+  documentWorkspacePath,
   RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
   resolveDocRoute,
@@ -44,6 +45,7 @@ import {
   taskWorktreeBinding,
 } from "./task-worktree.ts";
 import { taskWorktreeRoot } from "./task-worktree-candidates.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import {
   readSubmissionArtifact,
   readSubmissionArtifactRange,
@@ -323,7 +325,13 @@ export function readAction(input: Input): WriteReceipt {
 }
 
 export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1): DocSettlementReceipt {
-  const retirement = event.payload.retirementReason === undefined ? null : event.payload.changes,
+  // Only a CLI-typed selection prints the workspace spelling; an internal read keeps the authored key.
+  const layout = input.workspaceCoordinate === true ? resolveHarnessLayout(input.rootDir) : null,
+    workspacePath =
+      layout === null
+        ? (document: string) => document
+        : (document: string) => documentWorkspacePath(input.rootDir, document, layout),
+    retirement = event.payload.retirementReason === undefined ? null : event.payload.changes,
     reads = event.payload.changes.map((change) => input.projection.readDocument(change.path)),
     canonicalVisible = reads.every((read, index) => {
       const candidate = event.payload.changes[index]!.candidate;
@@ -345,7 +353,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
     baseLedgerSha: event.payload.baseLedgerSha,
     currentLedgerSha: current,
     paths: event.payload.changes.map((change, index) => ({
-      path: change.path,
+      path: workspacePath(change.path),
       baseBlobSha256: change.baseBlobSha256,
       currentBlobSha256: reads[index]?.document?.blobSha256 ?? null,
       candidateBlobSha256: change.candidate?.sha256 ?? null,
@@ -357,7 +365,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
       retirement === null
         ? []
         : retirement.map((change) => ({
-            path: change.path,
+            path: workspacePath(change.path),
             baseBlobSha256: change.baseBlobSha256!,
             source: "intent" as const,
           })),
@@ -368,7 +376,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
         : {
             schema: "doc-retirement-receipt/v1",
             retirements: retirement.map((change) => ({
-              path: change.path,
+              path: workspacePath(change.path),
               baseBlobSha256: change.baseBlobSha256!,
             })),
             reason: event.payload.retirementReason,
@@ -912,7 +920,7 @@ function readWorktreeDocument(
   if (target === null) return null;
   const stat = statFileSync(target);
   if (stat === null || !stat.isFile() || stat.size > worktreeDocumentMaxBytes) return null;
-  const bytes = readFileSync(target);
+  const bytes = Buffer.from(readAuthoredDocumentBytes(packageRoot!, relative));
   return {
     body: binary ? null : bytes.toString("utf8"),
     bytes,
@@ -957,7 +965,7 @@ function worktreeDocumentIndex(packageRoot: string | null, packagePath: string):
         stat = mediaType === undefined || !entry.isFile() ? null : statFileSync(target);
       if (mediaType === undefined || mediaType === null || stat === null || stat.size > worktreeDocumentMaxBytes)
         continue;
-      const bytes = readFileSync(target);
+      const bytes = Buffer.from(readAuthoredDocumentBytes(root, relative));
       rows.push({
         path: relative,
         blobSha256: sha256Bytes(bytes),

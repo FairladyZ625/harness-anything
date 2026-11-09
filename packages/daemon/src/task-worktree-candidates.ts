@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   documentPath,
@@ -16,6 +16,7 @@ import {
   recoverTaskWorktreeDocumentBases,
   taskWorktreeDocumentBase,
 } from "./worktree-setup.ts";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 
@@ -84,7 +85,12 @@ export function taskWorktreeCandidateInventory(
       if (row.path.endsWith("/.gitkeep") || !resolveDocRoute(documentPath(row.path)).allowed) return [];
       const basePath = path.join(baseRoot, ...row.path.slice(packagePath.length + 1).split("/")),
         baseStat = lstatSync(basePath, { throwIfNoEntry: false });
-      let baseBytes = baseStat?.isFile() && !baseStat.isSymbolicLink() ? readFileSync(basePath) : null;
+      const baseRelative = row.path
+        .slice(packagePath.length + 1)
+        .split("/")
+        .join(path.sep);
+      let baseBytes =
+        baseStat?.isFile() && !baseStat.isSymbolicLink() ? readAuthoredDocumentBytes(baseRoot, baseRelative) : null;
       if (row.safe && row.bytes !== null && baseBytes !== null && Buffer.from(row.bytes).equals(baseBytes)) return [];
       // A task execution can also author through the canonical checkout. Its accepted current write
       // acknowledges that version, but does not make an untouched stale mirror a new candidate.
@@ -138,7 +144,7 @@ function collectTaskPackageCandidates(
       rows.push({ path: logical, safe: false, size: null, bytes: null, conflicts: [] });
       continue;
     }
-    const bytes = readFileSync(absolute);
+    const bytes = readAuthoredDocumentBytes(directory, entry.name);
     rows.push({ path: logical, safe: true, size: bytes.byteLength, bytes, conflicts: [] });
   }
 }

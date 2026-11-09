@@ -1,4 +1,4 @@
-import type { taskCompletionNext } from "@harness-anything/kernel";
+import type { ReviewReverifyMode, ReviewReverifyRoute, taskCompletionNext } from "@harness-anything/kernel";
 import { isJsonObject } from "./json-rpc-types.ts";
 
 /** One read-only completion next step for a single task, as `ha task complete` would judge it. */
@@ -22,6 +22,19 @@ export type DaemonTaskCompletionResult = {
       readonly factRef: string;
       readonly viaClaim: string;
       readonly viaDecision: string;
+    }[];
+  } | null;
+  /**
+   * dec_BEFCF7D0484E901F187C2C8EC6: the kernel reverify route of the task's current round and each
+   * previous blocking finding's reverify. Additive: absent on older producers.
+   */
+  readonly reviewReverify?: {
+    readonly route: ReviewReverifyRoute["kind"];
+    readonly findings: readonly {
+      readonly reviewId: string;
+      readonly findingId: string;
+      readonly reverify: ReviewReverifyMode;
+      readonly adopted: boolean;
     }[];
   } | null;
 };
@@ -52,6 +65,22 @@ export function validateDaemonTaskCompletion(value: unknown): readonly string[] 
       ))
   )
     return ["Invalid factRetirement"];
+  if (
+    "reviewReverify" in value &&
+    value.reviewReverify !== null &&
+    (!isJsonObject(value.reviewReverify) ||
+      !["full", "owner-verify", "re-review"].includes(String(value.reviewReverify.route)) ||
+      !Array.isArray(value.reviewReverify.findings) ||
+      value.reviewReverify.findings.some(
+        (entry) =>
+          !isJsonObject(entry) ||
+          typeof entry.reviewId !== "string" ||
+          typeof entry.findingId !== "string" ||
+          !["owner-verify", "re-review"].includes(String(entry.reverify)) ||
+          typeof entry.adopted !== "boolean",
+      ))
+  )
+    return ["Invalid reviewReverify"];
   const blocker = value.completionBlocker;
   // A remaining blocker must always travel with its remediation; a ready cut may either keep the
   // legacy null/null shape or name the final complete step.

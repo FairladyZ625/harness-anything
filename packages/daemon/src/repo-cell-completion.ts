@@ -10,6 +10,7 @@ import {
   judgeCompletionEvidence,
   type CompletionEvidenceJudgment,
   deriveTaskRoot,
+  documentWorkspacePath,
   hasCloseoutEvidence,
   isTaskEvent,
   repositorySettings,
@@ -156,7 +157,8 @@ export function taskShowFromProjection(
   taskId: string,
   directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
 ): WriteReceipt {
-  const read = projection.read(taskId),
+  const layout = resolveHarnessLayout(rootDir),
+    read = projection.read(taskId),
     progress = projection.readProgress(taskId),
     rootSetting = resolveTaskRootThreshold(projectedTaskSettings(projection)),
     notFound = projectedTaskNotFound(read, taskId);
@@ -253,6 +255,9 @@ export function taskShowFromProjection(
           }
         : null,
       packagePath: read.packagePath,
+      ...(read.packagePath === null
+        ? {}
+        : { workspacePackagePath: documentWorkspacePath(rootDir, read.packagePath, layout) }),
       workspace,
       // Settings `worktree.setup` is what runs in the worktree; what already succeeded there is readable only on
       // the node that holds the checkout, so without one here it is null (unknown), not guessed.
@@ -269,6 +274,9 @@ export function taskShowFromProjection(
         : {}),
       returnBudget,
       rootAssessment,
+      // dec_BEFCF7D0484E901F187C2C8EC6: the kernel's reverify route for this round — how each previous
+      // blocking finding is verified; completionNext names who the cut waits on.
+      reviewReverify: completion.reviewReverify ?? null,
       completionNext: completion.completionNext,
       completionBlocker: completion.completionBlocker,
       progress: progress.rows,

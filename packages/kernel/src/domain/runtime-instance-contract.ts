@@ -1,5 +1,6 @@
 import { runtimeKindIds } from "./agent-runtime.ts";
 import type { EntityActionContract, EntityKindContract, EntitySdkExposure } from "./entity-kind-registry.ts";
+import { stateStoresForKind } from "./entity-state-stores.ts";
 
 export const runtimeInstanceSchema = Object.freeze({
   $schema: "https://json-schema.org/draft/2020-12/schema" as const,
@@ -53,6 +54,7 @@ export function createRuntimeInstanceKindContract(input: {
     | "schema"
     | "relations"
     | "canonicalProjection"
+    | "stateStores"
     | "statusVocabulary"
     | "actionCatalog"
     | "entityStore"
@@ -68,6 +70,7 @@ export function createRuntimeInstanceKindContract(input: {
     schema: runtimeInstanceSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
+    stateStores: stateStoresForKind("runtime-instance"),
     statusVocabulary: [
       { field: "status", words: ["enabled", "disabled"] },
       { field: "kindId", words: runtimeKindIds },

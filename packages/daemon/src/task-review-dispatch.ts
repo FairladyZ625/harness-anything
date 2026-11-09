@@ -11,7 +11,10 @@ import {
   resolveHarnessLayout,
   submissionDigest,
   decisionReviewContentDigest,
+  documentWorkspacePath,
+  reviewReverifyRoute,
   type ExecutionV1,
+  type ReviewReverifyRoute,
   type ReviewV1,
   type TaskReviewDispatchIntentV1,
   type WriteReceiptDraft,
@@ -26,7 +29,12 @@ import { activeCutReviewDispatches, reviewAttemptEnded } from "./review-dispatch
 
 export { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { reviewFindingCategoryPrompt, reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
+import {
+  reviewFindingCategoryPrompt,
+  reviewFindingReverifyPrompt,
+  reviewFindingScopePrompt,
+  scopedReReviewPrompt,
+} from "./review-prompt-guidance.ts";
 import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./review-panel.ts";
 import { reviewPathSeatPrompt } from "./review-path-matching.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
@@ -62,6 +70,17 @@ export function reviewSeatForCut(input: {
   });
 }
 
+/**
+ * The kernel's reverify route for a submitted cut (dec_BEFCF7D0484E901F187C2C8EC6 CH2). Every review
+ * dispatch path reads it here; the daemon never judges whether a re-review is owed itself.
+ */
+function cutReverifyRoute(
+  snapshot: Omit<Parameters<typeof reviewReverifyRoute>[0], "execution">,
+  execution: ExecutionV1,
+): ReviewReverifyRoute {
+  return reviewReverifyRoute({ reviews: snapshot.reviews, reviewResponses: snapshot.reviewResponses, execution });
+}
+
 /** Builds the edge-owned reviewer spawn from canonical cut facts. The implementation runtime's
  * event source is the only placement authority; reviewer identity and task membership are never
  * used as a node hint. */
@@ -82,12 +101,15 @@ export function nodeReviewDispatchCandidate(
       snapshot.task.reviewDispatchIntent?.executionId === execution.executionId
         ? snapshot.task.reviewDispatchIntent
         : undefined,
-    selection = intent
-      ? {
-          kind: "seat" as const,
-          seat: { reviewerId: intent.reviewerId, source: "argument" as const },
-        }
-      : reviewSeatForCut({ cell, execution, taskReviewer: snapshot.task.reviewer });
+    reverify = cutReverifyRoute(snapshot, execution);
+  // An owner-verify cut waits on the owner, not a reviewer; only an explicit owner request dispatches one.
+  if (reverify.kind === "owner-verify" && !intent) return null;
+  const selection = intent
+    ? {
+        kind: "seat" as const,
+        seat: { reviewerId: intent.reviewerId, source: "argument" as const },
+      }
+    : reviewSeatForCut({ cell, execution, taskReviewer: snapshot.task.reviewer });
   if (selection.kind === "escalated") return null;
   const { reviewerId } = selection.seat,
     dispatchKey = reviewDispatchKey(input.taskId, execution, reviewerId),
@@ -122,6 +144,7 @@ export function nodeReviewDispatchCandidate(
         artifactPrefix: path.relative(cell.rootDir, resolveHarnessLayout(cell.rootDir).authoredRoot),
         implementationNodeId: input.requiredNodeId,
         reviewerNodeId: input.requiredNodeId,
+        reverify,
       }) + seatPrompt,
     ...(intent?.runtimeInstanceId ? { runtimeInstanceId: intent.runtimeInstanceId } : {}),
     ...(intent?.model ? { model: intent.model } : {}),
@@ -435,6 +458,8 @@ export function reviewDispatchPrompt(input: {
   /** Physical node facts used by the fleet placement contract; absent means canonical-local. */
   readonly implementationNodeId?: string;
   readonly reviewerNodeId?: string;
+  /** The kernel reverify route of this cut; a `re-review` route scopes the mission to its findings. */
+  readonly reverify?: ReviewReverifyRoute;
 }): string {
   const { taskId, packagePath, dispatchId, execution, gates } = input,
     inapplicable = (execution.submission?.completionContract?.gates ?? [])
@@ -509,7 +534,8 @@ export function reviewDispatchPrompt(input: {
         : []),
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. " +
-      `${reviewFindingScopePrompt("first")} ${reviewFindingCategoryPrompt} ` +
+      `${input.reverify?.kind === "re-review" ? scopedReReviewPrompt(input.reverify) : reviewFindingScopePrompt("first")} ` +
+      `${reviewFindingCategoryPrompt} ${reviewFindingReverifyPrompt} ` +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
     `Write this execution's review report to ${reportFile} and review input to ${packetFile}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
@@ -657,26 +683,29 @@ export async function spawnCutReviewDispatch(
         "Installed reviewer overrides must not select an instance default model.",
     };
   const extras = input.extras ?? {},
+    reverify = cutReverifyRoute(cell.projection.read(input.taskId).snapshot, input.execution),
     continuation = previousReviewerContinuation(cell, {
       taskId: input.taskId,
       reviewerId: input.reviewerId,
       dispatchKey: key,
       packagePath: input.packagePath,
     }),
+    continuationWorkspaceReport =
+      continuation === null ? null : documentWorkspacePath(cell.rootDir, continuation.reportRef),
     continuationNote = continuation
       ? [
           "This is a re-review of the same task and reviewer seat.",
-          `Read the previous registered report at harness/${continuation.reportRef} with ha doc show --path ${continuation.reportRef} --raw.`,
+          `Read the previous registered report at ${continuationWorkspaceReport} with ha doc show --path ${continuationWorkspaceReport} --raw.`,
           ...(continuation.review
             ? [
                 `Previous review ${continuation.review.reviewId}: verdict=${continuation.review.verdict}; reason=${continuation.review.reason}.`,
                 `Previous findings: ${JSON.stringify(continuation.review.findings ?? [])}.`,
               ]
             : []),
-          reviewFindingScopePrompt("re-review"),
-          reviewFindingCategoryPrompt,
+          // A scoped route already carries its re-review rule in the mission body.
+          ...(reverify.kind === "re-review" ? [] : [reviewFindingScopePrompt("re-review")]),
         ].join("\n")
-      : `${reviewFindingScopePrompt("first")} ${reviewFindingCategoryPrompt}`,
+      : "",
     // The mission text and its registration identity are one value: whatever dispatch id the
     // spawner renders is the id the reviewer must register under, so the prompt is always
     // rebuilt from that id instead of being carried over from an earlier attempt.
@@ -694,8 +723,9 @@ export async function spawnCutReviewDispatch(
             input.execution.submission,
           ),
           artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
+          reverify,
         })
-      }\n${continuationNote}`,
+      }${continuationNote ? `\n${continuationNote}` : ""}`,
     payload = {
       agentId: agent.id,
       role: "reviewer",
@@ -810,7 +840,7 @@ export async function dispatchInReviewCutReview(
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
 ): Promise<{
-  readonly seat: ReviewSeat;
+  readonly seat?: ReviewSeat;
   readonly step: WriteReceiptDraft;
   readonly warnings: readonly string[];
 } | null> {
@@ -820,6 +850,24 @@ export async function dispatchInReviewCutReview(
     (value) => value.iteration === current.snapshot.task?.iteration && value.state === "submitted",
   );
   if (!execution?.submission || !current.packagePath) return null;
+  const reverify = cutReverifyRoute(current.snapshot, execution);
+  // dec_BEFCF7D0484E901F187C2C8EC6 CH2: a resubmission whose previous blocking findings are all
+  // owner-verify and adopted waits on the owner's verification; only an explicit reviewer selection
+  // dispatches one.
+  if (reverify.kind === "owner-verify" && typeof action.reviewer !== "string") {
+    const cited = reverify.reviews.at(-1)!.reviewId,
+      warning =
+        `Task ${taskId}'s previous blocking findings are all owner-verify and adopted; no reviewer was dispatched. ` +
+        `The task owner verifies the fixes and consents with ha task review-consent ${taskId} ` +
+        `--execution-id ${execution.executionId} --review-id ${cited} --dispose ${cited} --rationale <what was verified>.`;
+    return {
+      step: {
+        ...receipt,
+        warnings: [...((receipt as { readonly warnings?: readonly string[] }).warnings ?? []), warning],
+      } as WriteReceiptDraft,
+      warnings: [warning],
+    };
+  }
   const selection = reviewSeatForCut({
     cell,
     execution,
@@ -898,6 +946,7 @@ export async function dispatchInReviewCutReview(
                 gates: completionGateIds(current.snapshot.task!.completionGateIds, execution.submission),
                 ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
                 artifactRoot: resolveHarnessLayout(cell.rootDir).authoredRoot,
+                reverify,
               })}\n${reviewPathSeatPrompt({ seat })}`,
           }
         : {}),

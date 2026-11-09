@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   canonicalizeContractValue,
@@ -18,6 +18,7 @@ import {
   type TaskV2,
 } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
+import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 export interface LegacyTaskRestatement {
   readonly taskId: string;
@@ -99,7 +100,9 @@ export function restateTaskContract(input: {
   return restateTaskContractBody({
     sourceRoot: input.sourceRoot,
     sourcePath: portablePath(path.relative(input.sourceRoot, contractPath)),
-    body: readFileSync(contractPath, "utf8"),
+    body: new TextDecoder("utf-8", { fatal: true }).decode(
+      readAuthoredDocumentBytes(input.sourcePackageRoot, "task-contract.json"),
+    ),
     targetTaskId: input.targetTaskId,
     targetPackagePath: input.targetPackagePath,
     fallback: input.fallback,
@@ -185,7 +188,9 @@ export function restateTaskContractBody(input: {
     );
   let metadata = contractCompileMetadata(contract, input.fallback);
   const settings = readSettingsFacet(
-    readFileSync(path.join(resolveHarnessLayout(input.sourceRoot).authoredRoot, "harness.yaml"), "utf8"),
+    new TextDecoder("utf-8", { fatal: true }).decode(
+      readAuthoredDocumentBytes(resolveHarnessLayout(input.sourceRoot).authoredRoot, "harness.yaml"),
+    ),
   );
   let digest = presetDigest(declaredDigest) ? declaredDigest : null,
     source: RestatedTaskContract["source"] = "contract",
@@ -312,7 +317,9 @@ function optionalTrimmedText(value: unknown): string | null {
 
 function compileContract(sourceRoot: string, taskId: string, metadata: TaskContractCompileFallback) {
   const authoredRoot = resolveHarnessLayout(sourceRoot).authoredRoot,
-    settings = readSettingsFacet(readFileSync(path.join(authoredRoot, "harness.yaml"), "utf8"));
+    settings = readSettingsFacet(
+      new TextDecoder("utf-8", { fatal: true }).decode(readAuthoredDocumentBytes(authoredRoot, "harness.yaml")),
+    );
   return compileRepoTaskPackage({
     rootDir: sourceRoot,
     settings,
@@ -379,7 +386,9 @@ export function readLegacyTaskRestatements(sourceRoot: string, authoredRoot: str
       .filter((file) => path.basename(file) !== "head.json")
       .flatMap((file): readonly LegacyTaskEventInput[] => {
         try {
-          const body = readFileSync(file, "utf8");
+          const body = new TextDecoder("utf-8", { fatal: true }).decode(
+            readAuthoredDocumentBytes(authoredRoot, path.relative(authoredRoot, file)),
+          );
           return [
             {
               sourcePath: portablePath(path.relative(sourceRoot, file)),
