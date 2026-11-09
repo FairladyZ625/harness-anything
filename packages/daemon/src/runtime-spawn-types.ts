@@ -49,14 +49,7 @@ export interface RuntimeProcess {
   readonly onErrorOutput: (listener: (chunk: string) => void) => void;
   /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
   readonly onExit: (
-    listener: (
-      code: number | null,
-      lossReason?: string,
-      processObservation?: Extract<
-        AgentRuntimeEventV1,
-        { readonly type: "runtime_session_liveness_changed" }
-      >["payload"],
-    ) => void,
+    listener: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => void,
   ) => void;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
@@ -66,6 +59,11 @@ export interface RuntimeProcess {
   readonly liveDescendantPids?: () => Promise<LiveDescendantProbeResult>;
   readonly release?: () => void;
 }
+
+export type RuntimeProcessObservation = Extract<
+  AgentRuntimeEventV1,
+  { readonly type: "runtime_session_liveness_changed" }
+>["payload"];
 
 export type LiveDescendantProbeResult =
   | { readonly available: true; readonly pids: readonly number[] }

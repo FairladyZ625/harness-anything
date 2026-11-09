@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
   dispatchOwnerForNode,
@@ -19,7 +19,6 @@ import {
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess } from "./runtime-spawn-process.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import {
   consumeDurableOutput,
   durableOutputRecordCount,
@@ -32,7 +31,7 @@ import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 import { dispatchLifecyclePendingError, readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
-import { sweepOrphanedProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { sweepUntilProvenStopped } from "./runtime/process-group-reconciler.ts";
 
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
@@ -315,16 +314,6 @@ async function restoreRuntime(
     resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
     providerSessionId: stream.providerSessionId,
   });
-  const processObservation = {
-    type: "runtime_session_liveness_changed" as const,
-    payload: {
-      runtimeSessionId: active.runtimeSessionId,
-      liveness:
-        processState && !processState.exited && runtimePidIsAlive(processState.pid)
-          ? ("live" as const)
-          : ("unknown" as const),
-    },
-  };
   context.input.recordLifecycle?.({
     event: "runtime_spawn",
     runtimeSessionId: active.runtimeSessionId,
@@ -333,15 +322,6 @@ async function restoreRuntime(
   });
   await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
   if (context.closed?.()) return false;
-  await context.publishRuntimeEvent(
-    processObservation.type,
-    {
-      ...processObservation.payload,
-      ...(processState && processState.pid > 1 ? { processGroupPid: processState.pid } : {}),
-    },
-    randomUUID(),
-    active.binding,
-  );
   context.processes.set(active.runtimeSessionId, active);
   const observedLifecycle = await readDispatch(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
   if (observedLifecycle.status !== "ready")
@@ -378,8 +358,11 @@ async function restoreRuntime(
       exitCode: active.lossExitCode,
       signal: active.lossSignal,
     });
+  // A host that vanished without a process_exit record follows loss reconciliation. Every recorded
+  // process still requires an OS stop proof; a stream record is only a hint to wait for natural
+  // group shutdown before requesting a kill.
   const stop = processState
-    ? sweepOrphanedProcessGroup({
+    ? await sweepUntilProvenStopped({
         pid: processState.pid,
         dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
       })
@@ -395,7 +378,7 @@ async function restoreRuntime(
     );
   }
   await consumeDurableOutput(context, active);
-  await context.publishExit(active, null);
+  await context.publishExit(active, active.lossExitCode);
   return true;
 }
 

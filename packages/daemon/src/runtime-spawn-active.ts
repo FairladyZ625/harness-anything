@@ -1,4 +1,4 @@
-import type { ActiveRuntime, ResumeProcessObservation } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
@@ -6,7 +6,7 @@ import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
-import { sweepOrphanedProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { sweepUntilProvenStopped } from "./runtime/process-group-reconciler.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { openRuntimeWorkspaceMonitor } from "./runtime-workspace-monitor-thread.ts";
 import { createWorkspaceActivityQueue } from "./runtime-workspace-activity-queue.ts";
@@ -173,7 +173,7 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
       }));
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
   const current = lifecycle.rows[0];
-  if (!current || current.policy.attemptSettled) return;
+  if (!current || current.policy.attemptSettled || current.attempt.process !== "alive") return;
   stallSettlementStarted.add(active);
   const newlyStalled = active.stalledAt === null,
     stalledAt = active.stalledAt ?? context.input.now();
@@ -368,16 +368,11 @@ export function attachActiveRuntime(
           context.input.schedule(() => context.captureErrorOutput(active, chunk), active.binding);
         }
       },
-      exit: (
-        code: number | null,
-        lossReason?: string,
-        processObservation?: Extract<
-          import("@harness-anything/kernel").AgentRuntimeEventV1,
-          { readonly type: "runtime_session_liveness_changed" }
-        >["payload"],
-      ) => {
+      exit: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => {
         if (processObservation) {
+          if (context.closed?.() || active.exitSettlement) return;
           context.input.schedule(async () => {
+            if (context.closed?.() || active.exitSettlement) return;
             await context.publishRuntimeEvent(
               "runtime_session_liveness_changed",
               processObservation,
@@ -396,7 +391,7 @@ export function attachActiveRuntime(
             const stop =
               attempt.attempt.stopProof === "proven_stopped"
                 ? "proven_stopped"
-                : sweepOrphanedProcessGroup({
+                : await sweepUntilProvenStopped({
                     pid: active.process.pid,
                     dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
                   });

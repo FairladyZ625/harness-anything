@@ -10,6 +10,7 @@ import {
   reconcileProcessGroup,
   requestProcessGroupStop,
   sweepOrphanedProcessGroup,
+  sweepUntilProvenStopped,
   type ProcessGroupReconcilerDeps,
 } from "../src/runtime/process-group-reconciler.ts";
 
@@ -178,6 +179,23 @@ test("sweep sends SIGKILL only after an alive probe and requires a second stop p
 
   const stillRunning = scripted([{ signal: 0 }, { signal: "SIGKILL" }, { signal: 0 }]);
   assert.equal(reconcileProcessGroup(43, stillRunning), "running");
+});
+
+test("stop polling waits through transient live probes after SIGKILL", async () => {
+  let killRequested = false,
+    probesAfterKill = 0;
+  const deps: ProcessGroupReconcilerDeps = {
+    platform: "linux",
+    signalGroup: (_pid, signal) => {
+      if (signal === "SIGKILL") killRequested = true;
+      else if (killRequested && ++probesAfterKill >= 3)
+        throw Object.assign(new Error("process group stopped"), { code: "ESRCH" });
+    },
+  };
+
+  assert.equal(await sweepUntilProvenStopped(44, deps), "proven_stopped");
+  assert.equal(killRequested, true);
+  assert.ok(probesAfterKill >= 3);
 });
 
 test("invalid and non-POSIX groups fail closed without signalling", () => {

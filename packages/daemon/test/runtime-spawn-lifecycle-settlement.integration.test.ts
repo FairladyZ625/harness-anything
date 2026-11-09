@@ -891,6 +891,11 @@ test(
       projection.catchUp();
       const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
       projection.close();
+      const dispatch = readDispatchStream(root, String(receipt.dispatchId)),
+        sessionEvents = makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.filter((event) => event.payload.runtimeSessionId === receipt.runtimeSessionId)
+          .map((event) => ({ type: event.type, payload: event.payload }));
       assert.deepEqual(
         {
           liveness: settled.liveness,
@@ -898,6 +903,12 @@ test(
           exitCode: settled.exitCode,
         },
         { liveness: "exited", outcome: "succeeded", exitCode: 0 },
+        `re-adopted dispatch: ${JSON.stringify({
+          process: dispatch?.process,
+          terminalOutcome: dispatch?.terminalOutcome?.payload,
+          records: dispatch?.records.map(({ kind }) => kind),
+          events: sessionEvents,
+        })}`,
       );
       assert.match(String(settled.resultRef), /^artifact:runtime-result\/sha256\//u);
       await eventually(() => {
@@ -1246,7 +1257,11 @@ test(
           { liveness: session.liveness, outcome: session.outcome, exitCode: session.exitCode },
           { liveness: "exited", outcome: "unknown", exitCode: null },
         );
-        process.kill(providerPid, "SIGKILL");
+        try {
+          process.kill(providerPid, "SIGKILL");
+        } catch (error) {
+          consumeKnownError(error);
+        }
         providerPid = 0;
       }
     } finally {

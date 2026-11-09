@@ -17,12 +17,6 @@ import {
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
-import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
-
-type RuntimeProcessObservation = Extract<
-  AgentRuntimeEventV1,
-  { readonly type: "runtime_session_liveness_changed" }
->["payload"];
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { childProcessErrorCode, terminateRuntimePid, terminateRuntimeProcess } from "./runtime-process-signals.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
@@ -33,6 +27,7 @@ import type {
   ResumeProcessObservation,
   RuntimeLauncher,
   RuntimeProcess,
+  RuntimeProcessObservation,
 } from "./runtime-spawn-types.ts";
 import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawn-limits.ts";
 import { runProcessTextAsync } from "./process-port.ts";
@@ -612,18 +607,23 @@ function observeDispatchProcess(
           processGroupPid: pid,
         },
       };
-      const bytes = readRuntimeWorkerChunk(stream, offset);
+      let bytes = readRuntimeWorkerChunk(stream, offset);
       if (bytes.length === 0) {
         switch (livenessEvent.payload.liveness) {
           case "unknown": {
-            const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
-            emitExit(null, reason, livenessEvent.payload);
+            // The host appends process_exit before it exits. Re-read after observing the dead PID so
+            // an empty read racing that append does not replace its exit code with a loss report.
+            bytes = readRuntimeWorkerChunk(stream, offset);
+            if (bytes.length === 0) {
+              const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
+              emitExit(null, reason, livenessEvent.payload);
+              return;
+            }
             break;
           }
           case "live":
-            break;
+            return;
         }
-        return;
       }
       offset += bytes.length;
       buffer += decoder.write(bytes);

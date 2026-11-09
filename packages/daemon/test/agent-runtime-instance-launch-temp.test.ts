@@ -7,6 +7,7 @@ import test from "node:test";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { sweepSettledRuntimeTempDirectories } from "../src/runtime-spawn-adoption.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const sessionA = "runtime_0123456789abcdef01234567",
   sessionB = "runtime_89abcdef0123456789abcdef",
@@ -334,25 +335,38 @@ test("a repository sweep preserves another repository's live, settled and unregi
       });
       writeFileSync(path.join(sessionTemp(userRoot, "codex-shared", runtimeSessionId), "scratch"), "payload");
     }
-    const sweep = (sessions: { runtimeSessionId: string; outcome: string | null }[]) =>
+    const sweep = (
+      entries: {
+        readonly runtimeSessionId: string;
+        readonly attemptSettled?: boolean;
+        readonly groupSettled?: boolean;
+        readonly process?: "alive" | "unknown";
+        readonly outcome?: "succeeded" | "failed";
+      }[],
+    ) =>
       sweepSettledRuntimeTempDirectories({
         input: {
           reclaimSettledRuntimeTempDirectories: store.reclaimSettledRuntimeTempDirectories,
           listRuntimeTempSessionIds: store.listRuntimeTempSessionIds,
+          remote: {
+            readDispatchLifecycle: lifecycleReadFor(
+              entries.map((entry) => ({
+                ...entry,
+                dispatchId: `dispatch-${entry.runtimeSessionId}`,
+                instanceId: "codex-shared",
+              })),
+            ),
+          },
         },
         processes: new Map(),
         exiting: new Set(),
-        requiredRuntimeProjection: () => ({
-          readRuntimeSessions: () => assert.fail("the sweep must point-read local directories only"),
-          readRuntimeSession: (id: string) => sessions.find((session) => session.runtimeSessionId === id) ?? null,
-        }),
       } as never);
     await sweep([]);
     for (const id of ids)
       assert.equal(existsSync(sessionTemp(userRoot, "codex-shared", id)), true, "empty repo owns none");
     await sweep([
-      { runtimeSessionId: ids[0]!, outcome: null },
-      { runtimeSessionId: ids[1]!, outcome: "succeeded" },
+      { runtimeSessionId: ids[0]!, process: "alive" },
+      { runtimeSessionId: ids[1]!, attemptSettled: true, groupSettled: true, outcome: "succeeded" },
     ]);
     for (const [index, id] of ids.entries())
       assert.equal(
@@ -361,8 +375,8 @@ test("a repository sweep preserves another repository's live, settled and unregi
         "A reclaims only its settled session; A/B live and orphan plus B settled stay",
       );
     await sweep([
-      { runtimeSessionId: ids[3]!, outcome: null },
-      { runtimeSessionId: ids[4]!, outcome: "failed" },
+      { runtimeSessionId: ids[3]!, process: "alive" },
+      { runtimeSessionId: ids[4]!, attemptSettled: true, groupSettled: true, outcome: "failed" },
     ]);
     for (const [index, id] of ids.entries())
       assert.equal(

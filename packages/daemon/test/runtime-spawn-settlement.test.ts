@@ -1178,6 +1178,36 @@ test("terminal settlement keeps the worker result when fallback settlement fails
   }
 });
 
+test("stalled settlement waits until the aggregate confirms the process is alive", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-unknown-process-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "partial work"),
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          rootDir,
+          now: () => "2026-10-24T00:05:01.000Z",
+          remote: {
+            readDispatchLifecycle: lifecycleReadFor([
+              {
+                runtimeSessionId: runtime.runtimeSessionId,
+                dispatchId: runtime.dispatchId,
+                instanceId: runtime.instanceId,
+                process: "unknown",
+              },
+            ]),
+          },
+        },
+      } as unknown as RuntimeSpawnerContext;
+
+    await settleStalledRuntime(context, runtime);
+    assert.equal(runtime.stalledAt, null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a stalled dispatch settles through the process-tree path and never masks its failure", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-terminate-"));
   try {
