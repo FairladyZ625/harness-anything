@@ -479,9 +479,10 @@ test("weights refresh from runner duration lines takes each file's median across
 });
 
 test("the repository vocabulary scan weight covers its measured expanded scope", () => {
-  // Failed jobs 129066961834 and 129102988704 had no assertion failures. The scan had
-  // expanded to every package while its declaration still described the old 400ms scan.
-  for (const durationMs of [84_855, 76_915]) {
+  // Failed jobs 129066961834, 129102988704, 129094030222, 129114323428, and 129119533868
+  // had no assertion failures. The scan covered every package while its weight still described
+  // the old 400ms scope. The declaration uses the runner's rounded median of these five samples.
+  for (const durationMs of [84_855, 76_915, 86_014, 83_729, 76_175]) {
     assert.deepEqual(integrationWeightOverruns(new Map([["tools/check-status-vocabulary.test.mjs", durationMs]])), []);
   }
 });
