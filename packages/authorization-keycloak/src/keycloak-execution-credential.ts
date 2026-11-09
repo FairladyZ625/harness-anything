@@ -16,28 +16,6 @@ interface ExecutionCenter {
 }
 const clientPrefix = "harness-execution-";
 
-/**
- * The execution credential API historically exposed a rejected transport directly. Keep that
- * observable error while the provider owns the request, refresh, and HTTP-status policy.
- */
-function executionCredentialRequest(
-  center: ExecutionCenter,
-  path: string,
-  init?: RequestInit,
-  allowNotFound?: boolean,
-): Promise<Response> {
-  return center.request(path, init, allowNotFound).catch((error: unknown) => {
-    if (
-      error instanceof Error &&
-      (error as Error & { readonly code?: unknown }).code === "daemon_error" &&
-      error.message.startsWith("Keycloak Admin REST ") &&
-      "cause" in error
-    )
-      throw error.cause;
-    throw error;
-  });
-}
-
 /** The center creates a role-less service account; no person's or center's token leaves the daemon. */
 export async function issueRuntimeExecutionCredential(
   center: ExecutionCenter,
@@ -45,7 +23,7 @@ export async function issueRuntimeExecutionCredential(
 ): Promise<string> {
   const clientId = `${clientPrefix}${principal.dispatchId}`,
     secret = randomBytes(32).toString("base64url");
-  await executionCredentialRequest(center, "/clients", {
+  await center.request("/clients", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -94,7 +72,7 @@ export async function readRuntimeExecutionPrincipal(
 ): Promise<RuntimeExecutionPrincipal> {
   const clientId = `${clientPrefix}${dispatchId}`;
   const clients: unknown = await (
-    await executionCredentialRequest(center, `/clients?clientId=${encodeURIComponent(clientId)}&max=2`)
+    await center.request(`/clients?clientId=${encodeURIComponent(clientId)}&max=2`)
   ).json();
   if (!Array.isArray(clients) || clients.length !== 1) throw executionCredentialRejected("revoked");
   const client = clients[0];
