@@ -1,4 +1,4 @@
-// Initial inventory for the first ForwardingPort slice: 37 files / 81 file-symbol-fingerprint entries.
+// Forwarding construction inventory: 34 files / 68 file-symbol-fingerprint entries.
 // Counts are exact: an increase is rejected and a decrease must lower this baseline in the same change.
 // Every unregistered production source or symbol has zero allowance.
 // Slice 4 removes this baseline when forwarding is fully port-owned.
@@ -227,11 +227,6 @@ export const fleetForwardingBoundaryBaseline = Object.freeze({
     },
     reviveBinding: {
       forwardingCredentialAssembly: 1,
-    },
-  },
-  "packages/daemon/src/reviewer-artifact-publication.ts": {
-    reviewerArtifactsForReview: {
-      fileInputConditional: 1,
     },
   },
   "packages/daemon/src/runtime-execution-scope.ts": {
