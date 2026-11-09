@@ -653,7 +653,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       auth: request.auth,
       oidc,
       runRuntime: async (value, requestAuth, operation) => {
-        startReplicaSyncs();
         const payload = value as unknown as FleetEdgeRuntimeRequest["payload"],
           runtime = runtimeOwnerFor(payload),
           result =
