@@ -250,7 +250,10 @@ test("a marker-less template-shaped existing body gains governance while preserv
       submission: frozen,
     });
   assert.ok(renderBody);
+  // The fixture is authored text, but a `core.autocrlf` checkout hands us a CRLF template; without
+  // this normalization the literal marker-pair and Summary-heading matches below never fire.
   const authored = template
+    .replace(/\r\n/gu, "\n")
     .replace(/<!-- harness:submission-facts:start -->\n<!-- harness:submission-facts:end -->\n/u, "")
     .replace("## Summary\n", "## Summary\n\nLegacy summary stays.\n");
   assert.doesNotMatch(authored, /harness:submission-facts/u, "the fixture predates the marker convention");
