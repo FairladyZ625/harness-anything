@@ -16,7 +16,6 @@ import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
-  commandDescriptorForAction,
   commandIdForDaemonMethod,
   daemonProtocolError,
   invalidParamsReceipt,
