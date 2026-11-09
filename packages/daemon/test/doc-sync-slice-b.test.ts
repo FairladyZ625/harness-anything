@@ -87,26 +87,28 @@ test("a planned task's plan rides the node doc-submit channel while other task d
     await waitForFixturePublication(fixture.cell, created.opId, writerBinding);
     const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
       planPath = `${packagePath}/task_plan.md`,
-      scan = async () =>
-        (await fixture.cell.run({ kind: "doc-status", paths: [] }, localBinding)) as {
-          readonly detail?: {
-            readonly baseLedgerSha?: unknown;
-            readonly paths?: readonly { readonly path: string; readonly baseBlobSha256?: string | null }[];
-          };
-        },
-      pushNodeDoc = async (path: string, body: string, ref: string) => {
-        const before = await scan(),
-          baseBlobSha256 = before.detail?.paths?.find((row) => row.path === path)?.baseBlobSha256 ?? null;
-        writeAuthored(fixture.rootDir, path, body);
+      currentCut = async () =>
+        (
+          (await fixture.cell.run({ kind: "doc-status", paths: [] }, localBinding)) as {
+            readonly detail?: { readonly baseLedgerSha?: unknown };
+          }
+        ).detail?.baseLedgerSha,
+      pushNodeDoc = async (documentPath: string, body: string, ref: string) => {
+        // The replace base is the canonical bytes the writer read: the current on-disk document
+        // before this edit. A document that does not exist yet is a create, whose base is null.
+        const target = path.join(fixture.rootDir, "harness", documentPath),
+          baseBlobSha256 = existsSync(target) ? sha(readFileSync(target, "utf8")) : null,
+          baseLedgerSha = await currentCut();
+        writeAuthored(fixture.rootDir, documentPath, body);
         writeClaim(fixture.rootDir, ref, body);
         return fixture.cell.run(
           {
             kind: "doc-submit",
             executionId: null,
-            baseLedgerSha: before.detail?.baseLedgerSha,
+            baseLedgerSha,
             changes: [
               {
-                path,
+                path: documentPath,
                 baseBlobSha256,
                 policyId,
                 candidate: {
