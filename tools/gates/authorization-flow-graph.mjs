@@ -4,12 +4,38 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { readWorkspacePackages } from "../public-workspaces.mjs";
 import { parseTypeScript, walkTypeScriptFiles } from "./ontology-gate-lib.mjs";
 
 const sourceRoots = ["packages/daemon/src", "packages/authorization-keycloak/src", "packages/application/src"];
 const maxEvaluationDepth = 12;
 // A request travels through many frames before its effect; provenance is memoized per frame.
 const maxProvenanceDepth = 64;
+
+/**
+ * Workspace imports must resolve to the checkout under audit. A git worktree shares the canonical
+ * install, so its node_modules workspace links point at the canonical packages; following them
+ * would type-check the traced sources against another checkout while the kernel anchors are read
+ * from this one, and the anchor lookup then reports the interface as missing. The workspaces this
+ * checkout declares are therefore resolved to this checkout's own sources.
+ */
+function workspaceSourcePaths(sourceRoot) {
+  const manifestPath = path.join(sourceRoot, "package.json");
+  if (!fs.existsSync(manifestPath)) return {};
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")),
+    patterns = Array.isArray(manifest.workspaces) ? manifest.workspaces : manifest.workspaces?.packages;
+  if (!Array.isArray(patterns) || patterns.length === 0) return {};
+  const paths = {};
+  for (const entry of readWorkspacePackages(sourceRoot))
+    for (const [subpath, target] of Object.entries(entry.manifest.exports ?? {})) {
+      const value = typeof target === "string" ? target : (target?.types ?? target?.default);
+      if (typeof value !== "string" || !value.endsWith(".ts")) continue;
+      paths[entry.manifest.name + (subpath === "." ? "" : subpath.slice(1))] = [
+        path.posix.join(entry.directory, value.replace(/^\.\//u, "")),
+      ];
+    }
+  return paths;
+}
 
 export const isFunctionNode = (node) =>
   Boolean(node) &&
@@ -73,8 +99,10 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
   const modules = new Map(),
     members = new Map(),
     typedEntries = new Map(),
-    scopes = new WeakMap();
+    scopes = new WeakMap(),
+    anchorSources = new Map();
   const files = sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)),
+    workspacePaths = workspaceSourcePaths(rootDir),
     // The checker answers one question only: which implementations a typed member call can reach.
     program = ts.createProgram({
       rootNames: files.map((file) => path.join(rootDir, file)),
@@ -87,6 +115,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
         target: ts.ScriptTarget.ES2022,
         strict: true,
         types: [],
+        ...(Object.keys(workspacePaths).length > 0 ? { baseUrl: rootDir, paths: workspacePaths } : {}),
       },
     }),
     checker = program.getTypeChecker(),
@@ -126,16 +155,37 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
   };
 
   /**
+   * The anchor file as the program resolved it. The program's file names follow the paths its
+   * imports resolved to, which is not always the real path of `anchorRoot/file`: a checkout under
+   * a symlinked prefix (macOS /var -> /private/var) or a linked worktree spells one physical file
+   * two ways. Try the declared root first, then its real path, and keep the resolved source.
+   */
+  function anchorSource(file) {
+    const cached = anchorSources.get(file);
+    if (cached) return cached;
+    const candidate = path.join(anchorRoot, file),
+      source = program.getSourceFile(candidate) ?? program.getSourceFile(fs.realpathSync(candidate));
+    if (!source) throw new Error(`${file}: source is not part of the traced program`);
+    anchorSources.set(file, source);
+    return source;
+  }
+
+  /** The named interface in a kernel authority file, which must be an anchor of this program. */
+  function anchorDeclaration(file, name) {
+    const declaration = anchorSource(file).statements.find(
+      (statement) => ts.isInterfaceDeclaration(statement) && statement.name.text === name,
+    );
+    if (!declaration) throw new Error(`${file}: interface ${name} is missing`);
+    return declaration;
+  }
+
+  /**
    * Whether a parameter is a callback typed to receive the named kernel interface: the callee's
    * own contract that the value it is handed reaches the callback.
    */
   function takesInterface(parameter, file, name) {
-    const source = program.getSourceFile(fs.realpathSync(path.join(anchorRoot, file))),
-      declaration = source?.statements.find(
-        (statement) => ts.isInterfaceDeclaration(statement) && statement.name.text === name,
-      );
-    if (!declaration) throw new Error(`${file}: interface ${name} is missing`);
-    const target = checker.getDeclaredTypeOfSymbol(checker.getSymbolAtLocation(declaration.name)),
+    const declaration = anchorDeclaration(file, name),
+      target = checker.getDeclaredTypeOfSymbol(checker.getSymbolAtLocation(declaration.name)),
       type = checker.getNonNullableType(checker.getTypeAtLocation(parameter));
     return (type.isUnion() ? type.types : [type]).some((part) =>
       part.getCallSignatures().some((signature) =>
@@ -159,11 +209,7 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
 
   /** The member declarations of an interface in a kernel authority file, keyed by member name. */
   function interfaceMembers(file, name) {
-    const source = program.getSourceFile(fs.realpathSync(path.join(anchorRoot, file))),
-      declaration = source?.statements.find(
-        (statement) => ts.isInterfaceDeclaration(statement) && statement.name.text === name,
-      );
-    if (!declaration) throw new Error(`${file}: interface ${name} is missing`);
+    const declaration = anchorDeclaration(file, name);
     return new Map(
       declaration.members.filter((member) => member.name).map((member) => [memberName(member.name), member]),
     );

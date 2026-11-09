@@ -66,3 +66,17 @@ test("listWorktreeFiles skips symlinks the way Dirent-based walkers did", () => 
   assert.ok(files.includes("real.ts"));
   assert.ok(!files.includes("linked.ts"));
 });
+
+test("a worktree nested under an ignored directory enumerates like a plain root", () => {
+  const { rootDir } = makeRepo({
+    ".gitignore": ".worktrees/\n",
+    "packages/cli/src/index.ts": "export {};\n",
+  });
+  const nested = path.join(rootDir, ".worktrees", "task_fixture");
+  git(rootDir, ["worktree", "add", "--quiet", "-b", "nested-fixture", nested]);
+
+  // The ignored parent is not an enumeration boundary: the nested worktree root reads its own index.
+  assert.deepEqual(listWorktreeFiles(nested, ["packages"]), listWorktreeFiles(rootDir, ["packages"]));
+  writeRepoFile(nested, "packages/cli/src/added.ts", "export {};\n");
+  assert.ok(listWorktreeFiles(nested, ["packages"]).includes("packages/cli/src/added.ts"));
+});
