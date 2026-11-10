@@ -10,6 +10,9 @@ export const defaultIntegrationTestWeightMs = 10_000;
 // comment used 2.6). dec_127E3F9C47D2842DA7AB86E0F4/CH2 moves the PR matrix to 10 shards with a
 // 9-minute job target: 1,250,000ms / 2.93 is about 7.1 minutes of test step, leaving room for the
 // ~40s install/extract steps. The budget stays a ceiling per shard, not a per-shard allowance.
+// task_1520e155e64d4d5261d87ab16b tightens the observed PR target to 8 minutes: the eleven
+// successful runs after #4481/#4483 measured 6.7-8.4 minutes per shard although every weight sum
+// was ~1.20M ms, so the same budget needs the heavy-first hand-over below to stay inside 8 minutes.
 export const integrationShardBudgetMs = 1_250_000;
 // A file runs its tests serially, so one file is a floor on its shard's wall. Files above this
 // either split or name their reason in entries.overBudgetFiles of
