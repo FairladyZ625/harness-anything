@@ -270,16 +270,18 @@ export async function providerSubscriptionReadiness(
     });
     if (input.codexProbe && input.installation.kindId === "codex") {
       const prompt = "Reply with exactly READY. Do not use tools or inspect files.",
-        args = launchArgs(
-          input.codexProbe.config,
-          input.codexProbe.model,
-          prompt,
-          undefined,
-          input.codexProbe.effort,
-          input.codexProbe.permissionMode,
-          input.codexProbe.fast,
-          undefined,
-          platform,
+        args = codexProbeArgs(
+          launchArgs(
+            input.codexProbe.config,
+            input.codexProbe.model,
+            prompt,
+            undefined,
+            input.codexProbe.effort,
+            input.codexProbe.permissionMode,
+            input.codexProbe.fast,
+            undefined,
+            platform,
+          ),
         ),
         result = await runExecutableResult(platform, input.installation.executablePath, args, {
           env: input.env,
@@ -313,6 +315,17 @@ export async function providerSubscriptionReadiness(
             : "Provider authentication probe could not determine readiness.",
         );
   }
+}
+
+// `codex exec` refuses a cwd outside a trusted git work tree unless the caller opts out.
+// The probe's cwd is the instance directory, which is deliberately not a repository, while a
+// dispatch always runs in a git worktree and keeps the unmodified launch contract. Insert the
+// flag before the trailing "-" (prompt on stdin), never after it.
+function codexProbeArgs(args: readonly string[]): string[] {
+  const promptMarker = args.lastIndexOf("-");
+  return promptMarker < 0
+    ? [...args, "--skip-git-repo-check"]
+    : args.toSpliced(promptMarker, 0, "--skip-git-repo-check");
 }
 
 // The provider's rejection is the only place the real cause is visible: `codex login status`
@@ -365,6 +378,13 @@ function codexProviderRequestReadiness(stdout: string, stderr: string, exitCode:
     return unavailable(
       "runtime_refresh_token_invalid",
       "Codex refresh token is invalid, revoked, or has expired. Run ha runtime instance login <instance-id> to sign in again.",
+    );
+  // Codex's own directory gate fires before any provider request, so it says nothing about
+  // the credential. Name the workspace instead of reporting a generic probe failure.
+  if (/not inside a trusted directory/iu.test(diagnosticText))
+    return unavailable(
+      "runtime_probe_workspace_untrusted",
+      "Codex rejected the probe working directory as untrusted even with --skip-git-repo-check; check the runtime instance directory and probe again.",
     );
   if (
     statuses.includes(429) ||
