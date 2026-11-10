@@ -347,7 +347,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.notEqual(heldRelease.outcome, "applied", "a live execution cannot be recovered merely by sharing a principal");
   now = new Date(Date.parse(now) + 2 * 86_400_000).toISOString();
   const released = await f.command("node-one", { kind: "task-release", taskId, reason: "Recover expired owner" });
-  assert.equal(released.outcome, "applied", JSON.stringify(released));
+  assert.notEqual(
+    released.outcome,
+    "applied",
+    "the accepted runtime outcome already settled the task lease through the lifecycle aggregate",
+  );
   const planned = await f.host.run(
     "lease-repo",
     { kind: "task-transition", taskId, status: "planned", reason: "New iteration" },

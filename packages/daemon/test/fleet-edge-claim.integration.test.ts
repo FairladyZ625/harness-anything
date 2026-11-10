@@ -12,6 +12,7 @@ import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 
 test("failed-spawn release is fenced against a replacement lease on either node", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetNodeClaimFixture(t),
@@ -97,7 +98,7 @@ test(
       ports: scheduleRuntimePorts(),
       onTaskSettled: (taskId) => notified.push(taskId),
       launch: () => ({
-        pid: 2_147_483_647,
+        ...fixtureRuntimeProcess(t),
         onOutput: (listener) => {
           emit = listener;
         },
@@ -105,7 +106,6 @@ test(
         onExit: (listener) => {
           exit = listener;
         },
-        terminate: () => undefined,
       }),
     });
     t.after(() => runtime.close());
@@ -133,10 +133,22 @@ test(
       { taskId: fixture.subject.taskId },
       fixture.auth,
     );
-    assert.equal(context.snapshot.lease, null);
-    assert.deepEqual(notified, [], "a released lease is not yet a published runtime outcome");
+    assert.equal(context.snapshot.lease?.phase, "held", "a rejected outcome must retain the lease atomically");
+    assert.deepEqual(notified, [], "an unaccepted outcome cannot free the edge slot");
     await runtime.reconcile();
     assert.deepEqual(notified, [fixture.subject.taskId]);
+    assert.equal(
+      (
+        await fixture.host.read(
+          fixture.subject.repoId,
+          "repo.tasks.runtimeContext.read",
+          { taskId: fixture.subject.taskId },
+          fixture.auth,
+        )
+      ).snapshot.lease,
+      null,
+      "terminal replay releases the lease with the accepted outcome",
+    );
     const terminal = await runtime.run("repo.agentRuntime.sessions.read", {
       runtimeSessionId: started.runtimeSessionId,
     });

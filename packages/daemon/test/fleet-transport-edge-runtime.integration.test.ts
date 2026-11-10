@@ -566,8 +566,8 @@ test(
           lease: partialSession.session.associations.find((item) => item.taskId === fixture.subject.taskId)?.lease
             ?.phase,
         },
-        { liveness: "exited", outcome: null, lease: "released" },
-        "the accepted exit and released task lease stay authoritative while outcome is missing",
+        { liveness: "exited", outcome: null, lease: "held" },
+        "the accepted exit stays authoritative while a rejected outcome retains the lease",
       );
 
       // Public queries require a repository principal and cannot drive recovery writes.

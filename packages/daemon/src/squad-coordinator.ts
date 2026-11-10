@@ -450,11 +450,21 @@ export function makeSquadCoordinator(input: {
       ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
       ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
     ];
-    const results = await Promise.allSettled(
-      [...new Set(runtimeSessionIds)].map((runtimeSessionId) =>
-        input.runtimeSpawner().cancel({ runtimeSessionId }, binding),
-      ),
-    );
+    const cancelTargets = [...new Set(runtimeSessionIds)];
+    // Each cancellation publishes an exit, cancellation and outcome bundle. Run them in order
+    // so every bundle reads the writer's latest revision; concurrent cancel requests can all
+    // compile against the same cut and be rejected as revision_conflict.
+    const results: PromiseSettledResult<JsonObject>[] = [];
+    for (const runtimeSessionId of cancelTargets) {
+      results.push(
+        await Promise.resolve()
+          .then(() => input.runtimeSpawner().cancel({ runtimeSessionId }, binding))
+          .then(
+            (value): PromiseSettledResult<JsonObject> => ({ status: "fulfilled", value }),
+            (reason): PromiseSettledResult<JsonObject> => ({ status: "rejected", reason }),
+          ),
+      );
+    }
     const [publicationResult] = await Promise.allSettled([publication.publishState(states.get(squadRunId)!)]);
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0)
