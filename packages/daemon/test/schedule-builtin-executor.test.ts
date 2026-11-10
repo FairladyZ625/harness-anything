@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import { makeTaskEventReader, readVerifiedLedgerBackup } from "@harness-anything/storage";
-import { createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
+import { createScheduleV1, nextScheduleOccurrence, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
@@ -531,6 +531,69 @@ test("an unsigned attach does not seed schedules as an implicit system principal
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "an unsigned attach tolerates an orphaned builtin run without granting repository access",
+  { timeout: 30_000 },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-orphan-builtin-")),
+      repo = path.join(root, "repo"),
+      userRoot = path.join(root, "user"),
+      repoId = "orphan-builtin";
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+      host: Awaited<ReturnType<typeof openDaemonHost>> | undefined;
+    try {
+      initHarnessRepo(repo, repoId);
+      cell = await openRepoCell({
+        repoId: workspaceId(repoId),
+        rootDir: canonicalRoot(repo),
+        ownerId: "orphan-builtin-seed",
+        runtimeInstances: () => [],
+      });
+      await seedBuiltinSchedules({ cell, binding: actor });
+      const seeded = (await cell.run({ kind: "schedule-show", scheduleId: builtinLedgerBackupScheduleId }, actor)) as {
+        readonly schedule: ScheduleV1;
+      };
+      const claim = await cell.run(
+        {
+          kind: "schedule-claim",
+          scheduleId: builtinLedgerBackupScheduleId,
+          scheduledFor: nextScheduleOccurrence(
+            seeded.schedule.spec.trigger,
+            seeded.schedule.status.automaticEvaluatedThrough,
+          ),
+          idempotencyKey: "orphan-builtin-claim",
+        },
+        actor,
+      );
+      assert.equal(claim.outcome, "applied", JSON.stringify(claim));
+      await cell.close();
+      cell = undefined;
+
+      registerDaemonRepo({ canonicalRoot: repo, repoId, mode: "local", userRoot, createConvenienceLinks: false });
+      host = await openDaemonHost({ daemonId: "orphan-builtin-test", userRoot });
+      await host.attachmentsSettled();
+      assert.equal(host.status().repos.find((entry) => entry.repoId === repoId)?.state, "attached");
+
+      const nonOwner = await host.run(
+        repoId,
+        { kind: "schedule-list" },
+        {
+          transportKind: "unix-socket",
+          unixSocketOwnerBoundary: {
+            ownerUid: (process.getuid?.() ?? 0) + 1_000,
+            source: "unix-socket-filesystem-owner-boundary",
+          },
+        },
+      );
+      assert.equal(nonOwner.code, "authentication_required", JSON.stringify(nonOwner));
+    } finally {
+      await cell?.close();
+      await host?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("a backup worker that reports its result but never exits still settles, and is terminated", async () => {
   // The incident shape: the worker finished every phase and posted its result, but a lingering
