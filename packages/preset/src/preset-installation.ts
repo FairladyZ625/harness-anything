@@ -82,18 +82,18 @@ export function installPresetPackage(input: {
   for (const directory of [userRoot, objects, active]) ensureInstallDirectory(directory);
   try {
     if (!existsSync(objectRoot)) {
-      cpSync(decoded.root, temporaryObject, {
+      /* @gate-identity non-state/environment-io.90e64fd91491890f */ cpSync(decoded.root, temporaryObject, {
         recursive: true,
         errorOnExist: true,
       });
       const copied = decodePresetPackageV3(temporaryObject);
       if (copied.packageDigest !== decoded.packageDigest)
         throw presetFailure("digest_mismatch", "Copied preset package does not match its preflight digest.");
-      renameSync(temporaryObject, objectRoot);
+      /* @gate-identity non-state/environment-io.8e0cdc9fad22dfd7 */ renameSync(temporaryObject, objectRoot);
     } else if (decodePresetPackageV3(objectRoot).packageDigest !== decoded.packageDigest)
       throw presetFailure("digest_mismatch", "Immutable preset object does not match its directory digest.");
     input.killpoint?.("after-object");
-    writeFileSync(
+    /* @gate-identity non-state/environment-io.e76cc02569fd3980 */ writeFileSync(
       temporaryPointer,
       `${JSON.stringify({
         schema: "preset-active-pointer/v1",
@@ -102,12 +102,17 @@ export function installPresetPackage(input: {
         digest: decoded.packageDigest,
       })}\n`,
     );
-    renameSync(temporaryPointer, pointer);
+    /* @gate-identity non-state/environment-io.408fe75f302986af */ renameSync(temporaryPointer, pointer);
     input.killpoint?.("after-pointer");
     return report;
   } finally {
-    if (existsSync(temporaryObject)) rmSync(temporaryObject, { recursive: true, force: true });
-    if (existsSync(temporaryPointer)) rmSync(temporaryPointer, { force: true });
+    if (existsSync(temporaryObject))
+      /* @gate-identity non-state/environment-io.dd561f6c82e6f10e */ rmSync(temporaryObject, {
+        recursive: true,
+        force: true,
+      });
+    if (existsSync(temporaryPointer))
+      /* @gate-identity non-state/environment-io.017bddb81521c53d */ rmSync(temporaryPointer, { force: true });
   }
 }
 
@@ -122,14 +127,14 @@ export function uninstallPresetPackage(input: {
   if (!existsSync(pointer)) return false;
   if (!lstatSync(pointer).isFile() || lstatSync(pointer).isSymbolicLink())
     throw presetFailure("invalid_pointer", "Active pointer is not a regular file.");
-  if (!input.dryRun) unlinkSync(pointer);
+  if (!input.dryRun) /* @gate-identity non-state/environment-io.b5dd9e6d69b88683 */ unlinkSync(pointer);
   return true;
 }
 
 export function ensureInstallDirectory(target: string): void {
   if (existsSync(target) && (!lstatSync(target).isDirectory() || lstatSync(target).isSymbolicLink()))
     throw presetFailure("invalid_install_root", `Preset install directory ${target} is not regular.`);
-  mkdirSync(target, { recursive: true });
+  /* @gate-identity non-state/environment-io.56ea5455f4ad3d2a */ mkdirSync(target, { recursive: true });
 }
 
 export function assertInstallDirectory(target: string): void {
@@ -164,7 +169,13 @@ export function migrateCompletion(input: {
       changed = JSON.stringify(original) !== JSON.stringify(converted);
     if (!input.dryRun) {
       if (!input.destination) throw new Error("Declaration conversion requires --destination <new-file>.");
-      writeFileSync(input.destination, serialize(converted), { flag: "wx" });
+      /* @gate-identity non-state/environment-io.f88d088af75b8e1b */ writeFileSync(
+        input.destination,
+        serialize(converted),
+        {
+          flag: "wx",
+        },
+      );
     }
     return {
       kind: "declaration",
@@ -181,8 +192,11 @@ export function migrateCompletion(input: {
     temporary = mkdtempSync(path.join(tmpdir(), "ha-completion-migration-"));
   try {
     const candidate = path.join(temporary, "package");
-    cpSync(source, candidate, { recursive: true });
-    writeFileSync(path.join(candidate, "preset.json"), changed ? serialize(manifest) : files.get("preset.json")!);
+    /* @gate-identity non-state/environment-io.8130d1b0a27b8121 */ cpSync(source, candidate, { recursive: true });
+    /* @gate-identity non-state/environment-io.e2730ed8f06aaa6e */ writeFileSync(
+      path.join(candidate, "preset.json"),
+      changed ? serialize(manifest) : files.get("preset.json")!,
+    );
     decodePresetPackageV3(candidate);
     if (!input.dryRun) {
       if (!input.destination) throw new Error("Package conversion requires --destination <new-directory>.");
@@ -190,7 +204,11 @@ export function migrateCompletion(input: {
       // errorOnExist only intends to protect files. Refuse an occupied destination here,
       // then let cpSync create it so the copy stays portable across Node 24 minors.
       if (existsSync(input.destination)) throw new Error(`Migration destination already exists: ${input.destination}`);
-      cpSync(candidate, input.destination, { recursive: true, errorOnExist: true, force: false });
+      /* @gate-identity non-state/environment-io.43f6197ccf76a6f7 */ cpSync(candidate, input.destination, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+      });
     }
     return {
       kind: "preset",
@@ -199,6 +217,6 @@ export function migrateCompletion(input: {
       next: "Review the candidate; run ha preset install --source <candidate-directory> for the target repository. The center repository writer queues pin activation.",
     };
   } finally {
-    rmSync(temporary, { recursive: true, force: true });
+    /* @gate-identity non-state/environment-io.a999b0d2bd36e3e4 */ rmSync(temporary, { recursive: true, force: true });
   }
 }

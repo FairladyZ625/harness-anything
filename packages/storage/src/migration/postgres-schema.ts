@@ -3,7 +3,7 @@ export const POSTGRES_STORAGE_MIGRATION_SCHEMA = Object.freeze([
   "ALTER TABLE ha_repo_heads ADD COLUMN IF NOT EXISTS migration_control jsonb",
   "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS recorded_at_text text",
   "ALTER TABLE ha_command_outcomes ADD COLUMN IF NOT EXISTS recorded_at_text text",
-  `CREATE TABLE IF NOT EXISTS ha_repo_writer_epochs (
+  /* @gate-identity state-store/migration.source.storage.src.migration.postgres-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_repo_writer_epochs (
     repo_id text PRIMARY KEY,
     writer_epoch bigint NOT NULL DEFAULT 0 CHECK (writer_epoch >= 0),
     writer_holder_id text,

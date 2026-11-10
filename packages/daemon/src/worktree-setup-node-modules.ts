@@ -22,7 +22,10 @@ export const nodeModulesSetupAdapter = {
         mirrorNodeModules(input.rootDir, input.cwd);
       } catch (error) {
         // A half-mirrored store would read as prepared on the next run; only a complete mirror stays.
-        rmSync(path.join(input.cwd, "node_modules"), { recursive: true, force: true });
+        /* @gate-identity non-state/environment-io.3711cd9bed7ee691 */ rmSync(path.join(input.cwd, "node_modules"), {
+          recursive: true,
+          force: true,
+        });
         throw error;
       }
       return;
@@ -43,6 +46,9 @@ export const nodeModulesSetupAdapter = {
   async cleanup(cwd: string): Promise<void> {
     if (!existsSync(path.join(cwd, "node_modules"))) return;
     if ((await runProcessTextAsync("git", ["-C", cwd, "ls-files", "--", "node_modules"])).trim()) return;
-    rmSync(path.join(cwd, "node_modules"), { recursive: true, force: true });
+    /* @gate-identity non-state/environment-io.62027d9c14966472 */ rmSync(path.join(cwd, "node_modules"), {
+      recursive: true,
+      force: true,
+    });
   },
 };

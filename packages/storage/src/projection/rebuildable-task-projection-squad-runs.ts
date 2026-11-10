@@ -1,6 +1,5 @@
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { CanonicalSquadRun } from "@harness-anything/kernel/internal/domain/squad-run.ts";
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import type { SquadRunProjectionRow } from "@harness-anything/kernel";
 import { normalizeHistoricalSquadRunState } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";

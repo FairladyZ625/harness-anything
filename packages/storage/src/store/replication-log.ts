@@ -19,7 +19,7 @@ export type ReplicationQuery = (
   values?: readonly (string | number | null)[],
 ) => Record<string, import("node:sqlite").SQLOutputValue>[];
 
-export const REPLICATION_LOG_SQL = `
+export const REPLICATION_LOG_SQL = /* @gate-identity state-store/legacy.f29db73ef81984e4 */ /* @gate-identity state-store/task.source.storage.src.store.replication-log.sqlite-database */ `
   CREATE TABLE IF NOT EXISTS replication_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     history TEXT NOT NULL, sequence INTEGER NOT NULL

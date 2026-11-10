@@ -1,6 +1,5 @@
 import { readTaskDocumentOwner } from "./task-document-owner-query.ts";
 import { listPinnedEntityRows } from "./rebuildable-task-projection-entities.ts";
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { repositoryEventQueries, readDocumentRows } from "./repository-event-queries.ts";
@@ -294,7 +293,9 @@ export function taskQueryApi(
     readOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>
-          /* @gate-identity check-bypass-write-boundary/bypass-write-037 */ db.prepare(sql),
+          /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
+            sql,
+          ),
         ).get(opId) as { readonly event_json: string } | undefined;
         return row === undefined ? null : { event: JSON.parse(row.event_json), watermark: watermark(db) };
       }),
@@ -306,7 +307,9 @@ export function taskQueryApi(
     readTaskOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>
-          /* @gate-identity check-bypass-write-boundary/bypass-write-038 */ db.prepare(sql),
+          /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
+            sql,
+          ),
         ).get(opId) as { readonly event_json: string } | undefined;
         if (!row) return null;
         const event = JSON.parse(row.event_json);
@@ -383,7 +386,9 @@ export function taskQueryApi(
       withDatabase(projectionPath, readHead, (db) =>
         readTaskDocumentOwner(documentPath, (sql) =>
           prepareQuery(db, sql, (sql) =>
-            /* @gate-identity check-bypass-write-boundary/bypass-write-039 */ db.prepare(sql),
+            /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
+              sql,
+            ),
           ),
         ),
       ),

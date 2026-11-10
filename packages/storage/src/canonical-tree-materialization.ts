@@ -39,7 +39,11 @@ export function applyCanonicalTree(input: {
     : hasMaterializationBaseline && input.changedPaths
       ? new Set(input.changedPaths)
       : null;
-  if (!input.preview) mkdirSync(root, { recursive: true });
+  if (!input.preview)
+    /* @gate-identity state-store/document.source.storage.src.canonical-tree-materialization.filesystem-store */ mkdirSync(
+      root,
+      { recursive: true },
+    );
   for (const [logical, blob] of input.entries) {
     if (selected && !selected.has(logical)) continue;
     const target = path.join(root, ...logical.split("/"));

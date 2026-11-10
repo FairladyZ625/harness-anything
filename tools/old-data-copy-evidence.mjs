@@ -723,6 +723,7 @@ function awaitDaemonDownSync(pid, timeoutMs = 15_000) {
 }
 
 const DIRECT_RUNNER = String.raw`
+const { DatabaseSync } = await import("node:sqlite");
 const { appendFileSync } = await import("node:fs");
 const path = await import("node:path");
 const { pathToFileURL } = await import("node:url");
@@ -752,11 +753,11 @@ try {
   record("attach-catch-up", projection.catchUp?.() ?? "async-only");
   const index = projection.readTaskIndex({ limit: 5 });
   const rows = index.rows ?? [];
-  record("task-index", { count: rows.length, first: rows.map((row) => ({ taskId: row.taskId, title: row.title ?? null })) });
+  record("task-index", { count: rows.length, hasAnyTask: rows.length > 0 });
   if (rows.length > 0) {
     const dispatches = readTaskDispatches({ projection, rootDir: WORKSPACE, taskId: rows[0].taskId });
     const dispatchRows = dispatches.rows ?? [];
-    record("task-dispatches", { taskId: rows[0].taskId, count: dispatches.length ?? dispatchRows.length, sample: dispatchRows.slice(0, 3).map((row) => ({ dispatchId: row.dispatchId, outcome: row.outcome ?? null })) });
+    record("task-dispatches", { count: dispatches.length ?? dispatchRows.length });
   }
   record("event-read", store.queryEvents({ limit: 3 }).map((event) => ({ schema: event.schema, type: event.type, revision: event.workspaceRevision })));
   const startedAt = Date.now();
@@ -771,6 +772,42 @@ try {
   });
   const after = projection.readTaskIndex({ limit: 5 });
   record("post-rebuild-task-index", { count: (after.rows ?? []).length, watermark: rebuilt.watermark });
+  const quoteIdentifier = (value) => '"' + value.replaceAll('"', '""') + '"';
+  const countRows = (db, table) => Number(db.prepare("SELECT COUNT(*) AS count FROM " + quoteIdentifier(table)).get().count);
+  const ledgerDb = new DatabaseSync(path.join(layout.localRoot, "store/generations/3/ledger.sqlite"), { readOnly: true });
+  try {
+    const schemas = ledgerDb.prepare(
+      "SELECT json_extract(event_json, '$.schema') AS schema, COUNT(*) AS count FROM event GROUP BY schema ORDER BY schema",
+    ).all();
+    const documentCounts = ledgerDb
+      .prepare(
+        "SELECT CASE WHEN path LIKE '%harness.yaml' THEN 'settings' WHEN path LIKE '%vertical.json' THEN 'vertical' END AS surface, COUNT(*) AS count FROM document_head WHERE path LIKE '%harness.yaml' OR path LIKE '%vertical.json' GROUP BY surface ORDER BY surface",
+      )
+      .all();
+    record("persisted-census-ledger", {
+      eventRows: countRows(ledgerDb, "event"),
+      eventSchemas: schemas.map((row) => ({ schema: row.schema, count: Number(row.count) })),
+      documentHeads: countRows(ledgerDb, "document_head"),
+      entityDeclarationHeads: countRows(ledgerDb, "entity_declaration_head"),
+      settingsAndVerticalDocumentHeads: documentCounts.map((row) => ({ surface: row.surface, count: Number(row.count) })),
+    });
+  } finally {
+    ledgerDb.close();
+  }
+  const projectionDb = new DatabaseSync(layout.taskProjectionPath, { readOnly: true });
+  try {
+    const tables = projectionDb
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+      .all()
+      .map((row) => ({ table: row.name, rows: countRows(projectionDb, row.name) }));
+    record("persisted-census-projections", {
+      tableCount: tables.length,
+      tables,
+      presetSnapshotRows: tables.find((table) => table.table === "preset_snapshot")?.rows ?? 0,
+    });
+  } finally {
+    projectionDb.close();
+  }
 } catch (error) {
   record("fatal", { message: String(error instanceof Error ? error.message : error), stack: error instanceof Error ? (error.stack ?? null) : null });
   process.exitCode = 1;
@@ -835,6 +872,7 @@ export async function main(argv, session = {}) {
     attach: null,
     reads: null,
     coldRebuild: null,
+    census: null,
     mediumSubmission: null,
     peakRss: null,
     failures: [],
@@ -1018,6 +1056,10 @@ export async function main(argv, session = {}) {
       events: byStep.get("event-read")?.value ?? null,
     };
     receipt.coldRebuild = byStep.get("cold-rebuild-receipt")?.value ?? null;
+    receipt.census = {
+      ledger: byStep.get("persisted-census-ledger")?.value ?? null,
+      projections: byStep.get("persisted-census-projections")?.value ?? null,
+    };
     receipt.peakRss = {
       daemonBytes: daemonPeakRss,
       daemonMethod: "ps -o rss= polled every 500ms",

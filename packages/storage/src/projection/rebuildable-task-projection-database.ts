@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import path from "node:path";
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { DatabaseSync } from "node:sqlite";
@@ -209,10 +208,13 @@ export function withQueryOnlyDatabaseSession<A>(
   if (connection.db !== null && connection.fingerprint !== projectionFileFingerprint(projectionPath))
     closeQueryOnlyConnection(connection);
   if (connection.db === null) {
-    connection.db = /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(
-      resolvedProjectionPath,
-      { readOnly: true },
-    );
+    connection.db =
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ new DatabaseSync(
+        resolvedProjectionPath,
+        {
+          readOnly: true,
+        },
+      );
     connection.fingerprint = projectionFileFingerprint(projectionPath);
     queryOnlyProjectionOpens += 1;
     const registeredClosers = projectionClosers.get(resolvedProjectionPath) ?? new Set<() => void>();
@@ -230,7 +232,7 @@ export function withQueryOnlyDatabaseSession<A>(
   try {
     // The pragmas ride along with BEGIN on one exec: both are idempotent per connection, and the
     // session keeps exactly one governed statement for its transaction boundary.
-    /* @gate-identity check-bypass-write-boundary/bypass-write-104 */
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
     db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA query_only = ON; BEGIN`);
   } catch (error) {
     queryOnlySession = null;
@@ -243,12 +245,12 @@ export function withQueryOnlyDatabaseSession<A>(
     const value = use(db);
     if (value !== null && typeof value === "object" && "then" in value)
       throw new Error("projection reader sessions must complete synchronously inside one SQLite transaction");
-    /* @gate-identity check-bypass-write-boundary/bypass-write-105 */
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
     db.exec("COMMIT");
     return value;
   } catch (error) {
     try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-106 */
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
       db.exec("ROLLBACK");
     } catch (rollbackError) {
       consumeKnownError(rollbackError);
@@ -395,7 +397,10 @@ export function assertLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStr
   const row = prepareQuery(
     db,
     "SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1",
-    (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-010 */ db.prepare(sql),
+    (sql) =>
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ db.prepare(
+        sql,
+      ),
   ).get() as { readonly watermark: number; readonly scanned_revision: number; readonly head_digest: string | null };
   const sourceRevision = head?.revision ?? 0;
   if (Number(row.watermark) > sourceRevision || Number(row.scanned_revision) > sourceRevision)
@@ -473,10 +478,12 @@ function assertEventStreamContinuity(
   }
 }
 function openDatabase(projectionPath: string): DatabaseSync {
-  return /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(projectionPath);
+  return /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ new DatabaseSync(
+    projectionPath,
+  );
 }
 function configureDatabase(db: DatabaseSync): void {
-  /* @gate-identity check-bypass-write-boundary/bypass-write-008 */
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
   db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON`);
 }
 
@@ -484,16 +491,16 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
   ensureRuntimeSessionExecutionNodeColumn(db);
   ensureEventSummaryReadIndexColumns(db);
   ensureLeaseTaskActiveColumn(db);
-  /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
   db.exec(`
-    CREATE TABLE IF NOT EXISTS archived_entity (
+    /* @gate-identity state-store/task.projection.archived_entity */ CREATE TABLE IF NOT EXISTS archived_entity (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL,
       row_json TEXT NOT NULL,
       PRIMARY KEY(entity_kind, entity_id)
     );
-    CREATE TABLE IF NOT EXISTS projection_meta (
+    /* @gate-identity state-store/task.projection.projection_meta */ CREATE TABLE IF NOT EXISTS projection_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1),
       schema_version INTEGER NOT NULL,
       watermark INTEGER NOT NULL,
@@ -505,12 +512,12 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
     INSERT OR IGNORE INTO projection_meta(
       singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest
     ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
-    CREATE TABLE IF NOT EXISTS event_source (
+    /* @gate-identity state-store/task.projection.event_source */ CREATE TABLE IF NOT EXISTS event_source (
       workspace_revision INTEGER PRIMARY KEY,
       op_id TEXT NOT NULL UNIQUE,
       event_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS document (
+    /* @gate-identity state-store/task.projection.document */ CREATE TABLE IF NOT EXISTS document (
       path TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
@@ -522,25 +529,25 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
       json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'),
       json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId')
     );
-    CREATE TABLE IF NOT EXISTS preset_snapshot (
+    /* @gate-identity state-store/task.projection.preset_snapshot */ CREATE TABLE IF NOT EXISTS preset_snapshot (
       digest TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
 ${TASK_INDEX_TABLES_SQL}
 ${REPOSITORY_READ_TABLES_SQL}
-    CREATE TABLE IF NOT EXISTS task_generation (
+    /* @gate-identity state-store/task.projection.task_generation */ CREATE TABLE IF NOT EXISTS task_generation (
       task_id TEXT PRIMARY KEY,
       generation TEXT NOT NULL CHECK(generation IN ('v0','v1'))
     );
 
-    CREATE TABLE IF NOT EXISTS task_progress (
+    /* @gate-identity state-store/task.projection.task_progress */ CREATE TABLE IF NOT EXISTS task_progress (
       workspace_revision INTEGER PRIMARY KEY,
       task_id TEXT NOT NULL,
       execution_id TEXT NOT NULL,
       event_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS entity_projection (
+    /* @gate-identity state-store/task.projection.entity_projection */ CREATE TABLE IF NOT EXISTS entity_projection (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,
       task_id TEXT NOT NULL,
@@ -552,7 +559,7 @@ ${REPOSITORY_READ_TABLES_SQL}
     );
     CREATE INDEX IF NOT EXISTS entity_projection_task
       ON entity_projection(entity_kind, task_id, workspace_revision, entity_id);
-    CREATE TABLE IF NOT EXISTS edge (
+    /* @gate-identity state-store/task.projection.edge */ CREATE TABLE IF NOT EXISTS edge (
       task_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,
       iteration INTEGER NOT NULL,
@@ -560,12 +567,12 @@ ${REPOSITORY_READ_TABLES_SQL}
       value_json TEXT NOT NULL,
       PRIMARY KEY(task_id, edge_id, iteration)
     );
-    CREATE TABLE IF NOT EXISTS lease_cas (
+    /* @gate-identity state-store/task.projection.lease_cas */ CREATE TABLE IF NOT EXISTS lease_cas (
       task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL,
       execution_id TEXT GENERATED ALWAYS AS (json_extract(lease_json, '$.executionId')) STORED
     );
     CREATE INDEX IF NOT EXISTS lease_cas_execution ON lease_cas(execution_id);
-    CREATE TABLE IF NOT EXISTS projection_maintenance (
+    /* @gate-identity state-store/task.projection.projection_maintenance */ CREATE TABLE IF NOT EXISTS projection_maintenance (
       key TEXT PRIMARY KEY,
       completed_at TEXT NOT NULL
     );

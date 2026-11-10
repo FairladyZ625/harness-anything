@@ -290,12 +290,17 @@ export function ensureSharedAuthFile(src: string, dst: string): void {
   const existing = lstatSync(dst, { throwIfNoEntry: false });
   if (existing?.isSymbolicLink() && readlinkSync(dst) === src) return;
   try {
-    if (existing) rmSync(dst, { force: true, maxRetries: 5, retryDelay: 20 });
-    symlinkSync(src, dst);
+    if (existing)
+      /* @gate-identity state-store/legacy.026990247d5659bc */ rmSync(dst, {
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
+    /* @gate-identity state-store/legacy.1a868de261f7669c */ symlinkSync(src, dst);
   } catch (error) {
     consumeKnownError(error);
     try {
-      copyFileSync(src, dst);
+      /* @gate-identity state-store/legacy.128e59ca9eafe315 */ copyFileSync(src, dst);
       chmodSync(dst, 0o600);
     } catch (copyError) {
       consumeKnownError(copyError);
@@ -361,13 +366,13 @@ export function writeCodexConfig(
   // The leftover of a failed write here is a 0600 config carrying the broker bearer token,
   // and its name binds it to a pid that nothing else will look up. Whoever throws owns it.
   try {
-    writeFileSync(temp, `${lines.join("\n")}\n`, {
+    /* @gate-identity state-store/legacy.9d241f0e5345a2c6 */ writeFileSync(temp, `${lines.join("\n")}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
-    renameSync(temp, target);
+    /* @gate-identity state-store/legacy.c9a3e777b35d9c4d */ renameSync(temp, target);
   } catch (error) {
-    rmSync(temp, { force: true });
+    /* @gate-identity state-store/legacy.39b394568ecb75de */ rmSync(temp, { force: true });
     throw error;
   }
   chmodSync(target, 0o600);
@@ -390,10 +395,14 @@ export function writeZcodeConfig(target: string, config: RuntimeInstanceConfig, 
     },
     temp = `${target}.${process.pid}.tmp`;
   try {
-    writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temp, target);
+    /* @gate-identity state-store/legacy.39f9ec93fd1dabc2 */ writeFileSync(
+      temp,
+      `${JSON.stringify(value, null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    /* @gate-identity state-store/legacy.94ed99354447f542 */ renameSync(temp, target);
   } catch (error) {
-    rmSync(temp, { force: true });
+    /* @gate-identity state-store/legacy.903cc311ca338161 */ rmSync(temp, { force: true });
     throw error;
   }
   chmodSync(target, 0o600);
@@ -481,7 +490,7 @@ export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanc
           },
     ],
     directory = path.dirname(target);
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  /* @gate-identity state-store/legacy.9bb5e6070ed99465 */ mkdirSync(directory, { recursive: true, mode: 0o700 });
   chmodSync(directory, 0o700);
   writeFileDurably(target, `${JSON.stringify(patch, null, 2)}\n`, 0o600);
 }

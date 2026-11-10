@@ -37,18 +37,18 @@ export class FactProjectionError extends Error {
 }
 
 export function createFactProjectionTables(db: DatabaseSync): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS fact (
+  /* @gate-identity state-store/task.source.storage.src.projection.fact-event-projection.sqlite-database */ db.exec(`
+    /* @gate-identity state-store/task.projection.fact */ CREATE TABLE IF NOT EXISTS fact (
       task_id TEXT, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE,
       statement TEXT NOT NULL, evidence_source TEXT NOT NULL,
       observed_at TEXT NOT NULL, confidence TEXT NOT NULL, memory_class TEXT NOT NULL, op_id TEXT NOT NULL UNIQUE, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL,
       PRIMARY KEY(fact_id));
-    CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(fact_id UNINDEXED, statement, evidence_source,
+    /* @gate-identity state-store/task.projection.fact_fts */ CREATE VIRTUAL TABLE IF NOT EXISTS fact_fts USING fts5(fact_id UNINDEXED, statement, evidence_source,
       tokenize='unicode61 remove_diacritics 2');
-    CREATE TABLE IF NOT EXISTS fact_domain_type (
+    /* @gate-identity state-store/task.projection.fact_domain_type */ CREATE TABLE IF NOT EXISTS fact_domain_type (
       domain_type TEXT PRIMARY KEY, registered_by_fact_id TEXT NOT NULL UNIQUE,
       workspace_revision INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS fact_reclassification (
+    /* @gate-identity state-store/task.projection.fact_reclassification */ CREATE TABLE IF NOT EXISTS fact_reclassification (
       op_id TEXT PRIMARY KEY, fact_id TEXT NOT NULL, domain_types_json TEXT NOT NULL,
       rationale TEXT NOT NULL, workspace_revision INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS fact_task_page ON fact(task_id, observed_at DESC, fact_id ASC);

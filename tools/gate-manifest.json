@@ -1900,28 +1900,23 @@
       "tier": "pr-required",
       "tierReason": null,
       "localPathGlobs": [
-        "packages/storage/src/store/**",
-        "packages/kernel/src/local/**",
-        "packages/storage/src/projection/**",
-        "packages/cli/src/**",
+        "packages/*/src/**",
         "tools/check-bypass-write-boundary.mjs",
+        "tools/gates/state-residency.mjs",
         "tools/check-bypass-write-boundary.test.mjs",
-        "tools/gates/test/bypass-write-boundary-allowlist-sync.test.mjs",
-        "tools/gate-allowlists/source-identity.mjs",
-        "tools/gate-allowlists/check-bypass-write-boundary.json",
-        "tools/gate-allowlists/load-gate-allowlist.mjs"
+        "tools/gate-allowlists/state-residency-baseline.mjs",
+        "tools/gate-allowlists/non-state-io.mjs",
+        "tools/gate-allowlists/source-identity.mjs"
       ],
       "authoritySource": [
         "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
         "task_01KWW58383X74ZK28Y068CQ2TG",
         "dec_mr9acuxm",
         "dec_GATE_DEFENSE_ROOT_CAUSE",
-        "tools/migrate-bypass-write-anchors.mjs",
         "dec_5EC2631352B17EE2BF4979E37E#CH2"
       ],
       "consumerScope": [
-        "AST-classified fs write calls in packages/storage/src/store, packages/kernel/src/local, and packages/cli/src",
-        "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
+        "AST-classified persistent writes, CREATE TABLE declarations, and supported cross-process cache adapters under packages/*/src"
       ],
       "githubContext": {
         "requiredContexts": ["quick-gates"],
@@ -1930,17 +1925,15 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/gate-allowlists/check-bypass-write-boundary.json",
+        "location": "tools/gate-allowlists/state-residency-baseline.mjs",
         "adrOrDecisionRequired": true,
-        "notes": "W8 seals bypass fs writes with a structural AST rule; allowlist entries must cite explicit W8 channel classification or C0 coordinator internals."
+        "notes": "DDD state-store ownership is closed-world; baseline entries are unresolved debt and may only shrink."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-bypass-write-boundary.mjs",
-          "tools/migrate-bypass-write-anchors.mjs",
-          "tools/gate-allowlists/check-bypass-write-boundary.json",
           "package.json:scripts.harness:check-bypass-write-boundary",
           "tools/gate-manifest.json"
         ]

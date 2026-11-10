@@ -12,7 +12,7 @@ export function decisionReadStatusDdl(): readonly string[] {
     added = `SELECT ${scope},(decision_sort_key IS NULL)::integer AS scalar_delta,(NOT search_ready)::integer AS search_delta FROM new_rows`,
     removed = `SELECT ${scope},-(decision_sort_key IS NULL)::integer AS scalar_delta,-(NOT search_ready)::integer AS search_delta FROM old_rows`;
   return [
-    `CREATE TABLE IF NOT EXISTS ha_decision_read_status (
+    /* @gate-identity state-store/task.projection.ha_decision_read_status */ `CREATE TABLE IF NOT EXISTS ha_decision_read_status (
       ${POSTGRES_SCOPE_COLUMNS_SQL},readers text[] NOT NULL DEFAULT '{}',
       scalar_pending bigint,search_pending bigint,generation bigint NOT NULL DEFAULT 0,
       PRIMARY KEY(tenant_id,project_id,policy_epoch))`,

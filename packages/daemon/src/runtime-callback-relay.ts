@@ -117,7 +117,9 @@ export function createRuntimeCallbackRelay(input: {
 
 export function removeRuntimeCallbackRelay(dispatchId: string): void {
   if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return;
-  rmSync(runtimeCallbackRelayPath(dispatchId), { force: true });
+  /* @gate-identity state-store/legacy.f7701295bb5a8c9f */ rmSync(runtimeCallbackRelayPath(dispatchId), {
+    force: true,
+  });
 }
 
 export interface RuntimeCallbackRelayServer {
@@ -153,7 +155,7 @@ function removeStaleRelay(target: string): void {
   const info = lstatSync(target, { throwIfNoEntry: false, bigint: true });
   if (!info) return;
   if (info.isSymbolicLink()) throw new Error("runtime callback relay socket must not be a symbolic link");
-  unlinkSync(target);
+  /* @gate-identity state-store/legacy.251625d620743e95 */ unlinkSync(target);
 }
 
 function chmodRelay(target: string): void {

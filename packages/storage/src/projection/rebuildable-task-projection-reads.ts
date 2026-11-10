@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import type { TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
 import type { DatabaseSync } from "node:sqlite";
@@ -94,7 +93,9 @@ export function listProjection(
           readonly updated_at: string;
         }>(
           prepareQuery(db, UNPARAMETERIZED_LIST_SQL, (sql) =>
-            /* @gate-identity check-bypass-write-boundary/bypass-write-012 */ db.prepare(sql),
+            /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-reads.sqlite-database */ db.prepare(
+              sql,
+            ),
           ),
         ),
         snapshots = readSnapshots(
@@ -171,7 +172,9 @@ export function readDocument(
   return withDatabase(projectionPath, readHead, (db) => {
     const cut = readProjectionCut(db, readHead),
       row = prepareQuery(db, "SELECT value_json FROM document WHERE path = ?", (sql) =>
-        /* @gate-identity check-bypass-write-boundary/bypass-write-013 */ db.prepare(sql),
+        /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-reads.sqlite-database */ db.prepare(
+          sql,
+        ),
       ).get(documentPath) as { readonly value_json: string } | undefined;
     return {
       status: cut.status,
@@ -191,7 +194,9 @@ export function readPresetSnapshot(
   return withDatabase(projectionPath, readHead, (db) => {
     const cut = readProjectionCut(db, readHead),
       row = prepareQuery(db, "SELECT value_json FROM preset_snapshot WHERE digest = ?", (sql) =>
-        /* @gate-identity check-bypass-write-boundary/bypass-write-014 */ db.prepare(sql),
+        /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-reads.sqlite-database */ db.prepare(
+          sql,
+        ),
       ).get(digest) as { readonly value_json: string } | undefined;
     return {
       status: cut.status,
@@ -235,7 +240,9 @@ function readTaskPackagePath(db: DatabaseSync, taskId: string): string | null {
   return (
     (
       prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
-        /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
+        /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-reads.sqlite-database */ db.prepare(
+          sql,
+        ),
       ).get(taskId) as { readonly package_path: string } | undefined
     )?.package_path ?? null
   );

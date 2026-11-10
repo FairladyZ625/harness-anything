@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import { relationTypes } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { relationFreshnessAnchorForType } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
@@ -37,7 +36,10 @@ export function createRelationFreshnessMaintenance(db: DatabaseSync): void {
   if (!columns.has("freshness")) runSql(db, "ALTER TABLE relation_edge ADD COLUMN freshness TEXT");
   if (!columns.has("current_target_version")) runSql(db, "ALTER TABLE relation_edge ADD COLUMN current_target_version");
   runSql(db, "CREATE INDEX IF NOT EXISTS relation_edge_freshness_page ON relation_edge(freshness, relation_id)");
-  runSql(db, "CREATE TABLE IF NOT EXISTS relation_freshness_dirty (ref TEXT PRIMARY KEY)");
+  runSql(
+    db,
+    "/* @gate-identity state-store/task.projection.relation_freshness_dirty */ CREATE TABLE IF NOT EXISTS relation_freshness_dirty (ref TEXT PRIMARY KEY)",
+  );
   for (const { table, ref, columns: watched } of endpointTriggers) {
     const newRef = ref.replaceAll("{row}", "NEW"),
       oldRef = ref.replaceAll("{row}", "OLD"),

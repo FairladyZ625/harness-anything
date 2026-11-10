@@ -1,5 +1,4 @@
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import {
   runtimeExecutionLinkForEvent,

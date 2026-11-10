@@ -38,8 +38,13 @@ export function openSqliteMigrationEndpoint(input: {
       generation: 3,
       conversionSourceGeneration: 2,
     }),
-    db = new DatabaseSync(databasePath);
-  db.exec("PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL");
+    db =
+      /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ new DatabaseSync(
+        databasePath,
+      );
+  /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.exec(
+    "PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL",
+  );
   ensureSqliteMigrationControl(db);
   const state = () => readSqliteMigrationControl(db),
     currentCut = () =>
@@ -51,7 +56,10 @@ export function openSqliteMigrationEndpoint(input: {
         })(),
       );
   const readTuple = async (): Promise<MigrationTuple> => {
-    const scopeRow = db.prepare("SELECT scope_json FROM storage_migration_scope WHERE singleton=1").get(),
+    const scopeRow =
+        /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db
+          .prepare("SELECT scope_json FROM storage_migration_scope WHERE singleton=1")
+          .get(),
       scope = scopeRow ? (JSON.parse(String(scopeRow.scope_json)) as PostgresEventStoreScope) : input.scope,
       events = store.eventRows().map((row) => ({ ...row, readers: scope.readers, policyEpoch: scope.policyEpoch })),
       blobs = [...store.contentObjectDigests()].sort().map((sha256) => {
@@ -67,19 +75,20 @@ export function openSqliteMigrationEndpoint(input: {
       outcomes = [...store.outcomes()]
         .sort((a, b) => (a.opId < b.opId ? -1 : a.opId > b.opId ? 1 : 0))
         .map((row) => ({ ...row, readers: scope.readers, policyEpoch: scope.policyEpoch })),
-      documentHeads = db
-        .prepare("SELECT * FROM document_head ORDER BY path")
-        .all()
-        .map((row) => ({
-          path: String(row.path),
-          sha256: row.sha256 as string | null,
-          size: row.size == null ? null : Number(row.size),
-          nodeKind: row.node_kind as string | null,
-          revision: Number(row.revision),
-          readers: scope.readers,
-          policyEpoch: scope.policyEpoch,
-        }))
-        .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      documentHeads =
+        /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db
+          .prepare("SELECT * FROM document_head ORDER BY path")
+          .all()
+          .map((row) => ({
+            path: String(row.path),
+            sha256: row.sha256 as string | null,
+            size: row.size == null ? null : Number(row.size),
+            nodeKind: row.node_kind as string | null,
+            revision: Number(row.revision),
+            readers: scope.readers,
+            policyEpoch: scope.policyEpoch,
+          }))
+          .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
       data = { scope, events, blobs, outcomes, documentHeads, cut: currentCut() },
       projection = makeTaskProjection({
         rootDir: input.rootDir,
@@ -98,7 +107,12 @@ export function openSqliteMigrationEndpoint(input: {
     id: `sqlite:${path.resolve(databasePath)}`,
     backend: "sqlite",
     state: async () => state(),
-    marker: async (runId) => !!db.prepare("SELECT 1 FROM storage_activation_markers WHERE run_id=?").get(runId),
+    marker: async (runId) =>
+      !!(
+        /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db
+          .prepare("SELECT 1 FROM storage_activation_markers WHERE run_id=?")
+          .get(runId)
+      ),
     epoch: async () => store.writerFence()?.epoch ?? 0,
     export: async () => [await readTuple()],
     change: async (expected, next, activate) => {
@@ -112,7 +126,9 @@ export function openSqliteMigrationEndpoint(input: {
           importedPrefixRevision: 0,
           acceptedCut: next.cut,
         });
-      db.exec("BEGIN IMMEDIATE");
+      /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.exec(
+        "BEGIN IMMEDIATE",
+      );
       try {
         assertMigrationValue(state(), expected, "SQLite migration state changed concurrently");
         if (["freezing", "prepared"].includes(next.phase) && next.epoch <= (store.writerFence()?.epoch ?? 0))
@@ -125,17 +141,23 @@ export function openSqliteMigrationEndpoint(input: {
           throw new StorageMigrationError("storage_migration_target_not_empty", "target changed before prepare");
         if (next.phase === "freezing")
           assertMigrationValue(currentCut(), next.cut, "source changed before epoch takeover");
-        db.prepare(
+        /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.prepare(
           "INSERT INTO storage_migration_control VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET record_json=excluded.record_json",
         ).run(JSON.stringify(next));
-        db.prepare(
+        /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.prepare(
           "INSERT INTO writer_lease(repo_id,holder,epoch) VALUES(?,?,?) ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder,epoch=excluded.epoch",
         ).run(input.repoId, `migration:${next.runId}`, next.epoch);
         if (activate)
-          db.prepare("INSERT INTO storage_activation_markers VALUES(?,?)").run(next.runId, JSON.stringify(next));
-        db.exec("COMMIT");
+          /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.prepare(
+            "INSERT INTO storage_activation_markers VALUES(?,?)",
+          ).run(next.runId, JSON.stringify(next));
+        /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.exec(
+          "COMMIT",
+        );
       } catch (error) {
-        db.exec("ROLLBACK");
+        /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.exec(
+          "ROLLBACK",
+        );
         throw error;
       }
     },
@@ -149,7 +171,7 @@ export function openSqliteMigrationEndpoint(input: {
       )
         throw new StorageMigrationError("storage_migration_conflict", "SQLite import requires its prepared run");
       const tuple = manifest.tuples[0]!;
-      db.prepare(
+      /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.prepare(
         "INSERT INTO storage_migration_scope VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET scope_json=excluded.scope_json",
       ).run(JSON.stringify(tuple.scope));
       localContentObjectFileSystem.replaceMany(

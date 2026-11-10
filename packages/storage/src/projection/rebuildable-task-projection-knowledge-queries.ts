@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import {
   assertDecisionAdmission,
   decisionCoverage,

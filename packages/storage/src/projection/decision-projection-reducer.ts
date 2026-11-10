@@ -226,7 +226,10 @@ function insertDecisionPin(db: DatabaseSync, event: DecisionEventV1): void {
 }
 
 export function refreshDecisionDocumentSearch(db: DatabaseSync, document: DocumentState): void {
-  const id = /^decisions\/decision-(dec_[A-Za-z0-9_-]+)\/decision\.md$/u.exec(document.path)?.[1];
+  const id =
+    /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-reducer.sqlite-database */ /^decisions\/decision-(dec_[A-Za-z0-9_-]+)\/decision\.md$/u.exec(
+      document.path,
+    )?.[1];
   if (id && decisionState(db, id)) refreshDecisionFts(db, id);
 }
 

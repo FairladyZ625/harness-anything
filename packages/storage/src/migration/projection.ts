@@ -62,7 +62,10 @@ export async function withMigrationProjection<T>(
     return await read(projection);
   } finally {
     projection.close();
-    rmSync(root, { recursive: true, force: true });
+    /* @gate-identity state-store/migration.source.storage.src.migration.projection.filesystem-store */ rmSync(root, {
+      recursive: true,
+      force: true,
+    });
   }
 }
 /** Logical rows include complete aggregates (reviews/consents/witnesses), entities and their freshness. */

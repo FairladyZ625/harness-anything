@@ -222,8 +222,8 @@ export function scanDocCandidates(input: {
         projected.watermark === projected.sourceRevision
       ) {
         const rebuilt = Buffer.from(projected.document.body, "utf8");
-        mkdirSync(path.dirname(target), { recursive: true });
-        writeFileSync(target, rebuilt);
+        /* @gate-identity state-store/legacy.732d0cf11a6d5a7d */ mkdirSync(path.dirname(target), { recursive: true });
+        /* @gate-identity state-store/legacy.c23845bee74a6d1e */ writeFileSync(target, rebuilt);
         return scannedCandidateRow(
           "clean",
           `rebuilt from the canonical document; local edits are not a write path (route ${route.requiredRoute})`,

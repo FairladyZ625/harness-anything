@@ -357,7 +357,7 @@ function pinnedReviewWorktreePath(rootDir: string, taskId: string, commit: strin
 }
 
 async function addPinnedReviewWorktree(rootDir: string, cwd: string, commit: string): Promise<void> {
-  mkdirSync(path.dirname(cwd), { recursive: true });
+  /* @gate-identity state-store/legacy.1933a00ec3702ddb */ mkdirSync(path.dirname(cwd), { recursive: true });
   await reviewGit(rootDir, "worktree", "add", "--detach", cwd, commit);
 }
 
@@ -509,11 +509,11 @@ export function writeTaskWorktreeExecutionBinding(
 ): void {
   const file = taskWorktreeExecutionBindingPath(cwd, executionId),
     temporary = `${file}.tmp`;
-  mkdirSync(path.dirname(file), { recursive: true });
+  /* @gate-identity state-store/legacy.4403b3f33d4df58f */ mkdirSync(path.dirname(file), { recursive: true });
   // A failed write may leave complete bytes behind. Only the successful rename publishes proof;
   // the previous marker remains fenced out by its acquisition revision if preparation/publication fails.
   try {
-    writeFileSync(
+    /* @gate-identity state-store/legacy.3eda460e6e86c038 */ writeFileSync(
       temporary,
       `${JSON.stringify({
         schema: "task-worktree-execution-binding/v2",
@@ -523,9 +523,9 @@ export function writeTaskWorktreeExecutionBinding(
         boundAt,
       })}\n`,
     );
-    renameSync(temporary, file);
+    /* @gate-identity state-store/legacy.8b4eb2fbd7cb4ee2 */ renameSync(temporary, file);
   } finally {
-    rmSync(temporary, { force: true });
+    /* @gate-identity state-store/legacy.309c287e7e281da0 */ rmSync(temporary, { force: true });
   }
 }
 

@@ -14,7 +14,7 @@ export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
 
 /** Shared by cold ledger creation and the existing schema-owner read-index upgrade. */
 export const POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS: readonly string[] = Object.freeze([
-  `CREATE TABLE IF NOT EXISTS ha_event_entity_refs (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_event_entity_refs (
     tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL,
     ${scopeColumns()}, entity_ref text COLLATE "C" NOT NULL, revision bigint NOT NULL,
     PRIMARY KEY (tenant_id,project_id,policy_epoch,repo_id,entity_ref,revision),
@@ -27,7 +27,7 @@ export const POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS: readonly string[] = Obj
 
 /** DDL owned by the event-ledger adapter; callers run it as the schema owner before runtime access. */
 export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object.freeze([
-  `CREATE TABLE IF NOT EXISTS ha_repo_heads (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_repo_heads (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
     repo_id text NOT NULL,
@@ -45,7 +45,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     CHECK ((revision = 0 AND head_op_id IS NULL AND head_event_digest IS NULL AND head_digest IS NULL)
         OR (revision > 0 AND head_op_id IS NOT NULL AND head_event_digest IS NOT NULL AND head_digest IS NOT NULL))
   )`,
-  `CREATE TABLE IF NOT EXISTS ha_events (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_events (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
     repo_id text NOT NULL,
@@ -76,7 +76,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
   // Derived ledger index: survives task-projection rebuilds and is maintained by the event
   // read-index trigger, including writes from the previous binary during the upgrade window.
   ...POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
-  `CREATE TABLE IF NOT EXISTS ha_command_outcomes (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_command_outcomes (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
     repo_id text NOT NULL,
@@ -98,7 +98,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
   )`,
   `CREATE INDEX IF NOT EXISTS ha_command_outcomes_members_gin_idx
     ON ha_command_outcomes USING gin (member_op_ids)`,
-  `CREATE TABLE IF NOT EXISTS ha_content_blobs (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_content_blobs (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
     sha256 text NOT NULL,
@@ -109,7 +109,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     PRIMARY KEY (tenant_id, project_id, sha256),
     CHECK (octet_length(body) = size)
   )`,
-  `CREATE TABLE IF NOT EXISTS ha_document_heads (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_document_heads (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
     repo_id text NOT NULL,
@@ -125,7 +125,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     CHECK ((sha256 IS NULL AND size IS NULL AND node_kind IS NULL)
         OR (sha256 IS NOT NULL AND size IS NOT NULL AND size >= 0 AND node_kind IS NOT NULL AND node_kind IN ('file', 'symbolic-link')))
   )`,
-  `CREATE TABLE IF NOT EXISTS ha_replication_positions (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_replication_positions (
     tenant_id text NOT NULL,
     project_id text NOT NULL,
     repo_id text NOT NULL,
@@ -143,7 +143,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
       REFERENCES ha_repo_heads (tenant_id, project_id, repo_id)
   )`,
   ...POSTGRES_STORAGE_MIGRATION_SCHEMA,
-  `CREATE TABLE IF NOT EXISTS ha_replication_slots (
+  /* @gate-identity state-store/task.source.storage.src.postgres.event-ledger-schema.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_replication_slots (
     tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL, node_id text NOT NULL,
     fence bigint NOT NULL, history text NOT NULL, ack text, acked_at text,
     ${scopeColumns()}, PRIMARY KEY(tenant_id,project_id,repo_id,node_id)

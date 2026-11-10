@@ -10,7 +10,7 @@ import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
-    CREATE TABLE IF NOT EXISTS task_snapshot (
+    /* @gate-identity state-store/task.projection.task_snapshot */ CREATE TABLE IF NOT EXISTS task_snapshot (
       task_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
       snapshot_json TEXT NOT NULL,
@@ -31,15 +31,15 @@ export const TASK_INDEX_TABLES_SQL = `
       WHERE package_disposition = 'active';
     CREATE INDEX IF NOT EXISTS task_snapshot_parent
       ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
-    CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
+    /* @gate-identity state-store/task.projection.task_package */ CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
 
 export const REPOSITORY_READ_TABLES_SQL = `
     ${DISPATCH_LIFECYCLE_TABLES_SQL}
-    CREATE TABLE IF NOT EXISTS artifact_entity_state (
+    /* @gate-identity state-store/task.projection.artifact_entity_state */ CREATE TABLE IF NOT EXISTS artifact_entity_state (
       entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, state_json TEXT NOT NULL,
       PRIMARY KEY(entity_kind, entity_id)
     );
-    CREATE TABLE IF NOT EXISTS event_summary (
+    /* @gate-identity state-store/task.projection.event_summary */ CREATE TABLE IF NOT EXISTS event_summary (
       workspace_revision INTEGER PRIMARY KEY,
       summary_json TEXT NOT NULL,
       witness_json TEXT NOT NULL,
@@ -54,7 +54,7 @@ export const REPOSITORY_READ_TABLES_SQL = `
     );
     -- One row per expandable entity ref suffix: entity matches a full kind/id ref or a bare id,
     -- and the primary key carries revision order for the DESC page read.
-    CREATE TABLE IF NOT EXISTS event_summary_entity_ref (
+    /* @gate-identity state-store/task.projection.event_summary_entity_ref */ CREATE TABLE IF NOT EXISTS event_summary_entity_ref (
       workspace_revision INTEGER NOT NULL,
       entity_ref TEXT NOT NULL,
       PRIMARY KEY(entity_ref, workspace_revision)
@@ -75,12 +75,12 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS event_summary_read_index_pending
       ON event_summary(workspace_revision) WHERE read_index_version < 1;
     ${EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL};
-    CREATE TABLE IF NOT EXISTS runtime_installation (
+    /* @gate-identity state-store/task.projection.runtime_installation */ CREATE TABLE IF NOT EXISTS runtime_installation (
       installation_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS runtime_session (
+    /* @gate-identity state-store/task.projection.runtime_session */ CREATE TABLE IF NOT EXISTS runtime_session (
       runtime_session_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL,
@@ -108,7 +108,7 @@ export const REPOSITORY_READ_TABLES_SQL = `
       ON runtime_session(execution_node_id, json_extract(value_json, '$.outcome'), runtime_session_id);
     -- Replaced by runtime_session_unsettled_order, which also carries the recovery ORDER BY.
     DROP INDEX IF EXISTS runtime_session_unsettled;
-    CREATE TABLE IF NOT EXISTS runtime_session_task_binding (
+    /* @gate-identity state-store/task.projection.runtime_session_task_binding */ CREATE TABLE IF NOT EXISTS runtime_session_task_binding (
       task_id TEXT NOT NULL,
       runtime_session_id TEXT NOT NULL,
       execution_id TEXT NOT NULL,
@@ -117,17 +117,17 @@ export const REPOSITORY_READ_TABLES_SQL = `
     );
     CREATE INDEX IF NOT EXISTS runtime_session_task_binding_session
       ON runtime_session_task_binding(runtime_session_id, task_id, execution_id);
-    CREATE TABLE IF NOT EXISTS squad_run_projection (
+    /* @gate-identity state-store/task.projection.squad_run_projection */ CREATE TABLE IF NOT EXISTS squad_run_projection (
       squad_run_id TEXT PRIMARY KEY,
       revision INTEGER NOT NULL,
       state_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS pinned_entities (
+    /* @gate-identity state-store/task.projection.pinned_entities */ CREATE TABLE IF NOT EXISTS pinned_entities (
       entity_ref TEXT PRIMARY KEY,
       pinned_at TEXT NOT NULL,
       pinned_by TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS lease_interval (
+    /* @gate-identity state-store/task.projection.lease_interval */ CREATE TABLE IF NOT EXISTS lease_interval (
       task_id TEXT NOT NULL,
       execution_id TEXT NOT NULL,
       acquired_revision INTEGER NOT NULL,
@@ -146,7 +146,7 @@ export const REPOSITORY_READ_TABLES_SQL = `
     -- Latest-acquisition reads seek one row per task; without this the acquisition order has to
     -- sort every re-entry the task accumulated.
     CREATE INDEX IF NOT EXISTS lease_interval_task_acquisition ON lease_interval(task_id, acquired_revision);
-    CREATE TABLE IF NOT EXISTS event_index (
+    /* @gate-identity state-store/task.projection.event_index */ CREATE TABLE IF NOT EXISTS event_index (
       op_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL UNIQUE,
       task_id TEXT,
@@ -249,21 +249,40 @@ export const REPOSITORY_READ_TABLES_SQL = `
  * index that references it. Fresh databases get the column from CREATE TABLE and skip this.
  */
 export function ensureLeaseTaskActiveColumn(db: DatabaseSync): void {
-  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lease_interval'").all().length === 0) return;
-  const columns = db.prepare("PRAGMA table_info(lease_interval)").all() as { name: string }[];
+  if (
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lease_interval'")
+      .all().length === 0
+  )
+    return;
+  const columns =
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db
+      .prepare("PRAGMA table_info(lease_interval)")
+      .all() as { name: string }[];
   if (!columns.some(({ name }) => name === "task_active"))
-    db.exec("ALTER TABLE lease_interval ADD COLUMN task_active INTEGER NOT NULL DEFAULT 1");
-  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_snapshot'").all().length === 0) return;
-  db.exec(`UPDATE lease_interval SET task_active = 0 WHERE task_active = 1
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
+      "ALTER TABLE lease_interval ADD COLUMN task_active INTEGER NOT NULL DEFAULT 1",
+    );
+  if (
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_snapshot'")
+      .all().length === 0
+  )
+    return;
+  /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(`UPDATE lease_interval SET task_active = 0 WHERE task_active = 1
     AND NOT EXISTS (SELECT 1 FROM task_snapshot WHERE task_snapshot.task_id = lease_interval.task_id AND status = 'active')`);
 }
 
 export function createProjectionTables(db: DatabaseSync): void {
-  db.exec(TASK_INDEX_TABLES_SQL);
+  /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
+    TASK_INDEX_TABLES_SQL,
+  );
   ensureWorkspaceTaskCensus(db);
   ensureEventSummaryReadIndexColumns(db);
   ensureLeaseTaskActiveColumn(db);
-  db.exec(REPOSITORY_READ_TABLES_SQL);
+  /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
+    REPOSITORY_READ_TABLES_SQL,
+  );
   ensureRuntimeMemberIndex(db);
   backfillEventSummaryReadIndex(db);
   catchUpDispatchLifecycle(db);

@@ -298,7 +298,7 @@ export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.()
  * owner does, so an existing directory is accepted only when it is a real directory owned by
  * this uid, and it is tightened to 0700 before any socket binds inside it. */
 export function mkdirSecurely(target: string): void {
-  mkdirSync(target, { recursive: true, mode: 0o700 });
+  /* @gate-identity state-store/legacy.5ac349285e591d4c */ mkdirSync(target, { recursive: true, mode: 0o700 });
   assertOwnedSocketDirectory(target);
   if (process.platform !== "win32") chmodSync(target, 0o700);
 }

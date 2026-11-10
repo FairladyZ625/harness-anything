@@ -13,16 +13,24 @@ export function filterLiteralTextRows<T>(
   columns: (row: T) => readonly string[],
 ): readonly T[] {
   if (!query.trim() || rows.length === 0) return rows;
-  const db = new DatabaseSync(":memory:");
+  const db =
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ new DatabaseSync(
+      ":memory:",
+    );
   try {
-    db.exec("CREATE VIRTUAL TABLE search USING fts5(a,b,c,d,e, tokenize='unicode61 remove_diacritics 2')");
-    const insert = db.prepare("INSERT INTO search(rowid,a,b,c,d,e) VALUES (?,?,?,?,?,?)");
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.exec(
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ "CREATE VIRTUAL TABLE search USING fts5(a,b,c,d,e, tokenize='unicode61 remove_diacritics 2')",
+    );
+    const insert =
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.prepare(
+        "INSERT INTO search(rowid,a,b,c,d,e) VALUES (?,?,?,?,?,?)",
+      );
     rows.forEach((row, index) => {
       const fields = columns(row);
       insert.run(index + 1, fields[0] ?? "", fields[1] ?? "", fields[2] ?? "", fields[3] ?? "", fields[4] ?? "");
     });
     const matches = new Set(
-      db
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db
         .prepare("SELECT rowid FROM search WHERE search MATCH ?")
         .all(ftsQuery(query))
         .map((row) => Number(row.rowid)),
@@ -44,20 +52,19 @@ export interface SearchPosition {
 let tokenizer: DatabaseSync | undefined;
 export function unicode61Positions(columns: readonly string[]): readonly SearchPosition[] {
   if (!tokenizer) {
-    tokenizer = new DatabaseSync(":memory:");
-    tokenizer.exec(`CREATE VIRTUAL TABLE input USING fts5(a,b,c,d,e,tokenize='unicode61 remove_diacritics 2');
+    tokenizer =
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ new DatabaseSync(
+        ":memory:",
+      );
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ tokenizer.exec(/* @gate-identity state-store/legacy.683c68ff98e3487e */ /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ `CREATE VIRTUAL TABLE input USING fts5(a,b,c,d,e,tokenize='unicode61 remove_diacritics 2');
       CREATE VIRTUAL TABLE tokens USING fts5vocab(input,instance)`);
   }
   const db = tokenizer;
   try {
-    db.prepare("INSERT INTO input(rowid,a,b,c,d,e) VALUES(1,?,?,?,?,?)").run(
-      columns[0] ?? "",
-      columns[1] ?? "",
-      columns[2] ?? "",
-      columns[3] ?? "",
-      columns[4] ?? "",
-    );
-    return db
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.prepare(
+      "INSERT INTO input(rowid,a,b,c,d,e) VALUES(1,?,?,?,?,?)",
+    ).run(columns[0] ?? "", columns[1] ?? "", columns[2] ?? "", columns[3] ?? "", columns[4] ?? "");
+    return /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db
       .prepare("SELECT term,col,offset FROM tokens ORDER BY col,offset")
       .all()
       .map((row) => ({
@@ -66,7 +73,9 @@ export function unicode61Positions(columns: readonly string[]): readonly SearchP
         offset: Number(row.offset),
       }));
   } finally {
-    db.exec("DELETE FROM input WHERE rowid=1");
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.exec(
+      "DELETE FROM input WHERE rowid=1",
+    );
   }
 }
 

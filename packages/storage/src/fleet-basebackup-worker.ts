@@ -41,7 +41,7 @@ await tar.create({ file, cwd: payload, gzip: true, portable: true, strict: true 
   BASE_BACKUP_ARCHIVE_ROOT,
 ]);
 syncFile(file);
-await rm(payload, { recursive: true, force: true });
+await /* @gate-identity state-store/legacy.9d8f466f970166dc */ rm(payload, { recursive: true, force: true });
 const digest = createHash("sha256");
 for await (const chunk of createReadStream(file)) digest.update(chunk);
 const archive: BaseBackupArchive = { metadata, file, size: (await stat(file)).size, sha256: digest.digest("hex") };
@@ -74,12 +74,16 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
     const payload = path.join(input.directory, "payload"),
       store = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "store", "generations", String(metadata.ledgerGeneration)),
       cache = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "cache");
-    await mkdir(store, { recursive: true });
-    await mkdir(cache, { recursive: true });
+    await /* @gate-identity state-store/legacy.345b1192753040f1 */ mkdir(store, { recursive: true });
+    await /* @gate-identity state-store/legacy.bfc1f773a473f6fe */ mkdir(cache, { recursive: true });
     await backup(ledger, path.join(store, "ledger.sqlite"));
     await backup(projection, path.join(cache, "task.sqlite"));
     const activation = `${input.ledgerPath}.activation.json`;
-    if (existsSync(activation)) await copyFile(activation, path.join(store, "ledger.sqlite.activation.json"));
+    if (existsSync(activation))
+      await /* @gate-identity state-store/legacy.6dc76c74119a9b4a */ copyFile(
+        activation,
+        path.join(store, "ledger.sqlite.activation.json"),
+      );
     const copied = new Set<string>();
     for (const row of ledger.prepare("SELECT event_json FROM event ORDER BY revision").iterate()) {
       const event = JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1;
@@ -87,8 +91,13 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
         if (copied.has(claim.sha256)) continue;
         const relative = path.join("objects", "sha256", claim.sha256.slice(0, 2), claim.sha256.slice(2));
         const destination = path.join(store, relative);
-        await mkdir(path.dirname(destination), { recursive: true });
-        await copyFile(path.join(path.dirname(input.ledgerPath), relative), destination);
+        await /* @gate-identity state-store/legacy.969f07fea413495e */ mkdir(path.dirname(destination), {
+          recursive: true,
+        });
+        await /* @gate-identity state-store/legacy.3a86c97b33e75462 */ copyFile(
+          path.join(path.dirname(input.ledgerPath), relative),
+          destination,
+        );
         copied.add(claim.sha256);
       }
     }

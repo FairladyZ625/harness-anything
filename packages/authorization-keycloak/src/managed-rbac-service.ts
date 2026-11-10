@@ -200,7 +200,7 @@ export class ManagedRbacService {
       postgresArtifact = artifactManifest(platform).find((artifact) => artifact.name === "postgres");
     if (!postgresArtifact)
       throw managedRbacError("rbac_artifact_missing", "The managed artifact manifest has no PostgreSQL entry.");
-    mkdirSync(runtime, { recursive: true, mode: 0o700 });
+    /* @gate-identity non-state/environment-io.ee9a148662221fb5 */ mkdirSync(runtime, { recursive: true, mode: 0o700 });
     await this.#installArtifact(postgresArtifact, runtime);
     return {
       initdb: managedExecutable(this.#root, "runtime/postgres/bin/initdb", this.#ports.platform),
@@ -349,7 +349,7 @@ export class ManagedRbacService {
   async #install(): Promise<void> {
     const platform = supportedPlatform(this.#ports.platform, this.#ports.arch);
     const runtime = path.join(this.#root, "runtime");
-    mkdirSync(runtime, { recursive: true, mode: 0o700 });
+    /* @gate-identity non-state/environment-io.3095f85298fdb651 */ mkdirSync(runtime, { recursive: true, mode: 0o700 });
     for (const artifact of artifactManifest(platform)) await this.#installArtifact(artifact, runtime);
     this.#initializeDatabase();
     this.#writeRealmImport();
@@ -386,7 +386,10 @@ export class ManagedRbacService {
     const marker = path.join(destination, ".installed");
     if (existsSync(marker) && readFileSync(marker, "utf8").startsWith(`${artifact.url}\n`)) return;
     const downloads = path.join(this.#root, "downloads");
-    mkdirSync(downloads, { recursive: true, mode: 0o700 });
+    /* @gate-identity non-state/environment-io.239ff21497907099 */ mkdirSync(downloads, {
+      recursive: true,
+      mode: 0o700,
+    });
     const archive = path.join(
         downloads,
         `${artifact.name}.${artifact.archive === "jar-txz" ? "jar" : artifact.archive === "zip" ? "zip" : "tar.gz"}`,
@@ -403,20 +406,35 @@ export class ManagedRbacService {
         "rbac_checksum_unavailable",
         `${artifact.name} checksum returned HTTP ${publishedChecksum.status}.`,
       );
-    await pipeline(payload.body, createWriteStream(temporary, { mode: 0o600 }));
+    await pipeline(
+      payload.body,
+      /* @gate-identity non-state/environment-io.9c7724b3aea98a89 */ createWriteStream(temporary, { mode: 0o600 }),
+    );
     const checksumBody = await publishedChecksum.text(),
       expected = publishedDigest(artifact, checksumBody),
       actual = await digestFile(temporary, artifact.algorithm);
     if (!expected || actual !== expected) {
-      rmSync(temporary, { force: true });
+      /* @gate-identity non-state/environment-io.eb62b26beba48b5c */ rmSync(temporary, { force: true });
       throw managedRbacError("rbac_checksum_mismatch", `${artifact.name} did not match its published checksum.`);
     }
-    renameSync(temporary, archive);
-    rmSync(destination, { recursive: true, force: true });
-    mkdirSync(destination, { recursive: true, mode: 0o700 });
+    /* @gate-identity non-state/environment-io.ee605250dd16e9ce */ renameSync(temporary, archive);
+    /* @gate-identity non-state/environment-io.7d512e09128ade68 */ rmSync(destination, {
+      recursive: true,
+      force: true,
+    });
+    /* @gate-identity non-state/environment-io.ab94576188dc15d2 */ mkdirSync(destination, {
+      recursive: true,
+      mode: 0o700,
+    });
     extractArtifact(archive, destination, artifact.archive, this.#ports.platform, this.#host.runProcessText);
     flattenSingleDirectory(destination);
-    writeFileSync(marker, `${artifact.url}\n${actual}\n`, { mode: 0o600 });
+    /* @gate-identity non-state/environment-io.333e4cba839e4439 */ writeFileSync(
+      marker,
+      `${artifact.url}\n${actual}\n`,
+      {
+        mode: 0o600,
+      },
+    );
   }
 
   #postgresPasswordFile(): string {
@@ -432,7 +450,7 @@ export class ManagedRbacService {
       passwordFile = this.#postgresPasswordFile(),
       initdb = managedExecutable(this.#root, "runtime/postgres/bin/initdb", this.#ports.platform);
     if (existsSync(path.join(data, "PG_VERSION"))) return;
-    mkdirSync(data, { recursive: true, mode: 0o700 });
+    /* @gate-identity non-state/environment-io.065df41e6759b402 */ mkdirSync(data, { recursive: true, mode: 0o700 });
     this.#postgresPassword();
     this.#execute(initdb, [
       "-D",
@@ -447,7 +465,12 @@ export class ManagedRbacService {
 
   #writeRealmImport(): void {
     const secretFile = path.join(this.#root, "center-client-secret");
-    if (!existsSync(secretFile)) writeFileSync(secretFile, randomBytes(32).toString("hex"), { mode: 0o600 });
+    if (!existsSync(secretFile))
+      /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
+        secretFile,
+        randomBytes(32).toString("hex"),
+        { mode: 0o600 },
+      );
     const realm = {
       realm: "harness",
       enabled: true,
@@ -495,8 +518,15 @@ export class ManagedRbacService {
       ],
     };
     const importDir = path.join(this.#root, "runtime", "keycloak", "data", "import");
-    mkdirSync(importDir, { recursive: true, mode: 0o700 });
-    writeFileSync(path.join(importDir, "harness-realm.json"), `${JSON.stringify(realm, null, 2)}\n`, { mode: 0o600 });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(importDir, {
+      recursive: true,
+      mode: 0o700,
+    });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
+      path.join(importDir, "harness-realm.json"),
+      `${JSON.stringify(realm, null, 2)}\n`,
+      { mode: 0o600 },
+    );
   }
 
   async #startPostgres(): Promise<void> {
@@ -516,7 +546,7 @@ export class ManagedRbacService {
       platform: this.#ports.platform,
     });
     await this.#hardenPostgresAuthentication(binary, data);
-    mkdirSync(logs, { recursive: true, mode: 0o700 });
+    /* @gate-identity non-state/environment-io.a4045c59c63fc3a2 */ mkdirSync(logs, { recursive: true, mode: 0o700 });
     return this.#spawnUntilReady(
       "postgres",
       binary,
@@ -577,7 +607,7 @@ export class ManagedRbacService {
         "rbac_postgres_auth_insecure",
         "Could not remove trust authentication from the PostgreSQL data directory.",
       );
-    writeFileSync(hba, hardened, { mode: 0o600 });
+    /* @gate-identity non-state/environment-io.7e05d05bacdd5d95 */ writeFileSync(hba, hardened, { mode: 0o600 });
     chmodSync(hba, 0o600);
   }
 
@@ -656,11 +686,13 @@ export class ManagedRbacService {
     cwd?: string,
   ): Promise<void> {
     const logs = path.join(this.#root, "logs");
-    mkdirSync(logs, { recursive: true, mode: 0o700 });
+    /* @gate-identity non-state/environment-io.17c06ba5fde6715a */ mkdirSync(logs, { recursive: true, mode: 0o700 });
     // Opened here rather than lazily by the stream: a log that cannot be opened fails this start,
     // instead of surfacing later as an unhandled stream error once the directory is gone.
     const logFile = path.join(logs, `${name}.log`),
-      log = createWriteStream(logFile, { fd: openSync(logFile, "a") });
+      log = /* @gate-identity non-state/environment-io.22a7d1ac88b4e2e2 */ createWriteStream(logFile, {
+        fd: /* @gate-identity non-state/environment-io.4686678adb8578e2 */ openSync(logFile, "a"),
+      });
     let settleReady: (() => void) | null = null,
       settleError: ((error: Error) => void) | null = null,
       observed = "";
@@ -833,9 +865,18 @@ export class ManagedRbacService {
         "rbac_external_credentials_rejected",
         "The center credentials cannot administer the realm; configuration was not changed.",
       );
-    mkdirSync(this.#root, { recursive: true, mode: 0o700 });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(this.#root, {
+      recursive: true,
+      mode: 0o700,
+    });
     const secretFile = path.join(this.#root, "center-client-secret");
-    writeFileSync(secretFile, request.clientSecret.trim(), { mode: 0o600 });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
+      secretFile,
+      request.clientSecret.trim(),
+      {
+        mode: 0o600,
+      },
+    );
     chmodSync(secretFile, 0o600);
     this.#writeConfig({
       schema: "harness-managed-rbac/v1",
@@ -852,13 +893,16 @@ export class ManagedRbacService {
     if (!request.backupDir) throw managedRbacError("rbac_backup_dir_required", "Backup requires --backup-dir.");
     if (existsSync(request.backupDir))
       throw managedRbacError("rbac_backup_exists", "Backup destination already exists.");
-    mkdirSync(request.backupDir, { recursive: true, mode: 0o700 });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(request.backupDir, {
+      recursive: true,
+      mode: 0o700,
+    });
     const output = path.join(request.backupDir, "keycloak-data.tar.gz"),
       wasRunning = this.#children.size > 0;
     if (wasRunning) await this.stop();
     try {
       this.#execute("tar", ["-czf", output, "-C", path.join(this.#root, "data"), "postgres"]);
-      writeFileSync(
+      /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
         path.join(request.backupDir, "manifest.json"),
         `${JSON.stringify(this.#readManagedConfig(), null, 2)}\n`,
         { mode: 0o600 },
@@ -887,8 +931,14 @@ export class ManagedRbacService {
         "Backup runtime versions do not match the installed runtime.",
       );
     await this.stop();
-    rmSync(postgresData, { recursive: true, force: true });
-    mkdirSync(data, { recursive: true, mode: 0o700 });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(postgresData, {
+      recursive: true,
+      force: true,
+    });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(data, {
+      recursive: true,
+      mode: 0o700,
+    });
     this.#execute("tar", ["-xzf", input, "-C", data]);
     await this.start();
     await this.#waitUntilReady();
@@ -915,11 +965,18 @@ export class ManagedRbacService {
   }
 
   #writeConfig(config: ManagedRbacConfig): void {
-    mkdirSync(this.#root, { recursive: true, mode: 0o700 });
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ mkdirSync(this.#root, {
+      recursive: true,
+      mode: 0o700,
+    });
     const file = path.join(this.#root, "config.json"),
       temporary = `${file}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temporary, file);
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
+      temporary,
+      `${JSON.stringify(config, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ renameSync(temporary, file);
     chmodSync(file, 0o600);
   }
 }
@@ -952,18 +1009,29 @@ export function managedRbacSessionStore(
           ? readFileSync(legacyFile, "utf8")
           : undefined,
     write: (value) => {
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      /* @gate-identity state-store/runtime-instance.authorization-session */ mkdirSync(directory, {
+        recursive: true,
+        mode: 0o700,
+      });
       const temporary = `${file}.tmp`;
-      writeFileSync(temporary, value, { mode: 0o600 });
-      renameSync(temporary, file);
+      /* @gate-identity state-store/runtime-instance.authorization-session */ writeFileSync(temporary, value, {
+        mode: 0o600,
+      });
+      /* @gate-identity state-store/runtime-instance.authorization-session */ renameSync(temporary, file);
       chmodSync(file, 0o600);
-      rmSync(legacyFile, { force: true });
+      /* @gate-identity state-store/runtime-instance.authorization-session */ rmSync(legacyFile, { force: true });
     },
     delete: () => {
-      rmSync(file, { force: true });
-      rmSync(legacyFile, { force: true });
+      /* @gate-identity state-store/runtime-instance.authorization-session */ rmSync(file, { force: true });
+      /* @gate-identity state-store/runtime-instance.authorization-session */ rmSync(legacyFile, { force: true });
     },
-    retireBootstrap: () => rmSync(path.join(root, "bootstrap-admin-password"), { force: true }),
+    retireBootstrap: () =>
+      /* @gate-identity state-store/runtime-instance.authorization-session */ rmSync(
+        path.join(root, "bootstrap-admin-password"),
+        {
+          force: true,
+        },
+      ),
   };
 }
 
@@ -1135,7 +1203,7 @@ function extractArtifact(
   if (format === "tar.gz") return run("tar", ["-xzf", archive, "-C", destination]);
   if (format === "zip") return run("tar", ["-xf", archive, "-C", destination]);
   const unpacked = path.join(destination, "jar");
-  mkdirSync(unpacked, { recursive: true });
+  /* @gate-identity non-state/environment-io.5af6638f0933b9a3 */ mkdirSync(unpacked, { recursive: true });
   run(
     platform === "win32" ? "tar" : "unzip",
     platform === "win32" ? ["-xf", archive, "-C", unpacked] : ["-q", archive, "-d", unpacked],
@@ -1143,7 +1211,7 @@ function extractArtifact(
   const txz = findFile(unpacked, ".txz");
   if (!txz) throw managedRbacError("rbac_archive_invalid", "PostgreSQL bundle does not contain a .txz archive.");
   run("tar", ["-xJf", txz, "-C", destination]);
-  rmSync(unpacked, { recursive: true, force: true });
+  /* @gate-identity non-state/environment-io.3a20b668c42be8a5 */ rmSync(unpacked, { recursive: true, force: true });
 }
 
 function findFile(root: string, suffix: string): string | null {
@@ -1162,8 +1230,11 @@ function flattenSingleDirectory(root: string): void {
     directories = entries.filter((entry) => entry.isDirectory());
   if (entries.length !== 1 || directories.length !== 1 || existsSync(path.join(root, "bin"))) return;
   const child = path.join(root, directories[0]!.name);
-  for (const entry of readdirSync(child)) renameSync(path.join(child, entry), path.join(root, entry));
-  rmSync(child, { recursive: true, force: true });
+  for (const entry of readdirSync(child)) {
+    /* @gate-identity non-state/environment-io.0093cea5d2acccb9 */
+    renameSync(path.join(child, entry), path.join(root, entry));
+  }
+  /* @gate-identity non-state/environment-io.020223a0282a302d */ rmSync(child, { recursive: true, force: true });
 }
 
 function javaHomePath(root: string, platform: NodeJS.Platform): string {
@@ -1202,7 +1273,12 @@ function hardenPostgresHba(hba: string): string {
 }
 
 function readOrCreateSecret(file: string): string {
-  if (!existsSync(file)) writeFileSync(file, randomBytes(24).toString("base64url"), { mode: 0o600 });
+  if (!existsSync(file))
+    /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
+      file,
+      randomBytes(24).toString("base64url"),
+      { mode: 0o600 },
+    );
   chmodSync(file, 0o600);
   return readFileSync(file, "utf8").trim();
 }

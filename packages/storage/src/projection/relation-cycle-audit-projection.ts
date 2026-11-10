@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import {
   findRelationCycleWitnesses,
@@ -33,30 +32,36 @@ export function ensureRelationCycleAudit(db: DatabaseSync): void {
   transaction(db, () => {
     runSql(
       db,
-      `CREATE TABLE relation_cycle_edge (relation_id TEXT PRIMARY KEY,source_ref TEXT,target_ref TEXT,relation_type TEXT,direction TEXT,state TEXT)`,
+      `/* @gate-identity state-store/task.projection.relation_cycle_edge */ CREATE TABLE relation_cycle_edge (relation_id TEXT PRIMARY KEY,source_ref TEXT,target_ref TEXT,relation_type TEXT,direction TEXT,state TEXT)`,
     );
     for (const endpoint of ["source", "target"])
       runSql(
         db,
         `CREATE INDEX relation_cycle_${endpoint} ON relation_cycle_edge(relation_type,state,direction,${endpoint}_ref)`,
       );
-    runSql(db, "CREATE TABLE relation_cycle_count (singleton INTEGER PRIMARY KEY, count INTEGER NOT NULL)");
+    runSql(
+      db,
+      "/* @gate-identity state-store/task.projection.relation_cycle_count */ CREATE TABLE relation_cycle_count (singleton INTEGER PRIMARY KEY, count INTEGER NOT NULL)",
+    );
     runSql(db, "INSERT INTO relation_cycle_count VALUES (1,0)");
     runSql(
       db,
-      "CREATE TABLE relation_cycle_dirty (relation_type TEXT,node_ref TEXT,PRIMARY KEY(relation_type,node_ref))",
+      "/* @gate-identity state-store/task.projection.relation_cycle_dirty */ CREATE TABLE relation_cycle_dirty (relation_type TEXT,node_ref TEXT,PRIMARY KEY(relation_type,node_ref))",
     );
     runSql(
       db,
-      "CREATE TABLE relation_cycle_component (component_id TEXT PRIMARY KEY,relation_type TEXT,priority TEXT,issue_json TEXT)",
+      "/* @gate-identity state-store/task.projection.relation_cycle_component */ CREATE TABLE relation_cycle_component (component_id TEXT PRIMARY KEY,relation_type TEXT,priority TEXT,issue_json TEXT)",
     );
     runSql(db, "CREATE INDEX relation_cycle_component_type ON relation_cycle_component(relation_type)");
     runSql(
       db,
-      "CREATE TABLE relation_cycle_member (relation_type TEXT,node_ref TEXT,component_id TEXT,PRIMARY KEY(relation_type,node_ref))",
+      "/* @gate-identity state-store/task.projection.relation_cycle_member */ CREATE TABLE relation_cycle_member (relation_type TEXT,node_ref TEXT,component_id TEXT,PRIMARY KEY(relation_type,node_ref))",
     );
     runSql(db, "CREATE INDEX relation_cycle_member_component ON relation_cycle_member(component_id)");
-    runSql(db, "CREATE TABLE relation_cycle_result (relation_type TEXT PRIMARY KEY,issue_json TEXT)");
+    runSql(
+      db,
+      "/* @gate-identity state-store/task.projection.relation_cycle_result */ CREATE TABLE relation_cycle_result (relation_type TEXT PRIMARY KEY,issue_json TEXT)",
+    );
     const dirty = (row: string, endpoint: "source_ref" | "target_ref") => `INSERT INTO relation_cycle_dirty
       SELECT ${row}.relation_type,${row}.${endpoint}
       WHERE ${row}.relation_type IN (${acyclicTypes}) AND NOT EXISTS (

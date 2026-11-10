@@ -12,9 +12,20 @@ export interface StateStoreSource {
 }
 
 export interface StateStoreMedium {
-  readonly kind: "journal" | "sqlite-table" | "canonical-event" | "shared-cache" | "host-operational";
+  readonly kind:
+    | "journal"
+    | "sqlite-table"
+    | "sqlite-database"
+    | "postgres-table"
+    | "postgres-database"
+    | "filesystem-store"
+    | "canonical-event"
+    | "shared-cache"
+    | "host-operational";
   readonly recordSchema?: string;
   readonly table?: string;
+  readonly module?: string;
+  readonly tables?: readonly string[];
   readonly schema?: string;
   readonly types?: readonly string[];
   readonly payloadField?: string;
@@ -118,8 +129,416 @@ export const hostStateStores: readonly StateStoreDeclaration[] = freeze([
   }),
 ]);
 
+const projectionTable = (
+  table: string,
+  medium: "sqlite-table" | "postgres-table" = "sqlite-table",
+): StateStoreDeclaration =>
+  freeze({
+    id: `task.projection.${table}`,
+    role: "projection",
+    residency: "canonical",
+    medium: freeze({ kind: medium, table }),
+    vocabulary: freeze([]),
+    source: freeze({ kind: "task", store: "task.task-events" }),
+    freshness: freeze({ cursor: "revision" }),
+    invalidation: "rebuild-on-start",
+    reader: "readTaskProjection",
+  });
+
+// Projection tables are disposable views of the task event authority. Keeping their
+// ownership beside the event store prevents a second hand-written table registry.
+const taskProjectionTables = Object.freeze(
+  [
+    "artifact_document",
+    "artifact_count",
+    "decision",
+    "decision_option",
+    "decision_claim",
+    "decision_judgment_consent",
+    "decision_amendment",
+    "decision_content_pin",
+    "decision_review_event",
+    "decision_fts",
+    "dispatch_lifecycle_group",
+    "dispatch_lifecycle_attempt",
+    "dispatch_lifecycle_task_lease",
+    "dispatch_lifecycle_cursor",
+    "fact",
+    "fact_fts",
+    "fact_domain_type",
+    "fact_reclassification",
+    "task_snapshot",
+    "task_package",
+    "artifact_entity_state",
+    "event_summary",
+    "event_summary_entity_ref",
+    "runtime_installation",
+    "runtime_session",
+    "runtime_session_task_binding",
+    "squad_run_projection",
+    "pinned_entities",
+    "lease_interval",
+    "event_index",
+    "archived_entity",
+    "projection_meta",
+    "event_source",
+    "document",
+    "preset_snapshot",
+    "task_generation",
+    "task_progress",
+    "entity_projection",
+    "edge",
+    "lease_cas",
+    "projection_maintenance",
+    "relation_cycle_edge",
+    "relation_cycle_count",
+    "relation_cycle_dirty",
+    "relation_cycle_component",
+    "relation_cycle_member",
+    "relation_cycle_result",
+    "relation_freshness_dirty",
+    "relation_edge",
+    "task_relation",
+    "workspace_task_census",
+  ].map((table) => projectionTable(table)),
+);
+
+const postgresProjectionTables = Object.freeze(
+  [
+    "ha_task_snapshots",
+    "ha_decisions",
+    "ha_decision_read_status",
+    "ha_search_terms",
+    "ha_decision_positions",
+    "ha_facts",
+    "ha_relations",
+    "ha_agents",
+    "ha_squads",
+    "ha_projection_meta",
+    "ha_projection_values",
+    "ha_runtime_session_tasks",
+    "ha_runtime_unsettled",
+    "ha_event_summary_state",
+    "ha_entity_declaration_heads",
+    "ha_artifact_documents",
+    "ha_artifact_counts",
+    "ha_relation_freshness_dirty",
+  ].map((table) => projectionTable(table, "postgres-table")),
+);
+
+// Source-bound physical storage declarations. A marker must match its entity owner, module, and medium.
+const physicalSourceStoreRows = Object.freeze([
+  {
+    owner: "runtime-instance",
+    module: "packages/kernel/src/daemon/registry.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "document",
+    module: "packages/kernel/src/local/local-layout-file-system.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "document",
+    module: "packages/storage/src/canonical-tree-materialization.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  { owner: "document", module: "packages/storage/src/durable-file.ts", kind: "filesystem-store", role: "authority" },
+  {
+    owner: "execution",
+    module: "packages/storage/src/fleet-replica-delivery-lease.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: ["delivery_lease", "delivery_metrics"],
+  },
+  {
+    owner: "execution",
+    module: "packages/storage/src/fleet-replication-slot.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "execution",
+    module: "packages/storage/src/fleet-replication-slot.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: ["replication_slot"],
+  },
+  {
+    owner: "migration",
+    module: "packages/storage/src/migration/engine.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "migration",
+    module: "packages/storage/src/migration/postgres-grant.ts",
+    kind: "postgres-database",
+    role: "authority",
+    tables: ["ha_migration_grants"],
+  },
+  {
+    owner: "migration",
+    module: "packages/storage/src/migration/postgres-projection-audit.ts",
+    kind: "postgres-database",
+    role: "authority",
+    tables: ["${schema}.ha_events", "${schema}.ha_event_entity_refs"],
+  },
+  {
+    owner: "migration",
+    module: "packages/storage/src/migration/postgres-schema.ts",
+    kind: "postgres-database",
+    role: "authority",
+    tables: ["ha_repo_writer_epochs"],
+  },
+  {
+    owner: "migration",
+    module: "packages/storage/src/migration/projection.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "migration",
+    module: "packages/storage/src/migration/sqlite-control.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: ["storage_migration_control", "storage_migration_scope", "storage_activation_markers"],
+  },
+  {
+    owner: "migration",
+    module: "packages/storage/src/migration/sqlite-endpoint.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/pg/pg-text-search.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: ["search", "input", "tokens"],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/postgres/event-ledger-schema.ts",
+    kind: "postgres-database",
+    role: "authority",
+    tables: [
+      "ha_event_entity_refs",
+      "ha_repo_heads",
+      "ha_events",
+      "ha_command_outcomes",
+      "ha_content_blobs",
+      "ha_document_heads",
+      "ha_replication_positions",
+      "ha_replication_slots",
+    ],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/decision-projection-reads.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/decision-projection-reducer.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/decision-projection-schema.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/fact-event-projection.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/projection-tables.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-database.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-event-application.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-reads.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-runtime-api.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-runtime.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-sql.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-task-queries.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/rebuildable-task-projection-write-model.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/relation-graph-projection.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/projection/task-query-projection.ts",
+    kind: "sqlite-database",
+    role: "projection",
+    tables: [],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/store/local-version-control-system.ts",
+    kind: "filesystem-store",
+    role: "authority",
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/store/replication-log.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: ["replication_state", "replication_log"],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/store/sqlite-entity-declarations.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: ["entity_declaration_head", "entity_declaration_meta"],
+  },
+  {
+    owner: "task",
+    module: "packages/storage/src/store/sqlite-event-store.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: [
+      "ledger_meta",
+      "event",
+      "event_query_entity",
+      "event_query_meta",
+      "document_head",
+      "document_head_meta",
+      "attach_migration_scan_meta",
+      "command_outcome",
+      "writer_lease",
+      "lease_cas",
+      "lease_interval",
+    ],
+  },
+  { owner: "execution", module: "packages/storage/src/writer-epoch.ts", kind: "filesystem-store", role: "authority" },
+  {
+    owner: "execution",
+    module: "packages/storage/src/writer-epoch.ts",
+    kind: "sqlite-database",
+    role: "authority",
+    tables: ["writer_epoch_history", "writer_epochs"],
+  },
+]);
+const physicalSourceStores: readonly { readonly owner: string; readonly store: StateStoreDeclaration }[] =
+  Object.freeze(
+    physicalSourceStoreRows.map((row) => {
+      const { owner, module, kind, role } = row;
+      const id = moduleStoreId(owner, module, kind);
+      const projectionStore = role === "projection";
+      const stateRole = role as StateStoreRole;
+      const residency = (
+        owner === "execution" || owner === "runtime-instance" ? "runtime-local" : "canonical"
+      ) as StateStoreResidency;
+      const medium: StateStoreMedium = {
+        kind: kind as StateStoreMedium["kind"],
+        module,
+        ...("tables" in row ? { tables: freeze(row.tables) } : {}),
+      };
+      const store: StateStoreDeclaration = {
+        id,
+        role: stateRole,
+        residency,
+        medium: freeze(medium),
+        vocabulary: freeze([]),
+        ...(projectionStore
+          ? {
+              source: freeze({ kind: "task", store: "task.task-events" }),
+              freshness: freeze({ cursor: "revision" as StateStoreFreshnessCursor }),
+              invalidation: "rebuild-on-start",
+              reader: "readTaskProjection",
+            }
+          : {}),
+      };
+      return freeze({ owner, store: freeze(store) });
+    }),
+  );
+function moduleStoreId(owner: string, module: string, kind: string): string {
+  const slug = module
+    .replace(/^packages\//u, "")
+    .replace(/\.[cm]?[jt]sx?$/u, "")
+    .replaceAll("/", ".");
+  return `${owner}.source.${slug}.${kind}`;
+}
+function physicalStoresForKind(kind: string): readonly StateStoreDeclaration[] {
+  return physicalSourceStores.filter((entry) => entry.owner === kind).map((entry) => entry.store);
+}
+
 const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> = {
   task: [
+    ...physicalStoresForKind("task"),
+    ...taskProjectionTables,
+    ...postgresProjectionTables,
     canonical(
       "task.task-events",
       "task-event/v1",
@@ -148,6 +567,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     canonical("agent.people-events", "people-event/v1", "packages/kernel/src/domain/people-event.ts"),
   ],
   execution: [
+    ...physicalStoresForKind("execution"),
     canonical(
       "execution.delegation-events",
       "execution-delegation-event/v1",
@@ -213,6 +633,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     ]),
   ],
   document: [
+    ...physicalStoresForKind("document"),
     canonical("document.events", "doc-event/v1", "packages/kernel/src/domain/doc-sync-types.ts"),
     canonical(
       "document.entity-events",
@@ -221,6 +642,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     ),
   ],
   migration: [
+    ...physicalStoresForKind("migration"),
     canonical(
       "migration.import-events",
       "migration-import-event/v1",
@@ -245,6 +667,21 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     ),
   ],
   "runtime-instance": [
+    ...physicalStoresForKind("runtime-instance"),
+    freeze({
+      id: "runtime-instance.authorization-configuration",
+      role: "authority",
+      residency: "runtime-local",
+      medium: freeze({ kind: "journal", recordSchema: "harness-managed-rbac/v1" }),
+      vocabulary: freeze([]),
+    }),
+    freeze({
+      id: "runtime-instance.authorization-session",
+      role: "authority",
+      residency: "runtime-local",
+      medium: freeze({ kind: "journal", recordSchema: "harness-oidc-session/v3" }),
+      vocabulary: freeze([]),
+    }),
     canonical("runtime-instance.pin-events", "entity-pin-event/v1", "packages/kernel/src/domain/entity-pin-event.ts"),
   ],
   host: hostStateStores,

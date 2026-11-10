@@ -323,7 +323,13 @@ function forEachLine(file: string, visit: (line: string, lineNumber: number) => 
 
 function writeAllSync(descriptor: number, bytes: Buffer): void {
   let offset = 0;
-  while (offset < bytes.length) offset += writeSync(descriptor, bytes, offset, bytes.length - offset);
+  while (offset < bytes.length)
+    offset += /* @gate-identity state-store/legacy.1f32815b2645ae65 */ writeSync(
+      descriptor,
+      bytes,
+      offset,
+      bytes.length - offset,
+    );
 }
 
 function stateFor(states: Map<string, DeltaState>, key: string): DeltaState {

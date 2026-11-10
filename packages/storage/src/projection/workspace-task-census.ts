@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 
@@ -15,7 +14,10 @@ export function ensureWorkspaceTaskCensus(db: DatabaseSync): void {
   );
   if (queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace_task_census'").length) return;
   transaction(db, () => {
-    runSql(db, "CREATE TABLE workspace_task_census (status TEXT PRIMARY KEY, count INTEGER NOT NULL)");
+    runSql(
+      db,
+      "/* @gate-identity state-store/task.projection.workspace_task_census */ CREATE TABLE workspace_task_census (status TEXT PRIMARY KEY, count INTEGER NOT NULL)",
+    );
     runSql(
       db,
       `INSERT INTO workspace_task_census SELECT COALESCE(status, 'unknown'), COUNT(*)

@@ -36,7 +36,7 @@ export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ re
   const lockPath = `${rootDir}.harness-anything-writer.lock`;
   let descriptor: number;
   try {
-    descriptor = openSync(lockPath, "wx", 0o600);
+    descriptor = /* @gate-identity state-store/legacy.33d57c6e226d44ef */ openSync(lockPath, "wx", 0o600);
   } catch (error) {
     if (!staleWriterLock(lockPath))
       throw cellCodedError(
@@ -44,9 +44,9 @@ export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ re
         `Workspace writer lock is held for ${rootDir}: ${cellErrorMessage(error)}`,
       );
     consumeKnownError(error);
-    unlinkSync(lockPath);
+    /* @gate-identity state-store/legacy.728a54bca114ae54 */ unlinkSync(lockPath);
     try {
-      descriptor = openSync(lockPath, "wx", 0o600);
+      descriptor = /* @gate-identity state-store/legacy.f1630a3c94327dd9 */ openSync(lockPath, "wx", 0o600);
     } catch (retry) {
       throw cellCodedError(
         "writer_rejected",
@@ -55,11 +55,11 @@ export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ re
     }
   }
   try {
-    writeFileSync(descriptor, `${process.pid}\n`, "utf8");
+    /* @gate-identity state-store/legacy.fc38434c6a67ffa1 */ writeFileSync(descriptor, `${process.pid}\n`, "utf8");
   } catch (error) {
-    closeSync(descriptor);
+    /* @gate-identity state-store/legacy.65e95c04cf299c3e */ closeSync(descriptor);
     try {
-      unlinkSync(lockPath);
+      /* @gate-identity state-store/legacy.f2e1ee19f6405cb2 */ unlinkSync(lockPath);
     } catch (cleanupError) {
       if (cellErrorCode(cleanupError) !== "ENOENT") throw cleanupError;
       consumeKnownError(cleanupError);
@@ -74,9 +74,9 @@ export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ re
     close: async () => {
       if (closed) return;
       closed = true;
-      closeSync(descriptor);
+      /* @gate-identity state-store/legacy.8e18ea9286d7ee6b */ closeSync(descriptor);
       try {
-        unlinkSync(lockPath);
+        /* @gate-identity state-store/legacy.eb6a06ff9b83e902 */ unlinkSync(lockPath);
       } catch (error) {
         if (cellErrorCode(error) === "ENOENT") {
           consumeKnownError(error);

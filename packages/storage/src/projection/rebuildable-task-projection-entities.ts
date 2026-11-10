@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import { runtimeSessionEntityV1, type RuntimeSession } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";

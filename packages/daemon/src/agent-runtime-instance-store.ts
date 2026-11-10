@@ -276,7 +276,10 @@ export function openRuntimeInstanceStore(input: {
     if (!config) throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${id} does not exist.`);
     persist(instances.filter((entry) => entry.instanceId !== id));
     readiness.delete(id);
-    rmSync(path.join(instancesRoot, id), { recursive: true, force: true });
+    /* @gate-identity state-store/legacy.8ae413c356231a63 */ rmSync(path.join(instancesRoot, id), {
+      recursive: true,
+      force: true,
+    });
     return config;
   }
   async function authStatus(
@@ -327,7 +330,11 @@ export function openRuntimeInstanceStore(input: {
               permissionMode: "read-only" as const,
             }
           : undefined;
-      if (codexProbe) mkdirSync(codexProbe.cwd, { recursive: true, mode: 0o700 });
+      if (codexProbe)
+        /* @gate-identity state-store/legacy.192f28a8fa1b2668 */ mkdirSync(codexProbe.cwd, {
+          recursive: true,
+          mode: 0o700,
+        });
       return rememberAuthReadiness(
         config.instanceId,
         await probeSubscription(installation, env, config.isolationState, codexProbe),
@@ -369,7 +376,7 @@ export function openRuntimeInstanceStore(input: {
       throw runtimeInstanceError("runtime_installation_not_found", missingInstallationHint(config, witnessed));
     if (config.isolationState === "enforced") ensureStateRoot(config);
     else
-      mkdirSync(path.join(instancesRoot, config.instanceId), {
+      /* @gate-identity state-store/legacy.3e1d3d9a670d1f9e */ mkdirSync(path.join(instancesRoot, config.instanceId), {
         recursive: true,
         mode: 0o700,
       });
@@ -493,7 +500,11 @@ export function openRuntimeInstanceStore(input: {
     // The three auth paths finish through the same per-launch scratch port. No
     // rejected credential probe leaves an unowned policy directory behind.
     const finishLaunch = (launch: PreparedRuntimeLaunch): PreparedRuntimeLaunch => {
-      if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
+      if (launchTempDirectory)
+        /* @gate-identity state-store/legacy.11ea73f113a7658b */ mkdirSync(launchTempDirectory, {
+          recursive: true,
+          mode: 0o700,
+        });
       for (const file of nativeInterceptionFiles?.files ?? []) writeFileDurably(file.path, file.body, 0o600);
       return launch;
     };
@@ -968,11 +979,13 @@ export function openRuntimeInstanceStore(input: {
     const config = read().find((entry) => entry.instanceId === instanceId);
     if (!config) return null;
     try {
-      for (const namespace of ["hooks", ...(config.isolationState === "enforced" ? ["tmp"] : [])])
+      for (const namespace of ["hooks", ...(config.isolationState === "enforced" ? ["tmp"] : [])]) {
+        /* @gate-identity state-store/legacy.53e36032a7e7b1b3 */
         rmSync(path.join(instancesRoot, config.instanceId, namespace, runtimeSessionId), {
           recursive: true,
           force: true,
         });
+      }
       return null;
     } catch (error) {
       // The next daemon start's settled-session sweep (below) retries this directory.
@@ -1123,7 +1136,10 @@ export function openRuntimeInstanceStore(input: {
     return [...instances];
   }
   function persist(instances: readonly RuntimeInstanceConfig[]): void {
-    mkdirSync(input.userRoot, { recursive: true, mode: 0o700 });
+    /* @gate-identity state-store/legacy.fd741bf423b76de3 */ mkdirSync(input.userRoot, {
+      recursive: true,
+      mode: 0o700,
+    });
     const temp = `${target}.${process.pid}.tmp`,
       value = JSON.stringify(
         {
@@ -1134,10 +1150,13 @@ export function openRuntimeInstanceStore(input: {
         2,
       );
     try {
-      writeFileSync(temp, ["", value, "\n"].join(""), { encoding: "utf8", mode: 0o600 });
-      renameSync(temp, target);
+      /* @gate-identity state-store/legacy.f3ebf4434fee6f22 */ writeFileSync(temp, ["", value, "\n"].join(""), {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      /* @gate-identity state-store/legacy.18dc619a63bb06cf */ renameSync(temp, target);
     } catch (error) {
-      rmSync(temp, { force: true });
+      /* @gate-identity state-store/legacy.892a5c112c5d72f3 */ rmSync(temp, { force: true });
       throw error;
     }
     cachedInstances = [...instances].sort((left, right) => left.instanceId.localeCompare(right.instanceId));
@@ -1147,12 +1166,12 @@ export function openRuntimeInstanceStore(input: {
       home = path.join(root, "home"),
       provider = providerConfigDirectory(home, config.kindId);
     for (const directory of [root, home, ...["tmp", "run"].map((name) => path.join(root, name)), provider]) {
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      /* @gate-identity state-store/legacy.97623b3cf2910b4b */ mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
     }
     if (config.kindId === "zcode") {
       const cli = path.join(provider, "cli");
-      mkdirSync(cli, { recursive: true, mode: 0o700 });
+      /* @gate-identity state-store/legacy.d1a313774c20f990 */ mkdirSync(cli, { recursive: true, mode: 0o700 });
       chmodSync(cli, 0o700);
     }
     if (config.kindId === "deepseek-harness" && config.auth.mode === "api-key")

@@ -64,7 +64,7 @@ const artifactDocumentUpsert =
   "occurred_at=excluded.occurred_at, size_bytes=excluded.size_bytes";
 
 export const ARTIFACT_TIMELINE_TABLES_SQL = `
-    CREATE TABLE IF NOT EXISTS artifact_document (
+    /* @gate-identity state-store/task.projection.artifact_document */ CREATE TABLE IF NOT EXISTS artifact_document (
       path TEXT PRIMARY KEY,
       package_dir TEXT NOT NULL,
       relative TEXT NOT NULL,
@@ -77,7 +77,7 @@ export const ARTIFACT_TIMELINE_TABLES_SQL = `
     -- last three columns in the same order the timeline compares them.
     CREATE INDEX IF NOT EXISTS artifact_document_page
       ON artifact_document(kind, sort_ms, relative, package_dir);
-    CREATE TABLE IF NOT EXISTS artifact_count (
+    /* @gate-identity state-store/task.projection.artifact_count */ CREATE TABLE IF NOT EXISTS artifact_count (
       kind TEXT PRIMARY KEY,
       total INTEGER NOT NULL
     );

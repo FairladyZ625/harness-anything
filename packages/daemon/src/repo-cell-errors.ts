@@ -118,7 +118,9 @@ export function publishGeneratedArtifact(input: {
   readonly relativePath: string;
   readonly body: string;
 }): void {
-  mkdirSync(path.dirname(input.outputPath), { recursive: true });
+  /* @gate-identity state-store/legacy.89225019be42dc09 */ mkdirSync(path.dirname(input.outputPath), {
+    recursive: true,
+  });
   if (existsSync(input.outputPath)) {
     if (readFileSync(input.outputPath, "utf8") !== input.body)
       throw cellCodedError(
@@ -127,7 +129,10 @@ export function publishGeneratedArtifact(input: {
       );
     return;
   }
-  writeFileSync(input.outputPath, input.body, { encoding: "utf8", flag: "wx" });
+  /* @gate-identity state-store/legacy.3efabd50038a13f9 */ writeFileSync(input.outputPath, input.body, {
+    encoding: "utf8",
+    flag: "wx",
+  });
 }
 
 export function fatalCellError(error: unknown): boolean {

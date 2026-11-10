@@ -1,4 +1,3 @@
-// @write-boundary-exemption rebuildable-projection
 import type { PoolClient } from "pg";
 import { canonicalizeWriteValue } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
@@ -11,7 +10,7 @@ import { type StoredEntityEventV1 } from "@harness-anything/kernel/internal/doma
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 export const entityDeclarationDdl = [
-  `CREATE TABLE IF NOT EXISTS ha_entity_declaration_heads (
+  /* @gate-identity state-store/task.projection.ha_entity_declaration_heads */ `CREATE TABLE IF NOT EXISTS ha_entity_declaration_heads (
     ${POSTGRES_SCOPE_COLUMNS_SQL}, readers text[] NOT NULL DEFAULT '{}',
     entity_kind text NOT NULL, entity_id text NOT NULL, state text NOT NULL,
     live boolean NOT NULL, workspace_revision bigint NOT NULL,

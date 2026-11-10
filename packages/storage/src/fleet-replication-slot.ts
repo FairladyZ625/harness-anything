@@ -21,29 +21,38 @@ import type { StorageBackendConfig } from "./storage-backend.ts";
 import { existsSync } from "node:fs";
 /** Transport state only. A new authenticated session fences the previous node/repo sender. */
 function openSqliteReplicationSlots(file: string) {
-  mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
+  /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.filesystem-store */ mkdirSync(
+    path.dirname(file),
+    { recursive: true },
+  );
+  const db =
+    /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ new DatabaseSync(
+      file,
+    );
+  /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db.exec(/* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ `PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
     CREATE TABLE IF NOT EXISTS replication_slot (
       repo TEXT NOT NULL, node TEXT NOT NULL, fence INTEGER NOT NULL,
       history TEXT NOT NULL, ack TEXT, acked_at TEXT, PRIMARY KEY(repo,node)
     ) STRICT`);
   const row = (key: ReplicationSlotKey) =>
-    db.prepare("SELECT * FROM replication_slot WHERE repo=? AND node=?").get(key.repoId, key.nodeId);
+    /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db
+      .prepare("SELECT * FROM replication_slot WHERE repo=? AND node=?")
+      .get(key.repoId, key.nodeId);
   const current = (lease: ReplicationSlotLease): boolean => {
     const value = row(lease);
     return value?.fence === lease.fence && value.history === lease.history;
   };
   return {
     claim(key: ReplicationSlotKey, history: string): ReplicationSlotLease {
-      const value = db
-        .prepare(
-          `INSERT INTO replication_slot VALUES(?,?,1,?,NULL,NULL)
+      const value =
+        /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db
+          .prepare(
+            `INSERT INTO replication_slot VALUES(?,?,1,?,NULL,NULL)
         ON CONFLICT(repo,node) DO UPDATE SET fence=fence+1, history=excluded.history,
         ack=CASE WHEN history=excluded.history THEN ack ELSE NULL END,
         acked_at=CASE WHEN history=excluded.history THEN acked_at ELSE NULL END RETURNING fence`,
-        )
-        .get(key.repoId, key.nodeId, history)!;
+          )
+          .get(key.repoId, key.nodeId, history)!;
       return { ...key, history, fence: Number(value.fence) };
     },
     current,
@@ -61,33 +70,39 @@ function openSqliteReplicationSlots(file: string) {
         previous?.fence === lease.fence && previous.history === lease.history,
         prior,
       );
-      const result = db
-        .prepare("UPDATE replication_slot SET ack=?, acked_at=? WHERE repo=? AND node=? AND fence=? AND history=?")
-        .run(
-          JSON.stringify({ durable: ack.durable, applied: ack.applied }),
-          new Date().toISOString(),
-          lease.repoId,
-          lease.nodeId,
-          lease.fence,
-          lease.history,
-        );
+      const result =
+        /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db
+          .prepare("UPDATE replication_slot SET ack=?, acked_at=? WHERE repo=? AND node=? AND fence=? AND history=?")
+          .run(
+            JSON.stringify({ durable: ack.durable, applied: ack.applied }),
+            new Date().toISOString(),
+            lease.repoId,
+            lease.nodeId,
+            lease.fence,
+            lease.history,
+          );
       if (result.changes !== 1) throw new Error("replication session fenced");
     },
     /** The slowest durable ACK on this history: the log must keep every commit after it. */
     minimumAck(repoId: string, history: string): number | null {
-      const value = db
-        .prepare(
-          "SELECT MIN(json_extract(ack, '$.durable.sequence')) AS floor FROM replication_slot WHERE repo=? AND history=? AND ack IS NOT NULL",
-        )
-        .get(repoId, history);
+      const value =
+        /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db
+          .prepare(
+            "SELECT MIN(json_extract(ack, '$.durable.sequence')) AS floor FROM replication_slot WHERE repo=? AND history=? AND ack IS NOT NULL",
+          )
+          .get(repoId, history);
       return value?.floor == null ? null : Number(value.floor);
     },
     /** Node retirement removes every repository slot and fences all outstanding slot leases. */
     removeNode(nodeId: string): void {
-      db.prepare("DELETE FROM replication_slot WHERE node=?").run(nodeId);
+      /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db.prepare(
+        "DELETE FROM replication_slot WHERE node=?",
+      ).run(nodeId);
     },
     invalidateOffline(repoId: string): void {
-      db.prepare("UPDATE replication_slot SET fence=fence+1, ack=NULL, acked_at=NULL WHERE repo=?").run(repoId);
+      /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db.prepare(
+        "UPDATE replication_slot SET fence=fence+1, ack=NULL, acked_at=NULL WHERE repo=?",
+      ).run(repoId);
     },
     /** Every slot's last durable ACK, for the center's replica status. */
     list(): readonly (ReplicationSlotKey & {
@@ -95,7 +110,7 @@ function openSqliteReplicationSlots(file: string) {
       readonly ack: ReplicationAcknowledgement | null;
       readonly ackedAt: string | null;
     })[] {
-      return db
+      return /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db
         .prepare("SELECT repo, node, history, ack, acked_at FROM replication_slot ORDER BY repo, node")
         .all()
         .map((value) => ({
