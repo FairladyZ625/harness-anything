@@ -231,13 +231,6 @@
       {
         "path": "packages/daemon/src/runtime-spawn-control.ts",
         "symbol": "cancelRuntime",
-        "kind": "liveness-comparison",
-        "fingerprint": "8e9c1dde3d600a8893b6f0370df69a5f5dd1c8f5dcce2c70c0594536ecc5a961",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "cancelRuntime",
         "kind": "process-table-probe",
         "fingerprint": "13c46e355d32d4f9548d2dd04867008101bd1073ba6eeb00564572182f334b56",
         "slice": "5"
