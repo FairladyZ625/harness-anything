@@ -446,7 +446,7 @@ test("a pending ruling becomes awaiting_ruling only after the stop is proven and
   );
 });
 
-test("a stopped dispatch cannot be recovered while its replacement lease generation is held", () => {
+test("a stopped attempt retains its released lease generation after the task restarts", () => {
   const ids = { dispatchId: "d-old-lease", runtimeSessionId: "s-old-lease", attemptGroupId: "d-old-lease" },
     events: DispatchLifecycleInput[] = [
       taskEvent("execution_started", "task-old-lease", {
@@ -475,7 +475,7 @@ test("a stopped dispatch cannot be recovered while its replacement lease generat
     view = dispatchLifecycleView(fold(events).groups.get(ids.attemptGroupId)!);
   assert.deepEqual(
     [view.attempt.task?.leaseVersion, view.attempt.task?.leaseReleased, view.policy.canRecover],
-    [2, false, false],
+    [1, true, false],
   );
 });
 
@@ -498,7 +498,6 @@ test("an attempt never acquires a replacement lease generation after releasing i
     assert.equal(view.attempt.task?.leaseReleased, true);
     assert.equal(view.policy.capacity, "held", "lease handoff does not prove the runtime stopped");
   }
-});
 });
 
 test("ruling resolution closes the group and admits its next attempt", () => {

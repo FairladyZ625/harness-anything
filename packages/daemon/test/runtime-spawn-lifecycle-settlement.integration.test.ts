@@ -26,14 +26,19 @@ function dispatchText(root: string, dispatchId: string): string {
   return stream ? [stream.header, ...stream.records].map((record) => JSON.stringify(record)).join("\n") : "";
 }
 
-function stopFixtureGroup(child: ReturnType<typeof spawn>): void {
+async function stopFixtureGroup(child: ReturnType<typeof spawn>): Promise<void> {
   if (!child.pid) return;
+  const exited =
+    child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => child.once("exit", () => resolve()));
   try {
     process.kill(-child.pid, "SIGKILL");
-    child.kill("SIGKILL");
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
   }
+  child.kill("SIGKILL");
+  await exited;
 }
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -66,6 +71,7 @@ test(
       exit: ((code: number | null) => void) | null = null,
       output: ((chunk: string, persisted?: boolean) => void) | null = null,
       failSettlement = false,
+      failSettlementRuntimeSessionId: string | null = null,
       failLaunch = false,
       launchedPrompt: string | undefined;
     try {
@@ -126,7 +132,9 @@ test(
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
           child.unref();
           fixtureChild = child;
-          const stop = (): void => stopFixtureGroup(child);
+          const stop = (): void => {
+            void stopFixtureGroup(child);
+          };
           return {
             pid: child.pid,
             onOutput: (listener) => {
@@ -135,21 +143,36 @@ test(
             onErrorOutput: () => undefined,
             onExit: (listener) => {
               exit = () => {
+                if (child.exitCode !== null || child.signalCode !== null) {
+                  listener(0);
+                  return;
+                }
                 child.once("exit", () => listener(0));
-                stopFixtureGroup(child);
+                child.stdin.end("stop");
               };
             },
             terminate: stop,
-            terminateTree: async () => stop(),
+            terminateTree: async () => {
+              if (child.exitCode !== null || child.signalCode !== null) return;
+              const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+              child.stdin.end("stop");
+              await exited;
+            },
           };
         },
         killpoint: (point) => {
           if (!failSettlement || point !== "after_store_commit") return;
-          const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
-          if (latest?.type === "lease_released" && latest.taskId === "task-runtime-settlement-failed") {
+          const committedOutcome = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
+            .read()
+            .events.some(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === failSettlementRuntimeSessionId,
+            );
+          if (committedOutcome) {
             failSettlement = false;
-            throw Object.assign(new Error("injected terminal lease settlement failure"), {
-              code: "runtime_lease_release_failed",
+            throw Object.assign(new Error("injected post-commit settlement response failure"), {
+              code: "runtime_settlement_publication_indeterminate",
             });
           }
         },
@@ -277,16 +300,16 @@ test(
         assert.ok(exit, "runtime exit listener must be attached before the provider exits");
         exit(0);
         const events = await eventuallyValue(() => {
-            const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
-            return events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === receipt.runtimeSessionId,
-            )
-              ? events
-              : null;
-          }),
-          outcomeIndex = events.findIndex(
+          const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
+          return events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === receipt.runtimeSessionId,
+          )
+            ? events
+            : null;
+        });
+        const outcomeIndex = events.findIndex(
             (event) =>
               event.type === "runtime_session_outcome_observed" &&
               event.payload.runtimeSessionId === receipt.runtimeSessionId,
@@ -388,6 +411,33 @@ test(
           deliveryProjection.close();
         }
 
+        for (const event of records) {
+          appendRuntimeWorkerRecord(root, String(redispatched.dispatchId), {
+            kind: "provider_event",
+            occurredAt: "2026-08-24T12:00:02.000Z",
+            event,
+          });
+        }
+        assert.ok(output, "redispatched runtime output listener must be attached before provider output");
+        output(records.map((event) => `${JSON.stringify(event)}\n`).join(""), true);
+        appendRuntimeWorkerRecord(root, String(redispatched.dispatchId), {
+          kind: "process_exit",
+          occurredAt: "2026-08-24T12:00:03.000Z",
+          exitCode: 0,
+          signal: null,
+        });
+        assert.ok(exit, "redispatched runtime exit listener must remain attached");
+        exit(0);
+        await eventually(() =>
+          makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
+            .read()
+            .events.some(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === redispatched.runtimeSessionId,
+            ),
+        );
+
         const failedTaskId = "task-runtime-settlement-failed",
           failedExecutionId = "execution-runtime-settlement-failed";
         const failedCreated = await cell.run(
@@ -425,6 +475,7 @@ test(
           },
           binding,
         );
+        failSettlementRuntimeSessionId = failedReceipt.runtimeSessionId;
         for (const event of records) {
           appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
             kind: "provider_event",
@@ -451,9 +502,9 @@ test(
                 event.type === "runtime_session_outcome_observed" &&
                 event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
             );
-          return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "failed";
+          return terminal?.type === "runtime_session_outcome_observed";
         });
-        assert.equal(failSettlement, false, "the failed task lease release must trigger the post-commit fault");
+        assert.equal(failSettlement, false, "the atomic terminal bundle must trigger the post-commit fault");
         const failedEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
           failedExitIndex = failedEvents.findIndex(
             (event) =>
@@ -470,11 +521,8 @@ test(
               event.type === "runtime_session_outcome_observed" &&
               event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
           ),
-          failedStatus = await eventuallyValue(async () => {
-            const status = await cell.read("repo.agentRuntime.sessions.read", {
-              runtimeSessionId: failedReceipt.runtimeSessionId,
-            });
-            return status.session.activity.outcome === "failed" ? status : null;
+          failedStatus = await cell.read("repo.agentRuntime.sessions.read", {
+            runtimeSessionId: failedReceipt.runtimeSessionId,
           });
         const failedReleaseIndexes = failedEvents.flatMap((event, index) =>
           index >= beforeFailedExitCount && event.type === "lease_released" && event.taskId === failedTaskId
@@ -484,10 +532,10 @@ test(
         assert.equal(
           failedReleaseIndexes.length,
           1,
-          "the post-commit fault does not roll back the accepted lease release",
+          "the post-commit response fault does not roll back the accepted lease release",
         );
         assert.ok(failedReleaseIndexes[0]! < failedOutcomeIndex);
-        assert.ok(failedExitIndex < failedOutcomeIndex, "the failed settlement still publishes one terminal outcome");
+        assert.ok(failedExitIndex < failedOutcomeIndex, "the accepted terminal outcome follows the stop proof");
         assert.equal(
           failedEvents.filter(
             (event) =>
@@ -496,13 +544,12 @@ test(
           ).length,
           1,
         );
-        assert.equal(failedStatus.session.activity.outcome, "failed");
         assert.equal(
-          failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
-          "publication_indeterminate",
+          failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.outcome,
+          "succeeded",
         );
-        assert.equal(failedStatus.session.activity.reasonCode, "publication_indeterminate");
-        assert.match(failedStatus.result?.text ?? "", /publication_indeterminate/u);
+        assert.equal(failedStatus.session.activity.outcome, "succeeded");
+        assert.match(failedStatus.result?.text ?? "", /attached tail settled/u);
         failSettlement = false;
         assert.equal(
           (
@@ -688,7 +735,7 @@ test(
         await cell.close();
       }
     } finally {
-      if (fixtureChild) stopFixtureGroup(fixtureChild);
+      if (fixtureChild) await stopFixtureGroup(fixtureChild);
       rmSync(root, { recursive: true, force: true });
     }
   },
@@ -752,19 +799,30 @@ test(
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
           child.unref();
           fixtureChild = child;
-          const stop = (): void => stopFixtureGroup(child);
+          const stop = (): void => {
+            void stopFixtureGroup(child);
+          };
           return {
             pid: child.pid,
             onOutput: () => undefined,
             onErrorOutput: () => undefined,
             onExit: (listener) => {
               exit = () => {
+                if (child.exitCode !== null || child.signalCode !== null) {
+                  listener(0);
+                  return;
+                }
                 child.once("exit", () => listener(0));
-                stopFixtureGroup(child);
+                child.stdin.end("stop");
               };
             },
             terminate: stop,
-            terminateTree: async () => stop(),
+            terminateTree: async () => {
+              if (child.exitCode !== null || child.signalCode !== null) return;
+              const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+              child.stdin.end("stop");
+              await exited;
+            },
           };
         },
       });
@@ -843,7 +901,7 @@ test(
         await cell.close();
       }
     } finally {
-      if (fixtureChild) stopFixtureGroup(fixtureChild);
+      if (fixtureChild) await stopFixtureGroup(fixtureChild);
       rmSync(root, { recursive: true, force: true });
     }
   },
