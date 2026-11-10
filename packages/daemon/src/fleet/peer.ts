@@ -928,12 +928,17 @@ async function requestEdgeJoinPinned<S extends "fleet.edge.join.result/v1" | "fl
   request: FleetFrameV1,
   schema: S,
 ): Promise<Extract<FleetFrameV1, { schema: S }> & { readonly certificate: string }> {
+  const hostname = options.hostname.replace(/^\[|\]$/gu, "");
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
     const candidate = connect(
       {
-        host: options.hostname,
+        host: hostname,
         port: options.port,
-        servername: options.servername ?? options.hostname,
+        ...(options.servername
+          ? { servername: options.servername }
+          : isIP(hostname) === 0
+            ? { servername: hostname }
+            : {}),
         rejectUnauthorized: false,
       },
       () => resolve(candidate),
