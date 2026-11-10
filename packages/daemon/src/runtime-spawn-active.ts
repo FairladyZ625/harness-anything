@@ -184,7 +184,6 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
   const newlyStalled = active.stalledAt === null,
     stalledAt = active.stalledAt ?? context.input.now();
   active.stalledAt ??= stalledAt;
-  // Record deadline inputs and the observed process subtree before termination.
   const liveProcessPids = newlyStalled ? await liveDescendantPids(active) : null;
   active.lossReason = `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`;
   if (newlyStalled) active.stream.appendStalled?.(stalledAt, stallEvidence(active, stalledAt, liveProcessPids));
@@ -194,7 +193,6 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
     `runtime-stall-${active.dispatchId}`,
     active.binding,
   );
-  // Terminate through the one process-tree/group path and propagate failures.
   if (active.process.terminateTree) await active.process.terminateTree();
   else active.process.terminate();
   await consumeDurableOutput(context, active);
