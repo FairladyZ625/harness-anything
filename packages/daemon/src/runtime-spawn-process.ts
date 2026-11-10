@@ -609,6 +609,11 @@ function observeDispatchProcess(
             bytes = readRuntimeWorkerChunk(stream, offset);
             if (bytes.length === 0) {
               const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
+              appendRuntimeWorkerRecord(rootDir, dispatchId, {
+                kind: "process_lost",
+                occurredAt: new Date().toISOString(),
+                reason,
+              });
               emitExit(null, reason, livenessEvent.payload);
               return;
             }

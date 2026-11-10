@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import type { TaskProjection } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { readTaskDispatchRow } from "./dispatch-read.ts";
 import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
@@ -80,20 +79,10 @@ function refuse(code: string, message: string, current: Readonly<Record<string, 
 
 type DispatchEvent = NonNullable<ReturnType<TaskProjection["readRuntimeDispatchById"]>>["event"];
 
-/** Whether a dispatch still runs, and whether it reached a settled verdict a recovery may replace. */
-function sourceVerdict(
-  input: Pick<Parameters<typeof admitTaskDispatch>[0], "projection" | "rootDir">,
-  source: DispatchEvent,
-) {
-  const row = readTaskDispatchRow(input.projection, source, { rootDir: input.rootDir }),
-    lifecycle = input.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [source.payload.dispatchId] });
+function sourceLifecycle(projection: TaskProjection, source: DispatchEvent) {
+  const lifecycle = projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [source.payload.dispatchId] });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, runtimeSpawnError);
-  const view = lifecycle.rows[0];
-  return {
-    row,
-    view,
-    recoverable: view?.policy.canRecover === true,
-  };
+  return lifecycle.rows[0];
 }
 
 export type TaskDispatchAdmission =
@@ -142,7 +131,7 @@ export function admitTaskDispatch(input: {
     // A prior dispatch that is still running (or whose end is not yet settled) keeps the
     // execution lease; the spawn's own lease admission reports that conflict. The fence is the
     // only way to replace a worker that has stopped.
-    if (!execution || !prior || !sourceVerdict(input, prior).recoverable)
+    if (!execution || !prior || !sourceLifecycle(input.projection, prior)?.policy.canRecover)
       return { kind: "spawn", payload, recovery: null, taskRead };
     refuse(
       "dispatch_recovery_fence_required",
@@ -241,18 +230,19 @@ export function admitTaskDispatch(input: {
         sourceExecutionId: source?.payload.executionId ?? null,
       },
     );
-  const verdict = sourceVerdict(input, source),
+  const lifecycle = sourceLifecycle(input.projection, source),
     sourceState = {
       ...current,
       sourceDispatchId: source.payload.dispatchId,
-      sourceStatus: verdict.row.status,
-      sourceOutcome: verdict.row.outcome,
-      sourcePhase: verdict.view?.attempt.phase ?? null,
-      sourceProcess: verdict.view?.attempt.process ?? null,
+      sourceOutcome: lifecycle?.attempt.outcome ?? null,
+      sourcePhase: lifecycle?.attempt.phase ?? null,
+      sourceProcess: lifecycle?.attempt.process ?? null,
     };
-  if (!verdict.recoverable)
+  if (!lifecycle?.policy.canRecover)
     refuse(
-      "dispatch_recovery_source_unsettled",
+      lifecycle?.policy.capacityDisposition === "busy"
+        ? "dispatch_recovery_source_live"
+        : "dispatch_recovery_source_unsettled",
       `Dispatch ${source.payload.dispatchId} is not recoverable according to the dispatch lifecycle.`,
       sourceState,
     );

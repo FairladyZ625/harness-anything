@@ -69,8 +69,6 @@ export async function cancelRuntime(
   const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
   let attempt = lifecycle.rows[0];
-  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
-    return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   if (!owned) {
     const session = context.input.remote
       ? await context.input.remote.readRuntimeSession(runtimeSessionId)
@@ -113,8 +111,6 @@ export async function cancelRuntime(
   if (currentLifecycle.status !== "ready")
     throw dispatchLifecyclePendingError(currentLifecycle, context.runtimeSpawnError);
   attempt = currentLifecycle.rows[0];
-  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
-    return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
@@ -148,6 +144,8 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
+  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
+    return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   // A missing process record still needs canonical owner evidence; a local header alone
   // cannot prove that the worker or its descendants stopped.
   if (attempt && attempt.attempt.outcome === null) {
