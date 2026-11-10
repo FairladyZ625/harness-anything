@@ -8,7 +8,7 @@
  * every selected command before reporting failure; package aggregates retain
  * their explicit `&&` short-circuit semantics.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -27,6 +27,7 @@ export function parseManifestGateArgs(args) {
     changedPaths: null,
     eventName: null,
     githubGroups: false,
+    parallel: 1,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -63,6 +64,11 @@ export function parseManifestGateArgs(args) {
     }
     if (arg === "--github-groups") {
       options.githubGroups = true;
+      continue;
+    }
+    if (arg === "--parallel") {
+      options.parallel = parsePositiveInteger(requireValue(args, index, arg), arg);
+      index += 1;
       continue;
     }
     throw new Error(`unknown run-manifest-gates option: ${arg}`);
@@ -375,6 +381,71 @@ export function runCommand(label, command, failureHint = null, { cwd = repoRoot 
   return { ok: true, durationMs: Date.now() - started };
 }
 
+// A parallel gate must not interleave its stdout with another gate's, or a failure's log reads as
+// if it came from the wrong command. Buffer each gate and flush it as one GitHub group when it
+// finishes. The cap keeps four chatty gates from growing the runner process without bound.
+const MAX_GATE_OUTPUT_CHARS = 16 * 1024 * 1024;
+
+export function runCommandAsync(label, command, failureHint = null, { cwd = repoRoot, githubGroups = false } = {}) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const append = (current, chunk) =>
+      current.length >= MAX_GATE_OUTPUT_CHARS
+        ? current
+        : current + chunk.toString().slice(0, MAX_GATE_OUTPUT_CHARS - current.length);
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (githubGroups) console.log(`::group::${label}`);
+      console.log(`\n▶ ${label}  (${command})`);
+      if (stdout.length > 0) console.log(stdout.replace(/\n$/u, ""));
+      if (stderr.length > 0) console.error(stderr.replace(/\n$/u, ""));
+      if (githubGroups) console.log("::endgroup::");
+      const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
+      if (result.ok) {
+        console.log(`✓ ${label} (${elapsedS}s)`);
+      } else {
+        console.error(`✖ ${label} failed (${result.detail}) after ${elapsedS}s`);
+        if (failureHint) console.error(`↳ Fix: ${failureHint}`);
+      }
+      resolve({ ...result, durationMs: Date.now() - started });
+    };
+
+    let child;
+    try {
+      child = spawn(command, {
+        cwd,
+        env: process.env,
+        shell: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      finish({ ok: false, detail: `failed to launch: ${error.message}` });
+      return;
+    }
+
+    child.stdout.on("data", (chunk) => {
+      stdout = append(stdout, chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr = append(stderr, chunk);
+    });
+    child.once("error", (error) => {
+      finish({ ok: false, detail: `failed to launch: ${error.message}` });
+    });
+    child.once("close", (code, signal) => {
+      if (signal !== null) finish({ ok: false, detail: `signal ${signal}` });
+      else if (code !== 0) finish({ ok: false, detail: `exit ${code ?? "unknown"}` });
+      else finish({ ok: true });
+    });
+  });
+}
+
 /**
  * Run every gate in the plan and decide the aggregate verdict only at the end.
  *
@@ -402,7 +473,43 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
   };
 }
 
-function main(argv) {
+/**
+ * Run a workflow job's gates with a bounded worker pool, then report every failure.
+ *
+ * The first submitted gate starts immediately; a worker takes the next gate when its current one
+ * finishes. Results stay in plan order so a caller's failure list is stable across concurrency.
+ * Independent gates only: callers keep gates that write the same tree (typecheck) out of the pool.
+ */
+export async function runManifestGatePlanParallel(plan, { execute, concurrency = 1, githubGroups = false } = {}) {
+  const run = execute ?? ((entry) => runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups }));
+  const results = new Array(plan.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), plan.length);
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= plan.length) return;
+      const entry = plan[index];
+      try {
+        results[index] = { id: entry.id, ...(await run(entry)) };
+      } catch (error) {
+        console.error(`✖ ${entry.id} failed to run: ${error instanceof Error ? error.message : String(error)}`);
+        results[index] = { id: entry.id, ok: false, durationMs: 0 };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  const completed = results.filter(Boolean);
+  return {
+    results: completed,
+    failedGateIds: completed.filter((result) => !result.ok).map((result) => result.id),
+  };
+}
+
+async function main(argv) {
   const options = parseManifestGateArgs(argv);
   options.eventName = process.env.GITHUB_EVENT_NAME ?? null;
   if (options.changed !== null) options.changedPaths = readChangedPaths(options.changed);
@@ -428,10 +535,17 @@ function main(argv) {
     console.log(`Changed path selection (${options.changed}): ${options.changedPaths.length} path(s).`);
   }
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
-  const { failedGateIds } = runManifestGatePlan(planWithHints, {
-    stopOnFailure: Boolean(options.packageSurface),
-    githubGroups: options.githubGroups,
-  });
+  const useParallelPool = options.parallel > 1 && !options.packageSurface;
+  if (useParallelPool) console.log(`Gate concurrency: ${options.parallel}.`);
+  const { failedGateIds } = useParallelPool
+    ? await runManifestGatePlanParallel(planWithHints, {
+        concurrency: options.parallel,
+        githubGroups: options.githubGroups,
+      })
+    : runManifestGatePlan(planWithHints, {
+        stopOnFailure: Boolean(options.packageSurface),
+        githubGroups: options.githubGroups,
+      });
   if (failedGateIds.length > 0) {
     console.error(`\nManifest gate runner failed (${selector}): ${failedGateIds.join(", ")}.`);
     process.exitCode = 1;
@@ -462,10 +576,8 @@ export function shouldSkipTestQuarantine(workflowJob, env) {
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    main(process.argv.slice(2));
-  } catch (error) {
+  main(process.argv.slice(2)).catch((error) => {
     console.error(`Manifest gate runner failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 2;
-  }
+  });
 }

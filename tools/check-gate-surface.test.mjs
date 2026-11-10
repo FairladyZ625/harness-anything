@@ -49,11 +49,20 @@ test("rewrite CI runs the integration tier on every PR and merges the boundary g
 
   // The boundary gates used to run in their own lane, then were excluded from it and run from a
   // second step the baseline lane never took. dec_127E3F9C47D2842DA7AB86E0F4/CH2 folds them into
-  // quick-gates: one lane, one manifest-runner step, no exclusion. Re-splitting the job, or
-  // re-excluding a gate, has to be a deliberate edit here.
-  const mergedCommands = [...workflow.matchAll(/--workflow-job quick-gates(?:\s+--exclude\s+(\S+))?/gu)];
+  // quick-gates: one lane, one manifest-runner step. task_1520e155e64d4d5261d87ab16b keeps it one
+  // required context but moves typecheck to its own step (it writes package dist) and runs the
+  // other 59 gates through a four-worker pool. Re-splitting the job, excluding another gate, or
+  // dropping the pool has to be a deliberate edit here.
+  const mergedCommands = [...workflow.matchAll(/--workflow-job quick-gates(?:\s+([^\n]+))?/gu)];
   assert.equal(mergedCommands.length, 1, "quick-gates must run one gate set for every base branch");
-  assert.equal(mergedCommands[0][1], undefined);
+  assert.match(mergedCommands[0][1] ?? "", /--parallel 4/u, "the remaining gates run in a four-worker pool");
+  assert.match(mergedCommands[0][1] ?? "", /--exclude typecheck/u, "typecheck runs alone before the pool");
+  const quickGatesSection = sectionFor(workflow, "quick-gates");
+  assert.match(quickGatesSection, /- name: Typecheck before the parallel gate pool\n\s+run: npm run typecheck/u);
+  assert.ok(
+    quickGatesSection.indexOf("npm run typecheck") < quickGatesSection.indexOf("--workflow-job quick-gates"),
+    "typecheck must finish before the parallel pool starts",
+  );
   assert.equal(workflow.includes("\n  boundaries:"), false, "the separate boundaries lane is retiered");
 
   for (const job of ["quick-gates", "fast-contract", "integration-shard", "package-policy", "gui-build"]) {

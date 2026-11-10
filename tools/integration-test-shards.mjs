@@ -10,6 +10,9 @@ export const defaultIntegrationTestWeightMs = 10_000;
 // comment used 2.6). dec_127E3F9C47D2842DA7AB86E0F4/CH2 moves the PR matrix to 10 shards with a
 // 9-minute job target: 1,250,000ms / 2.93 is about 7.1 minutes of test step, leaving room for the
 // ~40s install/extract steps. The budget stays a ceiling per shard, not a per-shard allowance.
+// task_1520e155e64d4d5261d87ab16b tightens the observed PR target to 8 minutes: the eleven
+// successful runs after #4481/#4483 measured 6.7-8.4 minutes per shard although every weight sum
+// was ~1.20M ms, so the same budget needs the heavy-first hand-over below to stay inside 8 minutes.
 export const integrationShardBudgetMs = 1_250_000;
 // A file runs its tests serially, so one file is a floor on its shard's wall. Files above this
 // either split or name their reason in entries.overBudgetFiles of
@@ -20,6 +23,13 @@ export const integrationFileBudgetMs = 180_000;
 // slack absorbs the runner noise measured over four runs of main (p99 of max/median 1.57).
 export const integrationWeightOverrunFactor = 2;
 export const integrationWeightOverrunSlackMs = 60_000;
+// node --test runs three files at a time on the four-core GitHub runner (its default concurrency is
+// cores - 1), so a shard's wall is the finish time of the latest of three file lanes, not its weight
+// sum. The runner starts files in the order this module returns; the 2026-11-09/10 PR runs showed
+// 6.7-8.4 minute shards whose weight sums were all ~1.20M ms because the alphabetical return order
+// let a heavy file start late. Keep the estimated spread across shards inside this window.
+export const integrationShardLaneCount = 3;
+export const integrationShardWallSpreadBudgetMs = 30_000;
 
 // Measured per-file durations are kept in integration-test-weights.json. A file without an entry
 // takes the default weight and is placed into the lightest shard.
@@ -44,7 +54,25 @@ export function assignIntegrationTestShards(
     lightest.estimatedMs += weight;
   }
 
-  return shards.map(({ id, files }) => ({ id, files: files.sort() }));
+  // Keep the heavy-first order. `node --test` starts files in this order, so an alphabetical sort
+  // here would put the longest file last on whichever lane it lands and extend that shard's wall.
+  return shards.map(({ id, files }) => ({ id, files }));
+}
+
+// Simulates node --test's file scheduling: each file starts on the first lane that is free, in the
+// order the shard hands them over. The longest lane is the shard's estimated wall.
+export function estimateIntegrationShardWallMs(
+  files,
+  weightOverrides = integrationTestFileWeightsMs,
+  laneCount = integrationShardLaneCount,
+  defaultWeightMs = defaultIntegrationTestWeightMs,
+) {
+  const lanes = Array.from({ length: Math.max(1, laneCount) }, () => 0);
+  for (const file of files) {
+    const lane = lanes.indexOf(Math.min(...lanes));
+    lanes[lane] += weightOverrides[file] ?? defaultWeightMs;
+  }
+  return Math.max(...lanes);
 }
 
 export function parseIntegrationShardId(value, shardCount = integrationShardCount) {
@@ -66,13 +94,18 @@ export function integrationShardSummaries(manifestFiles, weightOverrides = integ
     id: shard.id,
     files: shard.files.length,
     estimatedMs: shard.files.reduce((sum, file) => sum + (weightOverrides[file] ?? defaultIntegrationTestWeightMs), 0),
+    estimatedWallMs: estimateIntegrationShardWallMs(shard.files, weightOverrides),
   }));
 }
 
 export function validateIntegrationTestShards(
   manifestFiles,
   weightOverrides = integrationTestFileWeightsMs,
-  { overBudgetFiles = [], shardBudgetMs = integrationShardBudgetMs } = {},
+  {
+    overBudgetFiles = [],
+    shardBudgetMs = integrationShardBudgetMs,
+    wallSpreadBudgetMs = integrationShardWallSpreadBudgetMs,
+  } = {},
 ) {
   const errors = [];
   const manifestSet = new Set(manifestFiles);
@@ -88,11 +121,19 @@ export function validateIntegrationTestShards(
     if (!Number.isFinite(weight) || weight <= 0) errors.push(`integration file has invalid weight: ${file}`);
   }
   if (shards.some((shard) => shard.files.length === 0)) errors.push("derived integration shard is empty");
-  for (const summary of integrationShardSummaries(manifestFiles, weightOverrides)) {
+  const summaries = integrationShardSummaries(manifestFiles, weightOverrides);
+  for (const summary of summaries) {
     if (summary.estimatedMs > shardBudgetMs)
       errors.push(
         `integration shard ${summary.id} is over budget: ${summary.estimatedMs}ms of declared file weight > ${shardBudgetMs}ms; make the slowest files cheaper or add a shard (integrationShardCount, workflow matrix and required contexts)`,
       );
+  }
+  const estimatedWalls = summaries.map((summary) => summary.estimatedWallMs);
+  const estimatedWallSpreadMs = Math.max(...estimatedWalls) - Math.min(...estimatedWalls);
+  if (estimatedWallSpreadMs > wallSpreadBudgetMs) {
+    errors.push(
+      `integration shard estimated wall spread is ${estimatedWallSpreadMs}ms > ${wallSpreadBudgetMs}ms: ${summaries.map((summary) => `${summary.id}=${summary.estimatedWallMs}ms`).join(", ")}; return the heavy files first and keep the lane assignment balanced`,
+    );
   }
   for (const [file, weight] of Object.entries(weightOverrides)) {
     if (weight > integrationFileBudgetMs && !overBudgetFiles.includes(file))

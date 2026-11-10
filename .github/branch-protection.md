@@ -31,11 +31,19 @@ Required pull request checks must cover:
 dependency-policy, test-selection, schema-closure, entity-id-links,
 derived-contracts, canonical-event-compat, cost-budget, and Ubuntu smoke) and
 the architecture-boundary gates that used to run in the separate `boundaries`
-job. The two sets run one after the other in the same job; every gate command
-and verdict is unchanged.
+job. The job runs `typecheck` alone first because it writes package dist and
+tsbuildinfo, then runs the other 59 gates through a four-worker pool. Every gate
+command and verdict is unchanged, and the required context stays `quick-gates`.
 Platform coverage is required through `crlf-checkout` and the Ubuntu positive
-controls inside `quick-gates`. The Windows platform smoke and Windows
-first-run arm run on `main` pushes and the daily schedule under
+controls inside `quick-gates`. On a pull request the `crlf-checkout` lane runs
+one job: its only pull-request gate is `check-poll-spin-boundary`, so the four
+partitions #4483 introduced ran the same ~17s gate four times (run
+42582000398). Main pushes keep the four matrix partitions because there the
+lane also runs `lint`, `test-fast`, and `test-contract` under
+`core.autocrlf=true`. `dec_127E3F9C47D2842DA7AB86E0F4/CH4` covers the required
+context rename from `crlf-checkout (1..4)` to `crlf-checkout`; the CEO updates
+the hosted ruleset. The Windows platform smoke and Windows first-run arm run on
+`main` pushes and the daily schedule under
 `dec_7467B04DD9EFC2D18A656D2FB3`.
 
 The platform smoke controls were added after Windows defects reached users
@@ -88,10 +96,7 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - integration-shard (10)
 - gui-build
 - pr-body-lint
-- crlf-checkout (1)
-- crlf-checkout (2)
-- crlf-checkout (3)
-- crlf-checkout (4)
+- crlf-checkout
 
 Integration tests are required through the ten `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.
