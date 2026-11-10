@@ -118,8 +118,10 @@ export async function adoptRuntimes(
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
         promise: Promise.resolve()
           .then(async () => {
-            // The launch may not have written its stream header yet either.
-            if (context.ownsModelSlot?.(runtimeSessionId)) return "ready" as const;
+            // Settlement retains ownership after releasing its process/model slot, until the
+            // terminal publication finishes. Re-adoption would create a second process owner.
+            if (context.exiting.has(runtimeSessionId) || context.ownsModelSlot?.(runtimeSessionId))
+              return "ready" as const;
             const lifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [dispatchId!] });
             if (lifecycle.status === "pending")
               throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
@@ -251,7 +253,7 @@ async function restoreRuntime(
   authorizationBinding?: RuntimeBinding,
 ): Promise<boolean> {
   if (context.closed?.()) return false;
-  if (context.ownsModelSlot?.(header.runtimeSessionId)) return false;
+  if (context.exiting.has(header.runtimeSessionId) || context.ownsModelSlot?.(header.runtimeSessionId)) return false;
   const metadata = adoptableMetadata(header);
   if (!metadata) return false;
   if (
