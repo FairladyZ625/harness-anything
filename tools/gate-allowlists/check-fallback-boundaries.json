@@ -44,6 +44,12 @@
       "errors": "execution_missing on an ordinary late edge callback; review_admission_denied or review_target_missing on an edge reviewer settlement",
       "reason": "An ordinary edge callback can arrive after its task execution has already settled and its lease is gone. In that state there is no active execution that a ruling could block, so settlement preserves the ordinary terminal result. Reviewer callbacks and the escalation-specific stop propagate execution_missing. An edge reviewer's task-context read re-admits its review target at the center; when the task already left review (task_ac9b227bfdb707ca994490faa0) the refusal is not substituted with a result: it becomes the supersession reason, and settlement ends the runtime superseded with reasonCode review_cut_superseded unless the reviewer's own Review is registered. Every other error propagates."
     },
+    "packages/daemon/src/squad-coordinator.ts#settleAbandonedRun": {
+      "task": "task_47dff74054eb1cc9ca499ab57a",
+      "decision": null,
+      "errors": "any canonical publication failure while recording the abandoned run's terminal state",
+      "reason": "The terminal revision is recorded in the run's own dispatch stream before publication, and a terminal state is always republished by the next reconciliation's flushPublications. Aborting the recovery pass over one unacknowledged snapshot would block the newer task iteration from starting; the failure is logged with the run and retried, never replaced by a different phase or a successful receipt."
+    },
     "packages/storage/src/pglite/query-owner-worker.ts#startOwner": {
       "task": "task_b8a3cd12e10741592471c378a3",
       "decision": null,
@@ -266,6 +272,7 @@
       "packages/daemon/src/schedule-scheduler.ts#evaluationPlan",
       "packages/daemon/src/schedule-scheduler.ts#tick",
       "packages/daemon/src/squad-coordinator.ts#continueLeader",
+      "packages/daemon/src/squad-coordinator.ts#settleAbandonedRun",
       "packages/daemon/src/squad-coordinator.ts#settleEndedAssignments",
       "packages/daemon/src/task-completion-read.ts#readTaskCompletion",
       "packages/daemon/src/task-index-query.ts#decodeCursor",

@@ -312,6 +312,8 @@ function makeRecoveryFixture(
       },
     ],
     getEntity: () => null,
+    readLeaseIntervals: () => [],
+    readTaskRelationsBySources: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
     readRuntimeSession: (runtimeSessionId: string) =>
       sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
   } as unknown as TaskProjection;
