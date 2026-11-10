@@ -253,7 +253,10 @@ test("an attach that lands after its registration changed mode is discarded and 
     assert.equal(latched.causeClass, "infrastructure");
     // Past the reprobe throttle the still-enabled repo reopens under the registry's current mode.
     clock = "2026-09-10T00:00:30.000Z";
-    // Recovery attaches the new mode, but public reads require its own replica.
+    // The probe starts recovery, which may finish after the attach budget expires.
+    await host.run("mode-attach", { kind: "settings-read" }, auth);
+    await eventually(() => host.status().repos.find((repo) => repo.repoId === "mode-attach")?.state === "attached");
+    // Public reads of the recovered edge still require its own replica.
     const read = await host.run("mode-attach", { kind: "settings-read" }, auth);
     assert.equal(read.outcome, "op_rejected", JSON.stringify(read));
     assert.equal(read.code, "replica_unavailable", JSON.stringify(read));

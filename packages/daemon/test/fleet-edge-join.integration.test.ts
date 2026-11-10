@@ -10,6 +10,7 @@ import { EventEmitter, once } from "node:events";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createServer } from "node:https";
+import { connect, createSecureContext, createServer as createTlsServer } from "node:tls";
 import test from "node:test";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
@@ -22,7 +23,7 @@ import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { EdgeJoinSshTunnelManager } from "../src/fleet/edge-join-ssh-tunnel.ts";
 import { joinFleetEdge } from "../src/fleet/edge-join-client.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { requestFleetEdgeJoinStatusPinned } from "../src/fleet/peer.ts";
+import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinStatusPinned } from "../src/fleet/peer.ts";
 import { keycloakUrl } from "./keycloak.fixtures.ts";
 import { accessAdminFixture, edgeJoinCenter } from "./access-admin-service.fixture.ts";
 import { readFleetCenterConfig } from "../src/fleet-center-config.ts";
@@ -467,22 +468,59 @@ test(
       },
     });
     t.after(() => center.close());
+    const servernames: string[] = [],
+      tlsOptions = { key: readFileSync(config.keyPath), cert: readFileSync(config.certPath) },
+      context = createSecureContext(tlsOptions);
+    const proxy = createTlsServer(
+      {
+        ...tlsOptions,
+        SNICallback: (name, done) => {
+          servernames.push(name);
+          done(null, context);
+        },
+      },
+      (socket) => {
+        const upstream = connect({ host: "127.0.0.1", port: center.port, rejectUnauthorized: false });
+        socket.pipe(upstream).pipe(socket);
+        socket.on("error", () => upstream.destroy());
+        upstream.on("error", () => socket.destroy());
+      },
+    );
+    const listening = once(proxy, "listening");
+    proxy.listen(0, "127.0.0.1");
+    await listening;
+    t.after(() => new Promise<void>((resolve, reject) => proxy.close((error) => (error ? reject(error) : resolve()))));
+    const proxyPort = (proxy.address() as { port: number }).port;
     const created = await f.run({ operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] });
     // The in-memory realm has an HTTP control plane; the client uses the injected HTTPS login session below.
     const rawLink = JSON.parse(
       Buffer.from(String(created.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
     );
-    const link = { ...rawLink, loginUrl: "https://login.example", centerOrigin: `https://127.0.0.1:${center.port}` };
+    const link = { ...rawLink, loginUrl: "https://login.example", centerOrigin: `https://127.0.0.1:${proxyPort}` };
     f.keycloak.interactiveSession("alice", "existing-device", keycloakUrl, "alice-recovery", link.loginClientId);
     f.keycloak.interactiveSession("bob", "other-device", keycloakUrl, "bob-recovery", link.loginClientId);
     const address = {
       hostname: "127.0.0.1",
-      port: center.port,
+      port: proxyPort,
       spkiSha256: link.spkiSha256,
       joinId: link.joinId,
       accessToken: "bob-recovery",
     };
     await assert.rejects(requestFleetEdgeJoinStatusPinned(address), { code: "human_confirmation_required" });
+    await probeFleetEdgeCenterAddress({ ...address, servername: "center.example" });
+    await assert.rejects(requestFleetEdgeJoinStatusPinned({ ...address, servername: "center.example" }), {
+      code: "human_confirmation_required",
+    });
+    assert.deepEqual(servernames.splice(0), ["center.example", "center.example"]);
+    await probeFleetEdgeCenterAddress({ ...address, servername: "[::1]" });
+    await assert.rejects(requestFleetEdgeJoinStatusPinned({ ...address, servername: "[::1]" }), {
+      code: "human_confirmation_required",
+    });
+    assert.deepEqual(servernames, []);
+    await assert.rejects(probeFleetEdgeCenterAddress({ ...address, spkiSha256: "0".repeat(64) }), {
+      code: "pin_mismatch",
+    });
+    servernames.length = 0;
     const ports = {
       probeLogin: async () => {},
       session: async () => ({
@@ -515,6 +553,7 @@ test(
       "edge checkout",
     ]);
     await assert.rejects(joinFleetEdge(request, ports), { code: "join_reply_lost" });
+    assert.deepEqual(servernames.splice(0), []);
     const recovered = await joinFleetEdge(request, ports),
       saved = readFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"))!;
     assert.equal(recovered.state, "synced");
@@ -533,6 +572,7 @@ test(
       quotaBytes: 64 * 1024 * 1024,
     });
     const repeated = await joinFleetEdge({ link: request.link, workspaceRoot: request.workspaceRoot }, ports);
+    assert.deepEqual(servernames, []);
     assert.equal(repeated.nodeId, saved.nodeId);
     assert.equal(readFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"))!.credential, saved.credential);
     assert.equal(f.keycloak.nodeClients.size, count);

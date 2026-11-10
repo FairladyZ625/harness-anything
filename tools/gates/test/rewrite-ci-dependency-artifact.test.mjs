@@ -14,6 +14,18 @@ const workflow = readFileSync(path.join(process.cwd(), ".github/workflows/rewrit
 );
 const attributes = readFileSync(path.join(process.cwd(), ".gitattributes"), "utf8");
 
+test("nightly and manual runs do not queue push or pull request runs", () => {
+  assert.match(
+    workflow,
+    /^  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}-\$\{\{ github\.event_name == 'schedule' && 'schedule' \|\| github\.event_name == 'workflow_dispatch' && 'workflow_dispatch' \|\| 'ci' \}\}$/mu,
+  );
+  assert.match(workflow, /^  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}$/mu);
+  assert.match(
+    workflow,
+    /^  HARNESS_TEST_QUARANTINE: \$\{\{ \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) && 'run' \|\| 'skip' \}\}$/mu,
+  );
+});
+
 test("the shared install job is scoped to PR, merge-group, and push artifact consumers", () => {
   const section = workflow.split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu).find((candidate) => candidate.startsWith("install:"));
   assert.ok(section);
