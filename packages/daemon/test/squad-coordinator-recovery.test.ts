@@ -7,7 +7,13 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ActorIdentity, AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
+import type {
+  ActorIdentity,
+  AgentRuntimeEventV1,
+  RuntimeSession,
+  TaskProjection,
+  TaskV2,
+} from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
 import { rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
@@ -74,6 +80,7 @@ function makeRecoveryFixture(
     readonly publishObservation?: (observation: unknown) => Promise<void>;
     readonly cancelRuntime?: () => Promise<void>;
     readonly parentIteration?: () => number;
+    readonly taskStatus?: () => TaskV2["status"];
     readonly leaderOutcome: RuntimeSession["outcome"];
     readonly leaderResult?: string;
     readonly leaderTurnBudget: number;
@@ -208,7 +215,7 @@ function makeRecoveryFixture(
         task: {
           taskId,
           title: "Recovery",
-          status: "active",
+          status: options.taskStatus?.() ?? "active",
           taskClass: "standard",
           presetSnapshotDigest: "recovery-preset",
           currentNode: "implementation",
@@ -223,12 +230,15 @@ function makeRecoveryFixture(
             origin: "native",
           },
         ],
-        lease: {
-          taskId,
-          executionId: `execution-${taskId}`,
-          phase: "held",
-          actor: childLeaseActors.get(taskId) ?? state.binding.actor,
-        },
+        lease:
+          options.taskStatus?.() === "blocked"
+            ? null
+            : {
+                taskId,
+                executionId: `execution-${taskId}`,
+                phase: "held",
+                actor: childLeaseActors.get(taskId) ?? state.binding.actor,
+              },
       },
     }),
     readPresetSnapshot: () => ({ snapshot: { profile: { outputShape: "repository-diff" } } }),
@@ -1490,7 +1500,42 @@ test("cancel attempts every local kill before publishing and preserves both fail
   });
 });
 
-test("a restored old execution never dispatches into the new task iteration", async () => {
+test("a leader turn that stopped for an owner ruling settles the run instead of reporting leader_running", async () => {
+  await withRootDir(async (rootDir) => {
+    let taskStatus: TaskV2["status"] = "blocked",
+      iteration = 0;
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "stopped",
+      leaderTurnBudget: 3,
+      taskStatus: () => taskStatus,
+      parentIteration: () => iteration,
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    const stopped = fixture.status();
+    assert.notEqual(stopped.status, "leader_running");
+    assert.equal(stopped.status, "failed");
+    assert.match(String(stopped.error), /no longer current, and leader turn leader-1 ended stopped/u);
+    assert.match(String(stopped.error), /ha task start task-squad-recovery/u);
+    assert.match(
+      String(stopped.error),
+      /ha squad run core-squad --instance instance-squad --task task-squad-recovery/u,
+    );
+    assert.equal(fixture.spawns.length, 0, "a lapsed subject admits no new leader turn");
+    assert.equal(fixture.reacquired(), 0);
+
+    // The owner answers the ruling: the task returns to planned under the next iteration. The old
+    // run stays settled and cannot dispatch into the new execution.
+    taskStatus = "planned";
+    iteration = 1;
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.status().status, "failed");
+    assert.equal(fixture.spawns.length, 0);
+    assert.equal(fixture.children.size, 0);
+  });
+});
+
+test("a restored old execution settles its dead run instead of dispatching into the new task iteration", async () => {
   await withRootDir(async (rootDir) => {
     const fixture = makeRecoveryFixture(rootDir, {
       leaderOutcome: "succeeded",
@@ -1505,10 +1550,9 @@ test("a restored old execution never dispatches into the new task iteration", as
     assert.equal(fixture.spawns.length, 0);
     assert.equal(fixture.children.size, 0);
     assert.equal(fixture.reacquired(), 0);
-    assert.equal(
-      fixture.state().phase,
-      "leader_running",
-      "the old run retains its last observation without pretending the process stopped",
-    );
+    const status = fixture.status();
+    assert.equal(status.status, "failed");
+    assert.match(String(status.error), /execution \S+ is no longer current/u);
+    assert.match(String(status.error), /leader turn leader-1 ended succeeded/u);
   });
 });

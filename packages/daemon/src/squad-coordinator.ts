@@ -54,6 +54,7 @@ import {
 } from "./squad-run-state.ts";
 import { checkWorkerOwnership, overlappingWorkerPaths, type WorkerOwnershipCheck } from "./squad-worker-ownership.ts";
 import {
+  abandonedSquadRunError,
   convergenceError,
   dispatchRows as squadDispatchRows,
   errorCode,
@@ -536,9 +537,12 @@ export function makeSquadCoordinator(input: {
     await publication.settleEndedScheduleSubjects();
     for (const candidate of readStates()) {
       if (terminal(candidate)) continue;
-      if (!subjectCurrent(candidate)) continue;
       let state = readSquadRunState(candidate.squadRunId);
       if (!state || terminal(state)) continue;
+      if (!subjectCurrent(state)) {
+        await settleAbandonedRun(state);
+        continue;
+      }
       if (state.phase === "planning" && state.leaderTurns.length === 0 && !initialDispatches.has(state.squadRunId)) {
         await spawnLeader(state, { kind: "initial" });
         continue;
@@ -565,12 +569,45 @@ export function makeSquadCoordinator(input: {
     }
   };
 
+  /**
+   * Ends a run that lost its admission subject with the terminal dispatch fact that outlived it.
+   * Publication is retried by the next reconciliation (a terminal state is always republished), so
+   * one failed write cannot wedge recovery of the newer task iteration.
+   */
+  async function settleAbandonedRun(state: SquadState): Promise<void> {
+    const error = abandonedSquadRunError(state, dispatchRows(state), hasRunningWorkers(state));
+    if (error === null) return;
+    const failed = revise(state, {
+      phase: "failed",
+      currentLeaderRuntimeSessionId: null,
+      error,
+    });
+    try {
+      await writeState(failed);
+    } catch (cause) {
+      consumeKnownError(cause);
+      console.warn(
+        `[squad] publishing abandoned run ${failed.squadRunId} failed: ${errorText(cause)}; ` +
+          "retrying on the next reconciliation.",
+      );
+    }
+    await reclaimWorkerCheckouts(failed.cwd, failed.workerAttempts);
+  }
+
   async function observeRuntimeSession(runtimeSessionId: string): Promise<void> {
     for (const candidate of readStates()) {
       if (terminal(candidate)) continue;
-      if (!subjectCurrent(candidate)) continue;
       const state = readSquadRunState(candidate.squadRunId);
       if (!state || terminal(state)) continue;
+      if (!subjectCurrent(state)) {
+        if (
+          state.currentLeaderRuntimeSessionId === runtimeSessionId ||
+          state.leaderTurns.some((turn) => turn.runtimeSessionId === runtimeSessionId) ||
+          state.workerAttempts.some((attempt) => attempt.runtimeSessionId === runtimeSessionId)
+        )
+          await settleAbandonedRun(state);
+        continue;
+      }
       if (state.currentLeaderRuntimeSessionId === runtimeSessionId) {
         await continueLeader(state, runtimeSessionId);
         return;
