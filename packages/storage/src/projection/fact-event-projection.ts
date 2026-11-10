@@ -37,7 +37,7 @@ export class FactProjectionError extends Error {
 }
 
 export function createFactProjectionTables(db: DatabaseSync): void {
-  /* @gate-identity state-store/legacy.a4807ce68eb94b2a */ db.exec(`
+  /* @gate-identity state-store/task.source.storage.src.projection.fact-event-projection.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.fact */ CREATE TABLE IF NOT EXISTS fact (
       task_id TEXT, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE,
       statement TEXT NOT NULL, evidence_source TEXT NOT NULL,

@@ -293,7 +293,9 @@ export function taskQueryApi(
     readOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>
-          /* @gate-identity state-store/legacy.fs-037 */ db.prepare(sql),
+          /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
+            sql,
+          ),
         ).get(opId) as { readonly event_json: string } | undefined;
         return row === undefined ? null : { event: JSON.parse(row.event_json), watermark: watermark(db) };
       }),
@@ -305,7 +307,9 @@ export function taskQueryApi(
     readTaskOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>
-          /* @gate-identity state-store/legacy.fs-038 */ db.prepare(sql),
+          /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
+            sql,
+          ),
         ).get(opId) as { readonly event_json: string } | undefined;
         if (!row) return null;
         const event = JSON.parse(row.event_json);
@@ -381,7 +385,11 @@ export function taskQueryApi(
     taskIdForDocumentPath: (documentPath) =>
       withDatabase(projectionPath, readHead, (db) =>
         readTaskDocumentOwner(documentPath, (sql) =>
-          prepareQuery(db, sql, (sql) => /* @gate-identity state-store/legacy.fs-039 */ db.prepare(sql)),
+          prepareQuery(db, sql, (sql) =>
+            /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
+              sql,
+            ),
+          ),
         ),
       ),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, eventStore, digest, limit),

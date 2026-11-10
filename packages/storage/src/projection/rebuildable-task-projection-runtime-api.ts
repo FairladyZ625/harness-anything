@@ -67,7 +67,9 @@ export function runtimeLeaseApi(
     currentLeaseForExecution: (executionId, at) =>
       withDatabase(projectionPath, readHead, (db: DatabaseSync) => {
         const row = prepareQuery(db, "SELECT task_id FROM lease_cas WHERE execution_id = ?", (sql) =>
-          /* @gate-identity state-store/legacy.fs-016 */ db.prepare(sql),
+          /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime-api.sqlite-database */ db.prepare(
+            sql,
+          ),
         ).get(executionId) as { readonly task_id: string } | undefined;
         return row ? effectiveLease(db, row.task_id, at ?? now()) : null;
       }),

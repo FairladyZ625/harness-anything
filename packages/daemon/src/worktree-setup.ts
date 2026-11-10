@@ -86,15 +86,15 @@ export async function runWorktreeSetup(input: WorktreeSetupInput): Promise<Workt
   const directory = await setupDirectory(input.cwd),
     succeeded = readSucceeded(directory),
     ran: string[] = [];
-  /* @gate-identity state-store/legacy.47892a4a432ad79a */ mkdirSync(directory, { recursive: true });
+  /* @gate-identity non-state/environment-io.47892a4a432ad79a */ mkdirSync(directory, { recursive: true });
   for (const [index, step] of input.steps.entries()) {
     if (succeeded.includes(step)) continue;
     const log = path.join(directory, `step-${index + 1}.log`);
-    /* @gate-identity state-store/legacy.e978a15f3b2fb103 */ writeFileSync(log, `$ ${step}\n`);
+    /* @gate-identity non-state/environment-io.e978a15f3b2fb103 */ writeFileSync(log, `$ ${step}\n`);
     const failure = await runStep(input, step, log);
     if (failure !== null) return { ok: false, step, position: index + 1, log, detail: failure };
     succeeded.push(step);
-    /* @gate-identity state-store/legacy.584239915a9d403f */ writeFileSync(
+    /* @gate-identity non-state/environment-io.584239915a9d403f */ writeFileSync(
       path.join(directory, "succeeded.json"),
       `${JSON.stringify(succeeded)}\n`,
     );
@@ -129,7 +129,7 @@ export async function cleanupWorktreeSetup(cwd: string): Promise<void> {
     else kept.push(step);
   }
   if (kept.length !== succeeded.length)
-    /* @gate-identity state-store/legacy.4a19b77cc94f5648 */ writeFileSync(
+    /* @gate-identity non-state/environment-io.4a19b77cc94f5648 */ writeFileSync(
       path.join(directory, "succeeded.json"),
       `${JSON.stringify(kept)}\n`,
     );
@@ -160,7 +160,7 @@ async function runStep(input: WorktreeSetupInput, step: string, log: string): Pr
   } catch (error) {
     // The failure is the step's result: the caller refuses the start and names this step and its log.
     const detail = error instanceof Error ? error.message : String(error);
-    /* @gate-identity state-store/legacy.2b5cb73c19477a59 */ appendFileSync(log, `${detail}\n`);
+    /* @gate-identity non-state/environment-io.2b5cb73c19477a59 */ appendFileSync(log, `${detail}\n`);
     return detail;
   }
 }
@@ -311,18 +311,18 @@ function clearWorktreeLedgerMirror(mirror: string, keepPackage: string | null): 
       removeMirrorEntry(nestedPath);
     }
     if (readdirSync(entryPath).length === 0)
-      /* @gate-identity state-store/legacy.b5a72e6a2315c1b2 */ rmdirSync(entryPath);
+      /* @gate-identity non-state/environment-io.b5a72e6a2315c1b2 */ rmdirSync(entryPath);
   }
 }
 
 function removeMirrorEntry(target: string): void {
   const entry = lstatSync(target);
   if (!entry.isDirectory() || entry.isSymbolicLink()) {
-    /* @gate-identity state-store/legacy.5d1712f8bfbde7e1 */ unlinkSync(target);
+    /* @gate-identity non-state/environment-io.5d1712f8bfbde7e1 */ unlinkSync(target);
     return;
   }
   for (const child of readdirSync(target)) removeMirrorEntry(path.join(target, child));
-  /* @gate-identity state-store/legacy.59efa489be0f2990 */ rmdirSync(target);
+  /* @gate-identity non-state/environment-io.59efa489be0f2990 */ rmdirSync(target);
 }
 
 /**
@@ -346,7 +346,7 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
     const checkedOut = own === null ? null : path.join(mirror, "tasks", path.basename(own));
     if (fresh && checkedOut !== null) {
       const base = taskWorktreeDocumentBase(cwd, `tasks/${path.basename(own!)}`);
-      /* @gate-identity state-store/legacy.97ebea1bc7f7c550 */ mkdirSync(path.dirname(base), { recursive: true });
+      /* @gate-identity non-state/environment-io.97ebea1bc7f7c550 */ mkdirSync(path.dirname(base), { recursive: true });
       if (existsSync(checkedOut)) copyWorkerLedgerEntry(checkedOut, base);
       // Keep versions for documents publication has not checked out, without injecting untracked
       // authored files into a Git-owned tree. Existing checkout bases retain their original bytes.
@@ -356,7 +356,7 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
   }
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) {
-      /* @gate-identity state-store/legacy.070db42aa4c12fe4 */
+      /* @gate-identity non-state/environment-io.070db42aa4c12fe4 */
       unlinkSync(path.join(mirror, entry));
     }
   } else if (ownership === "ours") {
@@ -364,19 +364,21 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
     clearWorktreeLedgerCopies(marker);
   }
   if (own === null) {
-    if (existsSync(marker)) /* @gate-identity state-store/legacy.4cb63039a2e685dc */ unlinkSync(marker);
+    if (existsSync(marker)) /* @gate-identity non-state/environment-io.4cb63039a2e685dc */ unlinkSync(marker);
     if (legacyMarker !== null && lstatSync(legacyMarker, { throwIfNoEntry: false }))
-      /* @gate-identity state-store/legacy.90ea695e1d940212 */ unlinkSync(legacyMarker);
+      /* @gate-identity non-state/environment-io.90ea695e1d940212 */ unlinkSync(legacyMarker);
     return;
   }
   const packageMirror = path.join(mirror, "tasks", path.basename(own));
-  /* @gate-identity state-store/legacy.32e3e08fe711f7bb */ mkdirSync(path.dirname(packageMirror), { recursive: true });
-  /* @gate-identity state-store/legacy.94a0cdf651772a78 */ mkdirSync(path.dirname(marker), { recursive: true });
-  /* @gate-identity state-store/legacy.86a0c8743f85091d */ writeFileSync(marker, worktreeLedgerMarker);
+  /* @gate-identity non-state/environment-io.32e3e08fe711f7bb */ mkdirSync(path.dirname(packageMirror), {
+    recursive: true,
+  });
+  /* @gate-identity non-state/environment-io.94a0cdf651772a78 */ mkdirSync(path.dirname(marker), { recursive: true });
+  /* @gate-identity non-state/environment-io.86a0c8743f85091d */ writeFileSync(marker, worktreeLedgerMarker);
   mirrorTaskPackage(own, packageMirror, taskWorktreeDocumentBase(cwd, `tasks/${path.basename(own)}`));
   if (legacyMarker !== null && legacyMarker !== marker && lstatSync(legacyMarker, { throwIfNoEntry: false })) {
     clearWorktreeLedgerCopies(legacyMarker);
-    /* @gate-identity state-store/legacy.0b23760b01d9faf7 */ unlinkSync(legacyMarker);
+    /* @gate-identity non-state/environment-io.0b23760b01d9faf7 */ unlinkSync(legacyMarker);
   }
 }
 
@@ -397,8 +399,8 @@ export function acceptTaskWorktreeDocumentBase(cwd: string, logicalPath: string,
 function writeTaskWorktreeDocumentBase(cwd: string, directory: string, logicalPath: string, bytes: Uint8Array): void {
   detachTaskDocument(path.join(resolveHarnessLayout(cwd).authoredRoot, ...logicalPath.split("/")));
   const base = path.join(directory, ...logicalPath.split("/"));
-  /* @gate-identity state-store/legacy.0deb3794b723e626 */ mkdirSync(path.dirname(base), { recursive: true });
-  /* @gate-identity state-store/legacy.c26b78d6a3c9c571 */ writeFileSync(base, bytes);
+  /* @gate-identity non-state/environment-io.0deb3794b723e626 */ mkdirSync(path.dirname(base), { recursive: true });
+  /* @gate-identity non-state/environment-io.c26b78d6a3c9c571 */ writeFileSync(base, bytes);
 }
 
 /**
@@ -456,10 +458,10 @@ export function recoverTaskWorktreeDocumentBases(
 
 function mirrorTaskPackage(source: string, destination: string, base: string): void {
   if (!existsSync(destination))
-    /* @gate-identity state-store/legacy.64ae4c5d949e6e57 */ mkdirSync(destination, { recursive: true });
+    /* @gate-identity non-state/environment-io.64ae4c5d949e6e57 */ mkdirSync(destination, { recursive: true });
   else if (lstatSync(destination).isSymbolicLink() || !lstatSync(destination).isDirectory())
     throw new Error(`Task package directory ${destination} must be a real directory.`);
-  /* @gate-identity state-store/legacy.39e7f63feca22f4f */ mkdirSync(base, { recursive: true });
+  /* @gate-identity non-state/environment-io.39e7f63feca22f4f */ mkdirSync(base, { recursive: true });
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const from = path.join(source, entry.name),
       to = path.join(destination, entry.name);
@@ -470,8 +472,9 @@ function mirrorTaskPackage(source: string, destination: string, base: string): v
     if (!entry.isFile()) throw new Error(`Task package entry ${from} is not a regular file or directory.`);
     if (!existsSync(to)) {
       const original = path.join(base, entry.name);
-      if (!existsSync(original)) /* @gate-identity state-store/legacy.cdd8a29626dba774 */ copyFileSync(from, original);
-      /* @gate-identity state-store/legacy.d35718de7079bbb5 */ copyFileSync(original, to);
+      if (!existsSync(original))
+        /* @gate-identity non-state/environment-io.cdd8a29626dba774 */ copyFileSync(from, original);
+      /* @gate-identity non-state/environment-io.d35718de7079bbb5 */ copyFileSync(original, to);
     } else {
       const stat = lstatSync(to);
       if (stat.isSymbolicLink()) throw new Error(`Task package mirror ${to} must not be a symbolic link.`);
@@ -483,8 +486,8 @@ function mirrorTaskPackage(source: string, destination: string, base: string): v
 
 function detachTaskDocument(target: string): void {
   if ((lstatSync(target, { throwIfNoEntry: false })?.nlink ?? 0) <= 1) return;
-  /* @gate-identity state-store/legacy.37e2f4e58b6b045d */ copyFileSync(target, `${target}.detach`);
-  /* @gate-identity state-store/legacy.1d0d7b2ca61bb7d2 */ renameSync(`${target}.detach`, target);
+  /* @gate-identity non-state/environment-io.37e2f4e58b6b045d */ copyFileSync(target, `${target}.detach`);
+  /* @gate-identity non-state/environment-io.1d0d7b2ca61bb7d2 */ renameSync(`${target}.detach`, target);
 }
 
 function worktreeLedgerMarkerPath(cwd: string): string | null {
@@ -516,7 +519,7 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
   if (existsSync(base)) removeMirrorEntry(base);
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) {
-      /* @gate-identity state-store/legacy.28f0d0f15b149005 */
+      /* @gate-identity non-state/environment-io.28f0d0f15b149005 */
       unlinkSync(path.join(mirror, entry));
     }
   } else if (ownership === "ours") {
@@ -524,10 +527,10 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
     if (marker !== null) clearWorktreeLedgerCopies(marker);
   }
   if (ownership === "ours" && marker !== null && lstatSync(marker, { throwIfNoEntry: false }))
-    /* @gate-identity state-store/legacy.59a759d505c4aadf */ unlinkSync(marker);
+    /* @gate-identity non-state/environment-io.59a759d505c4aadf */ unlinkSync(marker);
   if (legacyMarker !== null && legacyMarker !== marker && lstatSync(legacyMarker, { throwIfNoEntry: false })) {
     clearWorktreeLedgerCopies(legacyMarker);
-    /* @gate-identity state-store/legacy.d52ac26bd8aaf8af */ unlinkSync(legacyMarker);
+    /* @gate-identity non-state/environment-io.d52ac26bd8aaf8af */ unlinkSync(legacyMarker);
   }
 }
 
@@ -589,10 +592,11 @@ function ensureRealDirectory(root: string, directory: string): void {
   for (const part of relative.split(path.sep)) {
     current = path.join(current, part);
     const entry = lstatSync(current, { throwIfNoEntry: false });
-    if (entry?.isSymbolicLink()) /* @gate-identity state-store/legacy.bf29896710455de4 */ unlinkSync(current);
+    if (entry?.isSymbolicLink()) /* @gate-identity non-state/environment-io.bf29896710455de4 */ unlinkSync(current);
     else if (entry && !entry.isDirectory())
       throw new Error(`Worker ledger copy parent ${current} must be a directory.`);
-    if (!entry || entry.isSymbolicLink()) /* @gate-identity state-store/legacy.6cf4bce8ce3dccff */ mkdirSync(current);
+    if (!entry || entry.isSymbolicLink())
+      /* @gate-identity non-state/environment-io.6cf4bce8ce3dccff */ mkdirSync(current);
   }
 }
 
@@ -607,11 +611,11 @@ function copyWorkerLedgerEntry(source: string, destination: string): void {
   }
   if (destinationEntry) removeMirrorEntry(destination);
   if (sourceEntry.isFile()) {
-    /* @gate-identity state-store/legacy.773a231762e8009f */ copyFileSync(source, destination);
+    /* @gate-identity non-state/environment-io.773a231762e8009f */ copyFileSync(source, destination);
     return;
   }
   if (!sourceEntry.isDirectory()) throw new Error(`Worker ledger path ${source} is not a regular file or directory.`);
-  /* @gate-identity state-store/legacy.1c6d593aa5ab22e5 */ mkdirSync(destination);
+  /* @gate-identity non-state/environment-io.1c6d593aa5ab22e5 */ mkdirSync(destination);
   for (const entry of readdirSync(source))
     copyWorkerLedgerEntry(path.join(source, entry), path.join(destination, entry));
 }

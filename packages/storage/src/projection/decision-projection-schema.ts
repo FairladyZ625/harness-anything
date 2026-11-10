@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 export function createDecisionProjectionTables(db: DatabaseSync): void {
-  /* @gate-identity state-store/legacy.4685427a386fa5aa */ db.exec(`
+  /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-schema.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.decision */ CREATE TABLE IF NOT EXISTS decision (
       decision_id TEXT PRIMARY KEY,
       legacy_number INTEGER,

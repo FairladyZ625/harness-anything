@@ -57,7 +57,14 @@ function writeSurfaces(rootDir, { declarations, commands, artifactIngress = [] }
 
 function writeStateSurfaces(
   rootDir,
-  { owner = "task", duplicateStore = false, invalidHost = false, sharedCache = null, missingFreshness = false } = {},
+  {
+    owner = "task",
+    duplicateStore = false,
+    invalidHost = false,
+    sharedCache = null,
+    missingFreshness = false,
+    additionalStore = null,
+  } = {},
 ) {
   writeSurfaces(rootDir, { declarations: coveredDeclarations, commands: coveredCommands });
   const hostStores = invalidHost
@@ -74,7 +81,7 @@ function writeStateSurfaces(
     [
       'import { createRuntimeInstanceKindContract } from "./runtime-instance-contract.ts";',
       "export const entityKindContracts = Object.freeze([",
-      `  { kind: "task", actionCatalog: { actions: [${executable("create", "task-create")}] }, stateStores: [{ id: "${taskStoreId}", role: "authority", residency: "canonical", medium: { kind: "canonical-event", schema: "task-event/v1", types: ["*"], writers: ["task-writer"] }, vocabulary: [] }${cacheStore}] },`,
+      `  { kind: "task", actionCatalog: { actions: [${executable("create", "task-create")}] }, stateStores: [{ id: "${taskStoreId}", role: "authority", residency: "canonical", medium: { kind: "canonical-event", schema: "task-event/v1", types: ["*"], writers: ["task-writer"] }, vocabulary: [] }${cacheStore}${additionalStore ? `, ${JSON.stringify(additionalStore)}` : ""}] },`,
       `  { kind: "runtime-session", actionCatalog: { actions: [${executable("runtime_session_started", "runtime_session_started", "compiled-event", "runtime-run")}] }, stateStores: [] },`,
       `  { kind: "host", actionCatalog: null, stateStores: ${hostStores} },`,
       "  createRuntimeInstanceKindContract(),",
@@ -261,6 +268,33 @@ test("G0-2 validates shared-cache adapter identity and replica shape", (t) => {
   const missingCursor = ratchet(rootDir);
   assert.equal(missingCursor.code, 1);
   assert.match(missingCursor.stdout, /task\.shared-cache: replica requires freshness cursor/u);
+});
+
+test("G0-2 validates source-bound SQLite, PostgreSQL, and filesystem store media", (t) => {
+  const rootDir = fixtureRoot(t);
+  const media = [
+    ["sqlite-database", "packages/storage/src/store/sqlite-event-store.ts"],
+    ["postgres-database", "packages/storage/src/postgres/event-ledger-schema.ts"],
+    ["filesystem-store", "packages/storage/src/durable-file.ts"],
+  ];
+  for (const [kind, module] of media) {
+    const additionalStore = {
+      id: `task.source-bound-${kind}`,
+      role: "authority",
+      residency: "canonical",
+      medium: { kind, module, ...(kind.endsWith("-database") ? { tables: [] } : {}) },
+      vocabulary: [],
+    };
+    writeStateSurfaces(rootDir, { additionalStore });
+    assert.equal(ratchet(rootDir).code, 0, `${kind} should be a valid declared medium`);
+
+    writeStateSurfaces(rootDir, {
+      additionalStore: { ...additionalStore, medium: { kind } },
+    });
+    const missingModule = ratchet(rootDir);
+    assert.equal(missingModule.code, 1);
+    assert.match(missingModule.stdout, new RegExp(`${kind} medium requires an exact source module`, "u"));
+  }
 });
 
 test("G0-1 names an injected registry-external kind", (t) => {

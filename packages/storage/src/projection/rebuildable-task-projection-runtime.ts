@@ -69,16 +69,20 @@ export function replayClaim(
 ): void {
   const lease = checkedLease(event.payload.lease, true);
   const reserving = { ...lease, phase: "reserving" as const };
-  prepareQuery(db, UPSERT_LEASE_SQL, (sql) => /* @gate-identity state-store/legacy.fs-017 */ db.prepare(sql)).run(
-    event.taskId,
-    canonicalJson(reserving),
-  );
-  prepareQuery(db, UPDATE_LEASE_SQL, (sql) => /* @gate-identity state-store/legacy.fs-018 */ db.prepare(sql)).run(
-    canonicalJson({ ...lease, phase: "held" }),
-    event.taskId,
-  );
+  prepareQuery(db, UPSERT_LEASE_SQL, (sql) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
+  ).run(event.taskId, canonicalJson(reserving));
+  prepareQuery(db, UPDATE_LEASE_SQL, (sql) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
+  ).run(canonicalJson({ ...lease, phase: "held" }), event.taskId);
   prepareQuery(db, INSERT_LEASE_INTERVAL_SQL, (sql) =>
-    /* @gate-identity state-store/legacy.fs-019 */ db.prepare(sql),
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
   ).run(
     event.taskId,
     lease.executionId,
@@ -102,19 +106,26 @@ export function replayRenew(db: DatabaseSync, event: Extract<TaskEventV1, { read
     current.version + 1 === renewed.version;
   if (!matchesPrevious && canonicalJson(current) !== canonicalJson(renewed))
     throw new Error(`stale lease renewal event for task ${event.taskId}`);
-  prepareQuery(db, UPSERT_LEASE_SQL, (sql) => /* @gate-identity state-store/legacy.fs-020 */ db.prepare(sql)).run(
-    event.taskId,
-    canonicalJson(renewed),
-  );
+  prepareQuery(db, UPSERT_LEASE_SQL, (sql) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
+  ).run(event.taskId, canonicalJson(renewed));
   prepareQuery(db, UPDATE_LEASE_EXPIRY_SQL, (sql) =>
-    /* @gate-identity state-store/legacy.fs-021 */ db.prepare(sql),
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
   ).run(renewed.expiresAt, event.taskId, renewed.executionId);
 }
 
 export function replayRelease(db: DatabaseSync, taskId: string, executionId: string, revision: number): void {
   const lease = storedLease(db, taskId);
   if (lease !== null && lease.executionId === executionId)
-    prepareQuery(db, UPDATE_LEASE_SQL, (sql) => /* @gate-identity state-store/legacy.fs-022 */ db.prepare(sql)).run(
+    prepareQuery(db, UPDATE_LEASE_SQL, (sql) =>
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+        sql,
+      ),
+    ).run(
       canonicalJson({
         ...lease,
         phase: "released",
@@ -123,7 +134,9 @@ export function replayRelease(db: DatabaseSync, taskId: string, executionId: str
       taskId,
     );
   prepareQuery(db, UPDATE_LEASE_RELEASE_SQL, (sql) =>
-    /* @gate-identity state-store/legacy.fs-023 */ db.prepare(sql),
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
   ).run(revision, taskId, executionId);
 }
 
@@ -170,7 +183,10 @@ function readSnapshotsInternal(
       prepareQuery(
         db,
         "SELECT task_id, snapshot_json FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
-        (sql) => /* @gate-identity state-store/legacy.fs-024 */ db.prepare(sql),
+        (sql) =>
+          /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+            sql,
+          ),
       ),
       requested,
     ),
@@ -288,7 +304,9 @@ export function effectiveLeaseValue(current: LeaseV1 | null, now: string): Lease
 export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
   const rows = queryPreparedRows(
     prepareQuery(db, "SELECT * FROM lease_interval WHERE task_id = ? ORDER BY acquired_revision", (sql) =>
-      /* @gate-identity state-store/legacy.fs-025 */ db.prepare(sql),
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+        sql,
+      ),
     ),
     taskId,
   );
@@ -337,13 +355,16 @@ export function readLatestIntervalForExecution(
 export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 {
   const current = effectiveLease(db, lease.taskId, now),
     count = prepareQuery(db, COUNT_ACTIVE_LEASES_SQL, (sql) =>
-      /* @gate-identity state-store/legacy.fs-026 */ db.prepare(sql),
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+        sql,
+      ),
     ).get(now) as { readonly count: number };
   assertLeaseReservation(lease, current, count.count);
-  prepareQuery(db, UPSERT_LEASE_SQL, (sql) => /* @gate-identity state-store/legacy.fs-027 */ db.prepare(sql)).run(
-    lease.taskId,
-    canonicalJson(lease),
-  );
+  prepareQuery(db, UPSERT_LEASE_SQL, (sql) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
+  ).run(lease.taskId, canonicalJson(lease));
   return lease;
 }
 

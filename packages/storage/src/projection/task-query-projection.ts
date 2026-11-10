@@ -419,7 +419,7 @@ export function readTaskProgressRows(db: DatabaseSync, taskId: string): readonly
 }
 
 export function createTaskRelationProjectionTable(db: DatabaseSync): void {
-  /* @gate-identity state-store/legacy.94ac2d23585874b0 */ db.exec(`
+  /* @gate-identity state-store/task.source.storage.src.projection.task-query-projection.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.task_relation */ CREATE TABLE IF NOT EXISTS task_relation (relation_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL,
       direction TEXT NOT NULL, strength TEXT NOT NULL, origin TEXT NOT NULL, state TEXT NOT NULL, rationale TEXT NOT NULL, owner_ref TEXT NOT NULL,
       source_path TEXT NOT NULL, record_index INTEGER NOT NULL, workspace_revision INTEGER NOT NULL, updated_at TEXT NOT NULL);

@@ -562,7 +562,7 @@ export function migrationDocument(db: DatabaseSync, path: string): DocumentState
 
 function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
   const row =
-    /* @gate-identity state-store/legacy.fs-098 */
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-write-model.sqlite-database */
     db
       .prepare("SELECT json_type(snapshot_json, '$.task') AS task_type FROM task_snapshot WHERE task_id = ?")
       .get(taskId) as { readonly task_type: string | null } | undefined;

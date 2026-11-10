@@ -13,20 +13,24 @@ export function filterLiteralTextRows<T>(
   columns: (row: T) => readonly string[],
 ): readonly T[] {
   if (!query.trim() || rows.length === 0) return rows;
-  const db = /* @gate-identity state-store/legacy.ffbbc9232ef0bbbb */ new DatabaseSync(":memory:");
+  const db =
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ new DatabaseSync(
+      ":memory:",
+    );
   try {
-    /* @gate-identity state-store/legacy.77c509a2ac3f7034 */ db.exec(
-      /* @gate-identity state-store/legacy.4641137b7a5c2d47 */ "CREATE VIRTUAL TABLE search USING fts5(a,b,c,d,e, tokenize='unicode61 remove_diacritics 2')",
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.exec(
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ "CREATE VIRTUAL TABLE search USING fts5(a,b,c,d,e, tokenize='unicode61 remove_diacritics 2')",
     );
-    const insert = /* @gate-identity state-store/legacy.cc8fa8a063de79f2 */ db.prepare(
-      "INSERT INTO search(rowid,a,b,c,d,e) VALUES (?,?,?,?,?,?)",
-    );
+    const insert =
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.prepare(
+        "INSERT INTO search(rowid,a,b,c,d,e) VALUES (?,?,?,?,?,?)",
+      );
     rows.forEach((row, index) => {
       const fields = columns(row);
       insert.run(index + 1, fields[0] ?? "", fields[1] ?? "", fields[2] ?? "", fields[3] ?? "", fields[4] ?? "");
     });
     const matches = new Set(
-      /* @gate-identity state-store/legacy.2d5338c66c1d1267 */ db
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db
         .prepare("SELECT rowid FROM search WHERE search MATCH ?")
         .all(ftsQuery(query))
         .map((row) => Number(row.rowid)),
@@ -48,16 +52,19 @@ export interface SearchPosition {
 let tokenizer: DatabaseSync | undefined;
 export function unicode61Positions(columns: readonly string[]): readonly SearchPosition[] {
   if (!tokenizer) {
-    tokenizer = /* @gate-identity state-store/legacy.41535f05c4ddd3d8 */ new DatabaseSync(":memory:");
-    /* @gate-identity state-store/legacy.30452fb21bc72075 */ tokenizer.exec(/* @gate-identity state-store/legacy.683c68ff98e3487e */ /* @gate-identity state-store/legacy.335770dca088defb */ `CREATE VIRTUAL TABLE input USING fts5(a,b,c,d,e,tokenize='unicode61 remove_diacritics 2');
+    tokenizer =
+      /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ new DatabaseSync(
+        ":memory:",
+      );
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ tokenizer.exec(/* @gate-identity state-store/legacy.683c68ff98e3487e */ /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ `CREATE VIRTUAL TABLE input USING fts5(a,b,c,d,e,tokenize='unicode61 remove_diacritics 2');
       CREATE VIRTUAL TABLE tokens USING fts5vocab(input,instance)`);
   }
   const db = tokenizer;
   try {
-    /* @gate-identity state-store/legacy.90b9705b85482502 */ db.prepare(
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.prepare(
       "INSERT INTO input(rowid,a,b,c,d,e) VALUES(1,?,?,?,?,?)",
     ).run(columns[0] ?? "", columns[1] ?? "", columns[2] ?? "", columns[3] ?? "", columns[4] ?? "");
-    return /* @gate-identity state-store/legacy.144573e88a936c2e */ db
+    return /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db
       .prepare("SELECT term,col,offset FROM tokens ORDER BY col,offset")
       .all()
       .map((row) => ({
@@ -66,7 +73,9 @@ export function unicode61Positions(columns: readonly string[]): readonly SearchP
         offset: Number(row.offset),
       }));
   } finally {
-    /* @gate-identity state-store/legacy.abc9fd3216f0d218 */ db.exec("DELETE FROM input WHERE rowid=1");
+    /* @gate-identity state-store/task.source.storage.src.pg.pg-text-search.sqlite-database */ db.exec(
+      "DELETE FROM input WHERE rowid=1",
+    );
   }
 }
 

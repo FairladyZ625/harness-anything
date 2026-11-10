@@ -46,7 +46,7 @@ export async function auditPgProjectionRows(
       // Read-index DDL and replay triggers must own their event table too. Resolving
       // ha_events through the public fallback would change the source's triggers.
       await client.query(
-        /* @gate-identity state-store/legacy.5d3b24ea6236c004 */ `CREATE TABLE "${schema}".ha_events (LIKE ha_events INCLUDING DEFAULTS INCLUDING CONSTRAINTS)`,
+        /* @gate-identity state-store/migration.source.storage.src.migration.postgres-projection-audit.postgres-database */ `CREATE TABLE "${schema}".ha_events (LIKE ha_events INCLUDING DEFAULTS INCLUDING CONSTRAINTS)`,
       );
       await client.query(
         `INSERT INTO "${schema}".ha_events SELECT * FROM ha_events
@@ -55,7 +55,7 @@ export async function auditPgProjectionRows(
       );
       // Event triggers must resolve the replay's own derived ref index as well.
       await client.query(
-        /* @gate-identity state-store/legacy.14c15bbf29bf85af */ `CREATE TABLE "${schema}".ha_event_entity_refs (LIKE ha_event_entity_refs INCLUDING ALL)`,
+        /* @gate-identity state-store/migration.source.storage.src.migration.postgres-projection-audit.postgres-database */ `CREATE TABLE "${schema}".ha_event_entity_refs (LIKE ha_event_entity_refs INCLUDING ALL)`,
       );
       await client.query(
         `INSERT INTO "${schema}".ha_event_entity_refs SELECT * FROM ha_event_entity_refs

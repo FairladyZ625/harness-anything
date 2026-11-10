@@ -67,7 +67,7 @@ export function ensureShim(
   platform = process.platform,
 ): { path: string; installed: boolean; preservedExistingHa: boolean } {
   const target = desktopShimPath(home, platform);
-  /* @gate-identity state-store/legacy.fac1fb306f76a3fd */ mkdirSync(path.dirname(target), {
+  /* @gate-identity non-state/environment-io.fac1fb306f76a3fd */ mkdirSync(path.dirname(target), {
     recursive: true,
     mode: 0o700,
   });
@@ -75,7 +75,7 @@ export function ensureShim(
   const expected = shimContents(runtime, platform);
   const installed = existing === null;
   if (installed)
-    /* @gate-identity state-store/legacy.6aece9d6fb0ea444 */ writeFileSync(target, expected, { mode: 0o700 });
+    /* @gate-identity non-state/environment-io.6aece9d6fb0ea444 */ writeFileSync(target, expected, { mode: 0o700 });
   if (installed && platform !== "win32") chmodSync(target, 0o755);
   return { path: target, installed, preservedExistingHa: existing !== null && existing !== expected };
 }
@@ -83,11 +83,11 @@ export function ensureShim(
 export function ensureShellPath(home = os.homedir(), platform = process.platform): string {
   const rc = shellRcPath(home, platform);
   if (platform === "win32") return rc;
-  /* @gate-identity state-store/legacy.2d9dce2acd68696d */ mkdirSync(path.dirname(rc), { recursive: true });
+  /* @gate-identity non-state/environment-io.2d9dce2acd68696d */ mkdirSync(path.dirname(rc), { recursive: true });
   const line = `export PATH="$HOME/Library/Application Support/Harness Anything/bin:$PATH"`;
   const current = existsSync(rc) ? readFileSync(rc, "utf8") : "";
   if (!current.split(/\r?\n/u).some((entry) => entry.trim() === line))
-    /* @gate-identity state-store/legacy.6b766bd717472402 */ writeFileSync(
+    /* @gate-identity non-state/environment-io.6b766bd717472402 */ writeFileSync(
       rc,
       `${current}${current.endsWith("\n") || current.length === 0 ? "" : "\n"}${line}\n`,
     );

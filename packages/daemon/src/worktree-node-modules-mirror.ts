@@ -22,7 +22,7 @@ export function mirrorNodeModules(rootDir: string, checkoutDir: string): void {
 }
 
 function mirrorStore(rootDir: string, checkoutDir: string, relative: string): void {
-  /* @gate-identity state-store/legacy.9538dcd0559cba9f */ mkdirSync(path.join(checkoutDir, relative));
+  /* @gate-identity non-state/environment-io.9538dcd0559cba9f */ mkdirSync(path.join(checkoutDir, relative));
   for (const entry of readdirSync(path.join(rootDir, relative), { withFileTypes: true })) {
     const name = path.join(relative, entry.name),
       source = path.join(rootDir, name);
@@ -39,12 +39,12 @@ function mirrorStore(rootDir: string, checkoutDir: string, relative: string): vo
     if (type === "file" && process.platform === "win32") {
       // Ordinary Windows users cannot create file symlinks. The package store is immutable
       // for the checkout lifetime, so a byte copy is the usable equivalent for .bin entries.
-      /* @gate-identity state-store/legacy.03922c1e35489b17 */ copyFileSync(
+      /* @gate-identity non-state/environment-io.03922c1e35489b17 */ copyFileSync(
         inRepository ? path.resolve(path.dirname(source), link!) : source,
         path.join(checkoutDir, name),
       );
     } else
-      /* @gate-identity state-store/legacy.25160125d6541765 */ symlinkSync(
+      /* @gate-identity non-state/environment-io.25160125d6541765 */ symlinkSync(
         inRepository ? link! : source,
         path.join(checkoutDir, name),
         type,

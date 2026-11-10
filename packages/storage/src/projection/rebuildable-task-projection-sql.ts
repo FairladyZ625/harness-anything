@@ -50,7 +50,9 @@ const stateDigestChunkBytes = 1024 * 1024;
 
 export function watermark(db: DatabaseSync): number {
   const row = prepareQuery(db, "SELECT watermark FROM projection_meta WHERE singleton = 1", (sql) =>
-    /* @gate-identity state-store/legacy.fs-031 */ db.prepare(sql),
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */ db.prepare(
+      sql,
+    ),
   ).get() as { readonly watermark: number };
   return Number(row.watermark);
 }
@@ -74,7 +76,7 @@ export function readProjectionCut(
 
 export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean {
   const state =
-    /* @gate-identity state-store/legacy.fs-033 */
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
     db.prepare("SELECT watermark, scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
       readonly watermark: number;
       readonly scan_cursor: string | null;
@@ -84,7 +86,7 @@ export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean
     Number(state.watermark) === sourceRevision &&
     state.scan_cursor === null &&
     Number(state.scanned_revision) === sourceRevision &&
-    /* @gate-identity state-store/legacy.fs-034 */
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
     db.prepare("SELECT 1 FROM event_source LIMIT 1").get() === undefined
   );
 }
@@ -144,16 +146,16 @@ function digestDocumentRows(db: DatabaseSync, digest: string): string {
   return digest;
 }
 export function transaction<A>(db: DatabaseSync, run: () => A): A {
-  /* @gate-identity state-store/legacy.fs-028 */
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
   db.exec("BEGIN IMMEDIATE");
   try {
     const value = run();
-    /* @gate-identity state-store/legacy.fs-029 */
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
     db.exec("COMMIT");
     return value;
   } catch (error) {
     try {
-      /* @gate-identity state-store/legacy.fs-030 */
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
       db.exec("ROLLBACK");
     } catch (rollbackError) {
       consumeKnownError(rollbackError);
@@ -164,16 +166,16 @@ export function transaction<A>(db: DatabaseSync, run: () => A): A {
 
 export function queryTransaction<A>(db: DatabaseSync, run: () => A): A {
   if (db.isTransaction) return run();
-  /* @gate-identity state-store/legacy.fs-107 */
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
   db.exec("BEGIN");
   try {
     const value = run();
-    /* @gate-identity state-store/legacy.fs-108 */
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
     db.exec("COMMIT");
     return value;
   } catch (error) {
     try {
-      /* @gate-identity state-store/legacy.fs-109 */
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
       db.exec("ROLLBACK");
     } catch (rollbackError) {
       consumeKnownError(rollbackError);
@@ -183,8 +185,11 @@ export function queryTransaction<A>(db: DatabaseSync, run: () => A): A {
 }
 type SqlValue = string | number | bigint | Uint8Array | null;
 export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): number | bigint {
-  return prepareQuery(db, sql, (text) => /* @gate-identity state-store/legacy.fs-035 */ db.prepare(text)).run(...values)
-    .changes;
+  return prepareQuery(db, sql, (text) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */ db.prepare(
+      text,
+    ),
+  ).run(...values).changes;
 }
 const connectionStatements = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
 /** Release the cache before close finalizes the connection's native statements. */
@@ -197,7 +202,10 @@ export function closeProjectionConnection(db: DatabaseSync): void {
 export function prepareQuery(
   db: DatabaseSync,
   sql: string,
-  prepare = (text: string) => /* @gate-identity state-store/legacy.fs-036 */ db.prepare(text),
+  prepare = (text: string) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */ db.prepare(
+      text,
+    ),
 ): StatementSync {
   let statements = connectionStatements.get(db);
   if (statements === undefined) connectionStatements.set(db, (statements = new Map()));

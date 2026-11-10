@@ -51,7 +51,7 @@ export const localLedgerBackupFileSystem = {
   symlink: symlinkSync,
   write: writeFileSync,
   remove: (inputPath: string) =>
-    /* @gate-identity state-store/legacy.fs-135 */
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
     rmSync(inputPath, { recursive: true, force: true }),
 } as const;
 
@@ -61,7 +61,7 @@ export const localEventFileSystem = {
   readNames: (inputPath: string) => readdirSync(inputPath),
   realpath: (inputPath: string) => realpathSync.native(inputPath),
   remove: (inputPath: string) =>
-    /* @gate-identity state-store/legacy.fs-043 */
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
     rmSync(inputPath, { force: true }),
 };
 
@@ -70,14 +70,14 @@ export const localRuntimeStateFileSystem = {
     let descriptor: number;
     try {
       descriptor =
-        /* @gate-identity state-store/legacy.fs-053 */
+        /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
         openSync(inputPath, "wx");
     } catch (error) {
       if (isExclusiveCreateConflict(error)) return false;
       throw error;
     }
     try {
-      /* @gate-identity state-store/legacy.fs-054 */
+      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
       writeFileSync(descriptor, value);
       syncDescriptor(descriptor);
       if (syncParents) {
@@ -88,7 +88,7 @@ export const localRuntimeStateFileSystem = {
       }
       return true;
     } finally {
-      /* @gate-identity state-store/legacy.fs-055 */
+      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
       closeSync(descriptor);
     }
   },
@@ -102,51 +102,51 @@ export const localRuntimeStateFileSystem = {
     return stat?.size ?? null;
   },
   mkdirp: (inputPath: string) =>
-    /* @gate-identity state-store/legacy.fs-056 */
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
     mkdirSync(inputPath, { recursive: true }),
   linkExclusive: (fromPath: string, toPath: string): void => {
-    /* @gate-identity state-store/legacy.generation-three-certificate-link */
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
     linkSync(fromPath, toPath);
   },
   modifiedAtMs: (inputPath: string) => statSync(inputPath).mtimeMs,
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
   rename: (fromPath: string, toPath: string) =>
-    /* @gate-identity state-store/legacy.fs-057 */
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
     renameSync(fromPath, toPath),
   remove: (inputPath: string) =>
-    /* @gate-identity state-store/legacy.fs-058 */
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
     rmSync(inputPath, { force: true }),
   syncDirectory: (inputPath: string) => syncDirectories([inputPath]),
   withReadDescriptor: <T>(inputPath: string, use: (descriptor: number) => T): T => {
     const descriptor =
-      /* @gate-identity state-store/legacy.fs-129 */
+      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
       openSync(inputPath, "r");
     try {
       return use(descriptor);
     } finally {
-      /* @gate-identity state-store/legacy.fs-130 */
+      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
       closeSync(descriptor);
     }
   },
   writeExclusiveStream: (inputPath: string, chunks: Iterable<string | Uint8Array>): void => {
     const descriptor =
-      /* @gate-identity state-store/legacy.fs-131 */
+      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
       openSync(inputPath, "wx");
     try {
       for (const chunk of chunks) {
         const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
         for (let offset = 0; offset < bytes.byteLength; )
           offset +=
-            /* @gate-identity state-store/legacy.fs-132 */
+            /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
             writeSync(descriptor, bytes, offset);
       }
     } finally {
-      /* @gate-identity state-store/legacy.fs-133 */
+      /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
       closeSync(descriptor);
     }
   },
   writeText: (inputPath: string, value: string) =>
-    /* @gate-identity state-store/legacy.fs-059 */
+    /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
     writeFileSync(inputPath, value, "utf8"),
 };
 
@@ -169,30 +169,30 @@ export const localContentObjectFileSystem = {
           directory = parent;
           directories.add(directory);
         }
-        /* @gate-identity state-store/legacy.fs-067 */
+        /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
         mkdirSync(path.dirname(entry.path), { recursive: true });
         const temporary = `${entry.path}.${process.pid}.tmp`,
           descriptor =
-            /* @gate-identity state-store/legacy.fs-068 */
+            /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
             openSync(temporary, "w", 0o600);
         temporaryObjects.push({ temporary, target: entry.path });
         try {
-          /* @gate-identity state-store/legacy.fs-069 */
+          /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
           writeSync(descriptor, typeof entry.body === "string" ? Buffer.from(entry.body, "utf8") : entry.body);
           syncDescriptor(descriptor);
         } finally {
-          /* @gate-identity state-store/legacy.fs-071 */
+          /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
           closeSync(descriptor);
         }
       }
       for (const object of temporaryObjects) {
-        /* @gate-identity state-store/legacy.fs-072 */
+        /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
         renameSync(object.temporary, object.target);
       }
       syncDirectories([...directories]);
     } catch (error) {
       for (const object of temporaryObjects) {
-        /* @gate-identity state-store/legacy.fs-110 */
+        /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
         rmSync(object.temporary, { force: true });
       }
       throw error;
@@ -201,7 +201,7 @@ export const localContentObjectFileSystem = {
 };
 
 function syncDescriptor(descriptor: number): void {
-  /* @gate-identity state-store/legacy.fs-070 */
+  /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
   fsyncSync(descriptor);
 }
 
@@ -209,13 +209,13 @@ function syncDirectories(directories: readonly string[]): void {
   if (process.platform !== "win32")
     for (const directoryPath of directories) {
       const directory =
-        /* @gate-identity state-store/legacy.fs-073 */
+        /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
         openSync(directoryPath, "r");
       try {
-        /* @gate-identity state-store/legacy.fs-074 */
+        /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
         fsyncSync(directory);
       } finally {
-        /* @gate-identity state-store/legacy.fs-075 */
+        /* @gate-identity state-store/document.source.kernel.src.local.local-layout-file-system.filesystem-store */
         closeSync(directory);
       }
     }

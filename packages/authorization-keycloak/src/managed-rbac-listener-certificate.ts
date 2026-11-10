@@ -56,9 +56,9 @@ export async function ensureSelfSignedCertificate(
       return { certificateFile, certificateKeyFile };
     }
   }
-  /* @gate-identity state-store/legacy.773f1f24462e0efd */ rmSync(certificateFile, { force: true });
-  /* @gate-identity state-store/legacy.44f16540c48fcc72 */ rmSync(certificateKeyFile, { force: true });
-  /* @gate-identity state-store/legacy.580e80f3650a0879 */ mkdirSync(path.dirname(certificateFile), {
+  /* @gate-identity non-state/environment-io.773f1f24462e0efd */ rmSync(certificateFile, { force: true });
+  /* @gate-identity non-state/environment-io.44f16540c48fcc72 */ rmSync(certificateKeyFile, { force: true });
+  /* @gate-identity non-state/environment-io.580e80f3650a0879 */ mkdirSync(path.dirname(certificateFile), {
     recursive: true,
     mode: 0o700,
   });
@@ -87,8 +87,8 @@ export async function ensureSelfSignedCertificate(
     host.validateCertificateNames(readFileSync(certificateFile), names);
     return { certificateFile, certificateKeyFile };
   } catch (error) {
-    /* @gate-identity state-store/legacy.778729626dd1b40c */ rmSync(certificateFile, { force: true });
-    /* @gate-identity state-store/legacy.8f59e38af283edd1 */ rmSync(certificateKeyFile, { force: true });
+    /* @gate-identity non-state/environment-io.778729626dd1b40c */ rmSync(certificateFile, { force: true });
+    /* @gate-identity non-state/environment-io.8f59e38af283edd1 */ rmSync(certificateKeyFile, { force: true });
     throw Object.assign(
       new Error(
         `Could not create the self-signed login certificate: ${error instanceof Error ? error.message : String(error)}`,
@@ -102,8 +102,8 @@ export async function ensureSelfSignedCertificate(
 
 export function removeSelfSignedCertificate(root: string): void {
   const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root);
-  /* @gate-identity state-store/legacy.0437be7bf65098b0 */ rmSync(certificateFile, { force: true });
-  /* @gate-identity state-store/legacy.64dd2033f7d1c003 */ rmSync(certificateKeyFile, { force: true });
+  /* @gate-identity non-state/environment-io.0437be7bf65098b0 */ rmSync(certificateFile, { force: true });
+  /* @gate-identity non-state/environment-io.64dd2033f7d1c003 */ rmSync(certificateKeyFile, { force: true });
 }
 
 export function publicListener(listener: ManagedRbacListener): Omit<ManagedRbacListener, "certificateKeyFile"> {

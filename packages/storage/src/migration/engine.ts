@@ -151,7 +151,10 @@ export async function migrateStorage(input: StorageMigrationInput) {
   tuples = await source.export(runId);
   const frozenManifest = { ...manifest, tuples };
   validateStorageManifest(frozenManifest);
-  /* @gate-identity state-store/legacy.8ac8f6c093c216e7 */ mkdirSync(input.exportDirectory, { recursive: true });
+  /* @gate-identity state-store/migration.source.storage.src.migration.engine.filesystem-store */ mkdirSync(
+    input.exportDirectory,
+    { recursive: true },
+  );
   if (existsSync(manifestPath))
     assertMigrationValue(
       JSON.parse(readFileSync(manifestPath, "utf8")),

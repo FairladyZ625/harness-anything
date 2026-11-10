@@ -31,7 +31,7 @@ export async function createMigrationGrant(
     predicate = `EXISTS (SELECT 1 FROM ha_migration_grants g WHERE g.role_name=session_user AND g.tenant_id=tenant_id AND g.project_id=project_id AND g.expires_at>clock_timestamp())`;
   await withPostgresTransaction(admin, async (client) => {
     await client.query(
-      /* @gate-identity state-store/legacy.e813aead2b2b141e */ `CREATE TABLE IF NOT EXISTS ha_migration_grants(role_name text NOT NULL, run_id text NOT NULL, tenant_id text NOT NULL, project_id text NOT NULL, expires_at timestamptz NOT NULL, PRIMARY KEY(role_name,tenant_id,project_id))`,
+      /* @gate-identity state-store/migration.source.storage.src.migration.postgres-grant.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_migration_grants(role_name text NOT NULL, run_id text NOT NULL, tenant_id text NOT NULL, project_id text NOT NULL, expires_at timestamptz NOT NULL, PRIMARY KEY(role_name,tenant_id,project_id))`,
     );
     await client.query("ALTER TABLE ha_migration_grants ENABLE ROW LEVEL SECURITY");
     await client.query("ALTER TABLE ha_migration_grants FORCE ROW LEVEL SECURITY");

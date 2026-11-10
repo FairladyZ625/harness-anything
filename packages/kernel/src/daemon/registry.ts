@@ -598,7 +598,10 @@ function invalidDaemonRegistryRepo(value: unknown, entryIndex: number, error: st
 
 function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOptions): void {
   const { userRoot, registryPath } = daemonRegistryPaths(options);
-  /* @gate-identity state-store/legacy.54667d75dc5ab158 */ mkdirSync(userRoot, { recursive: true });
+  /* @gate-identity state-store/runtime-instance.source.kernel.src.daemon.registry.filesystem-store */ mkdirSync(
+    userRoot,
+    { recursive: true },
+  );
   const tempPath = `${registryPath}.${process.pid}.${Date.now()}.tmp`;
   const sorted = sortDaemonRegistry(registry),
     persisted = {
@@ -609,14 +612,20 @@ function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOp
   // pid plus millisecond keeps two concurrent writers off each other's temp; it also means
   // neither will ever reclaim the other's, so a failed write has to remove its own.
   try {
-    /* @gate-identity state-store/legacy.b8fb2c52bb82cd49 */ writeFileSync(
+    /* @gate-identity state-store/runtime-instance.source.kernel.src.daemon.registry.filesystem-store */ writeFileSync(
       tempPath,
       `${JSON.stringify(persisted, null, 2)}\n`,
       "utf8",
     );
-    /* @gate-identity state-store/legacy.52e37f2e4f357432 */ renameSync(tempPath, registryPath);
+    /* @gate-identity state-store/runtime-instance.source.kernel.src.daemon.registry.filesystem-store */ renameSync(
+      tempPath,
+      registryPath,
+    );
   } catch (error) {
-    /* @gate-identity state-store/legacy.f11e5a7eb2d7efec */ rmSync(tempPath, { force: true });
+    /* @gate-identity state-store/runtime-instance.source.kernel.src.daemon.registry.filesystem-store */ rmSync(
+      tempPath,
+      { force: true },
+    );
     throw error;
   }
 }
@@ -816,12 +825,15 @@ function syncConvenienceLink(repo: LocalDaemonRegistryRepo, options: DaemonRegis
   const { reposRoot } = daemonRegistryPaths(options);
   const linkPath = path.join(reposRoot, repo.repoId);
   try {
-    /* @gate-identity state-store/legacy.4f8a4e1ed9076704 */ mkdirSync(reposRoot, { recursive: true });
+    /* @gate-identity state-store/runtime-instance.source.kernel.src.daemon.registry.filesystem-store */ mkdirSync(
+      reposRoot,
+      { recursive: true },
+    );
     if (existsSync(linkPath)) {
       const current = realpathSync.native(linkPath);
       return current === repo.canonicalRoot ? [] : [`repo convenience path already exists: ${linkPath}`];
     }
-    /* @gate-identity state-store/legacy.cccf55060a520484 */ symlinkSync(
+    /* @gate-identity state-store/runtime-instance.source.kernel.src.daemon.registry.filesystem-store */ symlinkSync(
       repo.canonicalRoot,
       linkPath,
       (options.platform ?? process.platform) === "win32" ? "junction" : "dir",
@@ -844,7 +856,10 @@ function removeConvenienceLink(
     const stat = lstatSync(linkPath);
     const current = realpathSync.native(linkPath);
     if (stat.isSymbolicLink() && current === repo.canonicalRoot) {
-      /* @gate-identity state-store/legacy.b20d205bfdb9492f */ rmSync(linkPath, { recursive: true, force: true });
+      /* @gate-identity state-store/runtime-instance.source.kernel.src.daemon.registry.filesystem-store */ rmSync(
+        linkPath,
+        { recursive: true, force: true },
+      );
       return [];
     }
     return [`repo convenience path does not point at registered root: ${linkPath}`];

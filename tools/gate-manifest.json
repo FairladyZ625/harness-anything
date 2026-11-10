@@ -1905,6 +1905,7 @@
         "tools/gates/state-residency.mjs",
         "tools/check-bypass-write-boundary.test.mjs",
         "tools/gate-allowlists/state-residency-baseline.mjs",
+        "tools/gate-allowlists/non-state-io.mjs",
         "tools/gate-allowlists/source-identity.mjs"
       ],
       "authoritySource": [

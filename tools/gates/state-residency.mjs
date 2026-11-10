@@ -172,6 +172,9 @@ function finding(source, rel, node, kind, api) {
   const identity =
     readSourceIdentity(node, source, "state-store") ??
     (node.expression ? readSourceIdentity(node.expression, source, "state-store") : null);
+  const nonStateIdentity =
+    readSourceIdentity(node, source, "non-state") ??
+    (node.expression ? readSourceIdentity(node.expression, source, "non-state") : null);
   const medium =
     kind === "table"
       ? "sqlite-table"
@@ -195,6 +198,7 @@ function finding(source, rel, node, kind, api) {
     start: node.getStart(source),
     scope: scopeName(node, source),
     identity,
+    nonStateIdentity,
     key: identity ?? `${rel}#${scopeName(node, source)}#${api}#${digest}`,
   };
 }

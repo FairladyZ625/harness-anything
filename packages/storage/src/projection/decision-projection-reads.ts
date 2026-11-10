@@ -334,7 +334,10 @@ function listDecisionRowsPageFromIndex(
     legacyValues: (string | number)[] = [...values];
 
   if (filters.legacyId) {
-    const match = /* @gate-identity state-store/legacy.56fd54595fce67d7 */ /^E([1-9][0-9]*)$/u.exec(filters.legacyId);
+    const match =
+      /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-reads.sqlite-database */ /^E([1-9][0-9]*)$/u.exec(
+        filters.legacyId,
+      );
     if (match && decisionLegacyId(`dec_${filters.legacyId}`) === filters.legacyId) {
       legacyWhere.push("legacy_number = ?");
       legacyValues.push(Number(match[1]));
@@ -452,9 +455,10 @@ export function listDecisionAgendaRowsPage(
 }
 
 export function decisionLegacyId(decisionId: string): string | undefined {
-  const match = /* @gate-identity state-store/legacy.4bbb71253e683096 */ /(?:^|_)E([1-9][0-9]*)(?:_|$)/u.exec(
-    decisionId,
-  );
+  const match =
+    /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-reads.sqlite-database */ /(?:^|_)E([1-9][0-9]*)(?:_|$)/u.exec(
+      decisionId,
+    );
   return match ? `E${Number(match[1])}` : undefined;
 }
 

@@ -250,34 +250,39 @@ export const REPOSITORY_READ_TABLES_SQL = `
  */
 export function ensureLeaseTaskActiveColumn(db: DatabaseSync): void {
   if (
-    /* @gate-identity state-store/legacy.de88e5a534f5feeb */ db
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db
       .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='lease_interval'")
       .all().length === 0
   )
     return;
-  const columns = /* @gate-identity state-store/legacy.622e5bc21735d55c */ db
-    .prepare("PRAGMA table_info(lease_interval)")
-    .all() as { name: string }[];
+  const columns =
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db
+      .prepare("PRAGMA table_info(lease_interval)")
+      .all() as { name: string }[];
   if (!columns.some(({ name }) => name === "task_active"))
-    /* @gate-identity state-store/legacy.53c9ea157569a4fc */ db.exec(
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
       "ALTER TABLE lease_interval ADD COLUMN task_active INTEGER NOT NULL DEFAULT 1",
     );
   if (
-    /* @gate-identity state-store/legacy.ea7eecc5f25566c6 */ db
+    /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db
       .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_snapshot'")
       .all().length === 0
   )
     return;
-  /* @gate-identity state-store/legacy.2b126afb8c76e45d */ db.exec(`UPDATE lease_interval SET task_active = 0 WHERE task_active = 1
+  /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(`UPDATE lease_interval SET task_active = 0 WHERE task_active = 1
     AND NOT EXISTS (SELECT 1 FROM task_snapshot WHERE task_snapshot.task_id = lease_interval.task_id AND status = 'active')`);
 }
 
 export function createProjectionTables(db: DatabaseSync): void {
-  /* @gate-identity state-store/legacy.b26ceb2198a2ecd6 */ db.exec(TASK_INDEX_TABLES_SQL);
+  /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
+    TASK_INDEX_TABLES_SQL,
+  );
   ensureWorkspaceTaskCensus(db);
   ensureEventSummaryReadIndexColumns(db);
   ensureLeaseTaskActiveColumn(db);
-  /* @gate-identity state-store/legacy.e90702391acbbc41 */ db.exec(REPOSITORY_READ_TABLES_SQL);
+  /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
+    REPOSITORY_READ_TABLES_SQL,
+  );
   ensureRuntimeMemberIndex(db);
   backfillEventSummaryReadIndex(db);
   catchUpDispatchLifecycle(db);

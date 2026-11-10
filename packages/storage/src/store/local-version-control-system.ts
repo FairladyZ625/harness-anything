@@ -159,12 +159,12 @@ export function installLedgerCommitGuard(repoRoot: string): LedgerCommitGuardRec
         degraded:
           "ledger commit guard not installed: both hooks/pre-commit and hooks/pre-commit.local are occupied by foreign hooks.",
       };
-    /* @gate-identity state-store/legacy.fs-136 */
+    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
     renameSync(hookPath, chainedPath);
   }
-  /* @gate-identity state-store/legacy.fs-137 */
+  /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
   mkdirSync(hooksDir, { recursive: true });
-  /* @gate-identity state-store/legacy.fs-138 */
+  /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
   writeFileSync(hookPath, ledgerCommitGuardHook, { mode: 0o755 });
   return { applied: ["hooks/pre-commit=harness-ledger-commit-guard/v1"], degraded: null };
 }
@@ -683,7 +683,7 @@ export const localGitWorktreeSettlement = Object.freeze({
           ? path.join(repoRoot, ...file.directory.split("/"))
           : path.dirname(path.join(repoRoot, ...file.target.split("/")));
       const create = () => {
-        /* @gate-identity state-store/legacy.fs-076 */
+        /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
         mkdirSync(directory, { recursive: true });
       };
       if ("directory" in file && hooks.withFence) hooks.withFence(create);
@@ -694,10 +694,10 @@ export const localGitWorktreeSettlement = Object.freeze({
       const temporary = path.join(directory, `.ha-visible-${process.pid}-${index}`);
       removeNode(temporary);
       if (file.mode === "120000")
-        /* @gate-identity state-store/legacy.fs-077 */
+        /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
         symlinkSync(linkTarget(file.body), temporary);
       else
-        /* @gate-identity state-store/legacy.fs-084 */
+        /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
         writeFileSync(temporary, file.body, { mode: 0o644 });
       return [{ target, temporary }];
     });
@@ -705,7 +705,7 @@ export const localGitWorktreeSettlement = Object.freeze({
       for (const item of pending) {
         hooks.beforeRename?.();
         const publish = () => {
-          /* @gate-identity state-store/legacy.fs-082 */
+          /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
           renameSync(item.temporary, item.target);
         };
         if (hooks.withFence) hooks.withFence(publish);
@@ -923,14 +923,14 @@ function readNode(target: string): {
 }
 function removeNode(target: string): void {
   try {
-    /* @gate-identity state-store/legacy.fs-081 */
+    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
     unlinkSync(target);
   } catch (error) {
     consumeKnownError(error);
   }
 }
 function removeEmptyDirectory(target: string): void {
-  /* @gate-identity state-store/legacy.fs-134 */
+  /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
   rmdirSync(target);
 }
 // Settlement markers sit beside their target because rename(2) is only atomic
@@ -991,25 +991,25 @@ function hashVcsBytes(algorithm: "sha256", body: string | Uint8Array): string {
 function durableWrite(target: string, body: Uint8Array): void {
   const directory = path.dirname(target),
     temporary = `${target}.tmp-${process.pid}`;
-  /* @gate-identity state-store/legacy.fs-087 */
+  /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
   mkdirSync(directory, { recursive: true });
   const descriptor =
-    /* @gate-identity state-store/legacy.fs-088 */
+    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
     openSync(temporary, "w", 0o600);
   // `.tmp-<pid>` is the same shape as the settlement markers above and the sweep there does
   // not match it, by design: this temporary lands inside the repository worktree, where a
   // pid means nothing to whichever node the bytes reach next. The failing writer clears it.
   try {
     try {
-      /* @gate-identity state-store/legacy.fs-090 */
+      /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
       writeFileSync(descriptor, body);
-      /* @gate-identity state-store/legacy.fs-091 */
+      /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
       fsyncSync(descriptor);
     } finally {
-      /* @gate-identity state-store/legacy.fs-092 */
+      /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
       closeSync(descriptor);
     }
-    /* @gate-identity state-store/legacy.fs-094 */
+    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
     renameSync(temporary, target);
   } catch (error) {
     removeNode(temporary);
@@ -1017,13 +1017,13 @@ function durableWrite(target: string, body: Uint8Array): void {
   }
   if (process.platform === "win32") return;
   const parent =
-    /* @gate-identity state-store/legacy.fs-095 */
+    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
     openSync(directory, "r");
   try {
-    /* @gate-identity state-store/legacy.fs-096 */
+    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
     fsyncSync(parent);
   } finally {
-    /* @gate-identity state-store/legacy.fs-097 */
+    /* @gate-identity state-store/task.source.storage.src.store.local-version-control-system.filesystem-store */
     closeSync(parent);
   }
 }

@@ -61,7 +61,10 @@ const STORE_RESIDENCIES = new Set(["canonical", "runtime-local", "host-local"]);
 const MEDIUM_KINDS = new Set([
   "journal",
   "sqlite-table",
+  "sqlite-database",
   "postgres-table",
+  "postgres-database",
+  "filesystem-store",
   "canonical-event",
   "shared-cache",
   "host-operational",
@@ -127,7 +130,10 @@ function stateAuthorityCoverage(rootDir) {
       const allowedMediumFields = {
         journal: new Set(["kind", "recordSchema"]),
         "sqlite-table": new Set(["kind", "table"]),
+        "sqlite-database": new Set(["kind", "module", "tables"]),
         "postgres-table": new Set(["kind", "table"]),
+        "postgres-database": new Set(["kind", "module", "tables"]),
+        "filesystem-store": new Set(["kind", "module"]),
         "canonical-event": new Set(["kind", "schema", "types", "writers", "payloadField"]),
         "shared-cache": new Set(["kind", "adapter"]),
         "host-operational": new Set(["kind", "recordSchema", "purpose"]),
@@ -164,6 +170,21 @@ function stateAuthorityCoverage(rootDir) {
       findings.push(`${store.id}: journal medium requires recordSchema`);
     if (["sqlite-table", "postgres-table"].includes(store.medium?.kind) && !nonEmptyString(store.medium.table))
       findings.push(`${store.id}: ${store.medium.kind} medium requires table`);
+    if (["sqlite-database", "postgres-database", "filesystem-store"].includes(store.medium?.kind)) {
+      if (!/^packages\/[^/]+\/src\/.+\.[cm]?[jt]sx?$/u.test(String(store.medium.module ?? "")))
+        findings.push(`${store.id}: ${store.medium.kind} medium requires an exact source module`);
+      if (store.role !== "authority" && store.role !== "projection")
+        findings.push(`${store.id}: ${store.medium.kind} medium must be authority or projection`);
+    }
+    if (["sqlite-database", "postgres-database"].includes(store.medium?.kind)) {
+      const tables = store.medium.tables;
+      if (
+        !Array.isArray(tables) ||
+        tables.some((table) => !nonEmptyString(table)) ||
+        new Set(tables).size !== tables.length
+      )
+        findings.push(`${store.id}: ${store.medium.kind} medium requires an explicit unique table list`);
+    }
     if (store.medium?.kind === "shared-cache") {
       if (!/^[^#\s]+#[^#\s]+$/u.test(String(store.medium.adapter ?? "")))
         findings.push(`${store.id}: shared-cache medium requires an exact module#export adapter`);

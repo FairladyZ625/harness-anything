@@ -5,8 +5,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { checkBypassWriteBoundary, scanBypassWriteCalls } from "./check-bypass-write-boundary.mjs";
+import { checkBypassWriteBoundary as runBoundaryCheck, scanBypassWriteCalls } from "./check-bypass-write-boundary.mjs";
 import { auditCacheDriverImports, cacheDriverAdapterCandidates } from "./gates/cache-driver-import-boundary.mjs";
+
+const checkBypassWriteBoundary = (root, options) => runBoundaryCheck(root, { nonStateIoDeclarations: [], ...options });
 
 function fixture(body, relativePath = "packages/demo/src/state-writer.ts") {
   const root = mkdtempSync(path.join(tmpdir(), "state-residency-gate-"));
@@ -134,6 +136,138 @@ test("accepts a registered write, table, and shared-cache adapter", () => {
     const result = checkBypassWriteBoundary(root, { contracts, baseline: [] });
     assert.deepEqual(result.violations, []);
     assert.equal(scanBypassWriteCalls(root).filter((finding) => finding.kind === "cache").length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts a source-bound storage owner only in its registered module and medium", () => {
+  const relativePath = "packages/storage/src/store/owned-database.ts";
+  const root = fixture(
+    [
+      "import { DatabaseSync } from 'node:sqlite';",
+      "const db = /* @gate-identity state-store/demo.sqlite */ new DatabaseSync('state.db');",
+      "/* @gate-identity state-store/demo.sqlite */ db.exec('/* @gate-identity state-store/demo.sqlite */ CREATE TABLE owned_rows (id TEXT)');",
+    ].join("\n"),
+    relativePath,
+  );
+  const contracts = (module, kind = "sqlite-database") => [
+    {
+      kind: "demo",
+      stateStores: [
+        authority("demo.sqlite", { kind, module, ...(kind === "sqlite-database" ? { tables: ["owned_rows"] } : {}) }),
+      ],
+    },
+  ];
+  try {
+    assert.deepEqual(
+      checkBypassWriteBoundary(root, { contracts: contracts(relativePath), baseline: [] }).violations,
+      [],
+    );
+
+    const wrongModule = checkBypassWriteBoundary(root, {
+      contracts: contracts("packages/storage/src/store/other-database.ts"),
+      baseline: [],
+    });
+    assert.ok(wrongModule.violations.some(({ message }) => /does not match declared source module/u.test(message)));
+
+    const wrongMedium = checkBypassWriteBoundary(root, {
+      contracts: contracts(relativePath, "filesystem-store"),
+      baseline: [],
+    });
+    assert.ok(
+      wrongMedium.violations.some(({ message }) => /SQLite API .* does not match declared medium/u.test(message)),
+    );
+
+    const file = path.join(root, relativePath);
+    writeFileSync(
+      file,
+      "import { DatabaseSync } from 'node:sqlite';\nconst db = /* @gate-identity state-store/demo.sqlite */ new DatabaseSync('state.db');\n/* @gate-identity state-store/demo.sqlite */ db.exec('/* @gate-identity state-store/demo.sqlite */ CREATE TABLE rogue_rows (id TEXT)');\n",
+    );
+    const undeclaredTable = checkBypassWriteBoundary(root, { contracts: contracts(relativePath), baseline: [] });
+    assert.ok(
+      undeclaredTable.violations.some(({ message }) => /table rogue_rows does not match declared/u.test(message)),
+    );
+    assert.ok(undeclaredTable.violations.some(({ message }) => /declared database table is stale/u.test(message)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts only a path-bound, reasoned environment I/O declaration", () => {
+  const relativePath = "packages/demo/src/installer.ts";
+  const marker = "environment-io.demo-installer";
+  const root = fixture(
+    [
+      "import { writeFileSync } from 'node:fs';",
+      `/* @gate-identity non-state/${marker} */ writeFileSync('installed.marker', 'ready');`,
+    ].join("\n"),
+    relativePath,
+  );
+  const declaration = {
+    id: marker,
+    path: relativePath,
+    category: "environment-io",
+    api: "writeFileSync",
+    scope: "<module>",
+    reason: "Records an installed tool marker for environment setup, not business workflow state.",
+  };
+  try {
+    assert.deepEqual(
+      checkBypassWriteBoundary(root, {
+        contracts: [],
+        baseline: [],
+        nonStateIoDeclarations: [declaration],
+      }).violations,
+      [],
+    );
+
+    const wrongCategory = checkBypassWriteBoundary(root, {
+      contracts: [],
+      baseline: [],
+      nonStateIoDeclarations: [{ ...declaration, category: "anything-goes" }],
+    });
+    assert.ok(wrongCategory.violations.some(({ message }) => /category must be environment-io/u.test(message)));
+    assert.ok(wrongCategory.violations.some(({ message }) => /non-state I\/O marker is undeclared/u.test(message)));
+
+    const missingReason = checkBypassWriteBoundary(root, {
+      contracts: [],
+      baseline: [],
+      nonStateIoDeclarations: [{ ...declaration, reason: " " }],
+    });
+    assert.ok(missingReason.violations.some(({ message }) => /requires a reason/u.test(message)));
+
+    for (const changed of [
+      { path: "packages/demo/src/another-installer.ts" },
+      { api: "renameSync" },
+      { scope: "otherScope" },
+    ]) {
+      const misplaced = checkBypassWriteBoundary(root, {
+        contracts: [],
+        baseline: [],
+        nonStateIoDeclarations: [{ ...declaration, ...changed }],
+      });
+      assert.ok(misplaced.violations.some(({ message }) => /non-state I\/O marker is undeclared/u.test(message)));
+    }
+
+    writeFileSync(
+      path.join(root, relativePath),
+      `import { DatabaseSync } from 'node:sqlite';\n/* @gate-identity non-state/${marker} */ new DatabaseSync('state.db');\n`,
+    );
+    const disguisedDatabase = checkBypassWriteBoundary(root, {
+      contracts: [],
+      baseline: [],
+      nonStateIoDeclarations: [{ ...declaration, api: "DatabaseSync" }],
+    });
+    assert.ok(disguisedDatabase.violations.some(({ message }) => /non-state I\/O marker is undeclared/u.test(message)));
+
+    writeFileSync(path.join(root, relativePath), "export const noIo = true;\n");
+    const stale = checkBypassWriteBoundary(root, {
+      contracts: [],
+      baseline: [],
+      nonStateIoDeclarations: [declaration],
+    });
+    assert.ok(stale.violations.some(({ message }) => /non-state I\/O declaration is stale/u.test(message)));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

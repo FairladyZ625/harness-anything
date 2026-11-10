@@ -610,7 +610,9 @@ function applyEventProjection(
     );
     for (const change of event.payload.changes) {
       const base = prepareQuery(db, DOCUMENT_BASE_SQL, (sql) =>
-        /* @gate-identity state-store/legacy.fs-011 */ db.prepare(sql),
+        /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+          sql,
+        ),
       ).get(change.path) as Pick<DocumentState, "blobSha256" | "size" | "mediaType" | "policyId"> | undefined;
       if (change.candidate === null) {
         if (
@@ -1017,7 +1019,9 @@ export function reduceBatch(
     const reducedItems = drainDeferred(db, limit, readBlob, true);
     refreshRelationCycleAudit(db);
     const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
-      /* @gate-identity state-store/legacy.fs-001 */ db.prepare(sql),
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+        sql,
+      ),
     ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
     const last = events.at(-1);
     if (
@@ -1052,7 +1056,9 @@ export function catchUpRound(
   const sourceRevision = head?.revision ?? 0;
   const currentWatermark = watermark(db);
   const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
-    /* @gate-identity state-store/legacy.fs-002 */ db.prepare(sql),
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+      sql,
+    ),
   ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
   // A projection apply advances the contiguous watermark without populating the source-scan
   // cursor.  A restored projection can therefore be fully applied at a high watermark while
@@ -1063,7 +1069,9 @@ export function catchUpRound(
   if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
   const hasDeferred =
     prepareQuery(db, "SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1", (sql) =>
-      /* @gate-identity state-store/legacy.fs-003 */ db.prepare(sql),
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+        sql,
+      ),
     ).get(currentWatermark) !== undefined;
   if (batch === null && !hasDeferred)
     return {
@@ -1249,7 +1257,9 @@ function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
   // strict serializer.
   const eventJson = persistedEventJson(event);
   const applied = prepareQuery(db, "SELECT event_json FROM event_index WHERE op_id = ?", (sql) =>
-    /* @gate-identity state-store/legacy.fs-004 */ db.prepare(sql),
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+      sql,
+    ),
   ).get(event.opId) as { readonly event_json: string } | undefined;
   if (applied !== undefined) {
     if (applied.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
@@ -1258,7 +1268,10 @@ function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
   const staged = prepareQuery(
     db,
     "SELECT event_json FROM event_source WHERE op_id = ? OR workspace_revision = ?",
-    (sql) => /* @gate-identity state-store/legacy.fs-005 */ db.prepare(sql),
+    (sql) =>
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+        sql,
+      ),
   ).get(event.opId, event.workspaceRevision) as { readonly event_json: string } | undefined;
   if (staged !== undefined) {
     if (staged.event_json !== eventJson)
@@ -1292,7 +1305,9 @@ function drainDeferred(
     reduced = 0;
   while (reduced < limit) {
     const row = prepareQuery(db, NEXT_DEFERRED_EVENT_SQL, (sql) =>
-      /* @gate-identity state-store/legacy.fs-006 */ db.prepare(sql),
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+        sql,
+      ),
     ).get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
     if (row === undefined) break;
     const event = JSON.parse(row.event_json) as PersistedCanonicalEventV1;
