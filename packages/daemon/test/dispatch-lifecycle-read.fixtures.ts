@@ -74,7 +74,7 @@ export function dispatchLifecycleReadOf(events: () => readonly AgentRuntimeEvent
                 const group = groups.get(query.attemptGroupId);
                 return group === undefined ? [] : [dispatchLifecycleView(group)];
               })()
-          : [];
+            : [];
     return { status: "ready", watermark: 0, sourceRevision: 0, rows, nextCursor: null };
   };
 }
