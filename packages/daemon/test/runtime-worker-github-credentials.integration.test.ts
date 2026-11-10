@@ -342,8 +342,12 @@ test("two repositories sharing one instance publish with distinct refs without a
 });
 
 function successfulRuntimeProcess(onExit?: RuntimeProcess["onExit"]) {
+  const child = spawnSync(process.execPath, ["-e", ""]);
+  if (child.error) throw child.error;
+  assert.ok(child.pid && child.pid > 1, "the stopped runtime fixture must have a child PID");
+  assert.equal(child.status, 0);
   return {
-    pid: process.pid,
+    pid: child.pid,
     onOutput: (listener: (chunk: string) => void) => {
       queueMicrotask(() =>
         listener(

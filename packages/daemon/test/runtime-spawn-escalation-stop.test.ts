@@ -10,6 +10,39 @@ import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { active } from "./runtime-spawn-settlement.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
+test("an unproven self PID rejects settlement without releasing its recovery handle", async () => {
+  let released = false;
+  const runtime = active({
+      process: {
+        pid: process.pid,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => assert.fail("settlement must never stop its own process"),
+        release: () => {
+          released = true;
+        },
+      },
+    }),
+    processes = new Map([[runtime.runtimeSessionId, runtime]]),
+    exiting = new Set<string>(),
+    contextValue = {
+      input: { rootDir: "/unused" },
+      processes,
+      exiting,
+      runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      publishRuntimeEvent: () => assert.fail("an unproven stop cannot publish a terminal event"),
+    } as unknown as RuntimeSpawnerContext;
+  await Promise.all([
+    assert.rejects(publishExit(contextValue, runtime, 0), { code: "runtime_process_group_unproven" }),
+    assert.rejects(publishExit(contextValue, runtime, 0), { code: "runtime_process_group_unproven" }),
+  ]);
+  assert.equal(runtime.exitSettlement, undefined, "a later recovery may retry settlement");
+  assert.equal(exiting.size, 0);
+  assert.equal(processes.get(runtime.runtimeSessionId), runtime);
+  assert.equal(released, false);
+});
+
 for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_release_failed"] as const)
   test(`escalation settlement retries ${stopProofCode} after full tree cleanup`, async (context) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-escalation-tree-stop-")),

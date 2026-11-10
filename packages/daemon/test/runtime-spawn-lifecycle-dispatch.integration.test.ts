@@ -2,7 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -43,6 +43,14 @@ const installation: RuntimeInstallationWitness = {
   version: "1.0.0",
   observedAt: "2026-08-14T00:00:00.000Z",
 };
+
+function exitedChildPid(): number {
+  const child = spawnSync(process.execPath, ["-e", ""]);
+  if (child.error) throw child.error;
+  assert.ok(child.pid && child.pid > 1, "the stopped runtime fixture must have a child PID");
+  assert.equal(child.status, 0);
+  return child.pid;
+}
 
 test("runtime spawn publishes a canonical session and makes it visible in overview", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-"));
@@ -575,7 +583,7 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
       prompt: request.prompt,
     }),
     runtimeLaunch: () => ({
-      pid: process.pid,
+      pid: exitedChildPid(),
       onOutput: () => undefined,
       onErrorOutput: () => undefined,
       onExit: (listener) => {
@@ -911,7 +919,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
         prompt: request.prompt,
       }),
       runtimeLaunch: () => ({
-        pid: process.pid,
+        pid: exitedChildPid(),
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -1073,13 +1081,7 @@ test("runtime dispatch of a planned task is rejected at a full worktable", async
       }),
       runtimeLaunch: () => {
         launchCount += 1;
-        return {
-          pid: process.pid,
-          onOutput: () => undefined,
-          onErrorOutput: () => undefined,
-          onExit: () => undefined,
-          terminate: () => undefined,
-        };
+        assert.fail("a dispatch rejected by the worktable limit must not launch");
       },
     });
     try {

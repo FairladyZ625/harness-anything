@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -131,11 +131,11 @@ for (const fault of ["authorization hold", "HEAD timeout", "HEAD signal"] as con
             cwd: request.cwd,
             prompt: request.prompt,
           }),
-          // No process record: reopening must settle the durable sessions as missing, through the real queue.
+          // The child has stopped without an exit record: reopening must recover through the real queue.
           runtimeLaunch: () => {
             launches += 1;
             return {
-              pid: 2_147_483_647,
+              pid: exitedChildPid(),
               onOutput: () => undefined,
               onErrorOutput: () => undefined,
               onExit: () => undefined,
@@ -280,7 +280,15 @@ if(args[0]==="-C" && args[1]===${JSON.stringify(path.join(rootDir, "runtime-head
   );
 }
 
-test("owner adoption reports process facts through the lifecycle and keeps reservation when center is offline", async () => {
+function exitedChildPid(): number {
+  const child = spawnSync(process.execPath, ["-e", ""]);
+  if (child.error) throw child.error;
+  assert.ok(child.pid && child.pid > 1, "the stopped runtime fixture must have a child PID");
+  assert.equal(child.status, 0);
+  return child.pid;
+}
+
+test("owner adoption checks dead PID before publishing live and preserves live control when publication is offline", async () => {
   for (const alive of [false, true]) {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-owner-evidence-")),
       dispatchId = "dispatch_0123456789abcdef01234567",
