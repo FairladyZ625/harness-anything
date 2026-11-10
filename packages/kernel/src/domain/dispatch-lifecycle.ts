@@ -688,7 +688,13 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
       canRecover:
         group.phase === "closed" &&
         group.attempts.every(
-          ({ fence, stopProof, task }) => fence.verified && stopProof === "proven_stopped" && taskLeaseReleased(task),
+          ({ fence, stopProof, task, outcome }) =>
+            fence.verified &&
+            stopProof === "proven_stopped" &&
+            taskLeaseReleased(task) &&
+            outcome !== null &&
+            outcome !== "succeeded" &&
+            outcome !== "unknown",
         ),
       blockerCode:
         capacityDisposition !== "recovering"

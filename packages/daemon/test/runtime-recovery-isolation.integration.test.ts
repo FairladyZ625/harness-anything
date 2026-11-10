@@ -477,6 +477,14 @@ test("one unresolved recovery does not hold another runtime or the repository wr
       if (active.runtimeSessionId === "runtime-1") second.resolve();
     }, active.binding);
   });
+  Object.assign(context, {
+    publishRuntimeEvent: async (
+      _type: string,
+      _payload: unknown,
+      _opId: string,
+      binding: import("../src/runtime-spawn-types.ts").RuntimeBinding,
+    ) => await work.write(() => undefined, binding),
+  });
   const recovery = work.run(() => adoptRuntimes(context));
   try {
     await second.promise;

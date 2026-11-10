@@ -81,7 +81,14 @@ export async function adoptRuntimes(
     .filter(([id]) => !options?.runtimeSessionId || id === options.runtimeSessionId)
     .map(([runtimeSessionId, initial]) => {
       const existing = pending.get(runtimeSessionId);
-      if (existing && existing.result?.outcome !== "failed") return existing.promise;
+      if (existing && existing.result?.outcome !== "failed") {
+        // A ready recovery is only a deduplication guard while its adopted process is still
+        // owned by this spawner. If terminal publication fails after the process exits, the
+        // process is removed and the next replica confirmation must retry the durable stream;
+        // retaining the old ready promise would make recovery permanently inert.
+        if (existing.result?.outcome !== "ready" || initial.attempt.process === "alive") return existing.promise;
+        pending.delete(runtimeSessionId);
+      }
       let restored = false;
       const dispatchId = initial.attempt.dispatchId;
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
@@ -93,7 +100,11 @@ export async function adoptRuntimes(
             if (lifecycle.status === "pending")
               throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
             const view = lifecycle.rows.find(({ attempt }) => attempt.dispatchId === dispatchId);
-            if (!view) return "settled" as const;
+            if (!view)
+              throw context.runtimeSpawnError(
+                "runtime_recovery_missing_dispatch",
+                "Dispatch is missing from its lifecycle.",
+              );
             if (!view.attempt.fence.verified || view.attempt.fence.owner !== owner) return "foreign" as const;
             const session = context.input.remote
               ? await context.input.remote.readRuntimeSession(runtimeSessionId)
@@ -262,12 +273,13 @@ async function restoreRuntime(
         ...(processPid > 1 ? { processGroupPid: processPid } : {}),
       },
     } as const;
-  await context.publishRuntimeEvent(
-    livenessEvent.type,
-    livenessEvent.payload,
-    `runtime-observation-${stream.header.dispatchId}-${livenessEvent.payload.liveness}`,
-    binding,
-  );
+  if (lifecycle.attempt.process === "unknown")
+    await context.publishRuntimeEvent(
+      livenessEvent.type,
+      livenessEvent.payload,
+      `runtime-observation-${stream.header.dispatchId}-${livenessEvent.payload.liveness}`,
+      binding,
+    );
   if (context.closed?.()) return false;
   const runtimeProcess = adoptNativeProcess(
     context.input.rootDir,

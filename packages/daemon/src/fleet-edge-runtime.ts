@@ -994,6 +994,7 @@ export function openFleetEdgeRuntime(input: {
               });
         if (
           settled.outcome !== "applied" &&
+          settled.outcome !== "no_changes" &&
           settled.code !== "lease_not_found" &&
           settled.code !== "runtime_terminal_superseded"
         )
