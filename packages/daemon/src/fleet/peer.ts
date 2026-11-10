@@ -884,6 +884,11 @@ interface EdgeJoinPinnedAddress {
   readonly timeoutMs?: number;
 }
 
+function edgeJoinServername(hostname: string, override?: string): { servername?: string } {
+  const servername = override || hostname;
+  return isIP(servername.replace(/^\[|\]$/gu, "")) === 0 ? { servername } : {};
+}
+
 /** Status uses the same pinned, pre-session channel as admission, and never carries a credential. */
 export function requestFleetEdgeJoinStatusPinned(
   options: EdgeJoinPinnedAddress & { readonly joinId: string; readonly accessToken: string },
@@ -934,11 +939,7 @@ async function requestEdgeJoinPinned<S extends "fleet.edge.join.result/v1" | "fl
       {
         host: hostname,
         port: options.port,
-        ...(options.servername
-          ? { servername: options.servername }
-          : isIP(hostname) === 0
-            ? { servername: hostname }
-            : {}),
+        ...edgeJoinServername(hostname, options.servername),
         rejectUnauthorized: false,
       },
       () => resolve(candidate),
@@ -983,11 +984,7 @@ export async function probeFleetEdgeCenterAddress(options: {
     const candidate = connect({
       host: hostname,
       port: options.port,
-      ...(options.servername
-        ? { servername: options.servername }
-        : isIP(hostname) === 0
-          ? { servername: hostname }
-          : {}),
+      ...edgeJoinServername(hostname, options.servername),
       rejectUnauthorized: false,
     });
     const unreachable = (cause?: unknown) =>
