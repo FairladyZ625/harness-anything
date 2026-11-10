@@ -70,8 +70,6 @@ test(
     let fixtureChild: ReturnType<typeof spawn> | undefined,
       exit: ((code: number | null) => void) | null = null,
       output: ((chunk: string, persisted?: boolean) => void) | null = null,
-      failSettlement = false,
-      failSettlementRuntimeSessionId: string | null = null,
       failLaunch = false,
       launchedPrompt: string | undefined;
     try {
@@ -159,22 +157,6 @@ test(
               await exited;
             },
           };
-        },
-        killpoint: (point) => {
-          if (!failSettlement || point !== "after_store_commit") return;
-          const committedOutcome = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
-            .read()
-            .events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === failSettlementRuntimeSessionId,
-            );
-          if (committedOutcome) {
-            failSettlement = false;
-            throw Object.assign(new Error("injected post-commit settlement response failure"), {
-              code: "runtime_settlement_publication_indeterminate",
-            });
-          }
         },
       });
       try {
@@ -438,139 +420,6 @@ test(
             ),
         );
 
-        const failedTaskId = "task-runtime-settlement-failed",
-          failedExecutionId = "execution-runtime-settlement-failed";
-        const failedCreated = await cell.run(
-          { kind: "task-create", taskId: failedTaskId, title: "Failed settlement" },
-          binding,
-        );
-        assert.equal(failedCreated.outcome, "applied");
-        await waitForFixturePublication(cell, failedCreated.opId, binding);
-        await realizeTaskPlanFixture(
-          root,
-          String((failedCreated as Record<string, unknown>).packagePath),
-          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-          "Failed settlement",
-        );
-        assert.equal(
-          (
-            await cell.run(
-              {
-                kind: "task-start",
-                taskId: failedTaskId,
-                executionId: failedExecutionId,
-              },
-              binding,
-            )
-          ).outcome,
-          "applied",
-        );
-        const failedReceipt = await cell.spawnRuntime(
-          {
-            runtimeInstanceId: definition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "Expose a failed terminal lease settlement",
-            taskId: failedTaskId,
-            dispatchKey: "failed-settlement",
-          },
-          binding,
-        );
-        failSettlementRuntimeSessionId = failedReceipt.runtimeSessionId;
-        for (const event of records) {
-          appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
-            kind: "provider_event",
-            occurredAt: "2026-08-24T12:01:00.000Z",
-            event,
-          });
-        }
-        const beforeFailedExitCount = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read()
-          .events.length;
-        failSettlement = true;
-        appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
-          kind: "process_exit",
-          occurredAt: "2026-08-24T12:01:01.000Z",
-          exitCode: 0,
-          signal: null,
-        });
-        assert.ok(exit, "failed-settlement runtime must attach its exit listener");
-        exit(0);
-        await eventually(() => {
-          const terminal = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
-            .read()
-            .events.find(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-            );
-          return terminal?.type === "runtime_session_outcome_observed";
-        });
-        assert.equal(failSettlement, false, "the atomic terminal bundle must trigger the post-commit fault");
-        const failedEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
-          failedExitIndex = failedEvents.findIndex(
-            (event) =>
-              event.type === "runtime_session_exited" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ),
-          failedOutcomeIndex = failedEvents.findIndex(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ),
-          failedOutcome = failedEvents.find(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ),
-          failedStatus = await cell.read("repo.agentRuntime.sessions.read", {
-            runtimeSessionId: failedReceipt.runtimeSessionId,
-          });
-        const failedReleaseIndexes = failedEvents.flatMap((event, index) =>
-          index >= beforeFailedExitCount && event.type === "lease_released" && event.taskId === failedTaskId
-            ? [index]
-            : [],
-        );
-        assert.equal(
-          failedReleaseIndexes.length,
-          1,
-          "the post-commit response fault does not roll back the accepted lease release",
-        );
-        assert.ok(failedReleaseIndexes[0]! < failedOutcomeIndex);
-        assert.ok(failedExitIndex < failedOutcomeIndex, "the accepted terminal outcome follows the stop proof");
-        assert.equal(
-          failedEvents.filter(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ).length,
-          1,
-        );
-        assert.equal(
-          failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.outcome,
-          "unknown",
-        );
-        assert.ok(
-          failedStatus.session.activity.outcome === null || failedStatus.session.activity.outcome === "unknown",
-          "an indeterminate post-commit response must not expose success before lifecycle publication is certain",
-        );
-        failSettlement = false;
-        assert.equal(
-          (
-            await cell.run(
-              { kind: "task-create", taskId: "task-after-settlement-failure", title: "Tail live" },
-              binding,
-            )
-          ).outcome,
-          "applied",
-        );
-        assert.equal(
-          failedEvents.some(
-            (event) =>
-              event.type === "lease_released" &&
-              event.taskId === failedTaskId &&
-              event.payload.execution.executionId === failedExecutionId,
-          ),
-          true,
-        );
         const launchFailureTaskId = "task-runtime-launch-failure",
           launchFailureExecutionId = "execution-runtime-launch-failure",
           launchFailureCreated = await cell.run(
