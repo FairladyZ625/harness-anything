@@ -747,6 +747,58 @@ test("an unresolved existing execution client still surfaces its Admin REST conf
   });
 });
 
+test("a stale or differently attributed existing execution client is not reported as issued", async () => {
+  const p = {
+      personId: "person-stale-client",
+      repoId: "repo-stale-client",
+      runtimeSessionId: "runtime-stale-client",
+      dispatchId: "dispatch-stale-client",
+      taskId: null,
+      executionId: null,
+      role: "session" as const,
+      source: "local" as const,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+    cases: readonly [string, (client: { enabled?: boolean; attributes: Record<string, string> }) => void][] = [
+      ["disabled client", (client) => void (client.enabled = false)],
+      [
+        "different execution identity",
+        (client) => {
+          client.attributes.harness_execution = JSON.stringify({
+            ...(JSON.parse(client.attributes.harness_execution as string) as Record<string, unknown>),
+            executionId: "another-execution",
+          });
+        },
+      ],
+      [
+        "expired stored principal",
+        (client) => {
+          client.attributes.harness_execution = JSON.stringify({
+            ...(JSON.parse(client.attributes.harness_execution as string) as Record<string, unknown>),
+            expiresAt: new Date(0).toISOString(),
+          });
+        },
+      ],
+    ];
+  for (const [name, mutate] of cases) {
+    const keycloak = fakeKeycloak(),
+      adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
+    await adapter.issueExecutionCredential("center-token", p);
+    const client = [...keycloak.nodeClients.values()][0]!;
+    mutate(client);
+    await assert.rejects(
+      adapter.issueExecutionCredential("center-token", p),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal((error as Error & { readonly code?: string }).code, "keycloak_admin_rejected");
+        assert.equal((error as Error & { readonly status?: number }).status, 409);
+        return true;
+      },
+      name,
+    );
+  }
+});
+
 test("Admin REST transport failure is infrastructure unavailability, not a policy rejection", async () => {
   const cause = new TypeError("fetch failed", {
     cause: Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }),

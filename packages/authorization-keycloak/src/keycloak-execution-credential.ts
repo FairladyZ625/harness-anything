@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   executionCredentialRejected,
   runtimeExecutionLifetimeMs,
+  stableStringify,
   type RuntimeExecutionPrincipal,
   type AuthorizationProvider,
 } from "@harness-anything/kernel";
@@ -15,6 +16,61 @@ interface ExecutionCenter {
   readonly request: (path: string, init?: RequestInit, allowNotFound?: boolean) => Promise<Response>;
 }
 const clientPrefix = "harness-execution-";
+
+type ExistingExecutionClient = {
+  readonly id?: unknown;
+  readonly clientId?: unknown;
+  readonly enabled?: unknown;
+  readonly attributes?: unknown;
+};
+
+/** Explicit failure values: a failed read is never projected as a successful issuance. */
+const unreadableExecutionClient = Symbol("unreadable-execution-client"),
+  unreadableExecutionPrincipal = Symbol("unreadable-execution-principal"),
+  unreadableExecutionSecret = Symbol("unreadable-execution-secret");
+
+/** The durable identity a stored principal must share with the issuance a retry asks for. */
+const executionIdentityKeys = [
+  "personId",
+  "repoId",
+  "runtimeSessionId",
+  "dispatchId",
+  "taskId",
+  "executionId",
+  "role",
+  "surfaces",
+  "source",
+  "reviewDecisionId",
+  "reviewTaskId",
+] as const;
+
+function storedExecutionPrincipal(
+  attributes: unknown,
+): Record<string, unknown> | null | typeof unreadableExecutionPrincipal {
+  if (typeof attributes !== "object" || attributes === null) return null;
+  const raw = (attributes as { readonly harness_execution?: unknown }).harness_execution;
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return unreadableExecutionPrincipal;
+  }
+}
+
+/** An existing client is only this execution's credential while it is enabled and its principal is live. */
+function sameLiveExecution(stored: Record<string, unknown>, principal: RuntimeExecutionPrincipal): boolean {
+  const expiresAt = typeof stored.expiresAt === "string" ? Date.parse(stored.expiresAt) : Number.NaN;
+  return (
+    Number.isFinite(expiresAt) &&
+    expiresAt > Date.now() &&
+    executionIdentityKeys.every(
+      (key) => stableStringify(stored[key]) === stableStringify((principal as unknown as Record<string, unknown>)[key]),
+    )
+  );
+}
 
 /** The Admin REST create is idempotent per dispatch: an existing client is the same issuance. */
 function executionClientExists(error: unknown): boolean {
@@ -32,29 +88,61 @@ async function createExecutionClient(center: ExecutionCenter, body: Readonly<Rec
   }
 }
 
-/** A retry must hand out the credential the existing client already holds, not the unapplied secret. */
-async function existingExecutionCredential(
+async function findExecutionClient(
   center: ExecutionCenter,
   clientId: string,
-  conflict: unknown,
-): Promise<string> {
+): Promise<ExistingExecutionClient | null | typeof unreadableExecutionClient> {
   try {
     const clients: unknown = await (
-        await center.request(`/clients?clientId=${encodeURIComponent(clientId)}&max=2`)
-      ).json(),
-      client = Array.isArray(clients) && clients.length === 1 ? (clients[0] as { readonly id?: unknown }) : null;
-    if (typeof client?.id !== "string" || client.id.length === 0) throw conflict;
+      await center.request(`/clients?clientId=${encodeURIComponent(clientId)}&max=2`)
+    ).json();
+    return Array.isArray(clients) && clients.length === 1 ? (clients[0] as ExistingExecutionClient) : null;
+  } catch {
+    return unreadableExecutionClient;
+  }
+}
+
+async function readExecutionClientSecret(
+  center: ExecutionCenter,
+  clientId: string,
+): Promise<string | null | typeof unreadableExecutionSecret> {
+  try {
     const secret = (
-      (await (await center.request(`/clients/${encodeURIComponent(client.id)}/client-secret`)).json()) as {
+      (await (await center.request(`/clients/${encodeURIComponent(clientId)}/client-secret`)).json()) as {
         readonly value?: unknown;
       }
     ).value;
-    if (typeof secret !== "string" || secret.length === 0) throw conflict;
-    return `${clientId}:${secret}`;
+    return typeof secret === "string" && secret.length > 0 ? secret : null;
   } catch {
-    // Keep the original Admin REST conflict: the caller must see the status it actually received.
-    throw conflict;
+    return unreadableExecutionSecret;
   }
+}
+
+/** A retry must hand out the credential the existing client already holds, not the unapplied secret. */
+async function existingExecutionCredential(
+  center: ExecutionCenter,
+  principal: RuntimeExecutionPrincipal,
+  conflict: unknown,
+): Promise<string> {
+  const clientId = `${clientPrefix}${principal.dispatchId}`,
+    client = await findExecutionClient(center, clientId);
+  // A stale or differently attributed client is not this execution's credential: fail with the
+  // Admin REST conflict instead of reporting an issuance that cannot authenticate as this run.
+  if (
+    client === null ||
+    client === unreadableExecutionClient ||
+    typeof client.id !== "string" ||
+    client.id.length === 0 ||
+    client.clientId !== clientId ||
+    client.enabled !== true
+  )
+    throw conflict;
+  const stored = storedExecutionPrincipal(client.attributes);
+  if (stored === null || stored === unreadableExecutionPrincipal || !sameLiveExecution(stored, principal))
+    throw conflict;
+  const secret = await readExecutionClientSecret(center, client.id);
+  if (secret === null || secret === unreadableExecutionSecret) throw conflict;
+  return `${clientId}:${secret}`;
 }
 
 /** The center creates a role-less service account; no person's or center's token leaves the daemon. */
@@ -77,7 +165,7 @@ export async function issueRuntimeExecutionCredential(
       optionalClientScopes: [],
       attributes: { harness_execution: JSON.stringify(principal) },
     });
-  if (conflict !== null) return existingExecutionCredential(center, clientId, conflict);
+  if (conflict !== null) return existingExecutionCredential(center, principal, conflict);
   return `${clientId}:${secret}`;
 }
 
