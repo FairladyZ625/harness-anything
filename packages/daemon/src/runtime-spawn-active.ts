@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
@@ -370,7 +371,7 @@ export function attachActiveRuntime(
             await context.publishRuntimeEvent(
               "runtime_session_liveness_changed",
               processObservation,
-              `runtime-observation-${active.dispatchId}-${processObservation.liveness}`,
+              `runtime-observation-${active.dispatchId}-${randomUUID()}`,
               active.binding,
             );
             const lifecycle = await readDispatchLifecycle(context, {

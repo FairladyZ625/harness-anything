@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
   dispatchOwnerForNode,
@@ -290,7 +290,7 @@ async function restoreRuntime(
     await context.publishRuntimeEvent(
       livenessEvent.type,
       livenessEvent.payload,
-      `runtime-observation-${stream.header.dispatchId}-${livenessEvent.payload.liveness}`,
+      `runtime-observation-${stream.header.dispatchId}-${randomUUID()}`,
       binding,
     );
   if (context.closed?.()) return false;
@@ -445,7 +445,7 @@ export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawner
     return;
   }
   const lifecycleReads = await Promise.allSettled(
-    runtimeSessionIds.map((runtimeSessionId) => readDispatchLifecycle(context, { by: "session", runtimeSessionId })),
+    runtimeSessionIds.map(async (id) => readDispatchLifecycle(context, { by: "session", runtimeSessionId: id })),
   );
   const settledRuntimeSessionIds: string[] = [];
   for (const [index, read] of lifecycleReads.entries()) {
