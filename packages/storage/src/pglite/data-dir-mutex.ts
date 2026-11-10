@@ -19,7 +19,7 @@ export function acquirePGliteDirectoryMutex(dataDir: string | undefined) {
   if (dataDir === undefined || (/^[a-z][a-z0-9+.-]*:\/\//iu.test(dataDir) && !dataDir.startsWith("file://")))
     return { proof: undefined, close: () => undefined };
   const path = dataDir.startsWith("file://") ? fileURLToPath(dataDir) : dataDir;
-  /* @gate-identity state-store/migration.source.storage.src.pglite.data-dir-mutex.filesystem-store */ mkdirSync(path, {
+  /* @gate-identity state-store/legacy.9bcd1c8ef3c528d7 */ mkdirSync(path, {
     recursive: true,
   });
   const directory = realpathSync(path),
@@ -29,14 +29,11 @@ export function acquirePGliteDirectoryMutex(dataDir: string | undefined) {
       throw Object.assign(new Error("Embedded database directory owner closed"), { code: "pglite_owner_unavailable" });
     return { proof: parent, close: () => undefined };
   }
-  const database =
-    /* @gate-identity state-store/migration.source.storage.src.pglite.data-dir-mutex.sqlite-database */ new DatabaseSync(
-      `${directory}.harness-owner-lock`,
-    );
+  const database = /* @gate-identity state-store/legacy.2a90d13db9910dfe */ new DatabaseSync(
+    `${directory}.harness-owner-lock`,
+  );
   try {
-    /* @gate-identity state-store/migration.source.storage.src.pglite.data-dir-mutex.sqlite-database */ database.exec(
-      "PRAGMA busy_timeout=0; BEGIN EXCLUSIVE",
-    );
+    /* @gate-identity state-store/legacy.47e5ee2be3d92df3 */ database.exec("PRAGMA busy_timeout=0; BEGIN EXCLUSIVE");
   } catch (error) {
     database.close();
     throw error;

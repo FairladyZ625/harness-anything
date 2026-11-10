@@ -33,10 +33,7 @@ export async function prepareSqlBaseBackup(
   const scope = resolvePostgresEventStoreScope(input.storage.scope),
     payload = path.join(input.directory, "payload"),
     store = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "store", "generations", "3");
-  await /* @gate-identity state-store/execution.source.storage.src.postgres.pg-basebackup.filesystem-store */ mkdir(
-    store,
-    { recursive: true },
-  );
+  await /* @gate-identity state-store/legacy.689f057cda6cd4fe */ mkdir(store, { recursive: true });
   return await withPostgresTransaction(
     pool,
     async (client) => {

@@ -249,23 +249,10 @@ const physicalSourceStoreRows = Object.freeze([
   { owner: "document", module: "packages/storage/src/durable-file.ts", kind: "filesystem-store", role: "authority" },
   {
     owner: "execution",
-    module: "packages/storage/src/fleet-basebackup-worker.ts",
-    kind: "filesystem-store",
-    role: "authority",
-  },
-  {
-    owner: "execution",
     module: "packages/storage/src/fleet-replica-delivery-lease.ts",
     kind: "sqlite-database",
     role: "authority",
     tables: ["delivery_lease", "delivery_metrics"],
-  },
-  {
-    owner: "execution",
-    module: "packages/storage/src/fleet-replica-seed.ts",
-    kind: "sqlite-database",
-    role: "authority",
-    tables: [],
   },
   {
     owner: "execution",
@@ -335,19 +322,6 @@ const physicalSourceStoreRows = Object.freeze([
     tables: ["search", "input", "tokens"],
   },
   {
-    owner: "migration",
-    module: "packages/storage/src/pglite/data-dir-mutex.ts",
-    kind: "filesystem-store",
-    role: "authority",
-  },
-  {
-    owner: "migration",
-    module: "packages/storage/src/pglite/data-dir-mutex.ts",
-    kind: "sqlite-database",
-    role: "authority",
-    tables: [],
-  },
-  {
     owner: "task",
     module: "packages/storage/src/postgres/event-ledger-schema.ts",
     kind: "postgres-database",
@@ -362,12 +336,6 @@ const physicalSourceStoreRows = Object.freeze([
       "ha_replication_positions",
       "ha_replication_slots",
     ],
-  },
-  {
-    owner: "execution",
-    module: "packages/storage/src/postgres/pg-basebackup.ts",
-    kind: "filesystem-store",
-    role: "authority",
   },
   {
     owner: "task",
