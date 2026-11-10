@@ -141,6 +141,7 @@ test("read clients without a physical worker context reuse workers across reposi
       workers++;
       return new Worker(
         `const {parentPort} = require('node:worker_threads');
+        parentPort.postMessage({schema: 'harness-repo-writer-status/v1', protocolVersion: 1, kind: 'attach-progress'});
         parentPort.on('message', request => parentPort.postMessage({
           requestId: request.requestId, outcome: 'ok', value: request.payload.config.repoId
         }));`,
