@@ -273,8 +273,15 @@ test("review dispatch starts over provider-sized evidence and reads every frozen
     // The submit dispatched the reviewer itself; the retry lane is idempotent on the same cut key.
     const dispatched = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] }),
       step = dispatchesOf(dispatched)[0]!;
+    assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
     assert.equal(step.outcome, "already_dispatched", JSON.stringify(step));
     assert.equal(f.launches.length, 1, "the provider accepted the first input");
+    assert.equal(
+      f.events().filter((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer")
+        .length,
+      f.launches.length,
+      "the receipt's one dispatch step matches the one canonical reviewer launch",
+    );
     const { dispatchId, runtimeSessionId } = step as Required<DispatchStep>,
       binding = reviewerExecutionBinding(runtimeSessionId, dispatchId),
       shown = await f.cell().run({ kind: "task-show", taskId }, binding),

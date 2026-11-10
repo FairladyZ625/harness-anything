@@ -699,6 +699,54 @@ test("execution credential Admin REST surfaces a still-rejected 401 refresh once
   assert.equal(refreshCount, 1, "the 401 refresh happens exactly once");
 });
 
+test("execution credential re-issuance for an existing client reuses that client instead of failing on 409", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch),
+    p = {
+      personId: "person-existing-client",
+      repoId: "repo-existing-client",
+      runtimeSessionId: "runtime-existing-client",
+      dispatchId: "dispatch-existing-client",
+      taskId: null,
+      executionId: null,
+      role: "session" as const,
+      source: "local" as const,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+  const first = await adapter.issueExecutionCredential("center-token", p);
+  assert.equal(keycloak.nodeClients.size, 1);
+  // A repeated dispatch of the same cut must not report a failure while the existing client is
+  // already that dispatch's credential: the retry resolves the client instead of creating a second.
+  const second = await adapter.issueExecutionCredential("center-token", p);
+  assert.equal(second, first, "the retry returns the credential the existing client already holds");
+  assert.equal(keycloak.nodeClients.size, 1, "no second client was created for the same dispatch");
+  assert.deepEqual(await adapter.authenticateExecutionCredential("center-token", second), p);
+});
+
+test("an unresolved existing execution client still surfaces its Admin REST conflict", async () => {
+  const adapter = new KeycloakPolicyAdapter(config, async (_url, init) =>
+      init?.method === "POST" ? new Response(null, { status: 409 }) : new Response(null, { status: 404 }),
+    ),
+    p = {
+      personId: "person-unresolved-client",
+      repoId: "repo-unresolved-client",
+      runtimeSessionId: "runtime-unresolved-client",
+      dispatchId: "dispatch-unresolved-client",
+      taskId: null,
+      executionId: null,
+      role: "session" as const,
+      source: "local" as const,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+  await assert.rejects(adapter.issueExecutionCredential("center-token", p), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal((error as Error & { readonly code?: string }).code, "keycloak_admin_rejected");
+    assert.equal((error as Error & { readonly status?: number }).status, 409);
+    assert.match(error.message, /Keycloak Admin REST \/clients returned HTTP 409/u);
+    return true;
+  });
+});
+
 test("Admin REST transport failure is infrastructure unavailability, not a policy rejection", async () => {
   const cause = new TypeError("fetch failed", {
     cause: Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }),
