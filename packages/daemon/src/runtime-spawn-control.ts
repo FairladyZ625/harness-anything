@@ -69,7 +69,8 @@ export async function cancelRuntime(
   const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
   const attempt = lifecycle.rows[0];
-  if (attempt?.policy.attemptSettled) return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
+    return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   if (!owned) {
     const session = context.input.remote
       ? await context.input.remote.readRuntimeSession(runtimeSessionId)
