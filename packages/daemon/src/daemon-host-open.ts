@@ -690,7 +690,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           .schedule;
       if (!schedule || validateScheduleV1(schedule).length)
         throw hostCodedError("invalid_schedule", "Schedule execution requires its canonical creator identity.");
-      const current = await hostBinding(rootDir, { transportKind: "unix-socket" });
+      const current =
+        schedule.spec.target.kind === "builtin" && action.kind === "schedule-settle"
+          ? system
+          : await hostBinding(rootDir, { transportKind: "unix-socket" });
       if (
         schedule.spec.target.kind !== "builtin" &&
         current.actor.principal.personId !== schedule.createdBy.principal.personId
