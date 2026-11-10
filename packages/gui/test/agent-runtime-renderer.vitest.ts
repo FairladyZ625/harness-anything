@@ -403,6 +403,22 @@ describe("agent runtime renderer", () => {
       /type="password"|name="(?:apiKey|credentialRef|token|secret)"|executablePath|\/opt\/runtime-test/u,
     );
   });
+  it("shows the daemon's revoked refresh-token reason and login command verbatim", () => {
+    const revoked = {
+      ...instance,
+      authState: "unauthenticated",
+      authReadiness: {
+        status: "not-ready",
+        code: "runtime_refresh_token_invalid",
+        hint: "Codex refresh token is invalid, revoked, or has expired. Run ha runtime instance login <instance-id> to sign in again.",
+      },
+    } as never;
+    const markup = runtimeCard(revoked);
+    expect(markup).toContain("runtime_refresh_token_invalid");
+    expect(markup).toContain("refresh token is invalid, revoked, or has expired");
+    expect(markup).toContain("ha runtime instance login");
+    expect(markup).not.toContain("did not complete");
+  });
   it("renders ready, not-checked, and unauthenticated as distinct auth states", () => {
     const unchecked = {
       ...claudeInstance,

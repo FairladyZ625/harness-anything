@@ -315,6 +315,9 @@ export async function providerSubscriptionReadiness(
   }
 }
 
+// The provider's rejection is the only place the real cause is visible: `codex login status`
+// can exit 0 while the stored refresh token is already revoked. Keep every Codex readiness
+// classification here; store, GUI, and spawn call sites only read the resulting code + hint.
 function codexProviderRequestReadiness(stdout: string, stderr: string, exitCode: number): RuntimeAuthReadiness {
   const frames = `${stdout}\n${stderr}`.split(/\r?\n/u).flatMap((line) => {
       try {
@@ -349,10 +352,19 @@ function codexProviderRequestReadiness(stdout: string, stderr: string, exitCode:
     messageText = messages.join(" "),
     diagnosticText = `${codeText} ${messageText} ${stdout} ${stderr}`;
 
-  if (/invalid[_ -]?refresh[_ -]?token/iu.test(diagnosticText))
+  const refreshTokenInvalid =
+    /invalid[_ -]?refresh[_ -]?token/iu.test(diagnosticText) ||
+    /refresh[_ -]?token\b[^\n]{0,40}\b(?:revoked|expired|rejected|invalid|already[_ -]?used|retired)\b/iu.test(
+      diagnosticText,
+    ) ||
+    /(?:no|missing)[_ -]refresh[_ -]?token/iu.test(diagnosticText) ||
+    /refresh[_ -]?token[_ -]?data is not available/iu.test(diagnosticText) ||
+    /(?:access[_ -]?)?token could not be refreshed/iu.test(diagnosticText) ||
+    /token refresh not possible/iu.test(diagnosticText);
+  if (refreshTokenInvalid)
     return unavailable(
       "runtime_refresh_token_invalid",
-      "Codex refresh token is invalid. Run ha runtime instance login <instance-id> to sign in again.",
+      "Codex refresh token is invalid, revoked, or has expired. Run ha runtime instance login <instance-id> to sign in again.",
     );
   if (
     statuses.includes(429) ||
@@ -373,6 +385,26 @@ function codexProviderRequestReadiness(stdout: string, stderr: string, exitCode:
     return unavailable(
       "runtime_authentication_failed",
       "Codex rejected the configured credential. Run ha runtime instance login <instance-id> and probe again.",
+    );
+  // A transport failure is not a credential verdict: name the network cause so the user is not
+  // told to sign in again, and leave the instance's authState unknown rather than unauthenticated.
+  if (
+    /network (?:error|failure|unreachable|is unreachable)|connection (?:error|refused|reset|closed|aborted|dropped|lost|failed|terminated|interrupted|timed out|timeout)|failed to connect|socket (?:error|hang ?up|closed)|transport (?:error|failure)|stream (?:disconnected|error|closed)|disconnected before completion|request timed out|fetch failed|getaddrinfo|\b(?:ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)\b/iu.test(
+      diagnosticText,
+    )
+  )
+    return unavailable(
+      "runtime_provider_unreachable",
+      "Codex provider is unreachable (network or transport failure). Check the network connection and retry the probe; the credential was not rejected.",
+    );
+  if (
+    /chatgpt login is required|login is required|not logged in|logged out|not signed in|signed out|no credentials|missing credentials|not authenticated|authentication required|auth required|please (?:log|sign) in|sign in to continue|missing refresh metadata/iu.test(
+      diagnosticText,
+    )
+  )
+    return unavailable(
+      "runtime_subscription_required",
+      "Codex is not signed in. Run ha runtime instance login <instance-id> to sign in again.",
     );
   return unavailable(
     "runtime_auth_probe_failed",
