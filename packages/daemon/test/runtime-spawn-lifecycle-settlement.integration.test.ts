@@ -483,15 +483,15 @@ test(
             event,
           });
         }
+        const beforeFailedExitCount = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read()
+          .events.length;
+        failSettlement = true;
         appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
           kind: "process_exit",
           occurredAt: "2026-08-24T12:01:01.000Z",
           exitCode: 0,
           signal: null,
         });
-        const beforeFailedExitCount = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read()
-          .events.length;
-        failSettlement = true;
         assert.ok(exit, "failed-settlement runtime must attach its exit listener");
         exit(0);
         await eventually(() => {
