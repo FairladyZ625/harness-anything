@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
@@ -225,16 +226,18 @@ test(
       runtimeDiscover: () => [runtimeInstallation],
       runtimeLaunch: (prepared) => {
         launchedPrompts.push(prepared.prompt);
+        const runtime = runtimeProcessFixture(t);
         let output: ((chunk: string) => void) | null = null,
           exit: ((code: number | null) => void) | null = null;
         return {
-          pid: 91234 + launchedPrompts.length,
+          ...runtime,
           onOutput: (listener) => {
             output = listener;
           },
           onErrorOutput: () => undefined,
           onExit: (listener) => {
-            exit = listener;
+            runtime.onExit(listener);
+            exit = runtime.exit;
             queueMicrotask(() => {
               output?.(
                 `${JSON.stringify({ type: "thread.started", thread_id: "causal-edge-provider" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
@@ -242,7 +245,6 @@ test(
               exit?.(0);
             });
           },
-          terminate: () => undefined,
         };
       },
     });

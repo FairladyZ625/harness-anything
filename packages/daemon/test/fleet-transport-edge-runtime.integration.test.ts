@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
@@ -192,6 +193,14 @@ test(
   "remote-edge runtime launches locally while lifecycle and worker progress settle at center",
   { timeout: 60_000 },
   async (t) => {
+    // A different host process group is not evidence about this synthetic provider.
+    const processGroups = new Set<number>(),
+      realKill = process.kill;
+    t.mock.method(process, "kill", (pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid < -1 && !processGroups.has(-pid))
+        throw Object.assign(new Error("unrelated process group denies access"), { code: "EPERM" });
+      return realKill(pid, signal);
+    });
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
     t.after(() => fixture.close());
     const taskReleaseBarrier = fixture.blockTaskRelease();
@@ -277,17 +286,20 @@ test(
       runtimeDiscover: () => [runtimeInstallation],
       runtimeLaunch: (prepared) => {
         launchedEnv = prepared.env;
-        const launchIndex = launchedInstances.push(prepared.definition.instanceId) - 1;
+        const launchIndex = launchedInstances.push(prepared.definition.instanceId) - 1,
+          runtime = runtimeProcessFixture(t);
+        processGroups.add(runtime.pid);
         let output: ((chunk: string) => void) | null = null,
           exit: ((code: number | null) => void) | null = null;
         return {
-          pid: 90210 + launchIndex,
+          ...runtime,
           onOutput: (listener) => {
             output = listener;
           },
           onErrorOutput: () => undefined,
           onExit: (listener) => {
-            exit = listener;
+            runtime.onExit(listener);
+            exit = runtime.exit;
             if (prepared.prompt.includes("Unbound fleet session")) return;
             queueMicrotask(async () => {
               if (launchIndex === 0)
@@ -320,7 +332,6 @@ test(
               exit?.(0);
             });
           },
-          terminate: () => undefined,
         };
       },
     });
@@ -898,14 +909,16 @@ test(
         runtimeDiscover: () => [installation],
         runtimeLaunch: (prepared) => {
           launchedIn.push(prepared.cwd);
+          const runtime = runtimeProcessFixture(t);
           let output: ((chunk: string) => void) | null = null;
           return {
-            pid: 90310,
+            ...runtime,
             onOutput: (listener) => {
               output = listener;
             },
             onErrorOutput: () => undefined,
-            onExit: (exit) => {
+            onExit: (listener) => {
+              runtime.onExit(listener);
               queueMicrotask(() => {
                 // What a worker does in its cwd: change a repository file and commit it.
                 writeFileSync(path.join(prepared.cwd, "delivered.txt"), "delivered\n");
@@ -914,10 +927,9 @@ test(
                 output?.(
                   `${JSON.stringify({ type: "thread.started", thread_id: "edge-worker-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge worker done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
                 );
-                exit(0);
+                runtime.exit(0);
               });
             },
-            terminate: () => undefined,
           };
         },
       });
@@ -1193,11 +1205,9 @@ test(
       },
       ports: scheduleRuntimePorts(),
       launch: () => ({
-        pid: 90210,
+        ...runtimeProcessFixture(t),
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
-        onExit: () => undefined,
-        terminate: () => undefined,
       }),
     });
     fixture.track(() => runtime.close());
