@@ -95,6 +95,38 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
   return { context, events, rootDir };
 }
 
+for (const settlementStartsDuringRead of [false, true]) {
+  test(`recovery leaves an in-flight settlement owned (starts during read=${settlementStartsDuringRead})`, async (t) => {
+    let settlements = 0;
+    const { context, events } = fixture(t, async (active) => {
+      settlements += 1;
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    });
+    // Settlement releases the process and model slot before its terminal publication completes.
+    if (settlementStartsDuringRead) {
+      const projection = context.requiredRuntimeProjection(context.input),
+        readSession = projection.readRuntimeSession.bind(projection);
+      let firstRead = true;
+      projection.readRuntimeSession = (id) => {
+        if (firstRead) context.exiting.add(id);
+        firstRead = false;
+        return readSession(id);
+      };
+      context.requiredRuntimeProjection = () => projection;
+    } else context.exiting.add("runtime-0");
+    const result = await adoptRuntimes(context, undefined, { runtimeSessionId: "runtime-0" });
+    assert.equal(result[0]?.outcome, "ready");
+    assert.equal(context.processes.size, 0, "recovery must not register a second process owner");
+    assert.equal(settlements, 0, "the existing settlement retains exclusive ownership");
+    assert.deepEqual(events, [], "recovery must not publish over the existing settlement");
+
+    context.exiting.delete("runtime-0");
+    assert.equal((await adoptRuntimes(context, undefined, { runtimeSessionId: "runtime-0" }))[0]?.outcome, "settled");
+    assert.equal(settlements, 1, "an interrupted settlement can recover after releasing ownership");
+  });
+}
+
 test("recovery releases its temporary process when the aggregate settles during adoption", async (t) => {
   const { context } = fixture(t, async () => assert.fail("settled attempt must not settle twice"));
   const projection = context.requiredRuntimeProjection(context.input),
