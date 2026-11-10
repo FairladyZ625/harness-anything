@@ -127,7 +127,21 @@ test("quick-gates keeps every gate while typecheck runs alone and the rest share
 test("crlf-checkout runs one partition on PR and merge_group, four on main pushes", () => {
   assert.ok(workflowText.includes("fromJSON('[1]')"), "PR and merge_group expand a single partition");
   assert.ok(workflowText.includes("fromJSON('[1, 2, 3, 4]')"), "main pushes keep four partitions");
-  assert.ok(workflowText.includes("format(' ({0})', matrix.partition)"), "push partitions keep their suffix");
+  const crlfNameLine = workflowText.split("\n").find((line) => line.trimStart().startsWith("name: ${{"));
+  assert.ok(crlfNameLine, "crlf-checkout keeps an explicit job name");
+  // GitHub expressions treat '' as falsy, so `condition && '' || format(...)` returns the suffix.
+  // Run 42808598997 measured exactly that: the PR check run was `crlf-checkout (1)`, not the
+  // required `crlf-checkout`. Keep the PR branch a non-empty literal and reject the old shape.
+  assert.doesNotMatch(
+    crlfNameLine,
+    /&&\s*''\s*\|\|/u,
+    "an empty-string PR branch is falsy and falls through to the partition suffix",
+  );
+  assert.match(
+    crlfNameLine,
+    /&&\s*'crlf-checkout'\s*\|\|\s*format\('crlf-checkout \(\{0\}\)', matrix\.partition\)/u,
+    "pull_request and merge_group render exactly crlf-checkout; pushes keep the partition suffix",
+  );
   assert.equal(manifest.surfaces.branchProtection.requiredContexts.includes("crlf-checkout"), true);
   assert.equal(
     manifest.surfaces.branchProtection.requiredContexts.some((context) => context.startsWith("crlf-checkout (")),

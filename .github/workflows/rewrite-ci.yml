@@ -226,7 +226,10 @@ jobs:
     # four partitions ran the same ~17s gate four times (#4483, run 42582000398). PR and merge_group
     # now expand one partition; main pushes keep all four so the fast/contract partitions still run
     # under core.autocrlf=true. The required context follows the PR name, `crlf-checkout`.
-    name: crlf-checkout${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && '' || format(' ({0})', matrix.partition) }}
+    # GitHub expressions treat '' as falsy, so `condition && '' || format(...)` falls through to
+    # the suffix on every event. The PR branch must be a non-empty literal; run 42808598997
+    # proved the old shape produced `crlf-checkout (1)` instead of the required `crlf-checkout`.
+    name: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'crlf-checkout' || format('crlf-checkout ({0})', matrix.partition) }}
     needs: install
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
     runs-on: ubuntu-latest
