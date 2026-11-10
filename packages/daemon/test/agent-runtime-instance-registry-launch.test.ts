@@ -680,6 +680,117 @@ test("subscription probes distinguish a rejected status command from an unspawna
   }
 });
 
+// `codex exec` refuses to run outside a trusted git work tree unless told otherwise, and the
+// probe's cwd is the instance directory (deliberately not a repository). The probe argv — and
+// only the probe argv — carries the opt-out; a dispatch always runs in a git worktree and must
+// keep the unmodified launch contract.
+test("a codex auth probe opts out of the git work tree requirement without changing dispatch argv", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-probe-worktree-")),
+    recordFile = path.join(root, "probe.json"),
+    executablePath = writeProviderExecutable(
+      path.join(root, "codex"),
+      `const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "login") { console.log("Logged in using ChatGPT"); process.exit(0); }
+if (args[0] === "exec") {
+  fs.writeFileSync(${JSON.stringify(recordFile)}, JSON.stringify({ args, cwd: process.cwd() }));
+  console.log(JSON.stringify({ type: "turn.completed" }));
+  process.exit(0);
+}
+process.exit(9);
+`,
+    ),
+    installation: RuntimeInstallationWitness = {
+      ...observed,
+      installationId: "codex-probe-worktree",
+      executablePath,
+    };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot: root, discover: () => [installation] });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-probe-worktree",
+      name: "Codex probe worktree",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      isolationState: "enforced",
+      codex: {},
+      auth: { mode: "subscription" },
+    });
+    assert.deepEqual(await store.authStatus("codex-probe-worktree"), {
+      status: "ready",
+      code: null,
+      hint: null,
+      basis: "provider",
+    });
+    const probe = JSON.parse(readFileSync(recordFile, "utf8")) as { readonly args: string[]; readonly cwd: string };
+    assert.equal(probe.args.at(-1), "-");
+    assert.equal(probe.args.at(-2), "--skip-git-repo-check");
+    assert.equal(probe.cwd, path.join(root, "runtime-instances", "codex-probe-worktree"));
+    const launch = await store.prepareLaunch("codex-probe-worktree", {
+      cwd: root,
+      prompt: "Reply with exactly READY.",
+      permissionMode: "read-only",
+    });
+    assert.equal(launch.args.includes("--skip-git-repo-check"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// A refusal from the probe's own cwd is a workspace verdict, not a credential verdict: the
+// login may be valid while the probe dir is not a git repository, so the GUI must get a code
+// that names the workspace instead of the generic runtime_auth_probe_failed.
+test("a codex probe refusal from an untrusted directory maps to a workspace error", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-probe-untrusted-")),
+    executablePath = writeProviderExecutable(
+      path.join(root, "codex"),
+      `if (process.argv[2] === "login") { console.log("Logged in using ChatGPT"); process.exit(0); }
+if (process.argv[2] === "exec") {
+  console.error("Not inside a trusted directory and --skip-git-repo-check was not specified.");
+  process.exit(1);
+}
+process.exit(9);
+`,
+    ),
+    installation: RuntimeInstallationWitness = {
+      ...observed,
+      installationId: "codex-probe-untrusted",
+      executablePath,
+    };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot: root, discover: () => [installation] });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-probe-untrusted",
+      name: "Codex probe untrusted",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      isolationState: "enforced",
+      codex: {},
+      auth: { mode: "subscription" },
+    });
+    const readiness = await store.authStatus("codex-probe-untrusted");
+    assert.equal(readiness.status, "not-ready");
+    assert.equal(readiness.code, "runtime_probe_workspace_untrusted");
+    assert.match(readiness.hint ?? "", /--skip-git-repo-check/u);
+    assert.equal(
+      (await store.command({ kind: "runtime-instance-show", instanceId: "codex-probe-untrusted" })).instance?.authState,
+      "unknown",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // A provider whose shutdown handler exits non-zero when the probe deadline SIGTERMs it
 // mid-run (agy's measured shape: the fetch itself succeeds past the deadline) must read
 // as a probe that never finished, never as "subscription authentication unavailable".
