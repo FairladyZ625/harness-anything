@@ -13,8 +13,11 @@ import {
 import {
   assignIntegrationTestShards,
   defaultIntegrationTestWeightMs,
+  estimateIntegrationShardWallMs,
   integrationFileBudgetMs,
   integrationShardCount,
+  integrationShardWallSpreadBudgetMs,
+  integrationTestFileWeightsMs,
   integrationWeightOverruns,
   validateIntegrationTestShards,
 } from "./integration-test-shards.mjs";
@@ -34,6 +37,48 @@ test("integration shard declaration is non-overlapping and complete", () => {
   );
   assert.equal(result.summaries.length, integrationShardCount);
   assert.ok(result.summaries.every((summary) => summary.files > 0));
+});
+
+test("integration shard estimated wall spread stays inside the balance budget", () => {
+  const result = checkIntegrationTestShards();
+  assert.equal(result.ok, true, result.errors.join("\n"));
+  const estimatedWalls = result.summaries.map((summary) => summary.estimatedWallMs);
+  const spread = Math.max(...estimatedWalls) - Math.min(...estimatedWalls);
+  assert.ok(
+    spread <= integrationShardWallSpreadBudgetMs,
+    `estimated wall spread ${spread}ms exceeds ${integrationShardWallSpreadBudgetMs}ms: ${estimatedWalls.join(", ")}`,
+  );
+});
+
+test("each shard hands files over heavy-first so a late large file cannot extend the tail", () => {
+  const result = checkIntegrationTestShards();
+  const shards = assignIntegrationTestShards(result.derivedFiles);
+  for (const shard of shards) {
+    const weights = shard.files.map((file) => integrationTestFileWeightsMs[file] ?? defaultIntegrationTestWeightMs);
+    assert.deepEqual(
+      weights,
+      [...weights].sort((left, right) => right - left),
+      `shard ${shard.id} must return the heaviest file first`,
+    );
+  }
+});
+
+test("the wall estimate follows hand-over order: heavy-first removes a late-file tail", () => {
+  const weights = {
+    "a1.test.mjs": 50_000,
+    "a2.test.mjs": 50_000,
+    "a3.test.mjs": 50_000,
+    "a4.test.mjs": 50_000,
+    "z-heavy.test.mjs": 100_000,
+  };
+  const alphabetical = ["a1.test.mjs", "a2.test.mjs", "a3.test.mjs", "a4.test.mjs", "z-heavy.test.mjs"];
+  const heavyFirst = [...alphabetical].sort((left, right) => weights[right] - weights[left]);
+  assert.equal(estimateIntegrationShardWallMs(alphabetical, weights), 150_000);
+  assert.equal(estimateIntegrationShardWallMs(heavyFirst, weights), 100_000);
+  assert.ok(
+    estimateIntegrationShardWallMs(alphabetical, weights) - estimateIntegrationShardWallMs(heavyFirst, weights) >
+      integrationShardWallSpreadBudgetMs,
+  );
 });
 
 test("new integration tests are assigned without manifest or shard registration", () => {
@@ -432,10 +477,20 @@ test("a file over the per-file budget needs a recorded exception, and a stale ex
     (_, index) => `tools/${String.fromCharCode(97 + index)}.test.mjs`,
   );
   const weights = { "tools/a.test.mjs": integrationFileBudgetMs + 100 };
-  const unexplained = validateIntegrationTestShards(files, weights);
+  // One 180s file and one 10s file per shard is inherently unbalanced; this test is about the
+  // per-file exception, so it lifts the balance ceiling and leaves it to the dedicated spread test.
+  const unbalancedFixture = { wallSpreadBudgetMs: Number.MAX_SAFE_INTEGER };
+  const unexplained = validateIntegrationTestShards(files, weights, unbalancedFixture);
   assert.match(unexplained.errors.join("\n"), /over the \d+ms per-file budget .*tools\/a\.test\.mjs/u);
-  assert.equal(validateIntegrationTestShards(files, weights, { overBudgetFiles: ["tools/a.test.mjs"] }).ok, true);
+  assert.equal(
+    validateIntegrationTestShards(files, weights, {
+      ...unbalancedFixture,
+      overBudgetFiles: ["tools/a.test.mjs"],
+    }).ok,
+    true,
+  );
   const stale = validateIntegrationTestShards(files, weights, {
+    ...unbalancedFixture,
     overBudgetFiles: ["tools/a.test.mjs", "tools/b.test.mjs"],
   });
   assert.deepEqual(stale.errors, [

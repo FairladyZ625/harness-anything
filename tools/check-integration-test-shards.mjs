@@ -405,7 +405,9 @@ function main() {
     `integration shard check passed: current=${result.currentCount} previous=${previous} delta=${delta} shards=${result.summaries.length} workflowShards=[${result.workflowShards.join(", ")}] requiredContexts=[${result.requiredContexts.join(", ")}]`,
   );
   for (const summary of result.summaries) {
-    console.log(`shard ${summary.id}: files=${summary.files} estimatedMs=${summary.estimatedMs.toFixed(1)}`);
+    console.log(
+      `shard ${summary.id}: files=${summary.files} estimatedMs=${summary.estimatedMs.toFixed(1)} estimatedWallMs=${summary.estimatedWallMs.toFixed(1)}`,
+    );
   }
 }
 

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
+import { parseManifestGateArgs, selectManifestGateIds } from "../../run-manifest-gates.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "../../..");
 // The crlf-checkout lane materialises this workflow with CRLF line endings; normalise once so
@@ -68,7 +69,10 @@ test("CH2 keeps required path gates green when their expensive step is not selec
     workflowText,
     /G38_REQUIRED_BACKENDS: \$\{\{ github\.event_name == 'pull_request' && needs\.install\.outputs\.costBudgetReads == 'false' && 'pglite' \|\| 'pglite,sqlite' \}\}/u,
   );
-  assert.match(workflowText, /run: node tools\/run-manifest-gates\.mjs --workflow-job quick-gates --github-groups/u);
+  assert.match(
+    workflowText,
+    /run: node tools\/run-manifest-gates\.mjs --workflow-job quick-gates --github-groups --parallel 4 --exclude typecheck/u,
+  );
 });
 
 test("CH4 assigns all twelve light gates to the serial quick-gates runner", () => {
@@ -94,6 +98,43 @@ test("CH4 assigns all twelve light gates to the serial quick-gates runner", () =
   for (const retiredJob of ["typecheck", "lint", "supply-chain", "dependency-policy", "test-selection"]) {
     assert.equal(workflow.has(retiredJob), false, `${retiredJob} no longer creates a standalone PR job`);
   }
+});
+
+test("quick-gates keeps every gate while typecheck runs alone and the rest share a four-worker pool", () => {
+  const start = workflowText.indexOf("  quick-gates:"),
+    end = workflowText.indexOf("\n  fast-contract:", start),
+    section = workflowText.slice(start, end);
+  assert.match(section, /- name: Typecheck before the parallel gate pool\n\s+run: npm run typecheck/u);
+  const runner = /run: node tools\/run-manifest-gates\.mjs --workflow-job quick-gates ([^\n]+)/u.exec(section);
+  assert.ok(runner, "quick-gates must keep one manifest-runner invocation");
+  assert.match(runner[1], /--parallel 4/u);
+  assert.match(runner[1], /--exclude typecheck/u);
+  assert.ok(
+    section.indexOf("npm run typecheck") < section.indexOf("--workflow-job quick-gates"),
+    "typecheck must finish before the pool starts",
+  );
+
+  const options = parseManifestGateArgs(["--workflow-job", "quick-gates", ...runner[1].trim().split(/\s+/u)]);
+  options.eventName = "pull_request";
+  const executed = [...selectManifestGateIds(manifest, options), "typecheck"].sort();
+  const declared = manifest.gates
+    .filter((gate) => gate.executionSurfaces.rewriteCi.pullRequestJobs.includes("quick-gates"))
+    .map((gate) => gate.id)
+    .sort();
+  assert.deepEqual(executed, declared, "the separate typecheck step plus the pool cover the same gate set as before");
+});
+
+test("crlf-checkout runs one partition on PR and merge_group, four on main pushes", () => {
+  assert.ok(workflowText.includes("fromJSON('[1]')"), "PR and merge_group expand a single partition");
+  assert.ok(workflowText.includes("fromJSON('[1, 2, 3, 4]')"), "main pushes keep four partitions");
+  assert.ok(workflowText.includes("format(' ({0})', matrix.partition)"), "push partitions keep their suffix");
+  assert.equal(manifest.surfaces.branchProtection.requiredContexts.includes("crlf-checkout"), true);
+  assert.equal(
+    manifest.surfaces.branchProtection.requiredContexts.some((context) => context.startsWith("crlf-checkout (")),
+    false,
+  );
+  const gate = manifest.gates.find((candidate) => candidate.id === "check-poll-spin-boundary");
+  assert.deepEqual(gate.githubContext.requiredContexts, ["crlf-checkout"]);
 });
 
 test("CH3 leaves the required PR evidence lanes intact", () => {

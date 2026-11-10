@@ -7,6 +7,7 @@ import {
   buildManifestGatePlan,
   parseManifestGateArgs,
   runManifestGatePlan,
+  runManifestGatePlanParallel,
   selectManifestGateIds,
   shouldSkipTestQuarantine,
 } from "./run-manifest-gates.mjs";
@@ -36,6 +37,51 @@ test("manifest gate runner can group each quick-gate command for GitHub logs", (
   }
   assert.deepEqual(lines, ["ran:typecheck", "ran:lint"]);
   assert.deepEqual(logged, ["::group::typecheck", "::endgroup::", "::group::lint", "::endgroup::"]);
+});
+
+test("manifest gate runner parses a positive --parallel value", () => {
+  assert.equal(parseManifestGateArgs(["--workflow-job", "quick-gates", "--parallel", "4"]).parallel, 4);
+  assert.throws(
+    () => parseManifestGateArgs(["--workflow-job", "quick-gates", "--parallel", "0"]),
+    /--parallel must be a positive integer/u,
+  );
+});
+
+test("manifest gate runner keeps a bounded pool and reports every failure in plan order", async () => {
+  const started = [];
+  const releases = [];
+  let active = 0;
+  let maxActive = 0;
+  const resultPromise = runManifestGatePlanParallel([{ id: "a" }, { id: "b" }, { id: "c" }], {
+    concurrency: 2,
+    execute: (entry) => {
+      started.push(entry.id);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      return new Promise((resolve) => {
+        releases.push(() => {
+          active -= 1;
+          resolve({ ok: entry.id !== "b" });
+        });
+      });
+    },
+  });
+
+  assert.deepEqual(started, ["a", "b"], "the pool starts exactly its concurrency limit");
+  assert.equal(maxActive, 2);
+  releases.shift()();
+  for (let turn = 0; turn < 10 && started.length < 3; turn += 1) await Promise.resolve();
+  assert.deepEqual(started, ["a", "b", "c"], "a finished worker takes the next gate");
+  while (releases.length > 0) releases.shift()();
+
+  const result = await resultPromise;
+  assert.deepEqual(
+    result.results.map((entry) => entry.id),
+    ["a", "b", "c"],
+    "results stay in plan order even when the pool finishes out of order",
+  );
+  assert.deepEqual(result.failedGateIds, ["b"]);
+  assert.equal(maxActive, 2);
 });
 
 test("manifest gate runner appends shard args only to shardable gates", () => {
