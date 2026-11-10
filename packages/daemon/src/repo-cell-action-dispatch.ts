@@ -52,6 +52,7 @@ import { readWork } from "./work-read.ts";
 import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
 import { parseRulingArtifact, runtimeRulingPath, runtimeRulingResolutionPath } from "./runtime-ruling.ts";
+import { squadRulingResumeNext } from "./squad-ruling-resume.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -645,11 +646,24 @@ async function resolveTaskEscalation(
     });
   }
   const transitioned = await cell.lifecycleAction(
-    { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
-    binding,
-  );
+      { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
+      binding,
+    ),
+    escalatedDispatch = cell.projection.readRuntimeDispatchById(dispatchId)?.event,
+    // A leader turn owns its ruling. The answered task is planned, but its old execution is
+    // consumed: the run can only continue as a new Squad run under the execution `ha task start`
+    // opens next, so the receipt names that continuation instead of leaving the operator to bridge
+    // it by hand.
+    squadResume = squadRulingResumeNext({
+      runs: cell.projection.readSquadRuns(),
+      dispatchId,
+      runtimeInstanceId:
+        escalatedDispatch?.type === "runtime_dispatch_requested" ? escalatedDispatch.payload.instanceId : null,
+    }),
+    next = Array.isArray(transitioned.next) ? transitioned.next : [];
   return {
     ...transitioned,
+    ...(squadResume === null ? {} : { next: [...next, squadResume] }),
     evidence: JSON.stringify({ answer, dispatchId, artifact: artifact?.evidence ?? null, retried: artifact === null }),
   };
 }

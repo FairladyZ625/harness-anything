@@ -101,6 +101,47 @@ export function resultText(resultRef: string | null | undefined, readResult: (re
   return readResult(resultRef);
 }
 
+/**
+ * Why a still-active run whose own subject lapsed can never advance again: no leader turn or worker
+ * can be admitted, so the last running phase must not stay published once nothing is in flight. This
+ * derives only from the leader-turn and dispatch facts already read for the run — a live dispatch
+ * keeps the current phase true, and the first terminal fact after the subject is gone is the end.
+ */
+export function abandonedSquadRunError(
+  state: SquadState,
+  rows: readonly TaskDispatchRow[],
+  runningWorkers: boolean,
+): string | null {
+  const currentLeaderRuntimeSessionId = state.currentLeaderRuntimeSessionId;
+  if (currentLeaderRuntimeSessionId !== null) {
+    const leader = rows.find((row) => row.runtimeSessionId === currentLeaderRuntimeSessionId);
+    if (leader === undefined || leader.outcome === null) return null;
+  } else if (runningWorkers) return null;
+  const task = squadTaskRef(state),
+    lastTurn = state.leaderTurns.at(-1),
+    lastRow =
+      lastTurn === undefined ? undefined : rows.find((row) => row.runtimeSessionId === lastTurn.runtimeSessionId),
+    ended =
+      lastTurn === undefined
+        ? "its initial leader turn never started"
+        : `leader turn ${lastTurn.turnId} ended ${lastRow?.outcome ?? lastRow?.status ?? "without a dispatch row"}`,
+    ruling =
+      lastRow?.classification === "awaiting_ruling" && lastRow.ruling
+        ? ` while waiting for an owner ruling; answer it with ha task escalation resolve ${task?.taskId ?? "<task-id>"} ` +
+          `--dispatch-id ${lastRow.dispatchId} --answer "<answer>"`
+        : "";
+  if (task === null)
+    return (
+      `Squad run ${state.squadRunId} can no longer resume: its schedule occurrence claim is no longer current, ` +
+      `and ${ended}${ruling}. The Schedule admits the next occurrence as a new run.`
+    );
+  return (
+    `Squad run ${state.squadRunId} can no longer resume: task ${task.taskId} execution ${task.executionId} is no ` +
+    `longer current, and ${ended}${ruling}. Resume with ha task start ${task.taskId}, then ` +
+    `ha squad run ${state.squadId} --instance ${state.runtimeInstanceId ?? "<runtime-instance-id>"} --task ${task.taskId}.`
+  );
+}
+
 export function convergenceError(
   state: SquadState,
   decision: Extract<LeaderDecision, { readonly kind: "converged" }>,
