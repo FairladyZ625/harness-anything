@@ -229,13 +229,13 @@ export async function cancelRuntime(
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       },
     };
+    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
     await context.publishRuntimeEvent(
       "runtime_session_exited",
       { runtimeSessionId },
       `${opId}-exited`,
       terminalBinding,
     );
-    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
     if (matchingHeader?.taskId && matchingHeader.executionId) {
       const settlement = await context.input.onAttemptTerminal?.({
         runtimeSessionId,

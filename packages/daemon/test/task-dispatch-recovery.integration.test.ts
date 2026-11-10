@@ -179,15 +179,17 @@ test("a stopped dispatch is recovered once through the fenced compare-and-dispat
           await outcomeObserved(runtimeSessionId);
         },
         outcomeObserved = async (runtimeSessionId: string) => {
-          await eventually(() =>
-            makeTaskEventReader({ repoId, rootDir: root })
-              .read()
-              .events.some(
-                (event) =>
-                  event.type === "runtime_session_outcome_observed" &&
-                  event.payload.runtimeSessionId === runtimeSessionId,
-              ),
-          );
+          await eventually(async () => {
+            const outcomeAccepted = makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.some(
+                  (event) =>
+                    event.type === "runtime_session_outcome_observed" &&
+                    event.payload.runtimeSessionId === runtimeSessionId,
+                ),
+              task = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, ceo)).evidence));
+            return outcomeAccepted && !task.lease;
+          });
         };
 
       const created = await cell.run(
