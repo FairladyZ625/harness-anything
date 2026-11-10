@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
@@ -20,7 +19,6 @@ import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import {} from "./schedule-actions.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { evidence } from "./task-surface.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
@@ -355,9 +353,10 @@ test(
           fixture.auth,
         )
       ).session.activity.outcome;
-    await waitForArrival(
-      async () => (await outcomeOf(explicit.runtimeSessionId)) ?? null,
-      watchLedgerArrival(fixture.repo),
+    await fixture.host.awaitRuntimeSessions(
+      fixture.subject.repoId,
+      { runtimeSessionIds: [String(explicit.runtimeSessionId)] },
+      { ...fixture.auth, connectionSignal: t.signal },
     );
     // dec_614F7BBB18C8687E7EFC72173D: normal exit with final output and no submitted delivery is stopped.
     assert.equal(await outcomeOf(explicit.runtimeSessionId), "stopped", JSON.stringify(fixture.runtimeArchiveReceipts));
@@ -405,10 +404,12 @@ test(
     assert.ok(taskBoundPrompt.includes(`revision=${parentVersion[1]}; sha256=${parentVersion[2]}`));
     assert.ok(taskBoundPrompt.includes(`decision/${decisionId}/CH1; state=in_effect`));
     // The second dispatch settles against the center too: teardown must not close the center under it.
-    await waitForArrival(
-      async () => (await outcomeOf(taskBound.runtimeSessionId)) ?? null,
-      watchLedgerArrival(fixture.repo),
+    await fixture.host.awaitRuntimeSessions(
+      fixture.subject.repoId,
+      { runtimeSessionIds: [String(taskBound.runtimeSessionId)] },
+      { ...fixture.auth, connectionSignal: t.signal },
     );
+    assert.notEqual(await outcomeOf(taskBound.runtimeSessionId), null, "the center published the terminal outcome");
     const superseded = await fixture.host.run(
       fixture.subject.repoId,
       {

@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot, type IdentitySessionPort } from "@harness-anything/kernel";
@@ -411,20 +410,21 @@ test(
       );
     assert.deepEqual(settlingEvents, [], "edge must not publish exited while center settlement is pending");
     taskReleaseBarrier.release();
-    const waitForOutcome = async (runtimeSessionId: unknown) =>
-      await waitForArrival(async () => {
-        try {
-          const candidate = await fixture.host.read(
-            fixture.subject.repoId,
-            "repo.agentRuntime.sessions.read",
-            { runtimeSessionId },
-            fixture.auth,
-          );
-          return candidate.session.activity.outcome !== null ? candidate : null;
-        } catch {
-          return null;
-        }
-      }, watchLedgerArrival(fixture.repo));
+    // A WAL write notification can precede SQLite commit visibility. Join the daemon's
+    // post-publication runtime signal instead of treating a filesystem event as that signal.
+    const waitForOutcome = async (runtimeSessionId: unknown) => {
+      await fixture.host.awaitRuntimeSessions(
+        fixture.subject.repoId,
+        { runtimeSessionIds: [String(runtimeSessionId)] },
+        { ...fixture.auth, connectionSignal: t.signal },
+      );
+      return fixture.host.read(
+        fixture.subject.repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId },
+        fixture.auth,
+      );
+    };
     // The mocked repo-root worker makes no delivery the edge could witness, so its settlement
     // stays stopped; a zero exit plus a result reference does not imply delivery.
     assert.equal(

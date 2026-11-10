@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -479,9 +479,7 @@ async function waitForReceiptCommit(
 ): Promise<void> {
   const rootDir = host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
   if (rootDir === undefined) throw new Error(`repository ${repoId} is not loaded`);
-  await waitForArrival(
-    async () =>
-      typeof (await host.run(repoId, { kind: "receipt-show", opId }, binding)).commitSha === "string" ? true : null,
-    watchLedgerArrival(rootDir),
+  await waitForDurableValue(async () =>
+    typeof (await host.run(repoId, { kind: "receipt-show", opId }, binding)).commitSha === "string" ? true : null,
   );
 }

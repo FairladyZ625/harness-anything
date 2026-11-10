@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -219,19 +219,17 @@ for (const order of ["old-first", "new-first"] as const) {
     const waiting: Promise<unknown>[] = [];
     const started = async (seed: number) => {
       const count = seed === 42 ? 1 : 2;
-      await waitForArrival(
-        () =>
-          f
-            .events()
-            .some(
-              (event) =>
-                event.type === "gate_run_changed" &&
-                event.payload.operation === "claim" &&
-                event.payload.execution.gateRuns.length === count,
-            )
-            ? true
-            : null,
-        watchLedgerArrival(f.cell.status().rootDir),
+      await waitForDurableValue(() =>
+        f
+          .events()
+          .some(
+            (event) =>
+              event.type === "gate_run_changed" &&
+              event.payload.operation === "claim" &&
+              event.payload.execution.gateRuns.length === count,
+          )
+          ? true
+          : null,
       );
     };
     try {

@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
-import { waitForArrival, watchFileArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue, waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { purgeRepoCache } from "../src/repo-cache-purge.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -152,18 +152,16 @@ test(
         ["failed", "stopped", "unknown"].includes(terminal.payload.outcome),
         `abnormal settlement expected, got ${terminal.payload.outcome}`,
       );
-      await waitForArrival(
-        () =>
-          makeTaskEventReader({ repoId: workspaceId("dispatch-evidence"), rootDir: root })
-            .read()
-            .events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === String(receipt.runtimeSessionId),
-            )
-            ? true
-            : null,
-        watchLedgerArrival(root),
+      await waitForDurableValue(() =>
+        makeTaskEventReader({ repoId: workspaceId("dispatch-evidence"), rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === String(receipt.runtimeSessionId),
+          )
+          ? true
+          : null,
       );
       const evidenceDir = path.join(root, "harness", packagePath, "artifacts", "dispatches", dispatchId),
         streamPath = path.join(evidenceDir, "stream.jsonl"),

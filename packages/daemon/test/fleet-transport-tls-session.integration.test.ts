@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -903,7 +903,7 @@ test(
   },
 );
 async function waitForEventCount(fixture: Awaited<ReturnType<typeof fleetFixture>>, expected: number): Promise<void> {
-  await waitForArrival(() => (fixture.eventCount() === expected ? true : null), watchLedgerArrival(fixture.repo));
+  await waitForDurableValue(() => (fixture.eventCount() === expected ? true : null));
   assert.equal(fixture.eventCount(), expected, "SQLite ledger did not reach the expected bounded cut");
 }
 async function ledgerBase(fixture: Awaited<ReturnType<typeof fleetFixture>>): Promise<{ ledger: LedgerCutIdentity }> {

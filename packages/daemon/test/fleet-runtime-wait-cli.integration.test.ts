@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
@@ -472,6 +471,10 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           fixture.auth,
         )
       ).session.activity.outcome;
-    await waitForArrival(async () => (await settled()) ?? null, watchLedgerArrival(fixture.repo));
+    await fixture.host.awaitRuntimeSessions(
+      repoId,
+      { runtimeSessionIds: [String(receipt.runtimeSessionId)] },
+      { ...fixture.auth, connectionSignal: t.signal },
+    );
     assert.equal(await settled(), expectedOutcome, JSON.stringify(fixture.runtimeArchiveReceipts));
   });
