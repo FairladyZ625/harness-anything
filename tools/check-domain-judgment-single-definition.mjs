@@ -334,19 +334,14 @@ function insideDispatchObservationPayload(node) {
         (property) =>
           ts.isPropertyAssignment(property) &&
           propertyName(property.name) === "type" &&
-          stringLiteralValue(property.initializer) !== null,
+          ts.isStringLiteralLike(property.initializer),
       );
-      if (type && ts.isPropertyAssignment(type))
-        return stringLiteralValue(type.initializer) === "runtime_session_liveness_changed";
+      if (type && ts.isPropertyAssignment(type) && ts.isStringLiteralLike(type.initializer))
+        return type.initializer.text === "runtime_session_liveness_changed";
     }
     if (ts.isFunctionLike(parent)) return false;
   }
   return false;
-}
-
-function stringLiteralValue(node) {
-  if (ts.isStringLiteralLike(node)) return node.text;
-  return ts.isAsExpression(node) && ts.isStringLiteralLike(node.expression) ? node.expression.text : null;
 }
 
 const equalityOperators = new Set([

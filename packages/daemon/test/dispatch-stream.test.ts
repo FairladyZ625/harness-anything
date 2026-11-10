@@ -37,7 +37,11 @@ import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
-import { getExecutableEntityAction, MIGRATION_IMPORT_SOURCE } from "@harness-anything/kernel";
+import {
+  getExecutableEntityAction,
+  MIGRATION_IMPORT_SOURCE,
+  type DispatchLifecycleQuery,
+} from "@harness-anything/kernel";
 
 test("runtime dispatch persistence excludes RepoCell writer transport fields", () => {
   const actor = { principal: { personId: "runtime-owner" }, executor: null },
@@ -597,7 +601,15 @@ test("runtime cancel settles provider lines flushed while the provider is termin
       };
     const receipt = await cancelRuntime(
       {
-        input: { rootDir, repoId: "cancel-tail" },
+        input: {
+          rootDir,
+          repoId: "cancel-tail",
+          remote: {
+            readDispatchLifecycle: lifecycleReadFor([
+              { runtimeSessionId, dispatchId, instanceId: "instance-1", process: "alive" },
+            ]),
+          },
+        },
         processes: new Map([[runtimeSessionId, active]]),
         consumeLine: async (runtime: typeof active, line: string) => {
           runtime.durableOutputCount += 1;
@@ -691,6 +703,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
     const dispatchId = "dispatch_cccccccccccccccccccccccc",
       runtimeSessionId = "runtime_cccccccccccccccccccccccc",
       binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
+    let lifecycleSettled = false;
     openDispatchStream(rootDir, {
       dispatchId,
       taskId: null,
@@ -714,7 +727,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
       context = {
         input: { rootDir, repoId: "cancel-exited", now: () => "2026-09-11T00:00:00.000Z" },
         requiredRuntimeProjection: () => ({
-          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
           readRuntimeSession(id: string) {
             return (
               this.readRuntimeSessions().find(
@@ -725,9 +738,26 @@ test("runtime cancel settles a live projection whose recorded process already ex
           readRuntimeSessions: () => [
             { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
           ],
-          readDispatchLifecycle: lifecycleReadFor([
-            { runtimeSessionId, dispatchId, instanceId: "instance-1", process: "exited" },
-          ]),
+          readRuntimeSessionEventsByType: () => [
+            {
+              type: "runtime_session_liveness_changed",
+              source: "local",
+              payload: { processGroupPid: 2_147_483_647 },
+            },
+          ],
+          readDispatchLifecycle: (query: DispatchLifecycleQuery) =>
+            lifecycleReadFor([
+              {
+                runtimeSessionId,
+                dispatchId,
+                instanceId: "instance-1",
+                attemptSettled: lifecycleSettled,
+                groupSettled: lifecycleSettled,
+                process: "exited",
+                stopProof: lifecycleSettled ? "proven_stopped" : "unproven",
+                outcome: lifecycleSettled ? "unknown" : null,
+              },
+            ])(query),
         }),
         processes: new Map(),
         exiting: new Set<string>(),
@@ -737,6 +767,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
         publishRuntimeEvent: async () => ({}),
         publishExit: async (active: { runtimeSessionId: string }) => {
           settled.push(active.runtimeSessionId);
+          lifecycleSettled = true;
           context.processes.delete(active.runtimeSessionId);
         },
         controlReceipt: () => ({ ok: true, detail: "already-exited" }),

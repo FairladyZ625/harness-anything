@@ -595,13 +595,13 @@ function observeDispatchProcess(
     if (released || exited) return;
     try {
       const livenessEvent = {
-        type: "runtime_session_liveness_changed" as const,
+        type: "runtime_session_liveness_changed",
         payload: {
           runtimeSessionId: runtimeSessionId ?? "",
-          liveness: runtimePidIsAlive(pid) ? ("live" as const) : ("unknown" as const),
+          liveness: runtimePidIsAlive(pid) ? "live" : "unknown",
           processGroupPid: pid,
         },
-      };
+      } as const;
       let bytes = readRuntimeWorkerChunk(stream, offset);
       if (bytes.length === 0) {
         switch (runtimeSessionId ? livenessEvent.payload.liveness : undefined) {

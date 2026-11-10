@@ -10,6 +10,7 @@ import { cancelRuntime, closeRuntimes } from "../src/runtime-spawn-control.ts";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import { readDispatchStreamHeader } from "../src/dispatch-stream.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import type { DispatchLifecycleQuery } from "@harness-anything/kernel";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeBinding } from "../src/runtime-spawn-types.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
@@ -168,6 +169,7 @@ for (const authorized of [true, false]) {
     );
     const published: string[] = [],
       freshAuthorization = () => Promise.resolve("explicit-owner-token");
+    let lifecycleSettled = false;
     const context = {
       input: {
         rootDir,
@@ -190,15 +192,27 @@ for (const authorized of [true, false]) {
           { runtimeSessionId, instanceId: "deepseek-worker", liveness: "live", outcome: null },
         ],
         readRuntimeDispatch: () => ({ ...ownerBinding, payload: { dispatchId } }),
-        readDispatchLifecycle: lifecycleReadFor([
+        readRuntimeSessionEventsByType: () => [
           {
-            runtimeSessionId,
-            dispatchId,
-            instanceId: "deepseek-worker",
-            owner: "node:original-edge",
-            process: "unknown",
+            type: "runtime_session_liveness_changed",
+            source: ownerBinding.source,
+            payload: { processGroupPid: 2_147_483_647 },
           },
-        ]),
+        ],
+        readDispatchLifecycle: (query: DispatchLifecycleQuery) =>
+          lifecycleReadFor([
+            {
+              runtimeSessionId,
+              dispatchId,
+              instanceId: "deepseek-worker",
+              owner: "node:original-edge",
+              attemptSettled: lifecycleSettled,
+              groupSettled: lifecycleSettled,
+              process: lifecycleSettled ? "exited" : "unknown",
+              stopProof: lifecycleSettled ? "proven_stopped" : "unproven",
+              outcome: lifecycleSettled ? "failed" : null,
+            },
+          ])(query),
       }),
       publishExit: (active: Parameters<typeof publishExit>[1], code: number | null) =>
         publishExit(context, active, code),
@@ -213,6 +227,7 @@ for (const authorized of [true, false]) {
         assert.equal(current.keycloakAuthorization.session?.currentAccessToken, freshAuthorization);
         assert.deepEqual(current.source, ownerBinding.source, "recovery keeps the original write provenance");
         published.push(type);
+        if (type === "runtime_session_outcome_observed") lifecycleSettled = true;
         return {};
       },
       controlReceipt: () => ({ outcome: "cancelled" }),

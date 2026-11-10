@@ -323,7 +323,9 @@ test("runtime cancel settles a missing-process stream only after its canonical g
         input: { rootDir, repoId: "cancel-missing-process" },
         requiredRuntimeProjection: () => ({
           readRuntimeSession: () => liveSession(runtimeSessionId),
-          readDispatchLifecycle: emptyDispatchLifecycleRead,
+          readDispatchLifecycle: lifecycleReadFor([
+            { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+          ]),
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
           readRuntimeSessionEvents: () => [
@@ -420,7 +422,9 @@ test("runtime cancel settles the task lease before closing a missing-process tas
       },
       requiredRuntimeProjection: () => ({
         readRuntimeSession: () => liveSession(runtimeSessionId),
-        readDispatchLifecycle: emptyDispatchLifecycleRead,
+        readDispatchLifecycle: lifecycleReadFor([
+          { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+        ]),
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
         readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
         readRuntimeSessionEvents: () => [
@@ -506,7 +510,9 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
       },
       requiredRuntimeProjection: () => ({
         readRuntimeSession: () => liveSession(runtimeSessionId),
-        readDispatchLifecycle: emptyDispatchLifecycleRead,
+        readDispatchLifecycle: lifecycleReadFor([
+          { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+        ]),
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
         readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
         readRuntimeSessionEvents: () => [
@@ -594,7 +600,9 @@ for (const scenario of [
               ) ?? null
             );
           },
-          readDispatchLifecycle: emptyDispatchLifecycleRead,
+          readDispatchLifecycle: lifecycleReadFor([
+            { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+          ]),
           readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: async () => ({
             actor: scenario === "different-person" ? { principal: { personId: "other" } } : binding.actor,
@@ -646,13 +654,16 @@ test("runtime cancel closes an exited session whose dispatch stream is missing",
                 ) ?? null
               );
             },
-            readDispatchLifecycle: emptyDispatchLifecycleRead,
+            readDispatchLifecycle: lifecycleReadFor([
+              { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "node:edge-a", process: "unknown" },
+            ]),
             readRuntimeSessions: async () => [{ ...liveSession(runtimeSessionId), liveness: "exited" }],
             readRuntimeDispatch: async () => ({
               actor: binding.actor,
               source: { kind: "node" as const, nodeId: "edge-a" },
               payload: { dispatchId },
               instanceId: "instance-exited-missing-stream",
+              processGroupPid: 2_147_483_647,
             }),
           },
         },
@@ -771,7 +782,15 @@ test("runtime cancel refuses to settle an owner session when its process group i
                 ) ?? null
               );
             },
-            readDispatchLifecycle: emptyDispatchLifecycleRead,
+            readDispatchLifecycle: lifecycleReadFor([
+              {
+                runtimeSessionId,
+                dispatchId: "dispatch_131313131313131313131313",
+                instanceId: "instance-unproven-owner",
+                owner: "node:edge-a",
+                process: "unknown",
+              },
+            ]),
             readRuntimeSessions: async () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
             readRuntimeDispatch: async () => ({
               actor: edgeBinding.actor,
@@ -785,6 +804,7 @@ test("runtime cancel refuses to settle an owner session when its process group i
         processes: new Map(),
         exiting: new Set<string>(),
         publishRuntimeEvent: async () => assert.fail("unproven owner process group must not settle"),
+        controlReceipt: () => ({ detail: "cancelled" }),
       };
     await assert.rejects(
       cancelRuntime(context as never, { runtimeSessionId }, edgeBinding),

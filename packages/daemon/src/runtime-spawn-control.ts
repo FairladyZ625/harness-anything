@@ -68,7 +68,7 @@ export async function cancelRuntime(
           !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
   const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
-  const attempt = lifecycle.rows[0];
+  let attempt = lifecycle.rows[0];
   if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
     return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   if (!owned) {
@@ -109,6 +109,12 @@ export async function cancelRuntime(
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
   if (!missingOwnedProcess) await assertRuntimeRecoveryReady(context, runtimeSessionId);
+  const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
+  if (currentLifecycle.status !== "ready")
+    throw dispatchLifecyclePendingError(currentLifecycle, context.runtimeSpawnError);
+  attempt = currentLifecycle.rows[0];
+  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
+    return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
