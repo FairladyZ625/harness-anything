@@ -35,8 +35,13 @@ import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 import { adoptNativeProcess, terminateRuntimeTree } from "../src/runtime-spawn-process.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
-import { getExecutableEntityAction, MIGRATION_IMPORT_SOURCE } from "@harness-anything/kernel";
+import {
+  getExecutableEntityAction,
+  MIGRATION_IMPORT_SOURCE,
+  type DispatchLifecycleQuery,
+} from "@harness-anything/kernel";
 
 test("runtime dispatch persistence excludes RepoCell writer transport fields", () => {
   const actor = { principal: { personId: "runtime-owner" }, executor: null },
@@ -456,6 +461,7 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
     const adopted = new Map(),
       context = {
         input: { rootDir, repoId: "oversized-read" },
+        publishRuntimeEvent: async () => ({}),
         requiredRuntimeProjection: () => ({
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
           readRuntimeSession(id: string) {
@@ -472,6 +478,14 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
               outcome: null,
             },
           ],
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: "runtime_777777777777777777777777",
+              dispatchId,
+              instanceId: "instance-1",
+              process: "alive",
+            },
+          ]),
         }),
         processes: adopted,
         exiting: new Set<string>(),
@@ -587,7 +601,15 @@ test("runtime cancel settles provider lines flushed while the provider is termin
       };
     const receipt = await cancelRuntime(
       {
-        input: { rootDir, repoId: "cancel-tail" },
+        input: {
+          rootDir,
+          repoId: "cancel-tail",
+          remote: {
+            readDispatchLifecycle: lifecycleReadFor([
+              { runtimeSessionId, dispatchId, instanceId: "instance-1", process: "alive" },
+            ]),
+          },
+        },
         processes: new Map([[runtimeSessionId, active]]),
         consumeLine: async (runtime: typeof active, line: string) => {
           runtime.durableOutputCount += 1;
@@ -635,12 +657,14 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
       fast: false,
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
-    const adopted = new Map(),
+    const activeQueries: string[] = [],
+      adopted = new Map(),
       context = {
         input: {
           rootDir,
           repoId: "node-owner",
           runtimeNode: { nodeId: "node-b" },
+          runtimeInstances: () => [{ instanceId: "instance-1" }],
           remote: {
             readRuntimeDispatch: async () => ({ payload: { dispatchId }, source: { kind: "node", nodeId: "node-a" } }),
             async readRuntimeSession(id: string) {
@@ -653,6 +677,12 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
             readRuntimeSessions: async () => [
               { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
             ],
+            readDispatchLifecycle: async (query) => {
+              if (query.by === "active") activeQueries.push(query.instanceId ?? "all");
+              return lifecycleReadFor([
+                { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "node:node-a", process: "alive" },
+              ])(query);
+            },
           },
         },
         processes: adopted,
@@ -661,6 +691,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
       };
     await adoptRuntimes(context);
     assert.equal(adopted.size, 0, "only the dispatching node may probe or settle its recorded pid");
+    assert.deepEqual(activeQueries, ["instance-1"], "adoption reads the node's indexed instance page");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -672,6 +703,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
     const dispatchId = "dispatch_cccccccccccccccccccccccc",
       runtimeSessionId = "runtime_cccccccccccccccccccccccc",
       binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
+    let lifecycleSettled = false;
     openDispatchStream(rootDir, {
       dispatchId,
       taskId: null,
@@ -695,7 +727,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
       context = {
         input: { rootDir, repoId: "cancel-exited", now: () => "2026-09-11T00:00:00.000Z" },
         requiredRuntimeProjection: () => ({
-          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
           readRuntimeSession(id: string) {
             return (
               this.readRuntimeSessions().find(
@@ -706,14 +738,36 @@ test("runtime cancel settles a live projection whose recorded process already ex
           readRuntimeSessions: () => [
             { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
           ],
+          readRuntimeSessionEventsByType: () => [
+            {
+              type: "runtime_session_liveness_changed",
+              source: "local",
+              payload: { processGroupPid: 2_147_483_647 },
+            },
+          ],
+          readDispatchLifecycle: (query: DispatchLifecycleQuery) =>
+            lifecycleReadFor([
+              {
+                runtimeSessionId,
+                dispatchId,
+                instanceId: "instance-1",
+                attemptSettled: lifecycleSettled,
+                groupSettled: lifecycleSettled,
+                process: "exited",
+                stopProof: lifecycleSettled ? "proven_stopped" : "unproven",
+                outcome: lifecycleSettled ? "unknown" : null,
+              },
+            ])(query),
         }),
         processes: new Map(),
         exiting: new Set<string>(),
         reconcileFallback: () => undefined,
         restoreDurableOutputRecords: () => undefined,
         consumeLine: async () => undefined,
+        publishRuntimeEvent: async () => ({}),
         publishExit: async (active: { runtimeSessionId: string }) => {
           settled.push(active.runtimeSessionId);
+          lifecycleSettled = true;
           context.processes.delete(active.runtimeSessionId);
         },
         controlReceipt: () => ({ ok: true, detail: "already-exited" }),

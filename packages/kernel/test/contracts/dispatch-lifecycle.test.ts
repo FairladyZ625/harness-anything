@@ -446,6 +446,39 @@ test("a pending ruling becomes awaiting_ruling only after the stop is proven and
   );
 });
 
+test("a stopped dispatch cannot be recovered while its replacement lease generation is held", () => {
+  const ids = { dispatchId: "d-old-lease", runtimeSessionId: "s-old-lease", attemptGroupId: "d-old-lease" },
+    events: DispatchLifecycleInput[] = [
+      taskEvent("execution_started", "task-old-lease", {
+        execution: execution("exe-old-lease"),
+        lease: { version: 1 },
+      }),
+      runtimeEvent({ t: "R" }, ids, {
+        dispatch: {
+          taskId: "task-old-lease",
+          executionId: "exe-old-lease",
+          role: "implementer",
+        },
+      }) as DispatchLifecycleInput,
+      runtimeEvent({ t: "S" }, ids),
+      runtimeEvent({ t: "X" }, ids),
+      taskEvent("lease_released", "task-old-lease", {
+        execution: execution("exe-old-lease"),
+        releasedLease: { version: 1 },
+      }),
+      taskEvent("execution_started", "task-old-lease", {
+        execution: execution("exe-old-lease"),
+        lease: { version: 2 },
+      }),
+      runtimeEvent({ t: "O", outcome: "succeeded" }, ids),
+    ],
+    view = dispatchLifecycleView(fold(events).groups.get(ids.attemptGroupId)!);
+  assert.deepEqual(
+    [view.attempt.task?.leaseVersion, view.attempt.task?.leaseReleased, view.policy.canRecover],
+    [2, false, false],
+  );
+});
+
 test("ruling resolution closes the group and admits its next attempt", () => {
   const ids = { dispatchId: "d-resolve", runtimeSessionId: "s-resolve", attemptGroupId: "d-resolve" },
     events: DispatchLifecycleInput[] = [

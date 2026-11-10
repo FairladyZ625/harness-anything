@@ -52,7 +52,7 @@ export function withEdgeReadModel<T>(
         const view = fleetMirrorViewAtProjection(viewDir, input.repoId, generation, projection, {
             includeEntries: input.includeEntries ?? true,
           }),
-          fresh = edgeFreshness(view, view.revision, input, now);
+          fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
         return read(
           projection,
           {

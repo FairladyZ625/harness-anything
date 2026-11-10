@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskEventStore } from "@harness-anything/storage";
+import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { REPLAY_TASK_GRAPH, canonicalizeContractValue, readSettingsFacet, sha256Text } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -428,6 +428,20 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       /frozen source generation/u,
       "the imported terminal carries a readable result body",
     );
+    const lifecycleProjection = makeTaskProjection({ rootDir: destination, eventStore: appliedStore });
+    try {
+      lifecycleProjection.rebuild();
+      const lifecycle = lifecycleProjection.readDispatchLifecycle({ by: "active", limit: 100 });
+      assert.equal(lifecycle.status, "ready");
+      if (lifecycle.status === "ready")
+        assert.deepEqual(
+          lifecycle.rows,
+          [],
+          "historical sessions preserve their facts without becoming active dispatches",
+        );
+    } finally {
+      lifecycleProjection.close();
+    }
     const firstRevision = appliedStore.read().revision,
       firstEventCount = appliedStore.read().events.length,
       second = (await cell.run(

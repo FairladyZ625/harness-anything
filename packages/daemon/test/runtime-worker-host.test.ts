@@ -69,7 +69,8 @@ test(
       fast: false,
       stallTimeoutMs: 10_000,
     });
-    let runtime: ReturnType<typeof createActiveRuntime> | undefined;
+    let runtime: ReturnType<typeof createActiveRuntime> | undefined,
+      contextClosed = false;
     let nativeProcess: ReturnType<typeof launchNative> | null = null;
     try {
       const launchedProcess = launchNative(
@@ -129,6 +130,7 @@ test(
         process: launchedProcess,
       });
       const runtimeContext: RuntimeSpawnerContext = {
+        closed: () => contextClosed,
         input: {
           rootDir,
           repoId: "worker-host-stall-progress",
@@ -187,6 +189,7 @@ test(
         "provider progress alone must not append dispatch_stalled",
       );
     } finally {
+      contextClosed = true;
       if (runtime) disposeActiveRuntimeObservations(runtime);
       Date.now = originalNow;
       globalThis.setTimeout = originalSetTimeout;

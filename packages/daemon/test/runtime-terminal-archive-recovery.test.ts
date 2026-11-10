@@ -7,8 +7,9 @@ import test from "node:test";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
-for (const state of ["dead", "alive", "foreign", "fallback"] as const) {
+for (const state of ["dead", "foreign", "fallback"] as const) {
   test(`terminal archive reconciliation is idempotent and preserves ${state} ownership`, async (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "terminal-archive-recovery-"));
     t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -45,6 +46,13 @@ for (const state of ["dead", "alive", "foreign", "fallback"] as const) {
       processes: new Map(),
       exiting: new Set(),
       requiredRuntimeProjection: () => ({
+        readRuntimeSession(id: string) {
+          return (
+            this.readRuntimeSessions().find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: () => [
           { runtimeSessionId, instanceId: "instance", outcome: "succeeded", liveness: "exited" },
         ],
@@ -53,6 +61,18 @@ for (const state of ["dead", "alive", "foreign", "fallback"] as const) {
           source: state === "foreign" ? { kind: "node", nodeId: "other" } : "local",
           payload: { dispatchId },
         }),
+        readDispatchLifecycle: (query) =>
+          lifecycleReadFor([
+            {
+              runtimeSessionId,
+              dispatchId,
+              instanceId: "instance",
+              owner: state === "foreign" ? "node:other" : "local",
+              process: "unknown",
+              attemptSettled: query.by !== "active",
+              groupSettled: query.by !== "active" && state !== "fallback",
+            },
+          ])(query),
       }),
       publishExit: () => {
         throw new Error("canonical terminal must not settle the task again");

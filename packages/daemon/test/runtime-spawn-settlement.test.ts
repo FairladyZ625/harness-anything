@@ -20,6 +20,7 @@ import {
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 test("path-like or textual runtime missions produce an actionable receipt without exposing the input", (context) => {
   const expectation =
@@ -106,7 +107,17 @@ test("stalled settlement never enters the provider fallback chain", async () => 
           rootDir,
           now: () => "2026-10-24T00:05:01.000Z",
           stream: { publish: () => ({}) },
-          remote: { archive: async () => ({ outcome: "applied" }) },
+          remote: {
+            archive: async () => ({ outcome: "applied" }),
+            readDispatchLifecycle: lifecycleReadFor([
+              {
+                runtimeSessionId: runtime.runtimeSessionId,
+                dispatchId: runtime.dispatchId,
+                instanceId: runtime.instanceId,
+                process: "alive",
+              },
+            ]),
+          },
           onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => terminals.push(terminal),
         },
         resultMediaType: "text/markdown",
@@ -287,7 +298,17 @@ test("the idle watchdog reaches stalled settlement and dispatch_stalled after th
           rootDir,
           now: () => "2026-10-24T00:00:10.000Z",
           stream: { publish: () => ({}) },
-          remote: { archive: async () => ({ outcome: "applied" }) },
+          remote: {
+            archive: async () => ({ outcome: "applied" }),
+            readDispatchLifecycle: lifecycleReadFor([
+              {
+                runtimeSessionId: runtime.runtimeSessionId,
+                dispatchId: runtime.dispatchId,
+                instanceId: runtime.instanceId,
+                process: "alive",
+              },
+            ]),
+          },
           schedule: (work: () => void | Promise<void>) => scheduled.push(work),
         },
         resultMediaType: "text/plain; charset=utf-8",
@@ -372,7 +393,17 @@ test("completed provider turn without final text stays unknown without a protoco
         rootDir,
         now: () => "2026-09-29T00:01:00.000Z",
         stream: { publish: () => ({}) },
-        remote: { archive: async () => ({ outcome: "applied" }) },
+        remote: {
+          archive: async () => ({ outcome: "applied" }),
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: runtime.runtimeSessionId,
+              dispatchId: runtime.dispatchId,
+              instanceId: runtime.instanceId,
+              process: "alive",
+            },
+          ]),
+        },
       },
       resultMediaType: "text/markdown",
       runtimeResultText: () => "",
@@ -1147,6 +1178,36 @@ test("terminal settlement keeps the worker result when fallback settlement fails
   }
 });
 
+test("stalled settlement waits until the aggregate confirms the process is alive", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-unknown-process-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "partial work"),
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          rootDir,
+          now: () => "2026-10-24T00:05:01.000Z",
+          remote: {
+            readDispatchLifecycle: lifecycleReadFor([
+              {
+                runtimeSessionId: runtime.runtimeSessionId,
+                dispatchId: runtime.dispatchId,
+                instanceId: runtime.instanceId,
+                process: "unknown",
+              },
+            ]),
+          },
+        },
+      } as unknown as RuntimeSpawnerContext;
+
+    await settleStalledRuntime(context, runtime);
+    assert.equal(runtime.stalledAt, null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a stalled dispatch settles through the process-tree path and never masks its failure", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-terminate-"));
   try {
@@ -1175,7 +1236,17 @@ test("a stalled dispatch settles through the process-tree path and never masks i
         rootDir,
         now: () => "2026-10-24T00:05:01.000Z",
         stream: { publish: () => ({}) },
-        remote: { archive: async () => ({ outcome: "applied" }) },
+        remote: {
+          archive: async () => ({ outcome: "applied" }),
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: runtime.runtimeSessionId,
+              dispatchId: runtime.dispatchId,
+              instanceId: runtime.instanceId,
+              process: "alive",
+            },
+          ]),
+        },
       },
       resultMediaType: "text/markdown",
       runtimeResultText: () => "partial work",

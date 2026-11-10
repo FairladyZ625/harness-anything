@@ -1,13 +1,13 @@
 import type { RepositorySettingsV1, RuntimeSessionReadQuery, TaskProjection } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import { locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
-import type { ActiveRuntime, RuntimeSessionSelection, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
+import { readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import type { RuntimeSessionSelection, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 
 export async function resolveRuntimeDispatchResources(
   input: Pick<RuntimeSpawnerInput, "readSettings" | "runtimeInstances" | "runtimeProviderHealth">,
   remote: RuntimeSpawnerInput["remote"],
   projection: TaskProjection | null,
-  processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
   providerSessionId?: string,
 ): Promise<
   readonly [
@@ -17,18 +17,28 @@ export async function resolveRuntimeDispatchResources(
     readonly import("./runtime-provider-health.ts").RuntimeProviderHealth[],
   ]
 > {
-  // Dispatch needs instance load and recovery from the unsettled set, plus the one native session a
-  // resume names (usually settled). Settled history beyond that is never read.
+  // Read active lifecycle rows plus a named resume session; settled history is never scanned.
   const read = (query: RuntimeSessionReadQuery) =>
       remote ? remote.readRuntimeSessions(query) : projection!.readRuntimeSessions(query),
-    byId = new Map<string, RuntimeSessionSelection>();
-  for (const session of [
-    ...(await read({ unsettledOnly: true })),
-    ...(providerSessionId === undefined ? [] : await read({ providerSessionId })),
-  ])
+    lifecycle = await readActiveDispatchLifecycle(
+      (query) => (remote ? remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query)),
+      runtimeSpawnError,
+    ),
+    byId = new Map<string, RuntimeSessionSelection>(
+      lifecycle.map(({ attempt, policy }) => [
+        attempt.runtimeSessionId,
+        {
+          runtimeSessionId: attempt.runtimeSessionId,
+          instanceId: attempt.instanceId,
+          providerSessionId: null,
+          liveness: policy.attemptSettled ? "exited" : attempt.process === "alive" ? "live" : "unknown",
+          outcome: attempt.outcome,
+        },
+      ]),
+    );
+  for (const session of providerSessionId === undefined ? [] : await read({ providerSessionId }))
     byId.set(session.runtimeSessionId, session);
-  const runtimeSessions = [...byId.values()].sort((a, b) => (a.runtimeSessionId < b.runtimeSessionId ? -1 : 1)),
-    localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
+  const localRuntimeSessions = [...byId.values()].sort((a, b) => (a.runtimeSessionId < b.runtimeSessionId ? -1 : 1)),
     runtimeInstances = input.runtimeInstances?.() ?? [];
   const settings = remote
       ? input.readSettings?.()

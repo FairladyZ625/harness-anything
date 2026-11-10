@@ -1,20 +1,24 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, MIGRATION_IMPORT_SOURCE, sameWriteSource } from "@harness-anything/kernel";
+import {
+  DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+  dispatchOwnerForNode,
+  sameWriteSource,
+  type DispatchLifecycleView,
+} from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
   archiveDispatchStream,
   readDispatchStream,
   readDispatchStreamHeader,
-  readDispatchStreamHeaders,
   readDispatchStreamSummary,
+  readDispatchStreamHeaders,
   reopenDispatchStream,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
-import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
+import { createActiveRuntime, attachActiveRuntime, isRuntimeProcessProvenStopped } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess } from "./runtime-spawn-process.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import {
   consumeDurableOutput,
   durableOutputRecordCount,
@@ -25,8 +29,13 @@ import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
-import { IMPORTED_RUNTIME_TERMINAL_BODY, importedRuntimeTerminalResult } from "./runtime-imported-settlement.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
+import {
+  dispatchLifecyclePendingError,
+  readActiveDispatchLifecycle,
+  readDispatchLifecycle,
+} from "./runtime-dispatch-admission.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
@@ -51,87 +60,102 @@ export async function adoptRuntimes(
   onProgress?: (completed: number) => void,
   options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
-  // Canonical settlement can precede a crash before the local archive rename. Recover
-  // unsettled sessions plus live streams, never the repository's archived session history.
-  // A node scopes its scan to dispatches whose canonical source names it, so another node's
-  // unsettled runtimes never become candidates or trigger a dispatch point read.
-  const query = {
-    unsettledOnly: true,
-    ...(context.input.runtimeNode ? { executionOwnerNodeId: context.input.runtimeNode.nodeId } : {}),
-  } as const;
-  const sessions = context.input.remote
-    ? await context.input.remote.readRuntimeSessions(query)
-    : context.requiredRuntimeProjection(context.input).readRuntimeSessions(query);
-  const candidates = new Map<string, RuntimeSessionSelection | undefined>(
-    sessions.map((session) => [session.runtimeSessionId, session]),
-  );
-  for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
-    const metadata = adoptableMetadata(header);
-    if (metadata && ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode, header))
-      if (!candidates.has(header.runtimeSessionId)) candidates.set(header.runtimeSessionId, undefined);
+  const owner = dispatchOwnerForNode(context.input.runtimeNode?.nodeId),
+    candidates = new Map<string, DispatchLifecycleView>(),
+    streamHeaders = readDispatchStreamHeaders(context.input.rootDir);
+  const instanceIds = context.input.runtimeInstances?.().map(({ instanceId }) => instanceId) ?? [],
+    active = await Promise.all(
+      [...new Set([...instanceIds, ...streamHeaders.map(({ instanceId }) => instanceId)])].map((instanceId) =>
+        readActiveDispatchLifecycle(
+          (query) => readDispatchLifecycle(context, query),
+          context.runtimeSpawnError,
+          instanceId,
+        ),
+      ),
+    );
+  const activeViews = active.flat();
+  for (const view of activeViews)
+    if (view.attempt.fence.verified && view.attempt.fence.owner === owner)
+      candidates.set(view.attempt.runtimeSessionId, view);
+  const activeDispatchIds = new Set(activeViews.map(({ attempt }) => attempt.dispatchId)),
+    terminalHeaders = new Map(
+      streamHeaders
+        .filter(({ dispatchId }) => !activeDispatchIds.has(dispatchId))
+        .map((header) => [header.dispatchId, header]),
+    );
+  if (terminalHeaders.size) {
+    const lifecycle = await readDispatchLifecycle(context, {
+      by: "dispatch",
+      dispatchIds: [...terminalHeaders.keys()],
+    });
+    if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
+    for (const view of lifecycle.rows) {
+      const header = terminalHeaders.get(view.attempt.dispatchId);
+      if (
+        view.policy.attemptSettled &&
+        header?.runtimeSessionId === view.attempt.runtimeSessionId &&
+        header.instanceId === view.attempt.instanceId &&
+        view.attempt.fence.verified &&
+        view.attempt.fence.owner === owner
+      )
+        candidates.set(view.attempt.runtimeSessionId, view);
+    }
   }
   let pending = recoveries.get(context);
   if (!pending) recoveries.set(context, (pending = new Map()));
   let completed = 0;
-  // Point reads, including archived streams, belong to each recovery. A stalled
-  // remote header lookup must not delay a sibling's restoration.
   const attempts = [...candidates]
     .filter(([id]) => !options?.runtimeSessionId || id === options.runtimeSessionId)
-    .map(([runtimeSessionId, candidate]) => {
+    .map(([runtimeSessionId, initial]) => {
       const existing = pending.get(runtimeSessionId);
-      if (existing && !existing.result) return existing.promise;
-      const alreadyOwned = hasLocalRuntimeOwner(context, runtimeSessionId);
-      let dispatchId: string | null = null;
+      if (existing && existing.result?.outcome !== "failed") {
+        // Retry the durable stream when the aggregate no longer observes a live process.
+        if (existing.result?.outcome !== "ready" || initial.attempt.process === "alive") return existing.promise;
+        pending.delete(runtimeSessionId);
+      }
+      let restored = false;
+      const dispatchId = initial.attempt.dispatchId;
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
         promise: Promise.resolve()
           .then(async () => {
             // The launch may not have written its stream header yet either.
             if (context.ownsModelSlot?.(runtimeSessionId)) return "ready" as const;
-            // Keep each point lookup inside its own recovery so a stalled edge read does not
-            // hold up siblings. The live directory bounds these extra canonical session reads.
-            const session =
-              candidate ??
-              (context.input.remote
-                ? (await context.input.remote.readRuntimeSessions({ runtimeSessionId }))[0]
-                : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId));
+            const lifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [dispatchId!] });
+            if (lifecycle.status === "pending")
+              throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
+            const view = lifecycle.rows.find(({ attempt }) => attempt.dispatchId === dispatchId);
+            if (!view)
+              throw context.runtimeSpawnError(
+                "runtime_recovery_missing_dispatch",
+                "Dispatch is missing from its lifecycle.",
+              );
+            if (!view.attempt.fence.verified || view.attempt.fence.owner !== owner) return "foreign" as const;
+            const session = context.input.remote
+              ? await context.input.remote.readRuntimeSession(runtimeSessionId)
+              : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
             if (!session) return "foreign" as const;
-            const dispatch = context.input.remote
-              ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-              : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);
-            dispatchId = dispatch?.payload.dispatchId ?? null;
-            const header = dispatchId ? readDispatchStreamHeader(context.input.rootDir, dispatchId) : null;
-            if (dispatch && !ownedByRuntimeSpawner(dispatch, context.input.runtimeNode, header))
-              return "foreign" as const;
+            const header = readDispatchStreamHeader(context.input.rootDir, dispatchId!);
             if (!header) {
-              if (session.outcome !== null) return "settled" as const;
-              if (
-                session.liveness === "exited" &&
-                !hasLocalRuntimeOwner(context, runtimeSessionId) &&
-                dispatch !== null &&
-                dispatch.actor
-              ) {
-                await settleMissingDispatchStream(context, session, dispatch.payload.dispatchId, {
-                  actor: dispatch.actor,
-                  source: dispatch.source,
-                });
-                return "settled" as const;
+              if (view.attempt.stopProof === "proven_stopped") {
+                const dispatch = context.input.remote
+                  ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+                  : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);
+                if (dispatch?.actor) {
+                  await settleMissingDispatchStream(context, session, dispatchId!, {
+                    actor: dispatch.actor,
+                    source: dispatch.source,
+                  });
+                  return "settled" as const;
+                }
               }
-              // Genesis replay imports a frozen repository, so an unsettled session it created has
-              // no dispatch and no process here: it can never be adopted. Settle it once under its
-              // creation authority; the canonical outcome then leaves every future unsettled scan.
-              if (
-                dispatch === null &&
-                !context.input.remote &&
-                (await settleImportedRuntimeSession(context, runtimeSessionId))
-              )
-                return "settled" as const;
               throw context.runtimeSpawnError(
                 "runtime_recovery_missing_dispatch",
                 `Runtime ${runtimeSessionId} has no readable dispatch.`,
               );
             }
-            await restoreRuntime(context, header, session, options?.authorizationBinding);
-            return session.outcome === null ? ("ready" as const) : ("settled" as const);
+            const settled = await restoreRuntime(context, header, session, view, options?.authorizationBinding);
+            restored = !settled;
+            return settled ? ("settled" as const) : ("ready" as const);
           })
           .then(
             (outcome) => ({
@@ -158,7 +182,7 @@ export async function adoptRuntimes(
           )
           .then((result) => {
             entry.result = result;
-            if (result.outcome === "ready" && !alreadyOwned) onProgress?.(++completed);
+            if (result.outcome === "ready" && restored) onProgress?.(++completed);
             return result;
           }),
       };
@@ -168,31 +192,23 @@ export async function adoptRuntimes(
   return Promise.all(attempts);
 }
 
-/** Admission never waits while holding the writer: an unresolved owner cannot look idle. */
-export function assertRuntimeRecoveryReady(
+export async function assertRuntimeRecoveryReady(
   context: RuntimeSpawnerContext,
   runtimeSessionId: string,
   dispatchId?: string | null,
-  observedLiveness?: RuntimeSessionSelection["liveness"],
-): boolean {
+): Promise<boolean> {
   const recovery = recoveries.get(context)?.get(runtimeSessionId);
   if (dispatchId === null || recovery?.result?.outcome === "foreign" || recovery?.result?.outcome === "settled")
     return false;
   if (recovery?.result?.outcome === "failed") {
-    if (observedLiveness === "exited" && !hasLocalRuntimeOwner(context, runtimeSessionId)) return false;
+    const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
+    if (lifecycle.status === "pending") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
+    if (lifecycle.rows.some(({ policy }) => policy.attemptSettled)) return false;
     throw recovery.result.error;
   }
   if (recovery && !recovery.result)
     throw context.runtimeSpawnError("runtime_recovery_pending", `Runtime ${runtimeSessionId} is still recovering.`);
   return true;
-}
-
-function hasLocalRuntimeOwner(context: RuntimeSpawnerContext, runtimeSessionId: string): boolean {
-  return (
-    context.processes.has(runtimeSessionId) ||
-    context.exiting.has(runtimeSessionId) ||
-    context.ownsModelSlot?.(runtimeSessionId) === true
-  );
 }
 
 async function settleMissingDispatchStream(
@@ -227,63 +243,17 @@ async function settleMissingDispatchStream(
   );
 }
 
-/**
- * A genesis replay imports a frozen source repository: a runtime session the source never settled
- * has no process and no dispatch in the destination, so adoption can never restore it. Its
- * creation event is the only canonical ownership record left. Settle it once under that creator,
- * and the canonical outcome removes it from every later unsettled scan. Only the local center can
- * do this (`remote` edges never see the imported event history); opIds are session-derived, so a
- * duplicate attempt is idempotent rather than a second settlement.
- */
-async function settleImportedRuntimeSession(
-  context: RuntimeSpawnerContext,
-  runtimeSessionId: string,
-): Promise<boolean> {
-  const started = context
-    .requiredRuntimeProjection(context.input)
-    .readRuntimeSessionEvents(runtimeSessionId, 0, 1)
-    .find((event) => event.type === "runtime_session_started");
-  if (!started || started.source !== MIGRATION_IMPORT_SOURCE) return false;
-  // Reuse the cell-owned local binding (current operator session + cell-default writer fence)
-  // instead of minting a local source in the recovery path. The settlement is attributed to the
-  // session's creator, so only that person's daemon session can authorize it.
-  const cellBinding = await context.input.localRecoveryBinding?.();
-  if (!cellBinding) return false;
-  const resultBody = IMPORTED_RUNTIME_TERMINAL_BODY,
-    result = importedRuntimeTerminalResult(),
-    opId = `runtime-recovery-imported-${runtimeSessionId}`,
-    binding = { ...cellBinding, actor: started.actor };
-  await context.publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, `${opId}-exited`, binding);
-  await context.publishRuntimeEvent(
-    "runtime_session_outcome_observed",
-    {
-      runtimeSessionId,
-      outcome: "unknown",
-      exitCode: null,
-      resultRef: `artifact:runtime-result/sha256/${result.sha256}`,
-      result,
-      endedAt: context.input.now(),
-    },
-    `${opId}-outcome`,
-    binding,
-    resultBody,
-  );
-  return true;
-}
-
 async function restoreRuntime(
   context: RuntimeSpawnerContext,
   header: DispatchStreamHeader,
   session: RuntimeSessionSelection | undefined,
+  lifecycle: DispatchLifecycleView,
   authorizationBinding?: RuntimeBinding,
-): Promise<void> {
-  if (context.closed?.()) return;
-  // Canonical publication precedes process registration. Recovery must not reclaim a
-  // launch still owned by this spawner's existing slot reservation as a dead predecessor.
-  if (context.ownsModelSlot?.(header.runtimeSessionId)) return;
-  if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) return;
+): Promise<boolean> {
+  if (context.closed?.()) return false;
+  if (context.ownsModelSlot?.(header.runtimeSessionId)) return false;
   const metadata = adoptableMetadata(header);
-  if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode, header)) return;
+  if (!metadata) return false;
   if (
     authorizationBinding &&
     authorizationBinding.actor.principal.personId !== metadata.binding.actor.principal.personId
@@ -292,30 +262,38 @@ async function restoreRuntime(
       "execution_scope_mismatch",
       "Only the original runtime owner can authorize recovery.",
     );
-  const fallbackSummary = header.fallbackAttempt
-    ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
-    : null;
-  if (fallbackSummary) context.reconcileFallback(fallbackSummary);
-
-  if (session && session.outcome !== null) {
-    const stream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
-    // Canonical acceptance may precede a crash before the local archive rename. Never
-    // reclaim an extant process or a stream still owned by its fallback continuation.
-    if (
-      stream &&
-      stream.fallbackState !== "scheduled" &&
-      !(stream.process && !stream.process.exited && runtimePidIsAlive(stream.process.pid))
-    )
+  const streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+  if (header.fallbackAttempt) context.reconcileFallback(streamSummary);
+  if (lifecycle.policy.attemptSettled || session?.outcome) {
+    if (streamSummary && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
       archiveDispatchStream(context.input.rootDir, header.dispatchId);
     removeRuntimeCallbackRelay(header.dispatchId);
-    return;
+    return true;
   }
   const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
-    streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId),
     stream = fullStream ?? streamSummary;
-  if (!stream) return;
+  if (!stream) return false;
   const processState = stream.process,
-    processPid = processState?.pid ?? 0;
+    processPid = processState?.pid ?? 0,
+    binding = authorizationBinding
+      ? { ...authorizationBinding, ...metadata.binding, authorizationDecision: undefined }
+      : metadata.binding,
+    livenessEvent = {
+      type: "runtime_session_liveness_changed",
+      payload: {
+        runtimeSessionId: stream.header.runtimeSessionId,
+        liveness: runtimePidIsAlive(processPid) ? ("live" as const) : ("unknown" as const),
+        ...(processPid > 1 ? { processGroupPid: processPid } : {}),
+      },
+    } as const;
+  if (lifecycle.attempt.process !== "exited")
+    await context.publishRuntimeEvent(
+      livenessEvent.type,
+      livenessEvent.payload,
+      `runtime-observation-${stream.header.dispatchId}-${randomUUID()}`,
+      binding,
+    );
+  if (context.closed?.()) return false;
   const runtimeProcess = adoptNativeProcess(
     context.input.rootDir,
     stream.header.dispatchId,
@@ -345,11 +323,7 @@ async function restoreRuntime(
     squadId: stream.header.squadId ?? null,
     publicationOwner: stream.header.publicationOwner ?? "runtime",
     parentRuntimeSessionId: stream.header.parentRuntimeSessionId ?? null,
-    // Explicit owner cancellation supplies fresh credentials, while the original actor/source
-    // remain the settlement fence. Startup recovery never borrows a local operator session.
-    binding: authorizationBinding
-      ? { ...authorizationBinding, ...metadata.binding, authorizationDecision: undefined }
-      : metadata.binding,
+    binding,
     task:
       stream.header.taskId && stream.header.executionId
         ? {
@@ -386,83 +360,69 @@ async function restoreRuntime(
     resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
     providerSessionId: stream.providerSessionId,
   });
-  context.processes.set(active.runtimeSessionId, active);
-  const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);
-  const [publication] = await Promise.allSettled([
-    (async () => {
-      context.input.recordLifecycle?.({
-        event: "runtime_spawn",
-        runtimeSessionId: active.runtimeSessionId,
-        dispatchId: active.dispatchId,
-        // A session adopted without a recorded process has no pid to report; the drain count follows
-        // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
-        ...(processState ? { pid: processState.pid } : {}),
-      });
-      await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
-      if (context.closed?.()) return;
-      if (processAlive && fullStream) {
-        const attachmentFailure = attachAdoptedObservations(context, active);
-        if (attachmentFailure !== null) {
-          throw attachmentFailure;
-        }
-      }
-
-      // Replaying the durable stream recomputes consumption from the launch cut. A runtime
-      // already past its frozen limit must be stopped before liveness is republished, or a
-      // daemon restart would hand a capped dispatch a fresh lease on spending.
-      if (processAlive && active.spendCapExceeded) {
-        await context.enforceSpendCap(active);
-        return;
-      }
-      if (processAlive && session?.liveness !== "live" && session?.liveness !== "exited") {
-        await context.publishRuntimeEvent(
-          "runtime_session_liveness_changed",
-          { runtimeSessionId: active.runtimeSessionId, liveness: "live", processGroupPid: processState.pid },
-          randomUUID(),
-          active.binding,
-        );
-      }
-      if (!processAlive) {
-        const reason = processState
-          ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
-          : "runtime process was never recorded before daemon restart";
-        active.lossReason = processState?.exited ? null : reason;
-        active.lossExitCode = processState?.exitCode ?? null;
-        active.lossSignal = processState?.signal ?? null;
-        removeRuntimeCallbackRelay(active.dispatchId);
-        if (!processState?.exited)
-          appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
-            kind: "process_lost",
-            occurredAt: context.input.now(),
-            reason,
-            exitCode: active.lossExitCode,
-            signal: active.lossSignal,
-          });
-        await consumeDurableOutput(context, active);
-        await context.publishExit(active, active.lossExitCode, session?.liveness === "exited");
-      }
-    })(),
-  ]);
-  if (publication.status === "rejected") {
-    if (!processAlive) {
-      if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
-      active.process.release?.();
-      active.releaseAuthorization?.();
-    }
-    throw publication.reason;
+  context.input.recordLifecycle?.({
+    event: "runtime_spawn",
+    runtimeSessionId: active.runtimeSessionId,
+    dispatchId: active.dispatchId,
+    ...(processState ? { pid: processState.pid } : {}),
+  });
+  await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
+  if (context.closed?.()) return false;
+  const observedLifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
+  if (observedLifecycle.status !== "ready")
+    throw dispatchLifecyclePendingError(observedLifecycle, context.runtimeSpawnError);
+  const observedAttempt = observedLifecycle.rows.find(
+    ({ attempt }) => attempt.runtimeSessionId === active.runtimeSessionId,
+  );
+  if (!observedAttempt)
+    throw context.runtimeSpawnError(
+      "runtime_recovery_pending",
+      `Runtime ${active.runtimeSessionId} is missing from its dispatch lifecycle after observation.`,
+    );
+  if (observedAttempt.policy.attemptSettled) {
+    active.process.release?.();
+    return true;
   }
+  context.processes.set(active.runtimeSessionId, active);
+  if (observedAttempt.attempt.process === "alive") {
+    if (active.spendCapExceeded) await context.enforceSpendCap(active);
+    else if (fullStream) attachAdoptedObservations(context, active);
+    return false;
+  }
+  const reason = processState
+    ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
+    : "runtime process was never recorded before daemon restart";
+  active.lossReason = processState?.exited ? null : reason;
+  active.lossExitCode = processState?.exitCode ?? null;
+  active.lossSignal = processState?.signal ?? null;
+  removeRuntimeCallbackRelay(active.dispatchId);
+  if (!processState?.exited)
+    appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+      kind: "process_lost",
+      occurredAt: context.input.now(),
+      reason,
+      exitCode: active.lossExitCode,
+      signal: active.lossSignal,
+    });
+  const stop = await isRuntimeProcessProvenStopped(context, active, observedAttempt.attempt, processPid);
+  await consumeDurableOutput(context, active);
+  if (stop !== "proven_stopped") {
+    context.processes.delete(active.runtimeSessionId);
+    active.process.release?.();
+    active.releaseAuthorization?.();
+    throw context.runtimeSpawnError(
+      "runtime_recovery_pending",
+      `Runtime ${active.runtimeSessionId} process group is ${stop}; its reservation remains held.`,
+    );
+  }
+  await context.publishExit(active, active.lossExitCode);
+  return true;
 }
 
-/**
- * An adopted worker whose liveness surface cannot be established is retired rather than adopted
- * unwatched. The loop owns one session at a time, so the refusal is returned and the remaining
- * streams still adopt; the recorded lost-process fact lets the next adoption pass settle the
- * attempt through the ordinary lost-process path instead of leaving a live worker nobody watches.
- */
-function attachAdoptedObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): unknown | null {
+/** Record and rethrow an observation attach failure so recovery cannot leave an unwatched worker. */
+function attachAdoptedObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
   try {
     attachActiveRuntime(context, active);
-    return null;
   } catch (error) {
     appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
       kind: "process_lost",
@@ -473,37 +433,25 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
     active.process.terminate();
     active.process.release?.();
     active.releaseAuthorization?.();
-    return error;
+    throw error;
   }
 }
 
-/** Startup-only retry for this repository's explicitly terminal sessions, independent of
- *  archived dispatch streams. Other repositories share the node's instance store, so an
- *  unknown session must be retained. Locally adopted/settling sessions are still in use. */
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
   if (!context.input.reclaimSettledRuntimeTempDirectories || !context.input.listRuntimeTempSessionIds) return;
-  // Local temp directories are the only reclaim candidates. Point-reading exactly those names
-  // keeps startup maintenance at D reads instead of reading the repository's whole session table.
   const runtimeSessionIds = [...new Set(context.input.listRuntimeTempSessionIds())];
   if (runtimeSessionIds.length === 0) {
     context.input.reclaimSettledRuntimeTempDirectories([]);
     return;
   }
-  const sessionReads = await Promise.allSettled(
-    runtimeSessionIds.map(async (runtimeSessionId) => {
-      if (context.input.remote)
-        return (await context.input.remote.readRuntimeSessions({ runtimeSessionId }))[0] ?? null;
-      return context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
-    }),
+  const lifecycleReads = await Promise.allSettled(
+    runtimeSessionIds.map(async (id) => readDispatchLifecycle(context, { by: "session", runtimeSessionId: id })),
   );
-  // Without an authoritative session read for a directory, leave that directory for the next
-  // start instead of guessing; an unknown session may belong to another repository on this node.
   const settledRuntimeSessionIds: string[] = [];
-  for (const [index, read] of sessionReads.entries()) {
-    if (read.status !== "fulfilled" || !read.value || read.value.outcome === null) continue;
-    const runtimeSessionId = runtimeSessionIds[index]!;
-    if (context.processes.has(runtimeSessionId) || context.exiting.has(runtimeSessionId)) continue;
-    settledRuntimeSessionIds.push(runtimeSessionId);
+  for (const [index, read] of lifecycleReads.entries()) {
+    if (read.status !== "fulfilled" || read.value.status !== "ready") continue;
+    if (!read.value.rows.some(({ policy }) => policy.groupSettled)) continue;
+    settledRuntimeSessionIds.push(runtimeSessionIds[index]!);
   }
   if (settledRuntimeSessionIds.length === 0) return;
   const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories(settledRuntimeSessionIds);
@@ -511,8 +459,6 @@ export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawner
     logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);
 }
 
-/** A failed launch reclaims immediately. If that fails before registration, no repository
- *  can prove ownership on a later sweep; the directory stays and the refusal is logged. */
 export function reclaimFailedLaunchTempDirectory(
   input: Pick<RuntimeSpawnerInput, "reclaimRuntimeTempDirectory">,
   instanceId: string,
@@ -538,9 +484,6 @@ export function ownedByRuntimeSpawner(
       return header.executionOwner === "local"
         ? runtimeNode === undefined
         : header.executionOwner.nodeId === runtimeNode?.nodeId;
-    // Historical center-local streams predate executionOwner. This spool is written only
-    // by the local launcher, never replicated from a node. Its presence proves execution
-    // here even when the initiating request carried a node source.
     if (runtimeNode === undefined) return true;
   }
   if (runtimeNode === undefined) return binding.source === "local";
@@ -597,19 +540,4 @@ function isBinding(value: unknown): value is RuntimeBinding {
     typeof (actor as { principal?: { personId?: unknown } }).principal?.personId === "string" &&
     binding.source !== undefined
   );
-}
-
-/** Instance load follows a live local PID; canonical liveness remains available to recovery admission. */
-export function locallyObservedRuntimeSessions(
-  sessions: readonly RuntimeSessionSelection[],
-  processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
-): readonly RuntimeSessionSelection[] {
-  return sessions.map((session) => {
-    const process = processes.get(session.runtimeSessionId)?.process;
-    return {
-      ...session,
-      liveness:
-        session.outcome !== null ? session.liveness : process && runtimePidIsAlive(process.pid) ? "live" : "unknown",
-    };
-  });
 }

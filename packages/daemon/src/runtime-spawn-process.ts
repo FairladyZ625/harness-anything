@@ -10,6 +10,7 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import {
   appendRuntimeWorkerRecord,
   dispatchStreamPath,
+  readDispatchStreamHeader,
   readDispatchStreamSummary,
   readRuntimeWorkerChunk,
   scrubProviderValue,
@@ -26,6 +27,7 @@ import type {
   ResumeProcessObservation,
   RuntimeLauncher,
   RuntimeProcess,
+  RuntimeProcessObservation,
 } from "./runtime-spawn-types.ts";
 import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawn-limits.ts";
 import { runProcessTextAsync } from "./process-port.ts";
@@ -245,9 +247,7 @@ async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
   });
 }
 
-/** Live children of one runtime root, asked of the OS. A platform that cannot enumerate the
- *  table, or a probe that failed, reports unavailability so the caller keeps its historical
- *  deadline rather than reading silence as an empty subtree. */
+/** Probe live descendants; unavailable keeps the historical deadline. */
 async function liveDescendantPidsOf(rootPid: number): Promise<LiveDescendantProbeResult> {
   if (!Number.isInteger(rootPid) || rootPid < 1 || process.platform === "win32") return { available: false };
   try {
@@ -557,7 +557,8 @@ function observeDispatchProcess(
   pid: number,
   skipPersistedOutputRecords = 0,
 ): RuntimeProcess {
-  const stream = dispatchStreamPath(rootDir, dispatchId);
+  const stream = dispatchStreamPath(rootDir, dispatchId),
+    runtimeSessionId = readDispatchStreamHeader(rootDir, dispatchId)?.runtimeSessionId;
   const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
   const errors: string[] = [];
   const decoder = new StringDecoder("utf8");
@@ -566,9 +567,11 @@ function observeDispatchProcess(
   let buffer = "";
   let outputListener: ((chunk: string, persisted?: boolean) => void) | null = null;
   let errorListener: ((chunk: string) => void) | null = null;
-  let exitListener: ((code: number | null, lossReason?: string) => void) | null = null;
+  let exitListener:
+    | ((code: number | null, lossReason?: string, observation?: RuntimeProcessObservation) => void)
+    | null = null;
   let exitCode: number | null = null;
-  let lossReason: string | undefined;
+  let lossReason: string | undefined, processObservation: RuntimeProcessObservation | undefined;
   let exited = false;
   let released = false;
   const emitOutput = (chunk: string): void => {
@@ -579,36 +582,47 @@ function observeDispatchProcess(
     if (errorListener) errorListener(chunk);
     else errors.push(chunk);
   };
-  const emitExit = (code: number | null, reason?: string): void => {
+  const emitExit = (code: number | null, reason?: string, observation?: RuntimeProcessObservation): void => {
     if (exited) return;
     exited = true;
     exitCode = code;
     lossReason = reason;
-    // Exit or process loss follows the last persisted provider line. Stop here, not in release(), which settlement
-    // skips on its early return, on a throw, and behind the writer-thread proxy.
+    processObservation = observation;
     clearInterval(timer);
-    if (exitListener) exitListener(code, lossReason);
+    if (exitListener) exitListener(code, lossReason, processObservation);
   };
   const drain = (): void => {
     if (released || exited) return;
     try {
-      // Probe before reading: a dead host cannot append a final process_exit after this read.
-      const alive = runtimePidIsAlive(pid);
-      const bytes = readRuntimeWorkerChunk(stream, offset);
+      const livenessEvent = {
+        type: "runtime_session_liveness_changed",
+        payload: {
+          runtimeSessionId: runtimeSessionId ?? "",
+          liveness: runtimePidIsAlive(pid) ? "live" : "unknown",
+          processGroupPid: pid,
+        },
+      } as const;
+      let bytes = readRuntimeWorkerChunk(stream, offset);
       if (bytes.length === 0) {
-        if (!alive) {
-          const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
-          appendRuntimeWorkerRecord(rootDir, dispatchId, {
-            kind: "process_lost",
-            occurredAt: new Date().toISOString(),
-            reason,
-            exitCode: null,
-            signal: null,
-          });
-          removeRuntimeCallbackRelay(dispatchId);
-          emitExit(null, reason);
+        switch (runtimeSessionId ? livenessEvent.payload.liveness : undefined) {
+          case "unknown": {
+            bytes = readRuntimeWorkerChunk(stream, offset);
+            if (bytes.length === 0) {
+              const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
+              appendRuntimeWorkerRecord(rootDir, dispatchId, {
+                kind: "process_lost",
+                occurredAt: new Date().toISOString(),
+                reason,
+              });
+              emitExit(null, reason, livenessEvent.payload);
+              return;
+            }
+            break;
+          }
+          case "live":
+          case undefined:
+            return;
         }
-        return;
       }
       offset += bytes.length;
       buffer += decoder.write(bytes);
@@ -624,7 +638,7 @@ function observeDispatchProcess(
           else emitOutput(`${String(record.output)}\n`);
         } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
         else if (record?.kind === "process_lost") {
-          emitExit(null, String(record.reason));
+          emitExit(null, String(record.reason), runtimeSessionId ? livenessEvent.payload : undefined);
           return;
         } else if (record?.kind === "process_exit") {
           const signal = typeof record.signal === "string" ? record.signal : null;
@@ -654,7 +668,7 @@ function observeDispatchProcess(
     },
     onExit: (listener) => {
       exitListener = listener;
-      if (exited) queueMicrotask(() => listener(exitCode, lossReason));
+      if (exited) queueMicrotask(() => listener(exitCode, lossReason, processObservation));
     },
     terminate: () => {
       requestProcessGroupStop({ pid, dispatch: { rootDir, dispatchId } });

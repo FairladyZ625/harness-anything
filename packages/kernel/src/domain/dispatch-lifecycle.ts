@@ -525,12 +525,11 @@ function advanceAttempt(
 
 /** A pending ruling is resolvable only once the verified owner proved the stop and released the lease. */
 function rulingReady(attempt: DispatchLifecycleAttempt): boolean {
-  const task = attempt.task;
-  return (
-    attempt.fence.verified &&
-    attempt.stopProof === "proven_stopped" &&
-    (task === null || task.role === "reviewer" || task.leaseVersion === null || task.leaseReleased)
-  );
+  return attempt.fence.verified && attempt.stopProof === "proven_stopped" && taskLeaseReleased(attempt.task);
+}
+
+function taskLeaseReleased(task: DispatchAttemptTask | null): boolean {
+  return task === null || task.role === "reviewer" || task.leaseVersion === null || task.leaseReleased;
 }
 
 function isRulingResolution(
@@ -688,7 +687,13 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
       canResolveRuling: group.phase === "awaiting_ruling" && group.ruling !== null,
       canRecover:
         group.phase === "closed" &&
-        group.attempts.every(({ fence, stopProof }) => fence.verified && stopProof === "proven_stopped"),
+        group.attempts.every(
+          (attempt) =>
+            rulingReady(attempt) &&
+            attempt.outcome !== null &&
+            attempt.outcome !== "succeeded" &&
+            attempt.outcome !== "unknown",
+        ),
       blockerCode:
         capacityDisposition !== "recovering"
           ? null

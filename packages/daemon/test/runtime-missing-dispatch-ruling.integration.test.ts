@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { DispatchLifecycleRead } from "@harness-anything/kernel";
+import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
@@ -99,8 +99,10 @@ function fixture(t: test.TestContext) {
       remote: {
         readRuntimeSession: async () => session,
         readRuntimeSessions: async () => [session],
-        readDispatchLifecycle: async (query: { readonly by: string; readonly instanceId?: string }) =>
-          !rulingResolved && query.by === "active" && query.instanceId === definition.instanceId
+        readDispatchLifecycle: async (query: DispatchLifecycleQuery) =>
+          !rulingResolved &&
+          ((query.by === "active" && query.instanceId === definition.instanceId) ||
+            (query.by === "session" && query.runtimeSessionId === runtimeSessionId))
             ? blockedLifecycleRead()
             : { status: "ready", watermark: 1, sourceRevision: 1, rows: [], nextCursor: null },
         readRuntimeDispatch: async () => owner,

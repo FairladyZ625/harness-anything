@@ -300,51 +300,39 @@ function runtimeSessionBundles(
       },
     });
   }
-  if (session.liveness === "exited")
+  const observationKind = { live: null, stale: "stale", unknown: "unknown", exited: "exited" }[session.liveness];
+  if (observationKind)
     specs.push({
-      suffix: "exited",
-      type: "runtime_session_exited",
+      suffix: observationKind === "exited" ? "exited" : "liveness",
+      type: observationKind === "exited" ? "runtime_session_exited" : "runtime_session_liveness_changed",
       occurredAt: session.lastObservedAt,
-      payload: { runtimeSessionId: session.runtimeSessionId },
+      payload:
+        observationKind === "exited"
+          ? { runtimeSessionId: session.runtimeSessionId }
+          : { runtimeSessionId: session.runtimeSessionId, liveness: observationKind },
     });
-  else if (session.liveness !== "live")
-    specs.push({
-      suffix: "liveness",
-      type: "runtime_session_liveness_changed",
-      occurredAt: session.lastObservedAt,
-      payload: { runtimeSessionId: session.runtimeSessionId, liveness: session.liveness },
-    });
-  // Genesis replay reads a frozen source repository. A source runtime session with no outcome has
-  // no process and no dispatch in the destination, so importing it as unresolved would create an
-  // orphan that startup recovery can never adopt or settle. Record the same definitive terminal
-  // first-discovery recovery records, so both paths agree and a re-run stays unchanged.
   if (session.outcome === null) {
     const terminalResult = importedRuntimeTerminalResult();
-    specs.push(
-      ...(session.liveness === "exited"
-        ? []
-        : [
-            {
-              suffix: "unsettled-exited",
-              type: "runtime_session_exited" as const,
-              occurredAt: session.lastObservedAt,
-              payload: { runtimeSessionId: session.runtimeSessionId },
-            },
-          ]),
-      {
-        suffix: "unsettled-outcome",
-        type: "runtime_session_outcome_observed",
+    if (observationKind !== "exited")
+      specs.push({
+        suffix: "unsettled-exited",
+        type: "runtime_session_exited",
         occurredAt: session.lastObservedAt,
-        payload: {
-          runtimeSessionId: session.runtimeSessionId,
-          outcome: "unknown",
-          exitCode: null,
-          resultRef: `artifact:runtime-result/sha256/${terminalResult.sha256}`,
-          result: terminalResult,
-        },
-        blobs: [{ ...terminalResult, body: IMPORTED_RUNTIME_TERMINAL_BODY }],
+        payload: { runtimeSessionId: session.runtimeSessionId },
+      });
+    specs.push({
+      suffix: "unsettled-outcome",
+      type: "runtime_session_outcome_observed",
+      occurredAt: session.lastObservedAt,
+      payload: {
+        runtimeSessionId: session.runtimeSessionId,
+        outcome: "unknown",
+        exitCode: null,
+        resultRef: `artifact:runtime-result/sha256/${terminalResult.sha256}`,
+        result: terminalResult,
       },
-    );
+      blobs: [{ ...terminalResult, body: IMPORTED_RUNTIME_TERMINAL_BODY }],
+    });
   }
   if (session.outcome !== null && outcome === null)
     throw new Error("runtime outcome projection has no source result claim");

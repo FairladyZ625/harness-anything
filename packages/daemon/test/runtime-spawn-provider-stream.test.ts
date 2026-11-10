@@ -15,6 +15,7 @@ import {
   consumeDurableOutput,
   consumeProviderChunk,
   consumeProviderLine,
+  captureErrorOutput,
   restoreDurableOutputRecords,
 } from "../src/runtime-spawn-provider-stream.ts";
 import {
@@ -77,6 +78,35 @@ function context(rootDir = fixtureWorkspace, published: unknown[] = []) {
     processes: new Map(),
   } as never;
 }
+
+test("runtime error output is captured without a local process-table decision", async () => {
+  let onError: ((chunk: string) => void) | undefined;
+  const runtime = active("codex", {
+      onOutput: () => undefined,
+      onErrorOutput: (listener: (chunk: string) => void) => {
+        onError = listener;
+      },
+      onExit: () => undefined,
+      terminate: () => undefined,
+    } as never),
+    scheduled: Promise<unknown>[] = [],
+    base = context(),
+    runtimeContext = {
+      ...base,
+      input: {
+        ...base.input,
+        schedule: (effect: () => Promise<unknown>) => scheduled.push(effect()),
+      },
+      captureErrorOutput: (target: typeof runtime, chunk: string) => captureErrorOutput(runtimeContext, target, chunk),
+      consumeChunk: async () => undefined,
+      publishExit: async () => undefined,
+    } as never;
+  attachActiveRuntime(runtimeContext, runtime);
+  onError?.("provider diagnostic");
+  await Promise.all(scheduled);
+  assert.equal(runtime.errorBuffer, "provider diagnostic");
+  disposeActiveRuntimeObservations(runtime);
+});
 
 test("resume observation preserves durable provider output provenance", async () => {
   const frame = `${JSON.stringify({ type: "thread.started", thread_id: "codex-resume-session" })}\n`,

@@ -11,6 +11,7 @@ import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-g
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import {
   parseRuntimeSteerExpectation,
   resolveRuntimeSteerHeader,
@@ -65,11 +66,14 @@ export async function cancelRuntime(
         (matchingHeader.binding !== undefined &&
           ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode, matchingHeader) &&
           !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
+  const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
+  if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
+  let attempt = lifecycle.rows[0];
   if (!owned) {
     const session = context.input.remote
       ? await context.input.remote.readRuntimeSession(runtimeSessionId)
       : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
-    if (session?.outcome !== null && session?.outcome !== undefined)
+    if (attempt ? attempt.attempt.outcome !== null : session?.outcome !== null && session?.outcome !== undefined)
       return context.controlReceipt(opId, runtimeSessionId, "already-exited");
     throw runtimeSpawnError(
       "execution_scope_mismatch",
@@ -102,7 +106,11 @@ export async function cancelRuntime(
     ]);
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
-  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
+  if (!missingOwnedProcess) await assertRuntimeRecoveryReady(context, runtimeSessionId);
+  const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
+  if (currentLifecycle.status !== "ready")
+    throw dispatchLifecyclePendingError(currentLifecycle, context.runtimeSpawnError);
+  attempt = currentLifecycle.rows[0];
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
@@ -136,19 +144,14 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
+  if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
+    return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   // A missing process record still needs canonical owner evidence; a local header alone
   // cannot prove that the worker or its descendants stopped.
-  const recorded = headers.some((header) => header.runtimeSessionId === runtimeSessionId),
-    session =
-      recorded && !missingOwnedProcess
-        ? undefined
-        : context.input.remote
-          ? await context.input.remote.readRuntimeSession(runtimeSessionId)
-          : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
-  if (session && session.outcome === null) {
+  if (attempt && attempt.attempt.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
     let processGroupPid: number | null = null;
-    if (matchingHeader !== undefined || session.liveness !== "exited") {
+    if (matchingHeader !== undefined || attempt.attempt.process !== "exited") {
       const ownerEvidence =
         canonicalDispatch ??
         (context.input.remote?.readRuntimeDispatch
@@ -349,11 +352,11 @@ export async function steerRuntime(
         : runtimeSpawnError(code, message);
   if (!header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
     throw refuse("execution_scope_mismatch", "This runtime is owned by another node.");
-  assertRuntimeRecoveryReady(context, runtimeSessionId);
+  await assertRuntimeRecoveryReady(context, runtimeSessionId);
   let active = context.processes.get(runtimeSessionId);
   if (!active) {
     await adoptRuntimes(context, undefined, { runtimeSessionId });
-    assertRuntimeRecoveryReady(context, runtimeSessionId);
+    await assertRuntimeRecoveryReady(context, runtimeSessionId);
     active = context.processes.get(runtimeSessionId);
   }
   // No await from here to the append: the comparison and the write are one section of the writer.

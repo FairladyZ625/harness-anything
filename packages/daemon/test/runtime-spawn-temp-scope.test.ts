@@ -13,7 +13,7 @@ import {
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
-import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
+import { emptyDispatchLifecycleRead, lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding: RepoCellBinding = {
   actor: { principal: { personId: "person-owner" }, executor: null },
@@ -225,15 +225,28 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
         },
       },
       requiredRuntimeProjection: () => ({
-        readDispatchLifecycle: emptyDispatchLifecycleRead,
+        readDispatchLifecycle: async (query) => {
+          if (query.by === "session") pointReads.push(query.runtimeSessionId);
+          return lifecycleReadFor([
+            {
+              runtimeSessionId: settled,
+              dispatchId: "dispatch-settled",
+              instanceId: "provider-a",
+              attemptSettled: true,
+            },
+            { runtimeSessionId: live, dispatchId: "dispatch-live", instanceId: "provider-a", process: "alive" },
+            { runtimeSessionId: adopted, dispatchId: "dispatch-adopted", instanceId: "provider-a", process: "alive" },
+            { runtimeSessionId: exiting, dispatchId: "dispatch-exiting", instanceId: "provider-a", process: "unknown" },
+          ])(query);
+        },
         readRuntimeSessions: () => assert.fail("the sweep must not read the whole session table"),
         readRuntimeSession: (id: string) => {
           pointReads.push(id);
           const sessions: Record<string, { runtimeSessionId: string; outcome: string | null }> = {
             [settled]: { runtimeSessionId: settled, outcome: "succeeded" },
             [live]: { runtimeSessionId: live, outcome: null },
-            [adopted]: { runtimeSessionId: adopted, outcome: "failed" },
-            [exiting]: { runtimeSessionId: exiting, outcome: "succeeded" },
+            [adopted]: { runtimeSessionId: adopted, outcome: null },
+            [exiting]: { runtimeSessionId: exiting, outcome: null },
           };
           return sessions[id] ?? null;
         },
@@ -258,13 +271,8 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
 
 test("the startup sweep point-reads only local temp directories regardless of session history", async () => {
   const local = ["runtime_0123456789abcdef01234567", "runtime_89abcdef0123456789abcdef"],
-    history = Array.from({ length: 5_000 }, (_, index) => ({
-      runtimeSessionId: `runtime_${String(index).padStart(24, "0")}`,
-      outcome: "succeeded" as const,
-    })),
     pointReads: string[] = [];
-  let fullReads = 0,
-    reclaimed: readonly string[] = [];
+  let reclaimed: readonly string[] = [];
   const context = {
     exiting: new Set<string>(),
     processes: new Map(),
@@ -276,20 +284,22 @@ test("the startup sweep point-reads only local temp directories regardless of se
       },
     },
     requiredRuntimeProjection: () => ({
-      readDispatchLifecycle: emptyDispatchLifecycleRead,
-      readRuntimeSessions: () => {
-        fullReads += 1;
-        return history;
+      readDispatchLifecycle: async (query) => {
+        if (query.by === "session") pointReads.push(query.runtimeSessionId);
+        return lifecycleReadFor(
+          local.map((runtimeSessionId, index) => ({
+            runtimeSessionId,
+            dispatchId: `dispatch-${index}`,
+            instanceId: "provider-a",
+            attemptSettled: true,
+          })),
+        )(query);
       },
-      readRuntimeSession: (id: string) => {
-        pointReads.push(id);
-        return { runtimeSessionId: id, outcome: "succeeded" };
-      },
+      readRuntimeSessions: () => assert.fail("the sweep must not read historical runtime sessions"),
     }),
   };
   await sweepSettledRuntimeTempDirectories(context as never);
-  assert.equal(fullReads, 0, "the sweep must not read the 5,000-row settled history");
-  assert.deepEqual(pointReads, local, "the sweep reads exactly the local temp directory names");
+  assert.deepEqual(pointReads, local, "the sweep point-reads lifecycle only for local temp directory names");
   assert.deepEqual(reclaimed, local);
 });
 
@@ -332,7 +342,14 @@ test("settled temp maintenance is independent of runtime adoption", async () => 
           },
         },
         requiredRuntimeProjection: () => ({
-          readDispatchLifecycle: emptyDispatchLifecycleRead,
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: settled,
+              dispatchId: "dispatch-settled",
+              instanceId: "provider-a",
+              attemptSettled: true,
+            },
+          ]),
           readRuntimeSessions: () => [],
           readRuntimeSession: () => ({ runtimeSessionId: settled, outcome: "succeeded" }),
         }),

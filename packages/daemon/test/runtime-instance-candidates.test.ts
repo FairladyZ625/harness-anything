@@ -4,7 +4,6 @@ import test from "node:test";
 import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
 import { readSettingsFacet } from "@harness-anything/kernel";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
-import { locallyObservedRuntimeSessions } from "../src/runtime-spawn-adoption.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
 import {
   agentRuntimeAmbiguityWarning,
@@ -259,21 +258,17 @@ test("prepare spreads live load across instances of one declared runtime row", a
   assert.deepEqual(attempts, ["codex-b"]);
 });
 
-test("prepare counts a live local owner when canonical liveness is exited", async () => {
+test("prepare spreads load using liveness supplied by the dispatch lifecycle", async () => {
   const attempts: string[] = [],
-    runtimeSessionId = "runtime-exited-canonical-live-local",
-    sessions = locallyObservedRuntimeSessions(
-      [
-        {
-          runtimeSessionId,
-          providerSessionId: null,
-          instanceId: "codex-a",
-          liveness: "exited",
-          outcome: null,
-        },
-      ],
-      new Map([[runtimeSessionId, { process: { pid: process.pid } }]]),
-    );
+    sessions = [
+      {
+        runtimeSessionId: "dispatch-lifecycle-live-owner",
+        providerSessionId: null,
+        instanceId: "codex-a",
+        liveness: "live" as const,
+        outcome: null,
+      },
+    ];
   const selected = await prepareRuntimeInstance(
     {
       agent: { ...agent(), runtimes: [{ type: "codex" }] },
@@ -286,7 +281,6 @@ test("prepare counts a live local owner when canonical liveness is exited", asyn
       return { prepared: id };
     },
   );
-  assert.equal(sessions[0]!.liveness, "live");
   assert.equal(selected.instanceId, "codex-b");
   assert.deepEqual(attempts, ["codex-b"]);
 });

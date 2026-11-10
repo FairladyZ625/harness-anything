@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { adoptRuntimes, type RuntimeRecoveryResult } from "../src/runtime-spawn-adoption.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 import { openNodeAutoDispatchLoop, type NodeAutoDispatchCandidate } from "../src/node-auto-dispatch.ts";
 import {
   openRuntimeRecoveryWatch,
@@ -42,6 +43,7 @@ function unadoptableRuntimeContext(rootDir: string, lifecycle: unknown[]): Runti
       remote: {
         readRuntimeSessions: async () => [session],
         readRuntimeDispatch: async () => null,
+        readDispatchLifecycle: emptyDispatchLifecycleRead,
       },
     },
     processes: new Map(),
@@ -66,47 +68,17 @@ test("an unadoptable runtime does not stop the same confirmed round from dispatc
   });
   t.after(() => autoDispatch.close());
 
-  await assert.rejects(
-    runReplicaConfirmedRound({
-      // The edge reconcile's own contract: recover every runtime, then raise every failure.
-      reconcile: async () => {
-        const failed = runtimeRecoveryError(await adoptRuntimes(context));
-        if (failed) throw failed;
-      },
-      observeRecovery: (failures) => observed.push(failures),
-      triggers: [async () => undefined, () => autoDispatch.trigger("replica-confirmed")],
-    }),
-    (error: Error & { code?: string }) => {
-      // The failure is still reported, with the runtime and its own code, not swallowed.
-      assert.equal(error.code, "runtime_recovery_missing_dispatch");
-      assert.match(error.message, /runtime_unadoptable \[runtime_recovery_missing_dispatch\]/u);
-      return true;
+  await runReplicaConfirmedRound({
+    reconcile: async () => {
+      const failed = runtimeRecoveryError(await adoptRuntimes(context));
+      if (failed) throw failed;
     },
-  );
+    observeRecovery: (failures) => observed.push(failures),
+    triggers: [async () => undefined, () => autoDispatch.trigger("replica-confirmed")],
+  });
   assert.deepEqual(spawned, [reworkCandidate.dispatchKey], "the rework must be dispatched in the same round");
-  assert.deepEqual(observed, [
-    [
-      {
-        runtimeSessionId: "runtime_unadoptable",
-        dispatchId: null,
-        code: "runtime_recovery_missing_dispatch",
-        message: "Runtime runtime_unadoptable has no readable dispatch.",
-      },
-    ],
-  ]);
-  assert.deepEqual(
-    lifecycle.map((entry) => {
-      const { event, runtimeSessionId, code } = entry as Record<string, unknown>;
-      return { event, runtimeSessionId, code };
-    }),
-    [
-      {
-        event: "runtime_recovery_failed",
-        runtimeSessionId: "runtime_unadoptable",
-        code: "runtime_recovery_missing_dispatch",
-      },
-    ],
-  );
+  assert.deepEqual(observed, [[]], "only lifecycle-owned active dispatches enter recovery");
+  assert.deepEqual(lifecycle, [], "an orphan session with no dispatch is outside adoption");
 });
 
 test("a failed auto-claim trigger does not stop auto-dispatch, and every failure surfaces", async () => {

@@ -486,7 +486,7 @@ function durableOutputRecords(records: readonly Record<string, unknown>[]): read
 }
 
 export function captureErrorOutput(context: RuntimeSpawnerContext, active: ActiveRuntime, chunk: string): void {
-  if (active.errorOverflowed || context.processes.get(active.runtimeSessionId) !== active) return;
+  if (active.errorOverflowed) return;
   active.errorBuffer += chunk;
   if (Buffer.byteLength(active.errorBuffer) > context.providerErrorLimit) {
     active.errorBuffer = "";

@@ -15,6 +15,7 @@ import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeRecoveryWork } from "../src/runtime-recovery-work.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise<void>) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-isolation-"));
@@ -35,7 +36,7 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
       taskId: null,
       executionId: null,
       instanceId: session.instanceId,
-      startedAt: "2026-11-01T00:00:00.000Z",
+      startedAt: new Date().toISOString(),
       dispatchOpId: session.dispatchId,
       kindId: "codex",
       permissionMode: "read-only",
@@ -51,7 +52,15 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
   archiveDispatchStream(rootDir, ids[1]!);
   const events: unknown[] = [];
   const context = {
-    input: { rootDir, now: () => "2026-11-01T00:01:00.000Z", recordLifecycle: (event: unknown) => events.push(event) },
+    input: {
+      rootDir,
+      now: () => "2026-11-01T00:01:00.000Z",
+      schedule: (work: () => void | Promise<void>) => {
+        void Promise.resolve().then(work);
+      },
+      recordLifecycle: (event: unknown) => events.push(event),
+      runtimeInstances: () => sessions.map(({ instanceId }) => ({ instanceId, enabled: true }) as never),
+    },
     processes: new Map(),
     exiting: new Set(),
     requiredRuntimeProjection: () => ({
@@ -67,12 +76,40 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
         source: "local",
         payload: { dispatchId: sessions.find((s) => s.runtimeSessionId === id)!.dispatchId },
       }),
+      readDispatchLifecycle: lifecycleReadFor(
+        sessions.map((session) => ({
+          runtimeSessionId: session.runtimeSessionId,
+          dispatchId: session.dispatchId,
+          instanceId: session.instanceId,
+          process: "unknown" as const,
+        })),
+      ),
     }),
     publishExit: settle,
+    publishRuntimeEvent: async (type: string, payload: unknown) => {
+      events.push({ type, payload });
+      return { event: { type } as never, receipt: { outcome: "applied" } };
+    },
     runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
   } as unknown as RuntimeSpawnerContext;
   return { context, events, rootDir };
 }
+
+test("recovery releases its temporary process when the aggregate settles during adoption", async (t) => {
+  const { context } = fixture(t, async () => assert.fail("settled attempt must not settle twice"));
+  const projection = context.requiredRuntimeProjection(context.input),
+    originalRead = projection.readDispatchLifecycle.bind(projection);
+  let dispatchReads = 0;
+  projection.readDispatchLifecycle = async (query) => {
+    const read = await originalRead(query);
+    if (query.by !== "dispatch" || ++dispatchReads < 2 || read.status !== "ready") return read;
+    return { ...read, rows: read.rows.map((view) => ({ ...view, policy: { ...view.policy, attemptSettled: true } })) };
+  };
+  context.requiredRuntimeProjection = () => projection;
+  const result = await adoptRuntimes(context, undefined, { runtimeSessionId: "runtime-0" });
+  assert.equal(result[0]?.outcome, "settled");
+  assert.equal(context.processes.size, 0);
+});
 
 test("recovery records a missing dispatch as a per-runtime failure", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-residual-dispatch-"));
@@ -84,6 +121,7 @@ test("recovery records a missing dispatch as a per-runtime failure", async (t) =
     liveness: "unknown";
     outcome: null;
   }> = [];
+  let activeAttempts: Parameters<typeof lifecycleReadFor>[0] = [];
   const spawner = makeRuntimeSpawner({
     rootDir,
     repoId: "residual-dispatch",
@@ -109,6 +147,7 @@ test("recovery records a missing dispatch as a per-runtime failure", async (t) =
         );
       },
       readRuntimeSessions: async () => sessions,
+      readDispatchLifecycle: (query) => lifecycleReadFor(activeAttempts)(query),
       readRuntimeDispatch: async (runtimeSessionId: string) =>
         runtimeSessionId === "residual"
           ? null
@@ -130,15 +169,24 @@ test("recovery records a missing dispatch as a per-runtime failure", async (t) =
     liveness: "unknown" as const,
     outcome: null,
   });
-  // Maintenance still records the failure: the session has no dispatch to read.
+  // A migrated legacy session without an aggregate attempt is historical, not adoptable work.
   sessions = [session("residual")];
   const residualRecovery = await spawner.adopt();
-  assert.equal(residualRecovery[0]?.outcome, "failed");
-  assert.equal((residualRecovery[0]?.error as { code?: string }).code, "runtime_recovery_missing_dispatch");
-  // Admission does not consult recovery results; the dispatch lifecycle aggregate decides capacity.
+  assert.deepEqual(residualRecovery, []);
+  // An active aggregate attempt with no local stream is reported as a per-runtime failure.
   sessions = [session("dispatched")];
+  activeAttempts = [
+    {
+      runtimeSessionId: "dispatched",
+      dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+      instanceId: definition.instanceId,
+      owner: "node:node-a",
+      process: "unknown",
+    },
+  ];
   const dispatchedRecovery = await spawner.adopt();
   assert.equal(dispatchedRecovery[0]?.outcome, "failed");
+  assert.equal((dispatchedRecovery[0]?.error as { code?: string }).code, "runtime_recovery_missing_dispatch");
 });
 
 test("a failed recovery for an exited owner without a local process is recorded", async (t) => {
@@ -185,6 +233,16 @@ test("a failed recovery for an exited owner without a local process is recorded"
         actor: { principal: { personId: "owner" }, executor: null },
         source: { kind: "node", nodeId: "node-a" },
       }),
+      readDispatchLifecycle: lifecycleReadFor([
+        {
+          runtimeSessionId: session.runtimeSessionId,
+          dispatchId,
+          instanceId: definition.instanceId,
+          owner: "node:node-a",
+          process: "unknown",
+          stopProof: "proven_stopped",
+        },
+      ]),
       publish: async (draft) => {
         if (draft.type === "runtime_session_outcome_observed") throw recoveryError;
         return { event: { type: draft.type } as never, receipt: { outcome: "applied" } };
@@ -215,6 +273,7 @@ test("an exited session with a process still owned locally retains instance capa
       input: {
         rootDir,
         runtimeNode: { nodeId: "node-a" },
+        runtimeInstances: () => [{ instanceId: definition.instanceId, enabled: true }],
         now: () => "2026-11-01T00:01:00.000Z",
         remote: {
           async readRuntimeSession(id: string) {
@@ -230,6 +289,9 @@ test("an exited session with a process still owned locally retains instance capa
             actor: { principal: { personId: "owner" }, executor: null },
             source: { kind: "node", nodeId: "node-a" },
           }),
+          readDispatchLifecycle: lifecycleReadFor([
+            { runtimeSessionId, dispatchId, instanceId: definition.instanceId, owner: "node:node-a", process: "alive" },
+          ]),
         },
       },
       processes: new Map([[runtimeSessionId, { process: { pid: process.pid } }]]),
@@ -238,8 +300,8 @@ test("an exited session with a process still owned locally retains instance capa
     } as unknown as RuntimeSpawnerContext;
   const recovery = await adoptRuntimes(context);
   assert.equal(recovery[0]?.outcome, "failed");
-  assert.throws(
-    () => assertRuntimeRecoveryReady(context, runtimeSessionId, dispatchId, session.liveness),
+  await assert.rejects(
+    () => assertRuntimeRecoveryReady(context, runtimeSessionId, dispatchId),
     (error) => error === recovery[0]?.error,
   );
 });
@@ -291,6 +353,16 @@ test("an exited owner session with a dispatch but no stream header settles", asy
         actor: { principal: { personId: "owner" }, executor: null },
         source: { kind: "node", nodeId: "node-a" },
       }),
+      readDispatchLifecycle: lifecycleReadFor([
+        {
+          runtimeSessionId: session.runtimeSessionId,
+          dispatchId,
+          instanceId: definition.instanceId,
+          owner: "node:node-a",
+          process: "unknown",
+          stopProof: "proven_stopped",
+        },
+      ]),
       publish: async (draft) => {
         published.push({
           type: draft.type,
@@ -336,13 +408,12 @@ test("a missing dispatch stream cannot settle a live or foreign runtime", async 
       outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
     },
     owner: string,
-    acquireSlotDuringDispatchRead = false,
   ) => {
-    let ownsSlot = false;
     return {
       input: {
         rootDir,
         runtimeNode: { nodeId: "node-a" },
+        runtimeInstances: () => [{ instanceId: definition.instanceId, enabled: true }],
         remote: {
           async readRuntimeSession(id: string) {
             return (
@@ -352,19 +423,26 @@ test("a missing dispatch stream cannot settle a live or foreign runtime", async 
             );
           },
           readRuntimeSessions: async () => [session],
-          readRuntimeDispatch: async () => {
-            if (acquireSlotDuringDispatchRead) ownsSlot = true;
-            return {
-              payload: { dispatchId },
-              actor: { principal: { personId: "owner" }, executor: null },
-              source: { kind: "node", nodeId: owner },
-            };
-          },
+          readRuntimeDispatch: async () => ({
+            payload: { dispatchId },
+            actor: { principal: { personId: "owner" }, executor: null },
+            source: { kind: "node", nodeId: owner },
+          }),
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: session.runtimeSessionId,
+              dispatchId,
+              instanceId: definition.instanceId,
+              owner: `node:${owner}`,
+              process: session.liveness === "live" ? "alive" : "exited",
+              attemptSettled: session.outcome !== null,
+              groupSettled: session.outcome !== null,
+            },
+          ]),
         },
       },
       processes: new Map(),
       exiting: new Set(),
-      ownsModelSlot: () => ownsSlot,
       runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
       publishRuntimeEvent: async (type: string, payload: { runtimeSessionId: string; outcome?: string }) => {
         published.push(type);
@@ -383,16 +461,8 @@ test("a missing dispatch stream cannot settle a live or foreign runtime", async 
   const foreignSession = { runtimeSessionId: "foreign-runtime", liveness: "exited" as const, outcome: null },
     foreignContext = makeContext(foreignSession, "node-b"),
     foreignResult = await adoptRuntimes(foreignContext);
-  assert.equal(foreignResult[0]?.outcome, "foreign");
+  assert.deepEqual(foreignResult, []);
   assert.equal(foreignSession.outcome, null);
-  assert.deepEqual(published, []);
-  assert.equal(assertRuntimeRecoveryReady(foreignContext, foreignSession.runtimeSessionId), false);
-
-  const racingSession = { runtimeSessionId: "racing-runtime", liveness: "exited" as const, outcome: null },
-    racingContext = makeContext(racingSession, "node-a", true),
-    racingResult = await adoptRuntimes(racingContext);
-  assert.equal(racingResult[0]?.outcome, "failed");
-  assert.equal(racingSession.outcome, null);
   assert.deepEqual(published, []);
 });
 
@@ -402,13 +472,11 @@ for (const fault of ["HEAD timeout", "HEAD signal", "runtime restoration rejecte
       code: fault === "HEAD timeout" ? "ETIMEDOUT" : "ERR_TEST",
       signal: "SIGTERM",
     });
-    const settled: string[] = [];
     const { context, events, rootDir } = fixture(t, async (active) => {
       if (active.runtimeSessionId === "runtime-0") {
         if (fault.startsWith("HEAD")) await currentWorktreeHead(rootDir);
         else throw error;
       }
-      settled.push(active.runtimeSessionId);
     });
     if (fault.startsWith("HEAD")) {
       const original = childProcess.execFile;
@@ -429,9 +497,9 @@ for (const fault of ["HEAD timeout", "HEAD signal", "runtime restoration rejecte
     const results = await adoptRuntimes(context);
     assert.deepEqual(
       results.map((result) => result.outcome),
-      ["failed", "ready"],
+      ["failed", "settled"],
     );
-    assert.deepEqual(settled, ["runtime-1"]);
+    assert.equal(results[1]?.runtimeSessionId, "runtime-1");
     assert.ok(events.some((event) => (event as { event: string }).event === "runtime_recovery_failed"));
   });
 }
@@ -454,6 +522,14 @@ test("one unresolved recovery does not hold another runtime or the repository wr
       if (active.runtimeSessionId === "runtime-1") second.resolve();
     }, active.binding);
   });
+  Object.assign(context, {
+    publishRuntimeEvent: async (
+      _type: string,
+      _payload: unknown,
+      _opId: string,
+      binding: import("../src/runtime-spawn-types.ts").RuntimeBinding,
+    ) => await work.write(() => undefined, binding),
+  });
   const recovery = work.run(() => adoptRuntimes(context));
   try {
     await second.promise;
@@ -469,8 +545,8 @@ test("one unresolved recovery does not hold another runtime or the repository wr
 });
 
 for (const fault of ["pending", "rejected"] as const) {
-  test(`one ${fault} remote dispatch lookup does not hold another runtime`, async (t) => {
-    const lookup = Promise.withResolvers<{ payload: { dispatchId: string }; source: "local" }>(),
+  test(`one ${fault} remote lifecycle point-read does not hold another runtime`, async (t) => {
+    const lookup = Promise.withResolvers<import("@harness-anything/kernel").DispatchLifecycleRead>(),
       second = Promise.withResolvers<void>();
     const { context } = fixture(t, async (active) => {
       if (active.runtimeSessionId === "runtime-1") second.resolve();
@@ -489,22 +565,29 @@ for (const fault of ["pending", "rejected"] as const) {
             );
           },
           readRuntimeSessions: async () => projection.readRuntimeSessions(),
-          readRuntimeDispatch: async (id: string) => {
-            if (id === "runtime-0") return lookup.promise;
-            return projection.readRuntimeDispatch(id);
+          readRuntimeDispatch: async (id: string) => projection.readRuntimeDispatch(id),
+          readDispatchLifecycle: (query: import("@harness-anything/kernel").DispatchLifecycleQuery) => {
+            if (query.by === "dispatch" && query.dispatchIds.includes("dispatch_111111111111111111111111"))
+              return lookup.promise;
+            return projection.readDispatchLifecycle(query);
           },
         },
       },
     } as RuntimeSpawnerContext;
     const recovery = adoptRuntimes(remoteContext);
-    if (fault === "rejected") lookup.reject(new Error("dispatch lookup unavailable"));
+    if (fault === "rejected") lookup.reject(new Error("lifecycle point-read unavailable"));
     try {
       await second.promise;
     } finally {
-      lookup.resolve({ payload: { dispatchId: "dispatch_111111111111111111111111" }, source: "local" });
+      lookup.resolve(
+        projection.readDispatchLifecycle({
+          by: "dispatch",
+          dispatchIds: ["dispatch_111111111111111111111111"],
+        }),
+      );
       const result = await recovery;
-      assert.equal(result[1]!.outcome, "ready");
-      assert.equal(result[0]!.outcome, fault === "rejected" ? "failed" : "ready");
+      assert.equal(result[1]!.outcome, "settled");
+      assert.equal(result[0]!.outcome, fault === "rejected" ? "failed" : "settled");
     }
   });
 }
@@ -528,6 +611,7 @@ test("canonical dispatch ownership excludes another node without requiring its l
           );
         },
         readRuntimeSessions: async () => projection.readRuntimeSessions(),
+        readDispatchLifecycle: projection.readDispatchLifecycle,
         readRuntimeDispatch: async (id: string) => ({
           ...projection.readRuntimeDispatch(id)!,
           source: { kind: "node", nodeId: "node-a" },
@@ -536,10 +620,6 @@ test("canonical dispatch ownership excludes another node without requiring its l
     },
   } as RuntimeSpawnerContext;
   const results = await adoptRuntimes(foreign);
-  assert.deepEqual(
-    results.map((result) => result.outcome),
-    ["foreign", "foreign"],
-  );
-  assert.equal(assertRuntimeRecoveryReady(foreign, "runtime-0"), false);
+  assert.deepEqual(results, []);
   assert.equal(foreign.processes.size, 0);
 });

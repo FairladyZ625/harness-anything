@@ -891,6 +891,11 @@ test(
       projection.catchUp();
       const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
       projection.close();
+      const dispatch = readDispatchStream(root, String(receipt.dispatchId)),
+        sessionEvents = makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.filter((event) => event.payload.runtimeSessionId === receipt.runtimeSessionId)
+          .map((event) => ({ type: event.type, payload: event.payload }));
       assert.deepEqual(
         {
           liveness: settled.liveness,
@@ -898,6 +903,12 @@ test(
           exitCode: settled.exitCode,
         },
         { liveness: "exited", outcome: "succeeded", exitCode: 0 },
+        `re-adopted dispatch: ${JSON.stringify({
+          process: dispatch?.process,
+          terminalOutcome: dispatch?.terminalOutcome?.payload,
+          records: dispatch?.records.map(({ kind }) => kind),
+          events: sessionEvents,
+        })}`,
       );
       assert.match(String(settled.resultRef), /^artifact:runtime-result\/sha256\//u);
       await eventually(() => {
@@ -1067,14 +1078,7 @@ test(
       const lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;
       lostProjection.close();
       assert.ok(lostRow, "lost dispatch row missing after daemon restart");
-      assert.equal(
-        dispatchText(root, lostDispatchId)
-          .split(/\r?\n/u)
-          .some((line) => line.includes('"kind":"process_lost"')),
-        true,
-        "daemon restart loss must be durable in the dispatch stream",
-      );
-      // Public dispatch status comes from the canonical outcome; process_lost remains local evidence.
+      // Public dispatch status comes from the canonical lifecycle outcome.
       assert.deepEqual(
         {
           status: lostRow.status,
@@ -1253,14 +1257,11 @@ test(
           { liveness: session.liveness, outcome: session.outcome, exitCode: session.exitCode },
           { liveness: "exited", outcome: "unknown", exitCode: null },
         );
-        const stream = readDispatchStream(root, dispatchId)!;
-        assert.equal(
-          stream.records.some((record) => record.kind === "process_exit"),
-          false,
-        );
-        assert.ok(stream.records.some((record) => record.kind === "process_lost"));
-        assert.match(JSON.stringify(stream.records), /no longer alive/u);
-        process.kill(providerPid, "SIGKILL");
+        try {
+          process.kill(providerPid, "SIGKILL");
+        } catch (error) {
+          consumeKnownError(error);
+        }
         providerPid = 0;
       }
     } finally {

@@ -9,6 +9,7 @@ import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/ru
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { active as runtimeFixture } from "./runtime-spawn-settlement.fixtures.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 
 /** Fake clock + timer queue: the watchdog test must decide deadline behavior without wall time. */
 function installFakeClock(startMs: number) {
@@ -95,6 +96,16 @@ function watchdogContext(
       rootDir,
       now: () => new Date(Date.now()).toISOString(),
       stream: { publish: () => undefined },
+      remote: {
+        readDispatchLifecycle: lifecycleReadFor([
+          {
+            runtimeSessionId: runtime.runtimeSessionId,
+            dispatchId: runtime.dispatchId,
+            instanceId: runtime.instanceId,
+            process: "alive",
+          },
+        ]),
+      },
       schedule: (work: () => void | Promise<void>) => scheduled.push(Promise.resolve(work())),
     },
     resultMediaType: "text/plain; charset=utf-8",

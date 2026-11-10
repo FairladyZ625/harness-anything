@@ -92,6 +92,18 @@ test("positive fixture: daemon start preview and CLI cancellation eligibility co
   );
 });
 
+test("positive fixture: adoption cannot gate recovery on the local process table", (t) => {
+  const findings = fixtureFindings(t);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("packages/daemon/src/positive-controls.ts#canAdoptRuntime") &&
+        finding.includes("process-table-probe judgment"),
+    ),
+    findings.join("\n"),
+  );
+});
+
 // The bilingual closeout judgment is the writing boundary `ha task submit` and the PR body
 // renderer share. A second implementation on either side — including a tool-side renderer copy —
 // must fail this gate, which is what makes "same exported function" enforced rather than trusted.
@@ -267,14 +279,16 @@ test("dispatch observation ratchet rejects admission and terminal judgments but 
     });
   assert.deepEqual(sites.map(({ symbol, kind }) => `${symbol}:${kind}`).sort(), [
     "admissionFromPid:runtimePidIsAlive",
+    "adoptionFromProcessTable:process-table-probe",
     "capacityFromLocalTables:fallback-state-branch",
     "capacityFromLocalTables:liveness-comparison",
     "capacityFromLocalTables:process-table-probe",
     "terminalFromProcessLost:process-lost-terminal-return",
   ]);
-  // observeProcess reads the same PID fact but only submits a process_observed event: no finding.
+  // observeProcess reads the PID fact into the existing lifecycle event: no finding.
   assert.ok(!sites.some(({ symbol }) => symbol === "observeProcess"));
-  assert.equal(findings.length, 5);
+  assert.equal(findings.length, 6);
+  assert.ok(findings.some((finding) => finding.includes("adoptionFromProcessTable")));
   assert.ok(findings.every((finding) => finding.includes("new ")));
 });
 
