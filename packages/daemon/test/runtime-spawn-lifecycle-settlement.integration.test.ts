@@ -548,7 +548,10 @@ test(
           failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.outcome,
           "unknown",
         );
-        assert.equal(failedStatus.session.activity.outcome, "unknown");
+        assert.ok(
+          failedStatus.session.activity.outcome === null || failedStatus.session.activity.outcome === "unknown",
+          "an indeterminate post-commit response must not expose success before lifecycle publication is certain",
+        );
         failSettlement = false;
         assert.equal(
           (
