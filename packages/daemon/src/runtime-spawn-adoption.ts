@@ -289,7 +289,7 @@ async function restoreRuntime(
         ...(processPid > 1 ? { processGroupPid: processPid } : {}),
       },
     } as const;
-  if (lifecycle.attempt.process === "unknown")
+  if (lifecycle.attempt.process !== "exited")
     await context.publishRuntimeEvent(
       livenessEvent.type,
       livenessEvent.payload,
