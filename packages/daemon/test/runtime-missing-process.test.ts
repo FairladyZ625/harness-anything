@@ -370,8 +370,8 @@ test("runtime cancel settles a missing-process stream only after its canonical g
     assert.deepEqual(
       published.map(({ type, payload }) => [type, payload]),
       [
-        ["runtime_session_cancelled", { runtimeSessionId }],
         ["runtime_session_exited", { runtimeSessionId }],
+        ["runtime_session_cancelled", { runtimeSessionId }],
         [
           "runtime_session_outcome_observed",
           {
@@ -474,13 +474,13 @@ test("runtime cancel settles the task lease before closing a missing-process tas
       },
     ]);
     assert.deepEqual(published, [
-      "runtime_session_cancelled",
       "runtime_session_exited",
+      "runtime_session_cancelled",
       "runtime_session_outcome_observed",
     ]);
     assert.deepEqual(order, [
-      "runtime_session_cancelled",
       "runtime_session_exited",
+      "runtime_session_cancelled",
       "settle-attempt",
       "runtime_session_outcome_observed",
     ]);
@@ -551,7 +551,7 @@ test("runtime cancel leaves a missing-process task dispatch live when stop proof
     assert.equal(leaseHeld, true, "a rejected stop proof keeps the task lease held");
     assert.deepEqual(
       published,
-      ["runtime_session_cancelled", "runtime_session_exited"],
+      ["runtime_session_exited"],
       "stop proof is published before the release guard; the refused lease still suppresses the outcome",
     );
   } finally {
@@ -695,8 +695,8 @@ test("runtime cancel closes an exited session whose dispatch stream is missing",
     );
     assert.equal(receipt.detail, "cancelled");
     assert.deepEqual(published, [
-      "runtime_session_cancelled",
       "runtime_session_exited",
+      "runtime_session_cancelled",
       "runtime_session_outcome_observed",
     ]);
   } finally {
@@ -768,8 +768,8 @@ test("runtime cancel settles a live remote session when the owner stream is gone
     assert.equal(receipt.detail, "cancelled");
     assert.deepEqual(reclaimed, [[instanceId, runtimeSessionId]]);
     assert.deepEqual(published, [
-      "runtime_session_cancelled",
       "runtime_session_exited",
+      "runtime_session_cancelled",
       "runtime_session_outcome_observed",
     ]);
   } finally {
