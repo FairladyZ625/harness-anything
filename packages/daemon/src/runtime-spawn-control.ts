@@ -11,6 +11,7 @@ import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-g
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import {
   parseRuntimeSteerExpectation,
   resolveRuntimeSteerHeader,
@@ -65,11 +66,15 @@ export async function cancelRuntime(
         (matchingHeader.binding !== undefined &&
           ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode, matchingHeader) &&
           !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
+  const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
+  if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
+  const attempt = lifecycle.rows[0];
+  if (attempt?.policy.attemptSettled) return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   if (!owned) {
     const session = context.input.remote
       ? await context.input.remote.readRuntimeSession(runtimeSessionId)
       : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
-    if (session?.outcome !== null && session?.outcome !== undefined)
+    if (attempt ? attempt.attempt.outcome !== null : session?.outcome !== null && session?.outcome !== undefined)
       return context.controlReceipt(opId, runtimeSessionId, "already-exited");
     throw runtimeSpawnError(
       "execution_scope_mismatch",
@@ -138,17 +143,10 @@ export async function cancelRuntime(
   }
   // A missing process record still needs canonical owner evidence; a local header alone
   // cannot prove that the worker or its descendants stopped.
-  const recorded = headers.some((header) => header.runtimeSessionId === runtimeSessionId),
-    session =
-      recorded && !missingOwnedProcess
-        ? undefined
-        : context.input.remote
-          ? await context.input.remote.readRuntimeSession(runtimeSessionId)
-          : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
-  if (session && session.outcome === null) {
+  if (attempt && attempt.attempt.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
     let processGroupPid: number | null = null;
-    if (matchingHeader !== undefined || session.liveness !== "exited") {
+    if (matchingHeader !== undefined || attempt.attempt.process !== "exited") {
       const ownerEvidence =
         canonicalDispatch ??
         (context.input.remote?.readRuntimeDispatch
