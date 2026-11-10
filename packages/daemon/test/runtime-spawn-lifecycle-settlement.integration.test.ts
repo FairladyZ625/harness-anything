@@ -546,10 +546,14 @@ test(
         );
         assert.equal(
           failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.outcome,
-          "succeeded",
+          "unknown",
         );
-        assert.equal(failedStatus.session.activity.outcome, "succeeded");
-        assert.match(failedStatus.result?.text ?? "", /attached tail settled/u);
+        assert.equal(failedStatus.session.activity.outcome, "unknown");
+        assert.equal(
+          failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
+          "publication_indeterminate",
+        );
+        assert.equal(failedStatus.session.activity.reasonCode, "publication_indeterminate");
         failSettlement = false;
         assert.equal(
           (
