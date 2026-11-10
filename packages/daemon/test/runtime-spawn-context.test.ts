@@ -6,6 +6,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "../src/runtime-spawn-context.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { resolveDispatchCwd } from "../src/runtime-resume-admission.ts";
 
@@ -73,6 +75,54 @@ test("a read-only execution credential is delivered through the launch environme
     [{ role: "read-only", taskId: null }],
   );
   assert.equal(launch.env.HARNESS_EXECUTION_CREDENTIAL, "synthetic-execution-credential");
+});
+
+test("a launch for a dispatch whose execution client already exists reuses that credential", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(
+      { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
+      keycloak.fetch,
+    ),
+    principal = {
+      repoId: "repo-existing",
+      personId: "person-existing",
+      source: "local" as const,
+      runtimeSessionId: "runtime-existing",
+      dispatchId: "dispatch-existing",
+      taskId: "task-existing",
+      executionId: "execution-existing",
+      role: "reviewer" as const,
+    },
+    // The previous launch created this dispatch's client; a retry reaches it before starting.
+    issued = await adapter.issueExecutionCredential("center-token", {
+      ...principal,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }),
+    launch = await prepareBoundRuntimeLaunch({
+      input: {
+        rootDir: "/repo",
+        repoId: "repo-existing",
+        now: () => "2026-11-10T00:00:00.000Z",
+        keycloakCenter: async () => ({
+          provider: adapter,
+          url: keycloakUrl,
+          realm: keycloakRealm,
+          clientId: "harness-center",
+          accessToken: "center-token",
+        }),
+      } as unknown as RuntimeSpawnerInput,
+      prepared: { env: {} } as Parameters<typeof prepareBoundRuntimeLaunch>[0]["prepared"],
+      daemonRoute: { userRoot: "/state", daemonId: "test", endpoint: "/daemon.sock" },
+      runtimeActor: "agent:runtime-session:runtime-existing",
+      taskId: "task-existing",
+      execution: principal,
+    });
+  assert.equal(
+    launch.env.HARNESS_EXECUTION_CREDENTIAL,
+    issued,
+    "launch admission resolves the existing client instead of failing the dispatch",
+  );
+  assert.equal(keycloak.nodeClients.size, 1, "the retry created no second client");
 });
 
 test("runtime CLI bin resolves from the nearest daemon installation", (context) => {

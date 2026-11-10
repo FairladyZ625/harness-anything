@@ -285,6 +285,9 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         nodeClients.delete(nodeClient.clientId);
         return new Response(null, { status: 204 });
       }
+      // Keycloak exposes a confidential client's stored secret for the owning realm administrator.
+      if (route.endsWith("/client-secret") && method === "GET")
+        return json({ type: "secret", value: nodeClient.secret });
       if (method === "GET") return json({ ...nodeClient, secret: undefined });
       // Admin client PUT replaces its secret in the same update as the device metadata.
       if (typeof body!.secret === "string") nodeClient.secret = body!.secret;
