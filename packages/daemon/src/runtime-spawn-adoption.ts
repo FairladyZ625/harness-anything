@@ -109,10 +109,7 @@ export async function adoptRuntimes(
     .map(([runtimeSessionId, initial]) => {
       const existing = pending.get(runtimeSessionId);
       if (existing && existing.result?.outcome !== "failed") {
-        // A ready recovery is only a deduplication guard while its adopted process is still
-        // owned by this spawner. If terminal publication fails after the process exits, the
-        // process is removed and the next replica confirmation must retry the durable stream;
-        // retaining the old ready promise would make recovery permanently inert.
+        // Retry the durable stream when the aggregate no longer observes a live process.
         if (existing.result?.outcome !== "ready" || initial.attempt.process === "alive") return existing.promise;
         pending.delete(runtimeSessionId);
       }
@@ -371,7 +368,6 @@ async function restoreRuntime(
   });
   await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
   if (context.closed?.()) return false;
-  context.processes.set(active.runtimeSessionId, active);
   const observedLifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
   if (observedLifecycle.status !== "ready")
     throw dispatchLifecyclePendingError(observedLifecycle, context.runtimeSpawnError);
@@ -383,7 +379,11 @@ async function restoreRuntime(
       "runtime_recovery_pending",
       `Runtime ${active.runtimeSessionId} is missing from its dispatch lifecycle after observation.`,
     );
-  if (observedAttempt.policy.attemptSettled) return true;
+  if (observedAttempt.policy.attemptSettled) {
+    active.process.release?.();
+    return true;
+  }
+  context.processes.set(active.runtimeSessionId, active);
   if (observedAttempt.attempt.process === "alive") {
     if (active.spendCapExceeded) await context.enforceSpendCap(active);
     else if (fullStream) attachAdoptedObservations(context, active);

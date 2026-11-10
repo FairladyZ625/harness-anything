@@ -95,6 +95,22 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
   return { context, events, rootDir };
 }
 
+test("recovery releases its temporary process when the aggregate settles during adoption", async (t) => {
+  const { context } = fixture(t, async () => assert.fail("settled attempt must not settle twice"));
+  const projection = context.requiredRuntimeProjection(context.input),
+    originalRead = projection.readDispatchLifecycle.bind(projection);
+  let dispatchReads = 0;
+  projection.readDispatchLifecycle = async (query) => {
+    const read = await originalRead(query);
+    if (query.by !== "dispatch" || ++dispatchReads < 2 || read.status !== "ready") return read;
+    return { ...read, rows: read.rows.map((view) => ({ ...view, policy: { ...view.policy, attemptSettled: true } })) };
+  };
+  context.requiredRuntimeProjection = () => projection;
+  const result = await adoptRuntimes(context, undefined, { runtimeSessionId: "runtime-0" });
+  assert.equal(result[0]?.outcome, "settled");
+  assert.equal(context.processes.size, 0);
+});
+
 test("recovery records a missing dispatch as a per-runtime failure", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-residual-dispatch-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
