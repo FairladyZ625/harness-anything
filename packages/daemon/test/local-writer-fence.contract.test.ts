@@ -47,11 +47,16 @@ test("every production local binding is covered by a request or cell-default wri
   );
   // Schedule reads use system authority; non-builtin occurrence writes use the canonical creator
   // and Keycloak authorization, with a request fence for that repository. Builtin occurrences
-  // are daemon-owned and do not depend on the creator's historical person id.
+  // are daemon-owned and do not depend on the creator's historical person id. A builtin
+  // schedule-settle therefore uses the daemon system authority, and still passes through
+  // daemonWriterBinding so the repository write fence applies.
   assert.match(host, /if \(action\.kind === "schedule-list"\) return system/u);
   assert.match(host, /cell\.run\(\{ kind: "schedule-show", scheduleId: action\.scheduleId \}, system\)/u);
   assert.match(host, /if \(!schedule \|\| validateScheduleV1\(schedule\)\.length\)\s*throw hostCodedError/u);
-  assert.match(host, /const current = await hostBinding\(rootDir, \{ transportKind: "unix-socket" \}\)/u);
+  assert.match(
+    host,
+    /const current =\s*schedule\.spec\.target\.kind === "builtin" && action\.kind === "schedule-settle"\s*\?\s*system\s*:\s*await hostBinding\(rootDir, \{ transportKind: "unix-socket" \}\)/u,
+  );
   assert.match(host, /current\.actor\.principal\.personId !== schedule\.createdBy\.principal\.personId/u);
   assert.match(host, /return daemonWriterBinding\(repoId, current\)/u);
   assert.match(
