@@ -1,12 +1,12 @@
 import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
-import { dispatchLifecyclePendingError } from "./runtime-dispatch-admission.ts";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, type DispatchLifecycleView } from "@harness-anything/kernel";
+import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
-import { sweepUntilProvenStopped } from "./runtime/process-group-reconciler.ts";
+import { sweepUntilProvenStopped, type ProviderGroupSweepVerdict } from "./runtime/process-group-reconciler.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { openRuntimeWorkspaceMonitor } from "./runtime-workspace-monitor-thread.ts";
 import { createWorkspaceActivityQueue } from "./runtime-workspace-activity-queue.ts";
@@ -162,27 +162,29 @@ export function disposeActiveRuntimeObservations(active: ActiveRuntime): void {
   );
 }
 
+export async function isRuntimeProcessProvenStopped(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  attempt: Pick<DispatchLifecycleView["attempt"], "stopProof">,
+  pid = active.process.pid,
+): Promise<ProviderGroupSweepVerdict> {
+  if (attempt.stopProof === "proven_stopped") return "proven_stopped";
+  if (pid <= 1) return "unknown_unreachable";
+  return sweepUntilProvenStopped({ pid, dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId } });
+}
+
 export async function settleStalledRuntime(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {
   if (active.exitSettlement || context.exiting.has(active.runtimeSessionId) || stallSettlementStarted.has(active))
     return;
-  const lifecycle = await (context.input.remote
-    ? context.input.remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [active.dispatchId] })
-    : context.requiredRuntimeProjection(context.input).readDispatchLifecycle({
-        by: "dispatch",
-        dispatchIds: [active.dispatchId],
-      }));
+  const lifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
   const current = lifecycle.rows[0];
   if (!current || current.policy.attemptSettled || current.attempt.process !== "alive") return;
   stallSettlementStarted.add(active);
   const newlyStalled = active.stalledAt === null,
     stalledAt = active.stalledAt ?? context.input.now();
-  // Freeze the judgment before the probe: a provider frame that lands while `ps` runs is later
-  // than the deadline this settlement already decided, so it must not move the progress clock
-  // the evidence quotes.
   active.stalledAt ??= stalledAt;
-  // The evidence names what the judgment saw before anything is terminated: the deadline's
-  // inputs and the process subtree that a real long tool would still be running in.
+  // Record deadline inputs and the observed process subtree before termination.
   const liveProcessPids = newlyStalled ? await liveDescendantPids(active) : null;
   active.lossReason = `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`;
   if (newlyStalled) active.stream.appendStalled?.(stalledAt, stallEvidence(active, stalledAt, liveProcessPids));
@@ -192,9 +194,7 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
     `runtime-stall-${active.dispatchId}`,
     active.binding,
   );
-  // One termination path: the process tree when the launch can enumerate it, otherwise the
-  // process group. A termination failure is a real fault and propagates to the scheduling
-  // boundary instead of being replaced by a second kill attempt that hides it.
+  // Terminate through the one process-tree/group path and propagate failures.
   if (active.process.terminateTree) await active.process.terminateTree();
   else active.process.terminate();
   await consumeDurableOutput(context, active);
@@ -239,9 +239,7 @@ function armStallDeadline(
         armStallDeadline(context, active, handles);
         return;
       }
-      // Provider frames are an incomplete view of work: a command may produce no frame until it
-      // exits, or the provider may not announce it in a structured form. The OS process tree is
-      // the single liveness source; an active descendant keeps this dispatch under observation.
+      // An active descendant keeps a silent provider dispatch under observation.
       const childPids = await liveDescendantPids(active);
       if (childPids !== null && childPids.length > 0) {
         armStallDeadline(context, active, handles, Date.now() + active.stallTimeoutMs);
@@ -256,7 +254,6 @@ function armStallDeadline(
 function attachRuntimeObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
   const handles: RuntimeObservationHandles = { timer: null, monitor: null, disposed: false, flushOnExit: false };
   observationHandles.set(active, handles);
-  // Worker messages are already coalesced. Enter the single writer only once per observation.
   const observe = (work: () => void | Promise<void>, workspace = false): void => {
     context.input.schedule(() => {
       if ((handles.disposed && !(workspace && handles.flushOnExit)) || active.exitSettlement) return;
@@ -321,8 +318,7 @@ function retireObservationFault(
   });
   disposeActiveRuntimeObservations(active);
   if (providerExited) return;
-  // Termination may wait on another process. It must not hold the ledger writer; only
-  // the prepared loss record and normal terminal settlement return to its existing queue.
+  // Termination runs outside the writer queue.
   void Promise.resolve()
     .then(async () => {
       if (active.process.terminateTree) await active.process.terminateTree();
@@ -379,23 +375,14 @@ export function attachActiveRuntime(
               `runtime-observation-${active.dispatchId}-${processObservation.liveness}`,
               active.binding,
             );
-            const lifecycle = await (context.input.remote
-              ? context.input.remote.readDispatchLifecycle({ by: "dispatch", dispatchIds: [active.dispatchId] })
-              : context.requiredRuntimeProjection(context.input).readDispatchLifecycle({
-                  by: "dispatch",
-                  dispatchIds: [active.dispatchId],
-                }));
+            const lifecycle = await readDispatchLifecycle(context, {
+              by: "dispatch",
+              dispatchIds: [active.dispatchId],
+            });
             if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
             const attempt = lifecycle.rows.find(({ attempt }) => attempt.runtimeSessionId === runtimeSessionId);
             if (!attempt || attempt.policy.attemptSettled || attempt.attempt.process !== "unknown") return;
-            const stop =
-              attempt.attempt.stopProof === "proven_stopped"
-                ? "proven_stopped"
-                : await sweepUntilProvenStopped({
-                    pid: active.process.pid,
-                    dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
-                  });
-            if (stop !== "proven_stopped") return;
+            if ((await isRuntimeProcessProvenStopped(context, active, attempt.attempt)) !== "proven_stopped") return;
             active.lossReason = lossReason ?? "runtime process group was lost";
             removeRuntimeCallbackRelay(active.dispatchId);
             await consumeDurableOutput(context, active);
@@ -430,7 +417,6 @@ export function attachActiveRuntime(
         }
       },
     };
-  // Register observations before process handlers so an immediate exit can dispose them.
   try {
     attachRuntimeObservations(context, active);
   } catch (error) {

@@ -17,8 +17,7 @@ export async function resolveRuntimeDispatchResources(
     readonly import("./runtime-provider-health.ts").RuntimeProviderHealth[],
   ]
 > {
-  // Dispatch needs instance load and recovery from the unsettled set, plus the one native session a
-  // resume names (usually settled). Settled history beyond that is never read.
+  // Read active lifecycle rows plus a named resume session; settled history is never scanned.
   const read = (query: RuntimeSessionReadQuery) =>
       remote ? remote.readRuntimeSessions(query) : projection!.readRuntimeSessions(query),
     lifecycle = await readActiveDispatchLifecycle(

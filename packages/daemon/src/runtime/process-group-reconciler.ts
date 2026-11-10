@@ -176,12 +176,11 @@ export async function sweepUntilProvenStopped(
 ): Promise<ProviderGroupSweepVerdict> {
   let stop = probeProcessGroup(input, deps);
   for (let attempt = 0; stop === "running" && attempt < 80; attempt++) {
-    if (attempt === 40) {
-      stop = sweepOrphanedProcessGroup(input, deps);
-      continue;
+    if (attempt === 40) stop = sweepOrphanedProcessGroup(input, deps);
+    else {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      stop = probeProcessGroup(input, deps);
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, 25));
-    stop = probeProcessGroup(input, deps);
   }
   return stop;
 }

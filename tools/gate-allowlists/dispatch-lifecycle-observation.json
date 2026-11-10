@@ -341,13 +341,6 @@
         "slice": "5"
       },
       {
-        "path": "packages/daemon/src/runtime-spawn-provider-stream.ts",
-        "symbol": "captureErrorOutput",
-        "kind": "process-table-probe",
-        "fingerprint": "e509c3fe04820c478897cd22c2a835e3d131aaa1de20cfb93f91219173ec184c",
-        "slice": "3"
-      },
-      {
         "path": "packages/daemon/src/runtime-spawn-settlement.ts",
         "symbol": "publishExit",
         "kind": "fallback-state-branch",

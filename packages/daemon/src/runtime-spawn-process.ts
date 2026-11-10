@@ -247,9 +247,7 @@ async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
   });
 }
 
-/** Live children of one runtime root, asked of the OS. A platform that cannot enumerate the
- *  table, or a probe that failed, reports unavailability so the caller keeps its historical
- *  deadline rather than reading silence as an empty subtree. */
+/** Probe live descendants; unavailable keeps the historical deadline. */
 async function liveDescendantPidsOf(rootPid: number): Promise<LiveDescendantProbeResult> {
   if (!Number.isInteger(rootPid) || rootPid < 1 || process.platform === "win32") return { available: false };
   try {
@@ -590,25 +588,17 @@ function observeDispatchProcess(
     exitCode = code;
     lossReason = reason;
     processObservation = observation;
-    // Exit or process loss follows the last persisted provider line. Stop here, not in release(), which settlement
-    // skips on its early return, on a throw, and behind the writer-thread proxy.
     clearInterval(timer);
     if (exitListener) exitListener(code, lossReason, processObservation);
   };
   const drain = (): void => {
     if (released || exited) return;
     try {
-      const livenessEvent = {
-        type: "runtime_session_liveness_changed" as const,
-        payload: {
-          runtimeSessionId: runtimeSessionId ?? "",
-          liveness: runtimePidIsAlive(pid) ? ("live" as const) : ("unknown" as const),
-          processGroupPid: pid,
-        },
-      };
+      const liveness = runtimePidIsAlive(pid) ? ("live" as const) : ("unknown" as const),
+        observation = runtimeSessionId ? { runtimeSessionId, liveness, processGroupPid: pid } : undefined;
       let bytes = readRuntimeWorkerChunk(stream, offset);
       if (bytes.length === 0) {
-        switch (livenessEvent.payload.liveness) {
+        switch (liveness) {
           case "unknown": {
             bytes = readRuntimeWorkerChunk(stream, offset);
             if (bytes.length === 0) {
@@ -619,7 +609,7 @@ function observeDispatchProcess(
                 reason,
               });
               removeRuntimeCallbackRelay(dispatchId);
-              emitExit(null, reason, runtimeSessionId ? livenessEvent.payload : undefined);
+              emitExit(null, reason, observation);
               return;
             }
             break;
@@ -642,7 +632,7 @@ function observeDispatchProcess(
           else emitOutput(`${String(record.output)}\n`);
         } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
         else if (record?.kind === "process_lost") {
-          emitExit(null, String(record.reason), runtimeSessionId ? livenessEvent.payload : undefined);
+          emitExit(null, String(record.reason), observation);
           return;
         } else if (record?.kind === "process_exit") {
           const signal = typeof record.signal === "string" ? record.signal : null;

@@ -6,8 +6,16 @@ import {
   type DispatchLifecycleRead,
   type DispatchLifecycleView,
 } from "@harness-anything/kernel";
+import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
 type CodedError = (code: string, message: string) => Error;
+
+export function readDispatchLifecycle(context: RuntimeSpawnerContext, query: DispatchLifecycleQuery) {
+  return (
+    context.input.remote?.readDispatchLifecycle(query) ??
+    context.requiredRuntimeProjection(context.input).readDispatchLifecycle(query)
+  );
+}
 
 export function dispatchLifecyclePendingError(
   page: Extract<DispatchLifecycleRead, { status: "pending" }>,
@@ -42,13 +50,13 @@ export async function readActiveDispatchLifecycle(
 ): Promise<DispatchLifecycleView[]> {
   const rows: DispatchLifecycleView[] = [];
   let cursor: string | null = null;
-  do {
+  while (true) {
     const page: DispatchLifecycleRead = await read(activePage(instanceId, cursor));
     if (page.status !== "ready") throw dispatchLifecyclePendingError(page, error);
     rows.push(...page.rows);
+    if (page.nextCursor === null) return rows;
     cursor = page.nextCursor;
-  } while (cursor !== null);
-  return rows;
+  }
 }
 
 /**
@@ -85,7 +93,7 @@ function activePage(instanceId: string | undefined, cursor: string | null): Disp
   return {
     by: "active",
     limit: DISPATCH_LIFECYCLE_PAGE_LIMIT,
-    ...(instanceId === undefined ? {} : { instanceId }),
+    ...(instanceId ? { instanceId } : {}),
     ...(cursor === null ? {} : { cursor }),
   };
 }

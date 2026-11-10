@@ -32,7 +32,7 @@ for (const reason of ["lease", "runtime"] as const)
           },
           () => revision,
         );
-        for (const value of candidates.slice(0, 2)) store.append(value);
+        for (const value of candidates.slice(0, 3)) store.append(value);
       }
       const endpoint = openSqliteMigrationEndpoint({ rootDir: root, repoId, scope }),
         before = await endpoint.epoch();

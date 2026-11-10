@@ -3,7 +3,6 @@ import {
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
   dispatchOwnerForNode,
   sameWriteSource,
-  type DispatchLifecycleRead,
   type DispatchLifecycleView,
 } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
@@ -18,7 +17,7 @@ import {
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
-import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
+import { createActiveRuntime, attachActiveRuntime, isRuntimeProcessProvenStopped } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess } from "./runtime-spawn-process.ts";
 import {
   consumeDurableOutput,
@@ -31,8 +30,11 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
-import { dispatchLifecyclePendingError, readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
-import { sweepUntilProvenStopped } from "./runtime/process-group-reconciler.ts";
+import {
+  dispatchLifecyclePendingError,
+  readActiveDispatchLifecycle,
+  readDispatchLifecycle,
+} from "./runtime-dispatch-admission.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 
 export interface RuntimeRecoveryResult {
@@ -59,21 +61,46 @@ export async function adoptRuntimes(
   options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
   const owner = dispatchOwnerForNode(context.input.runtimeNode?.nodeId),
-    candidates = new Map<string, DispatchLifecycleView>();
+    candidates = new Map<string, DispatchLifecycleView>(),
+    streamHeaders = readDispatchStreamHeaders(context.input.rootDir);
   const instanceIds = context.input.runtimeInstances?.().map(({ instanceId }) => instanceId) ?? [],
     active = await Promise.all(
-      [
-        ...new Set([
-          ...instanceIds,
-          ...readDispatchStreamHeaders(context.input.rootDir).map(({ instanceId }) => instanceId),
-        ]),
-      ].map((instanceId) =>
-        readActiveDispatchLifecycle((query) => readDispatch(context, query), context.runtimeSpawnError, instanceId),
+      [...new Set([...instanceIds, ...streamHeaders.map(({ instanceId }) => instanceId)])].map((instanceId) =>
+        readActiveDispatchLifecycle(
+          (query) => readDispatchLifecycle(context, query),
+          context.runtimeSpawnError,
+          instanceId,
+        ),
       ),
     );
-  for (const view of active.flat())
+  const activeViews = active.flat();
+  for (const view of activeViews)
     if (view.attempt.fence.verified && view.attempt.fence.owner === owner)
       candidates.set(view.attempt.runtimeSessionId, view);
+  const activeDispatchIds = new Set(activeViews.map(({ attempt }) => attempt.dispatchId)),
+    terminalHeaders = new Map(
+      streamHeaders
+        .filter(({ dispatchId }) => !activeDispatchIds.has(dispatchId))
+        .map((header) => [header.dispatchId, header]),
+    );
+  if (terminalHeaders.size) {
+    const lifecycle = await readDispatchLifecycle(context, {
+      by: "dispatch",
+      dispatchIds: [...terminalHeaders.keys()],
+    });
+    if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
+    for (const view of lifecycle.rows) {
+      const header = terminalHeaders.get(view.attempt.dispatchId);
+      if (
+        view.policy.attemptSettled &&
+        header?.runtimeSessionId === view.attempt.runtimeSessionId &&
+        header.instanceId === view.attempt.instanceId &&
+        view.attempt.fence.verified &&
+        view.attempt.fence.owner === owner
+      )
+        candidates.set(view.attempt.runtimeSessionId, view);
+    }
+  }
   let pending = recoveries.get(context);
   if (!pending) recoveries.set(context, (pending = new Map()));
   let completed = 0;
@@ -96,7 +123,7 @@ export async function adoptRuntimes(
           .then(async () => {
             // The launch may not have written its stream header yet either.
             if (context.ownsModelSlot?.(runtimeSessionId)) return "ready" as const;
-            const lifecycle = await readDispatch(context, { by: "dispatch", dispatchIds: [dispatchId!] });
+            const lifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [dispatchId!] });
             if (lifecycle.status === "pending")
               throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
             const view = lifecycle.rows.find(({ attempt }) => attempt.dispatchId === dispatchId);
@@ -168,15 +195,6 @@ export async function adoptRuntimes(
   return Promise.all(attempts);
 }
 
-async function readDispatch(
-  context: RuntimeSpawnerContext,
-  query: import("@harness-anything/kernel").DispatchLifecycleQuery,
-): Promise<DispatchLifecycleRead> {
-  return context.input.remote
-    ? context.input.remote.readDispatchLifecycle(query)
-    : context.requiredRuntimeProjection(context.input).readDispatchLifecycle(query);
-}
-
 export async function assertRuntimeRecoveryReady(
   context: RuntimeSpawnerContext,
   runtimeSessionId: string,
@@ -186,7 +204,7 @@ export async function assertRuntimeRecoveryReady(
   if (dispatchId === null || recovery?.result?.outcome === "foreign" || recovery?.result?.outcome === "settled")
     return false;
   if (recovery?.result?.outcome === "failed") {
-    const lifecycle = await readDispatch(context, { by: "session", runtimeSessionId });
+    const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
     if (lifecycle.status === "pending") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
     if (lifecycle.rows.some(({ policy }) => policy.attemptSettled)) return false;
     throw recovery.result.error;
@@ -247,17 +265,15 @@ async function restoreRuntime(
       "execution_scope_mismatch",
       "Only the original runtime owner can authorize recovery.",
     );
-  if (header.fallbackAttempt)
-    context.reconcileFallback(readDispatchStreamSummary(context.input.rootDir, header.dispatchId));
-  const settledStream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+  const streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+  if (header.fallbackAttempt) context.reconcileFallback(streamSummary);
   if (lifecycle.policy.attemptSettled || session?.outcome) {
-    if (settledStream && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
+    if (streamSummary && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
       archiveDispatchStream(context.input.rootDir, header.dispatchId);
     removeRuntimeCallbackRelay(header.dispatchId);
     return true;
   }
   const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
-    streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId),
     stream = fullStream ?? streamSummary;
   if (!stream) return false;
   const processState = stream.process,
@@ -356,7 +372,7 @@ async function restoreRuntime(
   await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
   if (context.closed?.()) return false;
   context.processes.set(active.runtimeSessionId, active);
-  const observedLifecycle = await readDispatch(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
+  const observedLifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
   if (observedLifecycle.status !== "ready")
     throw dispatchLifecyclePendingError(observedLifecycle, context.runtimeSpawnError);
   const observedAttempt = observedLifecycle.rows.find(
@@ -370,10 +386,7 @@ async function restoreRuntime(
   if (observedAttempt.policy.attemptSettled) return true;
   if (observedAttempt.attempt.process === "alive") {
     if (active.spendCapExceeded) await context.enforceSpendCap(active);
-    else if (fullStream) {
-      const attachmentFailure = attachAdoptedObservations(context, active);
-      if (attachmentFailure !== null) throw attachmentFailure;
-    }
+    else if (fullStream) attachAdoptedObservations(context, active);
     return false;
   }
   const reason = processState
@@ -391,14 +404,9 @@ async function restoreRuntime(
       exitCode: active.lossExitCode,
       signal: active.lossSignal,
     });
-  const stop = processState
-    ? await sweepUntilProvenStopped({
-        pid: processState.pid,
-        dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId },
-      })
-    : "unknown_unreachable";
+  const stop = await isRuntimeProcessProvenStopped(context, active, observedAttempt.attempt, processPid);
+  await consumeDurableOutput(context, active);
   if (stop !== "proven_stopped") {
-    await consumeDurableOutput(context, active);
     context.processes.delete(active.runtimeSessionId);
     active.process.release?.();
     active.releaseAuthorization?.();
@@ -407,21 +415,14 @@ async function restoreRuntime(
       `Runtime ${active.runtimeSessionId} process group is ${stop}; its reservation remains held.`,
     );
   }
-  await consumeDurableOutput(context, active);
   await context.publishExit(active, active.lossExitCode);
   return true;
 }
 
-/**
- * An adopted worker whose liveness surface cannot be established is retired rather than adopted
- * unwatched. The loop owns one session at a time, so the refusal is returned and the remaining
- * streams still adopt; the recorded lost-process fact lets the next adoption pass settle the
- * attempt through the ordinary lost-process path instead of leaving a live worker nobody watches.
- */
-function attachAdoptedObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): unknown | null {
+/** Record and rethrow an observation attach failure so recovery cannot leave an unwatched worker. */
+function attachAdoptedObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
   try {
     attachActiveRuntime(context, active);
-    return null;
   } catch (error) {
     appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
       kind: "process_lost",
@@ -432,7 +433,7 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
     active.process.terminate();
     active.process.release?.();
     active.releaseAuthorization?.();
-    return error;
+    throw error;
   }
 }
 
@@ -444,7 +445,7 @@ export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawner
     return;
   }
   const lifecycleReads = await Promise.allSettled(
-    runtimeSessionIds.map((runtimeSessionId) => readDispatch(context, { by: "session", runtimeSessionId })),
+    runtimeSessionIds.map((runtimeSessionId) => readDispatchLifecycle(context, { by: "session", runtimeSessionId })),
   );
   const settledRuntimeSessionIds: string[] = [];
   for (const [index, read] of lifecycleReads.entries()) {
