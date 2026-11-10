@@ -6,6 +6,7 @@ import {
   type DispatchLifecycleGroup,
   type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
+  type DispatchLifecycleView,
 } from "@harness-anything/kernel";
 import { isDispatchLifecycleInput } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 
@@ -16,6 +17,81 @@ export const emptyDispatchLifecycleRead = async (): Promise<DispatchLifecycleRea
   rows: [],
   nextCursor: null,
 });
+
+/** Small read-port fixture for tests whose stream is the source of observations. */
+export function lifecycleReadFor(
+  entries: readonly {
+    readonly runtimeSessionId: string;
+    readonly dispatchId: string;
+    readonly instanceId?: string;
+    readonly owner?: string;
+    readonly attemptSettled?: boolean;
+    readonly groupSettled?: boolean;
+    readonly process?: "unobserved" | "alive" | "unknown" | "exited";
+    readonly stopProof?: "unproven" | "proven_stopped";
+    readonly outcome?: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+  }[],
+) {
+  const views: DispatchLifecycleView[] = entries.map((entry) => {
+    const attemptSettled = entry.attemptSettled ?? false,
+      groupSettled = entry.groupSettled ?? attemptSettled,
+      owner = entry.owner ?? "local",
+      process = entry.process ?? (attemptSettled ? "exited" : "unknown"),
+      stopProof = entry.stopProof ?? (attemptSettled ? "proven_stopped" : "unproven"),
+      phase = attemptSettled ? "closed" : "running",
+      outcome = entry.outcome ?? (attemptSettled ? "succeeded" : null),
+      attempt = {
+        dispatchId: entry.dispatchId,
+        runtimeSessionId: entry.runtimeSessionId,
+        instanceId: entry.instanceId ?? "worker",
+        fence: { owner, verified: true, token: 1, epoch: 1 },
+        reservation: {
+          reservationId: `reservation-${entry.dispatchId}`,
+          instanceId: entry.instanceId ?? "worker",
+          owner,
+        },
+        task: null,
+        workspaceRef: null,
+        phase,
+        process,
+        stopProof,
+        outcome,
+        admittedRevision: 1,
+        eventIds: [],
+      };
+    return {
+      attemptGroupId: entry.dispatchId,
+      groupPhase: groupSettled ? "closed" : phase === "running" ? "running" : "starting",
+      attempt,
+      successor: { admissible: !groupSettled, dueAt: null },
+      ruling: null,
+      delivery: { status: "unregistered", targetRef: null, targetDigest: null, registeredRevision: null },
+      revision: 1,
+      policy: {
+        attemptSettled,
+        groupSettled,
+        capacity: attemptSettled ? "released" : "held",
+        capacityDisposition: attemptSettled ? "free" : "recovering",
+        successorAdmissible: !groupSettled,
+        canResolveRuling: false,
+        canRecover: attemptSettled && stopProof === "proven_stopped",
+        blockerCode: attemptSettled ? null : "runtime_recovery_pending",
+      },
+    } as DispatchLifecycleView;
+  });
+  return async (query: DispatchLifecycleQuery): Promise<DispatchLifecycleRead> => {
+    let rows: readonly DispatchLifecycleView[];
+    if (query.by === "session")
+      rows = views.filter(({ attempt }) => attempt.runtimeSessionId === query.runtimeSessionId);
+    else if (query.by === "dispatch")
+      rows = views.filter(({ attempt }) => query.dispatchIds.includes(attempt.dispatchId));
+    else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
+    else
+      rows = views.filter(({ attempt }) => query.instanceId === undefined || attempt.instanceId === query.instanceId);
+    if (query.by === "active") rows = rows.filter(({ policy }) => !policy.groupSettled);
+    return { status: "ready", watermark: 1, sourceRevision: 1, rows, nextCursor: null };
+  };
+}
 
 /** A test read port over accepted runtime events: the same kernel fold the projections run. */
 export function dispatchLifecycleReadOf(events: () => readonly AgentRuntimeEventV1[]) {
