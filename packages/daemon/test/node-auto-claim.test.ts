@@ -482,3 +482,58 @@ test("a disabled auto-claim loop never opens the owner replica and closes cleanl
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+
+test("auto-claim close absorbs the daemon lifetime abort but keeps a real scan failure", async () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-close-"));
+  try {
+    writeNodeAutoClaimPolicy(userRoot, policy);
+    const gatedScan = (signal?: AbortSignal) => {
+      let started!: () => void;
+      const reading = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let releaseCandidate!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseCandidate = resolve;
+      });
+      const loop = openNodeAutoClaimLoop({
+        userRoot,
+        now: () => "2026-11-02T00:00:00.000Z",
+        ...(signal ? { signal } : {}),
+        ownerPersonIdFor: async () => "owner",
+        repos: () => ["repo-a"],
+        repoIdOf: (repo) => repo,
+        candidates: async () => {
+          started();
+          await gate;
+          if (signal?.aborted) throw signal.reason;
+          throw new Error("scan failed for another reason");
+        },
+        taskIdOf: (candidate: string) => candidate,
+        assignmentOf: async () => null,
+        activeTaskKeys: async () => [],
+        agentIds: () => ["sol"],
+        claimAndRun: async () => undefined,
+      });
+      return { loop, reading, releaseCandidate, scan: loop.trigger("scan").catch(() => undefined) };
+    };
+
+    const lifetime = new AbortController(),
+      cancelled = gatedScan(lifetime.signal);
+    await cancelled.reading;
+    lifetime.abort(new Error("daemon closed"));
+    const closingCancelled = cancelled.loop.close();
+    cancelled.releaseCandidate();
+    await closingCancelled;
+    await cancelled.scan;
+
+    const failed = gatedScan();
+    await failed.reading;
+    const closingFailed = failed.loop.close();
+    failed.releaseCandidate();
+    await assert.rejects(closingFailed, /scan failed for another reason/u);
+    await failed.scan;
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});

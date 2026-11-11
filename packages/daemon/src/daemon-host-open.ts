@@ -421,6 +421,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const autoClaimLoop = openNodeAutoClaimLoop<AutoClaimRepo, NodeAutoClaimCandidate>({
     userRoot: input.userRoot,
     now,
+    signal: closeController.signal,
     repos: autoClaimRepos,
     repoIdOf: (repo) => repo.repoId,
     ownerPersonIdFor: async (repo) => (await autoClaimBinding(repo))?.actor.principal.personId ?? null,
@@ -1376,17 +1377,40 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     close: async () => {
       closeController.abort(new Error("daemon closed"));
-      markDaemonOperationPhase("auto-claim.close");
-      await autoClaimLoop.close();
-      await autoDispatchLoop.close();
-      for (const { controller } of replicaSyncControllers.values()) controller.abort();
-      replicaSyncControllers.clear();
-      markDaemonOperationPhase("rbac-resume-and-access-admin.close");
-      await rbacResumed.catch(consumeKnownError);
-      await accessAdmin.close();
-      markDaemonOperationPhase("managed-rbac.stop");
-      await managedRbac.stop();
-      await lifecycle.close();
+      // Run every teardown step even when one fails: a rejected step must not strand the rest of
+      // the daemon's handles. The first failure still surfaces once teardown has completed.
+      let failure: unknown;
+      const teardown: readonly (readonly [phase: string, step: () => Promise<unknown>])[] = [
+        ["auto-claim.close", () => autoClaimLoop.close()],
+        ["auto-dispatch.close", () => autoDispatchLoop.close()],
+        [
+          "replica-sync.close",
+          () => {
+            for (const { controller } of replicaSyncControllers.values()) controller.abort();
+            replicaSyncControllers.clear();
+            return Promise.resolve();
+          },
+        ],
+        [
+          "rbac-resume-and-access-admin.close",
+          async () => {
+            await rbacResumed.catch(consumeKnownError);
+            await accessAdmin.close();
+          },
+        ],
+        ["managed-rbac.stop", () => managedRbac.stop()],
+        ["lifecycle.close", () => lifecycle.close()],
+      ];
+      for (const [phase, step] of teardown) {
+        markDaemonOperationPhase(phase);
+        await step().then(
+          () => undefined,
+          (error: unknown) => {
+            failure = failure === undefined ? error : failure;
+          },
+        );
+      }
+      if (failure !== undefined) throw failure;
     },
   };
   const startReplicaSyncs = (): void => {
