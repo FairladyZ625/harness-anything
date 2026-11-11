@@ -40,6 +40,24 @@ describe("renderer query pacing definitions", () => {
     expect(workspaceSummaryQuery("repo-a").refetchInterval).toBeUndefined();
     expect(rendererQueryDefaults.queries.refetchOnWindowFocus).toBe(false);
   });
+
+  it("retries a failed daemon read once and returns its final error", async () => {
+    vi.useFakeTimers();
+    const failure = new Error("daemon unavailable"),
+      read = vi.fn(async () => {
+        throw failure;
+      }),
+      client = new QueryClient({ defaultOptions: rendererQueryDefaults });
+    try {
+      const outcome = client.fetchQuery({ queryKey: ["retry-policy"], queryFn: read }).catch((error) => error);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(await outcome).toBe(failure);
+    } finally {
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
 });
 
 const taskListCut = (revision: number) => ({

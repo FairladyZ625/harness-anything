@@ -372,3 +372,32 @@ test("real CLI scans the whole tracked/untracked source surface and compares aga
     baseline,
   );
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260 / S3a: test budgets do not govern product admission.
+test("GUI acceptance fixtures are excluded while neighboring product policies remain closed", () => {
+  const text = "const retryLimit = 3; if (attempts > retryLimit + 1) dispatch();";
+  const productFiles = [
+    "packages/gui/src/renderer/query.ts",
+    "packages/storage/src/query.ts",
+    "packages/gui/src/e2e/product.ts",
+    "packages/storage/src/gui-e2e/query.ts",
+    "packages/gui/src/test-support/product.ts",
+    "tools/gui-e2e.mjs",
+    "tools/gui-e2e-helper.mjs",
+  ];
+  const fixtureFiles = [
+    "packages/gui/e2e/builtin-first-run.e2e.mjs",
+    "packages/gui/test-support/resident-daemon.mjs",
+    "tools/gui-e2e/scenarios/project-windows.mjs",
+    "tools/gui-e2e/capture.mjs",
+  ];
+  const { rootDir } = makeRepo(Object.fromEntries([...productFiles, ...fixtureFiles].map((file) => [file, text])));
+  const scan = scanOntologySources(rootDir);
+  assert.equal(scan.filesScanned, productFiles.length);
+  assert.deepEqual([...new Set(scan.candidates.map((row) => row.file))].sort(), productFiles.sort());
+  const findings = audit(scan.candidates).findings;
+  for (const file of productFiles) {
+    assert.ok(findings.some((row) => row.file === file && row.code === "ONTOLOGY_POLICY_UNDECLARED"));
+    assert.ok(findings.some((row) => row.file === file && row.code === "ONTOLOGY_ACTION_UNDECLARED"));
+  }
+});

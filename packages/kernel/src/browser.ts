@@ -3,6 +3,7 @@ export { validateFrozenCompletionContract } from "./domain/completion-contract.t
 export { validCompletionEvidenceOverride } from "./domain/completion-evidence-override.ts";
 export { relationStates } from "./domain/relation-state.ts";
 export { validSquadRunSubject } from "./domain/squad-run.ts";
+export { guiQueryPacing } from "./domain/gui-query-pacing.ts";
 export type { ContractVersion } from "./domain/contract-version.ts";
 export type { FreshnessReason } from "./domain/decision-coverage.ts";
 export type { RelationDirection, RelationState, RelationType } from "./domain/entity-relation.ts";
