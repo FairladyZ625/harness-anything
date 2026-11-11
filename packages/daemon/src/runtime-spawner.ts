@@ -106,7 +106,6 @@ import {
   settleFallbackAttempt,
   scheduleFallbackContinuation,
   requiredRuntimeFast,
-  restoreFallbackSchedules,
 } from "./runtime-spawn-fallback.ts";
 import {
   resolveRuntimeResume,
@@ -233,7 +232,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     reconcileFallback: (dispatchId) =>
       scheduleFallbackContinuation({
         context: extracted,
-        closed: () => fallbackClosed,
         launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner, onDispatched) =>
           spawnAttempt(
             payload,
@@ -1475,7 +1473,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         onPrepared,
       ),
     adopt: (onProgress?: (completed: number) => void) => {
-      input.schedule(() => restoreFallbackSchedules(extracted));
       input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
       return adoptRuntimes(extracted, onProgress);
     },

@@ -423,9 +423,9 @@ test("owner adoption checks dead PID before publishing live and preserves live c
       runtime.close();
       await Promise.all(scheduled);
       assert.deepEqual(
-        scheduleFailures.map((error) => (error as { code?: string }).code),
-        alive ? ["dispatch_lifecycle_pending"] : [],
-        "the fixture owns scheduled recovery rejections just as the daemon write queue does",
+        scheduleFailures,
+        [],
+        "adoption reports recovery errors directly without a second scheduled fallback scan",
       );
       hub.close();
       rmSync(rootDir, { recursive: true, force: true });

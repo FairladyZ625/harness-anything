@@ -1,9 +1,9 @@
-import { ownedByRuntimeSpawner } from "./runtime-spawn-adoption.ts";
 import {
   archiveDispatchStream,
   readDispatchStream,
   reopenDispatchStream,
   scrubProviderValue,
+  type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
@@ -16,8 +16,9 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { consumeKnownError, type AgentRuntimeEventV1, type DispatchLifecycleView } from "@harness-anything/kernel";
-import { readActiveDispatchLifecycle, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
@@ -332,7 +333,6 @@ export async function settleFallbackAttempt(
 /** Timers only wake the scheduler; the center's current leaf and accepted schedule authorize launch. */
 export async function scheduleFallbackContinuation(args: {
   readonly context: RuntimeSpawnerContext;
-  readonly closed: () => boolean;
   readonly launch: (
     payload: JsonObject,
     binding: RuntimeBinding,
@@ -346,7 +346,7 @@ export async function scheduleFallbackContinuation(args: {
 }): Promise<void> {
   const { context } = args,
     { input } = context;
-  if (args.closed()) return;
+  if (context.closed?.()) return;
   const read = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
   if (read.status !== "ready")
     throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
@@ -354,6 +354,38 @@ export async function scheduleFallbackContinuation(args: {
   if (!lifecycle?.policy.fallbackPending || lifecycle.controlLeafDispatchId !== args.dispatchId) return;
   const stream = readDispatchStream(input.rootDir, args.dispatchId);
   if (!stream?.header.binding || !stream.header.fallbackAttempt || !stream.attemptOutcome || !stream.header.cwd) return;
+  const header = stream.header,
+    binding = runtimeBindingForDispatch(header.binding!),
+    writer = reopenDispatchStream(input.rootDir, header);
+  const publishTerminal = async (terminal: DispatchTerminalOutcome) => {
+    const result = await context.publishRuntimeEvent(
+      "runtime_session_outcome_observed",
+      terminal.payload,
+      `fallback-terminal-${createHash("sha256").update(JSON.stringify(terminal)).digest("hex")}`,
+      binding,
+      terminal.body,
+    );
+    const settled = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [header.dispatchId] });
+    if (settled.status !== "ready")
+      throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
+    if (!settled.rows[0]?.policy.groupSettled) return false;
+    writer.appendFallbackState({ state: "exhausted", reason: terminal.reason }, input.now());
+    if (result.event) input.onRuntimeOutcome?.(result.event, header.schedule ?? null);
+    await input.onAttemptTerminal?.({
+      runtimeSessionId: header.runtimeSessionId,
+      dispatchId: header.dispatchId,
+      task: null,
+      schedule: header.schedule ?? null,
+      outcome: "failed",
+      reason: terminal.reason,
+      endedAt: terminal.payload.endedAt ?? input.now(),
+      binding,
+    });
+    await releaseFallbackResources(context, settled.rows[0], header.role, header.cwd);
+    return true;
+  };
+  // Replay durable event bytes first; only the center decides whether they close the group.
+  if (stream.terminalOutcome && (await publishTerminal(stream.terminalOutcome))) return;
   // Previous-version outcomes did not carry the plan. Decode their launch data from the spool
   // during the current/previous protocol window (expires 2026-12-07); state still comes from the reducer.
   const plan = lifecycle.successor.schedule ?? stream.fallbackSchedule;
@@ -361,18 +393,18 @@ export async function scheduleFallbackContinuation(args: {
   const notBeforeMs = Date.parse(plan.notBeforeAt);
   const timer = setTimeout(
     () => {
-      if (args.closed()) return;
+      if (context.closed?.()) return;
       input.schedule(async () => {
         const currentRead = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
         if (currentRead.status !== "ready")
           throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
         const currentGroup = currentRead.rows[0];
         if (!currentGroup?.policy.fallbackPending || currentGroup.controlLeafDispatchId !== args.dispatchId) return;
+        const terminal = readDispatchStream(input.rootDir, args.dispatchId)?.terminalOutcome;
+        if (terminal && (await publishTerminal(terminal))) return;
         if (Date.parse(input.now()) < notBeforeMs) return scheduleFallbackContinuation(args);
-        const header = stream.header,
-          binding = runtimeBindingForDispatch(header.binding!),
-          dispatchCwd = header.cwd!;
-        const fallback = header.fallbackAttempt!,
+        const dispatchCwd = header.cwd!,
+          fallback = header.fallbackAttempt!,
           nextAttemptIndex = fallback.attemptIndex + 1,
           naturalNextIndex = (fallback.candidateIndex ?? fallback.attemptIndex) + 1,
           exhaustedPass = naturalNextIndex >= fallback.candidates.length,
@@ -395,7 +427,6 @@ export async function scheduleFallbackContinuation(args: {
               ? { waitStartedAt: fallback.waitStartedAt ?? plan.waitStartedAt ?? input.now() }
               : {}),
           },
-          writer = reopenDispatchStream(input.rootDir, header),
           continuation = continuationMission(stream.attemptOutcome!, fallback.originalMission);
         try {
           const continuationPayload: JsonObject = {
@@ -462,28 +493,7 @@ export async function scheduleFallbackContinuation(args: {
             payload: { ...terminal.payload, attempt: { ...attempt, reason, fallbackState: "exhausted" as const } },
           };
           writer.appendTerminalOutcome(exhausted, input.now());
-          const result = await context.publishRuntimeEvent(
-            "runtime_session_outcome_observed",
-            exhausted.payload,
-            `fallback-exhausted-${header.dispatchId}`,
-            binding,
-            terminal.body,
-          );
-          writer.appendFallbackState({ state: "exhausted", reason }, input.now());
-          if (result.event) input.onRuntimeOutcome?.(result.event, header.schedule ?? null);
-          await input.onAttemptTerminal?.({
-            runtimeSessionId: header.runtimeSessionId,
-            dispatchId: header.dispatchId,
-            task: null,
-            schedule: header.schedule ?? null,
-            outcome: "failed",
-            reason,
-            endedAt: input.now(),
-            binding,
-          });
-          const settled = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [header.dispatchId] });
-          if (settled.status === "ready" && settled.rows[0])
-            await releaseFallbackResources(context, settled.rows[0], header.role, header.cwd);
+          await publishTerminal(exhausted);
         }
       }, runtimeBindingForDispatch(stream.header.binding!));
     },
@@ -506,15 +516,4 @@ export async function releaseFallbackResources(
       console.error(`[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`);
   }
   for (const dispatchId of lifecycle.groupDispatchIds) archiveDispatchStream(context.input.rootDir, dispatchId);
-}
-
-/** Only active canonical groups are enumerated; archived history never participates in recovery. */
-export async function restoreFallbackSchedules(context: RuntimeSpawnerContext): Promise<void> {
-  const groups = await readActiveDispatchLifecycle((query) => readDispatchLifecycle(context, query), runtimeSpawnError);
-  for (const group of groups) {
-    if (!group.policy.fallbackPending) continue;
-    const header = readDispatchStream(context.input.rootDir, group.controlLeafDispatchId)?.header;
-    if (header?.binding && ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
-      await context.reconcileFallback(group.controlLeafDispatchId);
-  }
 }
