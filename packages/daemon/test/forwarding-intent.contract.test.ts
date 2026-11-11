@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   runtimeForwardingIntent,
 } from "../src/fleet/forwarding-intent.ts";
 import { forward } from "../src/fleet/forwarding-port.ts";
+import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 
 test("forwarding intent binds command identity, method and execution context", () => {
   const action = { kind: "fact-record", executionId: "execution-one", statement: "evidence" },
@@ -43,6 +44,60 @@ test("forwarding accepts node-owned schedule commands while keeping replica read
     forwardingIntentIssue(forwardingIntentForAction("repo.task.read", { kind: "schedule-list" })) ?? "",
     /not center-forwardable/u,
   );
+});
+
+test("registration without a forwarding node preserves command admission and keeps node requests closed", async (t) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-role-"))),
+    userRoot = path.join(root, "user"),
+    workspace = path.join(root, "workspace");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(userRoot);
+  mkdirSync(workspace);
+  const invoke = (intent: Parameters<typeof forward>[0]["intent"]) =>
+    forward({
+      userRoot,
+      repoId: "repo",
+      intent,
+      auth: { transportKind: "unix-socket" },
+      oidc: {
+        bind: async () => assert.fail("No forwarding node can bind an identity"),
+      } as unknown as IdentitySessionPort,
+      runRuntime: async () => assert.fail("No forwarding node can execute a request"),
+    });
+  const command = forwardingIntentForAction("repo.task.run", { kind: "schedule-disable" }),
+    runtime = runtimeForwardingIntent("repo.agentRuntime.overview", {}),
+    boundCommand = forwardingIntentForAction("repo.task.run", { kind: "schedule-disable" }, { requiredNodeId: "node" });
+  assert.equal(await invoke(command), null, "an unregistered host has no center route");
+  assert.equal(await invoke(runtime), null);
+  for (const mode of ["local", "remote-center", "remote-edge"]) {
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "Fixture", state: "enabled" }],
+        repos: [
+          {
+            repoId: "repo",
+            canonicalRoot: workspace,
+            displayName: "Fixture",
+            authoredBranch: "main",
+            mode,
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: "2026-11-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    assert.equal(await invoke(command), null, `${mode}: registration alone does not enable command forwarding`);
+    if (mode === "remote-edge") {
+      await assert.rejects(invoke(runtime), { code: "fleet_edge_config_invalid" });
+      await assert.rejects(invoke(boundCommand), { code: "fleet_edge_config_invalid" });
+    } else {
+      assert.equal(await invoke(runtime), null, `${mode}: runtime stays on this host`);
+      assert.equal(await invoke(boundCommand), null, `${mode}: a required node cannot change the registry role`);
+    }
+  }
 });
 
 test("forwarding resolves workspace, view and CA again after registration moves", async (t) => {
@@ -194,6 +249,33 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
     assert.equal(requests[index]?.host, `center-${index}`);
     assert.equal(requests[index]?.nodeId, `node-${index}`);
   }
+  const invoke = () =>
+    forward({
+      userRoot,
+      repoId: "repo",
+      intent: runtimeForwardingIntent("repo.agentRuntime.overview", {}),
+      auth: { transportKind: "unix-socket" },
+      oidc: {} as IdentitySessionPort,
+      runRuntime: async () => assert.fail("Invalid edge configuration must never reach the runtime"),
+    });
+  // A registered edge must not fall back to local handling after its config vanishes or names another repo.
+  writeFileSync(
+    path.join(workspaces[1]!, "fleet-edge.json"),
+    JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId: "another-repo",
+      host: "center",
+      port: 7443,
+      caPath: "ca.pem",
+      nodeId: "node-1",
+      credential: "fixture",
+      viewRoot: "view",
+      quotaBytes: 65536,
+    }),
+  );
+  await assert.rejects(invoke(), { code: "fleet_edge_config_invalid" });
+  unlinkSync(path.join(workspaces[1]!, "fleet-edge.json"));
+  await assert.rejects(invoke(), { code: "fleet_edge_config_invalid" });
   await assert.rejects(
     forward({
       userRoot,
@@ -273,4 +355,38 @@ test("runtime forwarding carries the daemon lifetime into a started request and 
   lifetime.abort(new Error("daemon closed"));
   await assert.rejects(forwarded, (error) => error === lifetime.signal.reason);
   assert.equal(received?.aborted, true);
+});
+
+// dec_2C49A4516E540906721AF01840: routing is derived from the complete descriptor catalog.
+test("every declared center-forward command reaches the port and rejected commands stop before routing", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-forward-catalog-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  let forwarded = 0,
+    rejected = 0;
+  for (const descriptor of daemonProtocolCommands) {
+    const kind = ("actionKind" in descriptor ? descriptor.actionKind : undefined) ?? descriptor.id,
+      admission = descriptor.admission["remote-edge"];
+    if (admission !== "via-center-forward" && admission !== "rejected") continue;
+    const invoke = () =>
+      forward({
+        userRoot,
+        repoId: "unregistered",
+        intent: forwardingIntentForAction(descriptor.method, { kind }),
+        auth: { transportKind: "unix-socket" },
+        oidc: {} as IdentitySessionPort,
+        runRuntime: async () => assert.fail("Unregistered repositories must not send requests"),
+      });
+    if (admission === "via-center-forward") {
+      assert.equal(await invoke(), null, descriptor.id);
+      forwarded += 1;
+    } else {
+      await assert.rejects(invoke(), { code: "invalid_field" }, descriptor.id);
+      rejected += 1;
+    }
+  }
+  assert.equal(
+    forwarded,
+    daemonProtocolCommands.filter((command) => command.admission["remote-edge"] === "via-center-forward").length,
+  );
+  assert.ok(rejected > 0);
 });

@@ -5,6 +5,7 @@ import {
   CONTRACT_VERSION_1_0,
   getExecutableEntityAction,
   isContractVersion,
+  isContractVersionCompatible,
   type ContractVersion,
   type LedgerCutIdentity,
   type EntityActionInputField,
@@ -19,6 +20,19 @@ import {
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
 
 export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
+
+/** dec_659E15CF: previous minor expires at the end of 2027-02-05 UTC; remove that branch and its fixtures then. */
+export function isFleetProtocolVersionCompatible(
+  requested: ContractVersion,
+  supported: ContractVersion = currentFleetProtocolVersion,
+  nowMs = Date.now(),
+): boolean {
+  return (
+    isContractVersionCompatible(requested, supported) &&
+    (requested.minor === supported.minor ||
+      (requested.minor === supported.minor - 1 && nowMs < Date.parse("2027-02-06T00:00:00.000Z")))
+  );
+}
 
 export const FLEET_FRAME_BYTES = 96 * 1024,
   FLEET_CHUNK_BYTES = 64 * 1024,

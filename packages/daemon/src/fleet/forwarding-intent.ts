@@ -1,5 +1,6 @@
 import { getExecutableEntityAction } from "@harness-anything/kernel";
 import { commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
+import type { FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 
@@ -21,7 +22,13 @@ export type RuntimeForwardingIntent = Readonly<{
   }>;
 }>;
 
-export type ForwardingIntent = CommandForwardingIntent | RuntimeForwardingIntent;
+export type OperationalReadForwardingIntent = Readonly<{
+  kind: "operational-read";
+  method: Extract<FleetFrameV1, { schema: "fleet.operational.read/v1" }>["method"];
+  inputs: Readonly<Record<string, unknown>>;
+}>;
+
+export type ForwardingIntent = CommandForwardingIntent | RuntimeForwardingIntent | OperationalReadForwardingIntent;
 
 export function forwardingIntentForAction(
   method: string,

@@ -101,11 +101,12 @@ test("the full checker rejects a stale baseline that still allows a removed cons
     mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
     writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
     assert.deepEqual(checkFleetTransferBoundary(root), []);
+    const control = path.join(root, "packages/cli/src/daemon/control.ts");
+    mkdirSync(path.dirname(control), { recursive: true });
+    writeFileSync(control, "export {};\n");
     assert.deepEqual(checkForwardingBaselineFreshness(root), [
-      "packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi: readFleetEdgeConfig " +
+      "packages/cli/src/daemon/control.ts#flag: readFleetEdgeConfig " +
         "count 0 is below ratchet baseline 1; lower the baseline",
-      "packages/daemon/src/daemon-host-repository-api.ts#createDaemonHostRepositoryApi: " +
-        "forwardingCredentialAssembly count 0 is below ratchet baseline 1; lower the baseline",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -1,11 +1,11 @@
-// Forwarding construction inventory: 34 files / 61 file-symbol-fingerprint entries.
+// Forwarding construction inventory: 33 files / 59 file-symbol-fingerprint entries.
 // Counts are exact: an increase is rejected and a decrease must lower this baseline in the same change.
 // Every unregistered production source or symbol has zero allowance.
 // Slice 4 removes this baseline when forwarding is fully port-owned.
 export const fleetForwardingBoundaryBaseline = Object.freeze({
   "packages/cli/src/daemon/control.ts": {
     flag: {
-      readFleetEdgeConfig: 2,
+      readFleetEdgeConfig: 1,
     },
   },
   "packages/daemon/src/access-admin-edge-join.ts": {
@@ -31,12 +31,6 @@ export const fleetForwardingBoundaryBaseline = Object.freeze({
     home: {
       readFleetEdgeConfig: 4,
       forwardingCredentialAssembly: 3,
-    },
-  },
-  "packages/daemon/src/daemon-host-repository-api.ts": {
-    createDaemonHostRepositoryApi: {
-      readFleetEdgeConfig: 1,
-      forwardingCredentialAssembly: 1,
     },
   },
   "packages/daemon/src/daemon-host-runtime-api.ts": {
