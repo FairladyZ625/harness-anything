@@ -1,4 +1,4 @@
-import { actionDeclarations, actionPresentation, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { policyActionDeclarations, actionPresentation, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import type { AuthorizationProvider } from "@harness-anything/kernel";
 
 /** Policy groups are metadata, not a local authorization evaluator. Grants remain in the authority. */
@@ -14,7 +14,7 @@ export async function readPolicyMetadata(input: {
       ...group,
       effectiveScopes: effectivePolicyGroupScopes(groups, group.id),
     })),
-    actions: actionDeclarations.map((declaration) => ({
+    actions: policyActionDeclarations().map((declaration) => ({
       action: declaration.policyAction,
       presentation: actionPresentation[declaration.kind as keyof typeof actionPresentation],
       executionClass: declaration.executionClass,

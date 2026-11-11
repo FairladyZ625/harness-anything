@@ -584,18 +584,23 @@ export function getActionDeclarationByCatalogId(catalogId: string): ActionDeclar
   return actionDeclarationByCatalogId.get(catalogId);
 }
 
+/** Technical effects belong to their process and never project permissions in an authority. */
+export function policyActionDeclarations(
+  declarations: readonly ActionDeclaration[] = actionDeclarations,
+): readonly ActionDeclaration[] {
+  return declarations.filter((declaration) => !declaration.ontology?.technical);
+}
+
 /** Non-read policy scopes derive solely from ActionDeclaration. */
 export const durablePolicyActions = Object.freeze(
-  actionDeclarations.flatMap(({ policyAction, executionClass, ontology }) =>
-    executionClass === "repo-read" || ontology?.technical === true ? [] : [policyAction],
+  policyActionDeclarations().flatMap(({ policyAction, executionClass }) =>
+    executionClass === "repo-read" ? [] : [policyAction],
   ),
 );
 
 /** Durable command kinds derive from the same declarations as policy scopes, but remain distinct from them. */
 export const durableActionKinds = Object.freeze([
-  ...actionDeclarations.flatMap(({ kind, executionClass, ontology }) =>
-    executionClass === "repo-read" || ontology?.technical === true ? [] : [kind],
-  ),
+  ...policyActionDeclarations().flatMap(({ kind, executionClass }) => (executionClass === "repo-read" ? [] : [kind])),
   // The four artifact CRUD ingress kinds are durable routes; their declarations are the runtime
   // projections, so the kind itself has no static declaration row.
   ...artifactActionIngressKinds,

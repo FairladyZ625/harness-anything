@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { actionDeclarations, disableDaemonRepo, unbindDaemonRepo } from "@harness-anything/kernel";
+import { policyActionDeclarations, disableDaemonRepo, unbindDaemonRepo } from "@harness-anything/kernel";
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
@@ -367,7 +367,7 @@ test("the read side lists every action facet, every held grant by person, and th
   }[];
   assert.deepEqual(
     catalog.map((item) => item.action),
-    actionDeclarations.map((declaration) => declaration.policyAction),
+    policyActionDeclarations().map((declaration) => declaration.policyAction),
   );
   assert.deepEqual(
     catalog.find((item) => item.action === "task-create"),
