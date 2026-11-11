@@ -750,6 +750,7 @@ export async function runtimeProcessTreeStopped(
 ): Promise<boolean> {
   const pid = runtime.pid;
   if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped") return true;
   if (runtime.terminateTree) await runtime.terminateTree();
   else {
     runtime.terminate();

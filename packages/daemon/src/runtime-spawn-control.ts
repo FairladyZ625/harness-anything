@@ -119,11 +119,11 @@ export async function cancelRuntime(
     // cancellation that happens to race with a ruling artifact.
     active.cancelOpId = escalation ? `${opId}:escalation` : opId;
     active.cancelRequested = true;
+    if (escalation || !active.process.terminateTree) active.process.terminate();
     if (escalation) {
       // The worker may be synchronously waiting for this command's response. Returning only
       // after terminateTree would wait for that CLI child, which waits for us: stop the provider
       // now, let the response flush, and finish the full tree cleanup in the next check phase.
-      active.process.terminate();
       void context
         .publishExit(active, null)
         .catch((error: unknown) => console.error("[runtime-escalation] settlement failed", error));

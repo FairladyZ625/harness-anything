@@ -20,7 +20,7 @@ import {
   readDispatchStream,
 } from "../src/dispatch-stream.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
-import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
+import { fixtureRuntimeProcess, runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 import {
   publishExit as publishSettlementExit,
   tasklessSettlementRuntime,
@@ -96,7 +96,8 @@ test("an unproven self PID rejects settlement without releasing its recovery han
 for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_release_failed"] as const)
   test(`escalation settlement retries ${stopProofCode} after full tree cleanup`, async (context) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-escalation-tree-stop-")),
-      packageRoot = path.join(rootDir, "harness", "tasks", "task-owner");
+      packageRoot = path.join(rootDir, "harness", "tasks", "task-owner"),
+      worker = fixtureRuntimeProcess(context);
     context.after(() => rmSync(rootDir, { recursive: true, force: true }));
     mkdirSync(path.join(packageRoot, "artifacts", "rulings"), { recursive: true });
     writeFileSync(
@@ -118,14 +119,15 @@ for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_re
       }),
       runtime = active({
         process: {
-          pid: process.pid + 1_000_000,
+          pid: worker.pid,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,
-          terminate: () => undefined,
-          terminateTree: () => {
+          terminate: worker.terminate,
+          terminateTree: async () => {
             treeCleanupStarted = true;
-            return treeCleanup;
+            await treeCleanup;
+            await worker.terminateTree();
           },
           release: () => {
             released = true;
@@ -357,11 +359,12 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
   }
 });
 
-test("runtime cancel settles provider lines flushed while the provider is terminated", async () => {
+test("runtime cancel settles provider lines flushed while the provider is terminated", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-cancel-tail-"));
   try {
     const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
-      runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
+      runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb",
+      worker = fixtureRuntimeProcess(t);
     openDispatchStream(rootDir, {
       dispatchId,
       taskId: null,
@@ -371,7 +374,7 @@ test("runtime cancel settles provider lines flushed while the provider is termin
       startedAt: "2026-09-10T00:00:00.000Z",
       binding: { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
     });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: worker.pid });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 1 } });
     const consumed: string[] = [],
       settledAfter: number[] = [],
@@ -381,14 +384,15 @@ test("runtime cancel settles provider lines flushed while the provider is termin
         dispatchId,
         durableOutputCount: 0,
         process: {
-          pid: 2_147_483_647,
+          pid: worker.pid,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,
-          terminate: () => undefined,
+          terminate: worker.terminate,
           // Cancel holds the write queue, so these lines cannot reach settlement through the drain.
           terminateTree: async () => {
             appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 2 } });
+            await worker.terminateTree();
             appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: null, signal: "SIGTERM" });
           },
         },
