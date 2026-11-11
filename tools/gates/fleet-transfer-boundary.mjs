@@ -172,7 +172,7 @@ export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
  */
 export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") {
   const file = portablePath(fileName);
-  if (FORWARDING_BOUNDARY_SOURCES.has(file)) return [];
+  if (file === "packages/daemon/src/fleet/forwarding-port.ts") return [];
   const source = String(sourceText),
     tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true),
     violations = [];
@@ -190,15 +190,38 @@ export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") 
     return parent?.getText(tree) ?? source;
   };
   const forwardingUse = (node) =>
-    /\b(?:payload\s*\.\s*action\s*=|runFleet(?:Task|Schedule|Runtime|Write)[A-Za-z]*Client\s*\(|forward\s*\(|edgeRuntimeFor\s*\(|fleet[.-](?:task|doc|runtime|schedule))/u.test(
+    /\b(?:payload\s*\.\s*action\s*=|runFleetEdgeTask\s*\(|runFleet(?:Task|Schedule|Runtime|Write)[A-Za-z]*Client\s*\(|forward\s*\(|edgeRuntimeFor\s*\(|fleet[.-](?:task|doc|runtime|schedule))/u.test(
       scope(node),
     );
   const visit = (node) => {
-    if (ts.isTypeNode(node) || ts.isInterfaceDeclaration(node) || ts.isImportDeclaration(node)) return;
-    if (ts.isCallExpression(node)) {
-      const callee = ts.isPropertyAccessExpression(node.expression)
+    if (ts.isTypeNode(node) || ts.isInterfaceDeclaration(node)) return;
+    // The actual sender dependency is port-owned, independently of payload spelling or spreads.
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      const bindings = ts.isImportDeclaration(node) ? node.importClause?.namedBindings : node.exportClause,
+        typeOnly = ts.isImportDeclaration(node) ? node.importClause?.isTypeOnly : node.isTypeOnly;
+      if (bindings && (ts.isNamedImports(bindings) || ts.isNamedExports(bindings)) && !typeOnly)
+        for (const binding of bindings.elements)
+          if (!binding.isTypeOnly && (binding.propertyName ?? binding.name).text === "runFleetEdgeTask")
+            add(binding, "forwardingTransportDependency");
+      return;
+    }
+    if (
+      (ts.isPropertyAccessExpression(node) && node.name.text === "runFleetEdgeTask") ||
+      (ts.isElementAccessExpression(node) && node.argumentExpression?.text === "runFleetEdgeTask") ||
+      (ts.isBindingElement(node) && (node.propertyName ?? node.name).text === "runFleetEdgeTask")
+    )
+      add(node, "forwardingTransportDependency");
+    const callee = ts.isCallExpression(node)
+      ? ts.isPropertyAccessExpression(node.expression)
         ? node.expression.name.text
-        : node.expression.getText(tree);
+        : node.expression.getText(tree)
+      : undefined;
+    if (callee === "runFleetEdgeTask") add(node, "forwardingTransportCall");
+    if (FORWARDING_BOUNDARY_SOURCES.has(file)) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    if (ts.isCallExpression(node)) {
       if (callee === "edgeRuntimeFor") add(node, "edgeRuntimeFor");
       if (callee === "readFleetEdgeConfig" && forwardingUse(node)) add(node, "readFleetEdgeConfig");
       if (/^(?:readFileSync|readFile)$/u.test(callee) && /fleet-edge\.json/u.test(node.getText(tree)))

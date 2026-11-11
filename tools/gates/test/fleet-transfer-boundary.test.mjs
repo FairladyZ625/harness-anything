@@ -203,6 +203,69 @@ test("the forwarding ratchet rejects route-level construction and file special c
   );
 });
 
+test("the full checker rejects the actual sender with spread-based location assembly", () => {
+  const source = `import path from 'node:path';
+import { readFleetEdgeConfig } from './client/fleet-edge-config.ts';
+import { runFleetEdgeTask } from './fleet-edge-task.ts';
+export function bypass(root: string, action: Parameters<typeof runFleetEdgeTask>[0]['payload']['action'], readAccessToken: () => Promise<string | undefined>) {
+ const config = readFleetEdgeConfig(root);
+ if (!config) throw new Error('missing config');
+ return runFleetEdgeTask({payload: {...config, caPath: path.resolve(root, config.caPath), viewRoot: path.resolve(root, config.viewRoot), workspaceRoot: root, action}}, readAccessToken, 'domain');
+}`;
+  for (const file of [
+    "packages/daemon/src/reintroduced-forwarder.ts",
+    "packages/cli/src/daemon/reintroduced-forwarder.ts",
+  ])
+    assert.deepEqual(
+      new Set(findFleetForwardingBypasses(source, file).map((row) => row.fingerprint)),
+      new Set(["forwardingTransportDependency", "readFleetEdgeConfig", "forwardingTransportCall"]),
+    );
+  assert.deepEqual(findFleetForwardingBypasses(source, "packages/daemon/src/fleet/forwarding-port.ts"), []);
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-real-sender-"));
+  try {
+    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    writeFileSync(path.join(root, "packages/daemon/src/reintroduced-forwarder.ts"), source);
+    assert.equal(
+      checkFleetTransferBoundary(root).some((error) => error.includes("forwardingTransportCall")),
+      true,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("sender aliases and re-exports cannot evade the forwarding dependency boundary", () => {
+  const sources = [
+    `import { runFleetEdgeTask as send } from './fleet-edge-task.ts'; send(request, token, 'domain');`,
+    `export { runFleetEdgeTask as send } from './fleet-edge-task.ts';`,
+    `import * as tasks from './fleet-edge-task.ts'; const send = tasks.runFleetEdgeTask; send(request, token, 'domain');`,
+    `import * as tasks from './fleet-edge-task.ts'; const send = tasks['runFleetEdgeTask']; send(request, token, 'domain');`,
+    `import * as tasks from './fleet-edge-task.ts'; const { runFleetEdgeTask: send } = tasks; send(request, token, 'domain');`,
+  ];
+  for (const source of sources)
+    for (const file of ["packages/daemon/src/forwarder.ts", "packages/cli/src/daemon/fleet-payload-serializer.ts"])
+      assert.equal(
+        findFleetForwardingBypasses(source, file).some((row) => row.fingerprint === "forwardingTransportDependency"),
+        true,
+        source,
+      );
+});
+
+test("the sender boundary preserves type-only and local replica reader dependencies", () => {
+  const source = `import type { runFleetEdgeTask } from './fleet-edge-task.ts';
+import { type runFleetEdgeTask as Sender } from './fleet-edge-task.ts';
+export type { runFleetEdgeTask as SenderType } from './fleet-edge-task.ts';
+import { readFleetEdgeConfig } from './client/fleet-edge-config.ts';
+import { runFleetEdgeRepositoryRead } from './fleet-edge-task.ts';
+import * as tasks from './fleet-edge-task.ts';
+type Request = Parameters<typeof runFleetEdgeTask>[0];
+function replica(root) { const config = readFleetEdgeConfig(root); return runFleetEdgeRepositoryRead(config); }
+function otherReplica(root) { const config = readFleetEdgeConfig(root); return tasks.runFleetEdgeRepositoryRead(config); }
+`;
+  assert.deepEqual(findFleetForwardingBypasses(source, "packages/daemon/src/replica.ts"), []);
+});
+
 test("the forwarding ratchet rejects every prohibited construction responsibility", () => {
   const fixtures = [
     ["envelope", 'const request = { schema: "fleet.task.action/v1", repoId, action };', "fleetRequestEnvelope"],
