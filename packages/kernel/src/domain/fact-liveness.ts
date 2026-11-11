@@ -11,11 +11,7 @@ export interface FactLivenessRelation {
 
 /** A fact is retired only by the canonical active `supersedes-fact` incoming edge. */
 export function factLiveness(fact: FactLivenessInput, relations: readonly FactLivenessRelation[]): FactLiveness {
-  return relations.some(
-    (edge) => edge.state === "active" && edge.relationType === "supersedes-fact" && edge.targetRef === fact.ref,
-  )
-    ? "superseded_fact"
-    : "standing";
+  return supersededFactRefs(relations).has(fact.ref) ? "superseded_fact" : "standing";
 }
 
 /**
@@ -24,4 +20,12 @@ export function factLiveness(fact: FactLivenessInput, relations: readonly FactLi
  */
 export function factInvalidated(liveness: FactLiveness): boolean {
   return liveness === "superseded_fact";
+}
+
+/** Bulk consumers build this once; the incoming active edge remains the sole retirement criterion. */
+export function supersededFactRefs(relations: readonly FactLivenessRelation[]): ReadonlySet<string> {
+  const refs = new Set<string>();
+  for (const edge of relations)
+    if (edge.state === "active" && edge.relationType === "supersedes-fact") refs.add(edge.targetRef);
+  return refs;
 }

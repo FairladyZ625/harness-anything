@@ -386,6 +386,7 @@ test("supersedes-fact relation create and final retirement publish current Fact 
         {
           kind: "fact-record",
           statement: "The first observation remains historically available.",
+          observedCommit: "a".repeat(40),
           evidenceSource: "test:first",
           confidence: "high",
           memoryClass: "semantic",
@@ -475,6 +476,7 @@ test("supersedes-fact relation create and final retirement publish current Fact 
     const firstPath = path.join(rootDir, "harness", `facts/${firstId}.md`),
       superseded = readFileSync(firstPath, "utf8");
     assert.match(superseded, /State: superseded_fact/u);
+    assert.match(superseded, new RegExp(`Observed commit: ${"a".repeat(40)}`, "u"));
     assert.match(superseded, new RegExp(`Superseded by: fact/${secondId}`, "u"));
     assert.match(superseded, new RegExp(`Superseded by: fact/${thirdId}`, "u"));
     assert.match(superseded, /corrected source/u);

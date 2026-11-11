@@ -11,7 +11,7 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { factDocumentRecord } from "./entity-document-rematerialize.ts";
+import { factDocumentRecord } from "./entity-action-relation.ts";
 import { publicationKillpoints, reject } from "./entity-action-relation.ts";
 import { workspaceText } from "./repo-cell-packets.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";

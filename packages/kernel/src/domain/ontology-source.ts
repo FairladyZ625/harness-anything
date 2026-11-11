@@ -29,6 +29,13 @@ export interface OntologyJudgmentDeclaration {
   readonly explain: string;
   readonly consumers: readonly string[];
   readonly sources: readonly OntologySourceBinding[];
+  /** Forbidden equivalent judgments at read/transport edges, enforced by single-definition. */
+  readonly consumerRules?: readonly {
+    readonly pathPattern: string;
+    readonly pattern: string;
+    readonly flags?: string;
+    readonly reason: string;
+  }[];
 }
 
 export interface OntologyPolicyDeclaration {

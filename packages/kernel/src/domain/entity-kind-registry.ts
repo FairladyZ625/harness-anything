@@ -1005,6 +1005,63 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
   },
   {
     kind: "decision",
+    judgments: [
+      {
+        "id": "coverageOf",
+        "symbol": "packages/kernel/src/domain/decision-coverage.ts#coverageOf",
+        "inputs": [
+          "decisions",
+          "facts",
+          "tasks",
+          "relations"
+        ],
+        "output": "readonly CoverageResult[]",
+        "failureCodes": [],
+        "explain": "Claim fulfillment uses current evidence, completed delivery or an in-effect standing policy; live refuters veto coverage.",
+        "consumers": [
+          "packages/storage/src/projection/decision-projection-coverage.ts",
+          "packages/storage/src/pg/pg-knowledge-queries.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-coverage.ts#coverageOf:d3df3a660dcee479e2e2d67a090725b2",
+            "route": "domain"
+          }
+        ],
+        "consumerRules": [
+          {
+            "pathPattern": "^packages/(?:storage|daemon|cli|gui|kernel/src/projection)/",
+            "pattern": "(?:function|const)\\s+(?:coveragePath|firstFact|standingPolicy)\\b|(?:EXISTS|COUNT\\s*\\()[\\s\\S]{0,240}(?:evidenced-by|supersedes-fact)",
+            "reason": "consume coverageOf; SQL and edge helpers must not infer claim coverage or Fact liveness",
+            "flags": "iu"
+          }
+        ]
+      },
+      {
+        "id": "coveragePath",
+        "symbol": "packages/kernel/src/domain/decision-coverage.ts#coveragePath",
+        "inputs": [
+          "decision",
+          "claimRef",
+          "mode",
+          "bySource",
+          "live",
+          "done"
+        ],
+        "output": "{ covered, path, coveringFactRef? }",
+        "failureCodes": [],
+        "explain": "Find the first satisfying canonical fulfillment path, with cycle-safe transitive evidence traversal.",
+        "consumers": [
+          "packages/kernel/src/domain/decision-coverage.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/decision-coverage.ts#coveragePath:3fc54b7fb52e46ff07f7c1cabb3ef861",
+            "route": "domain"
+          }
+        ]
+      }
+    ],
     ...entityTypeContractFields("decision"),
     schema: decisionSchema,
     relations: relationsFor("decision"),

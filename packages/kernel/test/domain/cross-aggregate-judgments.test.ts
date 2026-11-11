@@ -4,7 +4,7 @@ import test from "node:test";
 import { blockingLabels, blockingOf, dispatchPrerequisitesOf } from "../../src/domain/task-blocking.ts";
 import { closeoutGateOk, closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
 import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
-import { factLiveness } from "../../src/domain/fact-liveness.ts";
+import { factLiveness, supersededFactRefs } from "../../src/domain/fact-liveness.ts";
 import { consentedApprovedReviewForExecution, reviewDigest } from "../../src/domain/review.ts";
 import { submissionDigest, type ExecutionV1 } from "../../src/domain/execution.ts";
 import { statusWordRegister } from "../../src/domain/status-word-register.ts";
@@ -504,6 +504,8 @@ test("fact liveness retires the target of the canonical supersedes-fact edge", (
   const edges = [
     { sourceRef: "fact/task/F-new", targetRef: "fact/task/F-old", relationType: "supersedes-fact", state: "active" },
   ];
+  assert.deepEqual([...supersededFactRefs(edges)], ["fact/task/F-old"]);
+  assert.deepEqual([...supersededFactRefs([{ ...edges[0]!, state: "deleted" }])], []);
   assert.equal(factLiveness({ ref: "fact/task/F-old" }, edges), "superseded_fact");
   assert.equal(factLiveness({ ref: "fact/task/F-new" }, edges), "standing");
   assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "retired" }]), "standing");

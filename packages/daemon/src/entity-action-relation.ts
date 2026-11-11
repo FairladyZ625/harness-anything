@@ -24,6 +24,8 @@ import {
   type EntityActionContract,
   type EntityActionExecutionContract,
   type EventPublicationKillpoint,
+  type FactDocumentRecord,
+  type FactProjectionRow,
   type RelationDocumentUpdate,
   type RelationEventV1,
   type RelationCycleEdge,
@@ -499,36 +501,46 @@ function factDocumentUpdate(
   if (!fact || !projection.readDocument(path).document)
     reject("content_not_ready", `Fact document ${path} is unavailable.`);
   const incoming = overlayRelation(
-      relationRows(projection.readRelationQuery({ target: `fact/${factId}`, relationType: "supersedes-fact" }).rows),
-      next,
-    ).filter(
-      ({ target, type, state }) => target === `fact/${factId}` && type === "supersedes-fact" && state === "active",
+    relationRows(projection.readRelationQuery({ target: fact.ref, relationType: "supersedes-fact" }).rows),
+    next,
+  );
+  return {
+    path,
+    policyId: FACT_DOCUMENT_POLICY_ID,
+    body: renderFactsDocument([
+      { ...factDocumentRecord(projection, fact, incoming), workspaceRevision: event.workspaceRevision },
+    ]),
+  };
+}
+
+/** The Fact document record the current projection implies: observation fields plus derived liveness. */
+export function factDocumentRecord(
+  projection: TaskProjection,
+  fact: FactProjectionRow,
+  relations = relationRows(projection.readRelationQuery({ target: fact.ref, relationType: "supersedes-fact" }).rows),
+): FactDocumentRecord {
+  const incoming = relations.filter(
+      ({ target, type, state }) => target === fact.ref && type === "supersedes-fact" && state === "active",
     ),
     state = factLiveness(
       { ref: fact.ref },
-      incoming.map(({ source, target, type, state: relationState }) => ({
-        sourceRef: source,
+      incoming.map(({ target, type, state: relationState }) => ({
         targetRef: target,
         relationType: type,
         state: relationState,
       })),
     );
   return {
-    path,
-    policyId: FACT_DOCUMENT_POLICY_ID,
-    body: renderFactsDocument([
-      {
-        factId,
-        ...(fact.taskId ? { taskId: fact.taskId } : {}),
-        statement: fact.statement,
-        evidenceSource: fact.evidenceSource,
-        observedAt: fact.observedAt,
-        confidence: fact.confidence,
-        state,
-        supersededBy: incoming.map(({ source, rationale }) => ({ factRef: source, rationale })),
-        workspaceRevision: event.workspaceRevision,
-      },
-    ]),
+    factId: fact.factId,
+    ...(fact.taskId ? { taskId: fact.taskId } : {}),
+    statement: fact.statement,
+    evidenceSource: fact.evidenceSource,
+    observedAt: fact.observedAt,
+    ...(fact.observedCommit !== undefined ? { observedCommit: fact.observedCommit } : {}),
+    confidence: fact.confidence,
+    state,
+    supersededBy: incoming.map(({ source, rationale }) => ({ factRef: source, rationale })),
+    workspaceRevision: fact.workspaceRevision,
   };
 }
 
@@ -545,7 +557,7 @@ type RelationRowSource = Pick<
   | "state"
 >;
 
-function relationRows(rows: readonly RelationRowSource[]) {
+export function relationRows(rows: readonly RelationRowSource[]) {
   return rows.map((edge) => ({
     relation_id: edge.relationId,
     source: edge.sourceRef,

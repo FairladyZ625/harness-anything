@@ -118,3 +118,17 @@ test("no upstream evidenced Fact is ready and mixed dispositions report only mis
 function relation(sourceRef: string, targetRef: string, relationType: string): FactRetirementRelation {
   return { sourceRef, targetRef, relationType, state: "active" };
 }
+
+test("retirement uses canonical liveness independently of the replacement's producing task", () => {
+  const replacement = "fact/F-CDEFGHJK";
+  for (const state of ["active", "retired", "deleted"]) {
+    const result = assessFactRetirement({
+      taskId,
+      decisions,
+      stillHoldsAttestations: [],
+      relations: [...upstream, { ...relation(replacement, factRef, "supersedes-fact"), state }],
+    });
+    assert.equal(result.ready, state === "active");
+    assert.equal(result.undischarged.length, state === "active" ? 0 : 1);
+  }
+});
