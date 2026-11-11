@@ -193,7 +193,7 @@ export async function appendRuntimeQueryFixtures(
       ...started,
       eventId: `${id}-start`,
       opId: `${id}-start`,
-      occurredAt,
+      occurredAt: new Date(occurredAt).toISOString(),
       workspaceRevision: revision(),
       payload: { ...started.payload, runtimeSessionId: id, taskBinding: { taskId: "window-task", executionId: id } },
     };
