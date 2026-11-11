@@ -2777,39 +2777,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "policy:packages/cli:packages/cli/src/daemon/control.ts#fleetControl.quotaBytes:cd5ddded97aa06c62cba9a2c56b25eac",
-        "category": "policy",
-        "path": "packages/cli/src/daemon/control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/cli",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped quotaBytes has literal configuration",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/cli:packages/cli/src/daemon/control.ts#fleetControl:736ebf80f17ef03de612d923836fb442",
-        "category": "policy",
-        "path": "packages/cli/src/daemon/control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/cli",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: edge &&\n    [\"host\", \"port\", \"caPath\", \"nodeId\", \"viewRoot\", \"quotaBytes\"].some(\n      (name) =>\n        edgeValue(\n          name as EdgeConfigKey,\n          (",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
-        "id": "policy:packages/cli:packages/cli/src/daemon/control.ts#fleetControl:f3f0ed22d590c8fa3d40248c13e4332c",
-        "category": "policy",
-        "path": "packages/cli/src/daemon/control.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/cli",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic policy candidate, semantic ownership to be resolved in S3: policy-shaped condition contains a literal: !fleetNumber.port.test(String(edgeValue(\"port\", \"--port\"))) ||\n    !fleetNumber.quota.test(String(edgeValue(\"quotaBytes\", \"--quota-bytes\")))",
-        "replacementRef": "EntityKindContract.policies",
-        "removalSlice": "S3"
-      },
-      {
         "id": "action:packages/cli:packages/cli/src/daemon/control.ts#requestCooperativeStop:e6615fba2679360e1ce697ab9350ac40",
         "category": "action",
         "path": "packages/cli/src/daemon/control.ts",
