@@ -336,12 +336,23 @@ export function selectAffectedTests(options) {
       queue.push(importer);
     }
   }
+  const testTiers = new Map();
+  for (const file of testFiles) {
+    const firstLine = readFileSync(path.join(root, file), "utf8").split("\n", 1)[0];
+    testTiers.set(file, parseTestTierMarker(firstLine, file));
+  }
   const reachable = [...origin.keys()]
     .filter((file) => testSet.has(file))
-    .map((file) => ({ file, via: origin.get(file), changed: direct.has(file), distance: distance.get(file) }));
-  const integrationTotal = countIntegrationTests(root, testFiles);
+    .map((file) => ({
+      file,
+      via: origin.get(file),
+      changed: direct.has(file),
+      distance: distance.get(file),
+      tier: testTiers.get(file),
+    }));
+  const integrationTotal = [...testTiers.values()].filter((tier) => tier === "integration").length;
   const maxSelected = Math.max(1, Math.ceil(integrationTotal * ratio));
-  const ranked = reachable.length > maxSelected ? rankAffectedTests(reachable, graph) : sortByPath(reachable);
+  const ranked = reachable.length > maxSelected ? capAffectedTests(reachable, graph) : sortByPath(reachable);
   const selected = ranked.slice(0, maxSelected).map(({ file, via, changed }) => ({ file, via, changed }));
   const deferred = ranked.slice(maxSelected).map(({ file, via, distance: deferredDistance }) => ({
     file,
@@ -392,34 +403,49 @@ function countAnchors(tests) {
 }
 
 /**
- * Ranks the reachable tests by distance, then by Jaccard similarity between the test's direct
- * imports and the direct imports of the nearest tests. The nearest tests are the direct-cover
- * anchors: changed test files at distance 0, or tests that import a changed source at
- * distance 1.
+ * Caps the reachable tests at the whole-tier threshold.
+ *
+ * Changed test files always run: they are the PR's own coverage and their distance is 0.
+ * The rest of the cap belongs to the integration tier, because the threshold is a quarter
+ * of that tier; within it, distance comes first and Jaccard similarity to the nearest tests
+ * (the direct-cover anchors) breaks ties. A changed file with no changed test and no
+ * integration test in its nearest layer (for example a single new source module) keeps that
+ * nearest layer, so its direct-cover fast tests are not displaced by distant integration
+ * tests. Fast/contract tests fill only unused slots.
  */
-function rankAffectedTests(tests, graph) {
+function capAffectedTests(tests, graph) {
   const imports = directImports(graph);
   const nearest = Math.min(...tests.map(({ distance }) => distance));
+  const anchors = tests.filter(({ distance }) => distance === nearest);
   const centroid = new Map();
-  for (const { file, distance } of tests) {
-    if (distance !== nearest) continue;
+  for (const { file } of anchors) {
     for (const target of imports.get(file) ?? []) centroid.set(target, (centroid.get(target) ?? 0) + 1);
   }
   const empty = new Set();
+  const similarityByFile = new Map();
   const similarity = (file) => {
+    const cached = similarityByFile.get(file);
+    if (cached !== undefined) return cached;
     if (centroid.size === 0) return 0;
     const candidates = imports.get(file) ?? empty;
     let intersection = 0;
     for (const target of candidates) if (centroid.has(target)) intersection += 1;
     const union = candidates.size + centroid.size - intersection;
-    return union === 0 ? 0 : intersection / union;
+    const score = union === 0 ? 0 : intersection / union;
+    similarityByFile.set(file, score);
+    return score;
   };
-  return [...tests].sort(
-    (left, right) =>
-      left.distance - right.distance ||
-      similarity(right.file) - similarity(left.file) ||
-      left.file.localeCompare(right.file),
-  );
+  const compare = (left, right) =>
+    left.distance - right.distance ||
+    similarity(right.file) - similarity(left.file) ||
+    left.file.localeCompare(right.file);
+  const changed = tests.filter(({ changed }) => changed).sort((left, right) => left.file.localeCompare(right.file));
+  const keepNearestLayer = changed.length === 0 && anchors.every(({ tier }) => tier !== "integration");
+  const forced = keepNearestLayer ? [...anchors].sort(compare) : [];
+  const forcedFiles = new Set([...changed, ...forced].map(({ file }) => file));
+  const integration = tests.filter(({ file, tier }) => !forcedFiles.has(file) && tier === "integration").sort(compare);
+  const others = tests.filter(({ file, tier }) => !forcedFiles.has(file) && tier !== "integration").sort(compare);
+  return [...changed, ...forced, ...integration, ...others];
 }
 
 function directImports(graph) {
@@ -439,17 +465,9 @@ function buildDeferredReason({ deferredCount, rawSelected, maxSelected, integrat
   const percentage = Math.round(ratio * 100);
   return (
     `${deferredCount} of ${rawSelected} affected test files are not run: the selection is capped at ` +
-    `${maxSelected} (${percentage}% of the ${integrationTotal} integration tests), ranked by import ` +
-    `distance and then by import-set similarity to the ${anchorCount} test file(s) that directly cover ` +
-    `the changed files. Run the deferred files in CI.`
+    `${maxSelected} (${percentage}% of the ${integrationTotal} integration tests). Changed test files ` +
+    `always run; the rest of the cap goes to integration tests ranked by import distance and then by ` +
+    `import-set similarity to the ${anchorCount} direct-cover test file(s), and fast/contract tests fill ` +
+    `only unused slots. Run the deferred files in CI.`
   );
-}
-
-function countIntegrationTests(root, testFiles) {
-  let total = 0;
-  for (const file of testFiles) {
-    const firstLine = readFileSync(path.join(root, file), "utf8").split("\n", 1)[0];
-    if (parseTestTierMarker(firstLine, file) === "integration") total += 1;
-  }
-  return total;
 }

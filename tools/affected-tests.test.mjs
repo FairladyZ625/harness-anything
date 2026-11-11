@@ -330,6 +330,98 @@ test("the third-slice settlement fixture selects every reported CI failure withi
   assert.ok(result.deferred.some(({ file }) => file.includes("unrelated-39.integration.test.ts")));
 });
 
+test("the full third-slice fixture keeps all five targets when changed tests occupy distance 0", (t) => {
+  // The frozen PR #4498 input changed 41 test files as well as the daemon sources. Those
+  // changed tests must run, but they must not consume the whole cap and push the known
+  // consumers out. This fixture reproduces the shape: 13 changed test files (10 fast,
+  // one fast target, two integration targets), a changed fixture that directly covers the
+  // settlement, and a large integration layer.
+  const files = {
+    "packages/daemon/src/runtime-spawn-settlement.ts": "export const settle = true;\n",
+    "packages/daemon/src/runtime-spawner.ts":
+      'import { settle } from "./runtime-spawn-settlement.ts";\nexport const spawner = settle;\n',
+    "packages/daemon/src/runtime-spawn.ts":
+      'import { spawner } from "./runtime-spawner.ts";\nexport const spawn = spawner;\n',
+    "packages/daemon/src/repo-cell-open.ts":
+      'import { spawn } from "./runtime-spawn.ts";\nexport const open = spawn;\n',
+    "packages/daemon/src/unrelated-host.ts":
+      'import { spawn } from "./runtime-spawn.ts";\nexport const host = spawn;\n',
+    "packages/daemon/src/unrelated-spawn.ts":
+      'import { host } from "./unrelated-host.ts";\nexport const unrelatedSpawn = host;\n',
+    "packages/daemon/test/fixtures/runtime-process.ts":
+      'import { settle } from "../../src/runtime-spawn-settlement.ts";\nexport const runtimeProcessFixture = settle;\n',
+    "packages/daemon/test/repo-settings.fixture.ts":
+      'import { open } from "../src/repo-cell-open.ts";\nexport const openBootstrappedRepoCell = open;\n',
+    "packages/daemon/test/fleet-squad-canonical.integration.test.ts": integrationTest(
+      'import { spawner } from "../src/runtime-spawner.ts";\nexport const value = spawner;\n',
+    ),
+    "packages/daemon/test/fleet-runtime-assignment-ownership.integration.test.ts": integrationTest(
+      'import { spawn } from "../src/runtime-spawn.ts";\nexport const value = spawn;\n',
+    ),
+    "packages/daemon/test/runtime-spawn-escalation-stop.test.ts": fastTest(
+      'import { settle } from "../src/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
+    ),
+    "packages/daemon/test/review-independence-diagnostics.integration.test.ts": integrationTest(
+      'import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";\nexport const value = runtimeProcessFixture;\n',
+    ),
+    "packages/daemon/test/runtime-spend-cap.integration.test.ts": integrationTest(
+      'import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";\nexport const value = openBootstrappedRepoCell;\n',
+    ),
+  };
+  const changedTests = [
+    "packages/daemon/test/fleet-squad-canonical.integration.test.ts",
+    "packages/daemon/test/fleet-runtime-assignment-ownership.integration.test.ts",
+    "packages/daemon/test/runtime-spawn-escalation-stop.test.ts",
+  ];
+  for (let index = 0; index < 10; index += 1) {
+    const file = `packages/daemon/test/changed-${index}.test.ts`;
+    files[file] = fastTest(
+      'import { settle } from "../src/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
+    );
+    changedTests.push(file);
+  }
+  for (let index = 0; index < 20; index += 1) {
+    files[`packages/daemon/test/direct-${index}.test.ts`] = fastTest(
+      'import { settle } from "../src/runtime-spawn-settlement.ts";\nexport const value = settle;\n',
+    );
+  }
+  for (let index = 0; index < 100; index += 1) {
+    files[`packages/daemon/test/unrelated-${index}.integration.test.ts`] = integrationTest(
+      `import { unrelatedSpawn } from "../src/unrelated-spawn.ts";\nexport const value = ${index} + unrelatedSpawn;\n`,
+    );
+  }
+  const root = fixture(t, files);
+  const testFiles = Object.keys(files).filter((file) => /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file));
+  const result = selectAffectedTests({
+    root,
+    changedFiles: [
+      "packages/daemon/src/runtime-spawn-settlement.ts",
+      "packages/daemon/src/runtime-spawn.ts",
+      "packages/daemon/src/repo-cell-open.ts",
+      "packages/daemon/test/fixtures/runtime-process.ts",
+      ...changedTests,
+    ],
+    testFiles,
+    ratio: 0.25,
+  });
+
+  assert.equal(result.integrationTotal, 104);
+  assert.equal(result.maxSelected, 26);
+  assert.equal(result.selected.length, 26);
+  assert.equal(result.truncated, true);
+  const selected = new Set(result.selected.map(({ file }) => file));
+  for (const target of [
+    "packages/daemon/test/fleet-squad-canonical.integration.test.ts",
+    "packages/daemon/test/fleet-runtime-assignment-ownership.integration.test.ts",
+    "packages/daemon/test/review-independence-diagnostics.integration.test.ts",
+    "packages/daemon/test/runtime-spend-cap.integration.test.ts",
+    "packages/daemon/test/runtime-spawn-escalation-stop.test.ts",
+  ])
+    assert.ok(selected.has(target), `${target} must stay inside the cap`);
+  assert.match(result.deferredReason, /Changed test files always run/u);
+  assert.ok(result.deferredCount > 0);
+});
+
 test("a far test stays behind nearer tests even when it shares the anchor fixture", (t) => {
   const root = fixture(t, {
     "packages/daemon/src/leaf.ts": "export const leaf = 1;\n",
