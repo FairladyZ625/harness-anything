@@ -5115,12 +5115,14 @@
         "tools/gates/test/fixtures/fleet-transfer-bypasses/**"
       ],
       "authoritySource": [
+        "decision/dec_2C49A4516E540906721AF01840/CH1",
         "harness/tasks/task_186c7b8349c5f20e338630b38d-fleet-architecture-design/artifacts/design.md",
         "tasks/task_6b7a41423fdaf44ed423463768-fleet-unified-chunking/artifacts/design-x.md",
         "packages/daemon/src/fleet/command-transfer.ts"
       ],
       "consumerScope": [
         "all TypeScript Fleet transport sources under packages/daemon/src/fleet, recursively",
+        "CLI and daemon forwarding construction is port-owned; peer wire encoding and center ingress retain protocol responsibility",
         "the daemon host repository Fleet read boundary",
         "socket writes that serialize Fleet payloads and must use encodeFleetFrames or serializeFleetFrame"
       ],
