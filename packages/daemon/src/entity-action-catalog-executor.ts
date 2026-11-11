@@ -766,7 +766,17 @@ function compileDraft(
       reason: draft.reason,
       ...(draft.successor === undefined ? {} : { successor: draft.successor }),
     });
-  if (draft.kind === "runtime-session") return compileRuntimeSessionDraft(draft);
+  if (draft.kind === "runtime-session") {
+    if (draft.event.type === "runtime_session_exited") {
+      const lifecycle = projection.readDispatchLifecycle({
+        by: "session",
+        runtimeSessionId: draft.event.payload.runtimeSessionId,
+      });
+      if (lifecycle.status === "ready" && lifecycle.rows.some(({ attempt }) => attempt.stopProof === "proven_stopped"))
+        draft = { ...draft, noChanges: true };
+    }
+    return compileRuntimeSessionDraft(draft);
+  }
   if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
   if (draft.kind === "settings") reject("invalid_command", "Settings drafts require the Settings Action runtime.");
   if (draft.kind === "person") reject("invalid_command", "Person drafts require the Person Action runtime.");

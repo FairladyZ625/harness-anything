@@ -30,15 +30,9 @@ export async function commitRuntimeSettlement(
     );
   const dispatch = cell.projection.readRuntimeDispatch(event.payload.runtimeSessionId);
   if (!dispatch) return commit(bundle);
-  const bySession = cell.projection.readDispatchLifecycle({
-    by: "session",
-    runtimeSessionId: event.payload.runtimeSessionId,
-  });
-  if (bySession.status !== "ready" || bySession.rows.length !== 1)
-    throw cell.cellCodedError("runtime_event_missing", "Dispatch lifecycle is not ready for settlement.");
   const group = cell.projection.readDispatchLifecycle({
     by: "group",
-    attemptGroupId: bySession.rows[0]!.attemptGroupId,
+    attemptGroupId: dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId,
   });
   if (group.status !== "ready" || group.rows.length !== 1)
     throw cell.cellCodedError("runtime_event_missing", "Dispatch lifecycle group is not ready for settlement.");
