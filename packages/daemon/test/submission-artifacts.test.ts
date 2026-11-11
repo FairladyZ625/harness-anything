@@ -184,6 +184,26 @@ test("only this task's accepted revision and portable artifact path resolve", ()
     assert.throws(() => readSubmissionArtifact(cell, packagePath, path, revision), { code: "invalid_submission" });
 });
 
+test("artifacts accepted by an old-generation migration import resolve at their import revision", () => {
+  const { cell, store, blobSha256 } = fixture();
+  const imported = (claimPath: string) => ({
+    schema: "migration-import-event/v1",
+    workspaceRevision: 7,
+    opId: "imported-7",
+    payload: {
+      entity: {
+        kind: "task-document",
+        taskId: "task-artifact",
+        documentClaim: { path: claimPath, sha256: blobSha256 },
+      },
+    },
+  });
+  store.readEventAtRevision = () => imported(path) as never;
+  assert.equal(readSubmissionArtifact(cell, packagePath, path, 7).acceptance, "imported-7");
+  store.readEventAtRevision = () => imported(`${path}.other`) as never;
+  assert.throws(() => readSubmissionArtifact(cell, packagePath, path, 7), { code: "invalid_submission" });
+});
+
 test("missing or changed frozen content cannot be replaced by latest workspace content", () => {
   const { cell, store } = fixture();
   assert.equal(readSubmissionArtifact(cell, packagePath, path, 7).acceptance, "accepted-7");

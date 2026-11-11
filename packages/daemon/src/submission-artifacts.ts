@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
   isDocEvent,
+  isMigrationImportEvent,
   isTaskBootstrapEvent,
   isTaskEvent,
   isTaskProgressEvent,
@@ -44,6 +45,10 @@ export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalCon
         if (isTaskBootstrapEvent(event)) {
           for (const claim of event.payload.initialDocumentClaims)
             if (!blobs.has(claim.path)) blobs.set(claim.path, claim.sha256);
+        } else if (isMigrationImportEvent(event)) {
+          // Artifacts carried from an old generation were accepted by their migration import.
+          if ("documentClaim" in event.payload.entity)
+            blobs.set(event.payload.entity.documentClaim.path, event.payload.entity.documentClaim.sha256);
         } else {
           for (const claim of claims) if (!blobs.has(claim.path)) blobs.set(claim.path, claim.candidate?.sha256);
         }
@@ -235,7 +240,12 @@ function resolveSubmissionArtifact(
       : [];
   const claim = isTaskBootstrapEvent(event)
     ? event.payload.initialDocumentClaims.find((candidate) => candidate.path === artifact)
-    : claims.find((candidate) => candidate.path === artifact)?.candidate;
+    : // Artifacts carried from an old generation were accepted by their migration import.
+      isMigrationImportEvent(event)
+      ? "documentClaim" in event.payload.entity && event.payload.entity.documentClaim.path === artifact
+        ? event.payload.entity.documentClaim
+        : undefined
+      : claims.find((candidate) => candidate.path === artifact)?.candidate;
   const blobSha256 = claim?.sha256;
   if (!blobSha256) return invalid("revision did not accept this path");
   if (expectedBlob !== undefined && expectedBlob !== blobSha256)
