@@ -184,6 +184,32 @@ export async function appendRuntimeQueryFixtures(
     },
   };
   await append({ event: outcome, plan: canonicalEventWritePlan(outcome, "agent-runtime/v1", outcome.opId), blobs: [] });
+  for (const [id, occurredAt, closed] of [
+    ["window-live", "2026-08-01T00:00:00.000Z", false],
+    ["window-closed", "2026-09-02T01:00:00Z", true],
+    ["window-fraction", "2026-09-02T01:00:00.1234Z", true],
+  ] as const) {
+    const event: AgentRuntimeEventV1 = {
+      ...started,
+      eventId: `${id}-start`,
+      opId: `${id}-start`,
+      occurredAt,
+      workspaceRevision: revision(),
+      payload: { ...started.payload, runtimeSessionId: id, taskBinding: { taskId: "window-task", executionId: id } },
+    };
+    await append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+    if (closed) {
+      const exit: AgentRuntimeEventV1 = {
+        ...event,
+        type: "runtime_session_exited",
+        eventId: `${id}-exit`,
+        opId: `${id}-exit`,
+        workspaceRevision: revision(),
+        payload: { runtimeSessionId: id },
+      };
+      await append({ event: exit, plan: canonicalEventWritePlan(exit, "agent-runtime/v1", exit.opId), blobs: [] });
+    }
+  }
 }
 
 /** One contract body is invoked on each backend before the complete results are compared. */
@@ -326,4 +352,23 @@ function dispatchContract(
 }
 export function assertRuntimeQueryParity(pg: PgTaskQueryMethods, sqlite: TaskProjectionQueries): void {
   assert.deepEqual(dispatchContract(pg), dispatchContract(sqlite));
+  const boundary = "2026-09-02T01:00:00.123Z";
+  for (const query of [
+    { observedAfter: boundary },
+    { observedBefore: boundary },
+    { observedAfter: boundary, observedBefore: "2026-09-02T01:00:00.1234Z" },
+    { observedAfter: "2026-09-02T01:00:00Z", observedBefore: "2026-09-02T01:00:00.000Z" },
+    { activitySince: boundary },
+    { activitySince: boundary, nonExitedOnly: true },
+    { activitySince: boundary, inFlightOnly: true },
+    { activitySince: boundary, runtimeSessionId: "window-fraction" },
+    { observedAfter: boundary, runtimeSessionId: "window-closed" },
+  ])
+    assert.deepEqual(pg.readRuntimeSessions(query), sqlite.readRuntimeSessions(query), JSON.stringify(query));
+  const activityIds = pg
+    .readRuntimeSessions({ activitySince: boundary })
+    .map(({ runtimeSessionId }) => runtimeSessionId);
+  assert.ok(activityIds.includes("window-live"), "an old live session survives the cutoff");
+  assert.ok(activityIds.includes("window-fraction"), "closed sessions at the millisecond boundary remain visible");
+  assert.ok(!activityIds.includes("window-closed"), "closed sessions before the cutoff are excluded");
 }
