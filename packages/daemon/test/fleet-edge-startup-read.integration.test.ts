@@ -150,7 +150,7 @@ test(
       );
       assert.equal(locateFleetMirrorView(e.viewRoot, e.config.repoId, e.config.nodeId), null);
       const envelope = await request("repo.task.read", {
-        repo: { repoId: payload.repoId },
+        repo: { repoId: e.config.repoId },
         payload: { action: { kind: "task-list" } },
       });
       const health = readReplicaHealth(path.join(e.viewRoot, "repos", e.config.repoId, "views", e.config.nodeId));

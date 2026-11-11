@@ -381,32 +381,24 @@ test(
       formerOwnerEdge = joinedEdges.get(formerOwnerNodeId)!;
     f.owners.reassign(formerOwnerNodeId, "person-two");
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
-    // This edge joined a different center/node than the fixture's pre-join defaults. Use the
-    // accepted workspace config, so the positive control reaches its actual resident replica.
+    // Use the repository accepted by this join rather than the fixture's pre-join defaults.
+    const joinedRepoId = readFleetEdgeConfig(formerOwnerEdge.edgeRoot)!.repoId;
     let postJoinId = 100;
-    const joinedCommand = async (action: Record<string, unknown>) => {
+    const joinedCreate = async (taskId: string, title: string) => {
       const reply = await formerOwnerEdge.rpc.handle({
         jsonrpc: "2.0",
         id: postJoinId++,
-        method: "repo.task.run",
-        params: { repo: { repoId: formerOwnerEdge.config.repoId }, payload: { action } },
+        method: "repo.task.create",
+        params: { repo: { repoId: joinedRepoId }, payload: { taskId, title } },
       });
       assert.ok(reply && !Array.isArray(reply) && "result" in reply, JSON.stringify(reply));
       return reply.result as Record<string, unknown>;
     };
-    const formerOwnerWrite = await joinedCommand({
-      kind: "task-create",
-      taskId: "former-owner-write",
-      title: "Former owner write",
-    });
+    const formerOwnerWrite = await joinedCreate("former-owner-write", "Former owner write");
     // dec_E610E1D99A39003886D1B5EE7C CH1: device ownership does not replace the current token person.
     assert.equal(formerOwnerWrite.outcome, "applied", JSON.stringify(formerOwnerWrite));
     f.owners.keycloak.endInteractiveSession("device-token-node-one");
-    const revokedWrite = await joinedCommand({
-      kind: "task-create",
-      taskId: "revoked-user-write",
-      title: "Revoked user write",
-    });
+    const revokedWrite = await joinedCreate("revoked-user-write", "Revoked user write");
     assert.equal(revokedWrite.code, "human_confirmation_required", JSON.stringify(revokedWrite));
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
   },
