@@ -40,8 +40,23 @@ export async function loadAuthorizationInputs(rootDir) {
     functions = {};
   for (const [name, value] of Object.entries(kernel))
     (typeof value === "function" ? functions : constants)[name] = value;
+  const descriptors = [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods].map((row) => ({
+    ...row,
+  }));
+  for (const action of kernel.actionDeclarations.filter((row) => row.executionClass !== "repo-read")) {
+    for (const route of new Set((action.ontology?.sources ?? []).map((source) => source.route))) {
+      const descriptor = descriptors.find((row) => row.id === route);
+      if (!descriptor || (descriptor.actionKind ?? descriptor.id) !== action.kind)
+        throw new Error(
+          `${action.kind}: ontology source route ${route} does not resolve to its owning authorization descriptor`,
+        );
+      descriptor.ontologySources = action.ontology.sources
+        .filter((source) => source.route === route)
+        .map((source) => source.candidateId);
+    }
+  }
   return {
-    descriptors: [...contract.daemonProtocolCommands, ...contract.daemonGuiActionMethods],
+    descriptors,
     methods: commands.daemonProtocolMethods,
     constants,
     functions,
@@ -149,6 +164,7 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     return {
       index,
       id: descriptor.id,
+      ontologySources: descriptor.ontologySources ?? [],
       kind,
       method: descriptor.method,
       authority,

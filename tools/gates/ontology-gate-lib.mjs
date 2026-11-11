@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { listWorktreeFiles } from "./git.mjs";
 
@@ -111,8 +112,9 @@ export function exitCodeFor(mode, findingCount) {
 export function loadCatalogSnapshot(rootDir, fixture = null) {
   if (fixture) return JSON.parse(readFileSync(fixture, "utf8"));
   const modulePath = path.join(rootDir, "packages/kernel/src/domain/entity-kind-registry.ts");
+  const declarationPath = path.join(rootDir, "packages/kernel/src/domain/action-declaration.ts");
   const script = [
-    "const registry = await import(process.argv[1]);",
+    "const [registry, declarations] = await Promise.all(process.argv.slice(1, 3).map(url => import(url)));",
     "const result = registry.entityKindContracts.map((contract) => ({",
     "  kind: contract.kind,",
     "  available: registry.explainEntityKind(contract.kind).transitions.available,",
@@ -121,9 +123,14 @@ export function loadCatalogSnapshot(rootDir, fixture = null) {
     "    ...(Object.hasOwn(action, 'concurrency') ? { concurrency: action.concurrency } : {}),",
     "  })),",
     "}));",
+    "const contracts = new Map(result.flatMap(row => row.actions.map(action => [row.kind + '/' + action.id, action])));",
+    "for (const declaration of declarations.actionDeclarations.filter(row => row.ontology?.sources.length)) {",
+    "  const contract = contracts.get(declaration.catalogId);",
+    "  result.push({ kind: declaration.kind, source: 'ontology', available: [declaration.kind], actions: [{ id: declaration.kind, execution: contract ? contract.execution : declaration.ontology.execution ?? null, concurrency: contract ? contract.concurrency : declaration.ontology.concurrency }] });",
+    "}",
     "process.stdout.write(JSON.stringify(result));",
   ].join("\n");
-  return JSON.parse(runTypeScriptProbe(modulePath, script));
+  return JSON.parse(runTypeScriptProbe(modulePath, script, declarationPath));
 }
 
 export function loadOntologyClosureSnapshot(rootDir) {
@@ -133,7 +140,7 @@ export function loadOntologyClosureSnapshot(rootDir) {
   const script = [
     "const [registry, actions] = await Promise.all(process.argv.slice(1, 3).map((url) => import(url)));",
     "process.stdout.write(JSON.stringify({",
-    "  actions: actions.actionDeclarations.map(({ kind, ontology }) => ({ kind, ontology })),",
+    "  actions: actions.actionDeclarations,",
     "  kinds: registry.entityKindContracts.map(({ kind, judgments, policies, ontologyExemptions }) => ({ kind, judgments, policies, ontologyExemptions })),",
     "}));",
   ].join("\n");
@@ -163,7 +170,7 @@ export function loadActionCoverageSnapshot(rootDir) {
     "  declarations: declarations.actionDeclarations.map((entry) => ({ kind: entry.kind,",
     "    executionClass: entry.executionClass, residency: entry.residency.scope })),",
     "  artifactIngress: [...(declarations.artifactActionIngressKinds ?? [])],",
-    "  ingress: [...commands.daemonProtocolCommands, ...gui.daemonGuiActionMethods]",
+    "  ingress: [...commands.daemonProtocolCommands, ...gui.daemonGuiActionMethods, ...declarations.actionDeclarations.flatMap(row => (row.ontology?.sources ?? []).map(source => ({ actionKind: row.kind, method: source.route, commandClass: row.executionClass })))]",
     "    .filter((entry) => entry.commandClass !== 'repo-read')",
     "    .map((entry) => ({ kind: entry.actionKind ?? entry.id, method: entry.method })),",
     "};",
@@ -188,17 +195,12 @@ export function loadStateAuthoritySnapshot(rootDir) {
 }
 
 function runTypeScriptProbe(modulePath, script, ...otherModulePaths) {
-  const args = ["--no-warnings", "--experimental-strip-types", "-e", script, pathToUrl(modulePath)];
-  args.push(...otherModulePaths.map(pathToUrl));
+  const args = ["--no-warnings", "--experimental-strip-types", "-e", script, pathToFileURL(modulePath).href];
+  args.push(...otherModulePaths.map((file) => pathToFileURL(file).href));
   return execFileSync(process.execPath, args, {
     cwd: path.dirname(path.dirname(path.dirname(modulePath))),
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
   });
-}
-
-function pathToUrl(filePath) {
-  const normalized = path.resolve(filePath).split(path.sep).join("/");
-  return `file://${normalized.startsWith("/") ? "" : "/"}${normalized}`;
 }

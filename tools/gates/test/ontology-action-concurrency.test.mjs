@@ -29,3 +29,35 @@ test("G0-6 ratchet accepts the repository and names every concurrency field miss
   assert.equal(positive.code, 1);
   assert.match(positive.stdout, /concurrency\.expectedVersion/u);
 });
+
+test("non-protocol source rows share the concurrency gate", async () => {
+  const { loadCatalogSnapshot } = await import("../ontology-gate-lib.mjs");
+  const catalog = loadCatalogSnapshot(repoRoot);
+  const sources = catalog.filter((row) => row.source === "ontology");
+  assert.ok(sources.length > 0, "non-protocol sources must be projected from ActionDeclaration");
+  assert.deepEqual(auditActionConcurrency(sources).findings, []);
+  const broken = structuredClone(sources);
+  delete broken[0].actions[0].concurrency.occurrenceClaim;
+  assert.ok(auditActionConcurrency(broken).findings[0].missing.includes("concurrency.occurrenceClaim"));
+});
+
+test("source projections preserve a canonical null execution and missing concurrency", async (t) => {
+  const { loadCatalogSnapshot } = await import("../ontology-gate-lib.mjs");
+  const { auditExplainExecutableActions } = await import("../ontology-explain-executable-actions.mjs");
+  const { writeRepoFile } = await import("./helpers.mjs");
+  const root = mkdtempSync(path.join(tmpdir(), "source-contract-100% #"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeRepoFile(
+    root,
+    "packages/kernel/src/domain/entity-kind-registry.ts",
+    `export const entityKindContracts = [{kind:'task', actionCatalog:{actions:[{id:'start', execution:null}]}}]; export const explainEntityKind = () => ({transitions:{available:[]}});`,
+  );
+  writeRepoFile(
+    root,
+    "packages/kernel/src/domain/action-declaration.ts",
+    `export const actionDeclarations = [{kind:'task-start', catalogId:'task/start', ontology:{sources:[{candidateId:'action:test',route:'task-start'}], execution:{ingress:'task-start',read:false}, concurrency:{}}}];`,
+  );
+  const sources = loadCatalogSnapshot(root).filter((row) => row.source === "ontology");
+  assert.deepEqual(auditExplainExecutableActions(sources).findings, [{ kind: "task-start", action: "task-start" }]);
+  assert.ok(auditActionConcurrency(sources).findings[0].missing.includes("concurrency"));
+});

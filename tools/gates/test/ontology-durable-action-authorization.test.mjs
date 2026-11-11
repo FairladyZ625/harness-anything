@@ -486,3 +486,39 @@ partitionedTest("a worktree root anchors on its own kernel sources instead of th
   assert.ok(members.has("authorize"));
   assert.equal(realpathSync(members.get("authorize").getSourceFile().fileName), realpathSync(path.join(dir, file)));
 });
+
+test("S1a source routes resolve to their own action authorization descriptor", () => {
+  const bound = inputs.descriptors.filter((row) => row.ontologySources?.length);
+  assert.ok(bound.length > 0);
+  const declaredSources = new Map(
+    inputs.constants.actionDeclarations.flatMap((action) =>
+      (action.ontology?.sources ?? []).map((source) => [source.candidateId, action.kind]),
+    ),
+  );
+  for (const descriptor of bound) {
+    for (const source of descriptor.ontologySources)
+      assert.equal(declaredSources.get(source), descriptor.actionKind ?? descriptor.id);
+  }
+});
+
+test("a source cannot borrow another action's authorization route", async (t) => {
+  const { writeRepoFile } = await import("./helpers.mjs");
+  const root = mkdtempSync(path.join(tmpdir(), "source-route-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeRepoFile(
+    root,
+    "packages/kernel/src/index.ts",
+    `export const actionDeclarations = [{kind:'task-delete', executionClass:'repo-write', ontology:{sources:[{candidateId:'action:foreign',route:'task-start'}]}}];`,
+  );
+  writeRepoFile(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    `export const daemonProtocolCommands = [{id:'task-start',method:'repo.task.run',commandClass:'repo-write'}]; export const daemonGuiActionMethods = [];`,
+  );
+  writeRepoFile(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+    `export const daemonProtocolMethods = [];`,
+  );
+  await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
+});

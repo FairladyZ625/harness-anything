@@ -657,6 +657,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       "catalogId",
       "executionClass",
       "kind",
+      ...(declaration.ontology === undefined ? [] : ["ontology"]),
       "policyAction",
       "policyTier",
       "receiptSettlement",

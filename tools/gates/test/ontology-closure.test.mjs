@@ -76,6 +76,24 @@ test("the full repository passes the classified closure gate", (t) => {
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   assert.deepEqual(result.findings, []);
   assert.ok(result.filesScanned > 1000);
+  const owned = result.classified.filter(
+    (row) => row.category === "action" && /^packages\/(?:cli|kernel|preset)\//u.test(row.file),
+  );
+  assert.ok(owned.length > 0);
+  assert.ok(owned.every((row) => row.status === "registered"));
+  for (const [symbol, action] of [
+    ["cleanupConsumedDocumentDescriptor", "repository-read"],
+    ["installPresetPackage", "preset-install"],
+    ["createPresetProcessService.execute.child", "preset-run-start"],
+    ["writeDaemonRegistry", "daemon-repo-register"],
+  ]) {
+    const sources = owned.filter((row) => row.symbol === symbol);
+    assert.ok(sources.length > 0, symbol);
+    assert.ok(
+      sources.every((row) => row.declarationRef === `action:${action}`),
+      symbol,
+    );
+  }
   t.diagnostic(
     `full-source closure: files=${result.filesScanned}, totals=${JSON.stringify(result.totals)}, durationMs=${result.durationMs}`,
   );
@@ -400,4 +418,16 @@ test("GUI acceptance fixtures are excluded while neighboring product policies re
     assert.ok(findings.some((row) => row.file === file && row.code === "ONTOLOGY_POLICY_UNDECLARED"));
     assert.ok(findings.some((row) => row.file === file && row.code === "ONTOLOGY_ACTION_UNDECLARED"));
   }
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260/CH1 S1a: the owned package debt must leave the baseline.
+test("S1a CLI/kernel/preset sources are declared without technical exemptions", () => {
+  const baseline = loadGateAllowlist("ontology-closure", {
+    allowlistRoot: path.join(repoRoot, "tools/gate-allowlists"),
+    report: false,
+  }).candidates;
+  assert.deepEqual(
+    baseline.filter((row) => row.removalSlice === "S1" && /^action:packages\/(?:cli|kernel|preset):/u.test(row.id)),
+    [],
+  );
 });

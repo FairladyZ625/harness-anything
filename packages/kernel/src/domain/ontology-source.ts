@@ -5,6 +5,9 @@ export interface OntologySourceBinding {
 }
 
 export interface OntologyActionSources {
+  /** Non-protocol source rows use the owning action's execution and concurrency contract. */
+  readonly execution?: { readonly ingress: string; readonly read: boolean } | null;
+  readonly concurrency?: import("./entity-kind-registry.ts").EntityActionContract["concurrency"];
   readonly owner: string;
   readonly sources: readonly OntologySourceBinding[];
   readonly exemptions?: readonly OntologySourceExemption[];
