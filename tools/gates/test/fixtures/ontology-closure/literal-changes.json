@@ -1,0 +1,80 @@
+[
+  {
+    "label": "template head",
+    "before": "dispatch(`approve:${id}`);",
+    "after": "dispatch(`reject:${id}`);",
+    "category": "action"
+  },
+  {
+    "label": "template middle",
+    "before": "dispatch(`before${id}approve${next}after`);",
+    "after": "dispatch(`before${id}reject${next}after`);",
+    "category": "action"
+  },
+  {
+    "label": "template tail",
+    "before": "dispatch(`before${id}approve`);",
+    "after": "dispatch(`before${id}reject`);",
+    "category": "action"
+  },
+  {
+    "label": "regexp pattern",
+    "before": "function canApprove(role) { if (/admin/.test(role)) return true; return false; }",
+    "after": "function canApprove(role) { if (/guest/.test(role)) return true; return false; }",
+    "category": "judgment"
+  },
+  {
+    "label": "regexp flags",
+    "before": "function canApprove(role) { if (/admin/i.test(role)) return true; return false; }",
+    "after": "function canApprove(role) { if (/admin/g.test(role)) return true; return false; }",
+    "category": "judgment"
+  },
+  {
+    "label": "bigint value",
+    "before": "dispatch(1n);",
+    "after": "dispatch(999n);",
+    "category": "action"
+  },
+  {
+    "label": "tagged template raw text",
+    "before": "dispatch(String.raw`a\\u0062`);",
+    "after": "dispatch(String.raw`ab`);",
+    "category": "action"
+  },
+  {
+    "label": "JSX text",
+    "before": "dispatch(<Confirm>approve</Confirm>);",
+    "after": "dispatch(<Confirm>reject</Confirm>);",
+    "category": "action"
+  },
+  {
+    "label": "private identifier",
+    "before": "class Authority { #approve; #reject; run() { dispatch(this.#approve); } }",
+    "after": "class Authority { #approve; #reject; run() { dispatch(this.#reject); } }",
+    "category": "action"
+  },
+  {
+    "label": "ordinary string",
+    "before": "dispatch(\"approve\");",
+    "after": "dispatch(\"reject\");",
+    "category": "action"
+  },
+  {
+    "label": "numeric value",
+    "before": "dispatch(1);",
+    "after": "dispatch(2);",
+    "category": "action"
+  },
+  {
+    "label": "lone UTF-16 surrogate",
+    "before": "dispatch(\"\\ud800\");",
+    "after": "dispatch(\"\\ud801\");",
+    "category": "action"
+  },
+  {
+    "label": "escaped CR versus LF string value",
+    "before": "dispatch(\"\\r\");",
+    "after": "dispatch(\"\\n\");",
+    "category": "action"
+  }
+]

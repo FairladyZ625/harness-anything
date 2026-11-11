@@ -249,6 +249,7 @@ export type ReceiptSettlementClass = "canonical-acceptance" | "none";
 
 /** The authoritative facets shared by policy, protocol, receipt settlement, and entity catalogs. */
 export interface ActionDeclaration {
+  readonly ontology?: import("./ontology-source.ts").OntologyActionSources;
   readonly kind: string;
   readonly catalogId: string | null;
   readonly executionClass: ActionExecutionClass;

@@ -20,6 +20,11 @@ export const allowlistJsonPolicies = Object.freeze({
     pathSections: {},
     nonPathSections: ["catalogNulls"],
   },
+  // dec_7E44897ECDCAEF2B92EC66A260 CH1: exact ontology source identities still name live source files.
+  "ontology-closure.json": {
+    pathSections: { candidates: "path" },
+    nonPathSections: [],
+  },
   "check-implementation-contracts.json": {
     pathSections: {
       expectedRuntimeTestFiles: "value",

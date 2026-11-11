@@ -126,6 +126,20 @@ export function loadCatalogSnapshot(rootDir, fixture = null) {
   return JSON.parse(runTypeScriptProbe(modulePath, script));
 }
 
+export function loadOntologyClosureSnapshot(rootDir) {
+  const modules = ["entity-kind-registry.ts", "action-declaration.ts"].map((file) =>
+    path.join(rootDir, "packages/kernel/src/domain", file),
+  );
+  const script = [
+    "const [registry, actions] = await Promise.all(process.argv.slice(1, 3).map((url) => import(url)));",
+    "process.stdout.write(JSON.stringify({",
+    "  actions: actions.actionDeclarations.map(({ kind, ontology }) => ({ kind, ontology })),",
+    "  kinds: registry.entityKindContracts.map(({ kind, judgments, policies, ontologyExemptions }) => ({ kind, judgments, policies, ontologyExemptions })),",
+    "}));",
+  ].join("\n");
+  return JSON.parse(runTypeScriptProbe(modules[0], script, modules[1]));
+}
+
 /**
  * The evaluated action surfaces G-B compares: registry contracts as the runtime builds them
  * (factory-made kinds included), ActionDeclarations, and the protocol ingress descriptors.

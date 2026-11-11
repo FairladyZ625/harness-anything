@@ -8,7 +8,7 @@ const toolRoot = path.resolve(fileURLToPath(new URL("../../", import.meta.url)))
 const defaultAllowlistRoot = path.join(toolRoot, "tools/gate-allowlists");
 
 export function loadGateAllowlist(gateId, options = {}) {
-  const allowlistRoot = process.env.HARNESS_GATE_ALLOWLIST_DIR ?? defaultAllowlistRoot;
+  const allowlistRoot = options.allowlistRoot ?? process.env.HARNESS_GATE_ALLOWLIST_DIR ?? defaultAllowlistRoot;
   const allowlistPath = path.join(allowlistRoot, `${gateId}.json`);
   const displayPath = path.relative(toolRoot, allowlistPath).split(path.sep).join("/") || allowlistPath;
   let raw;
@@ -42,7 +42,7 @@ export function loadGateAllowlist(gateId, options = {}) {
   const trend =
     previousCount === null ? "previous=unavailable" : `previous=${previousCount} delta=${currentCount - previousCount}`;
   const growth = previousCount !== null && currentCount > previousCount ? " GROWTH_REQUIRES_GOVERNANCE_REVIEW" : "";
-  console.log(`[gate-allowlist] ${gateId}: current=${currentCount} ${trend}${growth}`);
+  if (options.report !== false) console.log(`[gate-allowlist] ${gateId}: current=${currentCount} ${trend}${growth}`);
 
   return parsed.entries;
 }

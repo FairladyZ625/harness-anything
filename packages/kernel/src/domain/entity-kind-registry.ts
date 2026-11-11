@@ -140,6 +140,9 @@ function unsupported(level: DispositionLevel, action: DispositionAction, reason:
 export type { EntityKind, EntityResidencyFacets, RegisteredEntity } from "./base-entity.ts";
 
 export type EntityKindContract<E extends BaseEntity = BaseEntity, T = unknown> = EntityTypeContract<E> & {
+  readonly judgments?: readonly import("./ontology-source.ts").OntologyJudgmentDeclaration[];
+  readonly policies?: readonly import("./ontology-source.ts").OntologyPolicyDeclaration[];
+  readonly ontologyExemptions?: readonly import("./ontology-source.ts").OntologySourceExemption[];
   readonly schema: EntityDocumentJsonSchema<T>;
   readonly relations: {
     readonly directions: readonly RelationDirection[];
