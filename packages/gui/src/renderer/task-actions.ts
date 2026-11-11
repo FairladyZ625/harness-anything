@@ -1,3 +1,5 @@
+import type { WriteReceiptOutcome as VocabularyWriteReceiptOutcome } from "../api/renderer-dto.ts";
+import type { MutationFeedbackState as VocabularyMutationFeedbackState } from "../api/renderer-dto.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
@@ -23,7 +25,7 @@ type ReceiptRecord = GuiActionResult & {
 };
 
 export interface TaskSettlement {
-  readonly state: "applied" | "pending" | "op_rejected";
+  readonly state: Extract<VocabularyWriteReceiptOutcome, "applied" | "pending" | "op_rejected">;
   readonly opId: string;
   readonly code?: string;
   readonly hint?: string;
@@ -79,7 +81,7 @@ export function createGuiExecutionId(randomUUID: () => string = () => crypto.ran
 }
 
 export interface TaskMutationFeedback {
-  readonly state: "pending" | "success" | "error";
+  readonly state: VocabularyMutationFeedbackState;
   readonly kind: "start" | "progress" | "submit" | "complete" | "pin" | "attest" | "consent" | "rework";
   readonly opId: string;
   readonly code?: string;

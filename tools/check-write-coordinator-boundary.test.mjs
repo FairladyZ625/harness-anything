@@ -77,6 +77,33 @@ test("W3 write authority rejects thin CLI domain imports by workspace package id
     assert.match(findW3WriteAuthorityViolations(root).join("\n"), /thin CLI must not import kernel\/application/u);
   }));
 
+// dec_499E4E98A3D4754132B3BCA1E6: vocabulary types carry no runtime write authority.
+test("W3 permits erased domain type imports and exports", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/cli/src/status.ts",
+      `
+import type { ProbeState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+export type { ProbeState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+`,
+    );
+    assert.deepEqual(findW3WriteAuthorityViolations(root), []);
+  }));
+
+for (const declaration of [
+  'import { type ProbeState, service } from "@harness-anything/kernel";',
+  'import { type ProbeState } from "@harness-anything/kernel";',
+  'import "@harness-anything/kernel";',
+  'export { service } from "@harness-anything/application";',
+]) {
+  test(`W3 rejects runtime domain dependency: ${declaration}`, () =>
+    withFixture((root) => {
+      write(root, "packages/cli/src/status.ts", declaration);
+      assert.match(findW3WriteAuthorityViolations(root).join("\n"), /thin CLI must not import kernel\/application/u);
+    }));
+}
+
 function withFixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "w3-write-authority-"));
   try {

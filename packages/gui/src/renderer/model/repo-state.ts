@@ -1,3 +1,4 @@
+import type { RepoRegistrationState as VocabularyRepoRegistrationState } from "../../api/renderer-dto.ts";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
 import type { MessageKey } from "../i18n/index.tsx";
@@ -30,7 +31,7 @@ export function repoNeedsAttention(repo: {
 /** 项目管理页判定一个项目所需的 daemon 行字段(SystemRepoRow 的子集)。 */
 export interface ProjectRepo {
   readonly repoId: string;
-  readonly registrationState: "enabled" | "disabled";
+  readonly registrationState: VocabularyRepoRegistrationState;
   readonly mode: "local" | "remote-proxy" | "remote-center" | "remote-edge";
   readonly cellState: string;
   readonly unavailableReason: string | null;

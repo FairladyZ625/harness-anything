@@ -1,3 +1,4 @@
+import type { RuntimeLiveness as VocabularyRuntimeLiveness } from "../../api/renderer-dto.ts";
 import type { AgentRuntimeSessionGroupStatus } from "@harness-anything/daemon/protocol";
 
 /**
@@ -20,7 +21,7 @@ export interface SmartAttentionSignal {
    * 会话进程活性(session DTO 的 liveness)。组/轮次级读面没有该字段,省略按 live 处理:
    * 缺证据不是失联,只有显式 stale/unknown/exited 才把 running 降为不可验证。
    */
-  readonly liveness?: "live" | "stale" | "unknown" | "exited";
+  readonly liveness?: VocabularyRuntimeLiveness;
   /**
    * 存在未决 awaits 关系、待审批决策或阻塞待输入。由调用方从 agenda awaitingYou
    * (dec_DF67F23066BAFE444190A191B5)等读面按源实体派生,模型不重复判断。

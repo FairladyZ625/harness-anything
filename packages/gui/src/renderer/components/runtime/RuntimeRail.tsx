@@ -1,3 +1,4 @@
+import type { DegradedEntityState as VocabularyDegradedEntityState } from "../../../api/renderer-dto.ts";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { DecisionProviderRecord, RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import {
@@ -399,7 +400,7 @@ function agentLineSummary(
     .join(" · ");
 }
 
-type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: "invalid" | "missing" }>;
+type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: VocabularyDegradedEntityState }>;
 
 /** 降级行:目录健康信号不是禁用项——可选中,状态标签就在行上;校验原因收进悬停,
  * 右侧详情就地解释为什么无效(标准 §2.5)。 */

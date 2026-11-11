@@ -1,4 +1,5 @@
-export type RuntimeReadinessStatus = "macos-local-v1-release-candidate";
+import type { RuntimeReadinessStatus as VocabularyRuntimeReadinessStatus } from "../api/renderer-dto.ts";
+export type RuntimeReadinessStatus = VocabularyRuntimeReadinessStatus;
 export type RuntimeReadinessSurface = "source-run" | "full-check" | "pr-check" | "package-smoke" | "gui-build";
 
 export interface RuntimeCommandContract {

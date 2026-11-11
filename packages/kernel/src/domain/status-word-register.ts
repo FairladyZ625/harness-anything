@@ -1,3 +1,4 @@
+import { consumerStatusWordRegister } from "./status-word-register-consumers.ts";
 import { gateRunStatusWordRegister } from "./status-word-register-gate-run.ts";
 import { ciStatusWordRegister } from "./status-word-register-ci.ts";
 import type { StatusWordRegistration } from "./status-vocabulary.ts";
@@ -8,6 +9,7 @@ import { dispatchStatusWordRegister } from "./status-word-register-dispatch.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
+  ...consumerStatusWordRegister,
   ...gateRunStatusWordRegister,
   ...dispatchStatusWordRegister,
   {

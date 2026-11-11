@@ -1,3 +1,4 @@
+import type { GenerationConversionDisposition as VocabularyGenerationConversionDisposition } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { createMigrationImportEvent } from "@harness-anything/kernel";
 import { validateRetiredCiRunObservationEvent } from "@harness-anything/kernel/internal/domain/ci-run-observation-retired-event.ts";
 import path from "node:path";
@@ -34,7 +35,7 @@ export interface GenerationConversionMapping {
   readonly destinationRevision: number | null;
   readonly destinationOpId: string | null;
   readonly destinationDigest: string | null;
-  readonly disposition: "converted" | "retained-read-only" | "unsupported";
+  readonly disposition: VocabularyGenerationConversionDisposition;
   readonly reasons: readonly string[];
 }
 

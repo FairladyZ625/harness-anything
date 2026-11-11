@@ -1,3 +1,4 @@
+import type { ProjectionFreshness as VocabularyProjectionFreshness } from "../domain/operational-status.ts";
 import type { CloseoutReadiness } from "../domain/closeout-readiness.ts";
 import type { CanonicalStatus } from "../domain/lifecycle-status.ts";
 import type { PriorityTier, TaskWorkKind } from "../domain/task-metadata.ts";
@@ -5,7 +6,7 @@ import type { ContractVersion } from "../domain/contract-version.ts";
 import type { TaskBoardColumnId } from "../domain/task-board-projection.ts";
 import type { PackageDisposition } from "../domain/package-disposition.ts";
 
-export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
+export type ProjectionFreshness = VocabularyProjectionFreshness;
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
 export type ProjectionCanonicalStatus = CanonicalStatus | "unknown";
 export type CoordinationStatus = TaskBoardColumnId | "unknown";

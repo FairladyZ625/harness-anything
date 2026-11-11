@@ -1,3 +1,4 @@
+import type { TerminalAttachStatus as VocabularyTerminalAttachStatus } from "../api/renderer-dto.ts";
 import type { TerminalControlReceipt, TerminalSessionRow } from "@harness-anything/daemon/protocol";
 import type { DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
@@ -18,7 +19,7 @@ export interface TerminalAttachInitial {
   readonly sessionId: string;
   readonly attachmentId: string;
   readonly daemonGeneration: number;
-  readonly status: "attached" | "gap";
+  readonly status: VocabularyTerminalAttachStatus;
   readonly replayFromSeq: number;
   readonly outputSeq: number;
 }

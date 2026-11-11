@@ -1,3 +1,5 @@
+import { repoRegistrationStateWords } from "../domain/operational-status.ts";
+import type { RepoRegistrationState as VocabularyRepoRegistrationState } from "../domain/operational-status.ts";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -21,7 +23,7 @@ export type { DaemonRepoMode } from "./repo-mode.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v2";
 
-export type DaemonRepoState = "enabled" | "disabled";
+export type DaemonRepoState = VocabularyRepoRegistrationState;
 export type DaemonConnectionKind = "local" | "remote-endpoint" | "fleet-center";
 
 export interface DaemonRegistryConnection {
@@ -484,7 +486,7 @@ function decodeDaemonRegistryConnection(value: unknown, source: string): DaemonR
       ? (value.kind as DaemonConnectionKind)
       : undefined,
     displayName = typeof value.displayName === "string" && value.displayName.length > 0 ? value.displayName : undefined,
-    state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined,
+    state = repoRegistrationStateWords.find((state) => state === value.state),
     endpoint = typeof value.endpoint === "string" ? normalizeRemoteEndpoint(value.endpoint) : undefined;
   if (!id || !kind || !displayName || !state) throw new Error(`invalid daemon registry connection at ${source}`);
   if (kind === "local" && (id !== "local" || endpoint !== undefined))
@@ -518,7 +520,7 @@ function decodeDaemonRegistryRepo(
   const mode = daemonRepoModes.includes(value.mode as DaemonRepoMode) ? (value.mode as DaemonRepoMode) : undefined;
   const connectionId = typeof value.connectionId === "string" ? normalizeConnectionId(value.connectionId) : undefined,
     connection = connections.find((candidate) => candidate.id === connectionId);
-  const state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined;
+  const state = repoRegistrationStateWords.find((state) => state === value.state);
   const registeredAt =
     typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
   const invalid = [
@@ -578,7 +580,7 @@ function invalidDaemonRegistryRepo(value: unknown, entryIndex: number, error: st
           : undefined,
     mode = daemonRepoModes.includes(value.mode as DaemonRepoMode) ? (value.mode as DaemonRepoMode) : undefined,
     connectionId = typeof value.connectionId === "string" ? value.connectionId : undefined,
-    state = value.state === "enabled" || value.state === "disabled" ? value.state : undefined,
+    state = repoRegistrationStateWords.find((state) => state === value.state),
     registeredAt =
       typeof value.registeredAt === "string" && value.registeredAt.length > 0 ? value.registeredAt : undefined;
   return {

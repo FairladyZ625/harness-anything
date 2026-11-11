@@ -1,3 +1,4 @@
+import { consumerStatusVocabularies } from "./status-word-register-consumers.ts";
 export type StatusEntity =
   | "Task"
   | "Decision"
@@ -29,7 +30,10 @@ export type StatusEntity =
   | "CiTest"
   | "CiFile"
   | "CiMeasurement"
-  | "AuthoredDocument";
+  | "AuthoredDocument"
+  | "Host"
+  | "Migration"
+  | "Projection";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 
@@ -102,6 +106,7 @@ import {
 export { statusWordRegister } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  ...consumerStatusVocabularies,
   {
     id: "gate-run.state",
     entity: "GateRun",
@@ -675,7 +680,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     id: "materialization.state",
     entity: "Materialization",
     field: "state",
-    module: "packages/kernel/src/ports/task-event-store.ts",
+    module: "packages/kernel/src/domain/operational-status.ts",
     anchor: "materializationStates",
     words: ["ok", "retrying", "failed"],
     note: "Health of the WAL-to-Git checkpoint path; failed is a write-admission latch until explicit recovery.",

@@ -1,3 +1,5 @@
+import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "../api/renderer-dto.ts";
+import type { WriteReceiptOutcome as VocabularyWriteReceiptOutcome } from "../api/renderer-dto.ts";
 import { localErrorHint, isRendererRecord } from "./result-validation.ts";
 import type { BridgeError } from "./api-client.ts";
 
@@ -45,7 +47,7 @@ export interface CatalogGateMappingsDescriptor {
 export interface CatalogSnapshotSuccess {
   readonly schema: "gui-catalog-snapshot/v2";
   readonly ok: true;
-  readonly status: "ready" | "pending";
+  readonly status: VocabularyReadSetProjectionCut["status"];
   readonly repoId: string;
   readonly observedAt: string;
   readonly defaults: {
@@ -107,7 +109,7 @@ export interface CatalogPresetSuccess {
 export interface CatalogRereadReceipt {
   readonly schema: "catalog-reread-receipt/v1";
   readonly ok: boolean;
-  readonly outcome: "applied" | "op_rejected";
+  readonly outcome: Extract<VocabularyWriteReceiptOutcome, "applied" | "op_rejected">;
   readonly operationId: string;
   readonly repoId: string;
   readonly observedAt: string;

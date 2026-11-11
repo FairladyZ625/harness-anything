@@ -1,3 +1,4 @@
+import type { ProjectionFreshness as VocabularyProjectionFreshness } from "../../api/renderer-dto.ts";
 import type {
   DecisionFullRow,
   DecisionProjectionRow,
@@ -30,7 +31,7 @@ export type SnapshotStatus =
   | "unknown"
   | "archived";
 
-export type Freshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
+export type Freshness = VocabularyProjectionFreshness;
 
 export type PackageDisposition = "active" | "archived" | "tombstoned";
 

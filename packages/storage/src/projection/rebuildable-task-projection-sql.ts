@@ -1,3 +1,4 @@
+import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, type Hash } from "node:crypto";
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
@@ -61,7 +62,7 @@ export function readProjectionCut(
   db: DatabaseSync,
   readHead: EventStreamPort["readHead"],
 ): {
-  readonly status: "ready" | "pending";
+  readonly status: VocabularyReadSetProjectionCut["status"];
   readonly watermark: number;
   readonly sourceRevision: number;
 } {

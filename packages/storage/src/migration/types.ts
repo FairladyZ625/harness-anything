@@ -1,15 +1,9 @@
+import type { MigrationPhase as VocabularyMigrationPhase } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { LedgerCutIdentity } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import type { PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
 import type { SqliteCommandOutcome, SqliteEventRow } from "../store/sqlite-event-store.ts";
 
-export type MigrationPhase =
-  | "freezing"
-  | "prepared"
-  | "source_sealed"
-  | "activation_failed"
-  | "target_activated"
-  | "abandoned"
-  | "source_resumed";
+export type MigrationPhase = VocabularyMigrationPhase;
 export interface StorageMigrationRecord {
   readonly runId: string;
   readonly source: string;

@@ -1,3 +1,4 @@
+import type { DegradedEntityState as VocabularyDegradedEntityState } from "../../../api/renderer-dto.ts";
 import type { CSSProperties } from "react";
 import type { AgentEntityRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
@@ -7,7 +8,7 @@ import { Card, Crumbs, CrumbSep, Sect } from "./parts.tsx";
 import { Chip } from "../primitives/Chip.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 
-export type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: "invalid" | "missing" }>;
+export type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: VocabularyDegradedEntityState }>;
 /** 设置里引用该实体 id 的角色键(如 roles.defaultReviewer)。 */
 export type SettingsRoleRef = { readonly key: string; readonly role: "worker" | "reviewer" | "commander" };
 

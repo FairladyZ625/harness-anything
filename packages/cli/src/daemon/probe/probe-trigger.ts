@@ -1,9 +1,10 @@
+import type { ProbeState as VocabularyProbeState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 // One capture per ongoing event, not one per reason. Down, sustained CPU, and RSS may all be true
 // for the same stall; they share one event latch and one global cooldown, otherwise a single stall
 // would call the OS stack sampler three times. The latch clears only after every condition is gone.
 export type TriggerReason = "unresponsive" | "high-cpu" | "rss";
 
-export type ProbeState = "up" | "slow" | "down";
+export type ProbeState = VocabularyProbeState;
 
 export interface TriggerSample {
   readonly at: number;

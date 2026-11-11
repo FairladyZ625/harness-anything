@@ -1,3 +1,4 @@
+import type { RuntimeLiveness as VocabularyRuntimeLiveness } from "../../../api/renderer-dto.ts";
 import { useEffect, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
@@ -56,7 +57,7 @@ export type RuntimeDockRow = {
   readonly taskTitle: string | null;
   readonly startedAt: string;
   readonly status: string;
-  readonly liveness: "live" | "stale" | "unknown" | "exited" | null;
+  readonly liveness: VocabularyRuntimeLiveness | null;
   readonly dispatchId: string | null;
   readonly delegation: string | null;
 };

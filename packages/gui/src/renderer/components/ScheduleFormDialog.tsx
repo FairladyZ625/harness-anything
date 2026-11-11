@@ -1,3 +1,4 @@
+import type { DegradedEntityState as VocabularyDegradedEntityState } from "../../api/renderer-dto.ts";
 import { Toggle } from "./primitives/Toggle.tsx";
 import { Button } from "./primitives/Button.tsx";
 import { useMemo, useState, type ReactNode } from "react";
@@ -99,7 +100,7 @@ export function ScheduleForm({
 }) {
   const availableAgents = options.agents.filter(isAvailableScheduleGuiAgentOption),
     unavailableAgents = options.agents.filter(
-      (option): option is Extract<ScheduleGuiAgentOptionDto, { readonly state: "invalid" | "missing" }> =>
+      (option): option is Extract<ScheduleGuiAgentOptionDto, { readonly state: VocabularyDegradedEntityState }> =>
         !isAvailableScheduleGuiAgentOption(option),
     ),
     // A built-in Schedule is a system preset: only its name, cadence, and retention policy

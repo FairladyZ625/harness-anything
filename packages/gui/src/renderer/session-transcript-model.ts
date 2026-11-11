@@ -1,3 +1,9 @@
+import type {
+  ToolCallStatus as VocabularyToolCallStatus,
+  TranscriptPlanStepStatus as VocabularyTranscriptPlanStepStatus,
+  SteeringEntryStatus as VocabularySteeringEntryStatus,
+  TranscriptTurnStatus as VocabularyTranscriptTurnStatus,
+} from "../api/renderer-dto.ts";
 import { clip, recordOf, stringOf } from "./daemon-observe-model.ts";
 
 export type SessionTranscriptItemType = "thinking" | "tool_call" | "tool_result" | "text" | "error";
@@ -15,7 +21,7 @@ export interface SessionTranscriptItem {
 
 export interface SessionTranscriptTurn {
   readonly key: string;
-  readonly status: "running" | "completed" | "failed" | "unknown";
+  readonly status: VocabularyTranscriptTurnStatus;
   readonly startedAt: string | null;
   readonly endedAt: string | null;
   readonly items: readonly SessionTranscriptItem[];
@@ -391,7 +397,7 @@ export function sessionTranscriptTurns(
 
 // ---- 工具调用聚合 / 计划步骤 / Steering 待注入队列(dec_C0AF8CBBFFECF71F4F34FB76F9/CH3) ----
 
-export type ToolCallStatus = "running" | "succeeded" | "failed";
+export type ToolCallStatus = VocabularyToolCallStatus;
 
 /** 单次工具调用:ToolCallCard/ToolCallGroup 视图原语(W1-T3)的消费契约字段。 */
 export type ToolCallEntry = {
@@ -534,7 +540,7 @@ function elapsedMs(startedAt: string | null, endedAt: string | null): number | n
 
 // ---- 计划步骤(Plan Steps) ----
 
-export type PlanStepStatus = "pending" | "in_progress" | "completed";
+export type PlanStepStatus = VocabularyTranscriptPlanStepStatus;
 
 /** 计划里的一步:来自转录流最新一次计划证据,视图原语 AgentPlan(W1-T2)的消费契约。 */
 export type PlanStep = {
@@ -608,7 +614,7 @@ function planStepStatusOf(word: string): PlanStepStatus {
 
 // ---- Steering 待注入队列 ----
 
-export type SteeringEntryStatus = "pending" | "injected" | "rejected";
+export type SteeringEntryStatus = VocabularySteeringEntryStatus;
 
 /** 一条排队待注入的 Steering 指令:注入证据是转录流里 queuedAtMs 之后真实的用户消息。 */
 export type SteeringQueueEntry = {

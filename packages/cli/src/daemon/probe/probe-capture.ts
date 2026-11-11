@@ -1,3 +1,4 @@
+import type { JsStackStatus as VocabularyJsStackStatus } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { readFile } from "node:fs/promises";
 import { ensureProbeDirectory, writeProbeFile } from "@harness-anything/daemon/internal/probe-log-sink";
 import { JS_STACK_METHOD_ALLOWLIST } from "./probe-options.ts";
@@ -18,7 +19,7 @@ export interface CaptureRequest {
   readonly sampleSeconds: number;
 }
 
-export type JsStackStatus = "captured" | "not-advertised" | "unreachable" | "failed";
+export type JsStackStatus = VocabularyJsStackStatus;
 
 export interface JsStackResult {
   readonly method: string;

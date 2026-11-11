@@ -1,3 +1,4 @@
+import type { ScheduleVerdict as VocabularyScheduleVerdict } from "../../api/renderer-dto.ts";
 import type { ScheduleGuiListRowDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import { t } from "../i18n/index.tsx";
 import { dayKeyOf, formatTime } from "./time.ts";
@@ -91,7 +92,7 @@ export function triggerLabel(trigger: ScheduleGuiRowDto["trigger"]): string {
       });
 }
 
-export type ScheduleVerdict = "failed" | "degraded" | "ok" | "never";
+export type ScheduleVerdict = VocabularyScheduleVerdict;
 
 /** 卡上的结论:上次失败 > 健康降级但上次没失败 > 从未运行 > 正常。 */
 export function scheduleVerdict(row: Pick<ScheduleGuiRowDto, "lastRun" | "health">): ScheduleVerdict {

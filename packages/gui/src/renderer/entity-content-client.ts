@@ -1,3 +1,4 @@
+import type { EntityContentOutcome as VocabularyEntityContentOutcome } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 
@@ -12,7 +13,7 @@ import { guiHostBridge } from "./gui-transport.ts";
  * 路径由读面算好放在 `repositoryPath` 里,渲染层直接显示——这里**不拼前缀**,拼出来的
  * `harness/` 会在自定义 authored root 的仓里对用户谎报位置。
  */
-export type EntityContentOutcome = "file" | "directory" | "missing" | "too-large" | "binary";
+export type EntityContentOutcome = VocabularyEntityContentOutcome;
 
 export interface EntityContentEntry {
   /** 实体内相对路径;内容根本身是空串。 */

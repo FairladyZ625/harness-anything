@@ -1,3 +1,5 @@
+import type { DaemonHealthState as VocabularyDaemonHealthState } from "../../api/renderer-dto.ts";
+import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "../../api/renderer-dto.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 
 /**
@@ -27,7 +29,7 @@ export const DAEMON_OBSERVED_STALE_SEC = 30;
  */
 export const TRANSIENT_GRACE_SEC = DAEMON_OBSERVED_STALE_SEC;
 
-export type DaemonHealthState = "responsive" | "unresponsive" | "unknown";
+export type DaemonHealthState = VocabularyDaemonHealthState;
 export type CellHealthState = SystemRepoRow["cellState"] | "unknown";
 
 /**
@@ -82,7 +84,7 @@ export interface RuntimeHealthProjection {
   readonly lag: number | null;
   /** 首次 tasksQuery 尚未返回;与读完后仍未知的 projection 区分。 */
   readonly loading: boolean;
-  readonly status: "ready" | "pending" | null;
+  readonly status: VocabularyReadSetProjectionCut["status"] | null;
   /**
    * `repo.tasks.list` 亲口报出的被隔离行数。非 0 意味着 daemon 拿着 ledger 里的行却拒绝服务它,
    * 行集相对 watermark **不完整**——此时「落后 0 revisions」是假象,侧栏必须说「不完整」而不是「已追平」。
@@ -125,7 +127,7 @@ export interface RuntimeHealthInput {
   readonly projection: {
     readonly watermark: number;
     readonly sourceRevision: number;
-    readonly status: "ready" | "pending";
+    readonly status: VocabularyReadSetProjectionCut["status"];
     /** The isolated-row count the same read reported; omitted when the caller does not carry it. */
     readonly isolatedRows?: number;
     /**

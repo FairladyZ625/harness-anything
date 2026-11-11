@@ -1,5 +1,6 @@
+import type { BlockingAvailabilityState as VocabularyGraphReadState } from "../../api/renderer-dto.ts";
 interface GraphRelationStateProps {
-  readonly state: "ready" | "loading" | "error";
+  readonly state: VocabularyGraphReadState;
 }
 
 export function GraphRelationReadGate({ state }: GraphRelationStateProps) {

@@ -17,3 +17,59 @@ export type {
 export type { ProjectionWarning } from "./ports/projection-types.ts";
 
 export { openTodoValueEquals, todoIsOpen, type Todo } from "./domain/todo.ts";
+export type {
+  RepoRegistrationState,
+  RuntimeReadinessStatus,
+  SupplyChainReadinessStatus,
+  RepoCellState,
+  RepoLockState,
+  DaemonControlPhase,
+  ProjectionFreshness,
+  RuntimeIsolationState,
+} from "./domain/operational-status.ts";
+export type {
+  UpdateCheckState,
+  UpdateArtifactState,
+  AnswerFeedbackState,
+  CadenceFeedStatus,
+  DegradedEntityState,
+  AgentPlanStepStatus,
+  AgentPlanPhase,
+  SteerNoteState,
+  ApprovalVerdict,
+  PromptCacheTtlState,
+  AttentionState,
+  ConnectionVisualState,
+  BindingCoverageState,
+  ObserveTailStatus,
+  DaemonStartupPhase,
+  MutationFeedbackState,
+  CatalogReadState,
+  EntityContentOutcome,
+  EntityWriteState,
+  EntityLocatorReadOutcome,
+  DaemonHealthState,
+  ScheduleVerdict,
+  SessionVerdict,
+  ToolCallStatus,
+  TranscriptPlanStepStatus,
+  SteeringEntryStatus,
+  TranscriptTurnStatus,
+  StartWorkPreconditionState,
+  TerminalAttachStatus,
+  TerminalTabState,
+  TerminalRestartState,
+  DispatchActivityStatus,
+} from "./domain/client-view-status.ts";
+export type { WriteReceiptOutcome } from "./domain/write-chain.contract.ts";
+export type { ReadSetProjectionCut } from "./domain/task-read-set.ts";
+export {
+  daemonControlPhaseWords,
+  repoCellStateWords,
+  repoRegistrationStateWords,
+} from "./domain/operational-status.ts";
+export type { ReviewResponseDisposition, ReviewVerdict } from "./domain/review.ts";
+export type { BlockingAvailabilityState } from "./domain/task-blocking.ts";
+export type { RuntimeLiveness } from "./domain/agent-runtime.ts";
+export type { CloseoutGateStatus } from "./domain/status-word-register-closeout.ts";
+export { writeReceiptOutcomes } from "./domain/write-chain.contract.ts";
