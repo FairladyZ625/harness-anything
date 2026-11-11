@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -68,6 +69,12 @@ async function createManagedRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-supervision-")),
     bin = path.join(root, "rbac", "runtime", "postgres", "bin"),
     data = path.join(root, "rbac", "data", "postgres"),
+    // The managed health read is a GET /realms/<realm>; backup/restore wait for it after restarting.
+    healthPort = await availablePort(),
+    health = createHttpServer((_request, response) => {
+      response.writeHead(200);
+      response.end("{}");
+    }),
     listener = {
       address: "127.0.0.1",
       hostname: "center.example.test",
@@ -83,7 +90,7 @@ async function createManagedRoot() {
     path.join(root, "rbac", "config.json"),
     JSON.stringify({
       mode: "managed",
-      url: `http://127.0.0.1:${await availablePort()}`,
+      url: `http://127.0.0.1:${healthPort}`,
       realm: "harness",
       clientId: "harness-center",
       postgresPort: await availablePort(),
@@ -91,7 +98,15 @@ async function createManagedRoot() {
       listener,
     }),
   );
-  return { root, listener };
+  await new Promise<void>((resolve, reject) => {
+    health.once("error", reject);
+    health.listen(healthPort, "127.0.0.1", resolve);
+  });
+  return {
+    root,
+    listener,
+    closeHealth: () => new Promise<void>((resolve) => health.close(() => resolve())),
+  };
 }
 
 function killChild(child: ReturnType<typeof managedShutdownFixture>["children"][number], signal = "SIGTERM") {
@@ -104,7 +119,7 @@ test(
   "a managed service that exits after readiness is restarted by the daemon that owns it",
   { timeout: 30_000 },
   async () => {
-    const { root, listener } = await createManagedRoot(),
+    const { root, listener, closeHealth } = await createManagedRoot(),
       watcher = createLifecycleWatcher(),
       { service, children } = managedShutdownFixture(root, { recordLifecycle: watcher.record });
     try {
@@ -140,6 +155,7 @@ test(
       );
     } finally {
       await service.stop();
+      await closeHealth();
       rmSync(root, { recursive: true, force: true });
     }
   },
@@ -149,7 +165,7 @@ test(
   "a replacement that exits 0 before readiness fails its start and the next attempt succeeds",
   { timeout: 30_000 },
   async () => {
-    const { root, listener } = await createManagedRoot(),
+    const { root, listener, closeHealth } = await createManagedRoot(),
       watcher = createLifecycleWatcher(),
       { service, children } = managedShutdownFixture(root, {
         recordLifecycle: watcher.record,
@@ -171,6 +187,7 @@ test(
       assert.equal(await exchange(listener.port), "tls:hello");
     } finally {
       await service.stop();
+      await closeHealth();
       rmSync(root, { recursive: true, force: true });
     }
   },
@@ -180,7 +197,7 @@ test(
   "a spawn error without an exit event does not leave a rejected readiness for later retries",
   { timeout: 30_000 },
   async () => {
-    const { root, listener } = await createManagedRoot(),
+    const { root, listener, closeHealth } = await createManagedRoot(),
       watcher = createLifecycleWatcher(),
       { service, children } = managedShutdownFixture(root, {
         recordLifecycle: watcher.record,
@@ -201,6 +218,7 @@ test(
       assert.equal(children.length, 4, "stop does not create another child");
     } finally {
       await service.stop();
+      await closeHealth();
       rmSync(root, { recursive: true, force: true });
     }
   },
@@ -210,7 +228,7 @@ test(
   "stop during an in-flight automatic restart leaves no child and spawns nothing after it",
   { timeout: 30_000 },
   async () => {
-    const { root, listener } = await createManagedRoot(),
+    const { root, listener, closeHealth } = await createManagedRoot(),
       gateFile = path.join(root, "postgres-ready.gate"),
       watcher = createLifecycleWatcher();
     let releaseReplacement!: () => void;
@@ -247,6 +265,57 @@ test(
       );
     } finally {
       await service.stop();
+      await closeHealth();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a running backup through the public lifecycle queue completes and leaves the service usable",
+  { timeout: 60_000 },
+  async () => {
+    const { root, listener, closeHealth } = await createManagedRoot(),
+      backupDir = path.join(root, "backup");
+    const { service, children } = managedShutdownFixture(root);
+    try {
+      await service.start();
+      const receipt = await service.run({ operation: "backup", backupDir });
+      assert.equal(receipt.ok, true);
+      assert.equal(existsSync(path.join(backupDir, "keycloak-data.tar.gz")), true);
+      assert.equal(children.length, 4, "backup stopped and restarted both services");
+      assert.equal(await exchange(listener.port), "tls:hello");
+      const listenerRead = await service.run({ operation: "listener" });
+      assert.equal(listenerRead.ok, true, "a later lifecycle operation still runs");
+      assert.equal((await service.stop()).ok, true);
+    } finally {
+      await service.stop();
+      await closeHealth();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a valid restore through the public lifecycle queue completes and leaves the service usable",
+  { timeout: 60_000 },
+  async () => {
+    const { root, listener, closeHealth } = await createManagedRoot(),
+      backupDir = path.join(root, "backup");
+    const { service, children } = managedShutdownFixture(root);
+    try {
+      await service.start();
+      assert.equal((await service.run({ operation: "backup", backupDir })).ok, true);
+      const restored = await service.run({ operation: "restore", backupDir });
+      assert.equal(restored.ok, true);
+      assert.equal(await exchange(listener.port), "tls:hello");
+      assert.equal(children.length, 6, "restore stopped and restarted the managed services");
+      const listenerRead = await service.run({ operation: "listener" });
+      assert.equal(listenerRead.ok, true, "a later lifecycle operation still runs");
+      assert.equal((await service.stop()).ok, true);
+    } finally {
+      await service.stop();
+      await closeHealth();
       rmSync(root, { recursive: true, force: true });
     }
   },

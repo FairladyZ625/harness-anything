@@ -186,9 +186,7 @@ export class ManagedRbacService {
     if (operation === "stop") {
       const config = this.#readConfigIfPresent();
       if (config?.mode === "managed") this.#writeConfig({ ...config, stopped: true });
-      this.#stopping = true;
-      this.#cancelRestart();
-      return this.#stopChildren();
+      return this.#stopManagedChildren();
     }
     if (operation === "listener") {
       const config = this.#readManagedConfig();
@@ -263,6 +261,17 @@ export class ManagedRbacService {
     const stopped: string[] = [];
     for (const name of ["keycloak", "postgres"] as const) if (await this.#stopChild(name)) stopped.push(name);
     return { ok: true, command: "rbac-stop", stopped };
+  }
+
+  /**
+   * Stops children from a caller that already owns the lifecycle queue (a run operation such as
+   * backup/restore/stop). Public stop() must not be used there: it would append its teardown behind
+   * the very task awaiting it.
+   */
+  async #stopManagedChildren(): Promise<Record<string, unknown>> {
+    this.#stopping = true;
+    this.#cancelRestart();
+    return this.#stopChildren();
   }
 
   async #stopChild(name: ManagedChild): Promise<boolean> {
@@ -1040,7 +1049,7 @@ export class ManagedRbacService {
     });
     const output = path.join(request.backupDir, "keycloak-data.tar.gz"),
       wasRunning = this.#children.size > 0;
-    if (wasRunning) await this.stop();
+    if (wasRunning) await this.#stopManagedChildren();
     try {
       this.#execute("tar", ["-czf", output, "-C", path.join(this.#root, "data"), "postgres"]);
       /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
@@ -1071,7 +1080,7 @@ export class ManagedRbacService {
         "rbac_backup_version_mismatch",
         "Backup runtime versions do not match the installed runtime.",
       );
-    await this.stop();
+    await this.#stopManagedChildren();
     /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(postgresData, {
       recursive: true,
       force: true,
