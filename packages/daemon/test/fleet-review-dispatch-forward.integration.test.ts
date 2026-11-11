@@ -194,16 +194,7 @@ test(
     const workerCredential = launches.find((launch) => launch.dispatchId === spawned.dispatchId)?.env
       .HARNESS_EXECUTION_CREDENTIAL;
     assert.ok(workerCredential, "the rework worker must receive an execution credential");
-    writeFileSync(
-      path.join(edge.edgeRoot, "harness", packagePath, "closeout.md"),
-      "## Summary\nSecond edge delivery.\n## Verification\nRework agent was selected.\n## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nReview forwarding.\n",
-    );
-    const secondSubmit = await edge.command(
-      { kind: "task-submit", taskId, executionId: secondExecution },
-      workerCredential,
-    );
-    assert.equal(secondSubmit.outcome, "applied", JSON.stringify(secondSubmit));
-    await syncEdgeReplica();
+    // Select the intended reviewer before submit can automatically claim its review seat.
     const edgeReviewer = await f.host.run(
       "lease-repo",
       {
@@ -227,6 +218,16 @@ test(
       localAuthFixture(),
     );
     assert.equal(reviewerDefault.outcome, "applied", JSON.stringify(reviewerDefault));
+    await syncEdgeReplica();
+    writeFileSync(
+      path.join(edge.edgeRoot, "harness", packagePath, "closeout.md"),
+      "## Summary\nSecond edge delivery.\n## Verification\nRework agent was selected.\n## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nReview forwarding.\n",
+    );
+    const secondSubmit = await edge.command(
+      { kind: "task-submit", taskId, executionId: secondExecution },
+      workerCredential,
+    );
+    assert.equal(secondSubmit.outcome, "applied", JSON.stringify(secondSubmit));
     await syncEdgeReplica();
     const operatorSession = await edge.host.spawnRuntime(
         "lease-repo",
