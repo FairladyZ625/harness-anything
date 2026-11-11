@@ -302,14 +302,11 @@ export function auditDurableActionAuthorization(rootDir, inputs, options = {}) {
     rows,
     sourceRows,
     receipt,
-    findings: [
-      ...findingsFor(rows, receipt),
-      ...sourceRows.filter((source) => !source.ok).map((source) => `${source.id}: ${source.violations.join("; ")}`),
-    ],
+    findings: findingsFor(rows, receipt, sourceRows),
   };
 }
 
-function findingsFor(rows, receipt) {
+function findingsFor(rows, receipt, sourceRows) {
   return [
     ...rows
       .filter((row) => !row.ok)
@@ -321,6 +318,7 @@ function findingsFor(rows, receipt) {
     ...(receipt.nonNullable
       ? []
       : [`${receipt.file}:${receipt.line} receipt.authorizationDecision is optional or nullable`]),
+    ...sourceRows.filter((source) => !source.ok).map((source) => `${source.id}: ${source.violations.join("; ")}`),
   ];
 }
 
@@ -350,10 +348,7 @@ async function shardedAudit(rootDir) {
     rows,
     sourceRows,
     receipt,
-    findings: [
-      ...findingsFor(rows, receipt),
-      ...sourceRows.filter((source) => !source.ok).map((source) => `${source.id}: ${source.violations.join("; ")}`),
-    ],
+    findings: findingsFor(rows, receipt, sourceRows),
   };
 }
 

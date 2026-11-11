@@ -14,13 +14,8 @@ export function sourceWitnesses(graph, sources) {
   for (const file of new Set(sources.map(sourceFileOf))) {
     const source = graph.modules.get(file)?.sourceFile;
     if (!source) continue;
-    const nodes = new Map();
-    (function visit(node) {
-      if (ts.isCallExpression(node)) nodes.set(`${node.getStart(source)}:${node.end}`, node);
-      ts.forEachChild(node, visit);
-    })(source);
-    scanOntologyText(file, source.text, (candidate, node) => {
-      if (candidate.category === "action") witnesses.set(candidate.id, nodes.get(`${node.getStart()}:${node.end}`));
+    scanOntologyText(file, source, (candidate, node) => {
+      if (candidate.category === "action") witnesses.set(candidate.id, node);
     });
   }
   return witnesses;
@@ -189,10 +184,10 @@ export function processSourceSites(
   const seen = new Map(),
     active = [],
     sites = new Set();
-  const bindingShape = (_fn, env) =>
+  const bindingShape = (env) =>
     [...env.values()].map((bound) => (bound.expression ? sourceSite(graph, bound.expression) : "")).join("|");
   function walk(fn, env) {
-    const key = bindingShape(fn, env),
+    const key = bindingShape(env),
       frames = seen.get(fn) ?? new Set();
     if (!fn.body || active.includes(fn) || frames.has(key)) return;
     active.push(fn);
