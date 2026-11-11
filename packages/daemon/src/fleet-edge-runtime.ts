@@ -1035,6 +1035,7 @@ export function openFleetEdgeRuntime(input: {
     schedule,
   });
   const squad = makeFleetSquadCoordinator({
+    readDispatchLifecycle,
     get request() {
       return input.resolveLocation();
     },

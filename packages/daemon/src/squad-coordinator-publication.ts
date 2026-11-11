@@ -1,11 +1,11 @@
-import { consumeKnownError, type SquadRunObservation, type TaskProjection } from "@harness-anything/kernel";
+import { consumeKnownError, type SquadRunObservation } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord } from "./dispatch-stream.ts";
 import { squadRunObservation } from "./squad-observation.ts";
 import { squadScheduleSubject, terminal, type SquadState } from "./squad-run-state.ts";
 import type { SquadScheduleSettlement } from "./squad-coordinator.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { readyDispatchLifecycle, type DispatchLifecycleReader } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { errorText } from "./squad-coordinator-helpers.ts";
 
@@ -15,7 +15,7 @@ export function makeSquadPublicationController(input: {
   readonly states: ReadonlyMap<string, SquadState>;
   readonly publicationAcks: Map<string, number>;
   readonly subjectCurrent: (state: SquadState) => boolean;
-  readonly query: <T>(read: (projection: TaskProjection) => T) => T;
+  readonly readDispatchLifecycle: DispatchLifecycleReader;
   readonly publishObservation: (observation: SquadRunObservation, binding: RuntimeBinding) => Promise<void>;
   readonly settleScheduleOccurrence: (settlement: SquadScheduleSettlement, binding: RuntimeBinding) => Promise<void>;
   readonly runtimeSpawner: () => {
@@ -56,11 +56,9 @@ export function makeSquadPublicationController(input: {
         ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
         ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
       ])) {
-        const [view] = input.query((projection) =>
-          readyDispatchLifecycle(
-            projection.readDispatchLifecycle({ by: "session", runtimeSessionId }),
-            runtimeSpawnError,
-          ),
+        const [view] = readyDispatchLifecycle(
+          await input.readDispatchLifecycle({ by: "session", runtimeSessionId }),
+          runtimeSpawnError,
         );
         if (view && view.policy.capacity !== "released")
           await input.runtimeSpawner().cancel({ runtimeSessionId }, state.binding);

@@ -28,6 +28,7 @@ export function makeFleetSquadCoordinator(input: {
   readonly prepareWorkspace: () => Promise<void>;
   readonly readWorktreeSetup: () => WorktreeSetupSettings;
   readonly readResult: (ref: string) => string;
+  readonly readDispatchLifecycle: import("./runtime-dispatch-admission.ts").DispatchLifecycleReader;
 }) {
   let principalId: string | undefined;
   const query = <T>(read: (projection: TaskProjection) => T): T => {
@@ -54,6 +55,7 @@ export function makeFleetSquadCoordinator(input: {
     },
     now: () => new Date().toISOString(),
     query,
+    readDispatchLifecycle: input.readDispatchLifecycle,
     readResult: input.readResult,
     readWorktreeSetup: input.readWorktreeSetup,
     publishObservation: async (observation) => {

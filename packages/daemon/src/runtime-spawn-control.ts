@@ -61,6 +61,11 @@ export async function cancelRuntime(
       (canonicalDispatch === null ||
         canonicalDispatch === undefined ||
         (canonicalDispatch.actor.principal.personId === binding.actor.principal.personId && sameSource));
+  const runtimeHandles = context.processes;
+  let active = runtimeHandles.get(runtimeSessionId);
+  // Owner authorization permits a mechanical stop even while the center is offline.
+  // The handle is transport only: publication and resource release still require the center.
+  if (owned && active && ruling === null) return stopOwnedRuntime(active);
   const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
   let attempt = lifecycle.rows[0];
@@ -75,8 +80,6 @@ export async function cancelRuntime(
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
   }
-  const runtimeHandles = context.processes;
-  let active = runtimeHandles.get(runtimeSessionId);
   if (ruling !== null) {
     // A ruling is an owner decision for an unreachable runtime only. Check every
     // precondition before recovery, process-group probing, or the active-process
@@ -104,7 +107,8 @@ export async function cancelRuntime(
     throw dispatchLifecyclePendingError(currentLifecycle, context.runtimeSpawnError);
   attempt = currentLifecycle.rows[0];
   active = runtimeHandles.get(runtimeSessionId);
-  if (active) {
+  if (active) return stopOwnedRuntime(active);
+  async function stopOwnedRuntime(active: ActiveRuntime): Promise<JsonObject> {
     active.cancelBinding = binding;
     // The mechanical stop must retain whether it was requested by the escalation action. Runtime
     // settlement uses this marker to distinguish a worker-owned report from an ordinary owner
