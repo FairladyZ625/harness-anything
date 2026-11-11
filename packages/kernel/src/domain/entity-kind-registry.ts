@@ -954,17 +954,6 @@ const documentActionCatalog = Object.freeze({
 export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActions([
   {
     kind: "task",
-    policies: [{
-      id: "runtime-lease-release", ownerRef: "task/release", unit: "task lease generation",
-      bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
-      defaultValue: null, version: 1, scope: "center task mutation",
-      reason: "Runtime settlement cannot release a later holder or bypass the existing mutation fence.",
-      fixtures: ["packages/daemon/test/runtime-spawn-lifecycle-settlement.integration.test.ts"],
-      sources: [
-      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
-      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
-      ],
-    }],
     ...entityTypeContractFields("task"),
     schema: taskSchema,
     relations: relationsFor("task"),
@@ -984,6 +973,16 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       }],
     }],
     policies: [taskLeasePolicy, completionGateOverridePolicy, {
+      id: "runtime-dispatch-mutation", ownerRef: "task/release", unit: "task lease generation",
+      bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
+      defaultValue: null, version: 1, scope: "center task mutation",
+      reason: "Runtime settlement cannot release a later holder or bypass the existing mutation fence.",
+      fixtures: ["packages/daemon/test/runtime-spawn-lifecycle-settlement.integration.test.ts"],
+      sources: [
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      ],
+    }, {
       id: "submit-lease-proof", ownerRef: "task", unit: "SubmitExecution proof",
       bounds: "A normal submit owns the held execution lease and source; an amendment binds the unleased submitted execution. Session disposition is complete, partial or unavailable.",
       defaultValue: null, version: 1, scope: "task submission and amendment authority",
@@ -996,6 +995,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution:580d7b6b06944f3f6414ed1fd48d0e8d",
         route: "submit.validate → validateSubmitExecution active lease proof",
       }],
+
     }, {
       id: "mutation-event-vocabulary", ownerRef: "task", unit: "task-event/v1 discriminator",
       bounds: "Only audit commands release/amend/archive/supersede/delete/reopen/contract-migrate select their matching declared event type.",
