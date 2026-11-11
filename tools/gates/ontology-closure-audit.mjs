@@ -162,7 +162,7 @@ export function auditOntologyClosure({
     const declaration = bindings.get(candidate.id),
       row = current.get(candidate.id);
     if (declaration?.status === "technical-exempt" && declaration.expiresOn >= today) {
-      classified.push({ ...candidate, ...declaration });
+      classified.push({ ...candidate, ...declaration, id: candidate.id, exemptionId: declaration.id });
       continue;
     }
     if (declaration && declaration.status !== "technical-exempt") {

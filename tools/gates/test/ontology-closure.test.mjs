@@ -194,7 +194,10 @@ test("exemptions require owner, reason, reviewer and expiry; expiry cannot be ex
       },
     ],
   };
-  assert.deepEqual(audit(candidates, { snapshot, today: "2026-11-11" }).findings, []);
+  const admitted = audit(candidates, { snapshot, today: "2026-11-11" });
+  assert.deepEqual(admitted.findings, []);
+  assert.equal(admitted.classified[0].id, candidates[0].id);
+  assert.equal(admitted.classified[0].exemptionId, "technical-cleanup");
   assert.ok(audit(candidates, { snapshot, today: "2026-12-02" }).findings.length);
 });
 
