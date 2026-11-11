@@ -4,9 +4,9 @@ import {
 } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
 import {
-  DEFAULT_DISPATCH_INSTANCE_CAPACITY,
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
   dispatchOwnerForNode,
+  dispatchAdmissionBlocker,
   sha256Text,
 } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
@@ -81,7 +81,7 @@ import { publishRuntimeEvent as publishRuntimeEventImpl } from "./runtime-spawn-
 import { runtimeProcessTreeStopped } from "./runtime-spawn-settlement.ts";
 import * as runtimeSpawnerDelegates from "./runtime-spawner-delegates.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import { assertDispatchAdmission } from "./runtime-dispatch-admission.ts";
+import { readActiveDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
@@ -164,12 +164,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
       input.prepareDaemonGitEnvironment?.(instanceId, provider, input.repoId).then((value) => value ?? undefined) ??
       Promise.resolve(undefined);
-  const modelSlotQueue =
-    input.modelSlotQueue ??
-    new ModelSlotQueue({
-      globalCapacity: DEFAULT_DISPATCH_INSTANCE_CAPACITY,
-      perOwnerCapacity: DEFAULT_DISPATCH_INSTANCE_CAPACITY,
-    });
+  const modelSlotQueue = input.modelSlotQueue ?? new ModelSlotQueue({ globalCapacity: 64, perOwnerCapacity: 64 });
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
   const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
@@ -533,18 +528,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       });
       modelSlotHeld = true;
     }
-    const assertDispatchAdmissible = (runtimeInstanceId: string) =>
-      assertDispatchAdmission(
-        (query) =>
-          input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
-        {
-          instanceId: runtimeInstanceId,
-          owner: dispatchOwnerForNode(input.runtimeNode?.nodeId),
-          capacity: input.runtimeInstanceCapacities?.[runtimeInstanceId],
-        },
-        runtimeSpawnError,
-      );
-    const selectRuntime = async () =>
+    const selectRuntime = () =>
       prepareRuntimeInstance(
         {
           requested: requestedRuntimeInstanceId,
@@ -559,7 +543,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           now: input.now(),
         },
         async (runtimeInstanceId) => {
-          if (!dryRun) await assertDispatchAdmissible(runtimeInstanceId);
+          if (!dryRun) {
+            const rows = await readActiveDispatchLifecycle(
+                (query) =>
+                  input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
+                runtimeSpawnError,
+                runtimeInstanceId,
+              ),
+              refusal = dispatchAdmissionBlocker(rows, {
+                instanceId: runtimeInstanceId,
+                owner: dispatchOwnerForNode(input.runtimeNode?.nodeId),
+                capacity: input.runtimeInstanceCapacities?.[runtimeInstanceId],
+              });
+            if (refusal) throw runtimeSpawnError(refusal.code, refusal.message);
+          }
           const initialFallback =
               inheritedFallback ??
               initialFallbackAttempt(
@@ -1492,7 +1489,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
       return adoptRuntimes(extracted, onProgress);
     },
-    /** Whether this spawner still owns a launched process for the runtime session. */
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {

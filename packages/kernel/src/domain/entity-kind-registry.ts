@@ -1,3 +1,4 @@
+import { dispatchLifecyclePolicies } from "./dispatch-lifecycle-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
@@ -953,6 +954,17 @@ const documentActionCatalog = Object.freeze({
 export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActions([
   {
     kind: "task",
+    policies: [{
+      id: "runtime-lease-release", ownerRef: "task/release", unit: "task lease generation",
+      bounds: "claimOpId must identify the same task, execution and lease version; held/reserving leases fence mutations except contract migration and parent-only amendment.",
+      defaultValue: null, version: 1, scope: "center task mutation",
+      reason: "Runtime settlement cannot release a later holder or bypass the existing mutation fence.",
+      fixtures: ["packages/daemon/test/runtime-spawn-lifecycle-settlement.integration.test.ts"],
+      sources: [
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      { candidateId: "policy:packages/daemon:packages/daemon/src/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/repo-cell-task-mutation.ts#taskMutation" },
+      ],
+    }],
     ...entityTypeContractFields("task"),
     schema: taskSchema,
     relations: relationsFor("task"),
@@ -1317,6 +1329,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       },
     ],
     actionCatalog: runtimeSessionCatalog,
+    policies: dispatchLifecyclePolicies,
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,

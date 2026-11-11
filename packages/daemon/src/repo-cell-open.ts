@@ -810,10 +810,12 @@ export async function openRepoWriterCell(
     onlineBinding,
     ...(input.killpoint ? { killpoint: input.killpoint } : {}),
   });
-  const operationalContext = Object.assign(runtimeContext, {
-    settings,
-  });
-  operationalContext satisfies RepoCellOperationalContext;
+  const operationalContext = Object.defineProperty(runtimeContext, "settings", {
+    value: settings,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  }) as RepoCellOperationalContext;
   handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding, arrangementId }) => {
     const runtimeExecutor = { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       runtimeBinding = { ...binding, actor: { principal: binding.actor.principal, executor: runtimeExecutor } };

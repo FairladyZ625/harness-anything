@@ -465,7 +465,19 @@ export const actionDeclarations = Object.freeze([
   // stays local (dec_2446BC2F8C68630F71AE3E3BD7/CH4 "no write path of its own"). Receipt settlement
   // is unchanged: these receipts still accept the canonical outcome produced by that writer.
   declare("runtime-batch", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
-  declare("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  {
+    ...declare("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+    ontology: {
+      owner: "runtime-session",
+      sources: [
+        {
+          candidateId:
+            "action:packages/daemon:packages/daemon/src/runtime-spawn-control.ts#cancelRuntime.stopOwnedRuntime:a48ffbebb821cbbf655b0d95183d27dd",
+          route: "runtime.cancel",
+        },
+      ],
+    },
+  },
   // The steer's only durable effect is a dispatch-stream record; it appends no ledger event
   // (runtime-spawn-control.ts, settled_no_write receipt). Its receipt still settles through the
   // declared no-write path, so the GUI command keeps canonical-acceptance.

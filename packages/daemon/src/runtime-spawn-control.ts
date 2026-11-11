@@ -49,18 +49,10 @@ export async function cancelRuntime(
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
           : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId),
     ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
-    sameSource =
-      canonicalDispatch === null ||
-      canonicalDispatch === undefined ||
-      sameWriteSource(canonicalDispatch.source, binding.source),
     owned =
-      ownerBinding !== null &&
-      ownerBinding !== undefined &&
-      ownerBinding.actor?.principal.personId === binding.actor.principal.personId &&
+      ownerBinding?.actor?.principal.personId === binding.actor.principal.personId &&
       ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
-      (canonicalDispatch === null ||
-        canonicalDispatch === undefined ||
-        (canonicalDispatch.actor.principal.personId === binding.actor.principal.personId && sameSource));
+      (matchingHeader !== undefined || sameWriteSource(ownerBinding.source, binding.source));
   const runtimeHandles = context.processes;
   let active = runtimeHandles.get(runtimeSessionId);
   // Owner authorization permits a mechanical stop even while the center is offline.
@@ -313,16 +305,19 @@ export async function steerRuntime(
     await readDispatchLifecycle(context, { by: "session", runtimeSessionId }),
     context.runtimeSpawnError,
   );
-  const liveness = () =>
-    view?.policy.canSteer
-      ? ("running" as const)
-      : view?.attempt.phase === "starting"
-        ? ("starting" as const)
-        : ("stopped" as const);
   const // With an expectation, every refusal carries the current target so the caller can re-read.
     refuse = (code: string, message: string): Error =>
       expected
-        ? runtimeSteerRefusal(code, message, runtimeSteerTarget(rootDir, repoId, header, liveness()))
+        ? runtimeSteerRefusal(
+            code,
+            message,
+            runtimeSteerTarget(
+              rootDir,
+              repoId,
+              header,
+              view?.policy.canSteer ? "running" : view?.attempt.phase === "starting" ? "starting" : "stopped",
+            ),
+          )
         : runtimeSpawnError(code, message);
   if (!header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
     throw refuse("execution_scope_mismatch", "This runtime is owned by another node.");

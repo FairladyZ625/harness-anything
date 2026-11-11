@@ -32,6 +32,9 @@ test(
       { by: "session" },
       { by: "dispatch", dispatchIds: [] },
       { by: "unknown", limit: 1 },
+      { by: "constructor", limit: 1 },
+      { by: "__proto__", limit: 1 },
+      { by: "active", limit: 1, unexpected: true },
     ]) {
       const refused = await read(query);
       assert.equal(refused.schema, "fleet.error/v1");
