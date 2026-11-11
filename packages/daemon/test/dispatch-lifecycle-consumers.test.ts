@@ -97,8 +97,8 @@ test("capacity ranking and instance reuse follow reservations even when session 
   assert.equal((await select()).instanceId, "b", "reserved a counts, stale session summary for b does not");
   const [busy] = readActiveDispatchLifecycleSync(read, runtimeSpawnError);
   assert.ok(
-    dispatchAdmissionRefusal({ group: busy!, instance: [busy!], instanceId: "a", owner: "local" }),
-    "a second admission into the active group is refused",
+    dispatchAdmissionRefusal({ group: null, instance: [busy!], instanceId: "a", owner: "local", capacity: 1 }),
+    "a different group cannot exceed instance capacity",
   );
   events.push(lifecycleEvent("X", "reservation", { source: "local", instanceId: "a" }));
   assert.equal((await select()).instanceId, "a", "an accepted stop releases the same instance for reuse");

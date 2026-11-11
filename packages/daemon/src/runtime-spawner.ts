@@ -3,7 +3,12 @@ import {
   executionArrangementAllows,
 } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, dispatchOwnerForNode, sha256Text } from "@harness-anything/kernel";
+import {
+  DEFAULT_DISPATCH_INSTANCE_CAPACITY,
+  DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+  dispatchOwnerForNode,
+  sha256Text,
+} from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -159,7 +164,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
       input.prepareDaemonGitEnvironment?.(instanceId, provider, input.repoId).then((value) => value ?? undefined) ??
       Promise.resolve(undefined);
-  const modelSlotQueue = input.modelSlotQueue ?? new ModelSlotQueue({ globalCapacity: 64, perOwnerCapacity: 64 });
+  const modelSlotQueue =
+    input.modelSlotQueue ??
+    new ModelSlotQueue({
+      globalCapacity: DEFAULT_DISPATCH_INSTANCE_CAPACITY,
+      perOwnerCapacity: DEFAULT_DISPATCH_INSTANCE_CAPACITY,
+    });
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
   const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
@@ -527,7 +537,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       assertDispatchAdmission(
         (query) =>
           input.remote ? input.remote.readDispatchLifecycle(query) : projection!.readDispatchLifecycle(query),
-        { instanceId: runtimeInstanceId, owner: dispatchOwnerForNode(input.runtimeNode?.nodeId) },
+        {
+          instanceId: runtimeInstanceId,
+          owner: dispatchOwnerForNode(input.runtimeNode?.nodeId),
+          capacity: input.runtimeInstanceCapacities?.[runtimeInstanceId],
+        },
         runtimeSpawnError,
       );
     const selectRuntime = async () =>

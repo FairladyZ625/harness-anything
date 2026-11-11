@@ -467,6 +467,7 @@ export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts
 
 export {
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
+  DEFAULT_DISPATCH_INSTANCE_CAPACITY,
   DISPATCH_LIFECYCLE_MODEL_VERSION,
   dispatchAdmissionBlocker,
   dispatchAdmissionRefusal,

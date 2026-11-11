@@ -120,6 +120,8 @@ export interface RepoCellOpenInput {
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  /** Center-owned instance limits; edges cannot supply or override these in an admission payload. */
+  readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   readonly runtimeProviderHealth?: import("./runtime-provider-health.ts").RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch?: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   readonly prepareCloudRelay?: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
@@ -511,6 +513,7 @@ export async function openRepoWriterCell(
         }
       : {}),
     runtimeInstances: input.runtimeInstances,
+    runtimeInstanceCapacities: input.runtimeInstanceCapacities,
     runtimeProviderHealth: input.runtimeProviderHealth,
     keycloakCenter: input.keycloakCenter,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,

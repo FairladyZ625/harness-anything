@@ -580,6 +580,7 @@ function bootstrapMessage(input: RepoCellOpenInput, canonicalStore: boolean): Re
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
+      ...(input.runtimeInstanceCapacities ? { runtimeInstanceCapacities: input.runtimeInstanceCapacities } : {}),
       ...(input.bootstrap
         ? {
             bootstrap: {

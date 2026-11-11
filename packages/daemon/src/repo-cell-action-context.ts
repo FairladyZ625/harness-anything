@@ -145,6 +145,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+    readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
     readonly prepareDaemonGitEnvironment?: (
       instanceId: string,
       provider: "github" | "gitlab",
@@ -248,6 +249,7 @@ export function createRepoCellActionContext(bindings: {
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+    readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   };
   readonly rootDir: string;
   readonly now: () => string;

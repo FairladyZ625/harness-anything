@@ -462,6 +462,7 @@ export interface RuntimeSpawnerInput {
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   readonly runtimeProviderHealth?: RuntimeProviderHealthStore;
   /** Shared admission queue for model-backed runtime attempts. */
   readonly modelSlotQueue?: ModelSlotQueue;

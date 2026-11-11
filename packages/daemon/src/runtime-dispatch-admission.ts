@@ -62,7 +62,7 @@ export function dispatchLifecyclePendingError(
  */
 export async function assertDispatchAdmission(
   read: (query: DispatchLifecycleQuery) => DispatchLifecycleRead | Promise<DispatchLifecycleRead>,
-  input: { readonly instanceId: string; readonly owner: string },
+  input: { readonly instanceId: string; readonly owner: string; readonly capacity?: number },
   error: CodedError,
 ): Promise<void> {
   const rows = await readActiveDispatchLifecycle(read, error, input.instanceId),
@@ -89,7 +89,7 @@ export async function readActiveDispatchLifecycle(
 /**
  * The center writer's admission check for one `runtime_dispatch_requested`. It runs inside the
  * single writer before the append, so of two concurrent admissions into one group (or onto an
- * instance an unresolved attempt blocks) only the first is accepted; the other caller receives the
+ * instance's last free slot) only the first is accepted; the other caller receives the
  * kernel's refusal code instead of an applied receipt.
  */
 export function requireDispatchLifecycleAdmission(
@@ -98,6 +98,7 @@ export function requireDispatchLifecycleAdmission(
     readonly attemptGroupId: string;
     readonly instanceId: string;
     readonly owner: string;
+    readonly capacity?: number;
     readonly now?: string;
   },
   error: CodedError,
@@ -117,6 +118,7 @@ export function requireDispatchLifecycleAdmission(
     instance,
     instanceId: input.instanceId,
     owner: input.owner,
+    capacity: input.capacity,
     now: input.now,
   });
   if (refusal) throw error(refusal.code, refusal.message);

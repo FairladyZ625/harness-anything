@@ -59,6 +59,7 @@ export async function fleetFixture(
   prTemplate?: string,
   repositoryInstances?: Parameters<typeof scheduleRepositoryDocument>[1],
   startTask = true,
+  runtimeInstanceCapacities?: Readonly<Record<string, number>>,
 ) {
   // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
   // from it compares equal where the temporary directory is itself a symbolic link.
@@ -117,6 +118,7 @@ export async function fleetFixture(
     host = await openDaemonHost({
       daemonId: "fleet-center",
       userRoot,
+      runtimeInstanceCapacities,
       ...(centerRuntimes.length ? { runtimeDiscover: () => [...centerRuntimes] } : {}),
     });
   t.after(async () => {

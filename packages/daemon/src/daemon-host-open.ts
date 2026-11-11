@@ -164,6 +164,7 @@ export interface DaemonHostOpenInput {
   readonly startedAt?: string;
   readonly now?: () => string;
   readonly runtimeLaunch?: RuntimeLauncher;
+  readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   readonly runtimeDiscover?: () =>
     | readonly RuntimeInstallationWitness[]
     | Promise<readonly RuntimeInstallationWitness[]>;

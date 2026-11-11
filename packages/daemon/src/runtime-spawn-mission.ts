@@ -407,6 +407,7 @@ export async function prepareRuntimeInstance<T>(
       const recoveryFailureCode = code === "runtime_recovery_missing_dispatch" || code === "runtime_recovery_pending";
       const retryableInstanceError = [
         "runtime_instance_disabled",
+        "runtime_capacity_exhausted",
         "runtime_instance_not_found",
         "runtime_installation_not_found",
         "runtime_credential_unavailable",

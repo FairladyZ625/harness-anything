@@ -240,6 +240,33 @@ test("an unobservable process never releases its slot and blocks only its owner'
   );
 });
 
+test("instance capacity counts unreleased reservations across groups and owners, without serializing spare slots", () => {
+  const first = { dispatchId: "capacity-1", runtimeSessionId: "capacity-s1", attemptGroupId: "capacity-g1" },
+    second = { dispatchId: "capacity-2", runtimeSessionId: "capacity-s2", attemptGroupId: "capacity-g2" },
+    events = [runtimeEvent({ t: "R" }, first), runtimeEvent({ t: "S" }, first)],
+    admit = (capacity: number, owner = "local") =>
+      dispatchAdmissionRefusal({
+        group: null,
+        instance: [...fold(events).groups.values()].map((g) => dispatchLifecycleView(g)),
+        instanceId: "instance-a",
+        owner,
+        capacity,
+      });
+  assert.equal(admit(1)?.code, "runtime_capacity_exhausted");
+  assert.equal(admit(1, "node:another-node")?.code, "runtime_capacity_exhausted");
+  assert.equal(admit(2), null);
+  events.push(runtimeEvent({ t: "R" }, second));
+  assert.equal(admit(2)?.code, "runtime_capacity_exhausted", "starting reservations count too");
+  events.push(runtimeEvent({ t: "C" }, first));
+  assert.equal(admit(2)?.code, "runtime_capacity_exhausted", "cancel intent is not stop proof");
+  events.push(runtimeEvent({ t: "X" }, first));
+  assert.equal(admit(2), null, "accepted stop frees a slot while its group is still settling");
+  assert.equal(admit(1)?.code, "runtime_capacity_exhausted");
+  events.push(runtimeEvent({ t: "X" }, second));
+  assert.equal(admit(1), null);
+  assert.throws(() => admit(0), /capacity must be a positive integer/u);
+});
+
 test("illegal transitions, late events and superseded attempts are rejected", () => {
   const first = { dispatchId: "g-3", runtimeSessionId: "s-3a", attemptGroupId: "g-3" },
     second = { dispatchId: "g-3-b", runtimeSessionId: "s-3b", attemptGroupId: "g-3" },

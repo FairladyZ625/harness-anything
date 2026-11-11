@@ -600,7 +600,7 @@ export function dispatchCapacityDisposition(attempt: DispatchLifecycleAttempt): 
 }
 
 export interface DispatchAdmissionBlocker {
-  readonly code: "runtime_recovery_pending" | "dispatch_owner_unverified";
+  readonly code: "runtime_recovery_pending" | "dispatch_owner_unverified" | "runtime_capacity_exhausted";
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
   readonly message: string;
@@ -609,15 +609,22 @@ export interface DispatchAdmissionBlocker {
 /**
  * Admission on one instance is refused while an attempt there holds its slot unresolved: this
  * owner cannot observe the process, or nobody verified the owner at all (that attempt fails closed
- * for every launcher). Running attempts and other verified owners' attempts never block.
+ * for every launcher). Every unreleased reservation also counts against the instance capacity,
+ * including starting attempts and attempts on other nodes. Only an accepted stop frees a slot.
  */
 export function dispatchAdmissionBlocker(
   views: readonly DispatchLifecycleView[],
-  input: { readonly instanceId: string; readonly owner: string },
+  input: { readonly instanceId: string; readonly owner: string; readonly capacity?: number },
 ): DispatchAdmissionBlocker | null {
-  for (const view of views) {
+  const capacity = input.capacity ?? DEFAULT_DISPATCH_INSTANCE_CAPACITY;
+  if (!Number.isSafeInteger(capacity) || capacity < 1)
+    throw new RangeError("Dispatch instance capacity must be a positive integer.");
+  const reservations = views.filter(
+    ({ attempt, policy }) => attempt.instanceId === input.instanceId && policy.capacity !== "released",
+  );
+  for (const view of reservations) {
     const attempt = view.attempt;
-    if (attempt.instanceId !== input.instanceId || view.policy.capacityDisposition !== "recovering") continue;
+    if (view.policy.capacityDisposition !== "recovering") continue;
     if (attempt.fence.verified && attempt.fence.owner !== input.owner) continue;
     return {
       code: view.policy.blockerCode ?? "runtime_recovery_pending",
@@ -628,19 +635,31 @@ export function dispatchAdmissionBlocker(
         : `Runtime ${attempt.runtimeSessionId} holds capacity for an owner the center cannot verify.`,
     };
   }
-  return null;
+  const full = reservations.length >= capacity ? reservations[0] : undefined;
+  return full
+    ? {
+        code: "runtime_capacity_exhausted",
+        dispatchId: full.attempt.dispatchId,
+        runtimeSessionId: full.attempt.runtimeSessionId,
+        message: `Runtime instance ${input.instanceId} capacity is full (${reservations.length}/${capacity} reserved).`,
+      }
+    : null;
 }
+
+/** Preserve the existing spawner's default concurrency; instance admission counts durable reservations. */
+export const DEFAULT_DISPATCH_INSTANCE_CAPACITY = 64;
 
 /**
  * The center writer's admission judgment for one `runtime_dispatch_requested`: the group must
- * admit a successor (when it exists) and the instance must have no unresolved attempt blocking
- * this owner. Run inside the single writer, it is atomic with the append.
+ * admit a successor (when it exists), the instance must have capacity, and no unresolved attempt
+ * may block this owner. Run inside the single writer, it is atomic with the append.
  */
 export function dispatchAdmissionRefusal(input: {
   readonly group: DispatchLifecycleView | null;
   readonly instance: readonly DispatchLifecycleView[];
   readonly instanceId: string;
   readonly owner: string;
+  readonly capacity?: number;
   readonly now?: string;
 }): { readonly code: string; readonly message: string } | null {
   if (input.group !== null) {
@@ -653,7 +672,7 @@ export function dispatchAdmissionRefusal(input: {
     );
     if (refusal) return { code: refusal.code, message: `Group ${input.group.attemptGroupId}: ${refusal.message}` };
   }
-  return dispatchAdmissionBlocker(input.instance, { instanceId: input.instanceId, owner: input.owner });
+  return dispatchAdmissionBlocker(input.instance, input);
 }
 
 export type DispatchLifecycleQuery =

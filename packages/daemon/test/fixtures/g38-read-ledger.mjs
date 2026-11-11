@@ -329,7 +329,6 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
         ),
       );
     } else if (dimension === "dispatches") {
-      await settledSession(id);
       const event = structuredClone(dispatchSource);
       Object.assign(event, {
         workspaceRevision: next,
@@ -350,6 +349,8 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
       delete event.payload.resumedFromDispatchId;
       delete event.payload.reviewTarget;
       await add({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+      // Admission precedes process observations in the canonical lifecycle, just as a real launch does.
+      await settledSession(id);
     } else if (dimension === "relations" || dimension === "relation-visibility") {
       const identity = {
         source: `task/history-${id}`,
