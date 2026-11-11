@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
@@ -289,13 +289,13 @@ for (const restart of [false, true])
     }
     await recovery;
     let shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
-    await waitForArrival(async () => {
-      await runtime.reconcile();
+    await runtime.reconcile();
+    await waitForDurableValue(async () => {
       // schedule-show itself must never pull or trigger terminal publication.
       await catchUpOwner(restoredCenter.port);
       shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
       return (shown.schedule as { status: { activeRun: unknown } }).status.activeRun === null ? true : null;
-    }, watchLedgerArrival(fixture.repo));
+    });
     assert.equal((shown.schedule as { status: { activeRun: unknown } }).status.activeRun, null, JSON.stringify(shown));
     assert.equal(
       (shown.schedule as { status: { lastRun: { claimFence: string } } }).status.lastRun.claimFence,
@@ -324,7 +324,7 @@ for (const restart of [false, true])
         );
     // Schedule settlement precedes the runtime terminal events. Observe the whole
     // recovery before measuring whether a subsequent read adds another event.
-    await waitForArrival(() => (outcomes().length > 0 ? true : null), watchLedgerArrival(fixture.repo));
+    await waitForDurableValue(() => (outcomes().length > 0 ? true : null));
     assert.equal(outcomes().length, 1, "recovery publishes one runtime outcome");
     const revision = fixture.eventCount();
     const again = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });

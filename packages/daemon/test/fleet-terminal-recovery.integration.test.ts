@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import assert from "node:assert/strict";
@@ -103,16 +103,14 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 12
   assert.equal(launched.outcome, "applied", JSON.stringify(launched));
   assert.ok(terminal);
   const events = () => makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo }).read().events;
-  await waitForArrival(
-    () =>
-      events().some(
-        (event) =>
-          event.type === "runtime_session_liveness_changed" &&
-          event.payload.runtimeSessionId === launched.runtimeSessionId,
-      )
-        ? true
-        : null,
-    watchLedgerArrival(fixture.repo),
+  await waitForDurableValue(() =>
+    events().some(
+      (event) =>
+        event.type === "runtime_session_liveness_changed" &&
+        event.payload.runtimeSessionId === launched.runtimeSessionId,
+    )
+      ? true
+      : null,
   );
   const live = events().find(
     (event) =>
@@ -173,7 +171,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 12
   fixture.setOwner("person-owner");
   await syncReplica();
   await runtime.reconcile();
-  await waitForArrival(() => (outcomes().length > 0 ? true : null), watchLedgerArrival(fixture.repo));
+  await waitForDurableValue(() => (outcomes().length > 0 ? true : null));
   // dec_614F7BBB18C8687E7EFC72173D: no recorded process means no exit evidence, so outcome stays unknown.
   assert.equal(outcomes()[0]?.outcome, "unknown", JSON.stringify(outcomes()));
   // Ownership is rejected before archive publication. The injected PID is recorded in
@@ -309,7 +307,7 @@ for (const restart of [false, true])
               event.payload.runtimeSessionId === launched.runtimeSessionId,
           )
           .map((event) => event.payload);
-      await waitForArrival(() => (outcomes().length > 0 ? true : null), watchLedgerArrival(fixture.repo));
+      await waitForDurableValue(() => (outcomes().length > 0 ? true : null));
       assert.equal(outcomes().length, 1, "recovery publishes one canonical terminal outcome");
       await syncReplica();
       await runtime.reconcile();

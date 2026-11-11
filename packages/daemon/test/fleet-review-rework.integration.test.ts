@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -529,9 +529,8 @@ test(
                 : [],
             ),
         );
-      await waitForArrival(
-        () => (runtimeSessionIds.every((runtimeSessionId) => live().has(runtimeSessionId)) ? true : null),
-        watchLedgerArrival(fixture.repo),
+      await waitForDurableValue(() =>
+        runtimeSessionIds.every((runtimeSessionId) => live().has(runtimeSessionId)) ? true : null,
       );
     };
     // A changes_requested review verdict reopens each rework round automatically

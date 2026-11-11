@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { waitForArrival, watchLedgerArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -394,17 +394,15 @@ function installGitHelpers(root: string): void {
 }
 
 async function runtimeOutcome(root: string, repoId: string, runtimeSessionId: string): Promise<void> {
-  await waitForArrival(
-    () =>
-      makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-        )
-        ? true
-        : null,
-    watchLedgerArrival(root),
+  await waitForDurableValue(() =>
+    makeTaskEventReader({ repoId, rootDir: root })
+      .read()
+      .events.some(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      )
+      ? true
+      : null,
   );
 }
 

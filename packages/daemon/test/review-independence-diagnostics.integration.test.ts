@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -238,7 +239,7 @@ test("principal review independence rejects a different executor owned by the su
 
 // The complementary half: when the execution declared no executor, the same principal genuinely cannot
 // review it until an agent executor accepts that attribution through its own audited lifecycle event.
-test("a lightweight child bare-invocation execution closes without a review dispatch", async () => {
+test("a lightweight child bare-invocation execution closes without a review dispatch", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -278,7 +279,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
         prompt: request.prompt,
       }),
       runtimeLaunch: () => ({
-        pid: 1_001,
+        ...runtimeProcessFixture(t),
         onOutput: (listener) => {
           queueMicrotask(() => {
             listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-review-bare" })}\n`);
@@ -286,8 +287,6 @@ test("a lightweight child bare-invocation execution closes without a review disp
           });
         },
         onErrorOutput: () => undefined,
-        onExit: () => undefined,
-        terminate: () => undefined,
       }),
     });
     const bare = withPolicyGroup(
@@ -809,7 +808,7 @@ test("a low-risk child skips automatic review and waits for merge evidence", asy
   }
 });
 
-test("review binding permits independent runtimes but still rejects the execution runtime", async () => {
+test("review binding permits independent runtimes but still rejects the execution runtime", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-runtime-bound-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -857,7 +856,8 @@ test("review binding permits independent runtimes but still rejects the executio
         };
       },
       runtimeLaunch: (prepared) => {
-        const providerSessionId = prepared.args[0]!,
+        const runtime = runtimeProcessFixture(t),
+          providerSessionId = prepared.args[0]!,
           threadStarted = Promise.withResolvers<void>(),
           process: { exit: ((code: number | null) => void) | null; threadStarted: Promise<void> } = {
             exit: null,
@@ -865,7 +865,7 @@ test("review binding permits independent runtimes but still rejects the executio
           };
         processes.push(process);
         return {
-          pid: 1_001 + processes.length,
+          ...runtime,
           onOutput: (listener) => {
             queueMicrotask(() => {
               listener(`${JSON.stringify({ type: "thread.started", thread_id: providerSessionId })}\n`);
@@ -874,9 +874,9 @@ test("review binding permits independent runtimes but still rejects the executio
           },
           onErrorOutput: () => undefined,
           onExit: (listener) => {
-            process.exit = listener;
+            runtime.onExit(listener);
+            process.exit = runtime.exit;
           },
-          terminate: () => process.exit?.(0),
         };
       },
     });
