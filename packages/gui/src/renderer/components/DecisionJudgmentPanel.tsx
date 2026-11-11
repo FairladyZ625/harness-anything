@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import { useEffect, useState } from "react";
 import { CheckCircle, ClockClockwise, ProhibitInset } from "@phosphor-icons/react";
 import {
@@ -84,7 +85,7 @@ export function DecisionJudgmentPanel({
     }
   };
 
-  const risk: ApprovalRisk = decision.riskTier === "high" ? "high" : decision.riskTier === "low" ? "low" : "medium";
+  const risk: ApprovalRisk = decision.riskTier ?? guiInteractionPolicy.defaultValue.startWorkRisk;
 
   // DecisionRow 没有 options 字段:预览回退链是 chosen → rejected(同为 DecisionClaim[])。
   const previewLines =

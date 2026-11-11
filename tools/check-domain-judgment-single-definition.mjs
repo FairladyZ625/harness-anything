@@ -12,6 +12,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { loadOntologyClosureSnapshot } from "./gates/ontology-gate-lib.mjs";
+import { judgmentImportResolver } from "./domain-judgment-consumers.mjs";
 import { authoredReadinessFindings } from "./domain-judgment-authored-readiness.mjs";
 import { git, listWorktreeFiles, pathExistsAt, pullRequestBase } from "./gates/git.mjs";
 
@@ -101,6 +102,7 @@ export function checkDomainJudgmentSingleDefinition(
         return { ...judgment, canonical, symbol, declaration: "any" };
       }),
     );
+  const importsJudgment = judgmentImportResolver(root, bodies);
   const definitions = new Map();
   for (const [file, body] of bodies) {
     const source = ts.createSourceFile(file, body, ts.ScriptTarget.Latest, true);
@@ -136,13 +138,10 @@ export function checkDomainJudgmentSingleDefinition(
         names = new Set(file === judgment.canonical ? [judgment.symbol] : []);
       for (const node of source.statements) {
         if (!ts.isImportDeclaration(node) || node.importClause?.isTypeOnly) continue;
-        const specifier = node.moduleSpecifier.text,
-          imported = specifier.startsWith("@harness-anything/kernel/internal/")
-            ? `packages/kernel/src/${specifier.slice("@harness-anything/kernel/internal/".length)}`
-            : path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier));
-        if (imported !== judgment.canonical) continue;
-        for (const binding of node.importClause?.namedBindings?.elements ?? [])
-          if (!binding.isTypeOnly && (binding.propertyName ?? binding.name).text === judgment.symbol)
+        const bindings = node.importClause?.namedBindings;
+        if (!bindings || !ts.isNamedImports(bindings)) continue;
+        for (const binding of bindings.elements)
+          if (!binding.isTypeOnly && importsJudgment(file, binding.name.text, judgment.canonical, judgment.symbol))
             names.add(binding.name.text);
       }
       let called = false;

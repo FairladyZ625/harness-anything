@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -48,8 +49,8 @@ export function closeSqliteEventStoresUnder(rootDir: string): void {
   }
 }
 
-const OPEN_BUSY_BUDGET_MS = 5000,
-  OPEN_BUSY_BACKOFF_MS = 10;
+const OPEN_BUSY_BUDGET_MS = storageReadPolicy.defaultValue.deadlines.openBusy,
+  OPEN_BUSY_BACKOFF_MS = storageReadPolicy.defaultValue.backoff.openBusy;
 
 // busy_timeout goes first so every later lock wait is honoured. The WAL switch is the exception:
 // SQLite skips the busy handler when a connection holding SHARED asks for EXCLUSIVE while another

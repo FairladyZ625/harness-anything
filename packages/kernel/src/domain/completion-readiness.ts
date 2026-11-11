@@ -1,3 +1,4 @@
+import { canOverrideGate } from "./completion-gate-policy.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import {
   closeoutReadiness,
@@ -129,8 +130,9 @@ function witnessCommand(
   executionId: string,
 ): string {
   const requirement = contract?.gates.find((gate) => gate.gateId === gateId),
-    sourceKind = requirement?.witness.kind;
-  if (requirement?.allowOverride && sourceKind !== "manual") {
+    sourceKind = requirement?.witness.kind,
+    manualSource = sourceKind === "manual";
+  if (canOverrideGate(status, Boolean(requirement?.allowOverride), manualSource)) {
     if (status === "failed")
       return (
         `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +

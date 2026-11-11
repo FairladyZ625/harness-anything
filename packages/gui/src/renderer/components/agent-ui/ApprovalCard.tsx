@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../../../api/renderer-dto.ts";
+import { shouldExpireApproval } from "../../../api/renderer-dto.ts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { CheckCircle, ShieldChevron, XCircle } from "@phosphor-icons/react";
@@ -65,7 +66,7 @@ function useCountdown(timeoutMs: number | null, frozen: boolean, onExpire: () =>
   }, [timeoutMs, frozen]);
   // 只触发一次:父层未回写 decided 时也不重复拍板。
   useEffect(() => {
-    if (timeoutMs === null || expiredRef.current || frozen || remainingMs !== 0) return;
+    if (!shouldExpireApproval(timeoutMs, expiredRef.current, frozen, remainingMs)) return;
     expiredRef.current = true;
     onExpire();
   }, [remainingMs, timeoutMs, frozen, onExpire]);

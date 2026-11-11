@@ -424,7 +424,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-template-command-surface": "packages/cli/src/cli/thin-command.ts",
     "check-locale-content": "packages/cli/src/cli/thin-command.ts",
     "check-catalog-schema": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
-    "check-runtime-release-readiness": "packages/gui/src/distribution/runtime-release-readiness.ts",
+    "check-runtime-release-readiness": "packages/kernel/src/domain/runtime-release-readiness.ts",
     "check-package-policy": "packages/cli/package.json",
     "check-implementation-contracts": "package-lock.json",
     "check-service-mappability": "packages/application/src/index.ts",

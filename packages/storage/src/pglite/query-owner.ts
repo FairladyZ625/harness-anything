@@ -199,12 +199,12 @@ function acquireOwner(options: PgQueryConnectionOptions & { readonly storage: PG
   }
   const current = owner;
   current.references++;
-  let released = false;
+  let returned = false;
   return {
     owner: current,
     release() {
-      if (released) return;
-      released = true;
+      if (returned) return;
+      returned = true;
       if (--current.references !== 0) return;
       if (Atomics.load(current.state, 0) === -1) {
         void current.worker.terminate();

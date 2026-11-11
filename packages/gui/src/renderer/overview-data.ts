@@ -1,3 +1,5 @@
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
+import { guiQueryPacing } from "../api/renderer-dto.ts";
 import { useMemo } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
@@ -33,7 +35,7 @@ export function useOverviewRecentEvents(repoId: string | null) {
     },
     enabled: repoId !== null,
     staleTime: 30_000,
-    retry: 1,
+    retry: guiQueryPacing.defaultValue.queryDefaults.queries.retry,
   });
 }
 
@@ -71,7 +73,12 @@ export function useOverviewAgentGroups(repoId: string | null) {
   );
   const q = useQuery({
     queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId ?? "unselected"), "agent", since, "overview-lanes"],
-    queryFn: () => agentRuntimeClient.sessionGroups(repoId!, { groupBy: "agent", since, limit: 60 }),
+    queryFn: () =>
+      agentRuntimeClient.sessionGroups(repoId!, {
+        groupBy: "agent",
+        since,
+        limit: guiInteractionPolicy.defaultValue.pageSizes.agentGroups,
+      }),
     enabled: repoId !== null,
     staleTime: 4_000,
   });

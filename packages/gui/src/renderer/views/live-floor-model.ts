@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../../api/renderer-dto.ts";
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
 import type { AgentRuntimeSessionDto, TaskDeliveryStage } from "@harness-anything/daemon/protocol";
 import type { AgendaAwaitsRow, TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
@@ -69,7 +70,8 @@ export function liveFloorRows(input: {
 export function liveFloorDispatchChannel(dispatch: TaskDispatchProjectionRow | null): LiveFloorChannel {
   if (dispatch?.role === "reviewer")
     return dispatch.reviewTarget?.kind === "decision" ? "review_decision" : "review_task";
-  if (dispatch !== null && dispatch.attemptIndex > 0) return "rework";
+  const completedRounds = dispatch?.attemptIndex ?? 0;
+  if (completedRounds > 0) return "rework";
   return dispatch?.role === "implementation" ? "implementation" : "unknown";
 }
 
@@ -238,7 +240,7 @@ export interface LiveFloorEndedRow {
   readonly reportPath: string | null;
 }
 
-const ENDED_ROW_LIMIT = 12;
+const ENDED_ROW_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.endedFloor;
 /** 「刚结束」只看 24h:与 daemon 完成窗口同一口径(业主 2026-10-23),旧尾巴不进首屏。 */
 export const LIVE_FLOOR_ENDED_WINDOW_MS = 24 * 60 * 60_000;
 

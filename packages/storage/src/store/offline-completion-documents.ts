@@ -42,19 +42,21 @@ export function completionDocumentConverter(readContent: (sha256: string) => Uin
         : {}),
     };
     snapshots.set(event.taskId, snapshot);
-    if (!("documentClaims" in payload) || !payload.documentClaims?.length) return { event, blobs: [] };
+    const records = "documentClaims" in payload ? payload.documentClaims : undefined;
+    if (!records?.length) return { event, blobs: [] };
     const blobs: CanonicalContentBlob[] = [];
-    const documentClaims = payload.documentClaims.map((claim) => {
-      if (!claim.path.endsWith("/INDEX.md") && !/\/(executions|reviews)\/[^/]+\.md$/u.test(claim.path)) return claim;
-      const bytes = readContent(claim.sha256);
-      if (!bytes) throw new Error(`machine document ${claim.path} has no accepted bytes`);
+    const documentClaims = records.map((document) => {
+      if (!document.path.endsWith("/INDEX.md") && !/\/(executions|reviews)\/[^/]+\.md$/u.test(document.path))
+        return document;
+      const bytes = readContent(document.sha256);
+      if (!bytes) throw new Error(`machine document ${document.path} has no accepted bytes`);
       const base = new TextDecoder().decode(bytes);
-      const body = renderLifecycleDocument(event as TaskEventV1, snapshot, claim.path, base);
-      if (body === base) return claim;
+      const body = renderLifecycleDocument(event as TaskEventV1, snapshot, document.path, base);
+      if (body === base) return document;
       const sha256 = sha256Text(body),
         size = Buffer.byteLength(body);
-      blobs.push({ sha256, size, mediaType: claim.mediaType, body });
-      return { ...claim, sha256, size };
+      blobs.push({ sha256, size, mediaType: document.mediaType, body });
+      return { ...document, sha256, size };
     });
     return { event: { ...event, payload: { ...payload, documentClaims } } as CanonicalEventV1, blobs };
   };

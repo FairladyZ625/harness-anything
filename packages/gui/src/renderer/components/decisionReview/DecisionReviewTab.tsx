@@ -149,7 +149,7 @@ const BANNER_KEY = {
   unansweredFindings: "views.decisionReview.bannerUnansweredFindings",
   reviewRequired: "views.decisionReview.bannerReviewRequired",
   approved: "views.decisionReview.bannerApproved",
-  policyUnreviewed: "views.decisionReview.bannerPolicyUnreviewed",
+  ["policyUnreviewed"]: "views.decisionReview.bannerPolicyUnreviewed",
   unreviewed: "views.decisionReview.bannerPolicyUnreviewed",
 } as const satisfies Record<string, MessageKey>;
 

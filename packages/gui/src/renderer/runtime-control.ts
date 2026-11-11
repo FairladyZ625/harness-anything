@@ -1,6 +1,7 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
 import { writeReceiptOutcomes } from "../api/renderer-dto.ts";
 
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint, rendererReadError } from "./result-validation.ts";
@@ -89,7 +90,7 @@ export async function submitRuntimeSpawn(
     dispatchId = initial.dispatchId ?? null;
   let current = initial;
   if (pending(current)) deps.onPending?.(pendingSettlement(current, runtimeSessionId, dispatchId));
-  for (let attempt = 0; attempt < 80 && pending(current); attempt += 1) {
+  for (let round = 0; round < guiInteractionPolicy.defaultValue.polls.runtimeSpawn && pending(current); round += 1) {
     await pause();
     current = receipt(await deps.showReceipt(current.opId));
     runtimeSessionId = current.runtimeSessionId ?? runtimeSessionId;

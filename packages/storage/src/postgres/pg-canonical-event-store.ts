@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import {
   ledgerCommitSha,
   serializePersistedCanonicalEvent,
@@ -107,7 +108,10 @@ export function makePgCanonicalEventStore(
             const documents: ReturnType<typeof q.readDocuments>["documents"][number][] = [];
             let afterPath: string | undefined;
             for (;;) {
-              const result = q.readDocuments("", { limit: 500, ...(afterPath === undefined ? {} : { afterPath }) });
+              const result = q.readDocuments("", {
+                limit: storageReadPolicy.defaultValue.pageSizes.standard,
+                ...(afterPath === undefined ? {} : { afterPath }),
+              });
               documents.push(...result.documents);
               if (result.page!.nextPath === null) break;
               afterPath = result.page!.nextPath;

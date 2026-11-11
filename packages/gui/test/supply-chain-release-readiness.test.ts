@@ -5,7 +5,7 @@ import {
   harnessSupplyChainReleaseReadiness,
   validateSupplyChainReleaseReadiness,
   type SupplyChainReleaseReadinessPolicy,
-} from "../src/distribution/supply-chain-release-readiness.ts";
+} from "../src/index.ts";
 
 test("supply-chain release readiness covers audit SBOM OSV license and release boundaries", () => {
   const result = validateSupplyChainReleaseReadiness(harnessSupplyChainReleaseReadiness);
@@ -59,4 +59,41 @@ test("supply-chain release readiness rejects missing OSV and release artifact ga
       "invalid_release_boundary",
     ],
   );
+});
+
+test("supply-chain readiness rejects each release claim and preserves its minimum coverage contract", () => {
+  for (const [field, value] of [
+    ["packagesPrivateExceptPublicReady", false],
+    ["internalWorkspaceVersion", "0.0.2"],
+    ["productVersion", "0.2.0"],
+    ["publicReadyPackageVersion", "0.2.0"],
+    ["npmReleaseClaimed", true],
+    ["releaseArtifactsPublished", true],
+    ["signedInstallersShipped", true],
+    ["autoUpdateShipped", true],
+  ] as const) {
+    const candidate = {
+      ...harnessSupplyChainReleaseReadiness,
+      releaseBoundary: { ...harnessSupplyChainReleaseReadiness.releaseBoundary, [field]: value },
+    } as SupplyChainReleaseReadinessPolicy;
+    assert.deepEqual(
+      validateSupplyChainReleaseReadiness(candidate).errors.map(({ code }) => code),
+      ["invalid_release_boundary"],
+      field,
+    );
+  }
+  const minimum = {
+    ...harnessSupplyChainReleaseReadiness,
+    workspacePackagePaths: [
+      "package.json",
+      "packages/cli/package.json",
+      "packages/daemon/package.json",
+      "packages/gui/package.json",
+    ],
+    licensePolicy: {
+      ...harnessSupplyChainReleaseReadiness.licensePolicy,
+      allowedDependencyLicenses: ["BlueOak-1.0.0", "MIT"],
+    },
+  } as unknown as SupplyChainReleaseReadinessPolicy;
+  assert.equal(validateSupplyChainReleaseReadiness(minimum).ok, true);
 });

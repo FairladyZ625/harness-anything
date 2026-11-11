@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 /** @slice-activation Slice 7.5 GUI terminal - Shell panel execution boundary is enforced when terminal host wiring lands. */
 export interface ShellPanelPolicy {
   readonly spawnRequiresUserAction: true;
@@ -6,9 +7,4 @@ export interface ShellPanelPolicy {
   readonly outputCreatesEvidence: false;
 }
 
-export const shellPanelPolicy: ShellPanelPolicy = {
-  spawnRequiresUserAction: true,
-  hiddenCommandInjectionAllowed: false,
-  outputCreatesTaskState: false,
-  outputCreatesEvidence: false,
-};
+export const shellPanelPolicy: ShellPanelPolicy = guiInteractionPolicy.defaultValue.shell;

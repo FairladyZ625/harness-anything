@@ -69,13 +69,13 @@ export function readSqliteEntityDeclarations(
     conditions.push("entity_id=?");
     values.push(input.id);
   }
-  let limit = "";
+  let pageSql = "";
   if (input.limit !== undefined) {
     values.push(input.limit);
-    limit = " LIMIT ?";
+    pageSql = " LIMIT ?";
   }
   return query(
-    `SELECT state_json FROM entity_declaration_head WHERE ${conditions.join(" AND ")} ORDER BY entity_id${limit}`,
+    `SELECT state_json FROM entity_declaration_head WHERE ${conditions.join(" AND ")} ORDER BY entity_id${pageSql}`,
     values,
   ).map((row) => JSON.parse(String(row.state_json)) as EntityDeclarationState);
 }

@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient } from "../../api-client.ts";
@@ -14,11 +15,11 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 
 /** lease phase 词表的标签色调(held/reserving 在执行,orphaned 失联,released 已让出)。 */
-const LEASE_PHASE_TONE: Readonly<Record<string, StatusTone>> = {
+const PHASE_TONE: Readonly<Record<string, StatusTone>> = {
   held: "active",
   reserving: "wait",
   orphaned: "bad",
-  released: "neutral",
+  ["released"]: "neutral",
 };
 
 export function TaskAssignmentPanel({
@@ -32,7 +33,7 @@ export function TaskAssignmentPanel({
   const directory = useQuery({
       queryKey: ["task-assignment-directory", task.projectId, task.taskId],
       queryFn: () => harnessClient.getTaskAssignmentDirectory({ repoId: task.projectId, taskId: task.taskId }),
-      retry: false,
+      retry: guiInteractionPolicy.defaultValue.retry,
     }),
     queryClient = useQueryClient(),
     [kind, setKind] = useState("person"),
@@ -128,7 +129,7 @@ export function TaskAssignmentPanel({
               <span className="ui-meta text-text-muted">@{leaseNodeIdOf(task.leaseSource)}</span>
             )}
             {task.leasePhase !== undefined && (
-              <StatusTag mono tone={LEASE_PHASE_TONE[task.leasePhase] ?? "neutral"} label={task.leasePhase} />
+              <StatusTag mono tone={PHASE_TONE[task.leasePhase] ?? "neutral"} label={task.leasePhase} />
             )}
             {task.leaseExpiresAt !== undefined && (
               <span className="ui-meta text-text-muted">

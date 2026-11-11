@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { relationCreatedEventForReplay } from "@harness-anything/kernel";
 import type { RelationEventRecord } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import { withoutRetiredSettings } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
@@ -690,14 +691,14 @@ function legacyScheduleDefinition(event: CanonicalEventV1): {
     schedule = payload.schedule as ScheduleV1 & {
       readonly spec?: { readonly target?: Readonly<Record<string, unknown>> };
     },
-    candidateClaim = payload.declarationDocumentClaim as
+    candidateDocument = payload.declarationDocumentClaim as
       | { readonly sha256?: unknown; readonly size?: unknown }
       | undefined,
     target = schedule?.spec?.target;
   if (!target) return null;
   const claim =
-    candidateClaim && typeof candidateClaim.sha256 === "string" && typeof candidateClaim.size === "number"
-      ? (candidateClaim as { readonly sha256: string; readonly size: number })
+    candidateDocument && typeof candidateDocument.sha256 === "string" && typeof candidateDocument.size === "number"
+      ? (candidateDocument as { readonly sha256: string; readonly size: number })
       : null;
   const unknown = Object.keys(target).filter((field) => !scheduleTargetFields.has(field)),
     foreign = unknown.filter((field) => !RETIRED_SCHEDULE_TARGET_FIELDS.has(field));
@@ -813,7 +814,7 @@ export function assertNoPendingHistoricalRewrites(input: {
   );
 }
 
-const BULK_ROUND_LIMIT = 4096;
+const BULK_ROUND_LIMIT = storageReadPolicy.defaultValue.pageSizes.progress;
 
 function replayRewrites(
   input: { readonly rootDir: string; readonly store: CanonicalEventStore },

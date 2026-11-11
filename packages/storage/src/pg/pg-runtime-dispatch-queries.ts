@@ -1,3 +1,7 @@
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import { prefixUpperBound } from "../projection/document-read-range.ts";
 import type { PoolClient } from "pg";
@@ -89,7 +93,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     dispatchId: "dispatch_id",
     resumedFromDispatchId: "resumed_from_dispatch_id",
     runtimeSessionId: "runtime_session_id",
-    attemptGroupId: "attempt_group_id",
+    ["attemptGroupId"]: "attempt_group_id",
     "reviewTarget,decisionId": "review_decision_id",
   } as const;
   const byField = (field: keyof typeof dispatchFields, value: string, first: boolean) =>
@@ -207,7 +211,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       transaction(async (client) => {
         if (typeof prefix !== "string" || prefix.length === 0)
           throw new Error("runtime dispatch id prefix requires a non-empty prefix");
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch id prefix limit must be from 1 to 500");
         const upper = prefixUpperBound(prefix);
         const rows = await readDispatchRows(
@@ -246,7 +250,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       transaction(async (client) => {
         if ((agentId === undefined) === (squadId === undefined))
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
         const field = agentId === undefined ? "squad_id" : "agent_id",
           value = agentId ?? squadId!,
@@ -291,7 +295,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       }),
     readRuntimeDispatchPage: ({ startedAtGte, cursor, limit }) =>
       transaction(async (client) => {
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
         const rows = await readDispatchRows(
           client,

@@ -73,14 +73,14 @@ export const AXIS_COLOR_VAR: Record<SemanticAxis, string> = {
 export const FULFILLMENT_COLOR_VAR = {
   evidenced: "var(--color-status-done)",
   delivered: "var(--color-axis-execution)",
-  "standing-policy": "var(--color-accent)",
+  ["standing-policy"]: "var(--color-accent)",
   unknown: "var(--color-text-faint)",
 } as const;
 
 export const FULFILLMENT_LABEL: Record<keyof typeof FULFILLMENT_COLOR_VAR, string> = {
   evidenced: "已佐证",
   delivered: "已交付",
-  "standing-policy": "常设政策",
+  ["standing-policy"]: "常设政策",
   unknown: "未投影",
 };
 

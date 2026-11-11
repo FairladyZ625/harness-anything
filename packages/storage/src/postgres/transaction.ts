@@ -1,3 +1,4 @@
+import { assertPostgresClaims } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "./scope-schema.ts";
 
@@ -27,7 +28,7 @@ export async function withPostgresTransaction<T>(
   options?: PostgresTransactionOptions,
 ): Promise<T> {
   const client = await pool.connect();
-  let released = false,
+  let returned = false,
     connectionError: Error | undefined;
   // The pool removes its idle error listener while a client is checked out. A disconnect can
   // reject the query AND emit a client error before rollback/release has returned it to the pool.
@@ -40,7 +41,7 @@ export async function withPostgresTransaction<T>(
       options?.isolationLevel ? `BEGIN ISOLATION LEVEL ${options.isolationLevel.toUpperCase()}` : "BEGIN",
     );
     if (claims) {
-      assertClaims(claims);
+      assertPostgresClaims(claims);
       const names = POSTGRES_SCOPE_SCHEMA_CONTRACT.claims;
       await client.query("SELECT set_config($1, $2, true), set_config($3, $4, true), set_config($5, $6, true)", [
         names.tenantId,
@@ -60,7 +61,7 @@ export async function withPostgresTransaction<T>(
       await client.query("ROLLBACK");
     } catch (rollbackError) {
       client.release(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
-      released = true;
+      returned = true;
       throw new AggregateError(
         [error, ...(connectionError && connectionError !== error ? [connectionError] : []), rollbackError],
         "PostgreSQL transaction and rollback both failed.",
@@ -68,12 +69,7 @@ export async function withPostgresTransaction<T>(
     }
     throw error;
   } finally {
-    if (!released) client.release();
+    if (!returned) client.release();
     client.removeListener("error", onConnectionError);
   }
-}
-
-function assertClaims(claims: PostgresScopeClaims): void {
-  if (!claims.tenantId || !claims.projectId || !Number.isSafeInteger(claims.policyEpoch) || claims.policyEpoch < 0)
-    throw new TypeError("PostgreSQL scope claims require tenant, project, and a non-negative safe policy epoch.");
 }

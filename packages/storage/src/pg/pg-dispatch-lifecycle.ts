@@ -33,8 +33,8 @@ const GROUP = "dispatch-lifecycle-group",
   DISPATCH = "dispatch-lifecycle-dispatch",
   ACTIVE = "dispatch-lifecycle-active",
   EXECUTION = "dispatch-lifecycle-execution",
-  LEASE = "dispatch-lifecycle-task-lease";
-const MODELS = [GROUP, SESSION, DISPATCH, ACTIVE, EXECUTION, LEASE] as const;
+  TASK_CAS_CONTEXT = "dispatch-lifecycle-task-lease";
+const MODELS = [GROUP, SESSION, DISPATCH, ACTIVE, EXECUTION, TASK_CAS_CONTEXT] as const;
 
 /** Fold one event; a rejected step leaves the group unchanged. */
 export async function projectPgDispatchLifecycle(
@@ -47,7 +47,8 @@ export async function projectPgDispatchLifecycle(
     revision = input.workspaceRevision,
     taskId = dispatchLifecycleTaskId(input),
     context = {
-      taskLease: taskId === null ? null : await getPgProjectionValue<DispatchTaskLease>(client, scope, LEASE, taskId),
+      taskLease:
+        taskId === null ? null : await getPgProjectionValue<DispatchTaskLease>(client, scope, TASK_CAS_CONTEXT, taskId),
     },
     address = dispatchLifecycleAddress(input, context),
     groupIds =
@@ -65,8 +66,9 @@ export async function projectPgDispatchLifecycle(
     if (step.kind === "applied") await writeGroup(client, scope, previous, step.group, revision);
   }
   const lease = taskLeaseAfter(input);
-  if (lease === null && taskId !== null) await deletePgProjectionValue(client, scope, LEASE, taskId);
-  else if (lease && taskId !== null) await putPgProjectionValue(client, scope, LEASE, taskId, "", revision, lease);
+  if (lease === null && taskId !== null) await deletePgProjectionValue(client, scope, TASK_CAS_CONTEXT, taskId);
+  else if (lease && taskId !== null)
+    await putPgProjectionValue(client, scope, TASK_CAS_CONTEXT, taskId, "", revision, lease);
 }
 
 async function activeGroupsForExecutions(

@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { WriteFence } from "../durable-file.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import type {
@@ -6,8 +7,8 @@ import type {
   MaterializationRequest,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
-const initialRetryMs = 25,
-  maximumRetryMs = 2_000;
+const initialRetryMs = storageReadPolicy.defaultValue.backoff.followerInitial,
+  maximumRetryMs = storageReadPolicy.defaultValue.backoff.followerMaximum;
 
 /** Serializes detached publication and retries from the publisher's durable checkpoint. */
 export function createDurableFollowerPublisher(input: {
@@ -21,7 +22,7 @@ export function createDurableFollowerPublisher(input: {
   let closed = false,
     scheduled: Promise<void> | null = null,
     retry: NodeJS.Timeout | null = null,
-    retryDelay = initialRetryMs,
+    retryDelay: number = initialRetryMs,
     lastError: string | undefined,
     checkpointAt: string | null = null;
 

@@ -1,8 +1,19 @@
+export { canOverrideGate } from "./domain/completion-gate-policy.ts";
+export {
+  gateMappingDrafts,
+  validateGateMappingDraftRows,
+  gatesDraftValue,
+  normalizedGateGovernance,
+  gateGovernanceValue,
+} from "./domain/gate-mapping-policy.ts";
+export type { GateMappingDraft, GateMappingIssue, GateMappingRowIssue } from "./domain/gate-mapping-policy.ts";
+export { isMirrorQuotaValid, shouldExpireApproval } from "./domain/gui-admission-policy.ts";
 /** Browser-safe public contracts. Runtime, persistence and hashing stay behind index.ts. */
 export { validateFrozenCompletionContract } from "./domain/completion-contract.ts";
 export { validCompletionEvidenceOverride } from "./domain/completion-evidence-override.ts";
 export { relationStates } from "./domain/relation-state.ts";
 export { validSquadRunSubject } from "./domain/squad-run.ts";
+export { guiInteractionPolicy } from "./domain/gui-interaction-policy.ts";
 export { guiQueryPacing } from "./domain/gui-query-pacing.ts";
 export type { ContractVersion } from "./domain/contract-version.ts";
 export type { FreshnessReason } from "./domain/decision-coverage.ts";

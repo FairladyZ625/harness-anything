@@ -13,13 +13,13 @@ export const PHASE_LABEL: Readonly<Record<string, MessageKey>> = {
   held: "collaboration.phase.held",
   reserving: "collaboration.phase.reserving",
   orphaned: "collaboration.phase.orphaned",
-  released: "collaboration.phase.released",
+  ["released"]: "collaboration.phase.released",
 };
 export const PHASE_TONE: Readonly<Record<string, StatusTone>> = {
   held: "active",
   reserving: "wait",
   orphaned: "bad",
-  released: "neutral",
+  ["released"]: "neutral",
 };
 
 /** daemon 稳定 reason 码 → 一句人话(为什么没有、何时会有);未收录的码显示通用说明,码进 title。 */

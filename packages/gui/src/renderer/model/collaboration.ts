@@ -18,10 +18,8 @@ export function leaseRuntimeSessionIdOf(leaseActor: TaskRow["leaseActor"]): stri
 }
 
 /** lease 来源节点(node 通道携带 nodeId;local/remote_direct 无节点,返回 null 不猜)。 */
-export function leaseNodeIdOf(leaseSource: TaskRow["leaseSource"]): string | null {
-  return typeof leaseSource === "object" && leaseSource !== null && leaseSource.kind === "node"
-    ? leaseSource.nodeId
-    : null;
+export function leaseNodeIdOf(source: TaskRow["leaseSource"]): string | null {
+  return typeof source === "object" && source !== null && source.kind === "node" ? source.nodeId : null;
 }
 
 const ACTIVE_LEASE_PHASES = new Set(["held", "reserving"]);

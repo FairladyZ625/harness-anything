@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import { Notice } from "./primitives/Notice";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
@@ -76,7 +77,7 @@ export function StartWorkDialog({
     title: "",
     intent: "",
     presetId: "",
-    riskTier: "medium",
+    riskTier: guiInteractionPolicy.defaultValue.startWorkRisk,
     taskClass: START_WORK_TASK_CLASSES[0],
     workKind: START_WORK_WORK_KINDS[0],
     parentTaskId: null,
@@ -97,7 +98,7 @@ export function StartWorkDialog({
       title: "",
       intent: "",
       presetId: "",
-      riskTier: "medium",
+      riskTier: guiInteractionPolicy.defaultValue.startWorkRisk,
       taskClass: START_WORK_TASK_CLASSES[0],
       workKind: START_WORK_WORK_KINDS[0],
       parentTaskId: null,

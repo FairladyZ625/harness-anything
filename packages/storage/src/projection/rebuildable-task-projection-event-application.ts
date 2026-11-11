@@ -1,3 +1,5 @@
+import { DECISION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/decision-event.ts";
+import { storageReplayPolicy } from "@harness-anything/kernel/internal/domain/storage-replay-policy.ts";
 import { projectArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
@@ -359,7 +361,7 @@ function applyEventProjection(
         workspaceRevision: event.workspaceRevision,
       };
       runSql(db, UPSERT_DOCUMENT_SQL, owned.path, event.workspaceRevision, canonicalJson(document));
-      if (owned.policyId === "markdown-body-replaceable/v1") refreshDecisionDocumentSearch(db, document);
+      if (owned.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
     }
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],
@@ -583,9 +585,11 @@ function applyEventProjection(
       );
     const sessionId = runtimeSessionId(event);
     if (sessionId !== null) {
-      const session = reduceRuntimeSession(readRuntimeSession(db, sessionId), event, {
-        allowPreSessionTerminal: true,
-      });
+      const session = reduceRuntimeSession(
+        readRuntimeSession(db, sessionId),
+        event,
+        storageReplayPolicy.defaultValue.runtime,
+      );
       if (session !== null) {
         runSql(
           db,

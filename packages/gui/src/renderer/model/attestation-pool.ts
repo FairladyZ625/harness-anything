@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../../api/renderer-dto.ts";
+import { canOverrideGate } from "../../api/renderer-dto.ts";
 import type { TaskRow } from "./types.ts";
 
 /**
@@ -98,7 +99,8 @@ export function taskGateAttestations(task: TaskRow): {
   const contract = currentCutContractGates(task);
   for (const gate of task.gates) {
     const frozen = contract.get(gate.name) ?? null,
-      adapterId = frozen?.adapterId ?? null;
+      adapterId = frozen?.adapterId ?? null,
+      manualAdapter = adapterId === "manual-attest";
     const base = {
       taskId: task.taskId,
       taskTitle: task.title,
@@ -107,13 +109,9 @@ export function taskGateAttestations(task: TaskRow): {
       executionId: frozen?.executionId ?? null,
       ...(gate.detail ? { detail: gate.detail } : {}),
     };
-    if ((gate.status === "missing" && adapterId === "manual-attest") || gate.status === "signoff_missing")
+    if ((gate.status === "missing" && manualAdapter) || gate.status === "signoff_missing")
       gates.push({ ...base, mode: "approve", gateStatus: gate.status });
-    else if (
-      (gate.status === "failed" || gate.status === "missing") &&
-      frozen?.allowOverride === true &&
-      adapterId !== "manual-attest"
-    )
+    else if (canOverrideGate(gate.status, frozen?.allowOverride, manualAdapter))
       breakGlass.push({ ...base, mode: "override", gateStatus: gate.status });
   }
   return { gates, breakGlass };

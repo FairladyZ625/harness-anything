@@ -72,7 +72,7 @@ const ACTION_META: Record<
 > = {
   approve: { labelKey: "agentUi.inbox.action.approve", variant: "primary" },
   reject: { labelKey: "agentUi.inbox.action.reject", variant: "ghost" },
-  retry: { labelKey: "agentUi.inbox.action.retry", variant: "plain" },
+  ["retry"]: { labelKey: "agentUi.inbox.action.retry", variant: "plain" },
   open: { labelKey: "agentUi.inbox.action.open", variant: "plain" },
 };
 

@@ -367,7 +367,6 @@
       "packages/kernel/src/domain/settings-action-contract.ts#authoredDocumentBase",
       "packages/storage/src/projection/cold-rebuild-source.ts#parseLegacyFactEvent",
       "packages/storage/src/projection/cold-rebuild-source.ts#readAuthoredEvents",
-      "packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmissionAtCut",
       "packages/storage/src/projection/rebuildable-task-projection-database.ts#withQueryOnlyDatabaseSession",
       "packages/storage/src/projection/entity-declaration-replay.ts#interpretReplayDeclaration",
       "packages/storage/src/projection/rebuildable-task-projection-factory.ts#makeTaskProjection",

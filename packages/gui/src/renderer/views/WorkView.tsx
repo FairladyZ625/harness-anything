@@ -60,7 +60,7 @@ interface WorkEntry {
 const DAY_MS = 86_400_000;
 
 /** 三档各用一种卡:要人出手的大卡,正常推进的小卡,可收尾的小方块沉底。 */
-const TIER_CARD: Record<WorkTier, { readonly size: SummaryCardSize; readonly title: MessageKey }> = {
+const SECTION_META: Record<WorkTier, { readonly size: SummaryCardSize; readonly title: MessageKey }> = {
   attention: { size: "large", title: "views.work.tier.attention" },
   progress: { size: "small", title: "views.work.tier.progress" },
   closable: { size: "tile", title: "views.work.tier.closable" },
@@ -238,8 +238,8 @@ export function WorkView({
           return members.length === 0 ? null : (
             <SummaryCardGroup
               key={tier}
-              size={TIER_CARD[tier].size}
-              title={t(TIER_CARD[tier].title)}
+              size={SECTION_META[tier].size}
+              title={t(SECTION_META[tier].title)}
               count={members.length}
               testId={`work-tier-${tier}`}
             >
@@ -247,7 +247,7 @@ export function WorkView({
                 <WorkCard
                   key={entry.group.task.taskId}
                   entry={entry}
-                  size={TIER_CARD[tier].size}
+                  size={SECTION_META[tier].size}
                   tasks={tasks}
                   repoId={repoId}
                   titleOf={titleOf}

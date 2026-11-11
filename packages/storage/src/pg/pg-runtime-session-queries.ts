@@ -1,3 +1,7 @@
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PoolClient } from "pg";
 import type { RuntimeSession, RuntimeSessionPageQuery, RuntimeSessionPageRead } from "@harness-anything/kernel";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -33,7 +37,7 @@ export async function readPgSessionPage(
   scope: PgProjectionScope,
   query: RuntimeSessionPageQuery,
 ): Promise<RuntimeSessionPageRead> {
-  if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
+  if (!validateStorageReadWindow(query.limit, storageReadPolicy.defaultValue.pageSizes.sessions))
     throw new Error("runtime session page limit must be between 1 and 64");
   await assertPgReadIndexReady(client, scope, "runtime-session");
   const parameters = [

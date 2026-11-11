@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   harnessSupplyChainReleaseReadiness,
   validateSupplyChainReleaseReadiness,
-} from "../packages/gui/src/distribution/supply-chain-release-readiness.ts";
+} from "../packages/kernel/src/domain/supply-chain-release-readiness.ts";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const root = process.cwd();

@@ -1,12 +1,8 @@
+import { assertSqliteMigrationScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { writeFileDurably } from "../durable-file.ts";
-import {
-  assertMigrationValue,
-  assertSqliteMigrationScope,
-  storageMigrationVersions,
-  validateStorageManifest,
-} from "./manifest.ts";
+import { assertMigrationValue, storageMigrationVersions, validateStorageManifest } from "./manifest.ts";
 import {
   StorageMigrationError,
   migrationWritable,

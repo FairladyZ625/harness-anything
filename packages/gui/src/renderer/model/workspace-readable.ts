@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import { clip } from "../daemon-observe-model.ts";
 import { t, type MessageKey } from "../i18n/core.ts";
 import type { DecisionRow, FactRef } from "./types.ts";
@@ -12,7 +13,7 @@ import type { DecisionRow, FactRef } from "./types.ts";
  */
 
 /** 节点标题与事实陈述的展示长度上限(超出截断,原文仍在悬停的原始引用旁)。 */
-export const WORKSPACE_TITLE_LIMIT = 48;
+export const WORKSPACE_TITLE_LIMIT = guiInteractionPolicy.defaultValue.text.workspaceTitle;
 
 /**
  * canonical 事件 type → 文案 key(kernel `taskEventTypes` / `task_bootstrapped` /
@@ -22,7 +23,7 @@ const EVENT_TYPE_KEYS: Readonly<Record<string, MessageKey>> = {
   task_created: "views.workspace.event.task_created",
   task_bootstrapped: "views.workspace.event.task_bootstrapped",
   execution_started: "views.workspace.event.execution_started",
-  lease_renewed: "views.workspace.event.lease_renewed",
+  ["lease_renewed"]: "views.workspace.event.lease_renewed",
   execution_submitted: "views.workspace.event.execution_submitted",
   submission_forwarded: "views.workspace.event.submission_forwarded",
   submission_returned: "views.workspace.event.submission_returned",
@@ -32,14 +33,14 @@ const EVENT_TYPE_KEYS: Readonly<Record<string, MessageKey>> = {
   review_consent_recorded: "views.workspace.event.review_consent_recorded",
   completion_gate_verified: "views.workspace.event.completion_gate_verified",
   task_completed: "views.workspace.event.task_completed",
-  lease_released: "views.workspace.event.lease_released",
+  ["lease_released"]: "views.workspace.event.lease_released",
   task_transitioned: "views.workspace.event.task_transitioned",
   task_amended: "views.workspace.event.task_amended",
   task_archived: "views.workspace.event.task_archived",
   task_superseded: "views.workspace.event.task_superseded",
   task_deleted: "views.workspace.event.task_deleted",
   task_reopened: "views.workspace.event.task_reopened",
-  task_contract_migrated: "views.workspace.event.task_contract_migrated",
+  ["task_contract_migrated"]: "views.workspace.event.task_contract_migrated",
   task_relation_added: "views.workspace.event.task_relation_added",
   fact_recorded: "views.workspace.event.fact_recorded",
   fact_reclassified: "views.workspace.event.fact_reclassified",

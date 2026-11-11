@@ -1,3 +1,7 @@
+import {
+  storageReadPolicy,
+  validateStorageReadWindow,
+} from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type {
   EventListPage,
@@ -9,7 +13,7 @@ import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 /** Shared center/replica list query; only descriptor rows cross this read boundary. */
 export function readEventList(db: DatabaseSync, query: EventListQuery): EventListPage {
-  if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500)
+  if (!validateStorageReadWindow(query.limit, storageReadPolicy.defaultValue.pageSizes.standard))
     throw new Error("event list limit must be between 1 and 500");
   // A read-only connection may share a cache that a writer is still expanding; an incomplete
   // index must fail closed instead of returning a page that silently omits unfilled rows.

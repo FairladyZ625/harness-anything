@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, X } from "@phosphor-icons/react";
@@ -52,7 +53,7 @@ function LocalDocOverlay({
   const query = useQuery({
     queryKey: ["local-doc", path],
     queryFn: () => requestLocalDocument(path),
-    retry: false,
+    retry: guiInteractionPolicy.defaultValue.retry,
     staleTime: 5_000,
     // 纯展示仓不发本机读取:浮层直接呈现禁用提示,不发注定失败的 IPC。
     enabled: mode !== "remote-proxy",

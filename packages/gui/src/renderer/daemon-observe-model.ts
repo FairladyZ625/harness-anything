@@ -1,4 +1,5 @@
 import type * as DomainStatus from "../api/renderer-dto.ts";
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts";
 
@@ -90,7 +91,7 @@ export interface ObserveTailSnapshot {
   readonly received: number;
 }
 
-const DETAIL_LIMIT = 2_000;
+const DETAIL_LIMIT = guiInteractionPolicy.defaultValue.text.observeDetail;
 
 /**
  * 内存上限:只约束「贴底追尾」状态下的 follow 增长(丢最旧端),值远大于旧双侧 500 上限——
@@ -99,7 +100,7 @@ const DETAIL_LIMIT = 2_000;
  * 回到贴底后下一次 follow 增长再回到界内。#1855 前的双侧 500 上限会丢弃用户正读着的行,
  * 已废。
  */
-export const OBSERVE_FOLLOW_ROW_LIMIT = 5_000;
+export const OBSERVE_FOLLOW_ROW_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.observeFollow;
 
 export function initialObserveTail(): ObserveTailSnapshot {
   return {
@@ -757,6 +758,6 @@ function numberToMs(value: unknown): string | null {
   return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value)}ms` : null;
 }
 
-export function clip(value: string, limit = DETAIL_LIMIT): string {
+export function clip(value: string, limit: number = DETAIL_LIMIT): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 }

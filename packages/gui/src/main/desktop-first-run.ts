@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "@harness-anything/kernel/internal/domain/gui-interaction-policy.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -193,7 +194,7 @@ function runCliServiceInstall(runtime: DesktopRuntimePaths): Promise<DesktopServ
     execFile(
       runtime.node,
       [runtime.cli, "daemon", "service", "install", "--json"],
-      { encoding: "utf8", windowsHide: true, timeout: 120_000 },
+      { encoding: "utf8", windowsHide: true, timeout: guiInteractionPolicy.defaultValue.deadlines.serviceInstall },
       (error, stdout, stderr) => {
         resolve({
           exitCode: typeof error?.code === "number" ? error.code : error === null ? 0 : null,

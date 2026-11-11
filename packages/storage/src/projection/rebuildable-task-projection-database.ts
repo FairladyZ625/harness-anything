@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import path from "node:path";
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { DatabaseSync } from "node:sqlite";
@@ -85,7 +86,7 @@ export class ProjectionEventStreamIncompleteError extends Error {
 }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
-const projectionBusyTimeoutMs = 250;
+const projectionBusyTimeoutMs = storageReadPolicy.defaultValue.deadlines.projectionBusy;
 const runtimeBindingBatchSize = 256;
 const runtimeBindingMaintenanceKey = "runtime-session-task-binding-v1";
 const runtimeSessionExecutionNodeMaintenanceKey = "runtime-session-execution-node-v1";

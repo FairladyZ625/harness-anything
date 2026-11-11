@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { useInfiniteQuery, type InfiniteData, type UseInfiniteQueryResult } from "@tanstack/react-query";
 import type { WorkspaceScopeRead } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
@@ -16,7 +17,7 @@ export function useWorkspaceScopeQuery(
       harnessClient.getWorkspaceScope({
         repoId: repoId ?? "unselected",
         rootTaskId: rootTaskId ?? "unselected",
-        limit: 100,
+        limit: guiInteractionPolicy.defaultValue.pageSizes.workspaceScope,
         ...(pageParam ? { cursor: pageParam } : {}),
       }),
     initialPageParam: null as string | null,

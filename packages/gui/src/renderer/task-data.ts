@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../api/renderer-dto.ts";
 import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { WorkIndexRead, WorkTopologyRead } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
@@ -8,7 +9,7 @@ import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS } from "./query-pacing.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 import { repositoryReadFrame } from "./repository-read-frame.ts";
 
-export const TASK_LIST_PAGE_LIMIT = 500;
+export const TASK_LIST_PAGE_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.tasks;
 
 /**
  * 单次刷新的续读页预算(受控快读水化的上限保护,F-45297836):水化沿游标顺序补页,
@@ -16,7 +17,7 @@ export const TASK_LIST_PAGE_LIMIT = 500;
  * 交回探针节拍(10s)继续——断网或坏游标最坏也只是「每个探针节拍一串有界请求」,
  * 不存在失控 drain。12 页 × 500 行 = 6,000 行,是当前台账规模(2,826)的两倍余量。
  */
-export const HYDRATION_PAGE_BUDGET = 12;
+export const HYDRATION_PAGE_BUDGET = guiInteractionPolicy.defaultValue.pages.taskHydration;
 
 /**
  * 首屏活跃切片的状态集:daemon 台账状态词(taskStatusWords,daemon 协议词表)里的

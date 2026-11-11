@@ -1,3 +1,4 @@
+import { canTruncateRelationNeighborhood } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PoolClient } from "pg";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
@@ -49,7 +50,7 @@ export function pgGraphQueries(options: PgTaskProjectionSourceOptions): PgGraphQ
           row = result.rows[0]!;
         if (Number(row.node_count) > query.maxNodes)
           throw new Error(`relation neighborhood node budget ${query.maxNodes} exceeded`);
-        if (row.truncated && query.allowTruncation !== true)
+        if (row.truncated && !canTruncateRelationNeighborhood(query.allowTruncation))
           throw new Error(`relation neighborhood depth limit ${query.maxDepth} exceeded`);
         return {
           ...(await readCutInTransaction(client, scope, readers, repoId)),

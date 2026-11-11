@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { blockingOf } from "@harness-anything/kernel/internal/domain/task-blocking.ts";
 import { isDomainStatus } from "@harness-anything/kernel/internal/domain/lifecycle-status.ts";
@@ -49,7 +50,7 @@ export function readWorkspaceSummaryRows(db: DatabaseSync): WorkspaceSummary {
           relationType,
           source,
           state: "active",
-          limit: 500,
+          limit: storageReadPolicy.defaultValue.pageSizes.standard,
           ...(relationCursor ? { cursor: relationCursor } : {}),
         });
         blockingRelations.push(...page.rows);

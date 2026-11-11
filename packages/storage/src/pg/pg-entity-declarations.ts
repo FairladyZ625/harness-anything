@@ -100,14 +100,14 @@ export async function readPgEntityDeclarations(
     values.push(query.id);
     conditions.push(`entity_id=$${values.length}`);
   }
-  let limit = "";
+  let pageSql = "";
   if (query.limit !== undefined) {
     values.push(query.limit);
-    limit = ` LIMIT $${values.length}`;
+    pageSql = ` LIMIT $${values.length}`;
   }
   return (
     await client.query<{ state: string }>(
-      `SELECT state FROM ha_entity_declaration_heads WHERE ${conditions.join(" AND ")} ORDER BY entity_id${limit}`,
+      `SELECT state FROM ha_entity_declaration_heads WHERE ${conditions.join(" AND ")} ORDER BY entity_id${pageSql}`,
       values,
     )
   ).rows.map((row) => JSON.parse(row.state) as EntityDeclarationState);

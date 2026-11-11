@@ -62,7 +62,7 @@ const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
   reviewing: "views.workspace.decisionReviewHintReviewing",
   reviewRequired: "views.workspace.decisionReviewHintReviewRequired",
   approved: "views.workspace.decisionReviewHintApproved",
-  policyUnreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
+  ["policyUnreviewed"]: "views.workspace.decisionReviewHintPolicyUnreviewed",
   unreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
 };
 

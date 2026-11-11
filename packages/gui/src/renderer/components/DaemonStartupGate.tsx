@@ -18,8 +18,8 @@ export function DaemonStartupGate({ children }: { readonly children: ReactNode }
   });
   if (phase === "ready") return children;
   const code = daemonErrorCode(systemQuery.error);
-  const retryable = systemQuery.error === null || isRetryableDaemonError(systemQuery.error);
-  if (!retryable || phase === "timeout")
+  const transient = systemQuery.error === null || isRetryableDaemonError(systemQuery.error);
+  if (!transient || phase === "timeout")
     return (
       <main className="grid min-h-screen place-items-center bg-bg p-6" data-testid="daemon-startup-timeout">
         <section className="max-w-xl rounded-xl border border-danger/50 bg-surface p-6 text-center">

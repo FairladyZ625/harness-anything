@@ -1,3 +1,4 @@
+const epochColumn = "policy_epoch";
 export const POSTGRES_SCOPE_SCHEMA_CONTRACT = Object.freeze({
   schemaVersion: 1,
   roles: Object.freeze({
@@ -10,13 +11,12 @@ export const POSTGRES_SCOPE_SCHEMA_CONTRACT = Object.freeze({
     runtime: "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS",
     migration: "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS",
   }),
-  columns: Object.freeze({ tenantId: "tenant_id", projectId: "project_id", policyEpoch: "policy_epoch" }),
+  columns: Object.freeze({ tenantId: "tenant_id", projectId: "project_id", policyEpoch: epochColumn }),
   claims: Object.freeze({
     tenantId: "ha.tenant_id",
     projectId: "ha.project_id",
-    policyEpoch: "ha.policy_epoch",
+    policyEpoch: `ha.${epochColumn}`,
   }),
-  policyEpochComparison: "row.policy_epoch = claim.ha.policy_epoch",
 });
 
 export const POSTGRES_SCOPE_COLUMNS_SQL =

@@ -1,9 +1,5 @@
-export interface StorageScope {
-  readonly tenantId?: string;
-  readonly projectId?: string;
-  readonly readers?: readonly string[];
-  readonly policyEpoch?: number;
-}
+import type { StorageScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+export type { StorageScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 
 export interface SqliteStorageBackendConfig {
   readonly backend?: "sqlite";

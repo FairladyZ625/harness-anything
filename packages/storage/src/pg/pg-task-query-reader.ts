@@ -1,3 +1,4 @@
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { receiveMessageOnPort, Worker, MessageChannel, type MessagePort } from "node:worker_threads";
 import { extname } from "node:path";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -75,8 +76,8 @@ interface WorkerResponse {
   };
 }
 
-const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
-const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = storageReadPolicy.defaultValue.deadlines.startup;
+const DEFAULT_QUERY_TIMEOUT_MS = storageReadPolicy.defaultValue.deadlines.query;
 
 /**
  * Synchronous query facade for the asynchronous PG driver. A session is one worker-owned
@@ -273,11 +274,11 @@ function waitForWorker(
   state: Int32Array,
   port: MessagePort,
   requestId: number,
-  timeoutMs: number,
+  waitMs: number,
   worker: PgQueryEndpoint,
   timeoutMessage: string,
 ): WorkerResponse {
-  if (Atomics.wait(state, 0, 0, timeoutMs) === "timed-out") {
+  if (Atomics.wait(state, 0, 0, waitMs) === "timed-out") {
     void worker.terminate();
     throw Object.assign(new Error(timeoutMessage), { code: "pg_query_worker_timeout" });
   }

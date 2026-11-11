@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   harnessRuntimeReleaseReadiness,
   validateRuntimeReleaseReadiness,
-} from "../packages/gui/src/distribution/runtime-release-readiness.ts";
+} from "../packages/kernel/src/domain/runtime-release-readiness.ts";
 import { publicWorkspaceNamesTopologically, readWorkspacePackages } from "./public-workspaces.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 

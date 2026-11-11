@@ -70,6 +70,17 @@ import {
 } from "./entity-action-descriptor.ts";
 import { hostStateStores, stateStoresForKind, type StateStoreDeclaration } from "./entity-state-stores.ts";
 import { hostAggregateSchema } from "./host.ts";
+import { guiInteractionPolicy } from "./gui-interaction-policy.ts";
+import { runtimeReleasePolicy, runtimeReleasePolicyJudgment } from "./runtime-release-readiness.ts";
+import { supplyChainReleasePolicy, supplyChainReleasePolicyJudgment } from "./supply-chain-release-readiness.ts";
+import { storageReadPolicy, storageReadJudgment, storageReadAdditionalJudgments } from "./storage-read-policy.ts";
+import { decisionAdmissionPolicy, decisionAdmissionJudgments } from "./decision-admission.ts";
+import { storageScopePolicy, storageScopePolicyJudgments } from "./storage-scope-policy.ts";
+import { taskLeasePolicy, taskLeasePolicyJudgments } from "./task-lease-policy.ts";
+import { guiAdmissionPolicy, guiAdmissionPolicyJudgments } from "./gui-admission-policy.ts";
+import { gateMappingPolicy, gateMappingPolicyJudgments } from "./gate-mapping-policy.ts";
+import { storageReplayPolicy, storageReplayJudgments } from "./storage-replay-policy.ts";
+import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 
 export type EntityStorageForm =
@@ -947,7 +958,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("task"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("task"),
-    judgments: [{
+    judgments: [...taskLeasePolicyJudgments, completionGateOverrideJudgment, {
       id: "submit-validation",
       symbol: "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#validateSubmitExecution",
       inputs: ["TaskLifecycleSnapshot", "SubmitExecutionCommand", "SubmitExecutionProof"],
@@ -960,7 +971,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "submitTask → shared snapshot checks; applyTransition → submit.validate → validateSubmitExecution",
       }],
     }],
-    policies: [{
+    policies: [taskLeasePolicy, completionGateOverridePolicy, {
       id: "submit-lease-proof", ownerRef: "task", unit: "SubmitExecution proof",
       bounds: "A normal submit owns the held execution lease and source; an amendment binds the unleased submitted execution. Session disposition is complete, partial or unavailable.",
       defaultValue: null, version: 1, scope: "task submission and amendment authority",
@@ -1069,6 +1080,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
   {
     kind: "decision",
     judgments: [
+      ...decisionAdmissionJudgments,
       {
         id: "coverageOf",
         symbol: "packages/kernel/src/domain/decision-coverage.ts#coverageOf",
@@ -1121,7 +1133,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("decision"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("decision"),
-    policies: [{
+    policies: [decisionAdmissionPolicy,{
       id: "acceptance-draft-fields", ownerRef: "decision", unit: "decision-event/v1 acceptance draft",
       bounds: "standingPolicy starts false; policyRevision is copied only when numeric; the acceptance writer retains final admission.",
       defaultValue: false, version: 1, scope: "Decision accept action compilation",
@@ -1414,8 +1426,17 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
   },
   {
     ...hostEntityTypeContract,
+    judgments: [runtimeReleasePolicyJudgment, supplyChainReleasePolicyJudgment, storageReadJudgment, ...storageReadAdditionalJudgments, ...storageReplayJudgments, ...storageScopePolicyJudgments, ...guiAdmissionPolicyJudgments, ...gateMappingPolicyJudgments],
     policies: [
       guiQueryPacing,
+      guiInteractionPolicy,
+      guiAdmissionPolicy,
+      gateMappingPolicy,
+      storageReadPolicy,
+      storageReplayPolicy,
+      storageScopePolicy,
+      runtimeReleasePolicy,
+      supplyChainReleasePolicy,
       {
         id: "fleet-numeric-input",
         ownerRef: "action:daemon-fleet-edge-sync",

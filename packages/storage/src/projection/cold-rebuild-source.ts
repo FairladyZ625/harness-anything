@@ -1,3 +1,4 @@
+import { storageReplayPolicy } from "@harness-anything/kernel/internal/domain/storage-replay-policy.ts";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
@@ -486,14 +487,18 @@ function decisionAppliesTo(frontmatter: string): {
 } {
   const inline = readScalar(frontmatter, "applies_to");
   if (inline.startsWith("{")) {
-    const value = parseFlowObject(inline, { tolerateInvalidArrays: true });
+    const value = parseFlowObject(inline, storageReplayPolicy.defaultValue.frontmatter);
     return { modules: coldRebuildStrings(value.modules), productLines: coldRebuildStrings(value.productLines) };
   }
   return {
-    modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules"), { tolerateInvalidArrays: true }),
-    productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"), {
-      tolerateInvalidArrays: true,
-    }),
+    modules: parseStringArray(
+      readBlockScalar(frontmatter, "applies_to", "modules"),
+      storageReplayPolicy.defaultValue.frontmatter,
+    ),
+    productLines: parseStringArray(
+      readBlockScalar(frontmatter, "applies_to", "productLines"),
+      storageReplayPolicy.defaultValue.frontmatter,
+    ),
   };
 }
 function decisionAnchorsFrom(frontmatter: string): readonly string[] {
@@ -523,7 +528,7 @@ function objectList(frontmatter: string, key: string): readonly Record<string, u
       return [];
     }
   }
-  return parseObjectList(frontmatter, key, { tolerateInvalidArrays: true });
+  return parseObjectList(frontmatter, key, storageReplayPolicy.defaultValue.frontmatter);
 }
 
 function parseLegacyFacts(
@@ -556,7 +561,7 @@ function parseLegacyFacts(
       rawProvenance = flowObjects(fields.provenance),
       provenance = rawProvenance.every(isRelationFactProvenance) ? rawProvenance : null,
       tags = flowArray(fields.memoryTags),
-      migrated = flowFields(stripBraces(fields.migration)).state === "migrated";
+      entity = flowFields(stripBraces(fields.migration)).state === "migrated";
     if (
       !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(factId) ||
       !coldRebuildScalar(fields.statement) ||
@@ -588,7 +593,7 @@ function parseLegacyFacts(
     seenLegacyRefs.add(legacyRef);
     knownFactRefs.push(ref);
     legacyFactRefs.set(legacyRef, ref);
-    if (!migrated) {
+    if (!entity) {
       rows.push({
         schema: "task-fact-row/v1",
         ref,
@@ -620,7 +625,11 @@ function parseLegacyFacts(
     complete: rows.length <= candidates && candidates === rows.length + migratedFactCount(body),
   };
 }
-function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFactRefs: boolean): AuthoredEventRead {
+function readAuthoredEvents(
+  rootDir: string,
+  authoredRoot: string,
+  normalizeHistoricalRefs: boolean,
+): AuthoredEventRead {
   const eventsRoot = path.join(authoredRoot, "events"),
     rows = new Map<string, EventFactSource>(),
     relations: RelationEntry[] = [],
@@ -640,7 +649,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
     try {
       event = normalizePersistedCanonicalEvent(parseCanonicalEvent(body));
     } catch (error) {
-      event = allowLegacyFactRefs ? parseLegacyFactEvent(body) : null;
+      event = normalizeHistoricalRefs ? parseLegacyFactEvent(body) : null;
       if (event === null) {
         const reason = error instanceof Error ? error.message : String(error);
         consumeKnownError(error);
@@ -666,7 +675,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
       }
       const legacyRef = event.taskId ? `fact/${event.taskId}/${event.factId}` : null,
         identityRef =
-          allowLegacyFactRefs &&
+          normalizeHistoricalRefs &&
           legacyRef !== null &&
           event.payload.factsDocumentClaim!.path !== `facts/${event.factId}.md`
             ? legacyRef
@@ -688,9 +697,9 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           archived: false,
         };
       addEventFactSource(rows, issues, identityRef, row, `event:${event.opId}`);
-      if (allowLegacyFactRefs && legacyRef !== null) legacyFactRefs.set(legacyRef, ref);
+      if (normalizeHistoricalRefs && legacyRef !== null) legacyFactRefs.set(legacyRef, ref);
       const superseded =
-          allowLegacyFactRefs && event.payload.supersedes
+          normalizeHistoricalRefs && event.payload.supersedes
             ? /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(event.payload.supersedes.factRef)
             : null,
         replayEvent =
@@ -736,7 +745,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
         };
       addEventFactSource(rows, issues, ref, row, `event:${event.opId}`);
       if (entity.fact.taskId) {
-        if (allowLegacyFactRefs) legacyFactRefs.set(`fact/${entity.fact.taskId}/${entity.fact.factId}`, ref);
+        if (normalizeHistoricalRefs) legacyFactRefs.set(`fact/${entity.fact.taskId}/${entity.fact.factId}`, ref);
         const identity = {
           source: `task/${entity.fact.taskId}`,
           target: ref,
@@ -760,7 +769,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
         );
       }
     } else if (entity.kind === "relation") {
-      if (allowLegacyFactRefs)
+      if (normalizeHistoricalRefs)
         for (const endpoint of [entity.relation.source, entity.relation.target]) {
           const match = /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(endpoint);
           if (match) legacyFactRefs.set(endpoint, `fact/${match[1]}`);
@@ -772,29 +781,31 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
       .sort((a, b) => a.workspaceRevision - b.workspaceRevision)
       .map((sourceEvent) => {
         const event =
-            allowLegacyFactRefs &&
+            normalizeHistoricalRefs &&
             sourceEvent.schema === "migration-import-event/v1" &&
             sourceEvent.payload.entity.kind === "relation"
               ? normalizeLegacyRelationMigrationEvent(sourceEvent, legacyFactRefs, legacyRelationIds)
               : sourceEvent,
-          migrated = event.schema === "migration-import-event/v1" ? event.payload.entity : null,
+          entity = event.schema === "migration-import-event/v1" ? event.payload.entity : null,
           sourceMigrated = sourceEvent.schema === "migration-import-event/v1" ? sourceEvent.payload.entity : null,
           relationId =
-            migrated?.kind === "relation" ? migrated.relation.relation_id : (event as RelationEventV1).relationId,
+            entity?.kind === "relation" ? entity.relation.relation_id : (event as RelationEventV1).relationId,
           normalizedAlias = sourceMigrated?.kind === "relation" && sourceMigrated.relation.relation_id !== relationId,
           hasCanonicalFacet =
             !normalizedAlias &&
-            (migrated?.kind === "relation" ||
+            (entity?.kind === "relation" ||
               (event.schema === "relation-event/v1" && event.type !== "relation_retired"));
-        return { event, sourceEvent, migrated, relationId, normalizedAlias, hasCanonicalFacet };
+        return { event, sourceEvent, migrated: entity, relationId, normalizedAlias, hasCanonicalFacet };
       }),
     canonicalRelationIds = new Set(
       normalizedHistory.filter(({ hasCanonicalFacet }) => hasCanonicalFacet).map(({ relationId }) => relationId),
     ),
     projected = new Map<string, { readonly entity: RelationEntity; readonly sourcePath: string }>();
-  for (const { event, sourceEvent, migrated, relationId, normalizedAlias } of normalizedHistory) {
+  for (const { event, sourceEvent, migrated: importedEntity, relationId, normalizedAlias } of normalizedHistory) {
     const manualReason =
-      allowLegacyFactRefs && migrated?.kind === "relation" ? legacyRelationManualReason(migrated.relation) : null;
+      normalizeHistoricalRefs && importedEntity?.kind === "relation"
+        ? legacyRelationManualReason(importedEntity.relation)
+        : null;
     if (manualReason !== null) {
       const sourceRelation = sourceEvent.schema === "migration-import-event/v1" ? sourceEvent.payload.entity : null;
       issues.push({

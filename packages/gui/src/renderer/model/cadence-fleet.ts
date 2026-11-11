@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../api/renderer-dto.ts";
 import type { AgentRuntimeSessionGroupDto, AgentRuntimeSessionGroupStatus } from "@harness-anything/daemon/protocol";
 import type { TaskRow } from "./types.ts";
 
@@ -21,7 +22,7 @@ export const FLEET_HISTORY_RANGE_MS: Readonly<Record<FleetHistoryRange, number>>
   "30d": 30 * 86_400_000,
 };
 /** 与会话页同一上限、同一读面家族:概况页不建第二条翻页/轮询,截断由 footer 如实标注。 */
-export const FLEET_GROUPS_LIMIT = 1000;
+export const FLEET_GROUPS_LIMIT = guiInteractionPolicy.defaultValue.pageSizes.fleetGroups;
 /** 概况只答「最近」,长列表的完整落点是会话页;渲染行数有界,footer 标注显示条数。 */
 export const FLEET_RESULT_ROWS = 50;
 

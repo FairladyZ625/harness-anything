@@ -226,17 +226,18 @@ function DecisionTimelineDigest({
 }
 
 export function ClaimsPanel({ decision }: { decision: DecisionRow }) {
+  const items = decision.claims;
   return (
     <div className="flex flex-col gap-3">
       <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
         <h2 className="font-mono ui-micro uppercase tracking-wide text-text-faint">
           {t("views.decisionDetailView.claims")}
         </h2>
-        {decision.claims.length === 0 ? (
+        {items.length === 0 ? (
           <p className="mt-1 ui-meta text-text-faint">{t("views.decisionDetailView.claimsEmpty")}</p>
         ) : (
           <ul className="mt-1 list-inside list-disc ui-meta text-text-muted">
-            {decision.claims.map((claim) => (
+            {items.map((claim) => (
               <li key={claim.id}>
                 <span className="font-mono text-text-faint">{claim.id} </span>
                 {claim.text}

@@ -1,3 +1,4 @@
+import { TASK_PROGRESS_POLICY_ID } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import type { WriteFence } from "../durable-file.ts";
 import {
   isTaskEvent,
@@ -254,7 +255,7 @@ export function recoverGeneratedWorktreeBaseline(
         ? event.payload.initialDocumentClaims
         : [];
     for (const claim of claims) {
-      if (claim.policyId !== "typed-machine-writer/v1") continue;
+      if (claim.policyId !== TASK_PROGRESS_POLICY_ID) continue;
       const target = ledgerGitPath(ledger, claim.path),
         fingerprint = `100644:${claim.sha256}:${claim.size}`;
       if (!observed.has(target))

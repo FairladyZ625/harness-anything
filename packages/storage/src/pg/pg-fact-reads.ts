@@ -74,6 +74,7 @@ export async function readPgFactsInTransaction(
       options,
       selected.map(({ value }) => value),
     );
+  const last = facts.at(-1);
   return {
     status: cut.status,
     facts,
@@ -85,10 +86,7 @@ export async function readPgFactsInTransaction(
           page: {
             limit,
             cursor: filters.cursor ?? null,
-            nextCursor:
-              matched.length > limit && facts.at(-1)
-                ? encodeFactCursor([facts.at(-1)!.observedAt, facts.at(-1)!.factId])
-                : null,
+            nextCursor: matched.length > limit && last ? encodeFactCursor([last.observedAt, last.factId]) : null,
           },
         }),
   };

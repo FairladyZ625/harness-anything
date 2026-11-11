@@ -55,17 +55,13 @@ function taskHasRetiredFact(event: PersistedCanonicalEventV1): boolean {
  * the claimed blob. `vertical.completion.closeoutCodeDoc` owns the declaration default and cannot
  * absorb this field: a step name already applied on a ledger is skipped wholesale.
  */
-function hasRetiredCodeDocCloseoutOverride(
+function readRetiredCodeDocCloseoutOverride(
   event: PersistedCanonicalEventV1,
   readContentBlob?: (sha256: string) => Uint8Array | null,
 ): boolean {
   if (taskOverrideAt(event, "codeDoc")) return true;
-  const payload = (event as { readonly payload?: unknown }).payload;
-  if (!isRecord(payload) || !isRecord(payload.presetSnapshotClaim)) return false;
-  if (typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
-  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
-  if (!bytes) return false;
-  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  const snapshot = readPresetSnapshot(event, readContentBlob);
+  if (snapshot === null) return false;
   return (
     isRecord(snapshot) &&
     isRecord(snapshot.profile) &&
@@ -154,7 +150,7 @@ function hasRetiredSettingsCi(event: PersistedCanonicalEventV1): boolean {
   );
 }
 
-function hasRetiredVerticalHostedCi(
+function readRetiredVerticalHostedCi(
   event: PersistedCanonicalEventV1,
   readContentBlob?: (sha256: string) => Uint8Array | null,
 ): boolean {
@@ -168,10 +164,8 @@ function hasRetiredVerticalHostedCi(
       withoutRetiredVerticalHostedCi(declaration.definition) !== declaration.definition
     );
   }
-  if (!isRecord(payload.presetSnapshotClaim) || typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
-  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
-  if (!bytes) return false;
-  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  const snapshot = readPresetSnapshot(event, readContentBlob);
+  if (snapshot === null) return false;
   return withoutRetiredVerticalHostedCi(snapshot) !== snapshot;
 }
 
@@ -181,7 +175,7 @@ function hasRetiredVerticalHostedCi(
  * wholesale, so a field added to that entry afterwards would never run there. The same rule bans
  * reusing `settings.ci` for the settings-side `closeout.overrides.codeDoc` path.
  */
-function hasRetiredVerticalCloseoutCodeDoc(
+function readRetiredVerticalCloseoutCodeDoc(
   event: PersistedCanonicalEventV1,
   readContentBlob?: (sha256: string) => Uint8Array | null,
 ): boolean {
@@ -195,10 +189,8 @@ function hasRetiredVerticalCloseoutCodeDoc(
       withoutRetiredCloseoutCodeDoc(declaration.definition) !== declaration.definition
     );
   }
-  if (!isRecord(payload.presetSnapshotClaim) || typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
-  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
-  if (!bytes) return false;
-  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  const snapshot = readPresetSnapshot(event, readContentBlob);
+  if (snapshot === null) return false;
   return withoutRetiredCloseoutCodeDoc(snapshot) !== snapshot;
 }
 
@@ -240,7 +232,7 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     kind: "event-migration",
     name: "closeout-overrides.codeDoc",
     fields: ["Task.closeoutOverrides.codeDoc", "PresetSnapshot.profile.closeoutOverrides.codeDoc"],
-    matches: hasRetiredCodeDocCloseoutOverride,
+    matches: readRetiredCodeDocCloseoutOverride,
   },
   {
     kind: "event-migration",
@@ -282,13 +274,13 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
     kind: "event-migration",
     name: "vertical.completion.sources",
     fields: ["Vertical.completion.sources.*.kind"],
-    matches: hasRetiredVerticalHostedCi,
+    matches: readRetiredVerticalHostedCi,
   },
   {
     kind: "event-migration",
     name: "vertical.completion.closeoutCodeDoc",
     fields: ["Vertical.completion.closeoutDefaults.codeDoc"],
-    matches: hasRetiredVerticalCloseoutCodeDoc,
+    matches: readRetiredVerticalCloseoutCodeDoc,
   },
   ...historicalReadConclusions,
 ]);
@@ -402,4 +394,16 @@ export function applyAttachMigrations(input: {
     applied: appliedNow,
     skipped: eventShapeMigrationNames.filter((name) => !appliedNow.includes(name)),
   };
+}
+
+/** Decode the claimed historical format once; migration semantics remain in the kernel transforms. */
+function readPresetSnapshot(
+  event: PersistedCanonicalEventV1,
+  readContentBlob?: (sha256: string) => Uint8Array | null,
+): unknown {
+  const payload = (event as { readonly payload?: unknown }).payload;
+  const content = isRecord(payload) ? payload.presetSnapshotClaim : undefined;
+  if (!isRecord(content) || typeof content.sha256 !== "string") return null;
+  const bytes = readContentBlob?.(content.sha256);
+  return bytes ? JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) : null;
 }

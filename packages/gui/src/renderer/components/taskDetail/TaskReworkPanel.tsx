@@ -1,3 +1,4 @@
+import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { TaskRow } from "../../model/types.ts";
@@ -23,7 +24,7 @@ export function TaskReworkPanel({
   const read = useQuery({
       queryKey: taskQueryKeys.rework(task.projectId, task.taskId),
       queryFn: () => taskReworkClient.read(task.projectId, task.taskId),
-      retry: false,
+      retry: guiInteractionPolicy.defaultValue.retry,
     }),
     actions = useTaskActions(task.projectId),
     feedback = actions.feedback.get(task.taskId),
