@@ -31,9 +31,7 @@ export function fleetSources(rootDir) {
 }
 
 export function forwardingSources(rootDir) {
-  return [...new Set(FORWARDING_ROOTS.flatMap((root) => collectTypeScriptSources(rootDir, root)))].filter(
-    (relative) => !FORWARDING_BOUNDARY_SOURCES.has(relative),
-  );
+  return [...new Set(FORWARDING_ROOTS.flatMap((root) => collectTypeScriptSources(rootDir, root)))];
 }
 
 function lineNumber(source, index) {

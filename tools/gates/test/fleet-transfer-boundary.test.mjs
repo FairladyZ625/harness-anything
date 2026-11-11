@@ -225,11 +225,35 @@ export function bypass(root: string, action: Parameters<typeof runFleetEdgeTask>
   try {
     mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
     writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
-    writeFileSync(path.join(root, "packages/daemon/src/reintroduced-forwarder.ts"), source);
-    assert.equal(
-      checkFleetTransferBoundary(root).some((error) => error.includes("forwardingTransportCall")),
-      true,
-    );
+    for (const file of [
+      "packages/daemon/src/reintroduced-forwarder.ts",
+      "packages/cli/src/daemon/reintroduced-forwarder.ts",
+      "packages/cli/src/daemon/fleet-payload-serializer.ts",
+      "packages/daemon/src/fleet/forwarding-port.ts",
+    ]) {
+      const absolute = path.join(root, file);
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(
+        absolute,
+        source.replaceAll("'./", file.startsWith("packages/cli/") ? "'../../../daemon/src/" : "'./"),
+      );
+      assert.equal(forwardingSources(root).includes(file), true, file);
+      const errors = checkFleetTransferBoundary(root);
+      if (file.endsWith("forwarding-port.ts")) assert.deepEqual(errors, []);
+      else {
+        assert.equal(
+          errors.some((error) => error.startsWith(file) && error.includes("forwardingTransportDependency")),
+          true,
+          file,
+        );
+        assert.equal(
+          errors.some((error) => error.startsWith(file) && error.includes("forwardingTransportCall")),
+          true,
+          file,
+        );
+      }
+      rmSync(absolute);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -243,13 +267,31 @@ test("sender aliases and re-exports cannot evade the forwarding dependency bound
     `import * as tasks from './fleet-edge-task.ts'; const send = tasks['runFleetEdgeTask']; send(request, token, 'domain');`,
     `import * as tasks from './fleet-edge-task.ts'; const { runFleetEdgeTask: send } = tasks; send(request, token, 'domain');`,
   ];
-  for (const source of sources)
-    for (const file of ["packages/daemon/src/forwarder.ts", "packages/cli/src/daemon/fleet-payload-serializer.ts"])
-      assert.equal(
-        findFleetForwardingBypasses(source, file).some((row) => row.fingerprint === "forwardingTransportDependency"),
-        true,
-        source,
-      );
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-sender-aliases-"));
+  try {
+    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
+    for (const file of ["packages/daemon/src/forwarder.ts", "packages/cli/src/daemon/fleet-payload-serializer.ts"]) {
+      const absolute = path.join(root, file);
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      for (const source of sources) {
+        writeFileSync(
+          absolute,
+          source.replaceAll("'./", file.startsWith("packages/cli/") ? "'../../../daemon/src/" : "'./"),
+        );
+        assert.equal(
+          checkFleetTransferBoundary(root).some(
+            (error) => error.startsWith(file) && error.includes("forwardingTransportDependency"),
+          ),
+          true,
+          `${file}: ${source}`,
+        );
+      }
+      rmSync(absolute);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("the sender boundary preserves type-only and local replica reader dependencies", () => {
@@ -346,4 +388,53 @@ test("the forwarding ratchet allows construction inside the declared serializer"
     ),
     [],
   );
+});
+
+test("the full checker preserves encoding, types, local reads, ingress and wire responsibilities", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-owned-responsibilities-"));
+  try {
+    const sources = [
+      ["packages/daemon/src/daemon-host-repository-api.ts", "export {};"],
+      [
+        "packages/cli/src/daemon/fleet-payload-serializer.ts",
+        `
+        import type { runFleetEdgeTask } from '../../../daemon/src/fleet-edge-task.ts';
+        type Request = Parameters<typeof runFleetEdgeTask>[0];
+        function encode(fromFile) { if (fromFile) return { schema: "fleet.task.action/v1", action: JSON.parse(fromFile) }; }
+      `,
+      ],
+      [
+        "packages/daemon/src/local-replica.ts",
+        `
+        import { runFleetEdgeRepositoryRead } from './fleet-edge-task.ts';
+        function replica(root) { const config = readFleetEdgeConfig(root); return runFleetEdgeRepositoryRead(config); }
+        function binding(auth) { return { keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } }; }
+        function ingress(frame) { return { schema: "fleet.runtime.event.result/v1", receipt: frame }; }
+      `,
+      ],
+      [
+        "packages/daemon/src/fleet/peer.ts",
+        `
+        import { encodeFleetFrames } from './transfer.ts';
+        function wire(action) { return session.request({ schema: "fleet.task.command/v1", action }); }
+      `,
+      ],
+      [
+        "packages/daemon/src/fleet/forwarding-port.ts",
+        `
+        import { runFleetEdgeTask } from '../fleet-edge-task.ts';
+        function forward(payload) { return runFleetEdgeTask({ payload }, token, 'domain'); }
+      `,
+      ],
+    ];
+    for (const [file, source] of sources) {
+      const absolute = path.join(root, file);
+      mkdirSync(path.dirname(absolute), { recursive: true });
+      writeFileSync(absolute, source);
+      assert.equal(forwardingSources(root).includes(file), true, file);
+    }
+    assert.deepEqual(checkFleetTransferBoundary(root), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
