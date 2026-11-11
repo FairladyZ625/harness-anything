@@ -1001,6 +1001,29 @@ test("lease release replay ignores only the retired longRunning task metadata", 
       }),
     /replayed lease release is incomplete/u,
   );
+
+  // A Squad parent once released a lease still only `reserving` in the writer: replay has no lease.
+  const released = { ...snapshot, revision: 2, lease: null },
+    reservation = {
+      ...release,
+      workspaceRevision: 3,
+      opId: "op-release-reservation",
+      eventId: "event-release-reservation",
+      payload: { ...release.payload, releasedLease: { ...lease, phase: "reserving", version: 3 } },
+    } as TaskEventV1;
+  assert.equal(reduceTaskEvent(released, reservation).lease, null);
+  for (const releasedLease of [
+    { ...lease, phase: "held", version: 3 },
+    { ...lease, phase: "reserving", executionId: "exe_other" },
+  ] as const)
+    assert.throws(
+      () =>
+        reduceTaskEvent(released, {
+          ...reservation,
+          payload: { ...reservation.payload, releasedLease },
+        } as TaskEventV1),
+      /replayed lease release is incomplete/u,
+    );
 });
 
 function legacyCompletion() {

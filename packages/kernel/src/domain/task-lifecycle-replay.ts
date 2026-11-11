@@ -659,14 +659,23 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   }
   if (event.type === "lease_released") {
     const changesStatus = event.payload.mutation.fields.includes("status"),
-      expectedTask = changesStatus && snapshot.task ? { ...snapshot.task, status: "blocked" as const } : snapshot.task;
+      expectedTask = changesStatus && snapshot.task ? { ...snapshot.task, status: "blocked" as const } : snapshot.task,
+      // History: a Squad parent released its own lease while it was still only `reserving` in the
+      // writer, so the reservation never reached the ledger. Replay sees no lease; the release is a no-op.
+      unpublishedReservation =
+        !snapshot.lease &&
+        event.payload.releasedLease.phase === "reserving" &&
+        event.payload.releasedLease.executionId === event.payload.execution.executionId &&
+        !changesStatus;
     if (
-      !snapshot.lease ||
-      !sameReleasedLease(snapshot.lease, event.payload.releasedLease) ||
-      event.payload.execution.executionId !== snapshot.lease.executionId ||
-      !sameReplayTask(event.payload.task, expectedTask) ||
-      (changesStatus && (!snapshot.task || !explainStatusTransition(snapshot.task.status, "blocked").allowed)) ||
-      next.lease !== null
+      unpublishedReservation
+        ? !sameReplayTask(event.payload.task, expectedTask) || next.lease !== null
+        : !snapshot.lease ||
+          !sameReleasedLease(snapshot.lease, event.payload.releasedLease) ||
+          event.payload.execution.executionId !== snapshot.lease.executionId ||
+          !sameReplayTask(event.payload.task, expectedTask) ||
+          (changesStatus && (!snapshot.task || !explainStatusTransition(snapshot.task.status, "blocked").allowed)) ||
+          next.lease !== null
     )
       throw new TaskLifecycleContractError("invalid_transition", [
         lifecycleContractIssue("invalid_release_atomicity", "replayed lease release is incomplete"),
