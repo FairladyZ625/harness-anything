@@ -69,6 +69,8 @@ import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
 import { runtimeForwardingContext } from "./fleet/forwarding-port.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
+import { publishSubmittedCut } from "./submitted-cut-publication.ts";
+import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: FleetEdgeConfig & {
@@ -756,6 +758,35 @@ export function openFleetEdgeRuntime(input: {
             ),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
+        if (review) {
+          const execution = current.executions.find((value) => value.executionId === executionId)!,
+            submission = execution.submission!,
+            executorId = execution.actor.executor?.id,
+            implementationSession = executorId?.startsWith("runtime-session:")
+              ? executorId.slice("runtime-session:".length)
+              : null,
+            publication = await readRuntimeProjection(request, (projection) => ({
+              instanceId: implementationSession
+                ? projection.readRuntimeDispatch(implementationSession)?.payload.instanceId
+                : undefined,
+              renderBody: taskPrBodyRenderer({
+                rootDir: request.workspaceRoot,
+                projection: projection as TaskProjection,
+                taskId,
+                submission,
+              }),
+            }));
+          await publishSubmittedCut({
+            rootDir: request.workspaceRoot,
+            repoId: request.repoId,
+            taskId,
+            taskTitle: current.task!.title,
+            submission,
+            ...(typeof publication.instanceId === "string" ? { instanceId: publication.instanceId } : {}),
+            prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
+            ...(publication.renderBody ? { renderBody: publication.renderBody } : {}),
+          });
+        }
         return {
           executionId,
           ...(review

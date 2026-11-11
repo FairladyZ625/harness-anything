@@ -1,59 +1,71 @@
-import path from "node:path";
 import type { SubmissionV1 } from "@harness-anything/kernel";
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
-import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
+import { publishTaskPullRequest, publishTaskWorkerBranch } from "./runtime-task-publication.ts";
 import { workerPushFailureCode } from "./runtime-worker-push.ts";
-import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
-import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
+import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
+import { scrubProviderValue } from "./dispatch-stream.ts";
 
-/** Called under the repository writer: publication of the frozen cut precedes automatic review. */
-export async function publishSubmittedCut(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  snapshot: Snapshot,
-  submission: SubmissionV1,
-  binding: RepoCellBinding,
-): Promise<void> {
-  // Edge submit already publishes its fenced cut; review placement leaves its dispatch on that node.
-  if (submission.commitSha === null || (typeof binding.source === "object" && binding.source.kind === "node")) return;
-  const hosting = await detectHostingProvider(cell.rootDir, undefined, true);
+/** Local submit and node review admission share this publication barrier for the frozen cut. */
+export async function publishSubmittedCut(input: {
+  readonly rootDir: string;
+  readonly repoId: string;
+  readonly taskId: string;
+  readonly taskTitle: string;
+  readonly submission: SubmissionV1;
+  /** Local submits require a worktree; omitted only after the node's holder/CAS publication. */
+  readonly workerRoot?: string | null;
+  readonly personId?: string;
+  readonly instanceId?: string;
+  readonly prepareDaemonGitEnvironment?: (
+    instanceId: string,
+    provider: "github" | "gitlab",
+    repoId: string,
+  ) => Promise<NodeJS.ProcessEnv | null>;
+  readonly renderBody?: (body: string | undefined) => string;
+}): Promise<void> {
+  if (input.submission.commitSha === null) return;
+  const hosting = await detectHostingProvider(input.rootDir, undefined, true);
   if (!hosting) return;
-  const worktree = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection));
-  if (!worktree)
-    throw cell.cellCodedError("delivery_publish_failed", `Task ${taskId} has no managed task branch to publish.`);
-  const instanceId = binding.executionPrincipal
-      ? cell.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
+  if (input.workerRoot === null)
+    throw cellCodedError("delivery_publish_failed", `Task ${input.taskId} has no managed task branch to publish.`);
+  const env = input.instanceId
+      ? await input.prepareDaemonGitEnvironment?.(input.instanceId, hosting.kind, input.repoId)
       : undefined,
-    env =
-      typeof instanceId === "string"
-        ? await cell.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind, cell.input.repoId)
-        : undefined,
-    renderBody = taskPrBodyRenderer({ rootDir: cell.rootDir, projection: cell.projection, taskId, submission }),
-    publication = await publishTaskWorkerBranch({
-      cwd: path.join(cell.rootDir, worktree.path),
-      canonicalRoot: cell.rootDir,
-      taskId,
-      personId: binding.actor.principal.personId,
-      submittedCommitSha: submission.commitSha,
-      env: env ?? undefined,
-      pullRequest: {
-        hosting,
-        taskTitle: snapshot.task?.title ?? taskId,
-        submission,
-        ...(renderBody ? { renderBody } : {}),
-      },
-    }),
-    push = publication.push;
-  if (!push.attempted || !push.ok)
-    throw cell.cellCodedError(
-      workerPushFailureCode(push),
-      push.attempted ? push.detail : `Task branch publication refused: ${push.reason}.`,
-    );
-  if (publication.pullRequest?.headSha !== submission.commitSha)
-    throw cell.cellCodedError(
+    pullRequest = {
+      hosting,
+      taskTitle: input.taskTitle,
+      submission: input.submission,
+      ...(input.renderBody ? { renderBody: input.renderBody } : {}),
+    };
+  let published: { readonly headSha: string | null } | undefined;
+  try {
+    if (input.workerRoot) {
+      const publication = await publishTaskWorkerBranch({
+          cwd: input.workerRoot,
+          canonicalRoot: input.rootDir,
+          taskId: input.taskId,
+          personId: input.personId,
+          submittedCommitSha: input.submission.commitSha,
+          env: env ?? undefined,
+          pullRequest,
+        }),
+        push = publication.push;
+      if (!push.attempted || !push.ok)
+        throw cellCodedError(
+          workerPushFailureCode(push),
+          push.attempted ? push.detail : `Task branch publication refused: ${push.reason}.`,
+        );
+      published = publication.pullRequest;
+    } else published = await publishTaskPullRequest(input.taskId, pullRequest, env ?? undefined);
+  } catch (error) {
+    if (runtimeErrorCode(error)) throw error;
+    const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+    throw cellCodedError("delivery_publish_failed", `PR publication failed: ${detail}`);
+  }
+  if (published?.headSha !== input.submission.commitSha)
+    throw cellCodedError(
       "delivery_publish_failed",
-      `PR head ${publication.pullRequest?.headSha ?? "unavailable"} does not match the frozen delivery ${submission.commitSha}.`,
+      `PR head ${published?.headSha ?? "unavailable"} does not match the frozen delivery ${input.submission.commitSha}.`,
     );
 }

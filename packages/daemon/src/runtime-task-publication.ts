@@ -40,7 +40,7 @@ export async function publishTaskWorkerBranch(
       throw new Error(
         `The pushed commit differs from the frozen submission; run ha task submit ${input.taskId} --amend first.`,
       );
-    const pullRequest = await upsertPullRequest(push.branch, input.pullRequest, input.env);
+    const pullRequest = await publishTaskPullRequest(push.branch, input.pullRequest, input.env);
     return { push, pullRequest };
   } catch (error) {
     const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
@@ -53,7 +53,8 @@ export async function publishTaskWorkerBranch(
   }
 }
 
-async function upsertPullRequest(
+/** Publish the hosted read surface after the owning node has pushed its fenced task branch. */
+export async function publishTaskPullRequest(
   branch: string,
   input: PullRequestInput,
   env?: NodeJS.ProcessEnv,

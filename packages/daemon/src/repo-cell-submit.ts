@@ -44,6 +44,8 @@ import { assertOldDataCopyReceipt, oldDataCopyReceiptPath } from "./submit-old-d
 import { publishesPublicPullRequest } from "./hosting-provider.ts";
 import { publishSubmittedCut } from "./submitted-cut-publication.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
+import { taskExecutionPlacement } from "./task-execution-placement.ts";
+import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -756,9 +758,34 @@ async function submittedCutReview(
     execution = snapshot.executions.find(
       (value) => value.iteration === snapshot.task?.iteration && value.state === "submitted",
     );
-  if (snapshot.task?.status === "in_review" && execution?.submission) {
+  if (
+    snapshot.task?.status === "in_review" &&
+    execution?.submission &&
+    taskExecutionPlacement(cell, taskId, execution.executionId).kind === "local"
+  ) {
     try {
-      await publishSubmittedCut(cell, taskId, snapshot, execution.submission, binding);
+      const worktree = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection)),
+        instanceId = binding.executionPrincipal
+          ? cell.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
+          : undefined,
+        renderBody = taskPrBodyRenderer({
+          rootDir: cell.rootDir,
+          projection: cell.projection,
+          taskId,
+          submission: execution.submission,
+        });
+      await publishSubmittedCut({
+        rootDir: cell.rootDir,
+        repoId: cell.input.repoId,
+        taskId,
+        taskTitle: snapshot.task.title,
+        submission: execution.submission,
+        workerRoot: worktree ? path.join(cell.rootDir, worktree.path) : null,
+        personId: binding.actor.principal.personId,
+        ...(typeof instanceId === "string" ? { instanceId } : {}),
+        prepareDaemonGitEnvironment: cell.input.prepareDaemonGitEnvironment,
+        ...(renderBody ? { renderBody } : {}),
+      });
     } catch (error) {
       const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512),
         warning = `The cut is frozen, but publication failed before review: ${detail} Retry: ha task submit ${taskId} --amend.`;
