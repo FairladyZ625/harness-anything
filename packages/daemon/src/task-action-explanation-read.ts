@@ -281,16 +281,14 @@ export async function preparePersonActionExplanationBinding(
   const binding = requireTaskActionExplanationBinding(input.binding),
     request = payload as unknown as EntityActionExplainRequestV1;
   if (request.mode !== "object") return binding;
-  const refs = [
-    ...new Set(
-      request.refs.flatMap((ref) => {
-        const entity = parseEntityRef(ref);
-        return entity && !entity.externalHarness && ["person", "task", "squad"].includes(entity.kind)
-          ? [{ kind: entity.kind, id: entity.id, ref: entity.raw as EntityRef }]
-          : [];
-      }),
-    ),
-  ];
+  // Deduplicate the wire identity before parsing: distinct objects in a Set do not
+  // coalesce repeated refs. Decisions are request-local; the next read reauthorizes.
+  const refs = [...new Set(request.refs)].flatMap((ref) => {
+    const entity = parseEntityRef(ref);
+    return entity && !entity.externalHarness && ["person", "task", "squad"].includes(entity.kind)
+      ? [{ kind: entity.kind, id: entity.id, ref: entity.raw as EntityRef }]
+      : [];
+  });
   if (refs.length === 0) return binding;
   const credential = binding.keycloakAuthorization;
   if (!credential)
