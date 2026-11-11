@@ -26,123 +26,132 @@ await realm.control({
 const cli = path.resolve("packages/cli/src/index.ts"),
   repoId = "explain-help-overlay";
 
-test(
-  "ha explain and Task help overlay share one typed read, renderer, cut, and zero-write result",
-  { timeout: 300_000 },
-  async () => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-explain-help-overlay-")),
-      root = path.join(parent, "repo"),
-      userRoot = path.join(parent, "user");
-    try {
-      initialize(root);
-      realm.bind(userRoot);
-      signInAt(userRoot, "owner");
-      const seeded = await seedTasks(root);
-      startDaemon(root, userRoot);
-      assert.equal(
-        runJson(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"])
-          .status,
-        0,
-      );
+const repetitions = Number(process.env.FLEET_STRESS_EXPLAIN_REPETITIONS ?? 1);
+assert.ok(Number.isInteger(repetitions) && repetitions >= 1 && repetitions <= 20);
+for (let repetition = 1; repetition <= repetitions; repetition += 1) {
+  test(
+    "ha explain and Task help overlay share one typed read, renderer, cut, and zero-write result" +
+      (repetitions === 1 ? "" : ` (${repetition}/${repetitions})`),
+    { timeout: 300_000 },
+    async () => {
+      const parent = mkdtempSync(path.join(tmpdir(), "ha-explain-help-overlay-")),
+        root = path.join(parent, "repo"),
+        userRoot = path.join(parent, "user");
+      try {
+        initialize(root);
+        realm.bind(userRoot);
+        signInAt(userRoot, "owner");
+        const seeded = await seedTasks(root);
+        startDaemon(root, userRoot);
+        assert.equal(
+          runJson(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"])
+            .status,
+          0,
+        );
 
-      // Task creation returns at durable acceptance. Wait for its followers before taking the
-      // zero-write baseline, rather than sampling Git on a wall-clock budget.
-      const published = runJson(root, userRoot, [
-        "receipt",
-        "show",
-        String(seeded.opId),
-        "--wait",
-        "git_verified,worktree_visible",
-        "--timeout-ms",
-        "5000",
-      ]);
-      assert.equal(published.status, 0, published.stderr);
-      assert.deepEqual(published.value.wait, { state: "satisfied", unsatisfied: [] }, JSON.stringify(published.value));
-      const store = makeTaskEventReader({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root) }),
-        beforeStream = store.read(),
-        beforeGit = git(root, "status", "--porcelain=v1"),
-        catalog = requireSuccess(runJson(root, userRoot, ["explain", "task"])),
-        explained = requireSuccess(runJson(root, userRoot, ["explain", "task/task-planned"])),
-        overlaid = requireSuccess(runJson(root, userRoot, ["task", "--help", "--explain", "task/task-planned"]));
-      assert.equal(catalog.mode, "catalog");
-      assert.equal(catalog.evaluatedAtCut, null);
-      assert.equal(
-        catalog.subjects[0]!.actions.every(
-          (row) => row.available === null && row.criteria.every(({ status }) => status === "not-evaluated"),
-        ),
-        true,
-      );
-      assert.deepEqual(overlaid, explained);
-
-      const explainHuman = runText(root, userRoot, ["explain", "task/task-planned"]),
-        overlayHuman = runText(root, userRoot, ["task", "--help", "--explain", "task/task-planned"]);
-      assert.equal(explainHuman.status, 0, explainHuman.stderr);
-      assert.equal(overlayHuman.status, 0, overlayHuman.stderr);
-      assert.equal(overlayHuman.stdout, explainHuman.stdout);
-      assert.match(explainHuman.stdout, /evaluated cut: canonical:/u);
-
-      const active = requireSuccess(runJson(root, userRoot, ["explain", "task/task-active"]));
-      assert.notDeepEqual(availability(explained), availability(active));
-
-      const refs = Array.from({ length: 500 }, (_, index) =>
-          index % 2 === 0 ? "task/task-planned" : "task/task-active",
-        ),
-        batch = requireSuccess(runJson(root, userRoot, ["explain", ...refs]));
-      console.log(
-        `500 refs action bytes: ${JSON.stringify(
-          Object.fromEntries(
-            batch.subjects[0]!.actions.map((row) => [row.action.id, Buffer.byteLength(JSON.stringify(row))]),
+        // Task creation returns at durable acceptance. Wait for its followers before taking the
+        // zero-write baseline, rather than sampling Git on a wall-clock budget.
+        const published = runJson(root, userRoot, [
+          "receipt",
+          "show",
+          String(seeded.opId),
+          "--wait",
+          "git_verified,worktree_visible",
+          "--timeout-ms",
+          "5000",
+        ]);
+        assert.equal(published.status, 0, published.stderr);
+        assert.deepEqual(
+          published.value.wait,
+          { state: "satisfied", unsatisfied: [] },
+          JSON.stringify(published.value),
+        );
+        const store = makeTaskEventReader({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root) }),
+          beforeStream = store.read(),
+          beforeGit = git(root, "status", "--porcelain=v1"),
+          catalog = requireSuccess(runJson(root, userRoot, ["explain", "task"])),
+          explained = requireSuccess(runJson(root, userRoot, ["explain", "task/task-planned"])),
+          overlaid = requireSuccess(runJson(root, userRoot, ["task", "--help", "--explain", "task/task-planned"]));
+        assert.equal(catalog.mode, "catalog");
+        assert.equal(catalog.evaluatedAtCut, null);
+        assert.equal(
+          catalog.subjects[0]!.actions.every(
+            (row) => row.available === null && row.criteria.every(({ status }) => status === "not-evaluated"),
           ),
-        )}`,
-      );
-      assert.equal(batch.subjects.length, 500);
-      assert.deepEqual(
-        batch.subjects.map(({ ref }) => ref),
-        refs,
-      );
-      assert.equal(
-        new Set(batch.subjects.flatMap(({ actions }) => actions.map(({ evaluatedAtCut }) => evaluatedAtCut))).size,
-        1,
-      );
-      assert.equal(batch.evaluatedAtCut, explained.evaluatedAtCut);
+          true,
+        );
+        assert.deepEqual(overlaid, explained);
 
-      const failures = runJson(root, userRoot, ["explain", "not-a-ref", "fact/F-ABCDEFGH", "task/task-missing"]);
-      assert.equal(failures.status, 1, `${failures.stderr}\n${JSON.stringify(failures.value)}`);
-      assert.equal(failures.value.schema, "entity-action-explanation/v1");
-      assert.deepEqual(
-        (failures.value as unknown as Explanation).subjects.map(({ failure }) => failure?.code),
-        ["invalid_entity_ref", "unsupported_explain_target", "entity_not_found"],
-      );
-      const failureHuman = runText(root, userRoot, ["explain", "not-a-ref"]);
-      assert.equal(failureHuman.status, 1, failureHuman.stderr);
-      assert.match(failureHuman.stdout, /^not-a-ref: invalid_entity_ref$/mu);
-      assert.match(failureHuman.stdout, /^ {2}message: Entity ref not-a-ref is invalid\.$/mu);
-      assert.match(
-        failureHuman.stdout,
-        /^ {2}next: Use a registered EntityRef such as task\/<task-id>, person\/<person-id>, or squad\/<squad-id>\.$/mu,
-      );
-      const overMaximum = runJson(root, userRoot, ["explain", ...refs, "task/task-over-maximum"]);
-      assert.equal(overMaximum.status, 2);
-      assert.equal(overMaximum.value.code, "invalid_field");
-      const retired = runJson(root, userRoot, ["entity", "explain", "task"]);
-      assert.equal(retired.status, 2);
-      assert.equal(retired.value.code, "unsupported_command");
+        const explainHuman = runText(root, userRoot, ["explain", "task/task-planned"]),
+          overlayHuman = runText(root, userRoot, ["task", "--help", "--explain", "task/task-planned"]);
+        assert.equal(explainHuman.status, 0, explainHuman.stderr);
+        assert.equal(overlayHuman.status, 0, overlayHuman.stderr);
+        assert.equal(overlayHuman.stdout, explainHuman.stdout);
+        assert.match(explainHuman.stdout, /evaluated cut: canonical:/u);
 
-      assert.deepEqual(store.read(), beforeStream);
-      // The background WAL flush may commit already-dirty ledger paths between the two samples, so
-      // the reads are held to adding no dirty path rather than to an identical status.
-      const dirtyPaths = (status: string) => status.split("\n").flatMap((line) => (line ? [line.slice(3)] : [])),
-        dirtyBefore = new Set(dirtyPaths(beforeGit));
-      assert.deepEqual(
-        dirtyPaths(git(root, "status", "--porcelain=v1")).filter((dirty) => !dirtyBefore.has(dirty)),
-        [],
-      );
-    } finally {
-      if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
-      rmSync(parent, { recursive: true, force: true });
-    }
-  },
-);
+        const active = requireSuccess(runJson(root, userRoot, ["explain", "task/task-active"]));
+        assert.notDeepEqual(availability(explained), availability(active));
+
+        const refs = Array.from({ length: 500 }, (_, index) =>
+            index % 2 === 0 ? "task/task-planned" : "task/task-active",
+          ),
+          batch = requireSuccess(runJson(root, userRoot, ["explain", ...refs]));
+        console.log(
+          `500 refs action bytes: ${JSON.stringify(
+            Object.fromEntries(
+              batch.subjects[0]!.actions.map((row) => [row.action.id, Buffer.byteLength(JSON.stringify(row))]),
+            ),
+          )}`,
+        );
+        assert.equal(batch.subjects.length, 500);
+        assert.deepEqual(
+          batch.subjects.map(({ ref }) => ref),
+          refs,
+        );
+        assert.equal(
+          new Set(batch.subjects.flatMap(({ actions }) => actions.map(({ evaluatedAtCut }) => evaluatedAtCut))).size,
+          1,
+        );
+        assert.equal(batch.evaluatedAtCut, explained.evaluatedAtCut);
+
+        const failures = runJson(root, userRoot, ["explain", "not-a-ref", "fact/F-ABCDEFGH", "task/task-missing"]);
+        assert.equal(failures.status, 1, `${failures.stderr}\n${JSON.stringify(failures.value)}`);
+        assert.equal(failures.value.schema, "entity-action-explanation/v1");
+        assert.deepEqual(
+          (failures.value as unknown as Explanation).subjects.map(({ failure }) => failure?.code),
+          ["invalid_entity_ref", "unsupported_explain_target", "entity_not_found"],
+        );
+        const failureHuman = runText(root, userRoot, ["explain", "not-a-ref"]);
+        assert.equal(failureHuman.status, 1, failureHuman.stderr);
+        assert.match(failureHuman.stdout, /^not-a-ref: invalid_entity_ref$/mu);
+        assert.match(failureHuman.stdout, /^ {2}message: Entity ref not-a-ref is invalid\.$/mu);
+        assert.match(
+          failureHuman.stdout,
+          /^ {2}next: Use a registered EntityRef such as task\/<task-id>, person\/<person-id>, or squad\/<squad-id>\.$/mu,
+        );
+        const overMaximum = runJson(root, userRoot, ["explain", ...refs, "task/task-over-maximum"]);
+        assert.equal(overMaximum.status, 2);
+        assert.equal(overMaximum.value.code, "invalid_field");
+        const retired = runJson(root, userRoot, ["entity", "explain", "task"]);
+        assert.equal(retired.status, 2);
+        assert.equal(retired.value.code, "unsupported_command");
+
+        assert.deepEqual(store.read(), beforeStream);
+        // The background WAL flush may commit already-dirty ledger paths between the two samples, so
+        // the reads are held to adding no dirty path rather than to an identical status.
+        const dirtyPaths = (status: string) => status.split("\n").flatMap((line) => (line ? [line.slice(3)] : [])),
+          dirtyBefore = new Set(dirtyPaths(beforeGit));
+        assert.deepEqual(
+          dirtyPaths(git(root, "status", "--porcelain=v1")).filter((dirty) => !dirtyBefore.has(dirty)),
+          [],
+        );
+      } finally {
+        if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
+        rmSync(parent, { recursive: true, force: true });
+      }
+    },
+  );
+}
 
 test("ha explain reports submit availability for the same actor that can submit", { timeout: 300_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-explain-submit-actor-")),
@@ -319,6 +328,7 @@ function runText(
     stdoutFd = openSync(stdoutPath, "w"),
     stderrFd = openSync(stderrPath, "w");
   try {
+    const started = performance.now();
     const result = spawnSync(process.execPath, [cli, "--root", root, ...(json ? ["--json"] : []), ...args], {
       stdio: ["ignore", stdoutFd, stderrFd],
       env: { ...environment(root, userRoot), ...(actor ? { HARNESS_ACTOR: actor } : {}) },
@@ -327,7 +337,9 @@ function runText(
     const stdout = readFileSync(stdoutPath, "utf8"),
       stderr = readFileSync(stderrPath, "utf8");
     if (args[0] === "explain" && args.length === 501)
-      console.log(`500 refs explain stdout bytes: ${Buffer.byteLength(stdout)}`);
+      console.log(
+        `500 refs explain stdout bytes: ${Buffer.byteLength(stdout)}; durationMs: ${performance.now() - started}`,
+      );
     return { status: result.status, stdout: stdout.trim(), stderr: stderr.trim() };
   } finally {
     closeSync(stdoutFd);

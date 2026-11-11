@@ -133,6 +133,51 @@ test("revoking a grant after explain denies the next explain and the real write"
   }
 });
 
+test("repeated explain refs preserve output positions without repeating online authority reads", async (t) => {
+  const fixture = await openExplainFixture(),
+    { rootDir, repoId, realm, binding, cell } = fixture,
+    samples: { positions: number; requests: number; durationMs: number }[] = [];
+  try {
+    realm.keycloak.permit(actor.principal.personId, repoId, ["task-create"]);
+    await createTask(fixture, "task-repeat-a");
+    await createTask(fixture, "task-repeat-b");
+    const refs = ["task/task-repeat-a", "task/task-repeat-b"];
+    for (const positions of [2, 20, 100, 500]) {
+      let requests = 0;
+      const input = Array.from({ length: positions }, (_, index) => refs[index % refs.length]!),
+        started = performance.now(),
+        result = await withFetch(
+          (...args) => {
+            requests += 1;
+            return fetchOriginal(...args);
+          },
+          () => cell.read(method, explainPayload(input), binding),
+        );
+      samples.push({ positions, requests, durationMs: performance.now() - started });
+      t.diagnostic(JSON.stringify(samples.at(-1)));
+      assert.deepEqual(
+        result.subjects.map(({ ref }) => ref),
+        input,
+      );
+      assert.equal(result.mode, "object");
+      assert.ok(
+        result.subjects.every(({ actions }) =>
+          actions.every(({ evaluatedAtCut }) => evaluatedAtCut === result.evaluatedAtCut),
+        ),
+      );
+    }
+    // Warm the provider once, then assert operation counts rather than a machine speed budget.
+    assert.equal(samples[2]!.requests, samples[1]!.requests);
+    assert.equal(samples[3]!.requests, samples[1]!.requests);
+  } finally {
+    await cell.close();
+    await realm.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+const fetchOriginal = globalThis.fetch;
+
 test("authority transport outage is unavailable while a malformed authority response is not", async () => {
   const fixture = await openExplainFixture(),
     { rootDir, repoId, realm, binding, cell } = fixture;
