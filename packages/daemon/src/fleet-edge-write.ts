@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import {
   FleetRemoteError as FleetRemoteErrorClass,
@@ -82,11 +83,14 @@ export function transientFleetReceipt(value: unknown): boolean {
 export async function runFleetEdgeRetry<T>(options: {
   readonly timeoutMs: number;
   readonly write: () => Promise<T>;
+  /** Daemon-close lifetime. Aborting stops both the in-flight attempt and the backoff sleep. */
+  readonly signal?: AbortSignal;
 }): Promise<T> {
   const deadline = Date.now() + options.timeoutMs;
   let attempt = 0;
   for (;;) {
-    const settled = await options.write().then(
+    options.signal?.throwIfAborted();
+    const settled = await abortable(options.write, options.signal).then(
       (value) => ({ ok: true as const, value }),
       (error: unknown) => ({ ok: false as const, error }),
     );
@@ -96,10 +100,44 @@ export async function runFleetEdgeRetry<T>(options: {
       if (!retryableEdgeError(settled.error) || Date.now() >= deadline) throw settled.error;
     }
     const remaining = deadline - Date.now();
-    await new Promise<void>((resolve) =>
-      setTimeout(resolve, Math.min(fleetEdgeBackoffMs(attempt++), Math.max(1, remaining))),
-    );
+    try {
+      await delay(Math.min(fleetEdgeBackoffMs(attempt++), Math.max(1, remaining)), undefined, {
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+    } catch (error) {
+      // node:timers/promises wraps the signal reason in an AbortError; close owns the reason.
+      if (options.signal?.aborted) throw abortReason(options.signal);
+      throw error;
+    }
   }
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted.", "AbortError");
+}
+
+/**
+ * Races one attempt against the close signal. A client that ignores the signal still cannot keep
+ * the retry loop alive past close; a client that honors it settles through its own rejection.
+ */
+function abortable<T>(operation: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return operation();
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  const pending = operation();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortReason(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    pending.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 export async function runFleetEdgeUploadClient(
@@ -108,6 +146,7 @@ export async function runFleetEdgeUploadClient(
   const operationIds = options.changes.map(() => randomUUID());
   return runFleetEdgeRetry({
     timeoutMs: options.timeoutMs,
+    ...(options.signal ? { signal: options.signal } : {}),
     write: () => peerRunFleetUploadClient({ ...options, operationIds }),
   });
 }
@@ -132,10 +171,12 @@ export async function runFleetEdgeTaskCommand<T>(options: {
   readonly readOnly: boolean;
   readonly write: () => Promise<T>;
   readonly settle?: () => Promise<T>;
+  readonly signal?: AbortSignal;
 }): Promise<T> {
   // A write retries as a whole (center write plus replica catch-up), matching one canonical attempt per opId.
   return runFleetEdgeRetry({
     timeoutMs: options.timeoutMs,
+    ...(options.signal ? { signal: options.signal } : {}),
     write: !options.readOnly && options.settle ? options.settle : options.write,
   });
 }
@@ -157,11 +198,13 @@ export async function runFleetEdgeWrite<T extends FleetEdgeWriteReceipt>(options
   readonly nodeId: string;
   readonly timeoutMs: number;
   readonly write: () => Promise<T>;
+  readonly signal?: AbortSignal;
 }): Promise<T> {
   const receipt = await options.write();
   if ("outcome" in receipt && receipt.outcome !== "applied") return receipt;
   if (receipt.replicationSequence === null) return receipt;
-  const signal = AbortSignal.timeout(options.timeoutMs);
+  const timeoutSignal = AbortSignal.timeout(options.timeoutMs),
+    signal = options.signal ? AbortSignal.any([timeoutSignal, options.signal]) : timeoutSignal;
   try {
     await waitForFleetReplicaSequence(
       { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
@@ -169,7 +212,9 @@ export async function runFleetEdgeWrite<T extends FleetEdgeWriteReceipt>(options
       signal,
     );
   } catch (error) {
-    if (signal.aborted) throw new FleetReplicaLagTimeoutError(receipt.replicationSequence, options.timeoutMs, error);
+    if (options.signal?.aborted) throw options.signal.reason ?? error;
+    if (timeoutSignal.aborted)
+      throw new FleetReplicaLagTimeoutError(receipt.replicationSequence, options.timeoutMs, error);
     throw error;
   }
   return receipt;

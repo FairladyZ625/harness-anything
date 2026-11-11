@@ -776,6 +776,7 @@ export function createDaemonHostRepositoryApi(
             intent: forwardingIntentForAction(descriptor.method, action),
             auth,
             oidc: context.oidc,
+            signal: context.closeSignal,
             runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
           });
           if (forwarded) return forwarded as WriteReceiptDraft | SquadControlResult;

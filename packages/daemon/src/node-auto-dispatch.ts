@@ -68,8 +68,12 @@ export interface NodeAutoDispatchSpawn {
 export function openNodeAutoDispatchLoop(input: {
   readonly read: (signal: AbortSignal) => Promise<readonly NodeAutoDispatchCandidate[]>;
   readonly spawn: (candidate: NodeAutoDispatchCandidate, signal: AbortSignal) => Promise<void | NodeAutoDispatchSpawn>;
-  readonly onFailure?: (candidate: NodeAutoDispatchCandidate, error: unknown) => Promise<void> | void;
-  readonly onSuccess?: (candidate: NodeAutoDispatchCandidate) => Promise<void> | void;
+  readonly onFailure?: (
+    candidate: NodeAutoDispatchCandidate,
+    error: unknown,
+    signal: AbortSignal,
+  ) => Promise<void> | void;
+  readonly onSuccess?: (candidate: NodeAutoDispatchCandidate, signal: AbortSignal) => Promise<void> | void;
 }): NodeAutoDispatchLoop {
   const controllers = new Set<AbortController>();
   const accepted = new Set<string>();
@@ -92,10 +96,10 @@ export function openNodeAutoDispatchLoop(input: {
           spawned = await input.spawn(candidate, controller.signal);
           if (spawned) await spawned.completion;
         } catch (error) {
-          await input.onFailure?.(candidate, error);
+          await input.onFailure?.(candidate, error, controller.signal);
           throw error;
         }
-        await input.onSuccess?.(candidate);
+        await input.onSuccess?.(candidate, controller.signal);
         accepted.add(candidate.dispatchKey);
       }
     } catch (error) {

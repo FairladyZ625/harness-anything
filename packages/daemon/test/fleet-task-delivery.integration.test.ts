@@ -478,3 +478,70 @@ test(
     assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
   },
 );
+
+test("edge close cancels an in-flight center retry while the center is offline", { timeout: 20_000 }, async (t) => {
+  const fixture = await dualSyncFixture();
+  t.after(() => fixture.close());
+  const config = fixture.channel("node-one"),
+    edgeRoot = config.workspaceRoot,
+    edgeUser = path.join(fixture.root, "offline-close-edge-user");
+  mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(edgeRoot, "harness", "harness.yaml"),
+    readFileSync(path.join(fixture.repo, "harness", "harness.yaml")),
+  );
+  execFileSync("git", ["-C", edgeRoot, "init", "-q"]);
+  execFileSync("git", ["-C", edgeRoot, "add", "harness"]);
+  execFileSync("git", [
+    "-C",
+    edgeRoot,
+    "-c",
+    "user.name=Offline Close",
+    "-c",
+    "user.email=offline-close@example.invalid",
+    "commit",
+    "-qm",
+    "edge config",
+  ]);
+  // The fixture's resident stream owns node-one until this edge daemon attaches.
+  await fixture.stopResidentSync("node-one");
+  registerDaemonRepo({
+    canonicalRoot: edgeRoot,
+    repoId: "dual-repo",
+    mode: "remote-edge",
+    userRoot: edgeUser,
+    createConvenienceLinks: false,
+  });
+  writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify({ schema: "fleet-edge-config/v1", ...config }));
+  fixture.owners.signIn(edgeUser, "node-one", edgeRoot);
+  const edge = await openDaemonHost({
+    daemonId: "offline-close-edge",
+    userRoot: edgeUser,
+    oidc: createIdentitySession(edgeUser, { fetch: fixture.owners.keycloak.fetch }),
+  });
+  let edgeClosed = false;
+  t.after(async () => {
+    if (!edgeClosed) await edge.close();
+  });
+  await edge.attachmentsSettled();
+  await fixture.center.close();
+  const inFlight = edge.run(
+    "dual-repo",
+    { kind: "task-create", taskId: "task-offline-close", title: "Offline close" },
+    {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: {
+        ownerUid: process.getuid?.() ?? 0,
+        source: "unix-socket-filesystem-owner-boundary",
+      },
+    },
+  );
+  const closing = edge.close();
+  edgeClosed = true;
+  // The node:test timeout is the hang guard: a retry that outlives close fails here instead of
+  // measuring a wall-clock duration. The close event is the assertion.
+  await closing;
+  const receipt = await inFlight;
+  assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+  assert.match(String(receipt.rejectionExplanation), /daemon closed|abort/iu);
+});

@@ -31,6 +31,8 @@ export async function forward(input: {
   readonly intent: ForwardingIntent;
   readonly auth: DaemonAuthenticationContext;
   readonly oidc: IdentitySessionPort;
+  /** Daemon-close lifetime; combined with the request connection lifetime and carried into retries. */
+  readonly signal?: AbortSignal;
   readonly runRuntime: (
     payload: JsonObject,
     auth: DaemonAuthenticationContext,
@@ -52,6 +54,11 @@ export async function forward(input: {
     config = runtimeLocation(edge, input.repoId, requiredNodeId);
   if (!config) return null;
   const { workspaceRoot } = config;
+  const signal =
+    input.signal && input.auth.connectionSignal
+      ? AbortSignal.any([input.signal, input.auth.connectionSignal])
+      : (input.signal ?? input.auth.connectionSignal);
+  signal?.throwIfAborted();
   if (input.intent.kind === "runtime") {
     const payload = { ...config, method: input.intent.method, action: input.intent.inputs.action },
       receipt = (await input.runRuntime(
@@ -101,6 +108,7 @@ export async function forward(input: {
     throw executionCredentialRejected();
   return runFleetEdgeTask(
     {
+      ...(signal ? { signal } : {}),
       payload: {
         ...config,
         workspaceRoot,
