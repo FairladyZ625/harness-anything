@@ -166,24 +166,31 @@ export function readSquadRecoveryState(
 function readSquadControlState(rootDir: string, ownerDispatchId: string, squadRunId: string) {
   if (!readDispatchStreamHeader(rootDir, ownerDispatchId)) return null;
   const control: { state: SquadState | null; ackRevision: number } = { state: null, ackRevision: -1 };
-  visitDispatchStreamLines(dispatchStreamPath(rootDir, ownerDispatchId), (line) => {
-    const kind = /"kind"\s*:\s*"([^"\\]+)"/u.exec(line)?.[1];
-    if (kind !== "squad_run_state" && kind !== "squad_run_cancelled" && kind !== "squad_run_publication_ack")
+  visitDispatchStreamLines(
+    dispatchStreamPath(rootDir, ownerDispatchId),
+    (line) => {
+      const record = parseRecord(line);
+      if (record?.kind === "squad_run_state") {
+        const candidate = squadState(normalizeHistoricalSquadRunIdentity(record.state));
+        if (candidate && (!control.state || control.state.revision < candidate.revision)) control.state = candidate;
+      } else if (record?.kind === "squad_run_cancelled") {
+        control.state = applySquadCancellation(control.state, record.revision);
+      } else if (
+        record?.kind === "squad_run_publication_ack" &&
+        record.squadRunId === squadRunId &&
+        Number.isSafeInteger(record.revision)
+      )
+        control.ackRevision = Math.max(control.ackRevision, Number(record.revision));
       return true;
-    const record = parseRecord(line);
-    if (record?.kind === "squad_run_state") {
-      const candidate = squadState(normalizeHistoricalSquadRunIdentity(record.state));
-      if (candidate && (!control.state || control.state.revision < candidate.revision)) control.state = candidate;
-    } else if (record?.kind === "squad_run_cancelled") {
-      control.state = applySquadCancellation(control.state, record.revision);
-    } else if (
-      record?.kind === "squad_run_publication_ack" &&
-      record.squadRunId === squadRunId &&
-      Number.isSafeInteger(record.revision)
-    )
-      control.ackRevision = Math.max(control.ackRevision, Number(record.revision));
-    return true;
-  });
+    },
+    (prefix) => {
+      const kind = /"kind"\s*:\s*"([^"\\]+)"/u.exec(prefix)?.[1];
+      if (kind)
+        return kind === "squad_run_state" || kind === "squad_run_cancelled" || kind === "squad_run_publication_ack";
+      // Non-object data cannot be a control record (e.g. a sparse/truncated transcript line).
+      return /^\s*[^\s{]/u.test(prefix) ? false : undefined;
+    },
+  );
   return control;
 }
 
