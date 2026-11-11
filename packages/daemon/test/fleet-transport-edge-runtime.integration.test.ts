@@ -32,7 +32,6 @@ import {
   rawPeer,
   runFaultChild,
 } from "./fleet-runtime-recovery.fixtures.ts";
-import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { signOutAt } from "./keycloak.fixtures.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";

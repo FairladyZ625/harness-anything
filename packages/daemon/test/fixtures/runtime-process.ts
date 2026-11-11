@@ -37,7 +37,6 @@ export function runtimeProcessFixture(t: TestContext): Pick<RuntimeProcess, "pid
   };
 }
 
-
 export function fixtureRuntimeProcess(context: Pick<TestContext, "after">) {
   const child = spawn(
     process.execPath,

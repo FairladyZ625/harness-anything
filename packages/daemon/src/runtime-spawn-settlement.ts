@@ -774,12 +774,13 @@ async function publishTerminalOutcome(
   archiveAllowed = true,
 ): Promise<DispatchLifecycleView> {
   const { payload, body } = terminal;
-  await context.publishRuntimeEvent(
-    "runtime_session_exited",
-    { runtimeSessionId: active.runtimeSessionId },
-    randomUUID(),
-    terminalBinding,
-  );
+  if ((await dispatchLifecycleForTerminal(context, active)).attempt.stopProof !== "proven_stopped")
+    await context.publishRuntimeEvent(
+      "runtime_session_exited",
+      { runtimeSessionId: active.runtimeSessionId },
+      randomUUID(),
+      terminalBinding,
+    );
   if (active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true)
     await context.publishRuntimeEvent(
       "runtime_session_cancelled",

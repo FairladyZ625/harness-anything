@@ -984,7 +984,8 @@ export function reduceRuntimeSession(
       lastObservedAt: event.occurredAt,
     };
   }
-  if (event.type === "runtime_session_exited" && current.outcome !== null) return current;
+  if (event.type === "runtime_session_exited" && current.liveness === "exited" && current.outcome !== null)
+    return current;
   if (event.type === "runtime_session_exited")
     return { ...current, liveness: "exited", attachable: false, lastObservedAt: event.occurredAt };
   if (event.type === "runtime_session_outcome_observed") {
