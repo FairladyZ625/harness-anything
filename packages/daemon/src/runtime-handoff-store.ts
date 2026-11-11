@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   buildHandoffPacket,
   resolveHarnessLayout,
+  runtimeSessionMissingOutcomeEvidence,
   sha256Bytes,
   sha256Text,
   stableStringify,
@@ -90,7 +91,8 @@ export function runRuntimeHandoffAction(
       !payload.executionId ||
       !payload.agentId ||
       !session?.providerSessionId ||
-      !view?.policy.canHandoff
+      !view?.policy.canHandoff ||
+      runtimeSessionMissingOutcomeEvidence(session) !== null
     )
       throw runtimeSpawnError("runtime_handoff_ineligible", "The opted-in task-bound Codex source must be settled.");
     if (cell.projection.readRuntimeDispatchByResumeSource(dispatchId))

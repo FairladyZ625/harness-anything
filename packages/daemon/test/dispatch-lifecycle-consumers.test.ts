@@ -1,6 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { dispatchAdmissionRefusal } from "@harness-anything/kernel";
+import { prepareRuntimeInstance } from "../src/runtime-spawn-mission.ts";
 import { liveDispatchIn } from "../src/live-dispatch-worktree.ts";
 import { readActiveDispatchLifecycleSync } from "../src/runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
@@ -64,4 +66,40 @@ test("workspace ownership survives a stopped backoff attempt and active paginati
   assert.equal(view.policy.canSteer, false);
   assert.equal(liveDispatchIn(active, "/fixture/worktree"), true);
   assert.equal(liveDispatchIn(active, "/fixture/worktree-neighbour"), false);
+});
+
+test("capacity ranking and instance reuse follow reservations even when session summaries disagree", async () => {
+  const events = [lifecycleEvent("R", "reservation", { source: "local", instanceId: "a" })];
+  const read = dispatchLifecycleReadOf(() => events);
+  const select = async () => {
+    const capacity = readActiveDispatchLifecycleSync(read, runtimeSpawnError);
+    const instance = (instanceId: string) => ({
+      instanceId,
+      kindId: "codex",
+      enabled: true,
+      models: ["model"],
+      authReadiness: { status: "ready", code: null },
+    });
+    return prepareRuntimeInstance(
+      {
+        agent: null,
+        runtimeKind: "codex",
+        allowedInstanceIds: ["a", "b"],
+        instances: [instance("a"), instance("b")] as never,
+        sessions: [
+          { runtimeSessionId: "stale", instanceId: "b", liveness: "live", outcome: null, providerSessionId: null },
+        ],
+        capacity,
+      },
+      async (id) => id,
+    );
+  };
+  assert.equal((await select()).instanceId, "b", "reserved a counts, stale session summary for b does not");
+  const [busy] = readActiveDispatchLifecycleSync(read, runtimeSpawnError);
+  assert.ok(
+    dispatchAdmissionRefusal({ group: busy!, instance: [busy!], instanceId: "a", owner: "local" }),
+    "a second admission into the active group is refused",
+  );
+  events.push(lifecycleEvent("X", "reservation", { source: "local", instanceId: "a" }));
+  assert.equal((await select()).instanceId, "a", "an accepted stop releases the same instance for reuse");
 });
