@@ -50,8 +50,10 @@ for (const explicit of [false, true])
     `separate clones: real CLI ${explicit ? "explicit" : "default"} task submit publishes its exact cut`,
     { timeout: 90_000 },
     async (t) => {
+      const cleanup = new AsyncDisposableStack();
+      t.after(() => cleanup.disposeAsync());
       const fixture = await dualSyncFixture();
-      t.after(() => fixture.close());
+      cleanup.defer(() => fixture.close());
       const config = fixture.channel("node-one"),
         edgeRoot = config.workspaceRoot,
         remote = path.join(fixture.root, "origin.git"),
@@ -123,7 +125,9 @@ for (const explicit of [false, true])
         userRoot: edgeUser,
         oidc,
       });
-      t.after(() => edge.close());
+      // node:test after hooks run FIFO. Drain the edge while its center and identity
+      // authority are still available, or an in-flight review failure retries for 90s.
+      cleanup.defer(() => edge.close());
       await edge.attachmentsSettled();
       const transport = createUnixSocketTransportServer({
         daemonId: "delivery-edge",
@@ -138,7 +142,7 @@ for (const explicit of [false, true])
           }),
       });
       await transport.start();
-      t.after(() => transport.stop());
+      cleanup.defer(() => transport.stop());
       const invoke = async (args: string[]) => {
         const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
         const child = spawn(
