@@ -13,7 +13,7 @@ import {
   readDispatchStreamSummary,
 } from "../src/dispatch-stream.ts";
 import { purgeRepoCache } from "../src/repo-cache-purge.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import {
   fixtureTaskId,
   git,
@@ -150,10 +150,10 @@ test("a post-archive settlement failure rewrites the disposition to pending", as
     },
   });
   context.mock.method(console, "error", () => undefined);
-  await publishExit(settleContext, runtime, 0);
+  await assert.rejects(publishExit(settleContext, runtime, 0), /injected settlement failure/u);
   const streamPath = dispatchStreamPath(fixture.canonical, runtime.dispatchId),
     summary = readDispatchStreamSummary(fixture.canonical, runtime.dispatchId);
-  assert.equal(summary?.terminalOutcome?.payload.outcome, "unknown");
+  assert.equal(summary?.terminalOutcome, null, "a refused settlement publishes no terminal outcome");
   assert.equal(readDispatchEvidenceState(fixture.canonical, runtime.dispatchId), "pending");
   assert.equal(path.basename(path.dirname(streamPath)), "dispatches");
   const removed = purgeRepoCache(fixture.canonical);

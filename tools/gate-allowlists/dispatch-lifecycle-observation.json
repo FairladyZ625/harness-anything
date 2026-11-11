@@ -152,34 +152,6 @@
         "slice": "6"
       },
       {
-        "path": "packages/daemon/src/repo-cell-task-mutation.ts",
-        "symbol": "dispatchProcessIsOrphaned",
-        "kind": "fallback-state-branch",
-        "fingerprint": "0ab1a130b9ece7943b65801be7a4e11b662cd417b002576281aa87d9c14ca6b0",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/repo-cell-task-mutation.ts",
-        "symbol": "dispatchProcessIsOrphaned",
-        "kind": "runtimePidIsAlive",
-        "fingerprint": "3af03c34079a37023683d4ff0d532d2e8e9e2333fb808438223f4101df97c92c",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/repo-cell-task-mutation.ts",
-        "symbol": "dispatchReachedTerminalAttempt",
-        "kind": "fallback-state-branch",
-        "fingerprint": "8f419a24bc277ac28661812b26b6857210f95e504dd7a3c604b17ab62efb876b",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/repo-cell-task-mutation.ts",
-        "symbol": "terminalExecutionRuntimeBinding",
-        "kind": "liveness-comparison",
-        "fingerprint": "6de7c8f19cd3ffbbf75b1851d649aef97a54aca1bacead7fb88083079321a43a",
-        "slice": "3"
-      },
-      {
         "path": "packages/daemon/src/repo-read-runtime.ts",
         "symbol": "canAttach",
         "kind": "liveness-comparison",
@@ -213,20 +185,6 @@
         "kind": "liveness-comparison",
         "fingerprint": "640c06b95ae3f8c2ea308403db10fc36e767d8f9f8b88de1af4e7796d14d6fe8",
         "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-settlement.ts",
-        "symbol": "runtimeOutcomeSettled",
-        "kind": "liveness-comparison",
-        "fingerprint": "089a2c000244979b82704629a2d8b2bb4e9b6e48e63d70437d410a90951d981d",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/runtime-settlement.ts",
-        "symbol": "runtimeSessionSettlement",
-        "kind": "liveness-comparison",
-        "fingerprint": "9a405892b50248f792c25bef27dd09a50589600895bb61cd4254e320792f0ee5",
-        "slice": "3"
       },
       {
         "path": "packages/daemon/src/runtime-spawn-control.ts",
@@ -332,55 +290,6 @@
         "kind": "liveness-comparison",
         "fingerprint": "1769c7a98c6b2e2595ceb633fe3b3307491c9a8d1fef5524d44ac67d1993e77e",
         "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-settlement.ts",
-        "symbol": "publishExit",
-        "kind": "fallback-state-branch",
-        "fingerprint": "be1ccc9797e2bfd36a63ee080c4bbe23e52f5e8dab2d894b980329930aff6b30",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-settlement.ts",
-        "symbol": "publishExit",
-        "kind": "fallback-state-branch",
-        "fingerprint": "be1ccc9797e2bfd36a63ee080c4bbe23e52f5e8dab2d894b980329930aff6b30",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-settlement.ts",
-        "symbol": "publishExit",
-        "kind": "fallback-state-branch",
-        "fingerprint": "f1d1868245737a4ac314bfd6c9342d99183d44e7bcf4fcdf918cc07555c69e7c",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-settlement.ts",
-        "symbol": "publishExit",
-        "kind": "process-table-probe",
-        "fingerprint": "7cccfb2659e3c32d37984ebc81c1da29691372bc403b930c5c5d80a63e55baa6",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-settlement.ts",
-        "symbol": "publishExit",
-        "kind": "process-table-probe",
-        "fingerprint": "805ed3ed864855e8164356127c976280613fe04cd824273626b55ed0364ea7b5",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-settlement.ts",
-        "symbol": "publishTerminalOutcome",
-        "kind": "fallback-state-branch",
-        "fingerprint": "a6fd881464b384f4125bb800f897beca38350ae5093acb89ad0c46e1b5317bda",
-        "slice": "3"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-settlement.ts",
-        "symbol": "publishTerminalOutcome",
-        "kind": "fallback-state-branch",
-        "fingerprint": "b9003ff137bc19197fc6265c9859740dfee09c3026df66896a2bd41b325896a7",
-        "slice": "3"
       },
       {
         "path": "packages/daemon/src/runtime-spawner.ts",

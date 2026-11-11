@@ -3,9 +3,7 @@ import {
   isSamePerson,
   isTerminalStatus,
   resolveTaskBoundRuntimeBinding,
-  runtimeSessionSemanticState,
   runtimeSessionIdFromActor,
-  sameWriteSource,
   supersededTaskState,
   taskClasses,
   taskAmendment,
@@ -15,10 +13,7 @@ import {
   type TaskEventV1,
   type TaskV2,
 } from "@harness-anything/kernel";
-import { readDispatchLiveIndex, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
-import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
-import { reconcileProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
+import { readDispatchLiveIndex } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RuntimeLeaseReleasePending } from "./runtime-spawn-types.ts";
@@ -169,47 +164,36 @@ function taskMutationWithStopResult(
     const proofRuntimeSessionId =
       terminalRuntimeSessionId ??
       (terminalRuntimeBinding !== null ? runtimeSessionIdFromActor(activeLease.actor) : null);
-    if (proofRuntimeSessionId !== null) {
-      const verdict = terminalRuntimeStopProof(
-        cell,
-        task.taskId,
-        terminalExecutionId ?? activeLease.executionId,
-        proofRuntimeSessionId,
-        action.terminalProcessGroupPid,
-        binding.source,
-      );
-      if (verdict !== "proven_stopped") {
-        const reason = `Runtime process group for ${proofRuntimeSessionId} is ${verdict}; lease release waits for a stop proof.${processGroupRecoveryHint()}`;
-        if (returnUnprovenStop)
-          return {
-            outcome: "lease_unproven",
-            code: "runtime_process_group_unproven",
-            reason,
-          };
-        throw cell.cellCodedError("runtime_process_group_unproven", reason);
+    if (proofRuntimeSessionId !== null && terminalRuntimeBinding === null) {
+      const lifecycle = cell.projection.readDispatchLifecycle({
+          by: "session",
+          runtimeSessionId: proofRuntimeSessionId,
+        }),
+        row = lifecycle.status === "ready" ? lifecycle.rows[0] : undefined,
+        matchingTask =
+          row?.attempt.task?.taskId === task.taskId && row.attempt.task.executionId === activeLease.executionId,
+        acceptedStopProof = matchingTask && row?.attempt.stopProof === "proven_stopped",
+        code = matchingTask ? "runtime_process_group_unproven" : "runtime_terminal_superseded",
+        reason =
+          code === "runtime_process_group_unproven"
+            ? `Runtime process group for ${proofRuntimeSessionId} has no accepted stop proof; lease release waits for the lifecycle projection.`
+            : `Runtime session ${proofRuntimeSessionId} does not own execution ${terminalExecutionId ?? activeLease.executionId}.`;
+      if (!acceptedStopProof) {
+        if (returnUnprovenStop && code === "runtime_process_group_unproven")
+          return { outcome: "lease_unproven", code, reason };
+        throw cell.cellCodedError(code, reason);
       }
     }
-    // An edge publishes the runtime archive before sending the existing task-release command.
-    // Read that canonical archive to carry the owner-wait intent through the same release event;
-    // this keeps the center's lease fence and blocked transition ordered without changing fleet
-    // command payloads.
-    const waitingOnOwner =
-      terminalRuntimeSessionId !== null &&
-      typeof binding.source === "object" &&
-      binding.source.kind === "node" &&
-      runtimeTerminalAwaitingOwner(cell, task.taskId, terminalRuntimeSessionId);
     return {
       type: "lease_released",
-      task: waitingOnOwner ? { ...task, status: "blocked" } : task,
+      task,
       ...(execution === undefined ? {} : { execution }),
       releasedLease: activeLease,
       authorizationDecision,
       audit: {
         command: "release",
-        reason: waitingOnOwner
-          ? `Worker is waiting for owner ruling: ${String(action.reason ?? "runtime escalation")}`
-          : reason,
-        fields: waitingOnOwner ? ["lease", "status"] : ["lease"],
+        reason,
+        fields: ["lease"],
       },
     };
   }
@@ -482,123 +466,8 @@ function taskMutationWithStopResult(
   throw cell.cellCodedError("unsupported_command", `No task mutation contract exists for ${action.kind}.`);
 }
 
-function terminalRuntimeStopProof(
-  cell: Pick<RepoCellActionContext, "rootDir" | "projection">,
-  taskId: string,
-  executionId: string,
-  runtimeSessionId: string,
-  suppliedPid: unknown,
-  source: RepoCellBinding["source"],
-): ReturnType<typeof reconcileProcessGroup> {
-  const matchingHeaders = readDispatchStreamHeaders(cell.rootDir, true).filter(
-    (candidate) => candidate.taskId === taskId && candidate.runtimeSessionId === runtimeSessionId,
-  );
-  // Terminal settlement may release a newer lease generation than the dispatch that reached its
-  // terminal state. Prefer the exact execution when retained, then fall back to this runtime
-  // session's historical dispatch; the session identity remains the proof binding.
-  const candidates = matchingHeaders
-    .map((header) => ({ header, process: readDispatchStreamSummary(cell.rootDir, header.dispatchId)?.process }))
-    .filter(
-      (candidate): candidate is typeof candidate & { readonly process: NonNullable<typeof candidate.process> } =>
-        candidate.process !== null && candidate.process !== undefined,
-    );
-  if (!candidates.length) {
-    const exactHeaders = matchingHeaders.filter((header) => header.executionId === executionId),
-      eligibleHeaders = exactHeaders.length ? exactHeaders : matchingHeaders,
-      processStartRejected =
-        eligibleHeaders.length === 1 &&
-        (() => {
-          const records = readDispatchStreamSummary(cell.rootDir, eligibleHeaders[0]!.dispatchId)?.records ?? [];
-          return (
-            records.some((record) => record.kind === "process_start_rejected") &&
-            !records.some((record) => ["process_started", "process_exit", "process_lost"].includes(String(record.kind)))
-          );
-        })();
-    const events = cell.projection.readRuntimeSessionEvents(runtimeSessionId, 0, Number.MAX_SAFE_INTEGER),
-      started = events.find(
-        (event) =>
-          event.type === "runtime_session_started" &&
-          event.payload.runtimeSessionId === runtimeSessionId &&
-          (event.payload.taskBinding === undefined ||
-            (event.payload.taskBinding.taskId === taskId && event.payload.taskBinding.executionId === executionId)) &&
-          sameWriteSource(event.source, source),
-      ),
-      pids = [
-        ...new Set(
-          events.flatMap((event) =>
-            event.type === "runtime_session_liveness_changed" &&
-            sameWriteSource(event.source, source) &&
-            Number.isSafeInteger(event.payload.processGroupPid) &&
-            Number(event.payload.processGroupPid) > 1
-              ? [Number(event.payload.processGroupPid)]
-              : [],
-          ),
-        ),
-      ],
-      suppliedProcessGroupPid =
-        Number.isSafeInteger(suppliedPid) && Number(suppliedPid) > 1 ? Number(suppliedPid) : null,
-      ended = events.some(
-        (event) =>
-          event.type === "runtime_session_exited" &&
-          event.payload.runtimeSessionId === runtimeSessionId &&
-          sameWriteSource(event.source, source),
-      ),
-      edgeProcessGroup = typeof source === "object" && source.kind === "node";
-    if (suppliedPid !== undefined && suppliedProcessGroupPid === null) return "unknown_unreachable";
-    if (pids.length > 1) return "unknown_unreachable";
-    if (pids.length === 0 && suppliedPid === undefined && (ended || processStartRejected)) return "proven_stopped";
-    if (!started) return "unknown_unreachable";
-    if (pids.length === 1) {
-      if (suppliedProcessGroupPid !== null && suppliedProcessGroupPid !== pids[0]) return "unknown_unreachable";
-      if (edgeProcessGroup) return suppliedProcessGroupPid !== null ? "proven_stopped" : "unknown_unreachable";
-      return reconcileProcessGroup({
-        pid: pids[0]!,
-        pgid: pids[0]!,
-        ...(eligibleHeaders.length === 1
-          ? { dispatch: { rootDir: cell.rootDir, dispatchId: eligibleHeaders[0]!.dispatchId } }
-          : {}),
-      });
-    }
-    if (edgeProcessGroup && suppliedProcessGroupPid !== null) return "proven_stopped";
-    if (ended) return "proven_stopped";
-    return "unknown_unreachable";
-  }
-  const exact = candidates.filter((candidate) => candidate.header.executionId === executionId),
-    eligible = exact.length ? exact : candidates,
-    matched =
-      eligible.length !== 1
-        ? null
-        : suppliedPid === undefined
-          ? eligible[0]
-          : Number.isSafeInteger(suppliedPid) && eligible[0]!.process.pid === Number(suppliedPid)
-            ? eligible[0]
-            : null;
-  if (!matched) return "unknown_unreachable";
-  if (suppliedPid !== undefined && Number(suppliedPid) !== matched.process.pid) return "unknown_unreachable";
-  return reconcileProcessGroup({
-    pid: matched.process.pid,
-    pgid: matched.process.pid,
-    dispatch: { rootDir: cell.rootDir, dispatchId: matched.header.dispatchId },
-  });
-}
-
 function optionalReleaseText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function runtimeTerminalAwaitingOwner(
-  cell: Pick<RepoCellActionContext, "projection">,
-  taskId: string,
-  runtimeSessionId: string,
-): boolean {
-  const dispatch = cell.projection.readRuntimeDispatch(runtimeSessionId),
-    packagePath = cell.projection.read(taskId).packagePath;
-  if (!dispatch || packagePath === null) return false;
-  const body = cell.projection.readDocument(`${packagePath}/artifacts/dispatches/${dispatch.payload.dispatchId}.json`)
-    .document?.body;
-  if (body === undefined || body === null || body.trim() === "") return false;
-  const value = JSON.parse(body) as Record<string, unknown>;
-  return value.schema === "runtime-dispatch/v1" && value.classification === "awaiting_ruling";
 }
 
 /** Whether walking `parentTaskId` up from `ancestorId` reaches `taskId`: the move would close a
@@ -627,47 +496,20 @@ function terminalExecutionRuntimeBinding(
   const actorRuntimeSessionId = runtimeSessionIdFromActor(lease.actor);
   if (actorRuntimeSessionId === null) return null;
   if (runtimeSessionId !== null && actorRuntimeSessionId !== runtimeSessionId) return null;
-  const inferredTerminalSessionIds =
-    runtimeSessionId === null
-      ? new Set(
-          readDispatchLiveIndex(cell.rootDir, [lease.taskId])
-            .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
-            .filter((stream) => stream?.header.runtimeSessionId === actorRuntimeSessionId)
-            .filter(
-              (stream) =>
-                stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
-            )
-            .map((stream) => stream!.header.runtimeSessionId),
-        )
-      : null;
-  // The lease actor carries the session id, so this is a primary-key read, not the task's history.
-  const session = cell.projection.readRuntimeSession(actorRuntimeSessionId);
-  if (session === null) return null;
+  const lifecycle = cell.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: actorRuntimeSessionId });
+  if (lifecycle.status !== "ready" || lifecycle.rows.length !== 1) return null;
+  const row = lifecycle.rows[0]!,
+    task = row.attempt.task;
   if (
-    (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") &&
-    !inferredTerminalSessionIds?.has(session.runtimeSessionId)
+    task?.taskId !== lease.taskId ||
+    !row.attempt.fence.verified ||
+    row.attempt.stopProof !== "proven_stopped" ||
+    row.groupPhase === "waiting_backoff"
   )
     return null;
+  const session = cell.projection.readRuntimeSession(actorRuntimeSessionId);
+  if (session === null) return null;
   return resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
-}
-
-function dispatchReachedTerminalAttempt(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
-  return (
-    stream.attemptOutcome !== null &&
-    stream.attemptOutcome !== undefined &&
-    (!isProviderFailureClassification(stream.attemptOutcome.classification) ||
-      stream.header.fallbackAttempt === undefined ||
-      stream.fallbackState === "exhausted")
-  );
-}
-
-function dispatchProcessIsOrphaned(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
-  return (
-    stream.fallbackState !== "scheduled" &&
-    stream.process !== null &&
-    stream.process !== undefined &&
-    (stream.process.exited || !runtimePidIsAlive(stream.process.pid))
-  );
 }
 
 function unsettledTaskDispatch(

@@ -12,9 +12,9 @@ import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
-// A parked sessions.await re-reads settlement on exit signals and outcomes, not on provider
-// activity: each activity frame used to wake every parked wait into a full read, so host-thread
-// work grew with provider output times parked waits and starved every other request.
+// A parked sessions.await re-reads the lifecycle projection on exit signals and outcomes, not on
+// provider activity. The local waiter reads that port directly; public session reads must not grow
+// with provider output times parked waits and starve every other request.
 test("a parked sessions.await does not re-read settlement for provider activity frames", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-sessions-await-wake-")),
     root = path.join(parent, "repo"),
@@ -93,10 +93,10 @@ test("a parked sessions.await does not re-read settlement for provider activity 
       .finally(() => {
         settled = true;
       });
-    await waitForArrival(
-      async () => ((await (() => settlementReads.count >= 1)()) ? true : null),
-      watchDirectoryArrival(parent),
-    );
+    // The local waiter now reads the lifecycle projection directly instead of re-entering the
+    // public RuntimeSession read route. Let its initial read and park complete before measuring
+    // activity-frame wakeups.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     const readsWhenParked = settlementReads.count;
     for (let index = 0; index < activityFrames; index += 1) {
       emit({

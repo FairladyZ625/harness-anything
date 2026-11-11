@@ -5,9 +5,30 @@ import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.t
 import {
   applyTransition,
   normalizeTaskLifecycleCommand,
+  emptyTaskLifecycleSnapshot,
+  reduceTaskEvent,
   validateTransition,
   type ReworkTaskCommand,
 } from "../../src/domain/task-lifecycle.contract.ts";
+
+test("runtime lease settlement releases only its fenced execution", () => {
+  const snapshot = lifecycleFixture().events.slice(0, 2).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+    lease = snapshot.lease!,
+    release = (leaseVersion: number) => ({
+      ...normalizeTaskLifecycleCommand(
+        { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
+        { type: "ReleaseRuntimeLease", taskId: "task-1", executionId: "execution-1", leaseVersion, reason: "stopped" },
+      ),
+      eventId: "event-runtime-release",
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-11-04T00:10:00.000Z",
+    });
+  assert.throws(() => applyTransition(snapshot, release(lease.version + 1), {}));
+  const result = applyTransition(snapshot, release(lease.version), {});
+  assert.equal(result.event.type, "lease_released");
+  assert.equal(result.snapshot.lease, null);
+  assert.deepEqual(reduceTaskEvent(snapshot, result.event), result.snapshot);
+});
 
 // A low-risk cut submits review-exempt: the aggregate stays at `submitted` instead of entering
 // `in_review`. The owner's semantic acceptance is still a real judgment, so the same owner return

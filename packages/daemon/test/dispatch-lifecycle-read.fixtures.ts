@@ -97,36 +97,22 @@ export function lifecycleReadFor(
 export function dispatchLifecycleReadOf(events: () => readonly AgentRuntimeEventV1[]) {
   return (query: DispatchLifecycleQuery): DispatchLifecycleRead => {
     const groups = new Map<string, DispatchLifecycleGroup>(),
-      bySession = new Map<string, string>();
+      bySession = new Map<string, { readonly groupId: string; readonly dispatchId: string }>();
     for (const event of events()) {
       if (!isDispatchLifecycleInput(event)) continue;
       const address = dispatchLifecycleAddress(event);
       if (address === null) continue;
-      const id = address.by === "group" ? address.attemptGroupId : bySession.get(address.runtimeSessionId),
+      const id = address.by === "group" ? address.attemptGroupId : bySession.get(address.runtimeSessionId)?.groupId,
         step = reduceDispatchLifecycle(id === undefined ? null : (groups.get(id) ?? null), event);
       if (step.kind !== "applied") continue;
       groups.set(step.group.attemptGroupId, step.group);
-      for (const attempt of step.group.attempts) bySession.set(attempt.runtimeSessionId, step.group.attemptGroupId);
+      for (const attempt of step.group.attempts)
+        bySession.set(attempt.runtimeSessionId, {
+          groupId: step.group.attemptGroupId,
+          dispatchId: attempt.dispatchId,
+        });
     }
-    const viewForAttempt = (group: DispatchLifecycleGroup, dispatchId: string): DispatchLifecycleView =>
-      dispatchLifecycleView(group, dispatchId);
-    let rows: DispatchLifecycleView[];
-    if (query.by === "dispatch")
-      rows = query.dispatchIds.flatMap((dispatchId) => {
-        const group = [...groups.values()].find((entry) =>
-          entry.attempts.some((attempt) => attempt.dispatchId === dispatchId),
-        );
-        return group ? [viewForAttempt(group, dispatchId)] : [];
-      });
-    else if (query.by === "session") {
-      const groupId = bySession.get(query.runtimeSessionId),
-        group = groupId === undefined ? undefined : groups.get(groupId),
-        attempt = group?.attempts.find((entry) => entry.runtimeSessionId === query.runtimeSessionId);
-      rows = group && attempt ? [viewForAttempt(group, attempt.dispatchId)] : [];
-    } else if (query.by === "group") {
-      const group = groups.get(query.attemptGroupId);
-      rows = group ? [dispatchLifecycleView(group)] : [];
-    } else {
+    if (query.by === "active") {
       const active = [...groups.values()]
         .filter(
           (group) =>
@@ -135,10 +121,36 @@ export function dispatchLifecycleReadOf(events: () => readonly AgentRuntimeEvent
         )
         .sort((a, b) => (a.attemptGroupId < b.attemptGroupId ? -1 : 1))
         .filter((group) => query.cursor === undefined || group.attemptGroupId > query.cursor);
-      rows = active.slice(0, query.limit).map((group) => dispatchLifecycleView(group));
-      const nextCursor = active.length > query.limit ? (rows.at(-1)?.attemptGroupId ?? null) : null;
-      return { status: "ready", watermark: 0, sourceRevision: 0, rows, nextCursor };
+      const rows = active.slice(0, query.limit).map((group) => dispatchLifecycleView(group));
+      return {
+        status: "ready",
+        watermark: 0,
+        sourceRevision: 0,
+        rows,
+        nextCursor: active.length > query.limit ? (rows.at(-1)?.attemptGroupId ?? null) : null,
+      };
     }
+    const rows =
+      query.by === "session"
+        ? (() => {
+            const address = bySession.get(query.runtimeSessionId),
+              group = address === undefined ? undefined : groups.get(address.groupId);
+            return address === undefined || group === undefined
+              ? []
+              : [dispatchLifecycleView(group, address.dispatchId)];
+          })()
+        : query.by === "dispatch"
+          ? [...groups.values()].flatMap((group) =>
+              group.attempts
+                .filter((attempt) => query.dispatchIds.includes(attempt.dispatchId))
+                .map((attempt) => dispatchLifecycleView(group, attempt.dispatchId)),
+            )
+          : query.by === "group"
+            ? (() => {
+                const group = groups.get(query.attemptGroupId);
+                return group === undefined ? [] : [dispatchLifecycleView(group)];
+              })()
+            : [];
     return { status: "ready", watermark: 0, sourceRevision: 0, rows, nextCursor: null };
   };
 }
@@ -151,8 +163,12 @@ export function lifecycleEvent(
   options: {
     readonly instanceId: string;
     readonly source: AgentRuntimeEventV1["source"];
-    readonly dispatchId?: string;
     readonly liveness?: "live" | "unknown";
+    readonly dispatchId?: string;
+    readonly attemptGroupId?: string;
+    readonly taskId?: string;
+    readonly executionId?: string;
+    readonly role?: "implementer" | "reviewer";
   },
 ): AgentRuntimeEventV1 {
   revision += 1;
@@ -175,7 +191,14 @@ export function lifecycleEvent(
     payload: {
       runtimeSessionId,
       ...(type === "R"
-        ? { dispatchId: options.dispatchId ?? `dispatch-${runtimeSessionId}`, instanceId: options.instanceId }
+        ? {
+            dispatchId: options.dispatchId ?? `dispatch-${runtimeSessionId}`,
+            instanceId: options.instanceId,
+            ...(options.attemptGroupId === undefined ? {} : { attemptGroupId: options.attemptGroupId }),
+            ...(options.taskId === undefined ? {} : { taskId: options.taskId }),
+            ...(options.executionId === undefined ? {} : { executionId: options.executionId }),
+            ...(options.role === undefined ? {} : { role: options.role }),
+          }
         : {}),
       ...(type === "S" ? { launchGeneration: 1 } : {}),
       ...(type === "L" ? { liveness: options.liveness ?? "live" } : {}),

@@ -11,7 +11,6 @@ import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { setTimeout as delay } from "node:timers/promises";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
@@ -202,8 +201,8 @@ test(
     });
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
     t.after(() => fixture.close());
-    const taskReleaseBarrier = fixture.blockTaskRelease();
-    t.after(taskReleaseBarrier.release);
+    const runtimeOutcomeBarrier = fixture.blockRuntimeOutcome();
+    t.after(runtimeOutcomeBarrier.release);
     const center = await fixture.center(),
       edgeRoot = path.join(fixture.root, "runtime-edge"),
       edgeUserRoot = path.join(fixture.root, "runtime-edge-user"),
@@ -399,8 +398,7 @@ test(
       kind: "node",
       nodeId: fixture.subject.nodeId,
     });
-    await taskReleaseBarrier.started;
-    await delay(5_100);
+    await runtimeOutcomeBarrier.started;
     const settlingEvents = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
       .read()
       .events.filter(
@@ -408,10 +406,19 @@ test(
           (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
           event.payload.runtimeSessionId === receipt.runtimeSessionId,
       );
-    assert.deepEqual(settlingEvents, [], "edge must not publish exited while center settlement is pending");
-    taskReleaseBarrier.release();
-    // A WAL write notification can precede SQLite commit visibility. Join the daemon's
-    // post-publication runtime signal instead of treating a filesystem event as that signal.
+    assert.deepEqual(
+      settlingEvents.map(({ type }) => type),
+      ["runtime_session_exited"],
+      "stop proof must be accepted before the center can release the lease and publish outcome",
+    );
+    assert.equal(
+      makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
+        .read()
+        .events.filter((event) => event.type === "lease_released" && event.taskId === fixture.subject.taskId).length,
+      0,
+      "the pending settlement retains its lease",
+    );
+    runtimeOutcomeBarrier.release();
     const waitForOutcome = async (runtimeSessionId: unknown) => {
       await fixture.host.awaitRuntimeSessions(
         fixture.subject.repoId,
@@ -447,8 +454,8 @@ test(
           event.payload.runtimeSessionId === receipt.runtimeSessionId,
       );
     assert.ok(
-      leaseReleaseIndex < runtimeExitIndex && runtimeExitIndex < runtimeOutcomeIndex,
-      "center settlement must precede the adjacent edge exit and outcome events",
+      runtimeExitIndex >= 0 && runtimeExitIndex < leaseReleaseIndex && leaseReleaseIndex < runtimeOutcomeIndex,
+      "accepted stop proof must precede center lease release and canonical outcome",
     );
     assert.deepEqual(
       settledEvents
@@ -558,8 +565,8 @@ test(
           lease: partialSession.session.associations.find((item) => item.taskId === fixture.subject.taskId)?.lease
             ?.phase,
         },
-        { liveness: "exited", outcome: null, lease: "released" },
-        "the accepted exit and released task lease stay authoritative while outcome is missing",
+        { liveness: "exited", outcome: null, lease: "held" },
+        "the accepted exit stays authoritative while a rejected outcome retains the lease",
       );
 
       // Public queries require a repository principal and cannot drive recovery writes.

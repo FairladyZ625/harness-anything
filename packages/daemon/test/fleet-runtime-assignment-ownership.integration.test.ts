@@ -54,7 +54,7 @@ for (const distinctNode of [false, true])
         await waitForFleetPublication(fixture.host, second.repoId, started.opId, auth);
 
         const sequence: string[] = [];
-        const counts = new Map<string, { archive: number; release: number; terminal: number }>();
+        const counts = new Map<string, { archive: number; terminal: number }>();
         const terminalReceipts = new Map<string, Array<{ outcome: string; eventOutcome: string }>>();
         const terminals = new Map<string, () => void>();
         const credentials = new Map<string, string>();
@@ -63,7 +63,7 @@ for (const distinctNode of [false, true])
           (subject) =>
             new Promise<void>((resolve) => {
               settled.set(subject.taskId, resolve);
-              counts.set(subject.taskId, { archive: 0, release: 0, terminal: 0 });
+              counts.set(subject.taskId, { archive: 0, terminal: 0 });
               terminalReceipts.set(subject.taskId, []);
             }),
         );
@@ -91,13 +91,6 @@ for (const distinctNode of [false, true])
                   settled.get(taskId)!();
                 }
                 return receipt;
-              },
-              run: async (...args: Parameters<typeof fixture.host.run>) => {
-                if (args[1].kind === "task-release") {
-                  counts.get(args[1].taskId)!.release += 1;
-                  sequence.push(`${args[1].taskId}:release`);
-                }
-                return fixture.host.run(...args);
               },
             },
             ...fixture.writerOptions,
@@ -223,11 +216,7 @@ for (const distinctNode of [false, true])
             JSON.stringify({ checkpoint: "second-subject-open", callbackExists: existsSync(relay), sequence }),
           );
         }
-        assert.deepEqual(
-          counts.get(fixture.subject.taskId),
-          { archive: 0, release: 0, terminal: 0 },
-          JSON.stringify(sequence),
-        );
+        assert.deepEqual(counts.get(fixture.subject.taskId), { archive: 0, terminal: 0 }, JSON.stringify(sequence));
         assert.equal(existsSync(relay), true, "opening another subject preserves the owner's callback");
         if (distinctNode) {
           await assert.rejects(other.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId }), {
@@ -235,7 +224,7 @@ for (const distinctNode of [false, true])
           });
           assert.deepEqual(
             counts.get(fixture.subject.taskId),
-            { archive: 0, release: 0, terminal: 0 },
+            { archive: 0, terminal: 0 },
             "a live foreign runtime stays owned by its node",
           );
         }
@@ -291,7 +280,7 @@ for (const distinctNode of [false, true])
         }
         assert.deepEqual(
           counts.get(second.taskId),
-          { archive: 0, release: 0, terminal: 0 },
+          { archive: 0, terminal: 0 },
           "first owner restart must leave the second live task alone",
         );
         terminals.get(second.taskId)!();
@@ -334,8 +323,14 @@ for (const distinctNode of [false, true])
           assert.equal(repeated?.detail, "already-exited");
           assert.equal(existsSync(relay), true, "another node must not remove a terminal owner callback");
         }
+        const events = makeTaskEventReader({ repoId: second.repoId, rootDir: fixture.repo }).read().events;
         for (const [taskId, count] of counts) {
-          assert.deepEqual({ archive: count.archive, release: count.release }, { archive: 1, release: 1 });
+          assert.equal(count.archive, 1);
+          assert.equal(
+            events.filter((event) => event.type === "lease_released" && event.taskId === taskId).length,
+            1,
+            `${taskId}: the lifecycle aggregate must release its lease exactly once`,
+          );
           assert.ok(count.terminal >= 1, `${taskId}: ${JSON.stringify(sequence)}`);
           const receipts = terminalReceipts.get(taskId)!;
           assert.equal(
@@ -353,7 +348,6 @@ for (const distinctNode of [false, true])
             `${taskId}: terminal outcomes disagree: ${JSON.stringify({ sequence, receipts })}`,
           );
         }
-        const events = makeTaskEventReader({ repoId: second.repoId, rootDir: fixture.repo }).read().events;
         for (const [runtimeSessionId, expected] of [
           [a.runtimeSessionId, firstExitCode === 0 ? "succeeded" : "failed"],
           [b.runtimeSessionId, "succeeded"],

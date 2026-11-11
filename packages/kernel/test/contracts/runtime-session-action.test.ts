@@ -153,6 +153,50 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
   );
 });
 
+test("RuntimeSession stop proof compiles after dispatch admission before session start", () => {
+  const action = getExecutableEntityAction("runtime_session_exited");
+  assert.ok(action?.execution?.compile);
+  const draft = action.execution.compile({
+    ...compileInput,
+    action: {
+      kind: "runtime_session_exited",
+      runtimeSessionId: "runtime-pre-session",
+      dispatchId: "dispatch-pre-session",
+    },
+  });
+  assert.equal(draft.kind, "runtime-session");
+  if (draft.kind !== "runtime-session") return;
+  assert.equal(draft.event.type, "runtime_session_exited");
+  assert.equal(draft.noChanges, undefined);
+  assert.throws(
+    () =>
+      action.execution!.compile!({
+        ...compileInput,
+        action: { kind: "runtime_session_exited", runtimeSessionId: "runtime-pre-session" },
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "runtime_session_transition_invalid",
+  );
+  assert.equal(reduceRuntimeSession(null, draft.event, { allowPreSessionTerminal: true }), null);
+  const body = "Provider launch was rejected before a session existed.",
+    outcome = getExecutableEntityAction("runtime_session_outcome_observed")!.execution!.compile!({
+      ...compileInput,
+      action: {
+        kind: "runtime_session_outcome_observed",
+        runtimeSessionId: "runtime-pre-session",
+        dispatchId: "dispatch-pre-session",
+        outcome: "failed",
+        resultRef: `artifact:runtime-result/sha256/${sha256Text(body)}`,
+        result: { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" },
+        resultBody: body,
+      },
+    });
+  assert.equal(outcome.kind, "runtime-session");
+  if (outcome.kind !== "runtime-session") return;
+  assert.equal(outcome.noChanges, undefined);
+  assert.equal(reduceRuntimeSession(null, outcome.event, { allowPreSessionTerminal: true }), null);
+  assert.throws(() => reduceRuntimeSession(null, outcome.event), /has not started/u);
+});
+
 test("RuntimeSession events use one-time fields, ordered liveness, and terminal outcome completion", () => {
   const event = (type: AgentRuntimeEventV1["type"], payload: Record<string, unknown>) =>
     ({
@@ -215,10 +259,21 @@ test("RuntimeSession events use one-time fields, ordered liveness, and terminal 
   );
   session = reduceRuntimeSession(session, event("runtime_session_exited", { runtimeSessionId: "runtime-matrix" }));
   assert.ok(session);
-  assert.equal(
-    reduceRuntimeSession(session, event("runtime_session_cancelled", { runtimeSessionId: "runtime-matrix" }))?.outcome,
-    null,
-  );
+  const cancelled = event("runtime_session_cancelled", { runtimeSessionId: "runtime-matrix" }),
+    stoppedThenCancelled = reduceRuntimeSession(session, cancelled);
+  assert.ok(stoppedThenCancelled);
+  assert.equal(stoppedThenCancelled.outcome, null);
+  assert.deepEqual(stoppedThenCancelled.cancelledBy, cancelled.actor);
+  assert.equal(reduceRuntimeSession(stoppedThenCancelled, cancelled), stoppedThenCancelled);
+  const cancelledFirst = reduceRuntimeSession(reduceRuntimeSession(null, started), cancelled)!,
+    stop = getExecutableEntityAction("runtime_session_exited")!.execution!.compile!({
+      ...compileInput,
+      action: { kind: "runtime_session_exited", runtimeSessionId: "runtime-matrix" },
+      currentEntity: cancelledFirst,
+    });
+  assert.equal(cancelledFirst.liveness, "exited");
+  assert.equal(stop.kind, "runtime-session");
+  assert.equal(stop.noChanges, undefined, "cancel is not a stop proof; the stop event must still be accepted");
   session = reduceRuntimeSession(
     session,
     event("runtime_session_task_bound", {
@@ -258,6 +313,15 @@ test("RuntimeSession events use one-time fields, ordered liveness, and terminal 
   session = reduceRuntimeSession(session, outcome);
   assert.ok(session);
   assert.equal(reduceRuntimeSession(session, outcome), session);
+  assert.equal(
+    getExecutableEntityAction("runtime_session_exited")!.execution!.compile!({
+      ...compileInput,
+      action: { kind: "runtime_session_exited", runtimeSessionId: session.runtimeSessionId },
+      currentEntity: session,
+    }).noChanges,
+    true,
+    "an accepted terminal outcome already includes the stop proof",
+  );
   assert.throws(() =>
     reduceRuntimeSession(
       session,

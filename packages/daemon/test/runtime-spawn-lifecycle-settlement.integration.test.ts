@@ -26,13 +26,19 @@ function dispatchText(root: string, dispatchId: string): string {
   return stream ? [stream.header, ...stream.records].map((record) => JSON.stringify(record)).join("\n") : "";
 }
 
-function stopFixtureGroup(child: ReturnType<typeof spawn>): void {
+async function stopFixtureGroup(child: ReturnType<typeof spawn>): Promise<void> {
   if (!child.pid) return;
+  const exited =
+    child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => child.once("exit", () => resolve()));
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
   }
+  child.kill("SIGKILL");
+  await exited;
 }
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -64,7 +70,7 @@ test(
     let fixtureChild: ReturnType<typeof spawn> | undefined,
       exit: ((code: number | null) => void) | null = null,
       output: ((chunk: string, persisted?: boolean) => void) | null = null,
-      failSettlement = false,
+      failLaunch = false,
       launchedPrompt: string | undefined;
     try {
       initIngressRepo(root, 4310);
@@ -109,14 +115,24 @@ test(
           };
         },
         runtimeLaunch: () => {
-          const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
-            detached: true,
-            stdio: ["pipe", "ignore", "ignore"],
-          });
+          if (failLaunch) {
+            failLaunch = false;
+            throw new Error("injected provider launch failure");
+          }
+          const child = spawn(
+            process.execPath,
+            ["-e", "process.stdin.once('data', () => process.exit(0)); process.stdin.resume()"],
+            {
+              detached: true,
+              stdio: ["pipe", "ignore", "ignore"],
+            },
+          );
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
           child.unref();
           fixtureChild = child;
-          const stop = (): void => stopFixtureGroup(child);
+          const stop = (): void => {
+            void stopFixtureGroup(child);
+          };
           return {
             pid: child.pid,
             onOutput: (listener) => {
@@ -124,21 +140,23 @@ test(
             },
             onErrorOutput: () => undefined,
             onExit: (listener) => {
-              exit = listener;
+              exit = () => {
+                if (child.exitCode !== null || child.signalCode !== null) {
+                  listener(0);
+                  return;
+                }
+                child.once("exit", () => listener(0));
+                child.stdin.end("stop");
+              };
             },
             terminate: stop,
-            terminateTree: async () => stop(),
+            terminateTree: async () => {
+              if (child.exitCode !== null || child.signalCode !== null) return;
+              const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+              child.stdin.end("stop");
+              await exited;
+            },
           };
-        },
-        killpoint: (point) => {
-          if (!failSettlement || point !== "after_store_commit") return;
-          const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
-          if (latest?.type === "lease_released" && latest.taskId === "task-runtime-settlement-failed") {
-            failSettlement = false;
-            throw Object.assign(new Error("injected terminal lease settlement failure"), {
-              code: "runtime_lease_release_failed",
-            });
-          }
         },
       });
       try {
@@ -264,16 +282,16 @@ test(
         assert.ok(exit, "runtime exit listener must be attached before the provider exits");
         exit(0);
         const events = await eventuallyValue(() => {
-            const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
-            return events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === receipt.runtimeSessionId,
-            )
-              ? events
-              : null;
-          }),
-          outcomeIndex = events.findIndex(
+          const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
+          return events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === receipt.runtimeSessionId,
+          )
+            ? events
+            : null;
+        });
+        const outcomeIndex = events.findIndex(
             (event) =>
               event.type === "runtime_session_outcome_observed" &&
               event.payload.runtimeSessionId === receipt.runtimeSessionId,
@@ -375,145 +393,218 @@ test(
           deliveryProjection.close();
         }
 
-        const failedTaskId = "task-runtime-settlement-failed",
-          failedExecutionId = "execution-runtime-settlement-failed";
-        const failedCreated = await cell.run(
-          { kind: "task-create", taskId: failedTaskId, title: "Failed settlement" },
-          binding,
-        );
-        assert.equal(failedCreated.outcome, "applied");
-        await waitForFixturePublication(cell, failedCreated.opId, binding);
-        await realizeTaskPlanFixture(
-          root,
-          String((failedCreated as Record<string, unknown>).packagePath),
-          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-          "Failed settlement",
-        );
-        assert.equal(
-          (
-            await cell.run(
-              {
-                kind: "task-start",
-                taskId: failedTaskId,
-                executionId: failedExecutionId,
-              },
-              binding,
-            )
-          ).outcome,
-          "applied",
-        );
-        const failedReceipt = await cell.spawnRuntime(
-          {
-            runtimeInstanceId: definition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "Expose a failed terminal lease settlement",
-            taskId: failedTaskId,
-            dispatchKey: "failed-settlement",
-          },
-          binding,
-        );
         for (const event of records) {
-          appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
+          appendRuntimeWorkerRecord(root, String(redispatched.dispatchId), {
             kind: "provider_event",
-            occurredAt: "2026-08-24T12:01:00.000Z",
+            occurredAt: "2026-08-24T12:00:02.000Z",
             event,
           });
         }
-        appendRuntimeWorkerRecord(root, String(failedReceipt.dispatchId), {
+        assert.ok(output, "redispatched runtime output listener must be attached before provider output");
+        output(records.map((event) => `${JSON.stringify(event)}\n`).join(""), true);
+        appendRuntimeWorkerRecord(root, String(redispatched.dispatchId), {
           kind: "process_exit",
-          occurredAt: "2026-08-24T12:01:01.000Z",
+          occurredAt: "2026-08-24T12:00:03.000Z",
           exitCode: 0,
           signal: null,
         });
-        const beforeFailedExitCount = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read()
-          .events.length;
-        failSettlement = true;
-        assert.ok(exit, "failed-settlement runtime must attach its exit listener");
+        assert.ok(exit, "redispatched runtime exit listener must remain attached");
         exit(0);
-        await eventually(() => {
-          const terminal = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
+        await eventually(() =>
+          makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
             .read()
-            .events.find(
+            .events.some(
               (event) =>
                 event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-            );
-          return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "failed";
-        });
-        assert.equal(failSettlement, false, "the failed task lease release must trigger the post-commit fault");
-        const failedEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
-          failedExitIndex = failedEvents.findIndex(
-            (event) =>
-              event.type === "runtime_session_exited" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ),
-          failedOutcomeIndex = failedEvents.findIndex(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ),
-          failedOutcome = failedEvents.find(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ),
-          failedStatus = await eventuallyValue(async () => {
-            const status = await cell.read("repo.agentRuntime.sessions.read", {
-              runtimeSessionId: failedReceipt.runtimeSessionId,
-            });
-            return status.session.activity.outcome === "failed" ? status : null;
-          });
-        const failedReleaseIndexes = failedEvents.flatMap((event, index) =>
-          index >= beforeFailedExitCount && event.type === "lease_released" && event.taskId === failedTaskId
-            ? [index]
-            : [],
+                event.payload.runtimeSessionId === redispatched.runtimeSessionId,
+            ),
         );
-        assert.equal(
-          failedReleaseIndexes.length,
-          1,
-          "the post-commit fault does not roll back the accepted lease release",
+
+        const launchFailureTaskId = "task-runtime-launch-failure",
+          launchFailureExecutionId = "execution-runtime-launch-failure",
+          launchFailureCreated = await cell.run(
+            { kind: "task-create", taskId: launchFailureTaskId, title: "Failed provider launch" },
+            binding,
+          );
+        assert.equal(launchFailureCreated.outcome, "applied");
+        await waitForFixturePublication(cell, launchFailureCreated.opId, binding);
+        await realizeTaskPlanFixture(
+          root,
+          String((launchFailureCreated as Record<string, unknown>).packagePath),
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Failed provider launch",
         );
-        assert.ok(failedReleaseIndexes[0]! < failedOutcomeIndex);
-        assert.ok(failedExitIndex < failedOutcomeIndex, "the failed settlement still publishes one terminal outcome");
-        assert.equal(
-          failedEvents.filter(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
-          ).length,
-          1,
-        );
-        assert.equal(failedStatus.session.activity.outcome, "failed");
-        assert.equal(
-          failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
-          "publication_indeterminate",
-        );
-        assert.equal(failedStatus.session.activity.reasonCode, "publication_indeterminate");
-        assert.match(failedStatus.result?.text ?? "", /publication_indeterminate/u);
-        failSettlement = false;
         assert.equal(
           (
             await cell.run(
-              { kind: "task-create", taskId: "task-after-settlement-failure", title: "Tail live" },
+              { kind: "task-start", taskId: launchFailureTaskId, executionId: launchFailureExecutionId },
               binding,
             )
           ).outcome,
           "applied",
         );
-        assert.equal(
-          failedEvents.some(
-            (event) =>
-              event.type === "lease_released" &&
-              event.taskId === failedTaskId &&
-              event.payload.execution.executionId === failedExecutionId,
+        failLaunch = true;
+        await assert.rejects(
+          cell.spawnRuntime(
+            {
+              runtimeInstanceId: definition.instanceId,
+              cwd: { scope: "repo-root" },
+              prompt: "Fail after the canonical runtime session starts",
+              taskId: launchFailureTaskId,
+              dispatchKey: "provider-launch-failure",
+            },
+            binding,
           ),
-          true,
+          /injected provider launch failure/u,
         );
+        const launchFailureEvents = await eventuallyValue(() => {
+            const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+              dispatch = events.find(
+                (event) =>
+                  event.type === "runtime_dispatch_requested" &&
+                  event.payload.dispatchKey === "provider-launch-failure",
+              );
+            if (!dispatch) return null;
+            const runtimeSessionId = dispatch.payload.runtimeSessionId;
+            return events.some(
+              (event) => event.type === "runtime_session_exited" && event.payload.runtimeSessionId === runtimeSessionId,
+            )
+              ? events
+              : null;
+          }),
+          launchFailureDispatch = launchFailureEvents.find(
+            (event) =>
+              event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === "provider-launch-failure",
+          ),
+          launchFailureRuntimeSessionId = launchFailureDispatch?.payload.runtimeSessionId;
+        assert.equal(typeof launchFailureRuntimeSessionId, "string");
+        const exitedIndex = launchFailureEvents.findIndex(
+            (event) =>
+              event.type === "runtime_session_exited" &&
+              event.payload.runtimeSessionId === launchFailureRuntimeSessionId,
+          ),
+          releasedIndex = launchFailureEvents.findIndex(
+            (event, index) =>
+              index > exitedIndex && event.type === "lease_released" && event.taskId === launchFailureTaskId,
+          ),
+          launchFailureProjection = makeTaskProjection({
+            rootDir: root,
+            projectionPath: path.join(root, ".harness/cache/runtime-launch-failure-observer.sqlite"),
+            eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+          });
+        try {
+          launchFailureProjection.catchUp();
+          assert.ok(exitedIndex >= 0, "failed launch must accept the canonical stop proof");
+          assert.ok(
+            releasedIndex > exitedIndex,
+            `failed launch releases the lease only after stop proof: ${JSON.stringify({
+              exitedIndex,
+              releasedIndex,
+              launchFailureTaskId,
+              launchFailureRuntimeSessionId,
+            })}`,
+          );
+          assert.equal(launchFailureProjection.read(launchFailureTaskId).snapshot.lease, null);
+          const lifecycle = launchFailureProjection.readDispatchLifecycle({
+            by: "session",
+            runtimeSessionId: String(launchFailureRuntimeSessionId),
+          });
+          assert.equal(lifecycle.status, "ready");
+          if (lifecycle.status === "ready") {
+            assert.equal(lifecycle.rows[0]?.policy.attemptSettled, true);
+            assert.equal(lifecycle.rows[0]?.attempt.outcome, "failed");
+          }
+        } finally {
+          launchFailureProjection.close();
+        }
+
+        const preSessionTaskId = "task-runtime-pre-session-failure",
+          preSessionExecutionId = "execution-runtime-pre-session-failure",
+          preSessionCreated = await cell.run(
+            { kind: "task-create", taskId: preSessionTaskId, title: "Pre-session failure" },
+            binding,
+          );
+        assert.equal(preSessionCreated.outcome, "applied");
+        await waitForFixturePublication(cell, preSessionCreated.opId, binding);
+        await realizeTaskPlanFixture(
+          root,
+          String((preSessionCreated as Record<string, unknown>).packagePath),
+          (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+          "Pre-session failure",
+        );
+        assert.equal(
+          (
+            await cell.run(
+              { kind: "task-start", taskId: preSessionTaskId, executionId: preSessionExecutionId },
+              binding,
+            )
+          ).outcome,
+          "applied",
+        );
+        await assert.rejects(
+          cell.spawnRuntime(
+            {
+              runtimeInstanceId: definition.instanceId,
+              cwd: { scope: "repo-root" },
+              prompt: "Fail before runtime session start acceptance",
+              taskId: preSessionTaskId,
+              dispatchKey: "pre-session-start-failure",
+              handoffEnabled: true,
+            },
+            binding,
+          ),
+          /Handoff is limited to task-bound Codex agent sessions/u,
+        );
+        const preSessionEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+          preSessionDispatch = preSessionEvents.find(
+            (event) =>
+              event.type === "runtime_dispatch_requested" && event.payload.dispatchKey === "pre-session-start-failure",
+          ),
+          preSessionRuntimeSessionId = preSessionDispatch?.payload.runtimeSessionId;
+        assert.equal(typeof preSessionRuntimeSessionId, "string");
+        const preSessionExitedIndex = preSessionEvents.findIndex(
+            (event) =>
+              event.type === "runtime_session_exited" && event.payload.runtimeSessionId === preSessionRuntimeSessionId,
+          ),
+          preSessionStarted = preSessionEvents.some(
+            (event) =>
+              event.type === "runtime_session_started" && event.payload.runtimeSessionId === preSessionRuntimeSessionId,
+          ),
+          preSessionReleasedIndex = preSessionEvents.findIndex(
+            (event, index) =>
+              index > preSessionExitedIndex && event.type === "lease_released" && event.taskId === preSessionTaskId,
+          ),
+          preSessionProjection = makeTaskProjection({
+            rootDir: root,
+            projectionPath: path.join(root, ".harness/cache/runtime-pre-session-failure-observer.sqlite"),
+            eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+          });
+        try {
+          preSessionProjection.catchUp();
+          assert.equal(preSessionStarted, false, "pre-session failure must precede session-start acceptance");
+          assert.ok(preSessionExitedIndex >= 0, "pre-session cleanup must accept the canonical stop proof");
+          assert.ok(
+            preSessionReleasedIndex > preSessionExitedIndex,
+            "pre-session cleanup releases the lease only after stop proof",
+          );
+          assert.equal(preSessionProjection.read(preSessionTaskId).snapshot.lease, null);
+          const lifecycle = preSessionProjection.readDispatchLifecycle({
+            by: "session",
+            runtimeSessionId: String(preSessionRuntimeSessionId),
+          });
+          assert.equal(lifecycle.status, "ready");
+          if (lifecycle.status === "ready") {
+            assert.equal(lifecycle.rows[0]?.policy.attemptSettled, true);
+            assert.equal(lifecycle.rows[0]?.attempt.outcome, "failed");
+          }
+        } finally {
+          preSessionProjection.close();
+        }
       } finally {
         await cell.close();
       }
     } finally {
-      if (fixtureChild) stopFixtureGroup(fixtureChild);
+      if (fixtureChild) await stopFixtureGroup(fixtureChild);
       rmSync(root, { recursive: true, force: true });
     }
   },
@@ -566,23 +657,41 @@ test(
           prompt: request.prompt,
         }),
         runtimeLaunch: () => {
-          const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
-            detached: true,
-            stdio: ["pipe", "ignore", "ignore"],
-          });
+          const child = spawn(
+            process.execPath,
+            ["-e", "process.stdin.once('data', () => process.exit(0)); process.stdin.resume()"],
+            {
+              detached: true,
+              stdio: ["pipe", "ignore", "ignore"],
+            },
+          );
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
           child.unref();
           fixtureChild = child;
-          const stop = (): void => stopFixtureGroup(child);
+          const stop = (): void => {
+            void stopFixtureGroup(child);
+          };
           return {
             pid: child.pid,
             onOutput: () => undefined,
             onErrorOutput: () => undefined,
             onExit: (listener) => {
-              exit = listener;
+              exit = () => {
+                if (child.exitCode !== null || child.signalCode !== null) {
+                  listener(0);
+                  return;
+                }
+                child.once("exit", () => listener(0));
+                child.stdin.end("stop");
+              };
             },
             terminate: stop,
-            terminateTree: async () => stop(),
+            terminateTree: async () => {
+              if (child.exitCode !== null || child.signalCode !== null) return;
+              const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+              child.stdin.end("stop");
+              await exited;
+            },
           };
         },
       });
@@ -617,9 +726,7 @@ test(
           },
           binding,
         );
-        // The holder hands the execution over — release and restart — while the dispatch is still
-        // live. Both generations carry the same executionId, so only the lease version tells them
-        // apart, and the dispatch below belongs to the first one.
+        // The runtime relinquishes its lease while the principal starts replacement work.
         const runtimeHolder = {
           ...binding,
           actor: {
@@ -659,22 +766,11 @@ test(
         projection.close();
         assert.equal(lease?.phase, "held", "a stale dispatch must not release the lease generation that replaced it");
         assert.equal(lease?.executionId, executionId);
-        const spawned = await cell.spawnRuntime(
-          {
-            runtimeInstanceId: definition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "Dispatch under the surviving lease generation",
-            taskId,
-            dispatchKey: "lease-generation-next",
-          },
-          binding,
-        );
-        assert.equal(typeof spawned.dispatchId, "string");
       } finally {
         await cell.close();
       }
     } finally {
-      if (fixtureChild) stopFixtureGroup(fixtureChild);
+      if (fixtureChild) await stopFixtureGroup(fixtureChild);
       rmSync(root, { recursive: true, force: true });
     }
   },

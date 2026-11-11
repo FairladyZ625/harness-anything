@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { observeProviderFault } from "../src/runtime-provider-fault.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import { tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
 

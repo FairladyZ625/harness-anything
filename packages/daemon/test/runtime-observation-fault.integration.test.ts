@@ -37,6 +37,7 @@ test(
         output: Parameters<RuntimeProcess["onOutput"]>[0];
         exit: Parameters<RuntimeProcess["onExit"]>[0];
         terminated: number;
+        exited: boolean;
       }
     >();
     // The writer's nested monitor worker inherits this preload; trigger a native watcher error
@@ -150,19 +151,24 @@ syncBuiltinESMExports();
           output: (_chunk: string) => undefined as void,
           exit: (_code: number | null) => undefined as void,
           terminated: 0,
+          exited: false,
         };
         controls.set(request.cwd, control);
         return {
-          pid: process.pid,
+          pid: 2_147_483_647,
           onOutput: (listener) => {
             control.output = listener;
           },
           onErrorOutput: () => undefined,
           onExit: (listener) => {
-            control.exit = listener;
+            control.exit = (code) => {
+              control.exited = true;
+              listener(code);
+            };
           },
           terminate: () => assert.fail("tree termination is available"),
           terminateTree: async () => {
+            if (control.exited) return;
             control.terminated += 1;
             if (request.cwd === faultCwd) {
               terminationStarted.resolve();

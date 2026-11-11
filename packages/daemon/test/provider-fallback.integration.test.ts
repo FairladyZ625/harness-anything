@@ -18,7 +18,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import type { RuntimeBinding, RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
+import { dispatchLifecycleReadOf } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = withPolicyGroup(
   {
@@ -889,7 +889,8 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
           ) ?? null
         );
       },
-      readDispatchLifecycle: emptyDispatchLifecycleRead,
+      readDispatchLifecycle: async (query: Parameters<ReturnType<typeof dispatchLifecycleReadOf>>[0]) =>
+        dispatchLifecycleReadOf(() => published)(query),
       readRuntimeSessions: async () =>
         published.flatMap((event) => {
           if (event.type !== "runtime_session_started") return [];

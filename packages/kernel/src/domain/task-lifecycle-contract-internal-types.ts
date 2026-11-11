@@ -89,6 +89,11 @@ export interface TransitionTaskIntent extends Intent<"TransitionTask"> {
   readonly reason: string;
   readonly force: boolean;
 }
+export interface ReleaseRuntimeLeaseIntent extends Intent<"ReleaseRuntimeLease"> {
+  readonly executionId: string;
+  readonly leaseVersion: number;
+  readonly reason: string;
+}
 export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
   readonly executionId: string;
   readonly submission: SubmissionV1;
@@ -162,6 +167,7 @@ export type TaskLifecycleCommandIntent =
   | AssignTaskIntent
   | UnassignTaskIntent
   | StartExecutionIntent
+  | ReleaseRuntimeLeaseIntent
   | TransitionTaskIntent
   | SubmitExecutionIntent
   | ReworkTaskIntent
@@ -181,6 +187,7 @@ export type CreateReplayTaskCommand = NormalizedTaskLifecycleCommand<CreateRepla
 export type AssignTaskCommand = NormalizedTaskLifecycleCommand<AssignTaskIntent> & Meta;
 export type UnassignTaskCommand = NormalizedTaskLifecycleCommand<UnassignTaskIntent> & Meta;
 export type StartExecutionCommand = NormalizedTaskLifecycleCommand<StartExecutionIntent> & Meta;
+export type ReleaseRuntimeLeaseCommand = NormalizedTaskLifecycleCommand<ReleaseRuntimeLeaseIntent> & Meta;
 export type TransitionTaskCommand = NormalizedTaskLifecycleCommand<TransitionTaskIntent> & Meta;
 export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & Meta;
 export type ReworkTaskCommand = NormalizedTaskLifecycleCommand<ReworkTaskIntent> & Meta;
@@ -194,6 +201,7 @@ export type TaskLifecycleCommand =
   | AssignTaskCommand
   | UnassignTaskCommand
   | StartExecutionCommand
+  | ReleaseRuntimeLeaseCommand
   | TransitionTaskCommand
   | SubmitExecutionCommand
   | ReworkTaskCommand
@@ -279,7 +287,7 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
     ? TransitionTaskProof
     : C extends StartExecutionCommand
       ? StartExecutionProof
-      : C extends TransitionTaskCommand | RetireCompletionGenerationCommand
+      : C extends TransitionTaskCommand | ReleaseRuntimeLeaseCommand | RetireCompletionGenerationCommand
         ? TransitionTaskProof
         : C extends SubmitExecutionCommand
           ? SubmitExecutionProof

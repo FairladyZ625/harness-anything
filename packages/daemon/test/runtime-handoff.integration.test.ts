@@ -159,12 +159,10 @@ test(
         result: { sha256: sha256Text("settled"), size: 7, mediaType: "text/plain; charset=utf-8" },
       },
     });
-    const released = await f.host.run(
-      source.repoId,
-      { kind: "task-release", taskId: source.taskId, reason: "source settled" },
-      f.auth,
+    const settledTask = JSON.parse(
+      String((await f.host.run(source.repoId, { kind: "task-show", taskId: source.taskId }, f.auth)).evidence),
     );
-    assert.equal(released.outcome, "applied", JSON.stringify(released));
+    assert.equal(settledTask.lease, null, "the accepted runtime outcome releases its task lease atomically");
     const exported = await command(source.nodeId, exportAction, body);
     assert.equal(exported.outcome, "applied", JSON.stringify(exported));
     assert.ok(exported.receipt?.checkpoint, JSON.stringify(exported));

@@ -32,6 +32,8 @@ import {
 } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
   configVersion: 1,
@@ -272,7 +274,7 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
   }
 });
 
-test("runtime spawn resolves command model, Agent model, then instance default without silent fallback", async () => {
+test("runtime spawn resolves command model, Agent model, then instance default without silent fallback", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agent-model-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -417,14 +419,14 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     },
     prepareRuntimeLaunch: instances.prepareLaunch,
     runtimeLaunch: (prepared, persistence) => {
-      appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: process.pid });
+      const runtimeProcess = fixtureRuntimeProcess(context);
+      appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: runtimeProcess.pid });
       launched = { definition: prepared.definition, prompt: prepared.prompt };
       return {
-        pid: process.pid,
+        ...runtimeProcess,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
-        terminate: () => undefined,
       };
     },
   });
@@ -1093,7 +1095,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
   }
 });
 
-test("Codex API-key bearer remains confined to the private provider config", async () => {
+test("Codex API-key bearer remains confined to the private provider config", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-bearer-confidentiality-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -1141,10 +1143,11 @@ test("Codex API-key bearer remains confined to the private provider config", asy
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,
       runtimeLaunch: (prepared, persistence) => {
-        appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: process.pid });
+        const runtimeProcess = fixtureRuntimeProcess(context);
+        appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: runtimeProcess.pid });
         assert.doesNotMatch(JSON.stringify(prepared), new RegExp(secret, "u"));
         return {
-          pid: process.pid,
+          ...runtimeProcess,
           onOutput: (listener) => {
             queueMicrotask(() =>
               listener(
@@ -1154,9 +1157,10 @@ test("Codex API-key bearer remains confined to the private provider config", asy
           },
           onErrorOutput: () => undefined,
           onExit: (listener) => {
-            exit = listener;
+            exit = (code) => {
+              void runtimeProcess.terminateTree().then(() => listener(code));
+            };
           },
-          terminate: () => undefined,
         };
       },
     });

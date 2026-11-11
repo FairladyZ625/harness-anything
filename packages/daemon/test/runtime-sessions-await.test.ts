@@ -386,7 +386,9 @@ test("a sessions.await on an already-closed connection answers client_disconnect
 for (const target of ["sessions", "tasks"] as const) {
   test(`sessions.await retains a terminal notification during an asynchronous ${target} read`, async () => {
     const { createRuntimeOutcomeWaiters } = await import("../src/runtime-settlement.ts"),
-      signals = createRuntimeOutcomeWaiters({ readSession: () => null, now: () => new Date().toISOString() });
+      signals = createRuntimeOutcomeWaiters({
+        readLifecycle: async () => ({ status: "ready", watermark: 0, sourceRevision: 0, rows: [], nextCursor: null }),
+      });
     let reads = 0;
     const context: RuntimeAwaitContext = {
       signalVersion: signals.signalVersion,
@@ -421,98 +423,52 @@ for (const target of ["sessions", "tasks"] as const) {
   });
 }
 
-test("orchestration waits for canonical publication after local host-loss evidence", async () => {
-  const { mkdtempSync, rmSync, utimesSync } = await import("node:fs"),
-    { tmpdir } = await import("node:os"),
-    path = await import("node:path"),
-    { openDispatchStream, dispatchStreamPath } = await import("../src/dispatch-stream.ts"),
-    { readSettlementRuntimeSession, readObservedRuntimeSession } = await import("../src/agent-runtime-read.ts"),
-    { runtimeOutcomeSettled } = await import("../src/runtime-settlement.ts"),
-    rootDir = mkdtempSync(path.join(tmpdir(), "ha-settlement-publication-")),
-    at = "2026-11-04T00:00:00.000Z",
-    dispatchId = "dispatch_abcdefabcdefabcdefabcdef";
-  let canonical = {
-    runtimeSessionId: "session-publication",
-    definitionSnapshotRef: "snapshot",
-    liveness: "live",
-    attachable: true,
-    outcome: null,
-    exitCode: null,
-    resultRef: null,
-    lastObservedAt: at,
-  } as unknown as import("@harness-anything/kernel").RuntimeSession;
-  const projection = {
-    readRuntimeSession: () => canonical,
-    readRuntimeDispatch: () => ({ payload: { dispatchId } }) as never,
-  };
-  try {
-    const stream = openDispatchStream(rootDir, {
-      dispatchId,
-      runtimeSessionId: canonical.runtimeSessionId,
-      instanceId: "instance",
-      taskId: null,
-      executionId: null,
-      startedAt: at,
+test("local outcome waiter waits for an accepted lifecycle terminal after process stop", async () => {
+  const { lifecycleEvent, dispatchLifecycleReadOf } = await import("./dispatch-lifecycle-read.fixtures.ts"),
+    { createRuntimeOutcomeWaiters } = await import("../src/runtime-settlement.ts"),
+    runtimeSessionId = "session-outcome-waiter",
+    source = "local" as const,
+    events = [
+      lifecycleEvent("R", runtimeSessionId, { instanceId: "instance", source }),
+      lifecycleEvent("S", runtimeSessionId, { instanceId: "instance", source }),
+    ],
+    readPort = dispatchLifecycleReadOf(() => events),
+    waiters = createRuntimeOutcomeWaiters({
+      readLifecycle: (id) => readPort({ by: "session", runtimeSessionId: id }),
     });
-    stream.appendTerminalOutcome(
-      {
-        payload: {
-          runtimeSessionId: canonical.runtimeSessionId,
-          outcome: "unknown",
-          exitCode: null,
-          resultRef: "artifact:runtime-result/publication",
-          result: null,
-          endedAt: at,
-          reasonCode: "runtime_process_lost",
-        },
-        body: "host no longer alive",
-        reason: "host no longer alive",
-      },
-      at,
-    );
-    // Activity evidence includes the stream's mtime; keep it on the fixture's clock
-    // so the five-second grace assertion does not depend on the date of the test run.
-    utimesSync(dispatchStreamPath(rootDir, dispatchId), new Date(at), new Date(at));
-    // The activity read deliberately exposes local evidence before its ledger append.
-    assert.equal(
-      runtimeOutcomeSettled(readObservedRuntimeSession(projection, rootDir, canonical.runtimeSessionId), at),
-      true,
-    );
-    assert.equal(
-      runtimeOutcomeSettled(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId), at),
-      false,
-    );
-    assert.equal(
-      runtimeOutcomeSettled(
-        readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId),
-        "2026-11-04T00:00:05.000Z",
-      ),
-      true,
-    );
-    stream.appendTerminalOutcome(
-      {
-        payload: {
-          runtimeSessionId: canonical.runtimeSessionId,
-          outcome: "failed",
-          exitCode: 0,
-          resultRef: "artifact:runtime-result/publication-denied",
-          result: null,
-          endedAt: at,
-          reasonCode: "authorization_denied",
-        },
-        body: "Runtime archive publication failed",
-        reason: "authorization denied",
-      },
-      at,
-    );
-    assert.equal(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId)?.outcome, "failed");
-    canonical = { ...canonical, liveness: "exited", outcome: "unknown" };
-    assert.equal(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId)?.outcome, "unknown");
-    assert.equal(
-      runtimeOutcomeSettled(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId), at),
-      true,
-    );
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+  let settled = false;
+  const pending = waiters.awaitOutcome(runtimeSessionId).then(() => {
+    settled = true;
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+
+  events.push(lifecycleEvent("X", runtimeSessionId, { instanceId: "instance", source }));
+  waiters.notify();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, "process stop alone does not settle a dispatch attempt");
+
+  events.push(lifecycleEvent("O", runtimeSessionId, { instanceId: "instance", source }));
+  waiters.notify();
+  await pending;
+  assert.equal(settled, true);
+});
+
+test("orchestration waits for canonical publication after local host-loss evidence", async () => {
+  const { lifecycleEvent, dispatchLifecycleReadOf } = await import("./dispatch-lifecycle-read.fixtures.ts"),
+    { runtimeOutcomeSettled } = await import("../src/runtime-settlement.ts"),
+    runtimeSessionId = "session-publication",
+    source = "local" as const,
+    events = [lifecycleEvent("R", runtimeSessionId, { instanceId: "instance", source })],
+    readLifecycle = dispatchLifecycleReadOf(() => events);
+  events.push(lifecycleEvent("S", runtimeSessionId, { instanceId: "instance", source }));
+  assert.equal(runtimeOutcomeSettled(await readLifecycle({ by: "session", runtimeSessionId })), false);
+  events.push(lifecycleEvent("X", runtimeSessionId, { instanceId: "instance", source }));
+  assert.equal(
+    runtimeOutcomeSettled(await readLifecycle({ by: "session", runtimeSessionId })),
+    false,
+    "process exit proves stop but does not settle the attempt before its accepted outcome",
+  );
+  events.push(lifecycleEvent("O", runtimeSessionId, { instanceId: "instance", source }));
+  assert.equal(runtimeOutcomeSettled(await readLifecycle({ by: "session", runtimeSessionId })), true);
 });

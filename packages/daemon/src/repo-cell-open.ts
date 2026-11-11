@@ -74,6 +74,7 @@ import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runt
 import { makeRepoCellSettingsState, readEffectiveDispatchArchiveRetention } from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
+import { commitRuntimeSettlement } from "./repo-cell-runtime-settlement.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -224,8 +225,7 @@ export async function openRepoWriterCell(
       },
     };
   const outcomeWaiters = createRuntimeOutcomeWaiters({
-    readSession,
-    now,
+    readLifecycle: (runtimeSessionId) => projection.readDispatchLifecycle({ by: "session", runtimeSessionId }),
   });
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
@@ -464,11 +464,6 @@ export async function openRepoWriterCell(
     );
     return pending;
   };
-  let settleExecutionLease: (
-    terminal: RuntimeAttemptTerminal,
-  ) => Promise<void | RuntimeLeaseReleasePending> = async () => {
-    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
-  };
   let settleRuntimeExecutionLease: (
     task: NonNullable<RuntimeAttemptTerminal["task"]>,
     runtimeSessionId: string,
@@ -476,7 +471,8 @@ export async function openRepoWriterCell(
     occurredAt: string,
     binding: RuntimeAttemptTerminal["binding"],
     processGroupPid: number | undefined,
-  ) => Promise<void> = async () => {
+    preservePrimaryError?: boolean,
+  ) => Promise<void | RuntimeLeaseReleasePending> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
   };
   let settleScheduledOutcome: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
@@ -603,11 +599,18 @@ export async function openRepoWriterCell(
       }, continuation.binding);
     },
     onAttemptTerminal: async (terminal) => {
-      const leaseSettlement = terminal.task ? await settleExecutionLease(terminal) : undefined;
-      if (leaseSettlement?.outcome === "lease_unproven") {
-        if (terminal.preservePrimaryError) return leaseSettlement;
-        throw cellCodedError(leaseSettlement.code, leaseSettlement.reason);
-      }
+      const leaseSettlement = terminal.task
+        ? await settleRuntimeExecutionLease(
+            terminal.task,
+            terminal.runtimeSessionId,
+            terminal.endedAt,
+            now(),
+            terminal.binding,
+            terminal.processGroupPid,
+            terminal.preservePrimaryError,
+          )
+        : undefined;
+      if (leaseSettlement) return leaseSettlement;
       // A squad-owned scheduled dispatch settles its occurrence with the run, not with its
       // first leader session; the coordinator's terminal settlement owns the claim.
       if (terminal.schedule && scheduleOccurrenceSettlementOwner(projection, terminal.dispatchId) === "runtime-attempt")
@@ -798,6 +801,8 @@ export async function openRepoWriterCell(
     };
   const personActionRuntime = makePersonActionRuntime(runtimeContext);
   entityActionRuntimes = Object.freeze({
+    commitRuntimeSession: (bundle: Parameters<typeof commitRuntimeSettlement>[1], binding: RepoCellBinding) =>
+      commitRuntimeSettlement(runtimeContext, bundle, binding),
     entity: Object.freeze({
       agent: agentActionRuntime,
       schedule: scheduleActionRuntime,
@@ -829,8 +834,8 @@ export async function openRepoWriterCell(
   });
   const operationalContext = Object.assign(runtimeContext, {
     settings,
-    settleRuntimeExecutionLease: (settlement: DispatchRecordLeaseSettlement, binding: RepoCellBinding) =>
-      settleRuntimeExecutionLease(
+    settleRuntimeExecutionLease: async (settlement: DispatchRecordLeaseSettlement, binding: RepoCellBinding) => {
+      await settleRuntimeExecutionLease(
         {
           taskId: settlement.taskId,
           executionId: settlement.executionId,
@@ -841,7 +846,8 @@ export async function openRepoWriterCell(
         settlement.endedAt,
         binding,
         undefined,
-      ),
+      );
+    },
   });
   operationalContext satisfies RepoCellOperationalContext;
   handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding, arrangementId }) => {
@@ -936,14 +942,14 @@ export async function openRepoWriterCell(
         entityActionRuntimes,
       );
     });
-  const settleRuntimeExecutionLeaseWithStopResult = async (
+  settleRuntimeExecutionLease = async (
     task: NonNullable<RuntimeAttemptTerminal["task"]>,
     runtimeSessionId: string,
     leaseAt: string,
     occurredAt: string,
     terminalBinding: RuntimeAttemptTerminal["binding"],
     processGroupPid: number | undefined,
-    preservePrimaryError: boolean,
+    preservePrimaryError = false,
   ): Promise<void | RuntimeLeaseReleasePending> => {
     const lease = extracted.projection.currentLease(task.taskId, leaseAt);
     // The terminal runtime can release only its own current lease. Its dispatch execution/version
@@ -971,76 +977,12 @@ export async function openRepoWriterCell(
             : taskSurfaceWriteAt(extracted, action, binding, occurredAt),
         binding,
       );
-    if (settled.outcome === "lease_unproven") return settled;
+    if (settled.outcome === "lease_unproven") {
+      if (preservePrimaryError) return settled;
+      throw cellCodedError(settled.code, settled.reason);
+    }
     if (settled.outcome !== "applied")
       throw cellCodedError("runtime_lease_release_failed", `Runtime terminal lease settlement was ${settled.outcome}.`);
-  };
-  settleRuntimeExecutionLease = async (
-    task,
-    runtimeSessionId,
-    leaseAt,
-    occurredAt,
-    terminalBinding,
-    processGroupPid,
-  ) => {
-    const settlement = await settleRuntimeExecutionLeaseWithStopResult(
-      task,
-      runtimeSessionId,
-      leaseAt,
-      occurredAt,
-      terminalBinding,
-      processGroupPid,
-      false,
-    );
-    if (settlement?.outcome === "lease_unproven") throw cellCodedError(settlement.code, settlement.reason);
-  };
-  settleExecutionLease = async (terminal) => {
-    if (!terminal.task) return;
-    const settlement = terminal.preservePrimaryError
-      ? await settleRuntimeExecutionLeaseWithStopResult(
-          terminal.task,
-          terminal.runtimeSessionId,
-          terminal.endedAt,
-          now(),
-          terminal.binding,
-          terminal.processGroupPid,
-          true,
-        )
-      : await settleRuntimeExecutionLease(
-          terminal.task,
-          terminal.runtimeSessionId,
-          terminal.endedAt,
-          now(),
-          terminal.binding,
-          terminal.processGroupPid,
-        );
-    if (settlement?.outcome === "lease_unproven") return settlement;
-    if (!terminal.waitingOnOwner) return;
-    // The release above is deliberately a separate canonical event: task-transition's domain
-    // invariant rejects blocked tasks that still carry a lease. A newer dispatch may have claimed
-    // the task while this terminal was being replayed; in that case this stale wait must not park
-    // the newer execution.
-    const current = projection.read(terminal.task.taskId).snapshot;
-    if (current.task?.status !== "active" || current.lease !== null) return;
-    const action = {
-        kind: "task-transition" as const,
-        taskId: terminal.task.taskId,
-        status: "blocked" as const,
-        reason: terminal.reason
-          ? `Worker is waiting for owner ruling: ${terminal.reason}`
-          : `Worker is waiting for owner ruling (${terminal.runtimeSessionId}).`,
-      },
-      binding = await authorizeRuntimeAction(
-        action,
-        terminal.binding,
-        `runtime-task-awaiting-owner:${terminal.runtimeSessionId}`,
-      ),
-      parked = await recoveryWork.write(() => extracted.lifecycleAction(action, binding), binding);
-    if (parked.outcome !== "applied")
-      throw cellCodedError(
-        "runtime_waiting_task_block_failed",
-        `Runtime terminal waiting settlement was ${parked.outcome}.`,
-      );
   };
   const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
   setImmediate(() => {

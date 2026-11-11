@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -94,7 +95,7 @@ function scheduleRuntimePorts() {
 test(
   "local mode: the schedules GUI read joins definition, run projection, and execution rights",
   { timeout: 30_000 },
-  async () => {
+  async (context) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-gui-local-"));
     let output: ((chunk: string) => void) | null = null,
       exit: ((code: number | null) => void) | null = null;
@@ -114,9 +115,10 @@ test(
         },
         ...scheduleRuntimePorts(),
         runtimeLaunch: (_prepared, persistence) => {
-          appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: process.pid });
+          const runtime = fixtureRuntimeProcess(context);
+          appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: runtime.pid });
           return {
-            pid: process.pid,
+            ...runtime,
             onOutput: (listener: (chunk: string) => void) => {
               output = listener;
             },

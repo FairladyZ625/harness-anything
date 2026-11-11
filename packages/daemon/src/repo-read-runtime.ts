@@ -1,7 +1,7 @@
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
-import { readObservedRuntimeSession, readSettlementRuntimeSession } from "./agent-runtime-read.ts";
+import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
@@ -318,7 +318,7 @@ export function makeRepoReadRuntime(
     run,
     readSession,
     readSettlementSession: (runtimeSessionId: string) =>
-      reader.withSession((projection) => readSettlementRuntimeSession(projection, input.rootDir, runtimeSessionId)),
+      reader.withSession((projection) => projection.readDispatchLifecycle({ by: "session", runtimeSessionId })),
     canAttach: (session: NonNullable<ReturnType<typeof readSession>>) =>
       session.liveness !== "exited" &&
       query((projection) => {

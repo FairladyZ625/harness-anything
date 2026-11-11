@@ -456,7 +456,8 @@ function reduceTaskInput(
   let nextTask = task,
     delivery = group.delivery;
   if (task.role === "implementer") {
-    if (lease && lease.executionId === task.executionId)
+    // Once released, this attempt cannot acquire a replacement lease generation.
+    if (lease && lease.executionId === task.executionId && !task.leaseReleased)
       nextTask = { ...task, leaseVersion: lease.version, leaseReleased: false };
     else if (lease === null && context.taskLease?.executionId === task.executionId && task.leaseVersion !== null)
       nextTask = { ...task, leaseReleased: true };
@@ -704,12 +705,33 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
   };
 }
 
+/** Preview the current attempt's outcome using the same reducer before its write is accepted. */
+export function previewDispatchLifecycleOutcome(
+  view: DispatchLifecycleView,
+  event: Extract<DispatchLifecycleEvent, { readonly type: "runtime_session_outcome_observed" }>,
+) {
+  const step = reduceDispatchLifecycle(
+    {
+      attemptGroupId: view.attemptGroupId,
+      phase: view.groupPhase,
+      currentDispatchId: view.attempt.dispatchId,
+      attempts: [view.attempt],
+      successor: view.successor,
+      ruling: view.ruling,
+      delivery: view.delivery,
+      revision: view.revision,
+    },
+    event,
+  );
+  return step.kind === "applied" ? { kind: step.kind, groupPhase: step.group.phase, ruling: step.group.ruling } : step;
+}
+
 /** Every group that is not closed belongs to the active index; storage pages it by group id. */
 export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
   return group.phase !== "closed";
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 3;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 4;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;

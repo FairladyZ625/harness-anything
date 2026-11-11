@@ -119,28 +119,16 @@ export async function cancelRuntime(
     // cancellation that happens to race with a ruling artifact.
     active.cancelOpId = escalation ? `${opId}:escalation` : opId;
     active.cancelRequested = true;
+    if (escalation || !active.process.terminateTree) active.process.terminate();
     if (escalation) {
       // The worker may be synchronously waiting for this command's response. Returning only
       // after terminateTree would wait for that CLI child, which waits for us: stop the provider
       // now, let the response flush, and finish the full tree cleanup in the next check phase.
-      active.process.terminate();
-      setImmediate(() => {
-        const terminateTree = active.process.terminateTree;
-        if (terminateTree)
-          void terminateTree().catch((error: unknown) =>
-            console.error("[runtime-escalation] descendant cleanup failed", error),
-          );
-      });
-      void consumeDurableOutput(context, active)
-        .then(() => context.publishExit(active, null))
+      void context
+        .publishExit(active, null)
         .catch((error: unknown) => console.error("[runtime-escalation] settlement failed", error));
       return context.controlReceipt(opId, runtimeSessionId, "requested");
     }
-    if (active.process.terminateTree) await active.process.terminateTree();
-    else active.process.terminate();
-    // Cancel holds the write queue: lines flushed during termination drain into work queued behind
-    // it, which is dropped once settlement retires the runtime. Settle them from the stream.
-    await consumeDurableOutput(context, active);
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
@@ -229,6 +217,13 @@ export async function cancelRuntime(
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       },
     };
+    await context.publishRuntimeEvent(
+      "runtime_session_exited",
+      { runtimeSessionId },
+      `${opId}-exited`,
+      terminalBinding,
+    );
+    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
     if (matchingHeader?.taskId && matchingHeader.executionId) {
       const settlement = await context.input.onAttemptTerminal?.({
         runtimeSessionId,
@@ -247,13 +242,6 @@ export async function cancelRuntime(
       });
       if (settlement?.outcome === "lease_unproven") throw runtimeSpawnError(settlement.code, settlement.reason);
     }
-    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
-    await context.publishRuntimeEvent(
-      "runtime_session_exited",
-      { runtimeSessionId },
-      `${opId}-exited`,
-      terminalBinding,
-    );
     const resultBody = "Runtime session cancelled after its worker process was no longer available.",
       resultSha256 = createHash("sha256").update(resultBody).digest("hex");
     await context.publishRuntimeEvent(

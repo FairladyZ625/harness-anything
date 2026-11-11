@@ -1,35 +1,20 @@
-import { runtimeSessionOutcomeFromEvidence, type RuntimeSession } from "@harness-anything/kernel";
+import type { DispatchLifecycleRead } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionDto, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
 
-/** Grace window after a process exit during which the daemon still expects the outcome event to project. */
-export const runtimeSettlementGraceMs = 5_000;
-
-/** The settle signal for orchestration waiters: an explicit terminal outcome, or an exited session
- * whose outcome event outlived the settlement grace window. */
-export function runtimeOutcomeSettled(
-  session:
-    | (Pick<RuntimeSession, "liveness" | "outcome" | "lastObservedAt"> &
-        Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>)
-    | null
-    | undefined,
-  now: string,
-): boolean {
-  if (!session) return false;
-  if (runtimeSessionOutcomeFromEvidence(session) !== null) return true;
-  if (session.liveness !== "exited") return false;
-  const elapsed = Date.parse(now) - Date.parse(session.lastObservedAt);
-  return Number.isFinite(elapsed) && elapsed >= runtimeSettlementGraceMs;
+function lifecycleRow(read: DispatchLifecycleRead) {
+  return read.status === "ready" ? (read.rows.length === 1 ? read.rows[0]! : null) : null;
 }
 
-/**
- * Orchestration waiters (runtime batch, agent create) park here instead of polling the projection
- * on a client cadence; every terminal signal re-checks the domain settle predicate. The predicate
- * is also time-based (post-exit grace), so a missed event cannot park a waiter forever: each wake
- * re-reads the session and either returns or rearms.
- */
+/** Bounded wake interval; each wake re-reads the lifecycle projection before returning. */
+export const runtimeOutcomeRecheckMs = 5_000;
+
+/** A waiter completes only after the lifecycle projection accepted the terminal outcome. */
+export function runtimeOutcomeSettled(read: DispatchLifecycleRead): boolean {
+  return lifecycleRow(read)?.policy.attemptSettled === true;
+}
+
 export function createRuntimeOutcomeWaiters(input: {
-  readonly readSession: (runtimeSessionId: string) => Parameters<typeof runtimeOutcomeSettled>[0];
-  readonly now: () => string;
+  readonly readLifecycle: (runtimeSessionId: string) => DispatchLifecycleRead | Promise<DispatchLifecycleRead>;
 }): {
   readonly notify: () => void;
   readonly awaitOutcome: (runtimeSessionId: string) => Promise<void>;
@@ -38,8 +23,6 @@ export function createRuntimeOutcomeWaiters(input: {
 } {
   let version = 0;
   const waiters = new Set<() => void>(),
-    // One parked wake: resolves on the next runtime signal/outcome notification, or on the grace
-    // backstop so a missed signal cannot park a waiter forever.
     park = () =>
       new Promise<void>((resolve) => {
         const waiter = () => {
@@ -50,7 +33,7 @@ export function createRuntimeOutcomeWaiters(input: {
         const timer = setTimeout(() => {
           waiters.delete(waiter);
           resolve();
-        }, runtimeSettlementGraceMs);
+        }, runtimeOutcomeRecheckMs);
         timer.unref?.();
         waiters.add(waiter);
       });
@@ -62,7 +45,8 @@ export function createRuntimeOutcomeWaiters(input: {
       for (const waiter of pending) waiter();
     },
     awaitOutcome: async (runtimeSessionId) => {
-      while (!runtimeOutcomeSettled(input.readSession(runtimeSessionId), input.now())) {
+      for (;;) {
+        if (runtimeOutcomeSettled(await input.readLifecycle(runtimeSessionId))) return;
         await park();
       }
     },
@@ -72,29 +56,24 @@ export function createRuntimeOutcomeWaiters(input: {
   };
 }
 
-/** The daemon-authoritative terminal receipt fields for one runtime session read. Null while the
- * session is still running or inside the post-exit settlement grace window. */
+/** Terminal receipt fields are a projection of the canonical dispatch attempt. */
 export function runtimeSessionSettlement(
+  read: DispatchLifecycleRead,
   session: AgentRuntimeSessionDto,
   resultText: string | null,
-  now: string,
 ): AgentRuntimeSettlement | null {
-  const activity = session.activity;
-  if (activity.outcome === null) {
-    if (session.liveness !== "exited") return null;
-    const elapsed = Date.parse(now) - Date.parse(activity.lastObservedAt);
-    if (!Number.isFinite(elapsed) || elapsed < runtimeSettlementGraceMs) return null;
-  }
-  const outcome = activity.outcome ?? "unknown",
-    settlementFailed = activity.outcome === null || (outcome === "unknown" && activity.reasonCode !== undefined),
-    attempt = session.attemptChain?.attempts.find(
+  const lifecycleAttempt = lifecycleRow(read)?.attempt;
+  if (!lifecycleAttempt || lifecycleAttempt.phase !== "closed" || lifecycleAttempt.outcome === null) return null;
+  const outcome = lifecycleAttempt.outcome,
+    settlementFailed = outcome === "unknown" && session.activity.reasonCode !== undefined,
+    sessionAttempt = session.attemptChain?.attempts.find(
       (candidate) => candidate.runtimeSessionId === session.runtimeSessionId,
     ),
     providerFaultClass =
-      attempt?.classification === "provider_fault" || attempt?.classification === "provider_quota"
-        ? attempt.faultClass
+      sessionAttempt?.classification === "provider_fault" || sessionAttempt?.classification === "provider_quota"
+        ? sessionAttempt.faultClass
         : undefined,
-    providerExit = Number.isInteger(activity.exitCode),
+    providerExit = Number.isInteger(session.activity.exitCode),
     code = settlementFailed
       ? "runtime_settlement_failed"
       : (providerFaultClass ?? (providerExit ? "provider_exit" : "runtime_failed")),
@@ -102,12 +81,12 @@ export function runtimeSessionSettlement(
       outcome === "succeeded"
         ? null
         : providerFaultClass
-          ? providerFaultReason(providerFaultClass, attempt?.resetAt, attempt?.reason ?? resultText ?? "")
+          ? providerFaultReason(providerFaultClass, sessionAttempt?.resetAt, sessionAttempt?.reason ?? resultText ?? "")
           : resultText ||
             (settlementFailed
               ? "runtime_settlement_failed: the runtime exited but no terminal outcome became visible."
               : providerExit
-                ? `Provider exited with code ${String(activity.exitCode)} without a diagnostic.`
+                ? `Provider exited with code ${String(session.activity.exitCode)} without a diagnostic.`
                 : `runtime: ${outcome}`);
   return {
     outcome,

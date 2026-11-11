@@ -11,6 +11,7 @@ import {
   submit,
   unblock,
 } from "./task-lifecycle-command-transitions.ts";
+import { releaseRuntimeLease } from "./task-lifecycle-runtime-lease-transition.ts";
 import { complete, consent, respondReview, review } from "./task-lifecycle-review-transitions.ts";
 
 // Ordered lifecycle transition registry.
@@ -18,6 +19,7 @@ export const TASK_LIFECYCLE_TRANSITIONS: readonly Transition[] = Object.freeze([
   create,
   retireCompletionGeneration,
   start,
+  releaseRuntimeLease,
   block,
   reinstate,
   returnToPlanned,

@@ -290,23 +290,34 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   const resultBody = "完整 leader 结果\n".repeat(6000),
     leaderSession = observed.payload.leaderTurns[0]!.runtimeSessionId!,
     resultRef = `artifact:runtime-result/sha256/${sha256Text(resultBody)}`;
+  const publishLeaderOutcome = () =>
+    runFleetRuntimeEventClient({
+      ...f.peer("node-one"),
+      eventType: "runtime_session_outcome_observed",
+      opId: "squad-leader-complete-result",
+      resultBody,
+      payload: {
+        runtimeSessionId: leaderSession,
+        outcome: "succeeded",
+        exitCode: 0,
+        resultRef,
+        result: {
+          sha256: sha256Text(resultBody),
+          size: Buffer.byteLength(resultBody),
+          mediaType: "text/plain; charset=utf-8",
+        },
+      },
+    });
+  await assert.rejects(publishLeaderOutcome(), /runtime_process_group_unproven/u);
+  assert.equal(f.eventCount(), acceptedCount, "an outcome without accepted stop proof must write nothing");
+  // This protocol fixture submits the owner's stop observation before its terminal result.
   await runFleetRuntimeEventClient({
     ...f.peer("node-one"),
-    eventType: "runtime_session_outcome_observed",
-    opId: "squad-leader-complete-result",
-    resultBody,
-    payload: {
-      runtimeSessionId: leaderSession,
-      outcome: "succeeded",
-      exitCode: 0,
-      resultRef,
-      result: {
-        sha256: sha256Text(resultBody),
-        size: Buffer.byteLength(resultBody),
-        mediaType: "text/plain; charset=utf-8",
-      },
-    },
+    eventType: "runtime_session_exited",
+    opId: "squad-leader-stopped",
+    payload: { runtimeSessionId: leaderSession },
   });
+  await publishLeaderOutcome();
   await observation(3);
   const afterThird = f.eventCount();
   await assert.rejects(observation(2), /stale|conflict/iu);
@@ -336,7 +347,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.notEqual(heldRelease.outcome, "applied", "a live execution cannot be recovered merely by sharing a principal");
   now = new Date(Date.parse(now) + 2 * 86_400_000).toISOString();
   const released = await f.command("node-one", { kind: "task-release", taskId, reason: "Recover expired owner" });
-  assert.equal(released.outcome, "applied", JSON.stringify(released));
+  assert.notEqual(
+    released.outcome,
+    "applied",
+    "the accepted runtime outcome already settled the task lease through the lifecycle aggregate",
+  );
   const planned = await f.host.run(
     "lease-repo",
     { kind: "task-transition", taskId, status: "planned", reason: "New iteration" },

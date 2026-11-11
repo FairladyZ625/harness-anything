@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import {
   fixtureTaskId,

@@ -835,6 +835,7 @@ export function reduceRuntimeInstallation(
 export function reduceRuntimeSession(
   current: RuntimeSession | null,
   event: AgentRuntimeEventV1,
+  options: { readonly allowPreSessionTerminal?: boolean } = {},
 ): RuntimeSession | null {
   if (event.type === "runtime_session_started") {
     const value = event.payload;
@@ -892,6 +893,12 @@ export function reduceRuntimeSession(
     return current;
   const sessionId = runtimeSessionId(event);
   if (sessionId === null) return current;
+  if (
+    current === null &&
+    options.allowPreSessionTerminal &&
+    (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed")
+  )
+    return null;
   if (current === null || current.runtimeSessionId !== sessionId)
     throw new Error(`runtime session ${sessionId} has not started`);
   if (event.type === "runtime_session_provider_bound") {
@@ -968,7 +975,7 @@ export function reduceRuntimeSession(
     };
   }
   if (event.type === "runtime_session_cancelled") {
-    if (current.liveness === "exited") return current;
+    if (current.cancelledBy || current.outcome !== null) return current;
     return {
       ...current,
       liveness: "exited",
@@ -977,7 +984,8 @@ export function reduceRuntimeSession(
       lastObservedAt: event.occurredAt,
     };
   }
-  if (event.type === "runtime_session_exited" && current.liveness === "exited") return current;
+  if (event.type === "runtime_session_exited" && current.liveness === "exited" && current.outcome !== null)
+    return current;
   if (event.type === "runtime_session_exited")
     return { ...current, liveness: "exited", attachable: false, lastObservedAt: event.occurredAt };
   if (event.type === "runtime_session_outcome_observed") {

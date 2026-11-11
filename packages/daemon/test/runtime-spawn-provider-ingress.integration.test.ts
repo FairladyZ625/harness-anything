@@ -15,6 +15,7 @@ import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import {
   initIngressRepo,
@@ -497,7 +498,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", { 
                 },
               ];
         return {
-          pid: 4400 + launches.length,
+          ...fixtureRuntimeProcess(t),
           onOutput: (listener) => {
             queueMicrotask(() => output.forEach((frame) => listener(`${JSON.stringify(frame)}\n`)));
           },
@@ -505,7 +506,6 @@ test("daemon ingress resumes the same provider session for Claude and Codex", { 
           onExit: (listener) => {
             queueMicrotask(() => listener(0));
           },
-          terminate: () => undefined,
         };
       },
     });
@@ -611,144 +611,151 @@ test("daemon ingress resumes the same provider session for Claude and Codex", { 
   }
 });
 
-test("daemon ingress cancellation is explicit and idempotent for an active runtime", { timeout: 300_000 }, async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-")),
-    root = path.join(parent, "repo"),
-    userRoot = path.join(parent, "user"),
-    executablePath = path.join(parent, "cancel-stub.mjs"),
-    repoId = "runtime-cancel",
-    uid = process.getuid?.() ?? 0,
-    lifecycle: DaemonLifecycleEntry[] = [];
-  initIngressRepo(root, uid);
-  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
-  registerDaemonRepo({
-    canonicalRoot: root,
-    repoId,
-    userRoot,
-    createConvenienceLinks: false,
-  });
-  const installation = installationFixture("codex", writeProviderStub(executablePath, "codex"));
-  const auth = {
-      transportKind: "unix-socket",
-      unixSocketOwnerBoundary: {
-        ownerUid: uid,
-        source: "unix-socket-filesystem-owner-boundary",
-      },
-    } as const,
-    host = await openDaemonHost({
-      daemonId: "runtime-cancel",
+test(
+  "daemon ingress cancellation is explicit and idempotent for an active runtime",
+  { timeout: 300_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      executablePath = path.join(parent, "cancel-stub.mjs"),
+      repoId = "runtime-cancel",
+      uid = process.getuid?.() ?? 0,
+      lifecycle: DaemonLifecycleEntry[] = [];
+    initIngressRepo(root, uid);
+    signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
+    registerDaemonRepo({
+      canonicalRoot: root,
+      repoId,
       userRoot,
-      runtimeDiscover: () => [installation],
-      runtimeLaunch: () => ({
-        pid: process.pid,
-        onOutput: () => undefined,
-        onErrorOutput: () => undefined,
-        onExit: () => undefined,
-        terminate: () => undefined,
-      }),
-      recordLifecycle: (entry) => lifecycle.push(entry),
+      createConvenienceLinks: false,
     });
-  try {
-    const definition = {
-      instanceId: "codex-cancel",
-      name: "codex cancel",
-      kindId: "codex" as const,
-      installationId: installation.installationId,
-      providerId: "openai",
-      models: ["codex-model"],
-      authMode: "subscription" as const,
-    };
-    await host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
-    const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", {
-      repo: { repoId },
-      payload: {
-        runtimeInstanceId: definition.instanceId,
-        cwd: { scope: "repo-root" },
-        prompt: "Keep running",
-        taskId: null,
-        dispatchKey: "cancel-active",
-      },
-    });
-    assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
-    // The injected launcher must supply the durable process witness that the native launcher records.
-    appendRuntimeWorkerRecord(root, String(spawned.dispatchId), { kind: "process_started", pid: process.pid });
-    const frames: Record<string, unknown>[] = [],
-      attached = await rpcAttach(host, auth, repoId, String(spawned.runtimeSessionId), frames);
-    try {
-      const cancelled = await rpc(host, auth, "repo.agentRuntime.cancel", {
-        repo: { repoId },
-        payload: { runtimeSessionId: spawned.runtimeSessionId },
+    const installation = installationFixture("codex", writeProviderStub(executablePath, "codex"));
+    const auth = {
+        transportKind: "unix-socket",
+        unixSocketOwnerBoundary: {
+          ownerUid: uid,
+          source: "unix-socket-filesystem-owner-boundary",
+        },
+      } as const,
+      host = await openDaemonHost({
+        daemonId: "runtime-cancel",
+        userRoot,
+        runtimeDiscover: () => [installation],
+        runtimeLaunch: () => ({
+          ...fixtureRuntimeProcess(t),
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+        }),
+        recordLifecycle: (entry) => lifecycle.push(entry),
       });
-      assert.equal(cancelled.outcome, "applied");
-      assert.equal(cancelled.command, "runtime-cancel");
-      const read = await waitForArrival(async () => {
-        const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+    try {
+      const definition = {
+        instanceId: "codex-cancel",
+        name: "codex cancel",
+        kindId: "codex" as const,
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["codex-model"],
+        authMode: "subscription" as const,
+      };
+      await host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
+      const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", {
+        repo: { repoId },
+        payload: {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Keep running",
+          taskId: null,
+          dispatchKey: "cancel-active",
+        },
+      });
+      assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+      // The injected launcher must supply the durable process witness that the native launcher records.
+      const processId = lifecycle.find((entry) => entry.event === "runtime_spawn")?.pid;
+      assert.equal(typeof processId, "number");
+      appendRuntimeWorkerRecord(root, String(spawned.dispatchId), { kind: "process_started", pid: processId! });
+      const frames: Record<string, unknown>[] = [],
+        attached = await rpcAttach(host, auth, repoId, String(spawned.runtimeSessionId), frames);
+      try {
+        const cancelled = await rpc(host, auth, "repo.agentRuntime.cancel", {
           repo: { repoId },
           payload: { runtimeSessionId: spawned.runtimeSessionId },
         });
-        // See the comment above the `.activity` polling guards: a read racing the writer's
-        // projection catch-up can return a receipt with no `session` yet.
-        return (value.session as Record<string, unknown> | undefined)?.liveness === "exited" ? value : null;
-      }, watchDirectoryArrival(parent));
-      assert.equal(
-        (read.session as Record<string, unknown>).activity &&
-          ((read.session as Record<string, unknown>).activity as Record<string, unknown>).outcome,
-        "cancelled",
-      );
-      assert.deepEqual(((read.session as Record<string, unknown>).activity as Record<string, unknown>).cancelledBy, {
-        principal: { personId: "owner" },
-        executor: null,
-      });
-      assert.equal(lifecycle.find((entry) => entry.event === "runtime_exit")?.reason, "Worker stop was requested.");
-      await waitForArrival(
-        async () =>
-          (await (() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"))())
-            ? true
-            : null,
-        watchDirectoryArrival(parent),
-      );
-      const events = makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.filter(
-          (event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === spawned.runtimeSessionId,
+        assert.equal(cancelled.outcome, "applied");
+        assert.equal(cancelled.command, "runtime-cancel");
+        const read = await waitForArrival(async () => {
+          const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+            repo: { repoId },
+            payload: { runtimeSessionId: spawned.runtimeSessionId },
+          });
+          // See the comment above the `.activity` polling guards: a read racing the writer's
+          // projection catch-up can return a receipt with no `session` yet.
+          return (value.session as Record<string, unknown> | undefined)?.liveness === "exited" ? value : null;
+        }, watchDirectoryArrival(parent));
+        assert.equal(
+          (read.session as Record<string, unknown>).activity &&
+            ((read.session as Record<string, unknown>).activity as Record<string, unknown>).outcome,
+          "cancelled",
         );
-      const cancellationEvents = events.filter((event) => event.type === "runtime_session_cancelled");
-      assert.equal(cancellationEvents.length, 1);
-      assert.deepEqual(cancellationEvents[0]?.actor, {
-        principal: { personId: "owner" },
-        executor: null,
-      });
-      const repeat = await rpc(host, auth, "repo.agentRuntime.cancel", {
-        repo: { repoId },
-        payload: { runtimeSessionId: spawned.runtimeSessionId },
-      });
-      assert.equal(repeat.outcome, "applied");
-      assert.equal(repeat.detail, "already-exited");
-      assert.equal(
-        makeTaskEventReader({ repoId, rootDir: root })
+        assert.deepEqual(((read.session as Record<string, unknown>).activity as Record<string, unknown>).cancelledBy, {
+          principal: { personId: "owner" },
+          executor: null,
+        });
+        assert.equal(lifecycle.find((entry) => entry.event === "runtime_exit")?.reason, "Worker stop was requested.");
+        await waitForArrival(
+          async () =>
+            (await (() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"))())
+              ? true
+              : null,
+          watchDirectoryArrival(parent),
+        );
+        const events = makeTaskEventReader({ repoId, rootDir: root })
           .read()
           .events.filter(
             (event) =>
-              event.type === "runtime_session_cancelled" && event.payload.runtimeSessionId === spawned.runtimeSessionId,
-          ).length,
-        1,
-      );
-      const missing = await rpc(host, auth, "repo.agentRuntime.cancel", {
-        repo: { repoId },
-        payload: { runtimeSessionId: "runtime_missing" },
-      });
-      assert.equal(missing.outcome, "op_rejected");
-      assert.equal(missing.code, "execution_scope_mismatch");
+              "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === spawned.runtimeSessionId,
+          );
+        const cancellationEvents = events.filter((event) => event.type === "runtime_session_cancelled");
+        assert.equal(cancellationEvents.length, 1);
+        assert.deepEqual(cancellationEvents[0]?.actor, {
+          principal: { personId: "owner" },
+          executor: null,
+        });
+        const repeat = await rpc(host, auth, "repo.agentRuntime.cancel", {
+          repo: { repoId },
+          payload: { runtimeSessionId: spawned.runtimeSessionId },
+        });
+        assert.equal(repeat.outcome, "applied");
+        assert.equal(repeat.detail, "already-exited");
+        assert.equal(
+          makeTaskEventReader({ repoId, rootDir: root })
+            .read()
+            .events.filter(
+              (event) =>
+                event.type === "runtime_session_cancelled" &&
+                event.payload.runtimeSessionId === spawned.runtimeSessionId,
+            ).length,
+          1,
+        );
+        const missing = await rpc(host, auth, "repo.agentRuntime.cancel", {
+          repo: { repoId },
+          payload: { runtimeSessionId: "runtime_missing" },
+        });
+        assert.equal(missing.outcome, "op_rejected");
+        assert.equal(missing.code, "execution_scope_mismatch");
+      } finally {
+        attached.close();
+      }
     } finally {
-      attached.close();
+      await host.close();
+      rmSync(parent, { recursive: true, force: true });
     }
-  } finally {
-    await host.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+  },
+);
 
-test("agy consumes only its closed stream-json event protocol", { timeout: 300_000 }, async () => {
+test("agy consumes only its closed stream-json event protocol", { timeout: 300_000 }, async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-events-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -819,7 +826,7 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
               },
             ];
         return {
-          pid: 4601,
+          ...fixtureRuntimeProcess(t),
           onOutput: (listener) => {
             queueMicrotask(() => output.forEach((frame) => listener(`${JSON.stringify(frame)}\n`)));
           },
@@ -827,7 +834,6 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
           onExit: (listener) => {
             queueMicrotask(() => listener(0));
           },
-          terminate: () => undefined,
         };
       },
     });

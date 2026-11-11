@@ -11,10 +11,11 @@ import {
   scheduleOccurrenceSettlementOwner,
   scheduleOutcomeFromRuntime,
 } from "../src/schedule-runtime-outcome.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
 import { active } from "./runtime-spawn-settlement.fixtures.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const replayDispatchId = "dispatch_0123456789abcdef01234567",
   replayRuntimeSessionId = "runtime_replay00000000000000000000",
@@ -25,6 +26,18 @@ const replayDispatchId = "dispatch_0123456789abcdef01234567",
     },
     source: "local" as const,
   };
+
+function acceptedReplay(fallbackState: "scheduled" | null) {
+  const options = { instanceId: "provider-a", source: "local" as const, dispatchId: replayDispatchId },
+    events = ["R", "S", "X"].map((type) => lifecycleEvent(type as "R" | "S" | "X", replayRuntimeSessionId, options)),
+    outcome = lifecycleEvent("O", replayRuntimeSessionId, options);
+  events.push({
+    ...outcome,
+    payload: { ...outcome.payload, attempt: { classification: "worker_stop", fallbackState } },
+  } as typeof outcome);
+  const read = dispatchLifecycleReadOf(() => events);
+  return { readDispatchLifecycle: async (query: Parameters<typeof read>[0]) => read(query) };
+}
 
 test("occurrence settlement owner follows the linked dispatch subject", () => {
   const dispatchId = "dispatch_0123456789abcdef01234567";
@@ -123,10 +136,11 @@ for (const outcome of ["stopped", "failed"] as const) {
       const terminals: RuntimeAttemptTerminal[] = [],
         runtime = active({
           process: {
-            pid: process.pid,
+            pid: 2_147_483_647,
             onOutput: () => undefined,
             onErrorOutput: () => undefined,
             onExit: () => undefined,
+            terminate: () => undefined,
           },
           runtimeSessionId: replayRuntimeSessionId,
           dispatchId: replayDispatchId,
@@ -238,10 +252,11 @@ test("a replayed terminal behind a scheduled fallback keeps settlement for the c
     const terminals: RuntimeAttemptTerminal[] = [],
       runtime = active({
         process: {
-          pid: process.pid,
+          pid: 2_147_483_647,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,
+          terminate: () => undefined,
         },
         runtimeSessionId: replayRuntimeSessionId,
         dispatchId: replayDispatchId,
@@ -278,6 +293,7 @@ test("a replayed terminal behind a scheduled fallback keeps settlement for the c
           repoId: "canonical",
           rootDir,
           now: () => "2026-10-16T23:43:09.000Z",
+          remote: acceptedReplay("scheduled"),
           stream: { publish: () => ({}) },
           onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => {
             terminals.push(terminal);
@@ -353,10 +369,11 @@ test("a replayed terminal whose exit is already published does not re-notify set
       published: string[] = [],
       runtime = active({
         process: {
-          pid: process.pid,
+          pid: 2_147_483_647,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,
+          terminate: () => undefined,
         },
         runtimeSessionId: replayRuntimeSessionId,
         dispatchId: replayDispatchId,
@@ -381,6 +398,7 @@ test("a replayed terminal whose exit is already published does not re-notify set
           repoId: "canonical",
           rootDir,
           now: () => "2026-10-16T23:43:09.000Z",
+          remote: acceptedReplay(null),
           stream: { publish: () => ({}) },
           onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => {
             terminals.push(terminal);

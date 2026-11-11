@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,7 +68,7 @@ test(
         prompt: request.prompt,
       }),
       runtimeLaunch: () => ({
-        pid: process.pid,
+        ...fixtureRuntimeProcess(context),
         onOutput: (listener) => {
           output = listener;
         },
@@ -75,7 +76,6 @@ test(
         onExit: (listener) => {
           exit = listener;
         },
-        terminate: () => undefined,
       }),
     });
     try {

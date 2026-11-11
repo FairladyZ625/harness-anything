@@ -6,10 +6,10 @@ import test from "node:test";
 import type { SubmissionV1, TaskProjectionQueries } from "@harness-anything/kernel";
 import { checkPrGovernance } from "../../../tools/check-pr-governance.mjs";
 import { publishTaskWorkerBranch, updateTaskPullRequestBody } from "../src/runtime-task-publication.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import { taskPrBodyRenderer } from "../src/task-pr-body-render.ts";
 import {
   git,
+  publishExit,
   workerGitFixture,
   workerSettlementContext,
   workerSettlementRuntime,

@@ -4,6 +4,55 @@ import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import { publishExit as publishRuntimeExit } from "../src/runtime-spawn-settlement.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
+
+/** Give isolated settlement publishers the accepted lifecycle projection that RepoCell owns. */
+export async function publishExit(
+  context: RuntimeSpawnerContext,
+  runtime: ActiveRuntime,
+  code: number | null,
+  resumePublishedExit = false,
+): Promise<void> {
+  if (context.input.remote?.readDispatchLifecycle)
+    return publishRuntimeExit(context, runtime, code, resumePublishedExit);
+  const options = { instanceId: runtime.instanceId, source: "local" as const, dispatchId: runtime.dispatchId },
+    events = [
+      lifecycleEvent("R", runtime.runtimeSessionId, options),
+      lifecycleEvent("S", runtime.runtimeSessionId, options),
+    ],
+    readDispatchLifecycle = dispatchLifecycleReadOf(() => events),
+    publishRuntimeEvent: RuntimeSpawnerContext["publishRuntimeEvent"] = async (...args) => {
+      const result = await context.publishRuntimeEvent(...args);
+      const type =
+        args[0] === "runtime_session_exited" ? "X" : args[0] === "runtime_session_outcome_observed" ? "O" : null;
+      if (type) {
+        const event = lifecycleEvent(type, runtime.runtimeSessionId, options);
+        events.push({ ...event, payload: args[1] } as AgentRuntimeEventV1);
+      }
+      return result;
+    };
+  await publishRuntimeExit(
+    {
+      ...context,
+      publishRuntimeEvent,
+      requiredRuntimeProjection: (input) => ({
+        ...context.requiredRuntimeProjection?.(input),
+        readDispatchLifecycle,
+      }),
+      input: {
+        ...context.input,
+        remote: context.input.remote
+          ? { ...context.input.remote, readDispatchLifecycle: async (query) => readDispatchLifecycle(query) }
+          : undefined,
+      },
+    },
+    runtime,
+    code,
+    resumePublishedExit,
+  );
+}
 
 export const fixtureTaskId = "task_0123456789abcdef01234567";
 
@@ -54,7 +103,7 @@ export function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
 export function tasklessSettlementRuntime(rootDir: string, finalText: string | null): ActiveRuntime {
   return active({
     process: {
-      pid: process.pid,
+      pid: 2_147_483_647,
       onOutput: () => undefined,
       onErrorOutput: () => undefined,
       onExit: () => undefined,
@@ -137,7 +186,7 @@ export function workerGitFixture(
 export function workerSettlementRuntime(fixture: WorkerGitFixture, overrides: Partial<ActiveRuntime>): ActiveRuntime {
   return active({
     process: {
-      pid: process.pid,
+      pid: 2_147_483_647,
       onOutput: () => undefined,
       onErrorOutput: () => undefined,
       onExit: () => undefined,

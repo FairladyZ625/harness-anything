@@ -47,6 +47,7 @@ export function commitRuntimeSessionBundle(
   afterAppend: () => void,
 ): WriteReceipt {
   const appended = store.append(bundle);
+  for (const preceding of bundle.preceding ?? []) projection.apply(preceding.event, preceding.plan);
   projection.apply(bundle.event);
   afterAppend();
   const publication = store.publication(bundle.event),
@@ -54,7 +55,9 @@ export function commitRuntimeSessionBundle(
     visible =
       publication.cut.opId === bundle.event.opId &&
       publication.cut.revision === bundle.event.workspaceRevision &&
-      projected !== null;
+      (projected !== null ||
+        bundle.event.type === "runtime_session_exited" ||
+        bundle.event.type === "runtime_session_outcome_observed");
   return {
     outcome: visible ? "applied" : "pending",
     opId: bundle.event.opId,
