@@ -43091,66 +43091,6 @@
         "expiresOn": "2027-02-11"
       },
       {
-        "id": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.migration-import-event/v1|packages/daemon/src/migration-import-events.ts|literal-type|entity_migrated:9674fd371b1957ba0e5b60e4f2f70382",
-        "category": "policy",
-        "path": "tools/gate-allowlists/aggregate-event-construction-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped migration-import-event/v1|packages/daemon/src/migration-import-events.ts|literal-type|entity_migrated has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.migration-import-event/v1|packages/daemon/src/migration-import-events.ts|literal-type|entity_migrated:9674fd371b1957ba0e5b60e4f2f70382",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.migration-import-event/v1|packages/storage/src/store/generation-two-conversion.ts|literal-type|entity_migrated:14d4ab7e2b9813193b9b502766abf526",
-        "category": "policy",
-        "path": "tools/gate-allowlists/aggregate-event-construction-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped migration-import-event/v1|packages/storage/src/store/generation-two-conversion.ts|literal-type|entity_migrated has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.migration-import-event/v1|packages/storage/src/store/generation-two-conversion.ts|literal-type|entity_migrated:14d4ab7e2b9813193b9b502766abf526",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.task-event/v1|packages/application/src/task-lifecycle-service.ts|literal-type|lease_renewed:c9280b429b266b9fcd2ff576d20aabdf",
-        "category": "policy",
-        "path": "tools/gate-allowlists/aggregate-event-construction-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped task-event/v1|packages/application/src/task-lifecycle-service.ts|literal-type|lease_renewed has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.task-event/v1|packages/application/src/task-lifecycle-service.ts|literal-type|lease_renewed:c9280b429b266b9fcd2ff576d20aabdf",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|lease_released:2ee665733648b8ae66a5e42208a68e93",
-        "category": "policy",
-        "path": "tools/gate-allowlists/aggregate-event-construction-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|lease_released has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|lease_released:2ee665733648b8ae66a5e42208a68e93",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
-        "id": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_contract_migrated:5eb75367d6c819edf05292b346e4ecf0",
-        "category": "policy",
-        "path": "tools/gate-allowlists/aggregate-event-construction-baseline.mjs",
-        "status": "technical-exempt",
-        "owner": "tools",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Repository tooling/schema mechanics rather than a domain operation: policy-shaped task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_contract_migrated has literal configuration",
-        "exemptionId": "policy:tools:tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE.task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_contract_migrated:5eb75367d6c819edf05292b346e4ecf0",
-        "reviewer": "sol initial classification; closeout-reviewer approval required",
-        "expiresOn": "2027-02-11"
-      },
-      {
         "id": "policy:tools:tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs#fleetForwardingBoundaryBaseline.packages/daemon/src/fleet-edge-workspace-migration.ts.migrateFleetEdgeWorkspace:77739dabece067530966c2d934bdf6f5",
         "category": "policy",
         "path": "tools/gate-allowlists/fleet-forwarding-boundary-baseline.mjs",
