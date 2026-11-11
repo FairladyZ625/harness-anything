@@ -751,8 +751,11 @@ export async function runtimeProcessTreeStopped(
   const pid = runtime.pid;
   if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
   if (runtime.terminateTree) await runtime.terminateTree();
-  else if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) !== "proven_stopped")
-    await terminateRuntimeTree(rootDir, dispatchId, pid);
+  else {
+    runtime.terminate();
+    if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) !== "proven_stopped")
+      await terminateRuntimeTree(rootDir, dispatchId, pid);
+  }
   return probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped";
 }
 
