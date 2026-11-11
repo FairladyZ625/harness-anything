@@ -1,3 +1,4 @@
+import { taskMutationDraft } from "@harness-anything/kernel";
 import {
   isSameExecution,
   isSamePerson,
@@ -184,8 +185,7 @@ function taskMutationWithStopResult(
         throw cell.cellCodedError(code, reason);
       }
     }
-    return {
-      type: "lease_released",
+    return taskMutationDraft({
       task,
       ...(execution === undefined ? {} : { execution }),
       releasedLease: activeLease,
@@ -195,7 +195,7 @@ function taskMutationWithStopResult(
         reason,
         fields: ["lease"],
       },
-    };
+    });
   }
   // An orphaned lease's holder is gone; it fences nothing (start already takes it over via the
   // reservation CAS), so only a live reservation or hold keeps task-level mutations out. A live
@@ -317,15 +317,14 @@ function taskMutationWithStopResult(
   if (action.kind === "task-archive") {
     if ((task.packageDisposition ?? "active") !== "active")
       throw cell.cellCodedError("invalid_disposition", `Reopen task ${task.taskId} before archiving it again.`);
-    return {
-      type: "task_archived",
+    return taskMutationDraft({
       task: { ...task, packageDisposition: "archived" },
       audit: {
         command: "archive",
         reason: cell.requiredCellText(action.reason, "reason"),
         fields: ["packageDisposition", ...(typeof action.archivedBy === "string" ? ["archivedBy"] : [])],
       },
-    };
+    });
   }
   if (action.kind === "task-reopen") {
     if (isTerminalStatus(task.status))
@@ -338,15 +337,14 @@ function taskMutationWithStopResult(
         "invalid_disposition",
         `Archive or soft-delete task ${task.taskId} before reopening it.`,
       );
-    return {
-      type: "task_reopened",
+    return taskMutationDraft({
       task: { ...task, packageDisposition: "active", supersededBy: null },
       audit: {
         command: "reopen",
         reason: cell.requiredCellText(action.reason, "reason"),
         fields: ["packageDisposition"],
       },
-    };
+    });
   }
   if (action.kind === "task-supersede") {
     const byTaskId = cell.requiredCellText(action.byTaskId, "byTaskId");
@@ -373,8 +371,7 @@ function taskMutationWithStopResult(
           `ha runtime cancel ${unsettled.runtimeSessionId}, then retry ha task supersede ${task.taskId} ` +
           `--by ${byTaskId} --confirm ${task.taskId}.`,
       );
-    return {
-      type: "task_superseded",
+    return taskMutationDraft({
       task: supersededTaskState(task, byTaskId),
       audit: {
         command: "supersede",
@@ -384,7 +381,7 @@ function taskMutationWithStopResult(
             : `Task superseded by ${byTaskId}`,
         fields: ["status", "supersededBy"],
       },
-    };
+    });
   }
   if (action.kind === "task-delete") {
     if (action.mode !== "soft")
@@ -400,15 +397,14 @@ function taskMutationWithStopResult(
           ".",
         ].join(""),
       );
-    return {
-      type: "task_deleted",
+    return taskMutationDraft({
       task: { ...task, packageDisposition: "tombstoned" },
       audit: {
         command: "delete",
         reason: cell.requiredCellText(action.reason, "reason"),
         fields: ["packageDisposition"],
       },
-    };
+    });
   }
   if (action.kind === "task-contract-migrate") {
     const repairedDigest =
@@ -440,8 +436,7 @@ function taskMutationWithStopResult(
         "contract_current",
         `Task ${task.taskId} already has task-contract/v1; run ha task show ${task.taskId} to inspect it.`,
       );
-    return {
-      type: "task_contract_migrated",
+    return taskMutationDraft({
       task: {
         ...task,
         contractVersion: 1,
@@ -461,7 +456,7 @@ function taskMutationWithStopResult(
                 : "Backfilled immutable task-contract/v1 from unambiguous L1 task truth",
         fields,
       },
-    };
+    });
   }
   throw cell.cellCodedError("unsupported_command", `No task mutation contract exists for ${action.kind}.`);
 }

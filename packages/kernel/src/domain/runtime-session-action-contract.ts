@@ -1,3 +1,4 @@
+import { createAgentRuntimeEvent } from "./agent-runtime-event.ts";
 import {
   reduceRuntimeSession,
   validateCurrentAgentRuntimeEvent,
@@ -234,8 +235,7 @@ function compileRuntimeSessionAction(
   id: RuntimeSessionActionId,
   input: EntityActionCompileInput,
 ): RuntimeSessionActionDraft {
-  const event = {
-      schema: "agent-runtime-event/v1",
+  const event = createAgentRuntimeEvent({
       eventId: `event-${sha256Text(input.opId)}`,
       workspaceRevision: input.workspaceRevision,
       opId: input.opId,
@@ -244,7 +244,7 @@ function compileRuntimeSessionAction(
       source: input.source,
       occurredAt: input.occurredAt,
       payload: runtimeSessionActionPayload(id, input.action),
-    } as RuntimeSessionActionEvent,
+    }) as RuntimeSessionActionEvent,
     errors = validateCurrentAgentRuntimeEvent(event);
   if (errors.length) invalidRuntimeSessionAction("invalid_runtime_event", errors.join("; "));
   let noChanges = false;

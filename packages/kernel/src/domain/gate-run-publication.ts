@@ -1,3 +1,4 @@
+import { createTaskEvent } from "./task-lifecycle-event.ts";
 import { isSamePerson } from "./actor-domain-services.ts";
 import {
   claimGateRun,
@@ -8,7 +9,7 @@ import {
   settleGateRun,
   type GateRun,
 } from "./gate-run.ts";
-import { envelope, execution } from "./task-lifecycle-contract-support.ts";
+import { execution } from "./task-lifecycle-contract-support.ts";
 import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-lifecycle-publication.ts";
 import type { GateRunChangedEvent } from "./task-lifecycle-event.ts";
 import { validateTaskEvent } from "./task-lifecycle-event.ts";
@@ -115,12 +116,16 @@ export function compileGateRunChange(input: {
   const current = execution(input.snapshot, input.executionId);
   if (!current || !input.snapshot.task || input.workspaceRevision <= input.snapshot.revision)
     throw gateRunError("gate_run_stale", "The gate run's aggregate cut is no longer current.");
-  const event = envelope<GateRunChangedEvent>({ ...input, taskId: input.snapshot.task.taskId }, "gate_run_changed", {
-    task: input.snapshot.task,
-    execution: replaceClaimedRun(current, input.run, input.actor),
-    runId: input.run.runId,
-    operation: input.operation,
-  });
+  const event = createTaskEvent<GateRunChangedEvent>(
+    { ...input, taskId: input.snapshot.task.taskId },
+    "gate_run_changed",
+    {
+      task: input.snapshot.task,
+      execution: replaceClaimedRun(current, input.run, input.actor),
+      runId: input.run.runId,
+      operation: input.operation,
+    },
+  );
   const issues = validateTaskEvent(event);
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);
   const snapshot = replayGateRunChange(input.snapshot, event);

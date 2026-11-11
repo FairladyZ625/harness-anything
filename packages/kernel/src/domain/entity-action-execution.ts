@@ -1,3 +1,4 @@
+import { createFactEvent } from "./fact-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 export {
   attributeEntityActionCriterion,
@@ -8,6 +9,7 @@ import type { SessionIdentity } from "./agent-runtime.ts";
 import { sessionProvenance } from "./agent-runtime.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
 import {
+  createDecisionEvent,
   decisionTransitionDefinitions,
   type DecisionAmendableSnapshot,
   type DecisionAmendmentOwnerConsentV1,
@@ -159,8 +161,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
   }
   return {
     kind: "fact",
-    event: {
-      schema: "fact-event/v1",
+    event: createFactEvent({
       eventId: eventId(input.opId),
       workspaceRevision: input.workspaceRevision,
       opId: input.opId,
@@ -169,7 +170,6 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
         typeof action.factId === "string"
           ? requiredText(input, action.factId, "factId")
           : `F-${digest(input.opId).slice(0, 8).toUpperCase()}`,
-      type: "fact_recorded",
       actor: input.actor,
       source: input.source,
       occurredAt: input.occurredAt,
@@ -193,7 +193,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
             }
           : {}),
       },
-    },
+    }),
   };
 }
 
@@ -202,14 +202,16 @@ export function compileFactReclassifyAction(input: EntityActionCompileInput): En
   if (recorded.kind !== "fact") throw new Error("fact reclassification compiler produced a non-Fact draft");
   return {
     kind: "fact",
-    event: {
-      ...recorded.event,
-      type: "fact_reclassified",
-      payload: {
-        ...recorded.event.payload,
-        reclassificationRationale: requiredText(input, input.action.rationale, "rationale"),
+    event: createFactEvent(
+      {
+        ...recorded.event,
+        payload: {
+          ...recorded.event.payload,
+          reclassificationRationale: requiredText(input, input.action.rationale, "rationale"),
+        },
       },
-    },
+      "fact_reclassified",
+    ),
   };
 }
 
@@ -221,14 +223,16 @@ function compileFactArchiveDraft(
 ): FactEventDraftV1 {
   const recorded = compileFactRecordAction(input);
   if (recorded.kind !== "fact") throw new Error("fact archive compiler produced a non-Fact draft");
-  return {
-    ...recorded.event,
-    type,
-    payload: {
-      ...recorded.event.payload,
-      archiveReason: short(input, input.action.reason, "reason"),
+  return createFactEvent(
+    {
+      ...recorded.event,
+      payload: {
+        ...recorded.event.payload,
+        archiveReason: short(input, input.action.reason, "reason"),
+      },
     },
-  };
+    type,
+  );
 }
 export function compileFactArchiveAction(input: EntityActionCompileInput): EntityActionDraft {
   return { kind: "fact-archive", event: compileFactArchiveDraft(input, "fact_archived") };
@@ -265,14 +269,12 @@ export function compileDecisionReckonAction(input: EntityActionCompileInput): En
   const report = coverage.rows.map((row) => `${row.claimRef}=${row.status}`).join(", ") || "no load-bearing claims";
   return {
     kind: "fact",
-    event: {
-      schema: "fact-event/v1",
+    event: createFactEvent({
       eventId: eventId(input.opId),
       workspaceRevision: input.workspaceRevision,
       opId: input.opId,
       taskId: coverage.taskId,
       factId: `F-${digest(input.opId).slice(0, 8).toUpperCase()}`,
-      type: "fact_recorded",
       actor: input.actor,
       source: input.source,
       occurredAt: input.occurredAt,
@@ -285,7 +287,7 @@ export function compileDecisionReckonAction(input: EntityActionCompileInput): En
         memoryTags: ["abstract_rule"],
         provenance: [sessionProvenance(input.session, input.occurredAt)],
       },
-    },
+    }),
   };
 }
 
@@ -358,7 +360,6 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
         ? `dec_${digest(input.opId).slice(0, 26).toUpperCase()}`
         : requiredText(input, action.decisionId, "decisionId"),
     base = {
-      schema: "decision-event/v1" as const,
       eventId: eventId(input.opId),
       workspaceRevision: input.workspaceRevision,
       opId: input.opId,
@@ -391,134 +392,90 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
       issues = proposalIssues(proposal, [], decisionId);
     if (issues.length > 0) invalid(input, issues.join("; "));
     assertTransitionDocumentReady("decision.body", proposal.body);
-    return {
-      ...base,
-      type: "decision_proposed",
-      payload: proposal as never,
-    };
+    return createDecisionEvent(base, "decision_proposed", proposal as never);
   }
   if (id === "transition") return transitionEvent(input, base);
   if (id === "accept")
-    return {
-      ...base,
-      type: "decision_accepted",
-      payload: {
-        rationale: short(input, action.rationale, "rationale"),
-        judgmentOnlyRationale:
-          typeof action.judgmentOnlyRationale === "string"
-            ? short(input, action.judgmentOnlyRationale, "judgmentOnlyRationale")
-            : null,
-        fulfillments: [],
-        standingPolicy: false,
-        ...(typeof action.reviewId === "string" ? { reviewId: action.reviewId } : {}),
-        ...(typeof action.expectedDigest === "string"
-          ? { expectedDigest: action.expectedDigest as `sha256:${string}` }
-          : {}),
-        ...(typeof action.policyRevision === "number" ? { policyRevision: action.policyRevision } : {}),
-      },
-    };
+    return createDecisionEvent(base, "decision_accepted", {
+      rationale: short(input, action.rationale, "rationale"),
+      judgmentOnlyRationale:
+        typeof action.judgmentOnlyRationale === "string"
+          ? short(input, action.judgmentOnlyRationale, "judgmentOnlyRationale")
+          : null,
+      fulfillments: [],
+      standingPolicy: false,
+      ...(typeof action.reviewId === "string" ? { reviewId: action.reviewId } : {}),
+      ...(typeof action.expectedDigest === "string"
+        ? { expectedDigest: action.expectedDigest as `sha256:${string}` }
+        : {}),
+      ...(typeof action.policyRevision === "number" ? { policyRevision: action.policyRevision } : {}),
+    });
   if (id === "reject")
-    return { ...base, type: "decision_rejected", payload: { reason: short(input, action.reason, "reason") } };
+    return createDecisionEvent(base, "decision_rejected", { reason: short(input, action.reason, "reason") });
   if (id === "defer")
-    return { ...base, type: "decision_deferred", payload: { reason: short(input, action.reason, "reason") } };
+    return createDecisionEvent(base, "decision_deferred", { reason: short(input, action.reason, "reason") });
   if (id === "retire")
-    return { ...base, type: "decision_retired", payload: { reason: short(input, action.reason, "reason") } };
+    return createDecisionEvent(base, "decision_retired", { reason: short(input, action.reason, "reason") });
   if (id === "amend") {
     if (typeof action.body === "string") assertTransitionDocumentReady("decision.body", action.body);
-    return {
-      ...base,
-      type: "decision_amended",
-      payload: {
-        previous: object(input, action.previous, "previous") as unknown as DecisionAmendableSnapshot,
-        next: object(input, action.next, "next") as unknown as DecisionAmendableSnapshot,
-        fields: stringList(action.fields),
-        body: typeof action.body === "string" ? action.body : null,
-        reason: short(input, action.reason, "reason"),
-        ...(action.ownerConsent === undefined
-          ? {}
-          : {
-              ownerConsent: object(
-                input,
-                action.ownerConsent,
-                "ownerConsent",
-              ) as unknown as DecisionAmendmentOwnerConsentV1,
-            }),
-      },
-    };
+    return createDecisionEvent(base, "decision_amended", {
+      previous: object(input, action.previous, "previous") as unknown as DecisionAmendableSnapshot,
+      next: object(input, action.next, "next") as unknown as DecisionAmendableSnapshot,
+      fields: stringList(action.fields),
+      body: typeof action.body === "string" ? action.body : null,
+      reason: short(input, action.reason, "reason"),
+      ...(action.ownerConsent === undefined
+        ? {}
+        : {
+            ownerConsent: object(
+              input,
+              action.ownerConsent,
+              "ownerConsent",
+            ) as unknown as DecisionAmendmentOwnerConsentV1,
+          }),
+    });
   }
   if (id === "repin")
-    return {
-      ...base,
-      type: "decision_repinned",
-      payload: { migrationEvidence: requiredText(input, action.migrationEvidence, "migrationEvidence") },
-    };
+    return createDecisionEvent(base, "decision_repinned", {
+      migrationEvidence: requiredText(input, action.migrationEvidence, "migrationEvidence"),
+    });
   if (id === "review")
-    return {
-      ...base,
-      type: "decision_review_recorded",
-      payload: {
-        reviewId: requiredText(input, action.reviewId, "reviewId"),
-        reviewContentDigest: requiredText(
-          input,
-          action.reviewContentDigest,
-          "reviewContentDigest",
-        ) as `sha256:${string}`,
-        verdict: choice(input, action.verdict, ["approved", "changes_requested"], "verdict"),
-        reason: requiredText(input, action.reason, "reason"),
-        findings: reviewFindings(input, action.findings),
-        evidenceChecked: stringList(action.evidenceChecked),
-        reportRef: typeof action.reportRef === "string" ? action.reportRef : null,
-      },
-    };
+    return createDecisionEvent(base, "decision_review_recorded", {
+      reviewId: requiredText(input, action.reviewId, "reviewId"),
+      reviewContentDigest: requiredText(input, action.reviewContentDigest, "reviewContentDigest") as `sha256:${string}`,
+      verdict: choice(input, action.verdict, ["approved", "changes_requested"], "verdict"),
+      reason: requiredText(input, action.reason, "reason"),
+      findings: reviewFindings(input, action.findings),
+      evidenceChecked: stringList(action.evidenceChecked),
+      reportRef: typeof action.reportRef === "string" ? action.reportRef : null,
+    });
   if (id === "respond-review")
-    return {
-      ...base,
-      type: "decision_review_responded",
-      payload: { responses: reviewResponses(input, action.responses) },
-    };
+    return createDecisionEvent(base, "decision_review_responded", {
+      responses: reviewResponses(input, action.responses),
+    });
   if (id === "override-review")
-    return {
-      ...base,
-      type: "decision_review_overridden",
-      payload: {
-        reviewContentDigest: requiredText(
-          input,
-          action.reviewContentDigest,
-          "reviewContentDigest",
-        ) as `sha256:${string}`,
-        reviewIds: stringList(action.reviewIds),
-        reason: requiredText(input, action.reason, "reason"),
-      },
-    };
+    return createDecisionEvent(base, "decision_review_overridden", {
+      reviewContentDigest: requiredText(input, action.reviewContentDigest, "reviewContentDigest") as `sha256:${string}`,
+      reviewIds: stringList(action.reviewIds),
+      reason: requiredText(input, action.reason, "reason"),
+    });
   if (id === "declare-claim")
-    return {
-      ...base,
-      type: "decision_claim_declared",
-      payload: {
-        claimId: requiredText(input, action.claimId, "claimId"),
-        text: requiredText(input, action.text, "text"),
-        loadBearing: action.loadBearing !== false,
-      },
-    };
+    return createDecisionEvent(base, "decision_claim_declared", {
+      claimId: requiredText(input, action.claimId, "claimId"),
+      text: requiredText(input, action.text, "text"),
+      loadBearing: action.loadBearing !== false,
+    });
   if (id === "fulfill-claim")
-    return {
-      ...base,
-      type: "decision_claim_fulfillment_declared",
-      payload: {
-        claimId: requiredText(input, action.claimId, "claimId"),
-        mode: choice(input, action.mode, ["evidenced", "delivered", "standing_policy"], "mode"),
-      },
-    };
+    return createDecisionEvent(base, "decision_claim_fulfillment_declared", {
+      claimId: requiredText(input, action.claimId, "claimId"),
+      mode: choice(input, action.mode, ["evidenced", "delivered", "standing_policy"], "mode"),
+    });
   if (id === "relate") return relationEvent(input, base);
   if (id === "retire-relation")
-    return {
-      ...base,
-      type: "decision_relation_retired",
-      payload: {
-        relationId: requiredText(input, action.relationId, "relationId"),
-        reason: requiredText(input, action.reason, "reason"),
-      },
-    };
+    return createDecisionEvent(base, "decision_relation_retired", {
+      relationId: requiredText(input, action.relationId, "relationId"),
+      reason: requiredText(input, action.reason, "reason"),
+    });
   return replacementEvent(input, base);
 }
 
@@ -543,7 +500,7 @@ function decisionBodyTemplate(title: string): string {
 
 function transitionEvent(
   input: EntityActionCompileInput,
-  base: Omit<DecisionEventDraftV1, "type" | "payload">,
+  base: Omit<DecisionEventDraftV1, "schema" | "type" | "payload">,
 ): DecisionEventDraftV1 {
   // Adjudication targets (proposed → in_effect/rejected/deferred) compile only through the
   // accept/reject/defer action family; transition is the in_effect → superseded/outcome_retired
@@ -562,13 +519,13 @@ function transitionEvent(
         ? short(input, action.reason, "reason")
         : `Transitioned to ${state} via the canonical Decision lifecycle command.`;
   return state === "superseded"
-    ? { ...base, type: "decision_superseded", payload: { reason } }
-    : { ...base, type: "decision_retired", payload: { reason } };
+    ? createDecisionEvent(base, "decision_superseded", { reason })
+    : createDecisionEvent(base, "decision_retired", { reason });
 }
 
 function relationEvent(
   input: EntityActionCompileInput,
-  base: Omit<DecisionEventDraftV1, "type" | "payload">,
+  base: Omit<DecisionEventDraftV1, "schema" | "type" | "payload">,
 ): DecisionEventDraftV1 {
   const action = input.action,
     identity = {
@@ -577,25 +534,21 @@ function relationEvent(
       type: requiredText(input, action.relationType, "relationType") as never,
       direction: "directed" as const,
     };
-  return {
-    ...base,
-    type: "decision_related",
-    payload: {
-      relation: {
-        relation_id: deriveRelationId(identity),
-        ...identity,
-        strength: "strong",
-        origin: "declared",
-        rationale: requiredText(input, action.rationale, "rationale"),
-        state: "active",
-      },
+  return createDecisionEvent(base, "decision_related", {
+    relation: {
+      relation_id: deriveRelationId(identity),
+      ...identity,
+      strength: "strong",
+      origin: "declared",
+      rationale: requiredText(input, action.rationale, "rationale"),
+      state: "active",
     },
-  };
+  });
 }
 
 function replacementEvent(
   input: EntityActionCompileInput,
-  base: Omit<DecisionEventDraftV1, "type" | "payload">,
+  base: Omit<DecisionEventDraftV1, "schema" | "type" | "payload">,
 ): DecisionEventDraftV1 {
   const action = input.action,
     identity = {
@@ -612,16 +565,12 @@ function replacementEvent(
       rationale: short(input, action.rationale, "rationale"),
       state: "active" as const,
     };
-  return {
-    ...base,
-    type: "decision_relation_replaced",
-    payload: {
-      relationId: requiredText(input, action.relationId, "relationId"),
-      reason: `Replaced atomically by ${replacement.relation_id}.`,
-      replacement,
-      body: typeof action.body === "string" ? action.body : null,
-    },
-  };
+  return createDecisionEvent(base, "decision_relation_replaced", {
+    relationId: requiredText(input, action.relationId, "relationId"),
+    reason: `Replaced atomically by ${replacement.relation_id}.`,
+    replacement,
+    body: typeof action.body === "string" ? action.body : null,
+  });
 }
 
 function requiredText(input: EntityActionCompileInput, value: unknown, field: string): string {

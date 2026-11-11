@@ -1,3 +1,4 @@
+import { createFactEvent } from "@harness-anything/kernel";
 import {
   cpSync,
   existsSync,
@@ -470,14 +471,12 @@ function normalizeKnownLegacyEvent(
           : undefined;
     try {
       const compiled = compileFactWrite({
-        event: {
-          schema: "fact-event/v1",
+        event: createFactEvent({
           eventId: raw.eventId,
           workspaceRevision: raw.workspaceRevision as number,
           opId: raw.opId,
           ...(typeof raw.taskId === "string" ? { taskId: raw.taskId } : {}),
           factId: raw.factId,
-          type: "fact_recorded",
           actor: raw.actor as never,
           source: raw.source as never,
           occurredAt: raw.occurredAt,
@@ -498,7 +497,7 @@ function normalizeKnownLegacyEvent(
                 }
               : {}),
           },
-        },
+        }),
       });
       syntheticBlobs.set(compiled.blobs[0].sha256, Buffer.from(compiled.blobs[0].body));
       return compiled.event;

@@ -10,18 +10,16 @@
  *   - a call to an `*Envelope` helper whose event-type argument is declared by a
  *     registered store;
  *   - a bare `type` literal whose value (or owner-declared token prefix) belongs
- *     to a registered store.
+ *     to a registered store, including a spread discriminator selected from a
+ *     function parameter's literal event-type union.
  *
  * The schema resolves to its owner kind through `canonicalEventSchemas`. Sites in
  * one of that kind's `stateStores[].medium.writers` are the aggregate's own write
- * path. Sites outside those writers are legacy debt: they are tolerated only at
- * the exact counts in `aggregate-event-construction-baseline.mjs`, and every
- * baseline entry must still have its site (a vanished or now-owned entry is a
- * finding). New construction outside the declared writers is refused.
+ * path. Construction outside those writers is refused without exemptions.
  *
- * authored-document-event/v1 is not registered in `canonicalEventSchemas` yet
- * (dec_6B912A63D279A922FA1288536D CH2). It stays a baseline-only family with no
- * declared writers, so this slice cannot loosen its existing one-constructor rule.
+ * authored-document-event/v1 is an aggregate-local family pending canonical
+ * publication (dec_6B912A63D279A922FA1288536D CH2). Its constructor is owned by
+ * the document aggregate; it receives the same writer-only check.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -29,12 +27,11 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { listWorktreeFiles } from "./gates/git.mjs";
 import { loadStateAuthoritySnapshot } from "./gates/ontology-gate-lib.mjs";
-import { AGGREGATE_EVENT_CONSTRUCTION_BASELINE } from "./gate-allowlists/aggregate-event-construction-baseline.mjs";
 
 export const AUTHORED_DOCUMENT_EVENT_FAMILY = Object.freeze({
   schema: "authored-document-event/v1",
   owner: "document",
-  writers: Object.freeze([]),
+  writers: Object.freeze(["packages/kernel/src/domain/authored-document.ts"]),
   types: Object.freeze(["authored_document_registered", "authored_document_revised", "authored_document_retired"]),
 });
 
@@ -134,6 +131,23 @@ export function scanAggregateEventConstructionSites(root, families) {
         const schema = typeIndex.schemaFor(node.initializer.text);
         if (schema) add(node, schema, "literal-type", node.initializer.text);
       }
+      // A spread can carry the schema while a typed parameter selects its new
+      // discriminator (including shorthand `type,`). Attribute those variants
+      // through the same event vocabulary as literal discriminators.
+      if (
+        (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+        propertyName(node.name) === "type" &&
+        ts.isObjectLiteralExpression(node.parent) &&
+        !hasSchemaProperty(node.parent) &&
+        node.parent.properties.some(ts.isSpreadAssignment) &&
+        node.parent.properties.some((property) => propertyName(property.name) === "payload")
+      ) {
+        const identifier = ts.isShorthandPropertyAssignment(node) ? node.name : node.initializer;
+        if (ts.isIdentifier(identifier)) {
+          const schemas = new Set(parameterEventTypes(node, identifier.text).map(typeIndex.schemaFor).filter(Boolean));
+          for (const schema of schemas) add(node, schema, "dynamic-event", DYNAMIC_EVENT_TYPE);
+        }
+      }
       // (3) envelope helper call: the first string argument is the event type.
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && /[Ee]nvelope$/u.test(node.expression.text)) {
         const eventType = node.arguments[1];
@@ -149,63 +163,34 @@ export function scanAggregateEventConstructionSites(root, families) {
   return sites;
 }
 
-/** Only the sites outside a declared writer need a baseline entry. */
-export function baselineFromSites(sites, families) {
-  const bySchema = new Map(families.map((family) => [family.schema, family]));
-  const grouped = new Map();
-  for (const site of sites) {
-    const family = bySchema.get(site.schema);
-    if (family && isWriterPath(site.path, family.writers)) continue;
-    const key = siteKey(site);
-    grouped.set(key, (grouped.get(key) ?? 0) + 1);
-  }
-  return Object.fromEntries([...grouped].sort(([left], [right]) => left.localeCompare(right)));
-}
-
-export function checkAggregateEventConstructionSites(sites, { families, baseline }) {
+export function checkAggregateEventConstructionSites(sites, { families }) {
   const findings = typeOwnershipFindings(families);
   const bySchema = new Map(families.map((family) => [family.schema, family]));
-  const grouped = new Map();
+  const constructors = new Set();
   for (const site of sites) {
-    const key = siteKey(site);
-    const values = grouped.get(key) ?? [];
-    values.push(site);
-    grouped.set(key, values);
-  }
-  for (const [key, values] of grouped) {
-    const site = values[0],
-      family = bySchema.get(site.schema);
+    const key = siteKey(site),
+      family = bySchema.get(site.schema),
+      location = locations([site]);
     if (!family) {
-      findings.push(`${key}: schema does not resolve to a registered aggregate event family (${locations(values)})`);
+      findings.push(`${key}: schema does not resolve to a registered aggregate event family (${location})`);
       continue;
     }
     if (site.eventType !== DYNAMIC_EVENT_TYPE && family.types !== null && !family.types.includes(site.eventType))
-      findings.push(
-        `${key}: event type ${site.eventType} is not declared by schema ${site.schema} (${locations(values)})`,
-      );
+      findings.push(`${key}: event type ${site.eventType} is not declared by schema ${site.schema} (${location})`);
     if (isWriterPath(site.path, family.writers)) {
-      if (Object.hasOwn(baseline, key))
-        findings.push(
-          `${key}: baseline entry is obsolete; ${site.path} is now a declared writer (${locations(values)})`,
-        );
-      continue;
-    }
-    const ceiling = baseline[key];
-    if (ceiling === undefined) {
+      // An explicit catalog keeps its single-constructor rule after debt removal,
+      // including authored-document's aggregate-local events. Wildcard families
+      // have no per-type vocabulary to make this judgment against.
+      const constructor = `${site.schema}|${site.form}|${site.eventType}`;
+      if (family.types !== null && constructors.has(constructor))
+        findings.push(`${key}: duplicate aggregate constructor; use the existing entry (${location})`);
+      constructors.add(constructor);
+    } else
       findings.push(
         `${key}: aggregate event construction is outside the declared writers of ${family.owner} ` +
-          `for ${site.schema} and has no only-decrease baseline entry (${locations(values)})`,
-      );
-      continue;
-    }
-    if (values.length !== ceiling)
-      findings.push(
-        `${key}: found ${values.length} construction sites, baseline records ${ceiling}; ` +
-          `the baseline may only decrease (${locations(values)})`,
+          `for ${site.schema} (${location})`,
       );
   }
-  for (const key of Object.keys(baseline))
-    if (!grouped.has(key)) findings.push(`${key}: stale baseline entry has no construction site; delete it`);
   return findings;
 }
 
@@ -257,6 +242,19 @@ function isWriterPath(rel, writers) {
   return writers.some((writer) => rel === writer || rel.startsWith(writer.endsWith("/") ? writer : `${writer}/`));
 }
 
+function parameterEventTypes(node, name) {
+  let scope = node.parent;
+  while (scope && !ts.isFunctionLike(scope)) scope = scope.parent;
+  const parameter = scope?.parameters.find(
+    (parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === name,
+  );
+  if (!parameter?.type) return [];
+  const variants = ts.isUnionTypeNode(parameter.type) ? parameter.type.types : [parameter.type];
+  return variants.every((variant) => ts.isLiteralTypeNode(variant) && ts.isStringLiteralLike(variant.literal))
+    ? variants.map((variant) => variant.literal.text)
+    : [];
+}
+
 function hasSchemaProperty(node) {
   return (
     ts.isObjectLiteralExpression(node) && node.properties.some((property) => propertyName(property.name) === "schema")
@@ -295,24 +293,14 @@ function isTestOrFixturePath(rel) {
 async function main() {
   const families = loadAggregateEventFamilies(),
     sites = scanAggregateEventConstructionSites(process.cwd(), families);
-  if (process.argv.includes("--print-baseline")) {
-    console.log(JSON.stringify(baselineFromSites(sites, families), null, 2));
-    return;
-  }
-  const findings = checkAggregateEventConstructionSites(sites, {
-    families,
-    baseline: AGGREGATE_EVENT_CONSTRUCTION_BASELINE,
-  });
+  const findings = checkAggregateEventConstructionSites(sites, { families });
   if (findings.length) {
     console.error("Aggregate event construction check failed:");
     for (const finding of findings) console.error(`- ${finding}`);
     process.exitCode = 1;
     return;
   }
-  console.log(
-    `Aggregate event construction check passed (${sites.length} sites, ` +
-      `${Object.keys(AGGREGATE_EVENT_CONSTRUCTION_BASELINE).length} only-decrease baseline entries).`,
-  );
+  console.log(`Aggregate event construction check passed (${sites.length} sites, no exemptions).`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)

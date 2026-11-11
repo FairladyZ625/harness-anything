@@ -120,11 +120,12 @@ export function compileEntityUpsert(
   if (typeof entityId !== "string") throw new Error(`${input.entityKind} declaration has no string identity`);
   const { body, claim } = declarationContent(contract, entityId, entity),
     ownedContent = declarationOwnedContent(contract, entityId, claim),
-    event: EntityUpsertEventV1 = {
-      ...eventEnvelope(input),
-      type: "entity_upserted",
-      payload: { entityKind: contract.kind, entityId, declarationDocumentClaim: claim, ownedContent },
-    };
+    event: EntityUpsertEventV1 = eventEnvelope(input, "entity_upserted", {
+      entityKind: contract.kind,
+      entityId,
+      declarationDocumentClaim: claim,
+      ownedContent,
+    });
   assertValidCurrent(event);
   return { event, plan: entityUpsertWritePlan(event), blobs: [blob(claim, body)] };
 }
@@ -151,22 +152,18 @@ export function compileEntityContentObserved(
       retirements: input.retirements,
       heldDirectories: input.heldDirectories,
     }),
-    event: EntityContentObservedEventV1 = {
-      ...eventEnvelope(input),
-      type: "entity_content_observed",
-      payload: {
-        entityKind: input.contract.kind,
-        entityId: descriptor.entityId,
-        declarationDocumentClaim: claim,
-        ownedContent,
-        locator: descriptor.locator,
-        sourceIdentity: descriptor.source,
-        observedContentVersion: contentVersion,
-        resolver: input.resolver,
-        observationId: input.observationId,
-        artifactContract: input.contractSnapshot,
-      },
-    };
+    event: EntityContentObservedEventV1 = eventEnvelope(input, "entity_content_observed", {
+      entityKind: input.contract.kind,
+      entityId: descriptor.entityId,
+      declarationDocumentClaim: claim,
+      ownedContent,
+      locator: descriptor.locator,
+      sourceIdentity: descriptor.source,
+      observedContentVersion: contentVersion,
+      resolver: input.resolver,
+      observationId: input.observationId,
+      artifactContract: input.contractSnapshot,
+    });
   assertValidCurrent(event);
   return { event, plan: entityContentObservedWritePlan(event), blobs: [blob(claim, body), ...sourceContent] };
 }
@@ -182,20 +179,16 @@ export function compileEntityTargetMissing(
     readonly reason: string;
   },
 ): EntityTargetMissingBundle {
-  const event: EntityTargetMissingEventV1 = {
-    ...eventEnvelope(input),
-    type: "entity_target_missing",
-    payload: {
-      entityKind: input.contractSnapshot.typeIdentity,
-      entityId: input.entityId,
-      locator: canonicalArtifactLocator(input.locator),
-      sourceIdentity: input.sourceIdentity,
-      resolver: input.resolver,
-      observationId: input.observationId,
-      reason: input.reason,
-      artifactContract: input.contractSnapshot,
-    },
-  };
+  const event: EntityTargetMissingEventV1 = eventEnvelope(input, "entity_target_missing", {
+    entityKind: input.contractSnapshot.typeIdentity,
+    entityId: input.entityId,
+    locator: canonicalArtifactLocator(input.locator),
+    sourceIdentity: input.sourceIdentity,
+    resolver: input.resolver,
+    observationId: input.observationId,
+    reason: input.reason,
+    artifactContract: input.contractSnapshot,
+  });
   assertValidCurrent(event);
   return { event, plan: entityTargetMissingWritePlan(event), blobs: [] };
 }
@@ -227,26 +220,22 @@ export function compileEntityReferenceDeclared(
       retirements: input.retirements ?? [],
       directoryRetirements: (input.retiredDirectories ?? []).map((path) => ({ path })),
     }),
-    event: EntityReferenceDeclaredEventV1 = {
-      ...eventEnvelope(input),
-      type: "entity_reference_declared",
-      payload: {
-        entityKind: input.contract.kind,
-        entityId: descriptor.entityId,
-        descriptor,
-        locator: descriptor.locator,
-        sourceIdentity: descriptor.source,
-        ...(input.sourceNodeId === undefined ? {} : { sourceNodeId: input.sourceNodeId }),
-        ...(descriptor.declaredContentVersion === undefined
-          ? {}
-          : { declaredContentVersion: descriptor.declaredContentVersion }),
-        ...(input.mutation === undefined ? {} : { mutation: input.mutation }),
-        resolver: "reference",
-        observationId: input.observationId,
-        artifactContract: input.contractSnapshot,
-        ownedContent,
-      },
-    };
+    event: EntityReferenceDeclaredEventV1 = eventEnvelope(input, "entity_reference_declared", {
+      entityKind: input.contract.kind,
+      entityId: descriptor.entityId,
+      descriptor,
+      locator: descriptor.locator,
+      sourceIdentity: descriptor.source,
+      ...(input.sourceNodeId === undefined ? {} : { sourceNodeId: input.sourceNodeId }),
+      ...(descriptor.declaredContentVersion === undefined
+        ? {}
+        : { declaredContentVersion: descriptor.declaredContentVersion }),
+      ...(input.mutation === undefined ? {} : { mutation: input.mutation }),
+      resolver: "reference",
+      observationId: input.observationId,
+      artifactContract: input.contractSnapshot,
+      ownedContent,
+    });
   assertValidCurrent(event);
   return { event, plan: entityReferenceDeclaredWritePlan(event), blobs: [] };
 }
@@ -280,22 +269,18 @@ export function compileEntityUpdated(
       locator: descriptor.locator,
       resolution: contentVersion,
     }),
-    event: EntityUpdatedEventV1 = {
-      ...eventEnvelope(input),
-      type: "entity_updated",
-      payload: {
-        entityKind: input.contract.kind,
-        entityId: descriptor.entityId,
-        declarationDocumentClaim: claim,
-        ownedContent,
-        locator: descriptor.locator,
-        sourceIdentity: descriptor.source,
-        observedContentVersion: contentVersion,
-        resolver: "descriptor-update",
-        observationId,
-        artifactContract: input.contractSnapshot,
-      },
-    };
+    event: EntityUpdatedEventV1 = eventEnvelope(input, "entity_updated", {
+      entityKind: input.contract.kind,
+      entityId: descriptor.entityId,
+      declarationDocumentClaim: claim,
+      ownedContent,
+      locator: descriptor.locator,
+      sourceIdentity: descriptor.source,
+      observedContentVersion: contentVersion,
+      resolver: "descriptor-update",
+      observationId,
+      artifactContract: input.contractSnapshot,
+    });
   assertValidCurrent(event);
   return {
     event,
@@ -311,16 +296,12 @@ export function compileEntityArchived(
     readonly reason: string;
   },
 ): EntityArchivedBundle {
-  const event: EntityArchivedEventV1 = {
-    ...eventEnvelope(input),
-    type: "entity_archived",
-    payload: {
-      entityKind: input.contractSnapshot.typeIdentity,
-      entityId: input.entityId,
-      reason: input.reason.trim(),
-      artifactContract: input.contractSnapshot,
-    },
-  };
+  const event: EntityArchivedEventV1 = eventEnvelope(input, "entity_archived", {
+    entityKind: input.contractSnapshot.typeIdentity,
+    entityId: input.entityId,
+    reason: input.reason.trim(),
+    artifactContract: input.contractSnapshot,
+  });
   assertValidCurrent(event);
   return { event, plan: entityArchivedWritePlan(event), blobs: [] };
 }
@@ -365,17 +346,13 @@ export function compileEntityDeleted(
       // therefore never touched, however empty it is.
       directoryRetirements: (input.heldDirectories ?? []).map((held) => ({ path: held })),
     }),
-    event: EntityDeletedEventV1 = {
-      ...eventEnvelope(input),
-      type: "entity_deleted",
-      payload: {
-        entityKind: contract.kind,
-        entityId: input.entityId,
-        reason: input.reason.trim(),
-        ...(input.referenceEntity === true ? { referenceEntity: true as const } : {}),
-        ownedContent,
-      },
-    };
+    event: EntityDeletedEventV1 = eventEnvelope(input, "entity_deleted", {
+      entityKind: contract.kind,
+      entityId: input.entityId,
+      reason: input.reason.trim(),
+      ...(input.referenceEntity === true ? { referenceEntity: true as const } : {}),
+      ownedContent,
+    });
   assertValidCurrent(event);
   return { event, plan: entityDeletedWritePlan(event), blobs: [] };
 }
@@ -389,18 +366,14 @@ export function compileAgentRetired(
     readonly successor?: string;
   },
 ): AgentRetiredBundle {
-  const event: import("./entity-event.ts").AgentRetiredEventV1 = {
-    ...eventEnvelope(input),
-    type: "agent_retired",
-    payload: {
-      entityKind: "agent",
-      entityId: input.entityId,
-      priorVersion: input.priorVersion,
-      retiredAt: input.retiredAt,
-      reason: input.reason.trim(),
-      ...(input.successor === undefined ? {} : { successor: input.successor }),
-    },
-  };
+  const event: import("./entity-event.ts").AgentRetiredEventV1 = eventEnvelope(input, "agent_retired", {
+    entityKind: "agent",
+    entityId: input.entityId,
+    priorVersion: input.priorVersion,
+    retiredAt: input.retiredAt,
+    reason: input.reason.trim(),
+    ...(input.successor === undefined ? {} : { successor: input.successor }),
+  });
   assertValidCurrent(event);
   return { event, plan: agentRetiredWritePlan(event), blobs: [] };
 }
@@ -417,16 +390,22 @@ function declarationContent(contract: EntityStoreKindContract, entityId: string,
   return { body, claim };
 }
 
-function eventEnvelope(input: EntityEventEnvelopeInput) {
+function eventEnvelope<E extends EntityEventV1>(
+  input: EntityEventEnvelopeInput,
+  type: E["type"],
+  payload: E["payload"],
+): E {
   return {
-    schema: "entity-event/v1" as const,
+    schema: "entity-event/v1",
+    type,
+    payload,
     eventId: input.eventId,
     workspaceRevision: input.workspaceRevision,
     opId: input.opId,
     actor: input.actor,
     source: input.source,
     occurredAt: input.occurredAt,
-  };
+  } as E;
 }
 
 function blob(claim: EntityDeclarationClaim, body: string): EntityDeclarationBlob {

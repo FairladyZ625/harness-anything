@@ -903,3 +903,39 @@ export function serializeTaskEvent(value: TaskEventV1): string {
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);
   return serializeEventEnvelope(value);
 }
+
+export function createTaskEvent<E extends TaskEventV1>(
+  command: Pick<TaskEventV1, "eventId" | "workspaceRevision" | "opId" | "taskId" | "actor" | "source" | "occurredAt">,
+  type: E["type"],
+  payload: E extends TaskEventV1 ? Omit<E["payload"], "documentClaims"> : never,
+): E {
+  return {
+    schema: "task-event/v1",
+    eventId: command.eventId,
+    workspaceRevision: command.workspaceRevision,
+    opId: command.opId,
+    taskId: command.taskId,
+    type,
+    actor: command.actor,
+    source: command.source,
+    occurredAt: command.occurredAt,
+    payload: { ...payload, documentClaims: [] },
+  } as unknown as E;
+}
+
+const taskSurfaceEventTypes = {
+  release: "lease_released",
+  amend: "task_amended",
+  archive: "task_archived",
+  supersede: "task_superseded",
+  delete: "task_deleted",
+  reopen: "task_reopened",
+  "contract-migrate": "task_contract_migrated",
+} as const;
+
+/** Resolve the audit command once, inside the task aggregate. */
+export function taskMutationDraft<
+  T extends { readonly task: TaskV2; readonly audit: { readonly command: keyof typeof taskSurfaceEventTypes } },
+>(draft: T): T & { readonly type: (typeof taskSurfaceEventTypes)[keyof typeof taskSurfaceEventTypes] } {
+  return { ...draft, type: taskSurfaceEventTypes[draft.audit.command] };
+}

@@ -1,3 +1,4 @@
+import { createMigrationImportEvent } from "@harness-anything/kernel";
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import { taskEntryToRow, type ColdDecisionProjectionRow } from "@harness-anything/storage";
@@ -31,17 +32,15 @@ export function prepare(
   blobs: Prepared["blobs"],
 ): Prepared {
   const opId = migrationOperationId(sourceKey, kind, migratedFrom),
-    event: MigrationImportEventV1 = {
-      schema: "migration-import-event/v1",
+    event: MigrationImportEventV1 = createMigrationImportEvent({
       eventId: `event-${sha256Text(opId)}`,
       workspaceRevision,
       opId,
-      type: "entity_migrated",
       actor,
       source: MIGRATION_IMPORT_SOURCE,
       occurredAt,
       payload: { migratedFrom, generation: "v0", entity },
-    };
+    });
   return { event, plan: migrationImportWritePlan(event), blobs };
 }
 

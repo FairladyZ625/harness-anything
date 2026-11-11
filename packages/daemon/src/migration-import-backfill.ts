@@ -1,3 +1,4 @@
+import { createAgentRuntimeEvent } from "@harness-anything/kernel";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -379,8 +380,7 @@ function runtimeSessionBundles(
   const actor = context.actorFor(`runtime-session/${session.runtimeSessionId}`);
   return specs.map((spec) => {
     const opId = `${base}-${spec.suffix}`,
-      event = {
-        schema: "agent-runtime-event/v1",
+      event = createAgentRuntimeEvent({
         eventId: `event-${sha256Text(opId)}`,
         workspaceRevision: ++revision,
         opId,
@@ -389,7 +389,7 @@ function runtimeSessionBundles(
         source: MIGRATION_IMPORT_SOURCE,
         occurredAt: spec.occurredAt,
         payload: spec.payload,
-      } as AgentRuntimeEventV1,
+      }) as AgentRuntimeEventV1,
       errors = validateCurrentCanonicalEvent(event);
     if (errors.length) throw new Error(errors.join("; "));
     return {

@@ -946,6 +946,30 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("task"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("task"),
+    policies: [{
+      id: "mutation-event-vocabulary", ownerRef: "task", unit: "task-event/v1 discriminator",
+      bounds: "Only audit commands release/amend/archive/supersede/delete/reopen/contract-migrate select their matching declared event type.",
+      defaultValue: null, version: 1, scope: "task aggregate mutation drafts",
+      reason: "Event tags are selected inside the aggregate; no command or event is selected by default.",
+      fixtures: ["packages/kernel/test/contracts/task-lifecycle-replay.test.ts", "packages/daemon/test/task-maintenance-acceptance.integration.test.ts"],
+      sources: [{
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#taskSurfaceEventTypes.release:29d7468222b464c15b20cbe3d927b75a",
+        route: "taskMutationDraft → createTaskEvent",
+      }, {
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#taskSurfaceEventTypes.contract-migrate:367083fb060c5b49e6cc9d07604c199e",
+        route: "taskMutationDraft → createTaskEvent",
+      }],
+    }, {
+      id: "runtime-lease-release", ownerRef: "task", unit: "task lifecycle transition",
+      bounds: "Release requires the current task, execution, lease version, person, write source and a nonempty reason.",
+      defaultValue: "release", version: 1, scope: "runtime settlement of the current task lease",
+      reason: "The existing offline-capable settlement transition retains its authority checks while emitting through the aggregate.",
+      fixtures: ["packages/kernel/test/contracts/task-lifecycle-lowrisk-rework.test.ts"],
+      sources: [{
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts#releaseRuntimeLease:42071ecbd09d23461798f3ebce8ef7eb",
+        route: "releaseRuntimeLease → createTaskEvent",
+      }],
+    }],
     statusVocabulary: [{ field: "lifecycle.status", words: domainStatuses }],
     actionCatalog: Object.freeze({
       ...taskActionCatalog,
@@ -986,6 +1010,20 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: relationsFor("decision"),
     canonicalProjection: null,
     stateStores: stateStoresForKind("decision"),
+    policies: [{
+      id: "acceptance-draft-fields", ownerRef: "decision", unit: "decision-event/v1 acceptance draft",
+      bounds: "standingPolicy starts false; policyRevision is copied only when numeric; the acceptance writer retains final admission.",
+      defaultValue: false, version: 1, scope: "Decision accept action compilation",
+      reason: "The existing draft defaults and optional revision retain their wire values when construction moves to the aggregate.",
+      fixtures: ["packages/kernel/test/contracts/entity-action-execution.test.ts", "packages/kernel/test/contracts/aggregate-event-construction.test.ts"],
+      sources: [{
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/entity-action-execution.ts#decisionEvent.standingPolicy:14a7dca707325bd3e89236d8e10fcce1",
+        route: "decisionEvent accept → createDecisionEvent",
+      }, {
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/entity-action-execution.ts#decisionEvent:632f66e278185119f03056ac899f9b11",
+        route: "decisionEvent accept → createDecisionEvent",
+      }],
+    }],
     statusVocabulary: [{ field: "state", words: decisionStates }],
     actionCatalog: Object.freeze({
       ...decisionActionCatalog,

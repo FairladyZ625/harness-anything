@@ -1,3 +1,4 @@
+import { relationCreatedEventForReplay } from "@harness-anything/kernel";
 import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
 import {
   canonicalDocumentClaims,
@@ -774,20 +775,10 @@ async function storeEmbeddedRelations(
         throw new Error(`Embedded relation ${relationId} changed identity`);
     } else {
       const { strength: _strength, ...relation } = record;
-      const derived: RelationEventV1 = {
-        schema: "relation-event/v1",
-        eventId: event.eventId,
-        workspaceRevision: event.workspaceRevision,
-        opId: event.opId,
-        relationId,
-        type: "relation_created",
-        actor: event.actor,
-        source: event.source,
-        occurredAt: event.occurredAt,
-        payload: {
-          relation: { ...relation, targetObservedVersion: await relationTargetVersion(client, scope, record.target) },
-        },
-      };
+      const derived: RelationEventV1 = relationCreatedEventForReplay(event, {
+        ...relation,
+        targetObservedVersion: await relationTargetVersion(client, scope, record.target),
+      });
       await storeRelation(client, scope, derived, tables);
     }
     if (record.source.startsWith("execution/"))

@@ -1,3 +1,4 @@
+import { createTaskEvent } from "./task-lifecycle-event.ts";
 import { isNativeExecution, type ExecutionV1 } from "./execution.ts";
 import type { CompletionGenerationRetiredEvent } from "./task-lifecycle-event.ts";
 import type {
@@ -5,12 +6,7 @@ import type {
   TaskLifecycleSnapshot,
   Transition,
 } from "./task-lifecycle-contract-internal-types.ts";
-import {
-  envelope,
-  lifecycleContractIssue,
-  replaceExecution,
-  revisionIssues,
-} from "./task-lifecycle-contract-support.ts";
+import { lifecycleContractIssue, replaceExecution, revisionIssues } from "./task-lifecycle-contract-support.ts";
 
 export function completionRetirementExecutions(snapshot: TaskLifecycleSnapshot) {
   return !snapshot.task || ["done", "cancelled"].includes(snapshot.task.status)
@@ -57,7 +53,7 @@ export const retireCompletionGeneration: Transition = {
         executions: replaceExecution(snapshot.executions, execution),
         lease: null,
       },
-      event: envelope<CompletionGenerationRetiredEvent>(command, "task_completion_generation_retired", {
+      event: createTaskEvent<CompletionGenerationRetiredEvent>(command, "task_completion_generation_retired", {
         task,
         execution,
         sourceGeneration: command.sourceGeneration,

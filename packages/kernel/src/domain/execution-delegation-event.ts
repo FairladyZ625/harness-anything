@@ -41,3 +41,10 @@ function validateFields(value: unknown, allowUnknownFields: boolean): readonly s
     return ["Invalid execution delegation audit event"];
   return validateEventEnvelopeIdentity(value, allowUnknownFields);
 }
+
+/** The aggregate's only constructor; validation remains at canonical acceptance. */
+export function createExecutionDelegationEvent(
+  input: Omit<ExecutionDelegationEventV1, "schema" | "type">,
+): ExecutionDelegationEventV1 {
+  return { schema: "execution-delegation-event/v1", type: "execution_delegation_changed", ...input };
+}

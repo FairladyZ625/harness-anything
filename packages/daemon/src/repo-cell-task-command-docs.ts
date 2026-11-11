@@ -1,3 +1,4 @@
+import { createTaskEvent } from "@harness-anything/kernel";
 import { assertEntityAssignment, assignmentFromRelations } from "./entity-assignment-runtime.ts";
 import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "./repo-cell-submit.ts";
 import { createHash } from "node:crypto";
@@ -547,30 +548,29 @@ export function prepareTaskSurfaceWriteAt(
   const opId = assigned?.opId ?? canonicalOpId,
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);
-  const event = {
-      schema: "task-event/v1",
-      eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-      workspaceRevision: assigned?.workspaceRevision ?? (cell.store.readHead()?.revision ?? 0) + 1,
-      opId,
-      taskId,
-      type: mutation.type,
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt,
-      payload: mutation.execution
+  const event = createTaskEvent(
+      {
+        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+        workspaceRevision: assigned?.workspaceRevision ?? (cell.store.readHead()?.revision ?? 0) + 1,
+        opId,
+        taskId,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt,
+      },
+      mutation.type,
+      (mutation.execution
         ? {
             task: mutation.task,
             execution: mutation.execution,
             releasedLease: mutation.releasedLease,
             mutation: mutation.audit,
-            documentClaims: [],
           }
         : {
             task: mutation.task,
             mutation: mutation.audit,
-            documentClaims: [],
-          },
-    } as unknown as TaskEventV1,
+          }) as TaskEventV1["payload"],
+    ),
     next = reduceTaskEvent(snapshot, event),
     paths = lifecycleDocumentFetchPaths(event, current.packagePath),
     documents = paths.flatMap((target) => {

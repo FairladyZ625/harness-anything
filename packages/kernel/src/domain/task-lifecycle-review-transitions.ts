@@ -1,3 +1,4 @@
+import { createTaskEvent } from "./task-lifecycle-event.ts";
 import { clearExecutionArrangement } from "./task-execution-arrangement.ts";
 import { isNativeCommitSha, submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
@@ -36,7 +37,6 @@ import type {
 } from "./task-lifecycle-contract-internal-types.ts";
 import {
   canonicalGateReceipts,
-  envelope,
   execution,
   lifecycleContractIssue,
   replaceExecution,
@@ -168,7 +168,7 @@ export const review: Transition = {
           : {}),
         reviews: [...snapshot.reviews, recorded],
       },
-      event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
+      event: createTaskEvent<ReviewRecordedEvent>(command, "review_recorded", {
         task,
         execution: rework ? rework.execution : current,
         review: recorded,
@@ -329,7 +329,7 @@ export const respondReview: Transition = {
         revision: command.workspaceRevision,
         reviewResponses: [...(snapshot.reviewResponses ?? []), ...responses],
       },
-      event: envelope<TaskReviewRespondedEvent>(command, "task_review_responded", {
+      event: createTaskEvent<TaskReviewRespondedEvent>(command, "task_review_responded", {
         task: snapshot.task as TaskV2,
         execution: current,
         responses,
@@ -527,7 +527,7 @@ export const consent: Transition = {
         ...(disposition ? { reviewDispositions: [...(snapshot.reviewDispositions ?? []), disposition] } : {}),
       },
       event: disposition
-        ? envelope<ReviewConsentOverrideRecordedEvent>(command, "review_consent_overridden", {
+        ? createTaskEvent<ReviewConsentOverrideRecordedEvent>(command, "review_consent_overridden", {
             task: snapshot.task as TaskV2,
             execution: current,
             review: recorded,
@@ -535,7 +535,7 @@ export const consent: Transition = {
             ...clientAudit,
             disposition,
           })
-        : envelope<ReviewConsentRecordedEvent>(command, "review_consent_recorded", {
+        : createTaskEvent<ReviewConsentRecordedEvent>(command, "review_consent_recorded", {
             task: snapshot.task as TaskV2,
             execution: current,
             review: recorded,
@@ -720,7 +720,7 @@ export const complete: Transition = {
           ? {}
           : { executions: replaceExecution(snapshot.executions, nextExecution) }),
       },
-      event: envelope<TaskCompletedEvent>(command, "task_completed", payload),
+      event: createTaskEvent<TaskCompletedEvent>(command, "task_completed", payload),
     };
   },
 };

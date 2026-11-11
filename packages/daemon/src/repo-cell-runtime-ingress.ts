@@ -1,3 +1,4 @@
+import { createAgentRuntimeEvent } from "@harness-anything/kernel";
 import { requireSquadRuntimeOwner, requireSquadRuntimeAdmission } from "./squad-runtime-ingress.ts";
 import { admitHandoffDispatch } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
@@ -238,8 +239,7 @@ export function appendAuxiliaryRuntimeIngress(
     );
   }
   requireSquadRuntimeAdmission(cell, action, binding);
-  const value = {
-    schema: "agent-runtime-event/v1",
+  const value = createAgentRuntimeEvent({
     eventId: `event-${createHash("sha256").update(action.opId).digest("hex")}`,
     workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
     opId: action.opId,
@@ -248,7 +248,7 @@ export function appendAuxiliaryRuntimeIngress(
     source: binding.source,
     occurredAt: cell.now(),
     payload: action.payload,
-  } as AgentRuntimeEventV1;
+  }) as AgentRuntimeEventV1;
   const claims = runtimeEventContentClaims(value),
     blobs =
       action.resultBody === undefined

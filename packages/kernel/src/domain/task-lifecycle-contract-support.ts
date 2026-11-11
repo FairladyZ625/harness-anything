@@ -5,7 +5,7 @@ import type { TaskEdgeTaken } from "./task-graph.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
-import type { TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
+import type { TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import {
   completionGateIds,
@@ -34,27 +34,6 @@ export function emptyTaskLifecycleSnapshot(revision = 0): TaskLifecycleSnapshot 
     lease: null,
     forwardedCuts: [],
   };
-}
-export function envelope<E extends TaskEventV1>(
-  command: Pick<
-    TaskLifecycleCommand,
-    "eventId" | "workspaceRevision" | "opId" | "taskId" | "actor" | "source" | "occurredAt"
-  >,
-  type: E["type"],
-  payload: Omit<E["payload"], "documentClaims">,
-): E {
-  return {
-    schema: "task-event/v1",
-    eventId: command.eventId,
-    workspaceRevision: command.workspaceRevision,
-    opId: command.opId,
-    taskId: command.taskId,
-    type,
-    actor: command.actor,
-    source: command.source,
-    occurredAt: command.occurredAt,
-    payload: { ...payload, documentClaims: [] },
-  } as unknown as E;
 }
 export function revisionIssues(
   snapshot: TaskLifecycleSnapshot,

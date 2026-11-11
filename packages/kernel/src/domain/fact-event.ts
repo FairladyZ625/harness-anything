@@ -557,3 +557,11 @@ function supersedes(value: unknown, allowUnknownFields: boolean): boolean {
 function safeId(value: unknown): value is string {
   return isNonEmptyString(value) && !/[\\/]/u.test(value);
 }
+
+/** The aggregate's only constructor; validation remains at canonical acceptance. */
+export function createFactEvent(
+  input: Omit<FactEventDraftV1, "schema" | "type">,
+  type: FactEventDraftV1["type"] = "fact_recorded",
+): FactEventDraftV1 {
+  return { ...input, schema: "fact-event/v1", type };
+}

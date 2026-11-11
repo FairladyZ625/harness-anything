@@ -2,7 +2,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { AGGREGATE_EVENT_CONSTRUCTION_BASELINE } from "../gate-allowlists/aggregate-event-construction-baseline.mjs";
 import { kernelImportBoundaryKnownDebt } from "../kernel-import-boundary-known-debt.mjs";
 import { portPhysicalIoBoundaryKnownDebt } from "../port-physical-io-boundary-known-debt.mjs";
 import { EVIDENCE_INDEX } from "./evidence-index.mjs";
@@ -253,15 +252,6 @@ function collectInlinePathEntries() {
   const entries = [];
   collectFingerprintPaths(entries, noSwallowedFailureBaseline, "tools/gates/no-swallowed-failure-baseline.mjs");
   collectFingerprintPaths(entries, processPortOnlyBaseline, "tools/gates/process-port-only-baseline.mjs");
-  for (const key of Object.keys(AGGREGATE_EVENT_CONSTRUCTION_BASELINE)) {
-    const [schema, relativePath, form, eventType] = key.split("|");
-    if (!schema || !relativePath || !form || eventType === undefined)
-      throw new Error(`aggregate event construction baseline key has no schema|path|form|eventType shape: ${key}`);
-    entries.push({
-      source: `tools/gate-allowlists/aggregate-event-construction-baseline.mjs:${key}`,
-      relativePath,
-    });
-  }
   for (const [index, entry] of kernelImportBoundaryKnownDebt.entries()) {
     entries.push(
       {

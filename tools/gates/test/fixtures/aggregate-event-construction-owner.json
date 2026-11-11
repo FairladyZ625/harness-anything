@@ -1,12 +1,12 @@
 {
   "schema": "harness-anything/aggregate-event-construction-fixture/v1",
   "authority": "decision/dec_499E4E98A3D4754132B3BCA1E6#CH1",
-  "policy": "A non-owner construction of a registered canonical event schema is refused; the owner kind's declared writer is accepted.",
+  "policy": "A non-owner construction of a registered canonical event schema is refused; the owner kind's declared writer is accepted. Former baseline entries cannot authorize non-owner construction.",
   "family": {
     "schema": "agent-runtime-event/v1",
     "owner": "runtime-session",
     "storeId": "runtime-session.agent-runtime-events",
-    "writers": ["packages/kernel/src/domain/agent-runtime.ts"]
+    "writers": ["packages/kernel/src/domain/agent-runtime-event.ts"]
   },
   "cases": [
     {
@@ -17,9 +17,26 @@
     },
     {
       "name": "declared writer construction of agent-runtime-event is accepted",
-      "path": "packages/kernel/src/domain/agent-runtime.ts",
+      "path": "packages/kernel/src/domain/agent-runtime-event.ts",
       "eventType": "runtime_dispatch_requested",
       "finding": null
+    }
+  ],
+  "spreadCases": [
+    {
+      "schema": "fact-event/v1",
+      "owner": "fact",
+      "eventType": "fact_reclassified"
+    },
+    {
+      "schema": "decision-event/v1",
+      "owner": "decision",
+      "eventType": "decision_accepted"
+    },
+    {
+      "schema": "fact-event/v1",
+      "owner": "fact",
+      "parameterTypes": ["fact_archived", "fact_unarchived"]
     }
   ]
 }

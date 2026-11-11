@@ -1,3 +1,4 @@
+import { createTaskEvent } from "./task-lifecycle-event.ts";
 import { reviewReverifyRoute } from "./review-reverify.ts";
 import { arrangeExecution, clearExecutionArrangement } from "./task-execution-arrangement.ts";
 import { replayGateRunChange } from "./gate-run-publication.ts";
@@ -272,25 +273,13 @@ export function compileExecutionExecutorDeclaration(input: {
       ...current,
       actor: { principal: input.actor.principal, executor: input.executor },
     },
-    event: ExecutionExecutorDeclaredEvent = {
-      schema: "task-event/v1",
-      eventId: input.eventId,
-      workspaceRevision: input.workspaceRevision,
-      opId: input.opId,
-      taskId: input.taskId,
-      type: "execution_executor_declared",
-      actor: input.actor,
-      source: input.source,
-      occurredAt: input.occurredAt,
-      payload: {
-        task: nextTask,
-        execution: nextExecution,
-        previousActor: current.actor,
-        ...(input.dispatchTaskId === undefined ? {} : { dispatchTaskId: input.dispatchTaskId }),
-        reason: input.reason,
-        documentClaims: [],
-      },
-    };
+    event: ExecutionExecutorDeclaredEvent = createTaskEvent(input, "execution_executor_declared", {
+      task: nextTask,
+      execution: nextExecution,
+      previousActor: current.actor,
+      ...(input.dispatchTaskId === undefined ? {} : { dispatchTaskId: input.dispatchTaskId }),
+      reason: input.reason,
+    });
   return { event, snapshot: reduceTaskEvent(input.snapshot, event) };
 }
 /**
@@ -343,23 +332,11 @@ export function compileExecutionAnnotation(input: {
       ...current,
       annotations: [...(current.annotations ?? []), annotation],
     },
-    event: ExecutionAnnotatedEvent = {
-      schema: "task-event/v1",
-      eventId: input.eventId,
-      workspaceRevision: input.workspaceRevision,
-      opId: input.opId,
-      taskId: input.taskId,
-      type: "execution_annotated",
-      actor: input.actor,
-      source: input.source,
-      occurredAt: input.occurredAt,
-      payload: {
-        task,
-        execution: nextExecution,
-        annotation,
-        documentClaims: [],
-      },
-    };
+    event: ExecutionAnnotatedEvent = createTaskEvent(input, "execution_annotated", {
+      task,
+      execution: nextExecution,
+      annotation,
+    });
   return { event, snapshot: reduceTaskEvent(input.snapshot, event) };
 }
 /** Initialize from an already admitted canonical seed, without manufacturing a task event. */

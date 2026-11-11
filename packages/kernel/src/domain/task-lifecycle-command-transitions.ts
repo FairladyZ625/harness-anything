@@ -1,3 +1,4 @@
+import { createTaskEvent } from "./task-lifecycle-event.ts";
 import {
   clearExecutionArrangement,
   arrangementIssues,
@@ -48,7 +49,6 @@ import type {
   TransitionTaskCommand,
 } from "./task-lifecycle-contract-internal-types.ts";
 import {
-  envelope,
   execution,
   lifecycleContractIssue,
   replaceExecution,
@@ -97,7 +97,7 @@ export const create: Transition = {
       };
     return {
       snapshot: { ...snapshot, revision: command.workspaceRevision, task },
-      event: envelope<TaskCreatedEvent>(command, "task_created", { task }),
+      event: createTaskEvent<TaskCreatedEvent>(command, "task_created", { task }),
     };
   },
 };
@@ -251,7 +251,7 @@ export const start: Transition = {
         executions: rejoin ? replaceExecution(snapshot.executions, execution) : [...snapshot.executions, execution],
         lease,
       },
-      event: envelope<ExecutionStartedEvent>(command, "execution_started", {
+      event: createTaskEvent<ExecutionStartedEvent>(command, "execution_started", {
         task,
         execution,
         lease,
@@ -277,7 +277,7 @@ function transitionTask(
     mutation = { command: "transition" as const, reason, fields: ["status", ...extraMutationFields] };
   return {
     snapshot: { ...snapshot, revision: command.workspaceRevision, task },
-    event: envelope<TaskMutationEvent>(command, "task_transitioned", {
+    event: createTaskEvent<TaskMutationEvent>(command, "task_transitioned", {
       task,
       mutation,
     }),
@@ -532,7 +532,7 @@ export const submit: Transition = {
         edgesTaken: edge ? [...snapshot.edgesTaken, edge] : snapshot.edgesTaken,
         lease: null,
       },
-      event: envelope<ExecutionSubmittedEvent>(command, "execution_submitted", {
+      event: createTaskEvent<ExecutionSubmittedEvent>(command, "execution_submitted", {
         task,
         execution: nextExecution,
         ...(edge
@@ -658,7 +658,7 @@ export const rework: Transition = {
         mutation = taskAmendment(task, command.reason, ["executionArrangement"]);
       return {
         snapshot: { ...snapshot, task, revision: command.workspaceRevision },
-        event: envelope<TaskMutationEvent>(command, mutation.type, {
+        event: createTaskEvent<TaskMutationEvent>(command, mutation.type, {
           task: mutation.task,
           mutation: mutation.audit,
         }),
@@ -683,7 +683,7 @@ export const rework: Transition = {
         executions: replaceExecution(snapshot.executions, nextExecution),
         lease: null,
       },
-      event: envelope<SubmissionReturnedEvent>(command, "submission_returned", {
+      event: createTaskEvent<SubmissionReturnedEvent>(command, "submission_returned", {
         task,
         execution: nextExecution,
         reason: command.reason,
