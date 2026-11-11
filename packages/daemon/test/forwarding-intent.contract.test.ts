@@ -46,6 +46,60 @@ test("forwarding accepts node-owned schedule commands while keeping replica read
   );
 });
 
+test("registration without a forwarding node preserves command admission and keeps node requests closed", async (t) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-role-"))),
+    userRoot = path.join(root, "user"),
+    workspace = path.join(root, "workspace");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(userRoot);
+  mkdirSync(workspace);
+  const invoke = (intent: Parameters<typeof forward>[0]["intent"]) =>
+    forward({
+      userRoot,
+      repoId: "repo",
+      intent,
+      auth: { transportKind: "unix-socket" },
+      oidc: {
+        bind: async () => assert.fail("No forwarding node can bind an identity"),
+      } as unknown as IdentitySessionPort,
+      runRuntime: async () => assert.fail("No forwarding node can execute a request"),
+    });
+  const command = forwardingIntentForAction("repo.task.run", { kind: "schedule-disable" }),
+    runtime = runtimeForwardingIntent("repo.agentRuntime.overview", {}),
+    boundCommand = forwardingIntentForAction("repo.task.run", { kind: "schedule-disable" }, { requiredNodeId: "node" });
+  assert.equal(await invoke(command), null, "an unregistered host has no center route");
+  assert.equal(await invoke(runtime), null);
+  for (const mode of ["local", "remote-center", "remote-edge"]) {
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "Fixture", state: "enabled" }],
+        repos: [
+          {
+            repoId: "repo",
+            canonicalRoot: workspace,
+            displayName: "Fixture",
+            authoredBranch: "main",
+            mode,
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: "2026-11-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    assert.equal(await invoke(command), null, `${mode}: registration alone does not enable command forwarding`);
+    if (mode === "remote-edge") {
+      await assert.rejects(invoke(runtime), { code: "fleet_edge_config_invalid" });
+      await assert.rejects(invoke(boundCommand), { code: "fleet_edge_config_invalid" });
+    } else {
+      assert.equal(await invoke(runtime), null, `${mode}: runtime stays on this host`);
+      assert.equal(await invoke(boundCommand), null, `${mode}: a required node cannot change the registry role`);
+    }
+  }
+});
+
 test("forwarding resolves workspace, view and CA again after registration moves", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-location-"))),
     userRoot = path.join(root, "user"),

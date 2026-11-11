@@ -55,7 +55,8 @@ export async function forward(input: {
           ? input.intent.inputs.requiredNodeId
           : undefined,
     config = runtimeLocation(edge, input.repoId, requiredNodeId);
-  if (!config) invalidRuntimeLocation();
+  // Unbound commands retain repo-mode rejection; node-bound and runtime requests require a valid edge.
+  if (!config) return input.intent.kind === "command" && requiredNodeId === undefined ? null : invalidRuntimeLocation();
   const { workspaceRoot } = config;
   const signal =
       input.signal && input.auth.connectionSignal
