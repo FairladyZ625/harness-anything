@@ -649,6 +649,11 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(resetScheduled.row.classification, "provider_quota");
     assert.equal(resetScheduled.row.resetAt, "2099-01-01T00:00:00.000Z");
     assert.equal(resetScheduled.stream?.fallbackSchedule?.notBeforeAt, "2099-01-01T00:00:00.000Z");
+    const future = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [resetScheduled.row.dispatchId] });
+    assert.ok(future.status === "ready");
+    assert.equal(future.rows[0]?.policy.groupSettled, false, "future fallback keeps its group open");
+    assert.equal(future.rows[0]?.successor.schedule?.notBeforeAt, "2099-01-01T00:00:00.000Z");
+    assert.equal(future.rows[0]?.controlLeafDispatchId, resetScheduled.row.dispatchId);
 
     // owner ruling 2026-10-21 14:35 (T4): a single servable runtime row still gets the bounded
     // retry chain — the first provider failure may not be the dispatch's last word.

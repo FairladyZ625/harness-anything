@@ -304,6 +304,9 @@ export interface RepoCell {
     payload?: Readonly<Record<string, unknown>>,
     binding?: RepoCellBinding,
   ) => Promise<DaemonGuiReadResultMap[M]>;
+  readonly readDispatchLifecycle: (
+    query: import("@harness-anything/kernel").DispatchLifecycleQuery,
+  ) => Promise<import("@harness-anything/kernel").DispatchLifecycleRead>;
   /** Canonical actor witness for an event revision; used by local policy decisions. */
   readonly readEventWitness: (
     revision: number,

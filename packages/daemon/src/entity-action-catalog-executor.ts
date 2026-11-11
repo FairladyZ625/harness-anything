@@ -15,6 +15,7 @@ import {
   requireEntityStoreKindContract,
   readAcceptedCommandOutcome,
   timestamp,
+  previewDispatchLifecycleOutcome,
   type AuthorizationDecision,
   type CanonicalWriteBundle,
   type CanonicalEventStore,
@@ -767,6 +768,18 @@ function compileDraft(
       ...(draft.successor === undefined ? {} : { successor: draft.successor }),
     });
   if (draft.kind === "runtime-session") {
+    if (draft.noChanges && draft.event.type === "runtime_session_outcome_observed") {
+      const lifecycle = projection.readDispatchLifecycle({
+        by: "session",
+        runtimeSessionId: draft.event.payload.runtimeSessionId,
+      });
+      if (
+        lifecycle.status === "ready" &&
+        lifecycle.rows[0] &&
+        previewDispatchLifecycleOutcome(lifecycle.rows[0], draft.event).kind === "applied"
+      )
+        draft = { ...draft, noChanges: undefined };
+    }
     if (draft.event.type === "runtime_session_exited") {
       const lifecycle = projection.readDispatchLifecycle({
         by: "session",

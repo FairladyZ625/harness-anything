@@ -133,6 +133,15 @@ function fakeCell(input: {
 }) {
   const reads: string[] = [],
     cell = {
+      readDispatchLifecycle: async () => ({
+        status: "ready",
+        rows: [
+          {
+            controlLeafDispatchId: input.fallbackState === "dispatched" ? "dispatch-successor" : dispatchId,
+            policy: { groupSettled: input.fallbackState !== "scheduled" && input.fallbackState !== "dispatched" },
+          },
+        ],
+      }),
       read: async (method: string) => {
         reads.push(method);
         if (method === "repo.agentRuntime.sessions.read")
@@ -249,7 +258,10 @@ test("empty, explicitly truncated and fallback-scheduled reports do not call the
       outcomeEvent() as Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>,
     );
   }
-  const scheduled = fakeCell({ decisions: { provider: provider.providerId, enabledPoints: [binding] } });
+  const scheduled = fakeCell({
+    fallbackState: "scheduled",
+    decisions: { provider: provider.providerId, enabledPoints: [binding] },
+  });
   await executor.settle(
     scheduled.cell,
     outcomeEvent("scheduled") as Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>,
@@ -515,6 +527,15 @@ function fakeIncidentCell(input: {
     relates: Array<{ readonly action: Record<string, unknown>; readonly binding: unknown }> = [],
     runtimeContextReads: Array<Readonly<Record<string, unknown>> | undefined> = [],
     cell = {
+      readDispatchLifecycle: async () => ({
+        status: "ready",
+        rows: [
+          {
+            controlLeafDispatchId: dispatchId,
+            policy: { groupSettled: true },
+          },
+        ],
+      }),
       read: async (method: string, payload?: Readonly<Record<string, unknown>>) => {
         if (method === "repo.agentRuntime.sessions.read")
           return {

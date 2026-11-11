@@ -40,27 +40,6 @@
         "slice": "5"
       },
       {
-        "path": "packages/daemon/src/decision-point-executor.ts",
-        "symbol": "settle",
-        "kind": "fallback-state-branch",
-        "fingerprint": "2e2a36397e07b0c9d37b2540db34825816b89c81504be2194382f2e0cb40f04a",
-        "slice": "4"
-      },
-      {
-        "path": "packages/daemon/src/decision-point-executor.ts",
-        "symbol": "settle",
-        "kind": "fallback-state-branch",
-        "fingerprint": "3a2c693b703114e6bad2e72f367335c4db476239cf1a38f08657141968b39e5c",
-        "slice": "4"
-      },
-      {
-        "path": "packages/daemon/src/decision-point-executor.ts",
-        "symbol": "settle",
-        "kind": "fallback-state-branch",
-        "fingerprint": "f059e911d1c4eb0ff909a64bd7682188c97955f0ce33b53aec4b2f5e40b833f7",
-        "slice": "4"
-      },
-      {
         "path": "packages/daemon/src/dispatch-read.ts",
         "symbol": "canonicalDispatchRow",
         "kind": "liveness-comparison",
@@ -262,27 +241,6 @@
         "kind": "runtimePidIsAlive",
         "fingerprint": "116fe2a6153802a5506571638a5eda4bcd4d46dd1b29fd0b2a89904d0accca54",
         "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-fallback.ts",
-        "symbol": "restoreFallbackSchedules",
-        "kind": "fallback-state-branch",
-        "fingerprint": "f855d76814c274be291b460a03c862381d4634086578c2451edd23b1e7f357db",
-        "slice": "4"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-fallback.ts",
-        "symbol": "scheduleFallbackContinuation",
-        "kind": "fallback-state-branch",
-        "fingerprint": "f2575826fa3a0e28a5f28cecb9fc9b02c0907d65d1cd38060437975188a6dd58",
-        "slice": "4"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-fallback.ts",
-        "symbol": "scheduleFallbackContinuation",
-        "kind": "fallback-state-branch",
-        "fingerprint": "f6fd97db3b3b5808554f783926cc7bcc4b1caa90d95b1ab8fa562fd66f422d5a",
-        "slice": "4"
       },
       {
         "path": "packages/daemon/src/runtime-spawn-mission.ts",

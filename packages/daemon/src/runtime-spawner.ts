@@ -103,7 +103,8 @@ import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
 import {
   initialFallbackAttempt,
-  reconcileFallback,
+  settleFallbackAttempt,
+  scheduleFallbackContinuation,
   requiredRuntimeFast,
   restoreFallbackSchedules,
 } from "./runtime-spawn-fallback.ts";
@@ -228,12 +229,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       runtimeSpawnerDelegates.controlReceipt(extracted, opId, runtimeSessionId, detail),
     captureErrorOutput: (active, chunk) => runtimeSpawnerDelegates.captureErrorOutput(extracted, active, chunk),
     prepareDaemonGitEnvironment,
-    settleFallback: (active, outcome, terminal) =>
-      runtimeSpawnerDelegates.settleFallback(extracted, active, outcome, terminal),
-    reconcileFallback: (stream) =>
-      reconcileFallback({
-        input,
-        publishRuntimeEvent: extracted.publishRuntimeEvent,
+    settleFallback: (active, outcome, terminal) => settleFallbackAttempt(extracted, active, outcome, terminal),
+    reconcileFallback: (dispatchId) =>
+      scheduleFallbackContinuation({
+        context: extracted,
         closed: () => fallbackClosed,
         launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner, onDispatched) =>
           spawnAttempt(
@@ -248,7 +247,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             undefined,
             onDispatched,
           ),
-        stream,
+        dispatchId,
       }),
   };
   async function spawnClaimAttempt(

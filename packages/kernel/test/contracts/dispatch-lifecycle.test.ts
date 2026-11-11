@@ -610,3 +610,71 @@ test("the center writer refuses a second admission into a busy group and a succe
   );
   assert.equal((fold(events).steps.at(-1) as { code?: string }).code, "dispatch_owner_fence_mismatch");
 });
+
+test("fallback schedule uses its own due time and closes the group on launch exhaustion", () => {
+  const ids = {
+    dispatchId: "dispatch-schedule",
+    runtimeSessionId: "runtime-schedule",
+    attemptGroupId: "dispatch-schedule",
+  };
+  const requested = runtimeEvent({ t: "R" }, ids),
+    exited = runtimeEvent({ t: "X" }, ids),
+    outcome = runtimeEvent(
+      { t: "O", outcome: "failed", classification: "provider_fault", fallbackState: "scheduled" },
+      ids,
+      { resetAt: "2026-11-08T00:00:10.000Z" },
+    );
+  assert.ok(outcome.type === "runtime_session_outcome_observed" && outcome.payload.attempt);
+  const schedule = {
+    notBeforeAt: "2026-11-08T00:01:00.000Z",
+    nextProvider: { instance: "instance-b", model: "model-b" },
+  };
+  const scheduled = {
+    ...outcome,
+    payload: { ...outcome.payload, attempt: { ...outcome.payload.attempt, fallbackSchedule: schedule } },
+  };
+  let group: DispatchLifecycleGroup | null = null;
+  for (const event of [requested, exited, scheduled]) {
+    const step = reduceDispatchLifecycle(group, event);
+    assert.equal(step.kind, "applied");
+    if (step.kind === "applied") group = step.group;
+  }
+  const waiting = dispatchLifecycleView(group!);
+  assert.equal(waiting.groupPhase, "waiting_backoff");
+  assert.equal(waiting.policy.groupSettled, false);
+  assert.equal(waiting.successor.dueAt, schedule.notBeforeAt);
+  assert.equal(
+    dispatchAdmissionRefusal({
+      group: waiting,
+      instance: [],
+      instanceId: "instance-b",
+      owner: "local",
+      now: "2026-11-08T00:00:20.000Z",
+    })?.code,
+    "dispatch_fallback_not_due",
+  );
+  assert.equal(
+    dispatchAdmissionRefusal({
+      group: waiting,
+      instance: [],
+      instanceId: "instance-c",
+      owner: "local",
+      now: schedule.notBeforeAt,
+    })?.code,
+    "dispatch_fallback_candidate_mismatch",
+  );
+  const exhausted = {
+    ...outcome,
+    eventId: "exhausted-event",
+    workspaceRevision: ++revision,
+    payload: { ...outcome.payload, attempt: { ...outcome.payload.attempt, fallbackState: "exhausted" as const } },
+  };
+  const step = reduceDispatchLifecycle(group, exhausted);
+  assert.equal(step.kind, "applied");
+  if (step.kind !== "applied") return;
+  assert.equal(step.group.phase, "closed");
+  assert.equal(step.group.attempts[0]?.outcome, "failed");
+  assert.equal(dispatchLifecycleView(step.group).policy.groupSettled, true);
+  assert.equal(step.group.successor.admissible, false);
+  assert.equal(reduceDispatchLifecycle(step.group, exhausted).kind, "ignored");
+});

@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { RuntimeDaemonRoute, RuntimeCallbackRelay, TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
-import type { readDispatchStream } from "./dispatch-stream.ts";
+import type { FallbackSettlement } from "./runtime-spawn-fallback.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeAttemptOutcome } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
@@ -98,8 +98,8 @@ export interface RuntimeSpawnerContext {
     active: ActiveRuntime,
     outcome: RuntimeAttemptOutcome,
     terminal: RuntimeAttemptTerminal,
-  ) => Promise<void>;
-  readonly reconcileFallback: (stream: ReturnType<typeof readDispatchStream>) => void;
+  ) => Promise<FallbackSettlement | void>;
+  readonly reconcileFallback: (dispatchId: string) => void | Promise<void>;
 }
 
 /** The runtime environment is the sole delivery point for its short-lived execution secret. */

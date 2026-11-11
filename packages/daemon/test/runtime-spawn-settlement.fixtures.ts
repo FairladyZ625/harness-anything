@@ -15,6 +15,7 @@ export async function publishExit(
   code: number | null,
   resumePublishedExit = false,
 ): Promise<void> {
+  context = { ...context, reconcileFallback: context.reconcileFallback ?? (() => undefined) };
   if (context.input.remote?.readDispatchLifecycle)
     return publishRuntimeExit(context, runtime, code, resumePublishedExit);
   const options = { instanceId: runtime.instanceId, source: "local" as const, dispatchId: runtime.dispatchId },

@@ -276,6 +276,7 @@ export async function openRepoCellProxy(
       }
       return query("read", [method, payload], binding);
     },
+    readDispatchLifecycle: (queryValue) => query("readDispatchLifecycle", [queryValue]),
     readEventWitness: (revision) => query("readEventWitness", [revision]),
     readNodeAutoClaimAssignments: (binding) => query("readNodeAutoClaimAssignments", [], binding),
     readNodeAutoDispatchCandidates: (nodeId) => query("readNodeAutoDispatchCandidates", [nodeId]),

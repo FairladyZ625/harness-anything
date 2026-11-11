@@ -232,6 +232,7 @@ export function appendAuxiliaryRuntimeIngress(
         attemptGroupId: String(action.payload.attemptGroupId ?? action.payload.dispatchId),
         instanceId: cell.requiredCellText(action.payload.instanceId, "instanceId"),
         owner: dispatchOwner(binding.source).owner,
+        now: cell.now(),
       },
       (code, message) => cell.cellCodedError(code, message),
     );

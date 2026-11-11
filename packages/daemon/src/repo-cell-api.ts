@@ -1113,6 +1113,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     catalog: context.catalog,
     terminal: context.terminal,
     read,
+    readDispatchLifecycle: async (query) => context.projection.readDispatchLifecycle(query),
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),
     readNodeAutoClaimAssignments: async (binding) => {
       const graph = await read(
