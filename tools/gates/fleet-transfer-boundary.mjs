@@ -196,7 +196,9 @@ export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") 
   const visit = (node) => {
     if (ts.isTypeNode(node) || ts.isInterfaceDeclaration(node) || ts.isImportDeclaration(node)) return;
     if (ts.isCallExpression(node)) {
-      const callee = node.expression.getText(tree);
+      const callee = ts.isPropertyAccessExpression(node.expression)
+        ? node.expression.name.text
+        : node.expression.getText(tree);
       if (callee === "edgeRuntimeFor") add(node, "edgeRuntimeFor");
       if (callee === "readFleetEdgeConfig" && forwardingUse(node)) add(node, "readFleetEdgeConfig");
       if (/^(?:readFileSync|readFile)$/u.test(callee) && /fleet-edge\.json/u.test(node.getText(tree)))
@@ -237,12 +239,16 @@ export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") 
         if (new RegExp(`\\b${field}\\b`, "u").test(condition.getText(tree)))
           add(node, ts.isIfStatement(node) ? `${field}SpecialCase` : "fileInputConditional");
     }
-    if (
-      ts.isConditionalExpression(node) &&
-      /(?:action|command)(?:\.action)?\.kind/u.test(node.condition.getText(tree)) &&
-      /fleet[.-](?:task|doc|runtime|schedule)/u.test(node.getText(tree))
-    )
-      add(node, "fleetMethodByDiscriminant");
+    if (ts.isConditionalExpression(node) || ts.isIfStatement(node) || ts.isSwitchStatement(node)) {
+      const condition = ts.isConditionalExpression(node) ? node.condition : node.expression;
+      if (
+        /\b(?:action|command)(?:\.action)?\.kind/u.test(condition.getText(tree)) &&
+        /["'`]fleet-(?:task|doc|runtime|schedule)["'`]|["'`]fleet\.(?:task|doc|runtime|schedule)\.[^"'`/\r\n]+["'`]/u.test(
+          node.getText(tree),
+        )
+      )
+        add(node, "fleetMethodByDiscriminant");
+    }
     ts.forEachChild(node, visit);
   };
   visit(tree);

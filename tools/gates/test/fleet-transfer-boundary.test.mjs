@@ -100,6 +100,7 @@ test("the zero-baseline gate distinguishes local reads, authorization, types and
     function replica(root) { const config = readFleetEdgeConfig(root); return readEdgeRepository(config); }
     function binding(auth) { return { keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } }; }
     function ingress(frame) { return immediate({ schema: "fleet.runtime.event.result/v1", receipt: frame }); }
+    function actionResult(action) { if (action.kind === "task-start") return { schema: "fleet.task.result/v1" }; }
     function local(fromFile) { if (fromFile) return workspaceText(root, fromFile); }
   `;
   for (const file of ["packages/daemon/src/local.ts", "packages/cli/src/daemon/local.ts"])
@@ -214,6 +215,14 @@ test("the forwarding ratchet rejects every prohibited construction responsibilit
     [
       "discriminant",
       'const method = action.kind === "task-start" ? "fleet.task.action" : "fleet.runtime.control";',
+      "fleetMethodByDiscriminant",
+    ],
+    ["qualified-read", 'fs.readFileSync("fleet-edge.json", "utf8");', "directFleetEdgeFileRead"],
+    ["qualified-runtime", "runtime.edgeRuntimeFor(rootDir);", "edgeRuntimeFor"],
+    ["if-dispatch", 'if (action.kind === "task-start") return "fleet.task.action";', "fleetMethodByDiscriminant"],
+    [
+      "switch-dispatch",
+      'switch (command.action.kind) { case "task-start": return "fleet.task.action"; }',
       "fleetMethodByDiscriminant",
     ],
     ["runtime", "edgeRuntimeFor(rootDir);", "edgeRuntimeFor"],
