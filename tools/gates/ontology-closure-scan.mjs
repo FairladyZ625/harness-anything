@@ -255,12 +255,14 @@ export function scanOntologyText(file, text) {
 }
 
 export function scanOntologySources(rootDir) {
+  // Exclude acceptance-test roots only; similarly named product src must stay closed.
   const files = listWorktreeFiles(rootDir, ["packages", "tools"]).filter(
     (file) =>
       /\.[cm]?[jt]sx?$/u.test(file) &&
       !/\.d\.[cm]?ts$/u.test(file) &&
       !/\.(?:test|spec|vitest)\.[cm]?[jt]sx?$/u.test(file) &&
-      !/(?:^|\/)(?:tests?|__tests__|fixtures?|__fixtures__|node_modules|dist|build|coverage)\//u.test(file),
+      !/(?:^|\/)(?:tests?|__tests__|fixtures?|__fixtures__|node_modules|dist|build|coverage)\//u.test(file) &&
+      !/^(?:packages\/gui\/(?:e2e|test-support)|tools\/gui-e2e)\//u.test(file),
   );
   return {
     filesScanned: files.length,

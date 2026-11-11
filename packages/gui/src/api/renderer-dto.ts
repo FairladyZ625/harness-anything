@@ -4,6 +4,7 @@ import type {
   DaemonGuiReadResultMap,
   GuiSubmissionV1,
 } from "@harness-anything/daemon/protocol";
+export { guiQueryPacing } from "@harness-anything/kernel/browser";
 export type {
   Todo,
   ContractVersion,

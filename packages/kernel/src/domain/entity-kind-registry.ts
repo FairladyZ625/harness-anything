@@ -70,6 +70,7 @@ import {
 } from "./entity-action-descriptor.ts";
 import { hostStateStores, stateStoresForKind, type StateStoreDeclaration } from "./entity-state-stores.ts";
 import { hostAggregateSchema } from "./host.ts";
+import { guiQueryPacing } from "./gui-query-pacing.ts";
 
 export type EntityStorageForm =
   | "lifecycle"
@@ -1388,6 +1389,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
   {
     ...hostEntityTypeContract,
     policies: [
+      guiQueryPacing,
       {
         id: "fleet-numeric-input",
         ownerRef: "action:daemon-fleet-edge-sync",
