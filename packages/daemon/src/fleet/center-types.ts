@@ -26,6 +26,7 @@ export interface FleetCenterOptions {
     | "settleMaterialization"
     | "status"
     | "authorize"
+    | "readDispatchLifecycle"
     | "readNodeAutoClaimCandidates"
     | "readNodeAutoDispatchCandidates"
   >;

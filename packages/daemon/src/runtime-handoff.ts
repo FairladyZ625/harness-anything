@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { prepareRuntimeHandoff } from "./runtime-handoff-native.ts";
+import { readyDispatchLifecycle, type DispatchLifecycleReader } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -8,6 +9,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 /** CLI and GUI call this same node-local orchestration; every authority check stays at the center. */
 export async function runRuntimeHandoff(input: {
   readonly rootDir: string;
+  readonly readDispatchLifecycle: DispatchLifecycleReader;
   readonly payload: JsonObject;
   readonly command: (action: JsonObject, body?: Uint8Array) => Promise<JsonObject>;
   readonly spawn: (
@@ -27,6 +29,15 @@ export async function runRuntimeHandoff(input: {
     ...(operation === "claim" ? { dispatchKey } : {}),
   };
   if (operation === "export") {
+    const [view] = readyDispatchLifecycle(
+      await input.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] }),
+      runtimeSpawnError,
+    );
+    if (!view?.policy.canHandoff)
+      throw runtimeSpawnError(
+        "runtime_handoff_source_active",
+        "The canonical source lifecycle must be settled before export.",
+      );
     const exported = await prepareRuntimeHandoff(input.rootDir, dispatchId);
     return publicResult(await input.command({ ...action, commit: exported.commit }, exported.body));
   }

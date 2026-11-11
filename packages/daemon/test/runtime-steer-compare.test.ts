@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 // #4372 compare-and-steer: a caller's stated expectation (repo, task/execution or taskless, dispatch
 // leaf, steer version) is compared with the target in the same section that appends the steer.
 import assert from "node:assert/strict";
@@ -62,11 +63,27 @@ function fixture(t: { after: (fn: () => void) => void }) {
     [sessionB, live(B, sessionB)],
     [sessionT, live(T, sessionT)],
   ]);
-  const context = { input: { rootDir, repoId: "repo-steer", now: () => "2026-11-07T00:01:00.000Z" }, processes };
+  const events = [
+    [A, sessionA],
+    [B, sessionB],
+    [T, sessionT],
+  ].flatMap(([dispatchId, sessionId]) => {
+    const options = { source: "local" as const, instanceId: "instance-1", dispatchId };
+    return [lifecycleEvent("R", sessionId!, options), lifecycleEvent("S", sessionId!, options)];
+  });
+  const context = {
+    input: {
+      rootDir,
+      repoId: "repo-steer",
+      now: () => "2026-11-07T00:01:00.000Z",
+      remote: { readDispatchLifecycle: dispatchLifecycleReadOf(() => events) },
+    },
+    processes,
+  };
   const steer = (payload: Record<string, unknown>) => steerRuntime(context as never, payload as never, binding);
   const steers = (dispatchId: string) =>
     readDispatchStream(rootDir, dispatchId)!.records.filter((record) => record.kind === "steer_requested");
-  return { rootDir, processes, steer, steers };
+  return { rootDir, processes, steer, steers, events };
 }
 
 /** Rejects with `code`, a diagnostic whose `actual` is the current target, and no stream append. */
@@ -203,7 +220,8 @@ test("a stale steer version is refused; the returned version admits exactly one 
 });
 
 test("an exited provider is refused with liveness stopped in the returned target", async (t) => {
-  const { processes, steer, steers } = fixture(t);
+  const { processes, steer, steers, events } = fixture(t);
+  events.push(lifecycleEvent("X", sessionT, { source: "local", instanceId: "instance-1" }));
   const exited = spawnSync(process.execPath, ["-e", ""]).pid;
   processes.set(sessionT, live(T, sessionT, exited));
   const current = await refused(

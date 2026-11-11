@@ -1,23 +1,30 @@
 import type { TaskProjection } from "@harness-anything/kernel";
+import { readActiveDispatchLifecycleSync } from "./runtime-dispatch-admission.ts";
+import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import type { RepoInFlightWork } from "./repo-cell-types.ts";
 
 export function readRepoInFlightWork(input: {
-  readonly projection: Pick<TaskProjection, "list" | "listEntities" | "readRuntimeSessions">;
+  readonly projection: Pick<TaskProjection, "list" | "listEntities" | "readDispatchLifecycle">;
   readonly repoId: string;
   readonly queueDepth: number;
 }): readonly RepoInFlightWork[] {
-  const runtime = input.projection.readRuntimeSessions({ nonExitedOnly: true }).flatMap((session) => {
-      const binding = session.taskBindings.at(-1);
-      return [
-        {
-          kind: "runtime-session" as const,
-          id: session.runtimeSessionId,
-          ...(binding ? { taskId: binding.taskId, executionId: binding.executionId } : {}),
-          nextAction: `ha runtime status ${session.runtimeSessionId}`,
-        },
-      ];
-    }),
+  const runtime = readActiveDispatchLifecycleSync(
+      (query) => input.projection.readDispatchLifecycle(query),
+      runtimeSpawnError,
+    )
+      .filter(({ policy }) => policy.capacity !== "released")
+      .map(({ attempt }) => ({
+        kind: "runtime-session" as const,
+        id: attempt.runtimeSessionId,
+        ...(attempt.task
+          ? {
+              taskId: attempt.task.taskId,
+              ...(attempt.task.executionId ? { executionId: attempt.task.executionId } : {}),
+            }
+          : {}),
+        nextAction: `ha runtime status ${attempt.runtimeSessionId}`,
+      })),
     leases = input.projection.list({ leaseOnly: true, decisionRelationsOnly: true }).rows.flatMap((row) => {
       const lease = row.snapshot.lease;
       if (!lease || lease.phase === "released") return [];

@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import path from "node:path";
 import { createReplicationRetention, openReplicationSlots } from "@harness-anything/storage";
 import { createReplicaStatusTracker } from "../src/fleet/replica-status.ts";
@@ -10,12 +11,6 @@ import { AccessAdminService } from "../src/access-admin-service.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
 import { retiredNodeExecutions } from "../src/fleet/node-retirement.ts";
-import type {
-  AgentRuntimeEventV1,
-  RuntimeSession,
-  RuntimeSessionReadQuery,
-  TaskProjection,
-} from "@harness-anything/kernel";
 import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm, signInAt } from "./keycloak.fixtures.ts";
 
 function retirementFixture(t: TestContext, ownerExists = true) {
@@ -270,38 +265,26 @@ test("reconcile does not mistake a later rename for a failed retirement at the s
   assert.deepEqual([node?.state, node?.revision, node?.revocation], ["active", 2, "complete"]);
 });
 
-test("node retirement asks only for this node's unsettled sessions and reads no dispatch history", () => {
-  const row = (runtimeSessionId: string, owner: string, liveness: "live" | "exited") =>
-      ({ runtimeSessionId, owner, liveness, outcome: null }) as unknown as RuntimeSession,
-    sessions = [
-      row("runtime-live-node-a", "node-a", "live"),
-      row("runtime-exited-node-a", "node-a", "exited"),
-      row("runtime-live-node-b", "node-b", "live"),
-    ],
-    queries: (RuntimeSessionReadQuery | undefined)[] = [];
-  let dispatchEventReads = 0;
-  const projection = {
-    readRuntimeSessions: (query?: RuntimeSessionReadQuery) => {
-      queries.push(query);
-      return query?.executionOwnerNodeId === undefined
-        ? sessions
-        : sessions.filter(
-            (session) =>
-              (session as unknown as { owner: string }).owner === query.executionOwnerNodeId &&
-              (query.unsettledOnly !== true || session.outcome === null),
-          );
-    },
-    readRuntimeDispatchEventsBySession: () => {
-      dispatchEventReads += 1;
-      return [{ source: { kind: "node", nodeId: "node-a" } } as AgentRuntimeEventV1];
-    },
-  } as Pick<TaskProjection, "readRuntimeSessions" | "readRuntimeDispatchEventsBySession">;
-
+test("node retirement follows lifecycle reservations, including lost processes, without session history", () => {
+  const events = [
+    lifecycleEvent("R", "runtime-live-node-a", { source: { kind: "node", nodeId: "node-a" }, instanceId: "worker" }),
+    lifecycleEvent("S", "runtime-live-node-a", { source: { kind: "node", nodeId: "node-a" }, instanceId: "worker" }),
+    lifecycleEvent("R", "runtime-exited-node-a", { source: { kind: "node", nodeId: "node-a" }, instanceId: "worker" }),
+    lifecycleEvent("X", "runtime-exited-node-a", { source: { kind: "node", nodeId: "node-a" }, instanceId: "worker" }),
+    lifecycleEvent("R", "runtime-live-node-b", { source: { kind: "node", nodeId: "node-b" }, instanceId: "worker" }),
+  ];
+  const projection = { readDispatchLifecycle: dispatchLifecycleReadOf(() => events) };
   assert.deepEqual(retiredNodeExecutions(projection, "node-a"), ["runtime-live-node-a"]);
-  assert.deepEqual(
-    queries,
-    [{ executionOwnerNodeId: "node-a", unsettledOnly: true }],
-    "node retirement must ask the projection for this node's unsettled sessions, not the whole history",
+  events.push(
+    lifecycleEvent("L", "runtime-live-node-a", {
+      source: { kind: "node", nodeId: "node-a" },
+      instanceId: "worker",
+      liveness: "unknown",
+    }),
   );
-  assert.equal(dispatchEventReads, 0, "the execution owner is on the session row; no per-session event read");
+  assert.deepEqual(
+    retiredNodeExecutions(projection, "node-a"),
+    ["runtime-live-node-a"],
+    "lost observations retain their reservation",
+  );
 });

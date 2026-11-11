@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -150,6 +151,9 @@ test("unbound session credentials preserve the person, repository and live dispa
   let liveness = "live",
     dispatchId = p.dispatchId;
   const projection = {
+    readDispatchLifecycle(query) {
+      return executionLifecycle(this, query);
+    },
     readRuntimeSession: () => ({ liveness, outcome: null, taskBindings: [] }),
     readRuntimeDispatch: () => ({ actor, source: p.source, payload: { dispatchId } }),
   } as never;
@@ -562,6 +566,9 @@ test("the writer accepts only the decision bound to a live decision-review dispa
       now: new Date().toISOString(),
       projection: {
         read: () => ({ snapshot: { executions: [] } }),
+        readDispatchLifecycle(query) {
+          return executionLifecycle(this, query);
+        },
         readRuntimeSession: () => ({
           liveness: "live",
           outcome: null,
@@ -622,6 +629,9 @@ test("the writer rejects expired credentials and stopped or superseded dispatche
     binding: { executionPrincipal: p, actor, source: "local" as const },
     now: new Date().toISOString(),
     projection: {
+      readDispatchLifecycle(query) {
+        return executionLifecycle(this, query);
+      },
       readRuntimeSession: () => ({
         liveness,
         outcome: null,
@@ -666,6 +676,9 @@ test("a live worker may publish and read CI after submission releases the lease"
           executions: [{ executionId: p.executionId, state: "submitted", submission: { commitSha: "a".repeat(40) } }],
         },
       }),
+      readDispatchLifecycle(query) {
+        return executionLifecycle(this, query);
+      },
       readRuntimeSession: () => ({
         liveness,
         outcome: null,
@@ -721,6 +734,9 @@ test("the submitting worker may push and amend its current cut after a successfu
           executions: [{ executionId: p.executionId, state: "submitted", submission: { commitSha: "a".repeat(40) } }],
         },
       }),
+      readDispatchLifecycle(query) {
+        return executionLifecycle(this, query);
+      },
       readRuntimeSession: () => ({
         liveness: "exited",
         outcome: "succeeded",
@@ -750,6 +766,9 @@ test("the submitting worker may push and amend its current cut after a successfu
   );
   const failedSessionProjection = {
     ...projection,
+    readDispatchLifecycle(query) {
+      return executionLifecycle(this, query);
+    },
     readRuntimeSession: () => ({
       liveness: "exited",
       outcome: "failed",
@@ -806,6 +825,9 @@ test("edge settlement accepts released or expired leases but rejects cancellatio
     binding: { executionPrincipal: p, actor, source },
     now: new Date().toISOString(),
     projection: {
+      readDispatchLifecycle(query) {
+        return executionLifecycle(this, query);
+      },
       readRuntimeSession: () => ({
         liveness: "exited",
         outcome,
@@ -848,6 +870,9 @@ test("stale reviewer can retire only its own failed or cancelled dispatch withou
     binding: { executionPrincipal: p, actor, source: p.source },
     now: new Date().toISOString(),
     projection: {
+      readDispatchLifecycle(query) {
+        return executionLifecycle(this, query);
+      },
       readRuntimeSession: () => ({
         liveness: "active",
         outcome,
@@ -1196,3 +1221,27 @@ test("a cold center token before runtime execution authentication is a retryable
     },
   );
 });
+
+function executionLifecycle(
+  projection: { readRuntimeSession: (id: string) => any; readRuntimeDispatch: (id: string) => any },
+  query: any,
+) {
+  const session = projection.readRuntimeSession(query.runtimeSessionId);
+  if (!session) return { status: "ready", watermark: 0, sourceRevision: 0, rows: [], nextCursor: null };
+  const dispatch = projection.readRuntimeDispatch(query.runtimeSessionId),
+    options = {
+      source: dispatch?.source ?? "local",
+      instanceId: "fixture",
+      dispatchId: dispatch?.payload.dispatchId ?? "missing",
+    },
+    events = [
+      lifecycleEvent("R", query.runtimeSessionId, options),
+      lifecycleEvent("S", query.runtimeSessionId, options),
+    ];
+  if (session.liveness === "exited") events.push(lifecycleEvent("X", query.runtimeSessionId, options));
+  if (session.outcome !== null && session.outcome !== undefined) {
+    const event = lifecycleEvent("O", query.runtimeSessionId, options);
+    events.push({ ...event, payload: { ...event.payload, outcome: session.outcome } } as never);
+  }
+  return dispatchLifecycleReadOf(() => events)(query);
+}

@@ -1,4 +1,5 @@
 import type { AuthorizationProvider, AccessAdminRequest, TaskProjection } from "@harness-anything/kernel";
+import { readActiveDispatchLifecycleSync } from "../runtime-dispatch-admission.ts";
 import { coded, text } from "../access-admin-utils.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -14,17 +15,14 @@ export interface NodeRetirementSnapshot {
   readonly executions: readonly { readonly repoId: string; readonly runtimeSessionId: string }[];
 }
 
-/** The runtime executions a retiring node still owns. The owner+outcome index bounds this to the
- *  node's unsettled sessions, and the explicit liveness check keeps a session whose exit is
- *  already recorded but whose outcome event has not landed out of the in-flight set. */
+/** Only canonical lifecycle reservations can keep a node busy. */
 export function retiredNodeExecutions(
-  projection: Pick<TaskProjection, "readRuntimeSessions">,
+  projection: Pick<TaskProjection, "readDispatchLifecycle">,
   nodeId: string,
 ): string[] {
-  return projection
-    .readRuntimeSessions({ executionOwnerNodeId: nodeId, unsettledOnly: true })
-    .filter((session) => session.liveness !== "exited")
-    .map((session) => session.runtimeSessionId);
+  return readActiveDispatchLifecycleSync((query) => projection.readDispatchLifecycle(query), coded)
+    .filter(({ attempt, policy }) => attempt.fence.owner === `node:${nodeId}` && policy.capacity !== "released")
+    .map(({ attempt }) => attempt.runtimeSessionId);
 }
 
 /** The identity writer owns this port; the listener owns live admission and replication state. */

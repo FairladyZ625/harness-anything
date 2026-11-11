@@ -681,6 +681,11 @@ export interface DispatchLifecycleView {
     readonly successorAdmissible: boolean;
     readonly canResolveRuling: boolean;
     readonly canRecover: boolean;
+    readonly canSteer: boolean;
+    readonly canHandoff: boolean;
+    readonly canWrite: boolean;
+    readonly canPublish: boolean;
+    readonly ownsWorkspace: boolean;
     readonly blockerCode: DispatchAdmissionBlocker["code"] | null;
   };
 }
@@ -728,6 +733,16 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
             attempt.outcome !== "succeeded" &&
             attempt.outcome !== "unknown",
         ),
+      canSteer:
+        attempt.dispatchId === group.currentDispatchId &&
+        attempt.fence.verified &&
+        attempt.phase === "running" &&
+        attempt.process === "alive" &&
+        attempt.stopProof === "unproven",
+      canHandoff: group.phase === "closed" && attempt.phase === "closed" && rulingReady(attempt),
+      canWrite: attempt.phase !== "closed" && attempt.phase !== "settling" && attempt.stopProof === "unproven",
+      canPublish: attempt.phase === "closed" && attempt.outcome === "succeeded",
+      ownsWorkspace: group.phase !== "closed",
       blockerCode:
         capacityDisposition !== "recovering"
           ? null

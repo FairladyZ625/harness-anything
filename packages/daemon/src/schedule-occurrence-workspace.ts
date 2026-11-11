@@ -11,6 +11,8 @@ import {
   unlinkWorktreeLedger,
   worktreeSetupFailure,
 } from "./worktree-setup.ts";
+import { readActiveDispatchLifecycle, type DispatchLifecycleReader } from "./runtime-dispatch-admission.ts";
+import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { liveDispatchIn } from "./live-dispatch-worktree.ts";
 
 /**
@@ -76,10 +78,15 @@ export async function publishedBranchRef(rootDir: string, branch: string): Promi
  * continues that work instead of failing on the residue. A dispatch still running in the checkout is not touched:
  * its operation is live work, not residue.
  */
-export async function abortInterruptedWorktreeOperation(rootDir: string, cwd: string): Promise<void> {
+export async function abortInterruptedWorktreeOperation(
+  rootDir: string,
+  cwd: string,
+  read: DispatchLifecycleReader,
+): Promise<void> {
   if (!isLinkedWorktree(cwd)) return;
   const operation = await interruptedGitOperation(cwd);
-  if (operation && !liveDispatchIn(rootDir, cwd)) await git(cwd, operation, "--abort");
+  if (operation && !liveDispatchIn(await readActiveDispatchLifecycle(read, runtimeSpawnError), cwd))
+    await git(cwd, operation, "--abort");
 }
 
 /** The operation git recorded in the checkout, if any: its state directory, not its localized status text. */

@@ -454,7 +454,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskPackageRoot,
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, capacity] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, providerSessionId ?? undefined),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
@@ -530,7 +530,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         { instanceId: runtimeInstanceId, owner: dispatchOwnerForNode(input.runtimeNode?.nodeId) },
         runtimeSpawnError,
       );
-    const selectRuntime = () =>
+    const selectRuntime = async () =>
       prepareRuntimeInstance(
         {
           requested: requestedRuntimeInstanceId,
@@ -540,6 +540,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           instances: runtimeInstances,
           allowedInstanceIds,
           sessions: localRuntimeSessions,
+          capacity,
           health: providerHealth,
           now: input.now(),
         },
@@ -876,6 +877,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }
     const streamStartedAt = input.now();
     let process: RuntimeProcess | undefined;
+    let active: ActiveRuntime | undefined = undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
     let stream: DispatchStreamWriter | undefined;
     // Freeze the provider directory this launch's environment actually resolved (explicit
@@ -1001,7 +1003,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
     };
     const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
-      processes.get(runtimeSessionId)?.releaseAuthorization?.();
+      active?.releaseAuthorization?.();
       process?.terminate();
       process?.release?.();
       releaseModelSlot();
@@ -1217,7 +1219,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         void cloudRelay?.close();
       },
     };
-    const active = createActiveRuntime({
+    active = createActiveRuntime({
       process: releasedRuntimeProcess,
       dispatchId: newDispatchId,
       runtimeSessionId,
@@ -1477,7 +1479,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       return adoptRuntimes(extracted, onProgress);
     },
     /** Whether this spawner still owns a launched process for the runtime session. */
-    ownsLiveProcess: (runtimeSessionId: string) => processes.has(runtimeSessionId),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {

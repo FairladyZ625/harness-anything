@@ -6,7 +6,7 @@ import { dispatchTaskReview } from "./task-review-dispatch.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
-import { createEntityStore, makeTaskEventStore, type DispatchRecordLeaseSettlement } from "@harness-anything/storage";
+import { createEntityStore, makeTaskEventStore } from "@harness-anything/storage";
 import type { DaemonStorageConfig } from "@harness-anything/storage";
 import {
   bindWriterGenerationToken,
@@ -67,7 +67,6 @@ import {
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
-import { taskSurfaceWriteAt, taskSurfaceWriteAtForRuntimeTerminal } from "./repo-cell-task-command-docs.ts";
 import { makeScheduleActionRuntime, settleScheduledRuntime } from "./schedule-action-runtime.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
@@ -92,7 +91,6 @@ import {
   makeRuntimeSpawner,
   type RuntimeAttemptTerminal,
   type RuntimeDaemonRoute,
-  type RuntimeLeaseReleasePending,
   type RuntimeLauncher,
 } from "./runtime-spawn.ts";
 import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
@@ -464,17 +462,6 @@ export async function openRepoWriterCell(
     );
     return pending;
   };
-  let settleRuntimeExecutionLease: (
-    task: NonNullable<RuntimeAttemptTerminal["task"]>,
-    runtimeSessionId: string,
-    leaseAt: string,
-    occurredAt: string,
-    binding: RuntimeAttemptTerminal["binding"],
-    processGroupPid: number | undefined,
-    preservePrimaryError?: boolean,
-  ) => Promise<void | RuntimeLeaseReleasePending> = async () => {
-    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
-  };
   let settleScheduledOutcome: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell Schedule settlement is not ready.");
   };
@@ -599,18 +586,6 @@ export async function openRepoWriterCell(
       }, continuation.binding);
     },
     onAttemptTerminal: async (terminal) => {
-      const leaseSettlement = terminal.task
-        ? await settleRuntimeExecutionLease(
-            terminal.task,
-            terminal.runtimeSessionId,
-            terminal.endedAt,
-            now(),
-            terminal.binding,
-            terminal.processGroupPid,
-            terminal.preservePrimaryError,
-          )
-        : undefined;
-      if (leaseSettlement) return leaseSettlement;
       // A squad-owned scheduled dispatch settles its occurrence with the run, not with its
       // first leader session; the coordinator's terminal settlement owns the claim.
       if (terminal.schedule && scheduleOccurrenceSettlementOwner(projection, terminal.dispatchId) === "runtime-attempt")
@@ -834,20 +809,6 @@ export async function openRepoWriterCell(
   });
   const operationalContext = Object.assign(runtimeContext, {
     settings,
-    settleRuntimeExecutionLease: async (settlement: DispatchRecordLeaseSettlement, binding: RepoCellBinding) => {
-      await settleRuntimeExecutionLease(
-        {
-          taskId: settlement.taskId,
-          executionId: settlement.executionId,
-          leaseVersion: settlement.leaseVersion,
-        },
-        settlement.runtimeSessionId,
-        settlement.endedAt,
-        settlement.endedAt,
-        binding,
-        undefined,
-      );
-    },
   });
   operationalContext satisfies RepoCellOperationalContext;
   handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding, arrangementId }) => {
@@ -942,48 +903,6 @@ export async function openRepoWriterCell(
         entityActionRuntimes,
       );
     });
-  settleRuntimeExecutionLease = async (
-    task: NonNullable<RuntimeAttemptTerminal["task"]>,
-    runtimeSessionId: string,
-    leaseAt: string,
-    occurredAt: string,
-    terminalBinding: RuntimeAttemptTerminal["binding"],
-    processGroupPid: number | undefined,
-    preservePrimaryError = false,
-  ): Promise<void | RuntimeLeaseReleasePending> => {
-    const lease = extracted.projection.currentLease(task.taskId, leaseAt);
-    // The terminal runtime can release only its own current lease. Its dispatch execution/version
-    // is historical: release/start may have advanced both while this same runtime was running.
-    if (
-      !lease ||
-      lease.phase === "released" ||
-      lease.actor.executor?.id !== `runtime-session:${runtimeSessionId}` ||
-      !isSameExecution(lease.actor, terminalBinding.actor)
-    )
-      return;
-    const action = {
-        kind: "task-release",
-        taskId: task.taskId,
-        terminalExecutionId: lease.executionId,
-        terminalRuntimeSessionId: runtimeSessionId,
-        terminalProcessGroupPid: processGroupPid,
-        reason: `Runtime session ${runtimeSessionId} reached a terminal dispatch state.`,
-      },
-      binding = await authorizeRuntimeAction(action, terminalBinding, `runtime-task-release:${runtimeSessionId}`),
-      settled = await recoveryWork.write(
-        () =>
-          preservePrimaryError
-            ? taskSurfaceWriteAtForRuntimeTerminal(extracted, action, binding, occurredAt)
-            : taskSurfaceWriteAt(extracted, action, binding, occurredAt),
-        binding,
-      );
-    if (settled.outcome === "lease_unproven") {
-      if (preservePrimaryError) return settled;
-      throw cellCodedError(settled.code, settled.reason);
-    }
-    if (settled.outcome !== "applied")
-      throw cellCodedError("runtime_lease_release_failed", `Runtime terminal lease settlement was ${settled.outcome}.`);
-  };
   const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
   setImmediate(() => {
     if (state === "closed") return;

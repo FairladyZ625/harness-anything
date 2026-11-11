@@ -1,5 +1,4 @@
 export * from "./entity-store.ts";
-export type { DispatchRecordLeaseSettlement } from "./dispatch-record-lease.ts";
 export { cmdShellInvocation } from "./cmd-command-line.ts";
 export * from "./local-version-control-system.ts";
 export {

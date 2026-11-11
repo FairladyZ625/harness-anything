@@ -1,7 +1,8 @@
 // harness-test-tier: fast
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
+import { prepareRuntimeInstance as prepare, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
 import { readSettingsFacet } from "@harness-anything/kernel";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
@@ -10,6 +11,23 @@ import {
   runtimeInstanceModel,
   selectedRuntimeInstance,
 } from "../src/runtime-instance-selection.ts";
+
+function prepareRuntimeInstance<T>(
+  input: Parameters<typeof resolveRuntimeInstanceCandidates>[0],
+  launch: (id: string) => Promise<T>,
+) {
+  const events = input.sessions.flatMap((session) => {
+    const options = { source: "local" as const, instanceId: session.instanceId };
+    return [
+      lifecycleEvent("R", session.runtimeSessionId, options),
+      lifecycleEvent("S", session.runtimeSessionId, options),
+      ...(session.liveness === "exited" ? [lifecycleEvent("X", session.runtimeSessionId, options)] : []),
+    ];
+  });
+  const capacity = dispatchLifecycleReadOf(() => events)({ by: "active", limit: 100 });
+  assert.equal(capacity.status, "ready");
+  return prepare({ ...input, capacity: capacity.status === "ready" ? capacity.rows : [] }, launch);
+}
 
 const instance = (
   instanceId: string,

@@ -192,7 +192,6 @@ export function makeRepoReadRuntime(
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
-        ownsLiveProcess: unsupportedWrite,
         close: unsupportedWrite,
       },
       actionContext = createRepoCellActionContext({
@@ -234,7 +233,6 @@ export function makeRepoReadRuntime(
       }),
       operationalContext = Object.assign(runtimeContext, {
         settings,
-        settleRuntimeExecutionLease: unsupportedWrite,
       });
     operationalContext satisfies RepoCellOperationalContext;
     actionRuntimes = Object.freeze({

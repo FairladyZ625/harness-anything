@@ -10,6 +10,33 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
 type CodedError = (code: string, message: string) => Error;
 
+export type DispatchLifecycleReader = (
+  query: DispatchLifecycleQuery,
+) => DispatchLifecycleRead | Promise<DispatchLifecycleRead>;
+
+export function readyDispatchLifecycle(
+  page: DispatchLifecycleRead,
+  error: CodedError,
+): readonly DispatchLifecycleView[] {
+  if (page.status !== "ready") throw dispatchLifecyclePendingError(page, error);
+  return page.rows;
+}
+
+/** Synchronous writer/read sessions use the same bounded active index as remote consumers. */
+export function readActiveDispatchLifecycleSync(
+  read: (query: DispatchLifecycleQuery) => DispatchLifecycleRead,
+  error: CodedError,
+): DispatchLifecycleView[] {
+  const rows: DispatchLifecycleView[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = read(activePage(undefined, cursor));
+    rows.push(...readyDispatchLifecycle(page, error));
+    cursor = page.status === "ready" ? page.nextCursor : null;
+  } while (cursor !== null);
+  return rows;
+}
+
 export function readDispatchLifecycle(context: RuntimeSpawnerContext, query: DispatchLifecycleQuery) {
   return (
     context.input.remote?.readDispatchLifecycle(query) ??
@@ -102,4 +129,41 @@ function activePage(instanceId: string | undefined, cursor: string | null): Disp
     ...(instanceId ? { instanceId } : {}),
     ...(cursor === null ? {} : { cursor }),
   };
+}
+
+/** Wire validation belongs at the Fleet ingress; internal readers pass the typed query. */
+export function validDispatchLifecycleQuery(query: DispatchLifecycleQuery): boolean {
+  const text = (value: unknown) => typeof value === "string" && value.length > 0;
+  const keys =
+    query.by === "dispatch"
+      ? ["by", "dispatchIds"]
+      : query.by === "session"
+        ? ["by", "runtimeSessionId"]
+        : query.by === "group"
+          ? ["by", "attemptGroupId"]
+          : ["by", "instanceId", "cursor", "limit"];
+  if (Object.keys(query).some((key) => !keys.includes(key))) return false;
+  switch (query.by) {
+    case "dispatch":
+      return (
+        Array.isArray(query.dispatchIds) &&
+        query.dispatchIds.length > 0 &&
+        query.dispatchIds.length <= DISPATCH_LIFECYCLE_PAGE_LIMIT &&
+        query.dispatchIds.every(text)
+      );
+    case "session":
+      return text(query.runtimeSessionId);
+    case "group":
+      return text(query.attemptGroupId);
+    case "active":
+      return (
+        Number.isSafeInteger(query.limit) &&
+        query.limit > 0 &&
+        query.limit <= DISPATCH_LIFECYCLE_PAGE_LIMIT &&
+        (query.instanceId === undefined || text(query.instanceId)) &&
+        (query.cursor === undefined || text(query.cursor))
+      );
+    default:
+      return false;
+  }
 }

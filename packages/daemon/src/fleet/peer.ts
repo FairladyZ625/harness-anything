@@ -590,6 +590,7 @@ export async function readFleetOperationalClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
     readonly method:
+      | "repo.agentRuntime.lifecycle.read"
       | "repo.agentRuntime.sessions.await"
       | "repo.task.dispatches"
       | "repo.fleet.overview.read"

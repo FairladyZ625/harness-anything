@@ -4,14 +4,17 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from "./runtime-spawn-adoption.ts";
-import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
-import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import {
+  dispatchLifecyclePendingError,
+  readDispatchLifecycle,
+  readyDispatchLifecycle,
+} from "./runtime-dispatch-admission.ts";
 import {
   parseRuntimeSteerExpectation,
   resolveRuntimeSteerHeader,
@@ -19,7 +22,6 @@ import {
   runtimeSteerReceiptTarget,
   runtimeSteerRefusal,
   runtimeSteerTarget,
-  type RuntimeSteerLiveness,
 } from "./runtime-steer-target.ts";
 
 export async function cancelRuntime(
@@ -37,7 +39,7 @@ export async function cancelRuntime(
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
   if (ruling === "") throw runtimeSpawnError("invalid_runtime_ruling", "Owner ruling reason must not be empty.");
-  // Terminal streams retain their owner binding after archival; repeated cancellation still verifies it.
+  // Authorize against the canonical dispatch, including repeated cancellation after archival.
   const headers = readDispatchStreamHeaders(context.input.rootDir, true),
     matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
     canonicalDispatch =
@@ -45,7 +47,7 @@ export async function cancelRuntime(
         ? null
         : context.input.remote?.readRuntimeDispatch
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-          : readLocalRuntimeDispatchOwner(context, runtimeSessionId),
+          : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId),
     ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
     sameSource =
       canonicalDispatch === null ||
@@ -58,14 +60,7 @@ export async function cancelRuntime(
       ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
       (canonicalDispatch === null ||
         canonicalDispatch === undefined ||
-        (canonicalDispatch.actor.principal.personId === binding.actor.principal.personId && sameSource)),
-    missingOwnedProcess =
-      owned &&
-      !context.processes.has(runtimeSessionId) &&
-      (matchingHeader === undefined ||
-        (matchingHeader.binding !== undefined &&
-          ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode, matchingHeader) &&
-          !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
+        (canonicalDispatch.actor.principal.personId === binding.actor.principal.personId && sameSource));
   const lifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (lifecycle.status !== "ready") throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
   let attempt = lifecycle.rows[0];
@@ -80,38 +75,35 @@ export async function cancelRuntime(
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
   }
+  const runtimeHandles = context.processes;
+  let active = runtimeHandles.get(runtimeSessionId);
   if (ruling !== null) {
     // A ruling is an owner decision for an unreachable runtime only. Check every
     // precondition before recovery, process-group probing, or the active-process
     // branch can perform a physical cancellation or cleanup.
     const hasLocalOwner =
-        context.processes.has(runtimeSessionId) ||
+        active !== undefined ||
         context.exiting.has(runtimeSessionId) ||
         context.ownsModelSlot?.(runtimeSessionId) === true,
-      dispatchId = matchingHeader?.dispatchId ?? canonicalDispatch?.payload.dispatchId,
-      hasReadableDispatch =
-        matchingHeader !== undefined ||
-        (typeof dispatchId === "string" && readDispatchStreamSummary(context.input.rootDir, dispatchId) !== null),
-      hasRecordedProcessGroup =
-        canonicalDispatch?.processGroupPid !== null && canonicalDispatch?.processGroupPid !== undefined;
+      hasReadableDispatch = matchingHeader !== undefined,
+      hasRecordedProcessGroup = canonicalDispatch?.processGroupPid != null;
     if (hasLocalOwner || hasReadableDispatch || hasRecordedProcessGroup)
       throw runtimeSpawnError(
         "runtime_ruling_not_allowed",
         "Owner ruling requires no local runtime owner, no readable dispatch stream, and no recorded process group.",
       );
   }
-  if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
-    const [adoption] = await Promise.allSettled([
-      adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding }),
-    ]);
-    if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
+  // Recovery observes only an admitted attempt with a local spool. Missing spools go to the
+  // same fenced process-group observer below; absence never releases a reservation by itself.
+  if (matchingHeader && !active && attempt?.policy.capacityDisposition === "busy") {
+    await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
+    await assertRuntimeRecoveryReady(context, runtimeSessionId);
   }
-  if (!missingOwnedProcess) await assertRuntimeRecoveryReady(context, runtimeSessionId);
   const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
   if (currentLifecycle.status !== "ready")
     throw dispatchLifecyclePendingError(currentLifecycle, context.runtimeSpawnError);
   attempt = currentLifecycle.rows[0];
-  const active = context.processes.get(runtimeSessionId);
+  active = runtimeHandles.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
     // The mechanical stop must retain whether it was requested by the escalation action. Runtime
@@ -134,73 +126,69 @@ export async function cancelRuntime(
   }
   if (attempt?.policy.attemptSettled || attempt?.attempt.stopProof === "proven_stopped")
     return context.controlReceipt(opId, runtimeSessionId, "already-exited");
-  // A missing process record still needs canonical owner evidence; a local header alone
-  // cannot prove that the worker or its descendants stopped.
+  // Missing control transport does not prove the process tree stopped.
   if (attempt && attempt.attempt.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
-    let processGroupPid: number | null = null;
-    if (matchingHeader !== undefined || attempt.attempt.process !== "exited") {
-      const ownerEvidence =
+    const ownerEvidence =
         canonicalDispatch ??
         (context.input.remote?.readRuntimeDispatch
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-          : readLocalRuntimeDispatchOwner(context, runtimeSessionId));
+          : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId)),
       processGroupPid =
         ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
         sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
         (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
           ? ownerEvidence.processGroupPid
           : null;
-      if (
-        probeProcessGroup({
-          pgid: processGroupPid ?? undefined,
-          ...(matchingHeader
-            ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
-            : {}),
-        }) !== "proven_stopped"
-      ) {
-        if (ruling !== null) {
-          const resultBody = JSON.stringify({
-              schema: "runtime-ruling-resolution/v1",
-              runtimeSessionId,
-              dispatchId: ownerEvidence?.payload.dispatchId ?? null,
-              from: "awaiting_ruling",
-              to: "closed",
-              event: "ruling_resolved",
-              disposition: "abandoned_unproven",
-              processStop: "unproven",
-              actor: binding.actor,
-              resolvedAt: context.input.now(),
-              reason: ruling,
-            }),
-            resultSha256 = createHash("sha256").update(resultBody).digest("hex");
-          await context.publishRuntimeEvent(
-            "runtime_session_outcome_observed",
-            {
-              runtimeSessionId,
-              outcome: "unknown",
-              exitCode: null,
-              resultRef: `artifact:runtime-result/sha256/${resultSha256}`,
-              result: {
-                sha256: resultSha256,
-                size: Buffer.byteLength(resultBody),
-                mediaType: "text/plain; charset=utf-8",
-              },
-              reasonCode: "ruling_resolved",
-              ...(ownerEvidence?.payload.dispatchId ? { dispatchId: ownerEvidence.payload.dispatchId } : {}),
-              endedAt: context.input.now(),
+    if (
+      probeProcessGroup({
+        pgid: processGroupPid ?? undefined,
+        ...(matchingHeader
+          ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
+          : {}),
+      }) !== "proven_stopped"
+    ) {
+      if (ruling !== null) {
+        const resultBody = JSON.stringify({
+            schema: "runtime-ruling-resolution/v1",
+            runtimeSessionId,
+            dispatchId: ownerEvidence?.payload.dispatchId ?? null,
+            from: "awaiting_ruling",
+            to: "closed",
+            event: "ruling_resolved",
+            disposition: "abandoned_unproven",
+            processStop: "unproven",
+            actor: binding.actor,
+            resolvedAt: context.input.now(),
+            reason: ruling,
+          }),
+          resultSha256 = createHash("sha256").update(resultBody).digest("hex");
+        await context.publishRuntimeEvent(
+          "runtime_session_outcome_observed",
+          {
+            runtimeSessionId,
+            outcome: "unknown",
+            exitCode: null,
+            resultRef: `artifact:runtime-result/sha256/${resultSha256}`,
+            result: {
+              sha256: resultSha256,
+              size: Buffer.byteLength(resultBody),
+              mediaType: "text/plain; charset=utf-8",
             },
-            `${opId}-ruling-resolved`,
-            binding,
-            resultBody,
-          );
-          return context.controlReceipt(opId, runtimeSessionId, "ruling_resolved");
-        }
-        throw runtimeSpawnError(
-          "runtime_process_group_unproven",
-          `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.${processGroupRecoveryHint()}`,
+            reasonCode: "ruling_resolved",
+            ...(ownerEvidence?.payload.dispatchId ? { dispatchId: ownerEvidence.payload.dispatchId } : {}),
+            endedAt: context.input.now(),
+          },
+          `${opId}-ruling-resolved`,
+          binding,
+          resultBody,
         );
+        return context.controlReceipt(opId, runtimeSessionId, "ruling_resolved");
       }
+      throw runtimeSpawnError(
+        "runtime_process_group_unproven",
+        `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.${processGroupRecoveryHint()}`,
+      );
     }
     if (typeof instanceId === "string") {
       const failure = context.input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId) ?? null;
@@ -224,24 +212,6 @@ export async function cancelRuntime(
       terminalBinding,
     );
     await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
-    if (matchingHeader?.taskId && matchingHeader.executionId) {
-      const settlement = await context.input.onAttemptTerminal?.({
-        runtimeSessionId,
-        dispatchId: matchingHeader.dispatchId,
-        task: {
-          taskId: matchingHeader.taskId,
-          executionId: matchingHeader.executionId,
-          leaseVersion: matchingHeader.leaseVersion ?? null,
-        },
-        schedule: matchingHeader.schedule ?? null,
-        outcome: "cancelled",
-        reason: "Runtime session cancelled after its worker process was no longer available.",
-        endedAt: context.input.now(),
-        binding: terminalBinding,
-        ...(processGroupPid === null ? {} : { processGroupPid }),
-      });
-      if (settlement?.outcome === "lease_unproven") throw runtimeSpawnError(settlement.code, settlement.reason);
-    }
     const resultBody = "Runtime session cancelled after its worker process was no longer available.",
       resultSha256 = createHash("sha256").update(resultBody).digest("hex");
     await context.publishRuntimeEvent(
@@ -258,6 +228,16 @@ export async function cancelRuntime(
       terminalBinding,
       resultBody,
     );
+    await context.input.onAttemptTerminal?.({
+      runtimeSessionId,
+      dispatchId: attempt.attempt.dispatchId,
+      task: null,
+      schedule: matchingHeader?.schedule ?? null,
+      outcome: "cancelled",
+      reason: resultBody,
+      endedAt: context.input.now(),
+      binding: terminalBinding,
+    });
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
@@ -291,15 +271,12 @@ export function readRuntimeDispatchOwnerEvidence(
   };
 }
 
-function readLocalRuntimeDispatchOwner(
-  context: RuntimeSpawnerContext,
-  runtimeSessionId: string,
-): RuntimeDispatchOwnerEvidence | null {
-  return readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId);
-}
-
 export async function enforceRuntimeSpendCap(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {
-  if (context.processes.get(active.runtimeSessionId) !== active) return;
+  const [view] = readyDispatchLifecycle(
+    await readDispatchLifecycle(context, { by: "session", runtimeSessionId: active.runtimeSessionId }),
+    context.runtimeSpawnError,
+  );
+  if (!view || view.attempt.dispatchId !== active.dispatchId || view.policy.capacity === "released") return;
   if (!active.spendCapExceeded || active.cancelRequested || context.exiting.has(active.runtimeSessionId)) return;
   if (active.process.terminateTree) await active.process.terminateTree();
   else active.process.terminate();
@@ -327,13 +304,18 @@ export async function steerRuntime(
         : { runtimeSessionId: runtimeSessionIdInput as string },
     { rootDir, repoId } = context.input;
   let header = resolveRuntimeSteerHeader(rootDir, selector);
-  const runtimeSessionId = header.runtimeSessionId,
-    liveness = (): RuntimeSteerLiveness => {
-      const owned = context.processes.get(header.runtimeSessionId);
-      if (!owned || !runtimePidIsAlive(owned.process.pid)) return "stopped";
-      return owned.providerSessionId ? "running" : "starting";
-    },
-    // With an expectation, every refusal carries the current target so the caller can re-read.
+  const runtimeSessionId = header.runtimeSessionId;
+  let [view] = readyDispatchLifecycle(
+    await readDispatchLifecycle(context, { by: "session", runtimeSessionId }),
+    context.runtimeSpawnError,
+  );
+  const liveness = () =>
+    view?.policy.canSteer
+      ? ("running" as const)
+      : view?.attempt.phase === "starting"
+        ? ("starting" as const)
+        : ("stopped" as const);
+  const // With an expectation, every refusal carries the current target so the caller can re-read.
     refuse = (code: string, message: string): Error =>
       expected
         ? runtimeSteerRefusal(code, message, runtimeSteerTarget(rootDir, repoId, header, liveness()))
@@ -341,12 +323,17 @@ export async function steerRuntime(
   if (!header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
     throw refuse("execution_scope_mismatch", "This runtime is owned by another node.");
   await assertRuntimeRecoveryReady(context, runtimeSessionId);
-  let active = context.processes.get(runtimeSessionId);
+  const runtimeHandles = context.processes;
+  let active = runtimeHandles.get(runtimeSessionId);
   if (!active) {
     await adoptRuntimes(context, undefined, { runtimeSessionId });
     await assertRuntimeRecoveryReady(context, runtimeSessionId);
-    active = context.processes.get(runtimeSessionId);
+    active = runtimeHandles.get(runtimeSessionId);
   }
+  [view] = readyDispatchLifecycle(
+    await readDispatchLifecycle(context, { by: "session", runtimeSessionId }),
+    context.runtimeSpawnError,
+  );
   // No await from here to the append: the comparison and the write are one section of the writer.
   if (expected) {
     const current = resolveRuntimeSteerHeader(rootDir, selector);
@@ -356,16 +343,13 @@ export async function steerRuntime(
       throw refuse("runtime_steer_target_changed", "The steer target changed while it was being resolved.");
     }
   }
-  if (!active) throw refuse("runtime_not_running", "Runtime is not running.");
+  if (!view?.policy.canSteer)
+    throw refuse("runtime_steer_unavailable", "The canonical lifecycle has no running control target.");
+  if (!active) throw refuse("runtime_steer_unavailable", "Runtime control transport is unavailable.");
   if (!runtimeKindForId(active.kindId).steer)
     throw refuse("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
   if (!active.providerSessionId)
     throw refuse("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
-  // A recorded request nobody follows is not an applied steer: the host is the only reader of
-  // this stream, and a host that is gone cannot be steered back. Settlement retires the runtime,
-  // but the window before it does would otherwise report success into an empty room.
-  if (!runtimePidIsAlive(active.process.pid))
-    throw refuse("runtime_steer_unavailable", "Runtime control channel is unavailable.");
   const target = runtimeSteerTarget(rootDir, repoId, header, "running"),
     mismatch = expected ? runtimeSteerMismatch(expected, target) : null;
   if (mismatch)

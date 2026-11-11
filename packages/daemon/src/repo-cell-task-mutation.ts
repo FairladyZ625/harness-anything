@@ -17,7 +17,6 @@ import {
 import { readDispatchLiveIndex } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
-import type { RuntimeLeaseReleasePending } from "./runtime-spawn-types.ts";
 
 interface TaskMutation {
   readonly type: TaskEventV1["type"];
@@ -39,43 +38,6 @@ export function taskMutation(
   snapshot: Snapshot,
   binding: RepoCellBinding,
 ): TaskMutation {
-  return taskMutationWithStopResult(cell, action, task, snapshot, binding, false);
-}
-
-export function taskMutationForRuntimeTerminal(
-  cell: RepoCellActionContext,
-  action: RepoTaskAction,
-  task: TaskV2,
-  snapshot: Snapshot,
-  binding: RepoCellBinding,
-): TaskMutation | RuntimeLeaseReleasePending {
-  return taskMutationWithStopResult(cell, action, task, snapshot, binding, true);
-}
-
-function taskMutationWithStopResult(
-  cell: RepoCellActionContext,
-  action: RepoTaskAction,
-  task: TaskV2,
-  snapshot: Snapshot,
-  binding: RepoCellBinding,
-  returnUnprovenStop: false,
-): TaskMutation;
-function taskMutationWithStopResult(
-  cell: RepoCellActionContext,
-  action: RepoTaskAction,
-  task: TaskV2,
-  snapshot: Snapshot,
-  binding: RepoCellBinding,
-  returnUnprovenStop: true,
-): TaskMutation | RuntimeLeaseReleasePending;
-function taskMutationWithStopResult(
-  cell: RepoCellActionContext,
-  action: RepoTaskAction,
-  task: TaskV2,
-  snapshot: Snapshot,
-  binding: RepoCellBinding,
-  returnUnprovenStop: boolean,
-): TaskMutation | RuntimeLeaseReleasePending {
   const forceTakeover = action.kind === "task-release" && action.forceTakeover === true,
     reason = forceTakeover
       ? `Owner forced lease release: ${cell.requiredCellText(action.reason, "reason")}`
@@ -180,8 +142,6 @@ function taskMutationWithStopResult(
             ? `Runtime process group for ${proofRuntimeSessionId} has no accepted stop proof; lease release waits for the lifecycle projection.`
             : `Runtime session ${proofRuntimeSessionId} does not own execution ${terminalExecutionId ?? activeLease.executionId}.`;
       if (!acceptedStopProof) {
-        if (returnUnprovenStop && code === "runtime_process_group_unproven")
-          return { outcome: "lease_unproven", code, reason };
         throw cell.cellCodedError(code, reason);
       }
     }

@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   buildHandoffPacket,
   resolveHarnessLayout,
-  runtimeSessionMissingOutcomeEvidence,
   sha256Bytes,
   sha256Text,
   stableStringify,
@@ -15,6 +14,7 @@ import {
   type WriteSource,
 } from "@harness-anything/kernel";
 import { writeFileDurably, readFileWindow, removeFileDurably } from "../../storage/src/durable-file.ts";
+import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { validateHandoffRollout } from "./runtime-handoff-native.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
@@ -78,7 +78,11 @@ export function runRuntimeHandoffAction(
       if (previous.revokedAt) throw runtimeSpawnError("runtime_handoff_revoked", "This export was revoked.");
       return auditCheckpoint(cell, previous, binding, "export");
     }
-    const session = cell.projection.readRuntimeSession(payload.runtimeSessionId);
+    const session = cell.projection.readRuntimeSession(payload.runtimeSessionId),
+      [view] = readyDispatchLifecycle(
+        cell.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] }),
+        runtimeSpawnError,
+      );
     if (
       !payload.handoffEnabled ||
       payload.kindId !== "codex" ||
@@ -86,11 +90,7 @@ export function runRuntimeHandoffAction(
       !payload.executionId ||
       !payload.agentId ||
       !session?.providerSessionId ||
-      session.liveness !== "exited" ||
-      !session.outcome ||
-      // Handoff continues work whose delivery was never witnessed, so eligibility is settledness
-      // (complete exit/result evidence), not a success verdict the session never declared.
-      runtimeSessionMissingOutcomeEvidence(session) !== null
+      !view?.policy.canHandoff
     )
       throw runtimeSpawnError("runtime_handoff_ineligible", "The opted-in task-bound Codex source must be settled.");
     if (cell.projection.readRuntimeDispatchByResumeSource(dispatchId))

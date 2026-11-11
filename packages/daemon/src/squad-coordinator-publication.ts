@@ -5,6 +5,8 @@ import { squadScheduleSubject, terminal, type SquadState } from "./squad-run-sta
 import type { SquadScheduleSettlement } from "./squad-coordinator.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { errorText } from "./squad-coordinator-helpers.ts";
 
 export function makeSquadPublicationController(input: {
@@ -54,8 +56,13 @@ export function makeSquadPublicationController(input: {
         ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
         ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
       ])) {
-        const session = input.query((projection) => projection.readRuntimeSession(runtimeSessionId));
-        if (session && session.liveness !== "exited" && session.outcome === null)
+        const [view] = input.query((projection) =>
+          readyDispatchLifecycle(
+            projection.readDispatchLifecycle({ by: "session", runtimeSessionId }),
+            runtimeSpawnError,
+          ),
+        );
+        if (view && view.policy.capacity !== "released")
           await input.runtimeSpawner().cancel({ runtimeSessionId }, state.binding);
       }
     }

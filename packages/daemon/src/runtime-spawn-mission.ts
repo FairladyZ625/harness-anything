@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
+import type { AgentRole, DispatchLifecycleView, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, documentWorkspacePath, resolveHarnessLayout } from "@harness-anything/kernel";
 import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
@@ -10,11 +10,7 @@ import {
   agentRuntimeTargetSummary,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
-import {
-  compareRuntimeInstanceRank,
-  runtimeInstanceRank,
-  type RuntimeInstanceRank,
-} from "./runtime-instance-selection.ts";
+import { compareRuntimeInstanceRank, runtimeInstanceRank } from "./runtime-instance-selection.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { RuntimeProviderHealth } from "./runtime-provider-health.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
@@ -163,6 +159,7 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly allowedInstanceIds?: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
+  readonly capacity?: readonly DispatchLifecycleView[];
   readonly health?: readonly RuntimeProviderHealth[];
   readonly now?: string;
 }): string[] {
@@ -375,44 +372,33 @@ export function resolveRuntimeInstanceCandidates(input: {
         ? `Runtime instances declare model ${declaredModel}, but none are authentication-ready.`
         : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`) + detail,
     );
-  const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index]));
-  // The one ranking rule (`runtime-instance-selection.ts`) decides between same-kind instances:
-  // declared runtime row, then declared instance preference, then exact-over-case-insensitive
-  // model spelling. Allowlist order is the final tiebreak, so an unchanged repository keeps its
-  // previous choice whenever no higher key separates the candidates. Reading the keys from the
-  // shared helper keeps this list and `prepareRuntimeInstance` from encoding the rule twice.
+  const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index])),
+    load = new Map<string, number>();
+  for (const { attempt, policy } of input.capacity ?? [])
+    if (policy.capacity !== "released") load.set(attempt.instanceId, (load.get(attempt.instanceId) ?? 0) + 1);
   return [...ready]
     .sort(
       (a, b) =>
         compareRuntimeInstanceRank(
           runtimeInstanceRank(input, a.instanceId),
           runtimeInstanceRank(input, b.instanceId),
-        ) || (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
+        ) ||
+        (load.get(a.instanceId) ?? 0) - (load.get(b.instanceId) ?? 0) ||
+        (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
     )
     .map((instance) => instance.instanceId);
 }
 
 /** Select before launch: machine availability can change after the instance definition was written. */
 export async function prepareRuntimeInstance<T>(
-  input: Parameters<typeof resolveRuntimeInstanceCandidates>[0],
+  input: Parameters<typeof resolveRuntimeInstanceCandidates>[0] & {
+    readonly capacity: readonly DispatchLifecycleView[];
+  },
   prepare: (instanceId: string) => Promise<T>,
 ): Promise<{ readonly instanceId: string; readonly launch: T }> {
   const reasons: string[] = [],
     recoveryFailure: { error: unknown; count: number } = { error: null, count: 0 },
-    candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons }),
-    liveLoad = new Map<string, number>(),
-    // Every non-load key of the one selection rule, read from the shared helper so prepare cannot
-    // drift from the resolver that produced this list. The resolver already applied row order,
-    // preference, and model tier; re-applying them here keeps a stable sort on load alone from
-    // letting an idle later row outrank a candidate a higher key had already preferred.
-    rankOf = (instanceId: string): RuntimeInstanceRank => runtimeInstanceRank(input, instanceId);
-  for (const session of input.sessions)
-    if (session.liveness === "live") liveLoad.set(session.instanceId, (liveLoad.get(session.instanceId) ?? 0) + 1);
-  // Load spreads capacity only among candidates the deterministic keys cannot separate; equal
-  // ranks keep the resolver's configured order (a stable sort), which is the allowlist order.
-  candidates.sort(
-    (a, b) => compareRuntimeInstanceRank(rankOf(a), rankOf(b)) || (liveLoad.get(a) ?? 0) - (liveLoad.get(b) ?? 0),
-  );
+    candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons });
   for (const instanceId of candidates) {
     try {
       return { instanceId, launch: await prepare(instanceId) };

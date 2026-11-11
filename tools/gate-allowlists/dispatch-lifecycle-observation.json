@@ -33,13 +33,6 @@
         "slice": "6"
       },
       {
-        "path": "packages/daemon/src/daemon-host-repository-api.ts",
-        "symbol": "readNodeAutoClaimCandidates",
-        "kind": "liveness-comparison",
-        "fingerprint": "55cd6322119378850dc1418c567fffe43ebc4994ff57f2d159df70cd70803273",
-        "slice": "5"
-      },
-      {
         "path": "packages/daemon/src/dispatch-read.ts",
         "symbol": "canonicalDispatchRow",
         "kind": "liveness-comparison",
@@ -110,20 +103,6 @@
         "slice": "6"
       },
       {
-        "path": "packages/daemon/src/fleet/node-retirement.ts",
-        "symbol": "retiredNodeExecutions",
-        "kind": "liveness-comparison",
-        "fingerprint": "ba7f04409b0d57b26de16fe6ed7170409ae384f4d6595b45797b6024e8d44253",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/live-dispatch-worktree.ts",
-        "symbol": "liveDispatchIn",
-        "kind": "runtimePidIsAlive",
-        "fingerprint": "7e6af973a43461143ee6f42094313fe1f6a2f93598438f97c57c53dcaf459328",
-        "slice": "5"
-      },
-      {
         "path": "packages/daemon/src/protocol/daemon-protocol-validate-relation-query.ts",
         "symbol": "validTaskDispatchAttemptValues",
         "kind": "fallback-state-branch",
@@ -136,139 +115,6 @@
         "kind": "liveness-comparison",
         "fingerprint": "9383e334efa6323305824947bc5f3fafba0bfcd49502f46f67258ab3de3466b6",
         "slice": "6"
-      },
-      {
-        "path": "packages/daemon/src/runtime-execution-scope.ts",
-        "symbol": "requireCurrentExecutionScope",
-        "kind": "liveness-comparison",
-        "fingerprint": "1eae75e1be4e3b9a63e49dc5d573d58d0722bfc60fad54a4c800cabadd20e52c",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-execution-scope.ts",
-        "symbol": "requireCurrentExecutionScope",
-        "kind": "liveness-comparison",
-        "fingerprint": "fdcaecac8e2cad68e6c71ace32f937ce00d971b0b50050e24532cc7b0f3869a0",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-handoff-native.ts",
-        "symbol": "prepareRuntimeHandoff",
-        "kind": "runtimePidIsAlive",
-        "fingerprint": "c11b8357890b4c4e3c14fbe89a8d118106fd1e28e4173238fdd9c8de94dd8486",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-handoff-store.ts",
-        "symbol": "runRuntimeHandoffAction",
-        "kind": "liveness-comparison",
-        "fingerprint": "640c06b95ae3f8c2ea308403db10fc36e767d8f9f8b88de1af4e7796d14d6fe8",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "cancelRuntime",
-        "kind": "process-table-probe",
-        "fingerprint": "13c46e355d32d4f9548d2dd04867008101bd1073ba6eeb00564572182f334b56",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "cancelRuntime",
-        "kind": "process-table-probe",
-        "fingerprint": "22688957811b9f147736a246892cd065dede76df333adde54014590a67326948",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "cancelRuntime",
-        "kind": "process-table-probe",
-        "fingerprint": "8f867c3547aa7ce7c50d3f4e1da4740185b2dbc614d367fb30c5be06ad0e9171",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "cancelRuntime",
-        "kind": "process-table-probe",
-        "fingerprint": "9a1973251a8c6c9f51717e39475d2b066f165da67215ebea58465e5be83e44a1",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "cancelRuntime",
-        "kind": "process-table-probe",
-        "fingerprint": "ef01e2baa8fd8131e2c6dd562f970fddb56218276a3659d934edc98dfd13e62a",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "enforceRuntimeSpendCap",
-        "kind": "process-table-probe",
-        "fingerprint": "fa1473b3d234a7ac2d78de6e02db64ebf2797a400095372237062930ce476ffe",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "liveness",
-        "kind": "process-table-probe",
-        "fingerprint": "476c54af50700aa5e623af47d7b6df89fe91ce51879c251357e062787abb0f56",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "liveness",
-        "kind": "runtimePidIsAlive",
-        "fingerprint": "d45c135e715c2c20f8a737a7ccc84eb03a25340ad5fe29717b68d6c109b82763",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "steerRuntime",
-        "kind": "process-table-probe",
-        "fingerprint": "cf2a79059448cf150afec4deb3378e477ddd8507276a50c0f2bb41fd1f960f45",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "steerRuntime",
-        "kind": "process-table-probe",
-        "fingerprint": "cf2a79059448cf150afec4deb3378e477ddd8507276a50c0f2bb41fd1f960f45",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-control.ts",
-        "symbol": "steerRuntime",
-        "kind": "runtimePidIsAlive",
-        "fingerprint": "116fe2a6153802a5506571638a5eda4bcd4d46dd1b29fd0b2a89904d0accca54",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawn-mission.ts",
-        "symbol": "prepareRuntimeInstance",
-        "kind": "liveness-comparison",
-        "fingerprint": "1769c7a98c6b2e2595ceb633fe3b3307491c9a8d1fef5524d44ac67d1993e77e",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawner.ts",
-        "symbol": "cleanupFailedLaunch",
-        "kind": "process-table-probe",
-        "fingerprint": "6758bf49d6551e236e007fdaa06d68c0986c8b75da55d85c4a560577de3a47ac",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/runtime-spawner.ts",
-        "symbol": "ownsLiveProcess",
-        "kind": "process-table-probe",
-        "fingerprint": "fd11d9ab6bebb11510a3844f63881eb09852b77433c843f3a5909d9c39517217",
-        "slice": "5"
-      },
-      {
-        "path": "packages/daemon/src/squad-coordinator-publication.ts",
-        "symbol": "publishState",
-        "kind": "liveness-comparison",
-        "fingerprint": "4d9aff5893f972b057b4d7ce30759cbcc6e64869abd929c016eb536df88bfbdb",
-        "slice": "5"
       },
       {
         "path": "packages/gui/src/renderer/components/runtime/SessionsPanel.tsx",
