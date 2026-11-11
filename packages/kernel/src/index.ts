@@ -340,3 +340,15 @@ export { todoSoftLimitAdvisory } from "./domain/todo-soft-limit.ts";
 export { compileRelationCreatedEvent } from "./domain/relation-event.ts";
 
 export { normalizeHistoricalVerticalDocument } from "./domain/historical-event-normalization.ts";
+
+export { createFactRecordedEvent } from "./domain/fact-event.ts";
+export { createMigrationImportEvent } from "./domain/migration-import-event.ts";
+export { createExecutionDelegationEvent } from "./domain/execution-delegation-event.ts";
+export { createEventShapeMigrationEvent } from "./domain/event-shape-migration-event.ts";
+export { createTaskBootstrapEvent } from "./domain/task-bootstrap-event.ts";
+export { createTaskEvent } from "./domain/task-lifecycle-event.ts";
+export { createAgentRuntimeEvent } from "./domain/agent-runtime-event.ts";
+
+export { taskMutationDraft } from "./domain/task-lifecycle-event.ts";
+
+export { relationCreatedEventForReplay } from "./domain/relation-event.ts";

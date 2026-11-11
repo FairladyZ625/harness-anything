@@ -300,3 +300,10 @@ export function withoutRetiredCloseoutCodeDoc(value: unknown): unknown {
   const { codeDoc: _retired, ...rest } = defaults;
   return { ...value, completion: { ...value.completion, closeoutDefaults: rest } };
 }
+
+/** The aggregate's only constructor; validation remains at canonical acceptance. */
+export function createEventShapeMigrationEvent(
+  input: Omit<EventShapeMigrationEventV1, "schema" | "type">,
+): EventShapeMigrationEventV1 {
+  return { schema: "event-shape-migration/v1", type: "event_shape_migration_applied", ...input };
+}

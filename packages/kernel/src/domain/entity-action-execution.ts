@@ -1,3 +1,4 @@
+import { createFactRecordedEvent } from "./fact-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 export {
   attributeEntityActionCriterion,
@@ -159,8 +160,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
   }
   return {
     kind: "fact",
-    event: {
-      schema: "fact-event/v1",
+    event: createFactRecordedEvent({
       eventId: eventId(input.opId),
       workspaceRevision: input.workspaceRevision,
       opId: input.opId,
@@ -169,7 +169,6 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
         typeof action.factId === "string"
           ? requiredText(input, action.factId, "factId")
           : `F-${digest(input.opId).slice(0, 8).toUpperCase()}`,
-      type: "fact_recorded",
       actor: input.actor,
       source: input.source,
       occurredAt: input.occurredAt,
@@ -193,7 +192,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
             }
           : {}),
       },
-    },
+    }),
   };
 }
 
@@ -265,14 +264,12 @@ export function compileDecisionReckonAction(input: EntityActionCompileInput): En
   const report = coverage.rows.map((row) => `${row.claimRef}=${row.status}`).join(", ") || "no load-bearing claims";
   return {
     kind: "fact",
-    event: {
-      schema: "fact-event/v1",
+    event: createFactRecordedEvent({
       eventId: eventId(input.opId),
       workspaceRevision: input.workspaceRevision,
       opId: input.opId,
       taskId: coverage.taskId,
       factId: `F-${digest(input.opId).slice(0, 8).toUpperCase()}`,
-      type: "fact_recorded",
       actor: input.actor,
       source: input.source,
       occurredAt: input.occurredAt,
@@ -285,7 +282,7 @@ export function compileDecisionReckonAction(input: EntityActionCompileInput): En
         memoryTags: ["abstract_rule"],
         provenance: [sessionProvenance(input.session, input.occurredAt)],
       },
-    },
+    }),
   };
 }
 

@@ -1,3 +1,4 @@
+import { createEventShapeMigrationEvent } from "@harness-anything/kernel";
 import type { ActorIdentity } from "@harness-anything/kernel/internal/domain/actor-identity.ts";
 import {
   eventShapeMigrationNames,
@@ -373,12 +374,10 @@ export function applyAttachMigrations(input: {
     if (affectedCount === 0) continue;
     const revision = (input.store.readHead()?.revision ?? 0) + 1,
       opId = `upgrade-${migration.name.replaceAll(".", "-")}`,
-      event: EventShapeMigrationEventV1 = {
-        schema: "event-shape-migration/v1",
+      event: EventShapeMigrationEventV1 = createEventShapeMigrationEvent({
         eventId: `event-${opId}`,
         workspaceRevision: revision,
         opId,
-        type: "event_shape_migration_applied",
         actor: input.actor ?? defaultMigrationActor,
         source: "local",
         occurredAt: input.now?.() ?? new Date().toISOString(),
@@ -388,7 +387,7 @@ export function applyAttachMigrations(input: {
           sourceRevision: revision - 1,
           affectedEvents: affectedCount,
         },
-      };
+      });
     input.store.append({ event, plan: eventShapeMigrationWritePlan(event), blobs: [] });
     appliedNow.push(migration.name);
     applied.add(migration.name);

@@ -8,12 +8,10 @@ import test from "node:test";
 import {
   AUTHORED_DOCUMENT_EVENT_FAMILY,
   aggregateEventFamiliesFromSnapshot,
-  baselineFromSites,
   checkAggregateEventConstructionSites,
   loadAggregateEventFamilies,
   scanAggregateEventConstructionSites,
 } from "./check-task-event-aggregate-entry.mjs";
-import { AGGREGATE_EVENT_CONSTRUCTION_BASELINE } from "./gate-allowlists/aggregate-event-construction-baseline.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -35,7 +33,7 @@ const TASK_FAMILIES = Object.freeze([
   {
     schema: "agent-runtime-event/v1",
     owner: "runtime-session",
-    writers: Object.freeze(["packages/kernel/src/domain/agent-runtime.ts"]),
+    writers: Object.freeze(["packages/kernel/src/domain/agent-runtime-event.ts"]),
     types: null,
   },
   AUTHORED_DOCUMENT_EVENT_FAMILY,
@@ -64,8 +62,8 @@ function scanFixture(root, families = TASK_FAMILIES) {
   return scanAggregateEventConstructionSites(root, families);
 }
 
-function findingsFor(sites, baseline = {}, families = TASK_FAMILIES) {
-  return checkAggregateEventConstructionSites(sites, { families, baseline });
+function findingsFor(sites, families = TASK_FAMILIES) {
+  return checkAggregateEventConstructionSites(sites, { families });
 }
 
 let repoFamilies;
@@ -78,53 +76,16 @@ function sitesForRepo() {
   return (repoSites ??= scanAggregateEventConstructionSites(repoRoot, familiesForRepo()));
 }
 
-test("gate accepts the repository baseline", () => {
+test("gate accepts the repository with no exemptions", () => {
   const result = spawnSync("node", [path.join(repoRoot, "tools/check-task-event-aggregate-entry.mjs")], {
     cwd: repoRoot,
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(
-    result.stdout,
-    /Aggregate event construction check passed \(\d+ sites, \d+ only-decrease baseline entries\)/u,
-  );
+  assert.match(result.stdout, /Aggregate event construction check passed \(\d+ sites, no exemptions\)/u);
   assert.deepEqual(
     checkAggregateEventConstructionSites(sitesForRepo(), {
       families: familiesForRepo(),
-      baseline: AGGREGATE_EVENT_CONSTRUCTION_BASELINE,
-    }),
-    [],
-  );
-});
-
-// Migration guard for dec_499E4E98A3D4754132B3BCA1E6 CH1: the schema→owner rewrite
-// must keep ratcheting every site the deleted task_* table used to record.
-test("every pre-existing task construction site is still ratcheted", () => {
-  const families = familiesForRepo(),
-    keys = new Set(sitesForRepo().map(siteKey));
-  const preExisting = [
-    "task-event/v1|packages/kernel/src/domain/task-completion-generation-retirement.ts|envelope-call|task_completion_generation_retired",
-    "task-event/v1|packages/daemon/src/repo-cell-task-command-docs.ts|dynamic-event|<dynamic>",
-    "task-event/v1|packages/kernel/src/domain/task-lifecycle-event.ts|literal-type|task_amended",
-    "task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_archived",
-    "task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_contract_migrated",
-    "task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_deleted",
-    "task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_reopened",
-    "task-event/v1|packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_superseded",
-    "task-event/v1|packages/kernel/src/domain/task-lifecycle-command-transitions.ts|envelope-call|task_created",
-    "task-event/v1|packages/kernel/src/domain/task-lifecycle-command-transitions.ts|envelope-call|task_transitioned",
-    "task-event/v1|packages/kernel/src/domain/task-lifecycle-contract-support.ts|dynamic-event|<dynamic>",
-    "task-event/v1|packages/kernel/src/domain/task-lifecycle-review-transitions.ts|envelope-call|task_completed",
-    "task-event/v1|packages/kernel/src/domain/task-lifecycle-review-transitions.ts|envelope-call|task_review_responded",
-    "task-progress-event/v1|packages/kernel/src/domain/task-progress-event.ts|literal-type|task_progress_appended",
-    "task-bootstrap-event/v1|packages/preset/src/preset-bootstrap.ts|literal-type|task_bootstrapped",
-  ];
-  assert.equal(preExisting.length, 15);
-  for (const key of preExisting) assert.ok(keys.has(key), `missing pre-existing site ${key}`);
-  assert.deepEqual(
-    checkAggregateEventConstructionSites(scanAggregateEventConstructionSites(repoRoot, families), {
-      families,
-      baseline: AGGREGATE_EVENT_CONSTRUCTION_BASELINE,
     }),
     [],
   );
@@ -142,7 +103,7 @@ test("a non-owner module constructing agent-runtime-event fails, the owner modul
       /packages\/rogue\/src\/rogue\.ts.*outside the declared writers of runtime-session/u,
     );
 
-    writeSource(root, "packages/kernel/src/domain/agent-runtime.ts", body);
+    writeSource(root, "packages/kernel/src/domain/agent-runtime-event.ts", body);
     rmSync(path.join(root, "packages/rogue"), { recursive: true, force: true });
     assert.deepEqual(findingsFor(scanFixture(root)), []);
   } finally {
@@ -175,85 +136,53 @@ test("task event types must be declared and owner-prefixed types cannot hide out
   }
 });
 
-test("baseline counts only decrease and stale or obsolete entries fail", () => {
-  const root = makeGateRoot("ha-aggregate-baseline-");
+// dec_499E4E98A3D4754132B3BCA1E6 CH1: clearing the debt removes the
+// exemption mechanism, including for authored-document's aggregate-local events.
+test("a former baseline entry cannot authorize construction outside the owner", () => {
+  const site = {
+    schema: "task-event/v1",
+    path: "packages/legacy/src/legacy.ts",
+    form: "envelope-call",
+    eventType: "task_created",
+    line: 1,
+    column: 1,
+  };
+  const findings = checkAggregateEventConstructionSites([site], {
+    families: TASK_FAMILIES,
+    baseline: { [`${site.schema}|${site.path}|${site.form}|${site.eventType}`]: 1 },
+  });
+  assert.match(findings.join("\n"), /outside the declared writers of task/u);
+});
+
+test("authored-document events are constructed only by their aggregate", () => {
+  const root = makeGateRoot("ha-authored-document-entry-");
   try {
-    const legacy = writeSource(root, "packages/legacy/src/legacy.ts", 'envelope(command, "task_created", {});\n');
-    const key = `task-event/v1|${legacy}|envelope-call|task_created`;
-    assert.deepEqual(findingsFor(scanFixture(root), { [key]: 1 }), []);
-
-    writeSource(root, legacy, 'envelope(command, "task_created", {});\nenvelope(command, "task_created", {});\n');
+    const body = 'export const event = { schema: "authored-document-event/v1", type, payload };\n';
+    writeSource(root, "packages/kernel/src/domain/authored-document.ts", body);
+    assert.deepEqual(findingsFor(scanFixture(root)), []);
+    writeSource(root, "packages/daemon/src/edge-plan-ready.ts", body);
     assert.match(
-      findingsFor(scanFixture(root), { [key]: 1 }).join("\n"),
-      /found 2 construction sites, baseline records 1/u,
-    );
-    assert.match(
-      findingsFor(scanFixture(root), { "task-event/v1|packages/gone/src/gone.ts|literal-type|task_created": 1 }).join(
-        "\n",
-      ),
-      /stale baseline entry has no construction site/u,
-    );
-
-    const owner = writeSource(
-      root,
-      "packages/kernel/src/domain/task-lifecycle-event.ts",
-      'envelope(command, "task_created", {});\n',
-    );
-    assert.match(
-      findingsFor(scanFixture(root), {
-        [`task-event/v1|${owner}|envelope-call|task_created`]: 1,
-      }).join("\n"),
-      /baseline entry is obsolete/u,
+      findingsFor(scanFixture(root)).join("\n"),
+      /edge-plan-ready\.ts.*outside the declared writers of document/u,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-// dec_6B912A63D279A922FA1288536D CH1: authored_document_* events still have one
-// constructor per type, and the aggregate module is not a writer escape hatch.
-test("authored_document_* keeps its exact single-constructor ratchet", () => {
-  const root = makeGateRoot("ha-authored-document-entry-");
+test("an explicit event catalog retains one constructor per type inside its owner", () => {
+  const root = makeGateRoot("ha-authored-document-single-constructor-");
   try {
-    const aggregate = writeSource(
+    writeSource(
       root,
       "packages/kernel/src/domain/authored-document.ts",
       [
         'authoredDocumentEnvelope(command, "authored_document_revised", {});',
-        'const e = { schema: "authored-document-event/v1", type, payload };',
+        'authoredDocumentEnvelope(command, "authored_document_revised", {});',
         "",
       ].join("\n"),
     );
-    const families = [AUTHORED_DOCUMENT_EVENT_FAMILY],
-      sites = scanFixture(root, families),
-      baseline = baselineFromSites(sites, families);
-    assert.equal(Object.keys(baseline).length, 2);
-    assert.deepEqual(findingsFor(sites, baseline, families), []);
-
-    writeSource(
-      root,
-      aggregate,
-      [
-        'authoredDocumentEnvelope(command, "authored_document_revised", {});',
-        'authoredDocumentEnvelope(command, "authored_document_revised", {});',
-        'const e = { schema: "authored-document-event/v1", type, payload };',
-        "",
-      ].join("\n"),
-    );
-    assert.match(
-      findingsFor(scanFixture(root, families), baseline, families).join("\n"),
-      /found 2 construction sites, baseline records 1/u,
-    );
-
-    writeSource(
-      root,
-      "packages/daemon/src/edge-plan-ready.ts",
-      'authoredDocumentEnvelope(command, "authored_document_revised", {});\n',
-    );
-    assert.match(
-      findingsFor(scanFixture(root, families), baseline, families).join("\n"),
-      /edge-plan-ready\.ts.*outside the declared writers of document/u,
-    );
+    assert.match(findingsFor(scanFixture(root)).join("\n"), /duplicate aggregate constructor/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -357,7 +286,3 @@ test("zero constructors are legal when production source discovery is intact", (
     rmSync(root, { recursive: true, force: true });
   }
 });
-
-function siteKey(site) {
-  return `${site.schema}|${site.path}|${site.form}|${site.eventType}`;
-}

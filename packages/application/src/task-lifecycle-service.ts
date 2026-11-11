@@ -1,3 +1,4 @@
+import { createTaskEvent } from "@harness-anything/kernel";
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
 import {
   applyTransition,
@@ -270,26 +271,14 @@ async function renewTaskLease(
   if (state.status !== "ready" || task === null || execution === undefined)
     throw new TaskLifecycleOperationConflict("lease renewal requires a ready active execution");
   const renewed = { ...current, expiresAt: input.expiresAt, version: current.version + 1 };
-  const event: Extract<TaskEventV1, { readonly type: "lease_renewed" }> = {
-    schema: "task-event/v1",
-    eventId: input.eventId,
-    workspaceRevision: input.workspaceRevision,
-    opId: input.opId,
-    taskId: input.taskId,
-    type: "lease_renewed",
-    actor: input.actor,
-    source: input.source,
-    occurredAt: input.occurredAt,
-    payload: {
-      task,
-      execution,
-      lease: renewed,
-      previousHolder: holder(current),
-      leaseExpiresAt: renewed.expiresAt,
-      reason: "same_principal_reconnect",
-      documentClaims: [],
-    },
-  };
+  const event: Extract<TaskEventV1, { readonly type: "lease_renewed" }> = createTaskEvent(input, "lease_renewed", {
+    task,
+    execution,
+    lease: renewed,
+    previousHolder: holder(current),
+    leaseExpiresAt: renewed.expiresAt,
+    reason: "same_principal_reconnect",
+  });
   const compiled = compileTaskLifecycleWrite({
     event,
     snapshot: state.snapshot,

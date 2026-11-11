@@ -1,3 +1,5 @@
+import { relationCreatedEventForReplay } from "@harness-anything/kernel";
+import type { RelationEventRecord } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import { withoutRetiredSettings } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import { effectiveCloseoutGates } from "@harness-anything/kernel/internal/domain/settings-closeout.ts";
 import { isRetiredCodeDocRequirement } from "@harness-anything/kernel/internal/domain/code-doc-retirement.ts";
@@ -186,18 +188,7 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
       const relation = added[0]!,
         relationId = String(relation.relation_id);
       return {
-        event: {
-          schema: "relation-event/v1",
-          eventId: event.eventId,
-          workspaceRevision: event.workspaceRevision,
-          opId: event.opId,
-          relationId,
-          type: "relation_created",
-          actor: event.actor,
-          source: event.source,
-          occurredAt: event.occurredAt,
-          payload: { relation },
-        } as CanonicalEventV1,
+        event: relationCreatedEventForReplay(event, relation as RelationEventRecord) as CanonicalEventV1,
         category: "embedded task relation promoted to canonical relation_created",
         before: event,
         after: { relationId, relation },

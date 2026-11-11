@@ -1,3 +1,4 @@
+import { createExecutionDelegationEvent } from "@harness-anything/kernel";
 import {
   executionDelegationPath,
   readExecutionDelegations,
@@ -92,9 +93,7 @@ export function makePersonActionRuntime(cell: RepoCellRuntimeContext): EntityAct
       writeExecutionDelegation({ file, state, record: compiled.result.record, opId, fingerprint });
     }
     if (!accepted) {
-      const event: ExecutionDelegationEventV1 = {
-          schema: "execution-delegation-event/v1",
-          type: "execution_delegation_changed",
+      const event: ExecutionDelegationEventV1 = createExecutionDelegationEvent({
           eventId: `event-${sha256Text(opId)}`,
           opId,
           workspaceRevision: revision + 1,
@@ -105,7 +104,7 @@ export function makePersonActionRuntime(cell: RepoCellRuntimeContext): EntityAct
             tokenId: String(action.tokenId),
             operation: action.kind === "people-delegate" ? "issue" : "revoke",
           },
-        },
+        }),
         plan = canonicalEventWritePlan(event, "execution-delegation-audit", opId);
       try {
         cell.store.append({ event, plan, blobs: [] });

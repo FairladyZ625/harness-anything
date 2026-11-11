@@ -384,10 +384,12 @@ export function compileRelationCreatedEvent(input: {
   return relationCreatedEvent(input);
 }
 
-function relationCreatedEvent(input: Parameters<typeof compileRelationCreatedEvent>[0]): RelationCreated {
+function relationCreatedEvent(
+  input: Parameters<typeof compileRelationCreatedEvent>[0] & { readonly eventId?: string },
+): RelationCreated {
   return {
     schema: "relation-event/v1",
-    eventId: `event-${input.opId}`,
+    eventId: input.eventId ?? `event-${input.opId}`,
     workspaceRevision: input.workspaceRevision,
     opId: input.opId,
     relationId: input.record.relation_id,
@@ -847,4 +849,12 @@ function validRelationDocumentClaims(value: unknown, allowUnknownFields: boolean
     paths.add(claim.path);
   }
   return true;
+}
+
+/** Derive a replay/projection envelope from an accepted historical identity. */
+export function relationCreatedEventForReplay(
+  event: Pick<RelationEventV1, "eventId" | "workspaceRevision" | "opId" | "actor" | "source" | "occurredAt">,
+  record: RelationEventRecord,
+): RelationCreated {
+  return relationCreatedEvent({ ...event, record });
 }

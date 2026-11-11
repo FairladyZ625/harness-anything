@@ -1,3 +1,4 @@
+import { createMigrationImportEvent } from "@harness-anything/kernel";
 import { validateRetiredCiRunObservationEvent } from "@harness-anything/kernel/internal/domain/ci-run-observation-retired-event.ts";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
@@ -265,9 +266,7 @@ export function historicalWitness(
   const raw = new TextEncoder().encode(row.eventJson),
     sha256 = sha256Bytes(raw),
     sourcePath = `history/source-witness/${row.revision}-${row.opId}.json`;
-  return {
-    schema: "migration-import-event/v1",
-    type: "entity_migrated",
+  return createMigrationImportEvent({
     source: "migration-import/v1",
     eventId: `${original.eventId}-source-witness`,
     opId: original.opId,
@@ -291,7 +290,7 @@ export function historicalWitness(
         destinationPreimage: { nodeKind: "file", sha256, size: raw.byteLength },
       },
     },
-  };
+  });
 }
 
 function historicalContentClaims(event: CanonicalEventV1, source: SqliteEventStore) {

@@ -2305,8 +2305,7 @@
       "tierReason": null,
       "localPathGlobs": [
         "packages/**",
-        "tools/check-task-event-aggregate-entry.mjs",
-        "tools/gate-allowlists/aggregate-event-construction-baseline.mjs"
+        "tools/check-task-event-aggregate-entry.mjs"
       ],
       "authoritySource": [
         "packages/kernel/src/domain/doc-sync-canonical-events.ts#canonicalEventSchemas.owner",
@@ -2327,17 +2326,16 @@
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/gate-allowlists/aggregate-event-construction-baseline.mjs#AGGREGATE_EVENT_CONSTRUCTION_BASELINE",
+        "allowed": false,
+        "location": null,
         "adrOrDecisionRequired": true,
-        "notes": "Ratchet per dec_399F48E3547D831F1199F51E84 CH1 and dec_499E4E98A3D4754132B3BCA1E6 CH1: a construction site is authorized by the owning kind's declared state-store writers; legacy sites outside those writers are tolerated only at the recorded only-decrease counts. Any new site or additional constructor requires an explicit governance decision."
+        "notes": "dec_499E4E98A3D4754132B3BCA1E6 CH1: all event constructors belong to their aggregate; construction outside the declared writer is refused without exemptions."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-task-event-aggregate-entry.mjs",
-          "tools/gate-allowlists/aggregate-event-construction-baseline.mjs",
           "package.json:scripts.harness:check-task-event-aggregate-entry",
           "tools/gate-manifest.json"
         ]

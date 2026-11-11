@@ -235,3 +235,8 @@ function validBootstrapStoredClaim(value: Readonly<Record<string, unknown>>): bo
     isNonEmptyString(value.mediaType)
   );
 }
+
+/** The aggregate's only constructor; validation remains at canonical acceptance. */
+export function createTaskBootstrapEvent(input: Omit<TaskBootstrapEventV1, "schema" | "type">): TaskBootstrapEventV1 {
+  return { schema: "task-bootstrap-event/v1", type: "task_bootstrapped", ...input };
+}

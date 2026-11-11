@@ -547,10 +547,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     canonical(
       "task.task-events",
       "task-event/v1",
-      [
-        "packages/kernel/src/domain/task-lifecycle-event.ts",
-        "packages/kernel/src/domain/task-lifecycle-runtime-lease-transition.ts",
-      ],
+      "packages/kernel/src/domain/task-lifecycle-event.ts",
       [],
       canonicalTaskEventTypes,
     ),
@@ -617,7 +614,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     ]),
   ],
   "runtime-session": [
-    canonical("runtime-session.events", "agent-runtime-event/v1", "packages/kernel/src/domain/agent-runtime.ts"),
+    canonical("runtime-session.events", "agent-runtime-event/v1", "packages/kernel/src/domain/agent-runtime-event.ts"),
   ],
   schedule: [
     canonical("schedule.events", "schedule-event/v1", "packages/kernel/src/domain/schedule-event.ts", [
@@ -642,7 +639,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
   ],
   document: [
     ...physicalStoresForKind("document"),
-    canonical("document.events", "doc-event/v1", "packages/kernel/src/domain/doc-sync-types.ts"),
+    canonical("document.events", "doc-event/v1", "packages/kernel/src/domain/doc-sync-writer.ts"),
     canonical(
       "document.entity-events",
       "entity-document-event/v1",

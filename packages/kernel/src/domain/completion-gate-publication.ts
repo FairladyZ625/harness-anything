@@ -1,3 +1,4 @@
+import { createTaskEvent } from "./task-lifecycle-event.ts";
 import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type { ActorAxes } from "./task.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
@@ -111,18 +112,11 @@ export function compileCompletionGateWitness(input: {
           }
         : {}),
     },
-    event: CompletionGateVerifiedEvent = {
-      schema: "task-event/v1",
-      eventId: input.eventId,
-      workspaceRevision: input.workspaceRevision,
-      opId: input.opId,
-      taskId: input.taskId,
-      type: "completion_gate_verified",
-      actor: input.actor,
-      source: input.source,
-      occurredAt: input.occurredAt,
-      payload: { task, execution: acceptedExecution, witness, documentClaims: [] },
-    },
+    event: CompletionGateVerifiedEvent = createTaskEvent(input, "completion_gate_verified", {
+      task,
+      execution: acceptedExecution,
+      witness,
+    }),
     snapshot: TaskLifecycleSnapshot = {
       ...input.snapshot,
       revision: input.workspaceRevision,

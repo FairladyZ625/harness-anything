@@ -50,7 +50,7 @@ for (const fixtureCase of fixture.cases) {
     const { rootDir } = makeRepo({ [fixtureCase.path]: source });
     const findings = checkAggregateEventConstructionSites(scanAggregateEventConstructionSites(rootDir, families), {
       families,
-      baseline: {},
+      baseline: { [`${fixture.family.schema}|${fixtureCase.path}|literal-type|${fixtureCase.eventType}`]: 1 },
     });
     if (fixtureCase.finding === null) {
       assert.deepEqual(findings, []);

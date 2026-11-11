@@ -1,3 +1,4 @@
+import { relationCreatedEventForReplay } from "@harness-anything/kernel";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -208,30 +209,20 @@ function projectDerivedRelation(
   assertRelationRecord(record);
   const current = readRelationProjectionRow(db, record.relation_id);
   if (current === null)
-    applyRelationProjectionEvent(db, {
-      schema: "relation-event/v1",
-      eventId: event.eventId,
-      workspaceRevision: event.workspaceRevision,
-      opId: event.opId,
-      relationId: record.relation_id,
-      type: "relation_created",
-      actor: event.actor,
-      source: event.source,
-      occurredAt: event.occurredAt,
-      payload: {
-        relation: {
-          relation_id: record.relation_id,
-          source: record.source,
-          target: record.target,
-          type: record.type,
-          direction: record.direction,
-          origin: record.origin,
-          state: record.state,
-          rationale: record.rationale,
-          targetObservedVersion: readEntityVersionWitness(db, record.target).currentVersion,
-        },
-      },
-    });
+    applyRelationProjectionEvent(
+      db,
+      relationCreatedEventForReplay(event, {
+        relation_id: record.relation_id,
+        source: record.source,
+        target: record.target,
+        type: record.type,
+        direction: record.direction,
+        origin: record.origin,
+        state: record.state,
+        rationale: record.rationale,
+        targetObservedVersion: readEntityVersionWitness(db, record.target).currentVersion,
+      }),
+    );
   else {
     const { targetObservedVersion: _targetObservedVersion, ...projected } = relationRecord(current.entity);
     if (canonicalJson(projected) !== canonicalJson(record))

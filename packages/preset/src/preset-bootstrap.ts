@@ -1,3 +1,4 @@
+import { createTaskBootstrapEvent } from "@harness-anything/kernel";
 import {
   REPLAY_TASK_GRAPH,
   assertTransitionDocumentReady,
@@ -373,13 +374,11 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
               | "markdown-body-replaceable/v1"
               | "opaque-textual-whole-file/v1"),
     }));
-  const event: TaskBootstrapEventV1 = {
-    schema: "task-bootstrap-event/v1",
+  const event: TaskBootstrapEventV1 = createTaskBootstrapEvent({
     eventId: input.eventId,
     workspaceRevision: input.workspaceRevision,
     opId: input.opId,
     taskId: input.taskId,
-    type: "task_bootstrapped",
     actor: input.actor,
     source: input.source,
     occurredAt: input.occurredAt,
@@ -412,7 +411,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
       presetSnapshotClaim: snapshotClaim,
       initialDocumentClaims,
     },
-  };
+  });
   const issues = validateTaskBootstrapEvent(event);
   if (issues.length) throw bootstrapFailure("invalid_bootstrap", issues.join("; "));
   const bodies = [

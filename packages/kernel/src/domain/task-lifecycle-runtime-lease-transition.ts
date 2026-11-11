@@ -1,7 +1,8 @@
+import { createTaskEvent } from "./task-lifecycle-event.ts";
 import { isSamePerson } from "./actor-domain-services.ts";
 import type { LeaseReleasedEvent } from "./task-lifecycle-event.ts";
 import type { ReleaseRuntimeLeaseCommand, Transition } from "./task-lifecycle-contract-internal-types.ts";
-import { envelope, execution, lifecycleContractIssue, revisionIssues } from "./task-lifecycle-contract-support.ts";
+import { execution, lifecycleContractIssue, revisionIssues } from "./task-lifecycle-contract-support.ts";
 import { isNonEmptyString, sameWriteSource } from "./write-chain.contract.ts";
 
 /** The runtime settlement writer for the existing task lifecycle event stream. */
@@ -29,7 +30,7 @@ export const releaseRuntimeLease: Transition = {
   },
   reduce: (snapshot, raw) => {
     const command = raw as ReleaseRuntimeLeaseCommand,
-      event = envelope<LeaseReleasedEvent>(command, "lease_released", {
+      event = createTaskEvent<LeaseReleasedEvent>(command, "lease_released", {
         task: snapshot.task!,
         execution: execution(snapshot, command.executionId)!,
         releasedLease: snapshot.lease!,

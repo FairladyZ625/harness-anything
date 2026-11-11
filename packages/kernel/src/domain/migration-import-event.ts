@@ -483,3 +483,10 @@ function validDestinationPreimage(value: unknown, allowUnknownFields: boolean): 
     (value.size as number) >= 0
   );
 }
+
+/** The aggregate's only constructor; validation remains at canonical acceptance. */
+export function createMigrationImportEvent(
+  input: Omit<MigrationImportEventV1, "schema" | "type">,
+): MigrationImportEventV1 {
+  return { schema: "migration-import-event/v1", type: "entity_migrated", ...input };
+}
