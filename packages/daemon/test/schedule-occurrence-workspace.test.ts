@@ -21,6 +21,7 @@ import { dispatchClaimedSchedule } from "../src/schedule-action-runtime.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import {
   prepareScheduleOccurrenceWorkspace,
+  reclaimManagedWorktree,
   settleScheduleOccurrenceWorkspace,
 } from "../src/schedule-occurrence-workspace.ts";
 import { nodeModulesSetupAdapter } from "../src/worktree-setup-node-modules.ts";
@@ -160,6 +161,30 @@ test("remediate occurrences retain a dirty worktree and name its path", async (t
     const detail = (await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail;
     assert.equal(detail, `Occurrence worktree retained at ${workspace.cwd} (uncommitted changes).`);
     assert.equal(existsSync(workspace.cwd), true);
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test("a worktree directory without .git is a leftover, never judged by the enclosing repository", async (t) => {
+  const fixture = repositoryFixture({}, t);
+  try {
+    // The enclosing repository is dirty; git run inside the leftover would report its changes as the worktree's.
+    writeFileSync(path.join(fixture.root, "untracked.txt"), "parent change\n");
+    const empty = path.join(fixture.root, ".worktrees", "task_empty"),
+      stray = path.join(fixture.root, ".worktrees", "task_stray");
+    mkdirSync(empty, { recursive: true });
+    mkdirSync(stray, { recursive: true });
+    writeFileSync(path.join(stray, "note.txt"), "keep me\n");
+
+    const removed = await reclaimManagedWorktree(fixture.root, { cwd: empty, branch: "task_empty", baseRef: "main" });
+    assert.deepEqual(removed, { outcome: "removed", archiveTag: null, unmergedCommits: 0 });
+    assert.equal(existsSync(empty), false);
+
+    const kept = await reclaimManagedWorktree(fixture.root, { cwd: stray, branch: "task_stray", baseRef: "main" });
+    assert.deepEqual(kept, { outcome: "retained", reason: "not a git worktree (no .git)" });
+    assert.equal(existsSync(path.join(stray, "note.txt")), true);
+    assert.equal(git(fixture.root, "tag", "--list"), "", "no archive tag lands on the enclosing repository");
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
