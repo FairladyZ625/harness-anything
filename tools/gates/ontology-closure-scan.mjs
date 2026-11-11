@@ -89,7 +89,7 @@ function isFunction(node) {
  * Trivia/positions/quote style are excluded; literal values and AST kinds are retained.
  * The fingerprint replaces repeated subtree text normalization, not a security check.
  */
-export function scanOntologyText(file, text) {
+export function scanOntologyText(file, text, onCandidate = () => {}) {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   if (source.parseDiagnostics.length)
     throw new Error(`${file}: cannot scan invalid source: ${source.parseDiagnostics[0].messageText}`);
@@ -106,7 +106,7 @@ export function scanOntologyText(file, text) {
     const identity = `${category}:${namespace}:${file}#${symbol || "<module>"}:${facts.hash}`;
     const occurrence = (occurrences.get(identity) ?? 0) + 1;
     occurrences.set(identity, occurrence);
-    candidates.push({
+    const candidate = {
       id: occurrence === 1 ? identity : `${identity}:${occurrence}`,
       category,
       kind,
@@ -115,7 +115,9 @@ export function scanOntologyText(file, text) {
       symbol: symbol || "<module>",
       name,
       reason,
-    });
+    };
+    candidates.push(candidate);
+    onCandidate(candidate, node);
   }
 
   function visit(node, parents) {

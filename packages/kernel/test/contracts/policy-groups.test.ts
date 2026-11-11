@@ -15,7 +15,7 @@ import {
 } from "../../src/domain/policy-groups.ts";
 import type { ActionDeclaration } from "../../src/domain/action-declaration.ts";
 
-test("every declaration has one minimum Base tier and one unique Keycloak scope", () => {
+test("runtime declarations have one Base tier and scope; technical actions create no remote scopes", () => {
   // 138 → 136: people-set-role and people-bind were deleted by RBAC v2 S4 (dec_D60FAA451F24160E970323B6F3).
   // 136 → 138: daemon-service-install and daemon-service-uninstall (dec_089F1AE27C5DC0A3969062FE0D CH5).
   // RBAC v2 CH1 retires people-add and people-remove.
@@ -49,7 +49,7 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // task_b61f743f47a04298a7a96704e0 adds the task witness run action.
   // task_e69543d4d51e21794937b7e713: independently revocable Fleet overview read (viewer).
   // task_a28bf79f248c4e59f2149f22ad: the own-session password change, not socket-owner authority.
-  assert.equal(actionDeclarations.length, 175);
+  assert.equal(actionDeclarations.length, 179);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "access-password-change")?.socketOwnerAuthority, false);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-node-auto-claim")?.policyTier, "admin");
@@ -73,7 +73,7 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
     const matching = groups.filter((group) => group.scopes.includes(declaration.policyAction));
     assert.deepEqual(
       matching.map((group) => group.id),
-      [declaration.policyTier],
+      declaration.ontology?.technical ? [] : [declaration.policyTier],
     );
   }
 });
@@ -88,7 +88,7 @@ test("Base composite inheritance expands monotonically without a handwritten act
     effective("admin"),
     [
       ...new Set([
-        ...actionDeclarations.map((item) => item.policyAction),
+        ...actionDeclarations.filter((item) => !item.ontology?.technical).map((item) => item.policyAction),
         ...baseEntityPolicyActions,
         ...registeredArtifactActionPolicyActions(),
       ]),

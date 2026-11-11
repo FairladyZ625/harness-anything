@@ -82,10 +82,10 @@ test("the full repository passes the classified closure gate", (t) => {
   assert.ok(owned.length > 0);
   assert.ok(owned.every((row) => row.status === "registered"));
   for (const [symbol, action] of [
-    ["cleanupConsumedDocumentDescriptor", "repository-read"],
+    ["cleanupConsumedDocumentDescriptor", "cli-local-effects"],
     ["installPresetPackage", "preset-install"],
     ["createPresetProcessService.execute.child", "preset-run-start"],
-    ["writeDaemonRegistry", "daemon-repo-register"],
+    ["writeDaemonRegistry", "daemon-local-state"],
   ]) {
     const sources = owned.filter((row) => row.symbol === symbol);
     assert.ok(sources.length > 0, symbol);

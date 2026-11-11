@@ -23,6 +23,7 @@ import {
   loadAuthorizationInputs,
 } from "../ontology-durable-action-authorization.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
+import { scanOntologyText } from "../ontology-closure-scan.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const tracedPackages = ["daemon", "authorization-keycloak", "application"];
@@ -32,7 +33,9 @@ const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
 // Greedy balance from measured durations; each partition sums to 209–221s versus 350/497s with
 // ordinal modulo two. New tests must update this map after measuring their duration.
-const authorizationTestPartitionAssignments = [4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1];
+const authorizationTestPartitionAssignments = [
+  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 2, 3, 3, 4, 1, 1, 2, 3, 4, 1,
+];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
   if (!testOrdinalInPartition(ordinal, partitionValue, authorizationTestPartitionAssignments)) return;
@@ -487,17 +490,14 @@ partitionedTest("a worktree root anchors on its own kernel sources instead of th
   assert.equal(realpathSync(members.get("authorize").getSourceFile().fileName), realpathSync(path.join(dir, file)));
 });
 
-test("S1a source routes resolve to their own action authorization descriptor", () => {
-  const bound = inputs.descriptors.filter((row) => row.ontologySources?.length);
-  assert.ok(bound.length > 0);
-  const declaredSources = new Map(
-    inputs.constants.actionDeclarations.flatMap((action) =>
-      (action.ontology?.sources ?? []).map((source) => [source.candidateId, action.kind]),
-    ),
-  );
-  for (const descriptor of bound) {
-    for (const source of descriptor.ontologySources)
-      assert.equal(declaredSources.get(source), descriptor.actionKind ?? descriptor.id);
+test("effect sources name their owner descriptor or a declared native entry", () => {
+  for (const action of inputs.constants.actionDeclarations) {
+    if (action.ontology?.authority) continue;
+    for (const source of action.ontology?.sources ?? []) {
+      if (source.role === "support" || action.executionClass === "repo-read") continue;
+      const descriptor = inputs.descriptors.find((row) => row.id === source.route);
+      assert.equal(descriptor?.actionKind ?? descriptor?.id, action.kind);
+    }
   }
 });
 
@@ -521,4 +521,69 @@ test("a source cannot borrow another action's authorization route", async (t) =>
     `export const daemonProtocolMethods = [];`,
   );
   await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
+});
+
+function sourceWitness(t, placement) {
+  const dir = sourceCopy(t),
+    file = "packages/daemon/src/repo-cell-api.ts";
+  const target = path.join(dir, file),
+    original = readFileSync(target, "utf8");
+  const denial = 'if (authorizationDecision?.outcome === "denied") return reject("authorization_denied");';
+  const effect = 'writeFileSync("/tmp/source-proof-fixture", "test");';
+  const body =
+    placement === "detached"
+      ? original + "\nfunction detachedSource() {" + effect + "}\n"
+      : replaceSourceOnce(original, denial, placement === "before" ? effect + denial : denial + effect, file);
+  const text = 'import { writeFileSync } from "node:fs";\n' + body;
+  writeFileSync(target, text);
+  const candidate = scanOntologyText(file, text).find(
+    (row) => row.category === "action" && row.name === "writeFileSync",
+  );
+  assert.ok(candidate);
+  const constants = {
+    ...inputs.constants,
+    actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
+      action.kind === "preset-run-start"
+        ? {
+            ...action,
+            ontology: {
+              ...action.ontology,
+              sources: [{ candidateId: candidate.id, route: action.kind, role: "effect" }],
+            },
+          }
+        : action,
+    ),
+  };
+  const result = auditDurableActionAuthorization(
+    repoRoot,
+    { ...inputs, constants },
+    { sourceRoot: dir, only: ["preset-run-start"] },
+  );
+  return result.sourceRows?.find((row) => row.id === candidate.id);
+}
+
+partitionedTest("a declared source after its actual owner denial exit has authority evidence", (t) => {
+  assert.equal(sourceWitness(t, "after")?.ok, true);
+});
+
+partitionedTest("a valid descriptor cannot authorize a detached source", (t) => {
+  assert.equal(sourceWitness(t, "detached")?.ok, false);
+});
+
+partitionedTest("a declared source before its owner's denial exit is rejected", (t) => {
+  assert.equal(sourceWitness(t, "before")?.ok, false);
+});
+
+partitionedTest("caller-owned CLI output and cleanup cannot claim a canonical ledger cut", () => {
+  const constants = {
+    ...inputs.constants,
+    actionDeclarations: inputs.constants.actionDeclarations.map((action) =>
+      action.kind === "cli-local-effects"
+        ? { ...action, residency: { scope: "canonical", writer: "center-repo-cell" } }
+        : action,
+    ),
+  };
+  const result = auditDurableActionAuthorization(repoRoot, { ...inputs, constants }, { only: ["cli-local-effects"] });
+  assert.ok(result.sourceRows.length > 0);
+  assert.ok(result.sourceRows.every((source) => !source.ok));
 });

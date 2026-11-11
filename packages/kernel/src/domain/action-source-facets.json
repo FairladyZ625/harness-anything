@@ -1,73 +1,36 @@
 {
-  "repo-bootstrap": {
-    "owner": "repo",
-    "sources": [
-      {
-        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:f750ac50c954078007f8009c1e95ae1e",
-        "route": "repo-bootstrap"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:1442f7a190761fcbfd081eafa9d14e58",
-        "route": "repo-bootstrap"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:cb7dde155c5cf050a5a93e874afab44b",
-        "route": "repo-bootstrap"
-      },
-      {
-        "candidateId": "action:packages/preset:packages/preset/scripts/copy-assets.mjs#<module>:d3f80696c35ed76fe4e5cca8c63ae2be",
-        "route": "repo-bootstrap"
-      }
-    ],
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    },
-    "execution": {
-      "ingress": "repo-bootstrap",
-      "read": false
-    }
-  },
   "agent-install": {
     "owner": "agent",
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#parseAgentRollbackCommand:fb83b9a7d2529ac36e047a58c5d39a77",
-        "route": "agent-install"
+        "route": "agent-install",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#parseAgentRollbackCommand:0934dff2800ce163743e5f51866b5145",
-        "route": "agent-install"
+        "route": "agent-install",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#parseAgentRollbackCommand:dfe14aa652b7a58e798fecd8b9301f5f",
-        "route": "agent-install"
+        "route": "agent-install",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#versionBodyOf:0eeef6d0e1874f0081ec819d187ea7cb",
-        "route": "agent-install"
+        "route": "agent-install",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#versionBodyOf:9bda5806f7da07254a8cb2ec8bcda455",
-        "route": "agent-install"
+        "route": "agent-install",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#evidencePayload:a6ec68cd91a443604a304280d0928f47",
-        "route": "agent-install"
+        "route": "agent-install",
+        "role": "support"
       }
     ]
   },
@@ -76,19 +39,13 @@
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-artifact-source.ts#materializeArtifactSource:18503c6489092cde980d537d4f0b965d",
-        "route": "task-artifact-add"
+        "route": "task-artifact-add",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-artifact-source.ts#materializeArtifactSource:87cec17695bb493cf1612cd0af09a51b",
-        "route": "task-artifact-add"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli-task-artifact-run.ts#runTaskArtifactCommand.result:3e71dbc82c37dd6ce703fde674491a78",
-        "route": "task-artifact-add"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli-task-artifact-run.ts#runTaskArtifactCommand.receipt:19ab0cdff3fa7edb69bd374c975eb0ea",
-        "route": "task-artifact-add"
+        "route": "task-artifact-add",
+        "role": "support"
       }
     ]
   },
@@ -97,219 +54,178 @@
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#invalid:b52c09437e1988d52bedf9e24aa699f7",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#readCliInputFile:e1b5321435f60007e7514aa97d7db202",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#readCliInputFile:f614b14ef458f6a6b6e19a6f0809ffdc",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#readCliInputFile:9b632a0bdf159ffd55e85cfe3ac80232",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli/timing.ts#finishCliTiming:1a8fefc58d420a5856177da8d8c21fd8",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#settleRepoWarming:efdbc745903dcf40976a2441397af36d",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/control-status.ts#liveShutdownProcesses:d0417d8084a9b47b0b48bf1ccaa5047b",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#invalid:b52c09437e1988d52bedf9e24aa699f7",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#descriptorFor:0c8d1bb1e8f862018319e1dc0ec148c0",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#parseJson:44d2f3b9f1129a6daf660c3bf63fd916",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#serializeFleetAction:9cc3be954fb1c7d81ba24b2a87ca3723",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-status.ts#runDaemonFleetStatus:bf7da2558f03d71d9585cd88ba4ccc4f",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#daemonMetricsArgsError:e08940482f430f4f13edf85d559a8f02",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#daemonMetricsArgsError:d5df8cb0552b479ad035827141f22753",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#runDaemonMetrics.retained:cd8e6ef0cb3693185d0bc199ee8f6238",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#readMetricsHistory:dca177d5eace18f264e296d6d85ea144",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#readMetricsHistory:184db3f7ff5d405b235d3a187ed2d041",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-capture.ts#createCapturePort.capture.result:f7c506bab63bd760703f66cf010414ae",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-control.ts#runDaemonProbeControl:3010f5807cc41efe7c2ef3b76808fd12",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.ps:2d6b96b1a89f7498925adaaba1bd49a8",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.threads:162687e900732eb8a2510f062092d5b0",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.files:6cedd73fb9a82ac9f51df5fcca3c43cf",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readWindowsMetrics.result:cb5d57f0b343b4e05d4e0ff8d3266969",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-run.ts#pingDaemon:2f638c5dc7800592316a4d2847e35de2",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-run.ts#appendSafely:fcba9275585dd9a0aaa905c34793e619",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/slo.ts#invalidField:b52c09437e1988d52bedf9e24aa699f7",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/top.ts#invalidInterval:1cf5a8dcb05d5fbbe0cfa8dcc1714e82",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/top.ts#runDaemonTop:a260be05602ae277057332dc9d7d8b8d",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#runThinCli:347b30a10ee3d19c4af07b719424d1e5",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#runThinCli:8377b0c7afa25bc0addb8d2e7d15b7f9",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#writeDescriptorVersionWarning:8ee08c037cd32b85afcb4e5c6c3c954b",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:419c5878fe2f76ac26dbdba9fd82950a",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:164b95ad14b16c0c8c88fd7030800c25",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:bf587ac095cf99984c5d6f08bbada5df",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:6593d20c4f2f1a870cbe8812cae97da8",
-        "route": "repository-read"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#cleanupConsumedDocumentDescriptor:d0e2d1278f17393fe7e65f47f7f4951e",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/composition/receipt-acceptance.ts#waitForReceiptAcceptance:89b5836d597147e646388532ec1aee04",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/composition/receipt-acceptance.ts#waitForReceiptAcceptance:1c2d7a9fa4c243108863f59bf2a988b8",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/composition/receipt-acceptance.ts#waitForReceiptAcceptance.evaluate:cdcc6f3da464d7c0692005c7e58b1eac",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/artifact-entity.ts#canonicalArtifactUrl:d1bdf47632d5458de2ad7dfd41a88a89",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-action-descriptor.ts#predicateToWhen:2b5cdefde36ec35ccd36cbb40f9814b3",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-action-execution.ts#invalid:914517609d68bfa9d2ce5f4b20d47878",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-kind-registry.ts#requireEntityKindContract:43a985c090b2abf7215f02c0e4e3d51c",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-kind-registry.ts#requireEntityStoreKindContract:cf12961cb8eb0de09d54434fe10dce31",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/entity-kind-registry.ts#entityDocumentPath:1b532a6f9784d3e4cc75094f3b429311",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule.ts#projectScheduleHistory.status.activeRun:2125e8d99abf9d0ceecd1293fbf40622",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule.ts#projectScheduleHistory.status.lastRun:1a1e56fe8dc07b585554b1ac2a3844c4",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/task-blocking.ts#findCycleNodes.visit:7f29ad75524104b5c8d7386d7bf15338",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/write-chain.contract.ts#sameWriteTargets:10daf70335995703bbe5748c1c2e9e0a",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/integrity/stable-hash.ts#sha256Text:5ea63ad6432789160ef1a2902c1ee081",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/integrity/stable-hash.ts#sha256Bytes:b46bd6134bb1a6e160a70fe1b0801eba",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-package.ts#decodePackage.packageDigest:c2153be6e881a654a8ea6ee24a667756",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-package.ts#decodePackage.packageDigest:dd43758b9a1b4eb5b7340107be33db57",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-resolver-common.ts#resolverContentHash:98350a69023f5557ad3864aab246cd81",
-        "route": "repository-read"
+        "route": "repository-read",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -340,111 +256,43 @@
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-batch-input.ts#readRuntimeBatchFile:ce638601218c25b3f67e5c1adcc2e38f",
-        "route": "runtime-run"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-command.ts#runRuntimeFacadeCommand:347bc7ce27b88af3afb49d1fee25c9d6",
-        "route": "runtime-run"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:5a7e4c5f771eb2cd86cbb568924235ef",
-        "route": "runtime-run"
+        "route": "runtime-run",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/execution-delegation.ts#invalid:9c488e6e4be306eebee2037df1754b78",
-        "route": "runtime-run"
+        "route": "runtime-run",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/runtime-session-action-contract.ts#invalidRuntimeSessionAction.error:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "runtime-run"
-      },
-      {
-        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.createExclusiveText:c2082a12c1caf339f4242f5fff206552",
-        "route": "runtime-run"
-      },
-      {
-        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove:de2c49f5c21a7f85a0f16f0f0dd2b92b",
-        "route": "runtime-run"
-      },
-      {
-        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.writeText:c9845c6070eecb4a9f6258b4c57873bf",
-        "route": "runtime-run"
+        "route": "runtime-run",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/ports/runtime-execution-credential.ts#executionCredentialRejected:f6adfe894c0a4c63cbd374f09013d440",
-        "route": "runtime-run"
+        "route": "runtime-run",
+        "role": "support"
       }
     ]
-  },
-  "daemon-start": {
-    "owner": "daemon",
-    "sources": [
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#prepareGuiDaemon.onProgress:efdbc745903dcf40976a2441397af36d",
-        "route": "daemon-start"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#refreshStaleGuiBundle:0f2b826a2759ccd900bd1b97dd8355ff",
-        "route": "daemon-start"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#rebuildGuiBundleFromSource:ccc55b20ad320c2799263b24e1dbe71c",
-        "route": "daemon-start"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#rebuildGuiBundleFromSource:9cb0945a60743e047aaea4e9ca1cb8cc",
-        "route": "daemon-start"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/control.ts#startDaemonService.started.onProgress:efdbc745903dcf40976a2441397af36d",
-        "route": "daemon-start"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/with-autostart.ts#withAutostart.started.onProgress:efdbc745903dcf40976a2441397af36d",
-        "route": "daemon-start"
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/daemon/with-autostart.ts#withAutostart.started.onProgress:efdbc745903dcf40976a2441397af36d:2",
-        "route": "daemon-start"
-      }
-    ],
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    },
-    "execution": {
-      "ingress": "daemon-start",
-      "read": false
-    }
   },
   "runtime-instance-hosting-credential-set": {
     "owner": "runtime",
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:d1d09200bad69f9e7e5f568957d6efa2",
-        "route": "runtime-instance-hosting-credential-set"
+        "route": "runtime-instance-hosting-credential-set",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:4d890d24940a3b566e75c02871f8c27b",
-        "route": "runtime-instance-hosting-credential-set"
+        "route": "runtime-instance-hosting-credential-set",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:28bda09c4ae031da8b10246a505e4f5a",
-        "route": "runtime-instance-hosting-credential-set"
+        "route": "runtime-instance-hosting-credential-set",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -475,27 +323,33 @@
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:d85bbd853f42837c3c69bd7e37b4e096",
-        "route": "edge-join"
+        "route": "edge-join",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:951b00391802c4dcc810216d6d4b0e85",
-        "route": "edge-join"
+        "route": "edge-join",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:fea22b4e3ddff1b9340eb777a9acc74c",
-        "route": "edge-join"
+        "route": "edge-join",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:5458daf167da1246ff7c006ebba66bf9",
-        "route": "edge-join"
+        "route": "edge-join",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:e643236d16afe0ecbb802a205e375230",
-        "route": "edge-join"
+        "route": "edge-join",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:5f3db8fae8c00a71f7c602a62be61bbf",
-        "route": "edge-join"
+        "route": "edge-join",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -526,7 +380,8 @@
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/control.ts#requestCooperativeStop:e6615fba2679360e1ce697ab9350ac40",
-        "route": "daemon-stop"
+        "route": "daemon-stop",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -557,19 +412,23 @@
     "sources": [
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:3f8364eb0d1c832a259de25f690e995d",
-        "route": "access-password-change"
+        "route": "access-password-change",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:5d54330771f403f20af04aa05132ad1b",
-        "route": "access-password-change"
+        "route": "access-password-change",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:ebd8867b14a573374947ff311b54530d",
-        "route": "access-password-change"
+        "route": "access-password-change",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:35554a47723b6fd782f2092ba30afc81",
-        "route": "access-password-change"
+        "route": "access-password-change",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -599,20 +458,9 @@
     "owner": "daemon",
     "sources": [
       {
-        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#writeDaemonRegistry:3693aa0a954e4b5a4374158a526edc94",
-        "route": "daemon-repo-register"
-      },
-      {
-        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#writeDaemonRegistry:83f636c16d98abd4813994d8dbdc64dc",
-        "route": "daemon-repo-register"
-      },
-      {
         "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#generateRepoId.suffix:1457d2df9527decf253c8fc0f29b3f57",
-        "route": "daemon-repo-register"
-      },
-      {
-        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#removeConvenienceLink:2602aaec206a89b38caaa7692e65a402",
-        "route": "daemon-repo-register"
+        "route": "daemon-repo-register",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -643,7 +491,8 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#remoteEndpointConnectionId:496e3eecd616f2dae1ac60b975384638",
-        "route": "daemon-connection-add"
+        "route": "daemon-connection-add",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -674,23 +523,28 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRetireAction:4c7a3d2c41e53e97705fb6cc5809681f",
-        "route": "agent-retire"
+        "route": "agent-retire",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRetireAction:0cfb2c9886f93f3ea6b4439b823ed8aa",
-        "route": "agent-retire"
+        "route": "agent-retire",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRetireAction:440d237e876b1ad8c0a39be06331c9b0",
-        "route": "agent-retire"
+        "route": "agent-retire",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#agentCriterionError.attributed:3a3001f8ae03125888fc1c0cfc3db357",
-        "route": "agent-retire"
+        "route": "agent-retire",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#agentCriterionError:c8274bba014f1045c705d06594560238",
-        "route": "agent-retire"
+        "route": "agent-retire",
+        "role": "support"
       }
     ]
   },
@@ -699,23 +553,28 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/artifact-action-declarations.ts#registerArtifactActionDeclarations:9909893928bfeb0ddb9f946ff5f99362",
-        "route": "vertical-kind-upsert"
+        "route": "vertical-kind-upsert",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/vertical-contract.ts#acceptVerticalRegistryCandidate:386a73e3378e5d0c5683124e19e992d6",
-        "route": "vertical-kind-upsert"
+        "route": "vertical-kind-upsert",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/vertical-declaration.ts#verticalError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "vertical-kind-upsert"
+        "route": "vertical-kind-upsert",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#decodeVerticalDefinition:8d10cde3f1fda028edeb2fc46e682f4f",
-        "route": "vertical-kind-upsert"
+        "route": "vertical-kind-upsert",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#outdatedVerticalDeclaration:a9fdcb6734340958b6e5ec1bb16b2ec0",
-        "route": "vertical-kind-upsert"
+        "route": "vertical-kind-upsert",
+        "role": "support"
       }
     ]
   },
@@ -724,15 +583,18 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-action-contract.ts#targetRef:a40f6cadd19ac254821e84e1bfb467f4",
-        "route": "agent-assign"
+        "route": "agent-assign",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-action-contract.ts#subjectRef:ac227bf139ed834423171041a0db1259",
-        "route": "agent-assign"
+        "route": "agent-assign",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-action-contract.ts#assignmentActionCompiler:bb9f151dcd5bdbdcf7a91d30887a9249",
-        "route": "agent-assign"
+        "route": "agent-assign",
+        "role": "support"
       }
     ]
   },
@@ -741,7 +603,8 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/assignment-migration.ts#migrateTaskAssignments:8cf5888fc146d89e61d1b9bb9978d46b",
-        "route": "assignment-migrate"
+        "route": "assignment-migrate",
+        "role": "support"
       }
     ]
   },
@@ -750,11 +613,13 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/authored-document.ts#replayError:794c7d1baab8d8cfc0f6ac34c1c3d7e9",
-        "route": "doc-sync-submit"
+        "route": "doc-sync-submit",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#transitionDocumentAccessLikeError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "doc-sync-submit"
+        "route": "doc-sync-submit",
+        "role": "support"
       }
     ]
   },
@@ -763,48 +628,59 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/gate-run.ts#gateRunError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/skill-eval-gate.ts#skillEvalError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/architecture-init.mjs#<module>:fc4f8ffb9a53c635cd14d7753aec96e0",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "script"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/architecture-snapshot.mjs#<module>:b16820eb861bd4a53de14d0c4a2d4998",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "script"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/decision-conformance-check.mjs#<module>:2d7238efe74415911f45745b02191fe4",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "script"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/repository-audit.mjs#<module>:062ad33c94ca1906074a6ef9bc3042e8",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "script"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/runtime.mjs#run:8592dd3603ca99e0bc994caff5309b0e",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "script"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/runtime.mjs#waitAtTestBlocker:4feac07c99d91fe57ddd6a2aa417c95c",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "script"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/assets/software-coding/scripts/runtime.mjs#sha:ed35f90e307750d3519268d2434125b0",
-        "route": "script-run"
+        "route": "script-run",
+        "role": "support"
       }
-    ]
+    ],
+    "scriptManifest": "packages/preset/assets/software-coding/vertical.json"
   },
   "access-manage": {
     "owner": "access",
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/policy-groups.ts#assertAcyclicPolicyGroups.visit:7807a0e94b23574aa2522a8559e81c6e",
-        "route": "node-unregister"
+        "route": "node-unregister",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -835,15 +711,18 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-cycle.ts#findRelationCycleWitnesses:387d06c1643164ccef0f92e5b8a11617",
-        "route": "relation-relate"
+        "route": "relation-relate",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-event.ts#assertRelationAdmission:fce1313ac5f90023536bd5aab7ed5fd5",
-        "route": "relation-relate"
+        "route": "relation-relate",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/relation-event.ts#relationAdmissionError:c7276d09bcd9207af88027c3719f181d",
-        "route": "relation-relate"
+        "route": "relation-relate",
+        "role": "support"
       }
     ]
   },
@@ -852,11 +731,13 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#reject:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "schedule-create"
+        "route": "schedule-create",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/schedule-action-contract.ts#rejectCriterion:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "schedule-create"
+        "route": "schedule-create",
+        "role": "support"
       }
     ]
   },
@@ -865,11 +746,13 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/squad-action-contract.ts#squadCriterionError.attributed:3a3001f8ae03125888fc1c0cfc3db357",
-        "route": "squad-run"
+        "route": "squad-run",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/squad-action-contract.ts#squadCriterionError:c8274bba014f1045c705d06594560238",
-        "route": "squad-run"
+        "route": "squad-run",
+        "role": "support"
       }
     ]
   },
@@ -878,7 +761,8 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/domain/task-action-state-transition.ts#stateTransition:91ca8ff68c6c1c8082f07ccc43684d9b",
-        "route": "task-transition"
+        "route": "task-transition",
+        "role": "support"
       }
     ]
   },
@@ -887,7 +771,8 @@
     "sources": [
       {
         "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove:7dc766d5b1c412a2c5c94b5b2a7fcefa",
-        "route": "ledger-backup"
+        "route": "ledger-backup",
+        "role": "effect"
       }
     ],
     "concurrency": {
@@ -913,55 +798,23 @@
       "read": false
     }
   },
-  "doc-materialize": {
-    "owner": "doc",
-    "sources": [
-      {
-        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localEventFileSystem.remove:de2c49f5c21a7f85a0f16f0f0dd2b92b",
-        "route": "doc-materialize"
-      },
-      {
-        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localContentObjectFileSystem.replaceMany:a3b817611f2e76f6806c8312bba1c505",
-        "route": "doc-materialize"
-      }
-    ],
-    "concurrency": {
-      "expectedVersion": {
-        "authority": "not-applicable"
-      },
-      "leasePolicy": {
-        "authority": "daemon-host"
-      },
-      "occurrenceClaim": {
-        "authority": "not-applicable"
-      },
-      "idempotency": {
-        "authority": "caller-owned"
-      },
-      "artifactOwnership": {
-        "owner": "host-local",
-        "refTemplate": "daemon-host"
-      }
-    },
-    "execution": {
-      "ingress": "doc-materialize",
-      "read": false
-    }
-  },
   "preset-seed": {
     "owner": "preset",
     "sources": [
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-bootstrap.ts#bootstrapFailure:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "preset-seed"
+        "route": "preset-seed",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/scaffold-overlay.ts#scaffoldContentHash:98350a69023f5557ad3864aab246cd81",
-        "route": "preset-seed"
+        "route": "preset-seed",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/scaffold-overlay.ts#scaffoldFailure:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "preset-seed"
+        "route": "preset-seed",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -992,19 +845,23 @@
     "sources": [
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#installPresetPackage:91c36f004207172cde661a1bbc3da04b",
-        "route": "preset-install"
+        "route": "preset-install",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#installPresetPackage:0c08b02f1e7550e9c9efa1e8e98e6d65",
-        "route": "preset-install"
+        "route": "preset-install",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#installPresetPackage:5c4bdd9423ada368122ab55bba739197",
-        "route": "preset-install"
+        "route": "preset-install",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-system.ts#presetActionError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "preset-install"
+        "route": "preset-install",
+        "role": "support"
       }
     ],
     "concurrency": {
@@ -1035,7 +892,8 @@
     "sources": [
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#uninstallPresetPackage:f95f2bef64349fd3229689ec2ae67260",
-        "route": "preset-uninstall"
+        "route": "preset-uninstall",
+        "role": "effect"
       }
     ],
     "concurrency": {
@@ -1061,101 +919,88 @@
       "read": false
     }
   },
-  "migrate-import": {
-    "owner": "migration",
-    "sources": [
-      {
-        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:5535d30042790a22e300952c2e147890",
-        "route": "migrate-import"
-      },
-      {
-        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:927172585d9464981ff77215d43c8625",
-        "route": "migrate-import"
-      },
-      {
-        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:0ac5cab11bcff02c805c2ddd1cecb615",
-        "route": "migrate-import"
-      }
-    ]
-  },
   "preset-run-start": {
     "owner": "preset",
     "sources": [
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.start:6eea0c7543eae53872c1f4cd23a96f63",
-        "route": "preset-run-start"
-      },
-      {
-        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.close:faa3c695f4e1175c03f21e5ed3bb0993",
-        "route": "preset-run-start"
-      },
-      {
-        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.save:57fc34dd65211fa5f29c06f796ef5426",
-        "route": "preset-run-start"
-      },
-      {
-        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.save:29be47d1c7f7ca8fa45b89107a12c0c2",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.change:9ed029f63b572194006569587c274b7e",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.cleanup:851ad1db5f4ecca97808863fae1fb5de",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.terminate:b146750ba1f7cc929ab5731923b3bcad",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute:73969ea8cf9f94fc66cb05f0167aa0e8",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute:15099d455741efaf63e10c394c212828",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.child:5ce03f5039713c895f0be0aa8bacedeb",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.stop:20a0615b5fc91ccdafaec2b291d5bbc7",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute:1001e68248e3a3daf737fed52401ca3a",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.complete:b0882ff847e72b50e4d8de686c3e0df7",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.complete:851ad1db5f4ecca97808863fae1fb5de",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.execute.complete:0cd918daac5a9e04b08b142de26b7cdb",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#digest:1c107c83f41f1f7d666c242def97ac5a",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#presetProcessError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-runtime.ts#createRuntime.resolveInternal.entrypoints:ee49327a6f93e3550c2ea209b30d77cb",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "support"
       },
       {
         "candidateId": "action:packages/preset:packages/preset/src/preset-runtime.ts#createRuntime.resolveInternal:4d16ac635e409351adbc24f66b08d3fc",
-        "route": "preset-run-start"
+        "route": "preset-run-start",
+        "role": "effect"
       }
     ],
     "concurrency": {
@@ -1180,5 +1025,416 @@
       "ingress": "preset-run-start",
       "read": false
     }
+  },
+  "cli-local-effects": {
+    "owner": "cli",
+    "authority": "local-process",
+    "entries": {
+      "cli:ha": {
+        "file": "packages/cli/src/index.ts",
+        "bin": "ha"
+      }
+    },
+    "execution": {
+      "ingress": "cli:ha",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "caller-process"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "caller-process",
+        "refTemplate": "process:{pid}/owned-output"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-task-artifact-run.ts#runTaskArtifactCommand.result:3e71dbc82c37dd6ce703fde674491a78",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-task-artifact-run.ts#runTaskArtifactCommand.receipt:19ab0cdff3fa7edb69bd374c975eb0ea",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/timing.ts#finishCliTiming:1a8fefc58d420a5856177da8d8c21fd8",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#settleRepoWarming:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#serializeFleetAction:9cc3be954fb1c7d81ba24b2a87ca3723",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-capture.ts#createCapturePort.capture.result:f7c506bab63bd760703f66cf010414ae",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-control.ts#runDaemonProbeControl:3010f5807cc41efe7c2ef3b76808fd12",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.ps:2d6b96b1a89f7498925adaaba1bd49a8",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.threads:162687e900732eb8a2510f062092d5b0",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.files:6cedd73fb9a82ac9f51df5fcca3c43cf",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readWindowsMetrics.result:cb5d57f0b343b4e05d4e0ff8d3266969",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-run.ts#appendSafely:fcba9275585dd9a0aaa905c34793e619",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/top.ts#runDaemonTop:a260be05602ae277057332dc9d7d8b8d",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#runThinCli:347b30a10ee3d19c4af07b719424d1e5",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#runThinCli:8377b0c7afa25bc0addb8d2e7d15b7f9",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#writeDescriptorVersionWarning:8ee08c037cd32b85afcb4e5c6c3c954b",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:419c5878fe2f76ac26dbdba9fd82950a",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:164b95ad14b16c0c8c88fd7030800c25",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:bf587ac095cf99984c5d6f08bbada5df",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:6593d20c4f2f1a870cbe8812cae97da8",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#cleanupConsumedDocumentDescriptor:d0e2d1278f17393fe7e65f47f7f4951e",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-command.ts#runRuntimeFacadeCommand:347bc7ce27b88af3afb49d1fee25c9d6",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:5a7e4c5f771eb2cd86cbb568924235ef",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#prepareGuiDaemon.onProgress:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#refreshStaleGuiBundle:0f2b826a2759ccd900bd1b97dd8355ff",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#rebuildGuiBundleFromSource:ccc55b20ad320c2799263b24e1dbe71c",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#rebuildGuiBundleFromSource:9cb0945a60743e047aaea4e9ca1cb8cc",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/control.ts#startDaemonService.started.onProgress:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/with-autostart.ts#withAutostart.started.onProgress:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/with-autostart.ts#withAutostart.started.onProgress:efdbc745903dcf40976a2441397af36d:2",
+        "route": "cli:ha",
+        "role": "effect"
+      }
+    ],
+    "technical": true
+  },
+  "package-assets-build": {
+    "owner": "distribution",
+    "authority": "package-script",
+    "entries": {
+      "npm:cli:build": {
+        "file": "packages/cli/scripts/copy-assets.mjs",
+        "script": "build"
+      },
+      "npm:preset:build": {
+        "file": "packages/preset/scripts/copy-assets.mjs",
+        "script": "build:publish"
+      }
+    },
+    "execution": {
+      "ingress": "npm:build",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "caller-process"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "caller-process",
+        "refTemplate": "process:{pid}/owned-output"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:f750ac50c954078007f8009c1e95ae1e",
+        "route": "npm:cli:build",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:1442f7a190761fcbfd081eafa9d14e58",
+        "route": "npm:cli:build",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:cb7dde155c5cf050a5a93e874afab44b",
+        "route": "npm:cli:build",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/scripts/copy-assets.mjs#<module>:d3f80696c35ed76fe4e5cca8c63ae2be",
+        "route": "npm:preset:build",
+        "role": "effect"
+      }
+    ],
+    "technical": true
+  },
+  "daemon-local-state": {
+    "owner": "daemon",
+    "authority": "local-process",
+    "entries": {
+      "daemon:bin": {
+        "file": "packages/daemon/src/bin.ts",
+        "bin": "harness-anything-daemon",
+        "builder": "packages/daemon/scripts/copy-assets.mjs"
+      }
+    },
+    "execution": {
+      "ingress": "daemon:bin",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "daemon-host",
+        "refTemplate": "node:{nodeId}/local-state"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#writeDaemonRegistry:3693aa0a954e4b5a4374158a526edc94",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#writeDaemonRegistry:83f636c16d98abd4813994d8dbdc64dc",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/daemon/registry.ts#removeConvenienceLink:2602aaec206a89b38caaa7692e65a402",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.close:faa3c695f4e1175c03f21e5ed3bb0993",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.save:57fc34dd65211fa5f29c06f796ef5426",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-process-service.ts#createPresetProcessService.save:29be47d1c7f7ca8fa45b89107a12c0c2",
+        "route": "daemon:bin",
+        "role": "effect"
+      }
+    ],
+    "technical": true
+  },
+  "preset-convert-local": {
+    "owner": "preset",
+    "authority": "local-process",
+    "entries": {
+      "daemon:bin": {
+        "file": "packages/daemon/src/bin.ts",
+        "bin": "harness-anything-daemon",
+        "builder": "packages/daemon/scripts/copy-assets.mjs"
+      }
+    },
+    "execution": {
+      "ingress": "daemon:bin",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "caller-process"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "caller-process",
+        "refTemplate": "process:{pid}/owned-output"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:5535d30042790a22e300952c2e147890",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:927172585d9464981ff77215d43c8625",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/preset-installation.ts#migrateCompletion:0ac5cab11bcff02c805c2ddd1cecb615",
+        "route": "daemon:bin",
+        "role": "effect"
+      }
+    ],
+    "technical": true
+  },
+  "migrate-storage": {
+    "owner": "storage",
+    "authority": "local-process",
+    "entries": {
+      "daemon:bin": {
+        "file": "packages/daemon/src/bin.ts",
+        "bin": "harness-anything-daemon",
+        "builder": "packages/daemon/scripts/copy-assets.mjs"
+      }
+    },
+    "execution": {
+      "ingress": "daemon:bin",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "caller-process"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "caller-process",
+        "refTemplate": "process:{pid}/owned-output"
+      }
+    },
+    "sources": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.createExclusiveText:c2082a12c1caf339f4242f5fff206552",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localRuntimeStateFileSystem.remove:de2c49f5c21a7f85a0f16f0f0dd2b92b",
+        "route": "daemon:bin",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/local/local-layout-file-system.ts#localContentObjectFileSystem.replaceMany:a3b817611f2e76f6806c8312bba1c505",
+        "route": "daemon:bin",
+        "role": "effect"
+      }
+    ]
   }
 }

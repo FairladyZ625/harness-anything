@@ -45,6 +45,23 @@ export const isFunctionNode = (node) =>
     ts.isMethodDeclaration(node) ||
     ts.isGetAccessorDeclaration(node));
 
+/** Keep the policy proof at its typed service boundary; source reachability uses the full graph. */
+export function authorizationPolicyGraph(graph) {
+  const included = (file) => sourceRoots.some((root) => file.startsWith(root + "/"));
+  return {
+    ...graph,
+    modules: new Map([...graph.modules].filter(([file]) => included(file))),
+    members: new Map(
+      [...graph.members].map(([key, entries]) => [key, entries.filter((entry) => included(entry.file))]),
+    ),
+    importTarget(binding) {
+      if (!binding.from.startsWith(".")) return { external: true };
+      const target = graph.importTarget(binding);
+      return target.file && !included(target.file) ? { external: true } : target;
+    },
+  };
+}
+
 export function unwrap(node) {
   let current = node;
   while (
@@ -95,19 +112,20 @@ function declareStatements(statements, bindings) {
  * `rootDir` holds the traced sources; `anchorRoot` holds the kernel authority files the anchors
  * name (the same checkout unless a test traces a mutated copy of the sources).
  */
-export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
+export function buildFlowGraph(rootDir, { anchorRoot = rootDir, sourceFiles = [] } = {}) {
   const modules = new Map(),
     members = new Map(),
     typedEntries = new Map(),
     scopes = new WeakMap(),
     anchorSources = new Map();
-  const files = sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)),
-    workspacePaths = workspaceSourcePaths(rootDir),
+  let files = [...new Set([...sourceRoots.flatMap((root) => walkTypeScriptFiles(rootDir, root)), ...sourceFiles])];
+  const workspacePaths = workspaceSourcePaths(rootDir),
     // The checker answers one question only: which implementations a typed member call can reach.
     program = ts.createProgram({
       rootNames: files.map((file) => path.join(rootDir, file)),
       options: {
         noEmit: true,
+        allowJs: sourceFiles.some((file) => /\.[cm]?js$/u.test(file)),
         skipLibCheck: true,
         allowImportingTsExtensions: true,
         module: ts.ModuleKind.NodeNext,
@@ -120,6 +138,15 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
     }),
     checker = program.getTypeChecker(),
     relativeFiles = new WeakMap();
+  files = [
+    ...new Set([
+      ...files,
+      ...program
+        .getSourceFiles()
+        .map((file) => path.relative(rootDir, file.fileName).split(path.sep).join("/"))
+        .filter((file) => file.startsWith("packages/") && !file.includes("/node_modules/") && !file.endsWith(".d.ts")),
+    ]),
+  ];
   for (const file of files) {
     const sourceFile = program.getSourceFile(path.join(rootDir, file)) ?? parseTypeScript(rootDir, file),
       imports = new Map();
@@ -152,6 +179,8 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
     interfaceMembers,
     carriesTransport,
     takesInterface,
+    callDeclaration: (node) => checker.getResolvedSignature(node)?.declaration,
+    typeName: (node) => checker.getTypeAtLocation(node).getSymbol()?.name,
   };
 
   /**
@@ -224,7 +253,26 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
   function memberSignature(access) {
     const symbol = checker.getSymbolAtLocation(access.name),
       declarations = symbol?.declarations ?? [];
-    return declarations.length === 0 ? null : new Set(declarations);
+    const result = new Set();
+    function resolve(declaration) {
+      if (result.has(declaration)) return;
+      result.add(declaration);
+      const type = declaration.type;
+      if (
+        type &&
+        ts.isIndexedAccessTypeNode(type) &&
+        ts.isLiteralTypeNode(type.indexType) &&
+        ts.isStringLiteral(type.indexType.literal)
+      ) {
+        const property = checker.getPropertyOfType(
+          checker.getTypeFromTypeNode(type.objectType),
+          type.indexType.literal.text,
+        );
+        for (const target of property?.declarations ?? []) resolve(target);
+      }
+    }
+    declarations.forEach(resolve);
+    return result.size === 0 ? null : result;
   }
 
   /** Whether an object/class member is contextually typed as one of the named signatures. */
@@ -335,9 +383,17 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
   }
 
   function importTarget(binding) {
-    if (!binding.from.startsWith(".")) return { external: true };
-    const file = path.posix.normalize(path.posix.join(path.posix.dirname(binding.file), binding.from));
+    const resolved = ts.resolveModuleName(
+      binding.from,
+      path.join(rootDir, binding.file),
+      program.getCompilerOptions(),
+      ts.sys,
+    ).resolvedModule?.resolvedFileName;
+    const file = resolved
+      ? path.relative(rootDir, resolved).split(path.sep).join("/")
+      : path.posix.normalize(path.posix.join(path.posix.dirname(binding.file), binding.from));
     if (modules.has(file)) return { file };
+    if (!binding.from.startsWith(".")) return { external: true };
     // A sibling package outside the traced roots is an external boundary, not a broken edge.
     return fs.existsSync(path.join(rootDir, file))
       ? { external: true }
@@ -345,7 +401,9 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
   }
 
   /** Only a real export qualifies: a same-named private function does not answer an import. */
-  function exportedBinding(file, exported) {
+  function exportedBinding(file, exported, seen = new Set()) {
+    if (seen.has(file)) return null;
+    seen.add(file);
     const { sourceFile } = modules.get(file);
     for (const statement of sourceFile.statements) {
       if (!ts.isExportDeclaration(statement) || !statement.exportClause || !ts.isNamedExports(statement.exportClause))
@@ -358,7 +416,15 @@ export function buildFlowGraph(rootDir, { anchorRoot = rootDir } = {}) {
     }
     const bindings = scopeBindings(sourceFile),
       binding = bindings.get(exported);
-    if (!binding) return null;
+    if (!binding) {
+      for (const statement of sourceFile.statements) {
+        if (!ts.isExportDeclaration(statement) || statement.exportClause || !statement.moduleSpecifier) continue;
+        const target = importTarget({ file, from: statement.moduleSpecifier.text, exported });
+        const inherited = target.file && exportedBinding(target.file, exported, seen);
+        if (inherited) return inherited;
+      }
+      return null;
+    }
     const declared = binding.kind === "var" ? binding.declaration.parent.parent : binding.node;
     return declared.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ? binding : null;
   }
@@ -369,7 +435,8 @@ export function bindArguments(fn, args, callerEnv, env = fn.env) {
   const next = new Map(env);
   fn.node.parameters.forEach((parameter, index) => {
     if (parameter.dotDotDotToken) return;
-    if (args[index]) next.set(parameter, { expression: args[index], env: callerEnv });
+    const expression = args[index] ?? parameter.initializer;
+    if (expression) next.set(parameter, { expression, env: args[index] ? callerEnv : fn.env });
   });
   return next;
 }
@@ -447,6 +514,7 @@ export function makeEvaluator(graph, facts) {
   function memberCandidates(key, depth, access) {
     const signatures = access ? graph.memberSignature(access) : null,
       cacheKey = signatures ? [...signatures][0] : key;
+    if (facts.strictMembers && !signatures) return [unknown];
     if (memberCache.has(cacheKey)) return memberCache.get(cacheKey);
     const all = graph.members.get(key) ?? [];
     if (all.length === 0) return [{ external: key }];

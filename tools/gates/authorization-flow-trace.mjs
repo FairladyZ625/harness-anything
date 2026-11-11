@@ -6,6 +6,7 @@
 // is compared here.
 import ts from "typescript";
 import { bindArguments, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
+import { processSourceSites, sourceSite } from "./authorization-source-proof.mjs";
 
 const maxWalkDepth = 60;
 
@@ -390,6 +391,8 @@ export function makeAuthorizationTracer(graph, anchors) {
         functions: anchors.functions,
       },
       evaluator = makeEvaluator(graph, facts),
+      sourceGraph = anchors.sourceGraph ?? graph,
+      sourceEvaluator = makeEvaluator(sourceGraph, { ...facts, strictMembers: true }),
       report = {
         authorized: [],
         local: [],
@@ -397,17 +400,25 @@ export function makeAuthorizationTracer(graph, anchors) {
         violations: [],
         unresolved: [],
         decisionKinds: new Set(),
+        sources: new Map(
+          (descriptor.sources ?? []).map((source) => [
+            source.site,
+            { id: source.id, seen: false, ok: true, evidence: [] },
+          ]),
+        ),
       },
       memo = new Map(),
       frameKeys = new WeakMap(),
       frameIds = new Map(),
       guardCalls = new Map(),
+      sourceCalls = new WeakMap(),
       stack = [];
 
     const newState = () => ({
       alive: true,
       authorized: false,
       effect: false,
+      sourceCovered: false,
       local: false,
       consumed: false,
       tainted: new Set(),
@@ -431,6 +442,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         authorized: live.every((state) => state.authorized),
         effect: live.some((state) => state.effect),
         local: live.every((state) => state.local),
+        sourceCovered: live.every((state) => state.sourceCovered),
         // Spent on some path: what is still pending after the meeting point is the unspent rest.
         consumed: live.some((state) => state.consumed),
         tainted: new Set([...left.tainted, ...right.tainted]),
@@ -727,6 +739,19 @@ export function makeAuthorizationTracer(graph, anchors) {
       return binding?.kind === "var" && isFunctionNode(unwrap(binding.declaration.initializer));
     }
 
+    function shouldDescend(value, node, env, state) {
+      const callee = unwrap(node.expression);
+      return (
+        state.effect ||
+        // An immediately invoked function runs in this frame; a closure over the route carries it.
+        isFunctionNode(callee) ||
+        (value.env.size > 0 && routedFrame(value.env)) ||
+        node.arguments.some((argument) => carriesRoute(argument, env) || functionArgument(argument, env)) ||
+        // A declared local-transport route follows the authentication context into its guard.
+        (descriptor.localTransport && node.arguments.some((argument) => graph.carriesTransport(argument)))
+      );
+    }
+
     function visitCall(node, env, state) {
       const callee = unwrap(node.expression);
       if (ts.isPropertyAccessExpression(callee) && callee.name.text === "then") {
@@ -752,6 +777,58 @@ export function makeAuthorizationTracer(graph, anchors) {
         }
       }
       const functions = values.filter((value) => value.fn);
+      const sourceAuthority =
+        state.sourceCovered ||
+        (state.effect && state.decisionKind?.kind === descriptor.kind) ||
+        (state.authorized && state.decisionKind?.kind === descriptor.kind) ||
+        (descriptor.localTransport && state.local) ||
+        (descriptor.ownSession && state.sessioned.size > 0);
+      const source = report.sources.get(sourceSite(graph, node));
+      const observe = (target, allowed, evidence) => {
+        target.seen = true;
+        target.ok &&= Boolean(allowed);
+        target.evidence.push(evidence);
+      };
+      if (source)
+        observe(
+          source,
+          sourceAuthority,
+          `${where(node)}: ${sourceAuthority ? "owner authority dominates this source" : "source runs before owner authority"}`,
+        );
+      const sourceFunctions = descriptor.sources?.length
+        ? sourceEvaluator.evaluate(callee, env).filter((value) => value.fn)
+        : [];
+      const declaredCallee = descriptor.sources?.length && sourceGraph.callDeclaration(node);
+      if (
+        isFunctionNode(declaredCallee) &&
+        declaredCallee.body &&
+        !sourceFunctions.some((value) => value.node === declaredCallee)
+      )
+        sourceFunctions.push({ node: declaredCallee, env: new Map() });
+      if (descriptor.sources?.length)
+        for (const value of sourceFunctions) {
+          const boundary = !graph.modules.has(graph.fileOf(value.node));
+          if (
+            (!sourceAuthority && !boundary) ||
+            (sourceAuthority && [...report.sources.values()].every((source) => source.seen && source.ok))
+          )
+            continue;
+          let sites = sourceCalls.get(node);
+          if (!sites) {
+            sites = processSourceSites(sourceGraph, value.node, {
+              evaluator: sourceEvaluator,
+              env: bindArguments(value, node.arguments, env),
+            });
+            sourceCalls.set(node, sites);
+          }
+          for (const [site, target] of report.sources)
+            if (sites.has(site))
+              observe(
+                target,
+                sourceAuthority,
+                `${where(node)}: ${sourceAuthority ? "owner authority" : "unguarded call"} reaches ${site} through its actual callee`,
+              );
+        }
       if (state.authorized && node.arguments.some((argument) => spends(argument, state.tainted, 0)))
         state.consumed = true;
       // A declared own-session route hands the effect the request and, as a separate input, the
@@ -809,23 +886,16 @@ export function makeAuthorizationTracer(graph, anchors) {
           continue;
         }
         if (boundParameter?.kind === "param" && env.get(boundParameter.parameter)?.expression) {
-          invokeCallback(boundParameter.parameter, value, node, env, state);
+          invokeCallback(boundParameter.parameter, value, node, env, state, sourceAuthority);
           allAuthorized = false;
           continue;
         }
-        const descend =
-          state.effect ||
-          // An immediately invoked function runs in this frame; a closure over the route carries it.
-          isFunctionNode(callee) ||
-          (value.env.size > 0 && routedFrame(value.env)) ||
-          node.arguments.some((argument) => carriesRoute(argument, env) || functionArgument(argument, env)) ||
-          // A declared local-transport route follows the authentication context into its guard.
-          (descriptor.localTransport && node.arguments.some((argument) => graph.carriesTransport(argument)));
-        if (!descend) {
+        if (!shouldDescend(value, node, env, state)) {
           allAuthorized = false;
           continue;
         }
         const inner = clone(state);
+        inner.sourceCovered ||= Boolean(sourceAuthority);
         inner.authorized = false;
         inner.consumed = false;
         const outcome = walkFunction(value, bindArguments(value, node.arguments, env), inner);
@@ -862,7 +932,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       return false;
     }
 
-    function invokeCallback(parameter, value, call, env, state) {
+    function invokeCallback(parameter, value, call, env, state, sourceAuthority) {
       // Grouped per guard frame: a non-durable branch of another command is not this route's bypass.
       const group = `${frameKeys.get(env) ?? 0}`,
         frames = guardCalls.get(parameter) ?? new Map(),
@@ -872,6 +942,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       guardCalls.set(parameter, frames);
       const next = bindArguments(value, call.arguments, env),
         inner = clone(state);
+      inner.sourceCovered ||= Boolean(sourceAuthority);
       if (state.authorized) {
         const carried = value.node.parameters.filter(
           (_parameter, index) => call.arguments[index] && derived(call.arguments[index], state.tainted),
@@ -923,8 +994,10 @@ export function makeAuthorizationTracer(graph, anchors) {
             nullish: nullish(statement.expression),
           });
         state.alive = false;
-      } else if (ts.isThrowStatement(statement)) state.alive = false;
-      else if (ts.isIfStatement(statement)) walkIf(statement, env, state, frame);
+      } else if (ts.isThrowStatement(statement)) {
+        visit(statement.expression, env, state);
+        state.alive = false;
+      } else if (ts.isIfStatement(statement)) walkIf(statement, env, state, frame);
       else if (ts.isTryStatement(statement)) {
         walkStatement(statement.tryBlock, env, state, frame);
         if (statement.finallyBlock) walkStatement(statement.finallyBlock, env, clone(state), frame);
@@ -1049,7 +1122,7 @@ export function makeAuthorizationTracer(graph, anchors) {
     }
 
     function signature(value, env, state) {
-      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
+      return `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}|${frameKeys.get(value.env) ?? 0}|${parameterShape(value, env, true)}`;
     }
 
     function internFrame(env, value) {
@@ -1112,7 +1185,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       return result;
     }
 
-    for (const entry of anchors.entries) {
+    for (const entry of descriptor.entries ?? anchors.entries) {
       const env = new Map([[entry.parameters[0], { root: true }]]);
       walkFunction({ fn: true, node: entry, env: new Map() }, env, newState());
     }

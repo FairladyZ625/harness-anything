@@ -2,6 +2,26 @@ import actionSourceFacets from "./action-source-facets.json" with { type: "json"
 
 /** Presentation is declared beside the action; policy evaluation does not consume it. */
 export const actionPresentation = {
+  "daemon-local-state": {
+    domain: "daemon",
+    name: "维护节点本地状态",
+    description: "节点进程维护本机登记、preset 运行日志和关闭清理。",
+  },
+  "preset-convert-local": {
+    domain: "preset",
+    name: "转换本地旧版包",
+    description: "离线命令将旧版声明转换为待审的新文件或目录。",
+  },
+  "cli-local-effects": {
+    domain: "cli",
+    name: "执行本地 CLI 技术效果",
+    description: "在操作者自己的 CLI 进程中处理输出、临时描述符和本地命令。",
+  },
+  "package-assets-build": {
+    domain: "distribution",
+    name: "构建包资产",
+    description: "由包声明的构建脚本更新本包 dist 资产。",
+  },
   "todo-add": { domain: "todo", name: "添加待办", description: "记录一句话待办。" },
   "todo-done": { domain: "todo", name: "完成待办", description: "勾选完成并收起。" },
   "todo-archive": { domain: "todo", name: "归档待办", description: "将待办收纳到归档。" },
@@ -246,7 +266,7 @@ export type ActionPolicyTier = "viewer" | "contributor" | "maintainer" | "admin"
 export type ActionResidency =
   | { readonly scope: "canonical"; readonly writer: "center-repo-cell" }
   | { readonly scope: "runtime-local"; readonly writer: "runtime-host" }
-  | { readonly scope: "host-local"; readonly writer: "daemon-host" };
+  | { readonly scope: "host-local"; readonly writer: "daemon-host" | "caller-process" };
 export type ReceiptSettlementClass = "canonical-acceptance" | "none";
 
 /** The authoritative facets shared by policy, protocol, receipt settlement, and entity catalogs. */
@@ -277,7 +297,9 @@ const policyTierFor = (executionClass: ActionExecutionClass): ActionPolicyTier =
         ? "maintainer"
         : "admin";
 
-const sourceFacets: Readonly<Record<string, import("./ontology-source.ts").OntologyActionSources>> = actionSourceFacets;
+const sourceFacets = actionSourceFacets as Readonly<
+  Record<string, import("./ontology-source.ts").OntologyActionSources>
+>;
 
 const declare = (
   kind: keyof typeof actionPresentation,
@@ -339,6 +361,10 @@ const runtimeAdmin = (kind: keyof typeof actionPresentation, catalogId: string |
  * policy, entity-catalog bindings, and receipt settlement are projections of the declarations.
  */
 export const actionDeclarations = Object.freeze([
+  declare("daemon-local-state", "admin", hostResidency),
+  declare("preset-convert-local", "admin", { scope: "host-local", writer: "caller-process" }),
+  declare("cli-local-effects", "admin", { scope: "host-local", writer: "caller-process" }),
+  declare("package-assets-build", "admin", { scope: "host-local", writer: "caller-process" }),
   canonical("repository-read", null, "repo-read", "none"),
   canonical("fleet-overview-read", null, "repo-read", "none"),
   canonical("agent-assign", "agent/assign", "repo-write"),
@@ -560,14 +586,16 @@ export function getActionDeclarationByCatalogId(catalogId: string): ActionDeclar
 
 /** Non-read policy scopes derive solely from ActionDeclaration. */
 export const durablePolicyActions = Object.freeze(
-  actionDeclarations.flatMap(({ policyAction, executionClass }) =>
-    executionClass === "repo-read" ? [] : [policyAction],
+  actionDeclarations.flatMap(({ policyAction, executionClass, ontology }) =>
+    executionClass === "repo-read" || ontology?.technical === true ? [] : [policyAction],
   ),
 );
 
 /** Durable command kinds derive from the same declarations as policy scopes, but remain distinct from them. */
 export const durableActionKinds = Object.freeze([
-  ...actionDeclarations.flatMap(({ kind, executionClass }) => (executionClass === "repo-read" ? [] : [kind])),
+  ...actionDeclarations.flatMap(({ kind, executionClass, ontology }) =>
+    executionClass === "repo-read" || ontology?.technical === true ? [] : [kind],
+  ),
   // The four artifact CRUD ingress kinds are durable routes; their declarations are the runtime
   // projections, so the kind itself has no static declaration row.
   ...artifactActionIngressKinds,

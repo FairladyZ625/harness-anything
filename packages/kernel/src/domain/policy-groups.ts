@@ -34,7 +34,9 @@ export function deriveBasePolicyGroups(
     Object.freeze(
       [
         ...new Set([
-          ...declarations.filter((item) => item.policyTier === tier).map((item) => item.policyAction),
+          ...declarations
+            .filter((item) => item.policyTier === tier && !item.ontology?.technical)
+            .map((item) => item.policyAction),
           ...(tier === "contributor" ? [...baseEntityPolicyActions, ...extraContributorScopes] : []),
         ]),
       ].sort(),
