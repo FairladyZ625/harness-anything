@@ -161,7 +161,40 @@ export function auditOntologyClosure({
   for (const candidate of candidates) {
     const declaration = bindings.get(candidate.id),
       row = current.get(candidate.id);
-    if (declaration?.status === "technical-exempt" && declaration.expiresOn >= today) {
+    if (declaration?.status === "technical-exempt") {
+      if (old.get(candidate.id)?.status === "registered") {
+        findings.push({
+          ...candidate,
+          code: "ONTOLOGY_BASELINE_GROWTH",
+          reason: "A frozen registered source cannot become a technical exemption.",
+          prescription:
+            "Keep the shared declaration or delete the source; removing its baseline row cannot downgrade it.",
+        });
+        continue;
+      }
+      const frozenDeadline = [old.get(candidate.id), row]
+        .filter((entry) => entry?.status === "technical-exempt")
+        .map((entry) => entry.expiresOn)
+        .sort()[0];
+      if (frozenDeadline && declaration.expiresOn > frozenDeadline) {
+        findings.push({
+          ...candidate,
+          code: "ONTOLOGY_BASELINE_GROWTH",
+          reason: `Shared exemption expires ${declaration.expiresOn}, beyond frozen deadline ${frozenDeadline}.`,
+          prescription:
+            "Keep the frozen expiry or register/delete this source; removing its baseline row cannot renew it.",
+        });
+        continue;
+      }
+      if (declaration.expiresOn < today) {
+        findings.push({
+          ...candidate,
+          code: `ONTOLOGY_${candidate.category.toUpperCase()}_UNDECLARED`,
+          reason: `${candidate.reason}; shared exemption expired ${declaration.expiresOn}`,
+          prescription: prescriptions[candidate.category],
+        });
+        continue;
+      }
       classified.push({ ...candidate, ...declaration, id: candidate.id, exemptionId: declaration.id });
       continue;
     }

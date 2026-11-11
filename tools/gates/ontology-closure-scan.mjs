@@ -130,8 +130,20 @@ export function scanOntologyText(file, text) {
     const symbols = named && ownName ? [...parents, ownName] : parents;
     const hash = createHash("sha256").update(String(node.kind));
     // Leaf text is semantic (identifiers, operators and literal values), never trivia.
-    if (ts.isIdentifier(node) || ts.isStringLiteralLike(node) || ts.isNumericLiteral(node))
-      hash.update(`:${node.text}`);
+    if (
+      ts.isIdentifier(node) ||
+      ts.isPrivateIdentifier(node) ||
+      ts.isLiteralExpression(node) ||
+      ts.isTemplateLiteralToken(node)
+    ) {
+      const text = ts.isTemplateLiteralToken(node)
+        ? [node.text, node.rawText?.replace(/\r\n?/gu, "\n")]
+        : ts.isJsxText(node)
+          ? node.text.replace(/\r\n?/gu, "\n")
+          : node.text;
+      // JSON preserves lone UTF-16 code units that UTF-8 would otherwise replace.
+      hash.update(`:${JSON.stringify(text)}`);
+    }
     const facts = { branches: 0, booleanReturns: 0, effects: 0, literals: 0, policyNames: 0, hash: "" };
     const children = new Map();
     ts.forEachChild(node, (child) => {

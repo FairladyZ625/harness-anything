@@ -126,6 +126,137 @@ test("identity ignores comments, blank lines, CRLF and quotes but preserves chan
   assert.equal(twice[0].id, single[0].id);
   assert.notEqual(twice[0].id, twice[1].id);
   assert.equal(audit(twice, { baseline: single.map(debt), previous: single.map(debt) }).findings.length, 1);
+  for (const template of ["dispatch(tag`a\nb`);", "dispatch(tag`a\n${id}b\n${next}c\nd`);"]) {
+    assert.deepEqual(ids(template), ids(template.replaceAll("\n", "\r\n")));
+  }
+  const jsx = "dispatch(<Confirm>approve\nrequest</Confirm>);";
+  const jsxIds = (body) => scanOntologyText(file.replace(/\.ts$/u, ".tsx"), body).map((row) => row.id);
+  assert.deepEqual(jsxIds(jsx), jsxIds(jsx.replaceAll("\n", "\r\n")));
+});
+
+// CH1 / review F1: every semantic text token must survive the normalized AST identity.
+for (const change of JSON.parse(
+  readFileSync(new URL("./fixtures/ontology-closure/literal-changes.json", import.meta.url), "utf8"),
+)) {
+  test(`literal identity rejects old debt after changing ${change.label}`, (t) => {
+    const target = change.label === "JSX text" ? file.replace(/\.ts$/u, ".tsx") : file;
+    const original = scanOntologyText(target, change.before),
+      changed = scanOntologyText(target, change.after);
+    const baseline = original.map(debt);
+    assert.ok(original.some((row) => row.category === change.category));
+    assert.deepEqual(audit(original, { baseline, previous: baseline }).findings, []);
+    assert.notDeepEqual(
+      changed.map((row) => row.id),
+      original.map((row) => row.id),
+    );
+    const result = audit(changed, { baseline, previous: baseline });
+    assert.ok(result.findings.some((row) => row.code === `ONTOLOGY_${change.category.toUpperCase()}_UNDECLARED`));
+    t.diagnostic(`${change.label}: changed source rejects with ${result.findings.map((row) => row.code).join(", ")}`);
+  });
+}
+
+function technicalSnapshot(candidate, expiresOn, actionLevel = false) {
+  const exemption = {
+    id: "technical-cleanup",
+    candidateId: candidate.id,
+    category: candidate.category,
+    reason: "Technical cleanup",
+    reviewer: "gate-reviewer",
+    expiresOn,
+  };
+  return actionLevel
+    ? {
+        actions: [{ kind: "cleanup", ontology: { owner: "runtime", sources: [], exemptions: [exemption] } }],
+        kinds: [],
+      }
+    : { actions: [], kinds: [{ kind: "runtime", ontologyExemptions: [exemption] }] };
+}
+
+for (const actionLevel of [false, true]) {
+  for (const keepRow of [false, true]) {
+    test(`shared ${actionLevel ? "action" : "kind"} exemption cannot renew expired debt with baseline ${keepRow ? "retained" : "removed"}`, () => {
+      const candidates = scan("positive-cli-write"),
+        candidate = candidates[0];
+      const previous = [
+        {
+          ...debt(candidate),
+          status: "technical-exempt",
+          exemptionId: "expired",
+          reviewer: "gate-reviewer",
+          expiresOn: "2026-11-01",
+        },
+      ];
+      const result = audit(candidates, {
+        previous,
+        baseline: keepRow ? previous : [],
+        snapshot: technicalSnapshot(candidate, "2027-11-01", actionLevel),
+        today: "2026-11-11",
+      });
+      assert.ok(result.findings.some((row) => row.code === "ONTOLOGY_BASELINE_GROWTH"));
+      assert.equal(result.classified.length, 0);
+    });
+  }
+}
+
+test("frozen exemption deadlines allow shortening, true registration and deletion, without stale-baseline fallback", () => {
+  const candidates = scan("positive-cli-write"),
+    candidate = candidates[0];
+  const previous = [
+    {
+      ...debt(candidate),
+      status: "technical-exempt",
+      exemptionId: "frozen",
+      reviewer: "gate-reviewer",
+      expiresOn: "2026-12-01",
+    },
+  ];
+  const options = { baseline: previous, previous, today: "2026-11-11" };
+  assert.ok(
+    audit(candidates, { ...options, snapshot: technicalSnapshot(candidate, "2027-01-01") }).findings.some(
+      (row) => row.code === "ONTOLOGY_BASELINE_GROWTH",
+    ),
+  );
+  assert.deepEqual(
+    audit(candidates, { ...options, snapshot: technicalSnapshot(candidate, "2026-11-20") }).findings,
+    [],
+  );
+  assert.ok(
+    audit(candidates, { ...options, snapshot: technicalSnapshot(candidate, "2026-11-01") }).findings.some(
+      (row) => row.code === "ONTOLOGY_ACTION_UNDECLARED",
+    ),
+  );
+  const expired = previous.map((row) => ({ ...row, expiresOn: "2026-11-01" }));
+  const snapshot = {
+    actions: [
+      {
+        kind: "cleanup",
+        ontology: { owner: "runtime", sources: [{ candidateId: candidate.id, route: "cli-cleanup" }] },
+      },
+    ],
+    kinds: [],
+  };
+  assert.deepEqual(audit(candidates, { baseline: [], previous: expired, snapshot, today: "2026-11-11" }).findings, []);
+  assert.deepEqual(audit([], { baseline: [], previous: expired }).findings, []);
+  const registeredHistory = [{ ...debt(candidate), status: "registered", declarationRef: "action:cleanup" }];
+  assert.ok(
+    audit(candidates, {
+      baseline: [],
+      previous: registeredHistory,
+      snapshot: technicalSnapshot(candidate, "2027-01-01"),
+      today: "2026-11-11",
+    }).findings.some((row) => row.code === "ONTOLOGY_BASELINE_GROWTH"),
+  );
+  assert.deepEqual(audit(candidates, { baseline: [], previous: registeredHistory, snapshot }).findings, []);
+  const other = scanOntologyText(file, "unlinkSync('another');")[0];
+  assert.deepEqual(
+    audit([other], {
+      baseline: [],
+      previous: expired,
+      snapshot: technicalSnapshot(other, "2027-01-01"),
+      today: "2026-11-11",
+    }).findings,
+    [],
+  );
 });
 
 test("baseline rejects new identities even at equal count; deletion and registration shrink debt", () => {
