@@ -17,6 +17,7 @@ import {
 } from "@harness-anything/kernel";
 import { artifactActionIngressKinds } from "@harness-anything/kernel/internal/domain/action-declaration.ts";
 import { projectArtifactActionDeclarations } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
+import { closureDeclarations } from "../../../tools/gates/ontology-closure-audit.mjs";
 import { walkTypeScriptFiles } from "../../../tools/gates/ontology-gate-lib.mjs";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { connectSocket, JsonRpcLineClient, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
@@ -667,6 +668,13 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       ...(declaration.socketOwnerAuthority === undefined ? [] : ["socketOwnerAuthority"]),
       ...(declaration.writeRoad === undefined ? [] : ["writeRoad"]),
     ]);
+    if (declaration.ontology !== undefined) {
+      assert.ok(getEntityKindContract(declaration.ontology.owner), `${kind}: ontology owner must be declared`);
+      assert.doesNotThrow(
+        () => closureDeclarations({ actions: [declaration], kinds: [] }),
+        `${kind}: ontology sources must satisfy the declared contract`,
+      );
+    }
     if (declaration.writeRoad !== undefined) {
       assert.ok(
         ["lifecycle.event-publication", "workspace.bootstrap", "daemon.runtime-control"].includes(
