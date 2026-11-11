@@ -1,4 +1,4 @@
-import type { ObservationStatus as VocabularyObservationStatus } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -284,7 +284,7 @@ function insertSlow(target: Record<string, unknown>[], sample: Record<string, un
 
 interface Availability {
   readonly source: "daemon-probe/v1";
-  readonly status: VocabularyObservationStatus;
+  readonly status: OperationalStatus.ObservationStatus;
   readonly samples: number;
   readonly up: number;
   readonly slow: number;

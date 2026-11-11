@@ -92,7 +92,6 @@ const catalogs: readonly Catalog[] = [
         connectionVisualStateWords: "Connection indicator displays live, idle, or failed activity.",
         bindingCoverageStateWords: "Binding indicator shows all, some, or no required bindings.",
         observeTailStatusWords: "Observation tail is idle, live, unavailable, contains a sequence gap, or failed.",
-        mutationFeedbackStateWords: "Mutation feedback is waiting for settlement, successful, or failed.",
         catalogReadStateWords: "A catalog query has a ready cut, a pending cut, or failed.",
         transcriptTurnStatusWords: "Transcript turn is running, completed, failed, or lacks a known termination.",
         startWorkPreconditionStateWords: "Start work precondition is satisfied, blocked, or cannot be observed.",
@@ -101,8 +100,6 @@ const catalogs: readonly Catalog[] = [
         terminalRestartStateWords: "Terminal restart requires confirmation or has been requested.",
       },
       Artifact: {
-        entityContentOutcomeWords:
-          "Owned content resolves to text, a directory, absence, an oversized object, or binary bytes.",
         entityWriteStateWords:
           "Entity write settlement is applied, pending, conflicting with a newer revision, or rejected.",
         entityLocatorReadOutcomeWords:
@@ -134,7 +131,6 @@ const catalogs: readonly Catalog[] = [
         edgeJoinSyncStateWords: "Joined repositories are fully synced or only partially synced.",
         edgeJoinRepositoryPhaseWords:
           "Repository join prepares a workspace, registers, syncs, completes sync, or fails.",
-        legacyRoleMigrationOutcomeWords: "Legacy role migration applied its changes or failed.",
         legacyRoleGrantOutcomeWords:
           "Legacy role grant was written, already present, or skipped because no grant was needed.",
       },

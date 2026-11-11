@@ -1,4 +1,4 @@
-import type { CliTimingPhase as VocabularyCliTimingPhase } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 // Phase-resolved timing for one CLI invocation, rebuilt from zero after the reset removed the
 // previous HA_TIMING surface. Off unless HA_CLI_TIMING=1: the disabled state is null, so an
 // ordinary invocation allocates no phase object, request array, record, sink line, or daemon
@@ -13,7 +13,7 @@ import type { CliTimingPhase as VocabularyCliTimingPhase } from "@harness-anythi
 // prints exactly one receipt line whether timing is on or off.
 import { firstCliCommandIndex } from "./thin-command-help.ts";
 
-export type CliTimingPhase = VocabularyCliTimingPhase;
+export type CliTimingPhase = OperationalStatus.CliTimingPhase;
 
 export type CliDaemonRoundTrip = {
   readonly method: string;

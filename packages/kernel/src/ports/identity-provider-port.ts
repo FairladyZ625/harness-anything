@@ -1,5 +1,5 @@
-import type { AuthorizationNodeState as VocabularyAuthorizationNodeState } from "../domain/access-status.ts";
-import type { AuthorizationDecision as VocabularyAuthorizationDecision } from "../domain/receipt-frame.ts";
+import type * as AccessStatus from "../domain/access-status.ts";
+import type * as AuthorizationReceipt from "../domain/receipt-frame.ts";
 import type { RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import type { AuthorizationResource } from "../domain/policy-groups.ts";
 import type { PolicyGroup } from "../domain/policy-groups.ts";
@@ -26,13 +26,13 @@ export interface AuthorizationNode {
   readonly displayName: string;
   readonly platform: string;
   readonly registeredAt: string;
-  readonly state: VocabularyAuthorizationNodeState;
+  readonly state: AccessStatus.AuthorizationNodeState;
   readonly revision: number;
   readonly revocation: "complete" | "pending";
 }
 
 export interface AuthorizationPermissionDecision {
-  readonly outcome: VocabularyAuthorizationDecision["outcome"];
+  readonly outcome: AuthorizationReceipt.AuthorizationDecision["outcome"];
   readonly reasonCode: string;
   readonly resource: string;
   readonly scope: string;

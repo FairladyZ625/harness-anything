@@ -1,4 +1,4 @@
-import type { WriteReceiptOutcome as VocabularyWriteReceiptOutcome } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import type * as WriteContract from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
@@ -36,7 +36,7 @@ export interface PresetRunStartInput {
   readonly idempotencyKey: string;
 }
 export interface PresetProducedReceipt {
-  readonly outcome: Exclude<VocabularyWriteReceiptOutcome, "no_changes">;
+  readonly outcome: Exclude<WriteContract.WriteReceiptOutcome, "no_changes">;
   readonly code?: string;
   readonly nextAction?: string;
 }

@@ -1,4 +1,4 @@
-import type { DaemonStartupPhase as VocabularyDaemonStartupPhase } from "../api/renderer-dto.ts";
+import type * as DomainStatus from "../api/renderer-dto.ts";
 export const daemonStartupBudgetMs = 30_000;
 
 const retryableDaemonCodes = new Set([
@@ -9,7 +9,7 @@ const retryableDaemonCodes = new Set([
   "repo_unavailable",
 ]);
 
-export type DaemonStartupPhase = VocabularyDaemonStartupPhase;
+export type DaemonStartupPhase = DomainStatus.DaemonStartupPhase;
 
 export function daemonErrorCode(error: unknown): string | null {
   return error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"

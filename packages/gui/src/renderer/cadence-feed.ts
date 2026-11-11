@@ -1,4 +1,4 @@
-import type { CadenceFeedStatus as VocabularyCadenceFeedStatus } from "../api/renderer-dto.ts";
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { useEffect, useRef, useState } from "react";
 import { harnessClient } from "./api-client.ts";
 import type { ObserveTailRead } from "../api/renderer-dto.ts";
@@ -25,7 +25,7 @@ const CADENCE_HISTORY_PAGE_BUDGET = 16,
   CADENCE_UNAVAILABLE_MS = 15_000;
 
 export interface CadenceFeedState {
-  readonly status: VocabularyCadenceFeedStatus;
+  readonly status: DomainStatus.CadenceFeedStatus;
   readonly error: string | null;
   readonly unavailableReason: string | null;
   readonly mode: ObserveTailMode | null;

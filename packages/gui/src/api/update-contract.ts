@@ -1,15 +1,12 @@
-import type {
-  UpdateCheckState as VocabularyUpdateCheckState,
-  UpdateArtifactState as VocabularyUpdateArtifactState,
-} from "./renderer-dto.ts";
+import type * as DomainStatus from "./renderer-dto.ts";
 export const UPDATE_CHECK_CHANNEL = "harness:update-check";
 export const UPDATE_INSTALL_CHANNEL = "harness:update-install";
 export const UPDATE_STATUS_CHANNEL = "harness:update-status";
 export const UPDATE_STATUS_EVENT = "harness:update-status-event";
 
 export type UpdateState =
-  | { readonly state: VocabularyUpdateCheckState; readonly version?: string }
-  | { readonly state: VocabularyUpdateArtifactState; readonly version: string }
+  | { readonly state: DomainStatus.UpdateCheckState; readonly version?: string }
+  | { readonly state: DomainStatus.UpdateArtifactState; readonly version: string }
   | { readonly state: "error"; readonly message: string };
 
 export interface UpdateApi {

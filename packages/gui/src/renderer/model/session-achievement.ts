@@ -1,4 +1,4 @@
-import type { SessionVerdict as VocabularySessionVerdict } from "../../api/renderer-dto.ts";
+import type * as DomainStatus from "../../api/renderer-dto.ts";
 /**
  * 会话详情「先给做成了什么」的纯派生(task_6bc70402):结局裁决、耗时、产出清单。
  *
@@ -18,7 +18,7 @@ import { epochMsOf } from "../sessions-model.ts";
 export type SessionSettlement = NonNullable<AgentRuntimeSessionResult["settlement"]>;
 
 /** 首屏结局词:成功 / 失败 / 取消 / 停手 / 无法判定 / 无法确认 / 运行中。 */
-export type SessionVerdict = VocabularySessionVerdict;
+export type SessionVerdict = DomainStatus.SessionVerdict;
 
 /**
  * 结局的唯一判定:settlement 是 daemon 的终局裁决,先认它;没有再按语义状态/结局词退。

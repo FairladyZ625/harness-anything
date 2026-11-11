@@ -1,5 +1,6 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { writeReceiptOutcomes } from "../api/renderer-dto.ts";
-import type { WriteReceiptOutcome as VocabularyWriteReceiptOutcome } from "../api/renderer-dto.ts";
+
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint, rendererReadError } from "./result-validation.ts";
@@ -30,7 +31,7 @@ type RuntimeReceipt = GuiActionResult & {
 };
 
 export interface RuntimeSpawnSettlement {
-  readonly state: Extract<VocabularyWriteReceiptOutcome, "applied" | "pending" | "op_rejected">;
+  readonly state: Extract<DomainStatus.WriteReceiptOutcome, "applied" | "pending" | "op_rejected">;
   readonly opId: string;
   readonly runtimeSessionId: string | null;
   readonly dispatchId: string | null;

@@ -1,4 +1,4 @@
-import type { DaemonStopOutcome as VocabularyDaemonStopOutcome } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import path from "node:path";
 import {
   daemonIdFromEnv,
@@ -599,7 +599,7 @@ function signalStop(pid: number): void {
 // dead process holds nothing, so its exit is the second way, and whoever killed it clears the
 // bookkeeping it left. Anything else is judged on what the daemon said: one that acknowledged the
 // stop and still answers on its endpoint is draining, because a bound endpoint now outlives nothing.
-type DaemonStopOutcome = VocabularyDaemonStopOutcome;
+type DaemonStopOutcome = OperationalStatus.DaemonStopOutcome;
 async function waitForDaemonStop(
   userRoot: string,
   daemonId: string,

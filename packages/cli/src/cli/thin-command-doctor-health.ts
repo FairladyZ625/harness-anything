@@ -1,4 +1,4 @@
-import type { DoctorCheckStatus as VocabularyDoctorCheckStatus } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { existsSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,7 +12,7 @@ import type { ThinCommand } from "./thin-command-types.ts";
 
 interface DoctorCheck {
   readonly id: string;
-  readonly status: VocabularyDoctorCheckStatus;
+  readonly status: OperationalStatus.DoctorCheckStatus;
   readonly summary: string;
   readonly count: number;
   readonly next: string;

@@ -1,4 +1,4 @@
-import type { StartWorkPreconditionState as VocabularyStartWorkPreconditionState } from "../api/renderer-dto.ts";
+import type * as DomainStatus from "../api/renderer-dto.ts";
 /**
  * 「开始一项工作」向导的纯派生层。创建使用 GUI Action allowlist 中的
  * `repo.task.create`；任务与幂等键仍由 daemon 的中心转发写路分配。
@@ -105,7 +105,7 @@ export type StartWorkPreconditionId = "daemon" | "preset" | "completionGates";
 /** 必要条件一行:状态 + 原始取值。措辞归视图,这里不评价。 */
 export interface StartWorkPrecondition {
   readonly id: StartWorkPreconditionId;
-  readonly state: VocabularyStartWorkPreconditionState;
+  readonly state: DomainStatus.StartWorkPreconditionState;
   readonly value: string;
 }
 

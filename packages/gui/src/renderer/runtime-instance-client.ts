@@ -1,4 +1,4 @@
-import type { RuntimeIsolationState as VocabularyRuntimeIsolationState } from "../api/renderer-dto.ts";
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import type { TerminalControlReceipt } from "@harness-anything/daemon/protocol";
 import { guiHostBridge } from "./gui-transport.ts";
@@ -32,7 +32,7 @@ export type RuntimeInstanceUpdateInput = {
   readonly effort?: string;
   readonly enabled?: boolean;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
-  readonly isolationState?: VocabularyRuntimeIsolationState;
+  readonly isolationState?: DomainStatus.RuntimeIsolationState;
   readonly fast?: boolean;
   readonly clearFreeze?: boolean;
 };
@@ -44,7 +44,7 @@ type RuntimeInstanceCreateCommon = {
   readonly models: readonly string[];
   readonly defaultModel?: string;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
-  readonly isolationState?: VocabularyRuntimeIsolationState;
+  readonly isolationState?: DomainStatus.RuntimeIsolationState;
 };
 // Keys travel once through the trusted bridge to the selected daemon's native vault.
 export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon & {

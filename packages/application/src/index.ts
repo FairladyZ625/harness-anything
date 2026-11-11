@@ -1,4 +1,4 @@
-import type { CoverageResult as VocabularyCoverageResult } from "@harness-anything/kernel/internal/domain/decision-coverage.ts";
+import type * as Coverage from "@harness-anything/kernel/internal/domain/decision-coverage.ts";
 import type { ArtifactStore, ProjectionWarning, TaskProjectionRow } from "@harness-anything/kernel";
 import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 export { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
@@ -104,7 +104,7 @@ export interface RelationGraphEdgeRow {
 export interface RelationCoverageRow {
   readonly decisionRef: string;
   readonly claimRef: string;
-  readonly status: VocabularyCoverageResult["status"];
+  readonly status: Coverage.CoverageResult["status"];
   readonly coveringFactRef?: string;
   readonly relationPath: ReadonlyArray<string>;
 }

@@ -1,4 +1,4 @@
-import type { MaterializationReceiptStatus as VocabularyMaterializationReceiptStatus } from "../domain/operational-status.ts";
+import type * as OperationalStatus from "../domain/operational-status.ts";
 import type { receiptAcceptanceStatuses, receiptFacetStates } from "../domain/receipt-acceptance.ts";
 import {
   type CanonicalEventV1,
@@ -111,7 +111,7 @@ export interface PreservedCopy {
 }
 export interface MaterializationReceipt {
   /** "planned" rows describe what a settlement would touch without changing any file. */
-  readonly status: VocabularyMaterializationReceiptStatus;
+  readonly status: OperationalStatus.MaterializationReceiptStatus;
   readonly commitSha: LedgerCommitSha | null;
   /** Documents this pass settled, in authored-relative paths; a settled no-op pass reports none. */
   readonly settlements: readonly MaterializationSettlement[];

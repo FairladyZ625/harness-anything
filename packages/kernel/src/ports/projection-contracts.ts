@@ -1,10 +1,7 @@
-import type { FactLiveness as VocabularyFactStandingState } from "../domain/fact-liveness.ts";
-import type {
-  DecisionDriftState as VocabularyDecisionDriftState,
-  DecisionConflictState as VocabularyDecisionConflictState,
-} from "../domain/operational-status.ts";
-import type { CoverageResult as VocabularyCoverageResult } from "../domain/decision-coverage.ts";
-import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "../domain/task-read-set.ts";
+import type * as FactDomain from "../domain/fact-liveness.ts";
+import type * as OperationalStatus from "../domain/operational-status.ts";
+import type * as Coverage from "../domain/decision-coverage.ts";
+import type * as ReadSet from "../domain/task-read-set.ts";
 import type { EntityRelationRecord, RelationOrigin, RelationState, RelationType } from "../domain/entity-relation.ts";
 import type { EntityVersion, RelationFreshness } from "../domain/entity-freshness.ts";
 import type { FactConfidence, FactDomainType, FactEventV1, FactMemoryClass } from "../domain/fact-event.ts";
@@ -16,13 +13,13 @@ export interface DecisionReadinessProjection {
   readonly schema: "decision-readiness/v1";
   readonly basisCommitSha: string;
   readonly appliesToDrift: {
-    readonly state: VocabularyDecisionDriftState;
+    readonly state: OperationalStatus.DecisionDriftState;
     readonly paths: readonly string[];
     readonly lastCommitAt: string | null;
     readonly summary: string;
   };
   readonly conflictMarker: {
-    readonly state: VocabularyDecisionConflictState;
+    readonly state: OperationalStatus.DecisionConflictState;
     readonly paths: readonly string[];
     readonly summary: string;
   };
@@ -46,7 +43,7 @@ export interface FactProjectionRow {
   readonly source: WriteSource;
   readonly occurredAt: string;
   readonly workspaceRevision: number;
-  readonly state: VocabularyFactStandingState;
+  readonly state: FactDomain.FactLiveness;
   readonly invalidated: boolean;
   readonly archived: boolean;
 }
@@ -113,7 +110,7 @@ export interface RelationGraphEdgeRow {
 export interface RelationCoverageRow {
   readonly decisionRef: string;
   readonly claimRef: string;
-  readonly status: VocabularyCoverageResult["status"];
+  readonly status: Coverage.CoverageResult["status"];
   readonly covered: boolean;
   readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null;
   readonly coveringFactRef?: string;
@@ -141,7 +138,7 @@ export interface RelationFactRow {
   readonly memoryClass: "semantic" | "episodic" | "procedural";
   readonly memoryTags: readonly string[];
   readonly provenance: readonly { readonly runtime: string; readonly sessionId: string; readonly boundAt: string }[];
-  readonly liveness: VocabularyFactStandingState;
+  readonly liveness: FactDomain.FactLiveness;
   readonly invalidated: boolean;
   readonly archived: boolean;
 }
@@ -261,7 +258,7 @@ export interface RelationCycleAudit {
 }
 
 export interface RelationCycleAuditRead extends RelationCycleAudit {
-  readonly status: VocabularyReadSetProjectionCut["status"];
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly watermark: number;
   readonly sourceRevision: number;
 }

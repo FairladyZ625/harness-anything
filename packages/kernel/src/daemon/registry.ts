@@ -1,5 +1,6 @@
+import type * as OperationalStatus from "../domain/operational-status.ts";
 import { repoRegistrationStateWords } from "../domain/operational-status.ts";
-import type { RepoRegistrationState as VocabularyRepoRegistrationState } from "../domain/operational-status.ts";
+
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -23,7 +24,7 @@ export type { DaemonRepoMode } from "./repo-mode.ts";
 
 export const daemonRegistrySchema = "harness-daemon-registry/v2";
 
-export type DaemonRepoState = VocabularyRepoRegistrationState;
+export type DaemonRepoState = OperationalStatus.RepoRegistrationState;
 export type DaemonConnectionKind = "local" | "remote-endpoint" | "fleet-center";
 
 export interface DaemonRegistryConnection {

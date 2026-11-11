@@ -653,7 +653,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     id: "receipt.outcome",
     entity: "WriteReceipt",
     field: "outcome",
-    module: "packages/kernel/src/domain/write-chain.contract.ts",
+    module: "packages/kernel/src/domain/write-receipt-status.ts",
     anchor: "writeReceiptOutcomes",
     words: ["applied", "pending", "no_changes", "indeterminate", "op_rejected"],
   },

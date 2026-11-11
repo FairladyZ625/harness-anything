@@ -23,8 +23,7 @@ export type EdgeJoinSyncState = (typeof edgeJoinSyncStateWords)[number];
 export const edgeJoinRepositoryPhaseWords = ["workspace", "register", "sync", "synced", "failed"] as const;
 export type EdgeJoinRepositoryPhase = (typeof edgeJoinRepositoryPhaseWords)[number];
 
-export const legacyRoleMigrationOutcomeWords = ["applied", "failed"] as const;
-export type LegacyRoleMigrationOutcome = (typeof legacyRoleMigrationOutcomeWords)[number];
+export type LegacyRoleMigrationOutcome = Exclude<AccessReceiptOutcome, "version_conflict">;
 
 export const legacyRoleGrantOutcomeWords = ["written", "already_present", "skipped"] as const;
 export type LegacyRoleGrantOutcome = (typeof legacyRoleGrantOutcomeWords)[number];

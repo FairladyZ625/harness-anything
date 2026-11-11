@@ -1,4 +1,4 @@
-import type { ReviewVerdict as VocabularyReviewVerdict } from "../../api/renderer-dto.ts";
+import type * as DomainStatus from "../../api/renderer-dto.ts";
 /**
  * 会话详情「最终结论」的派生(task_6bc70402 返工①):首屏先给这次会话的**裁决/结论**,
  * 不是 agent 最后一条消息的原文。
@@ -30,7 +30,7 @@ export interface SessionConclusion {
   /** 首屏显示的一段结论(可能多行);空串表示这一类材料存在但没有可用正文。 */
   readonly text: string;
   /** 评审结论只在这一类来源下出现:verdict 的本地化键由视图层查表。 */
-  readonly verdict: VocabularyReviewVerdict | null;
+  readonly verdict: DomainStatus.ReviewVerdict | null;
 }
 
 /**

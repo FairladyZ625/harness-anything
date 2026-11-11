@@ -1,5 +1,6 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { repoRegistrationStateWords } from "../api/renderer-dto.ts";
-import type { RepoRegistrationState as VocabularyRepoRegistrationState } from "../api/renderer-dto.ts";
+
 import type { AdminConnectionRow, AdminReceipt, ConnectionProbeSuccess } from "../api/connection-admin-contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
@@ -110,7 +111,7 @@ export async function updateConnection(input: {
   readonly connectionId: string;
   readonly displayName?: string;
   readonly endpoint?: string;
-  readonly state?: VocabularyRepoRegistrationState;
+  readonly state?: DomainStatus.RepoRegistrationState;
 }): Promise<AdminReceipt> {
   return readReceipt(await connectionsBridge().update(input as Record<string, unknown>), "Connection update");
 }
@@ -136,7 +137,7 @@ export async function updateRepo(input: {
   readonly mode?: string;
   readonly endpoint?: string;
   readonly connectionId?: string;
-  readonly state?: VocabularyRepoRegistrationState;
+  readonly state?: DomainStatus.RepoRegistrationState;
 }): Promise<AdminReceipt> {
   return readReceipt(await repoAdminBridge().update(input as Record<string, unknown>), "Repo update");
 }

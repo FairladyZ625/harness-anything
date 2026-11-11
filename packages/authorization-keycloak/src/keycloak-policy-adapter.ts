@@ -1,9 +1,5 @@
-import type { AuthorizationDecision as VocabularyAuthorizationDecision } from "@harness-anything/kernel/internal/domain/receipt-frame.ts";
-import type {
-  LegacyRoleMigrationOutcome as VocabularyLegacyRoleMigrationOutcome,
-  LegacyRoleGrantOutcome as VocabularyLegacyRoleGrantOutcome,
-  AuthorizationNodeState as VocabularyAuthorizationNodeState,
-} from "@harness-anything/kernel/internal/domain/access-status.ts";
+import type * as AuthorizationReceipt from "@harness-anything/kernel/internal/domain/receipt-frame.ts";
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import {
   issueRuntimeExecutionCredential,
   authenticateRuntimeExecutionCredential,
@@ -43,7 +39,7 @@ export interface KeycloakPolicySyncReceipt {
 }
 
 export interface KeycloakPermissionDecision {
-  readonly outcome: VocabularyAuthorizationDecision["outcome"];
+  readonly outcome: AuthorizationReceipt.AuthorizationDecision["outcome"];
   readonly reasonCode: "keycloak_allowed" | "keycloak_denied" | "unknown_scope" | "keycloak_unavailable";
   readonly resource: string;
   readonly scope: string;
@@ -67,14 +63,14 @@ export interface KeycloakLegacyRoleMigrationReceipt {
   readonly actor: "system";
   readonly authority: "keycloak";
   readonly phase: "settled";
-  readonly outcome: VocabularyLegacyRoleMigrationOutcome;
+  readonly outcome: AccessStatus.LegacyRoleMigrationOutcome;
   readonly source: "legacy-access-admin-role";
   readonly legacyRole: "access-admin";
   readonly personId?: string;
   readonly userId: string;
   readonly groupId: "admin";
   readonly resource: "@fleet";
-  readonly grantOutcome: VocabularyLegacyRoleGrantOutcome;
+  readonly grantOutcome: AccessStatus.LegacyRoleGrantOutcome;
   readonly failureCode?: "missing_harness_person_id";
   readonly recordedAt: string;
 }
@@ -87,7 +83,7 @@ export interface KeycloakNode {
   readonly displayName: string;
   readonly platform: string;
   readonly registeredAt: string;
-  readonly state: VocabularyAuthorizationNodeState;
+  readonly state: AccessStatus.AuthorizationNodeState;
   readonly revision: number;
   readonly revocation: "complete" | "pending";
 }

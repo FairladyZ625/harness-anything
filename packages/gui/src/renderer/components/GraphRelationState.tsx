@@ -1,6 +1,6 @@
-import type { BlockingAvailabilityState as VocabularyGraphReadState } from "../../api/renderer-dto.ts";
+import type * as DomainStatus from "../../api/renderer-dto.ts";
 interface GraphRelationStateProps {
-  readonly state: VocabularyGraphReadState;
+  readonly state: DomainStatus.BlockingAvailabilityState;
 }
 
 export function GraphRelationReadGate({ state }: GraphRelationStateProps) {

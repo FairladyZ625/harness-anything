@@ -1,4 +1,4 @@
-import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "../api/renderer-dto.ts";
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
 import { t } from "./i18n/index.tsx";
 import { actorDisplayName } from "./model/actor-name.ts";
@@ -205,7 +205,7 @@ interface TaskRowCacheEntry {
 
 interface TaskRowsCache {
   readonly projectId: string;
-  readonly projectionStatus: VocabularyReadSetProjectionCut["status"];
+  readonly projectionStatus: DomainStatus.ReadSetProjectionCut["status"];
   readonly rows: ReadonlyArray<TaskSnapshotProjectionRow> | null;
   readonly works: WorkIndex | null;
   readonly output: readonly TaskRow[] | null;

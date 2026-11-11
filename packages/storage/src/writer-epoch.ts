@@ -1,4 +1,4 @@
-import type { WriterEpochMigrationState as VocabularyWriterEpochMigrationState } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -202,7 +202,7 @@ function openRepoEpochAuthority(options: {
 type LegacyWriterEpochFloor = { readonly repo_id: unknown; readonly floor: unknown };
 export interface LegacyWriterEpochMigrationResult {
   readonly schema: "writer-epoch-migration-receipt/v1";
-  readonly state: VocabularyWriterEpochMigrationState;
+  readonly state: OperationalStatus.WriterEpochMigrationState;
   readonly migratedRepos: readonly string[];
   readonly rejectedRepos: readonly {
     readonly repoId: string;

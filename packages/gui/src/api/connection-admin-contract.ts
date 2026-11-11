@@ -1,4 +1,4 @@
-import type { RepoRegistrationState as VocabularyRepoRegistrationState } from "./renderer-dto.ts";
+import type * as DomainStatus from "./renderer-dto.ts";
 export const CONNECTION_STATUS_CHANNEL = "harness:connections:status";
 export const CONNECTION_PROBE_CHANNEL = "harness:connections:probe";
 export const CONNECTION_REGISTER_CHANNEL = "harness:connections:register";
@@ -11,7 +11,7 @@ export const WORKSPACE_INSPECT_CHANNEL = "harness:repos:inspectWorkspace";
 
 /** registry v2 的连接形态(kernel daemon-registry/v2;local 为隐含连接,永远存在)。 */
 export type AdminConnectionKind = "local" | "remote-endpoint" | "fleet-center";
-export type AdminRegistrationState = VocabularyRepoRegistrationState;
+export type AdminRegistrationState = DomainStatus.RepoRegistrationState;
 export type AdminRepoMode = "local" | "remote-proxy" | "remote-center" | "remote-edge";
 
 export interface AdminConnectionRow {

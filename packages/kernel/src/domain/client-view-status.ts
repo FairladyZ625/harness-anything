@@ -11,8 +11,7 @@ export type PromptCacheTtlState = (typeof promptCacheTtlStateWords)[number];
 export const daemonStartupPhaseWords = ["pending", "waiting", "timeout", "ready"] as const;
 export type DaemonStartupPhase = (typeof daemonStartupPhaseWords)[number];
 
-export const entityContentOutcomeWords = ["file", "directory", "missing", "too-large", "binary"] as const;
-export type EntityContentOutcome = (typeof entityContentOutcomeWords)[number];
+export type EntityContentOutcome = Exclude<EntityLocatorReadOutcome, "unsupported">;
 
 export const entityWriteStateWords = ["applied", "pending", "conflict", "rejected"] as const;
 export type EntityWriteState = (typeof entityWriteStateWords)[number];
@@ -86,8 +85,7 @@ export type BindingCoverageState = (typeof bindingCoverageStateWords)[number];
 export const observeTailStatusWords = ["idle", "live", "unavailable", "gap", "error"] as const;
 export type ObserveTailStatus = (typeof observeTailStatusWords)[number];
 
-export const mutationFeedbackStateWords = ["pending", "success", "error"] as const;
-export type MutationFeedbackState = (typeof mutationFeedbackStateWords)[number];
+export type MutationFeedbackState = Exclude<AnswerFeedbackState, "conflict">;
 
 export const catalogReadStateWords = ["ready", "pending", "error"] as const;
 export type CatalogReadState = (typeof catalogReadStateWords)[number];

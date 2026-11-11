@@ -1,7 +1,4 @@
-import type {
-  ConnectionVisualState as VocabularyConnectionVisualState,
-  BindingCoverageState as VocabularyBindingCoverageState,
-} from "../../../api/renderer-dto.ts";
+import type * as DomainStatus from "../../../api/renderer-dto.ts";
 import type { ReactNode } from "react";
 
 // Visual primitives for the Agent Runtime configuration plane. Every shape here is a
@@ -115,7 +112,7 @@ export function KindDot({ kind }: { readonly kind: string }) {
     />
   );
 }
-export function LiveDot({ state, tip }: { readonly state: VocabularyConnectionVisualState; readonly tip?: string }) {
+export function LiveDot({ state, tip }: { readonly state: DomainStatus.ConnectionVisualState; readonly tip?: string }) {
   const color =
     state === "live"
       ? "var(--color-status-done)"
@@ -152,7 +149,7 @@ export function CapDot({
   tip,
   size = 11,
 }: {
-  readonly state: VocabularyBindingCoverageState;
+  readonly state: DomainStatus.BindingCoverageState;
   readonly tip: string;
   readonly size?: number;
 }) {

@@ -1,5 +1,5 @@
-import type { RuntimeReadinessStatus as VocabularyRuntimeReadinessStatus } from "../api/renderer-dto.ts";
-export type RuntimeReadinessStatus = VocabularyRuntimeReadinessStatus;
+import type * as DomainStatus from "../api/renderer-dto.ts";
+export type RuntimeReadinessStatus = DomainStatus.RuntimeReadinessStatus;
 export type RuntimeReadinessSurface = "source-run" | "full-check" | "pr-check" | "package-smoke" | "gui-build";
 
 export interface RuntimeCommandContract {

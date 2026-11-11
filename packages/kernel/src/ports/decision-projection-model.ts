@@ -1,5 +1,6 @@
+import type * as Coverage from "../domain/decision-coverage.ts";
 import type { relationStates } from "../domain/relation-state.ts";
-import type { CoverageResult as VocabularyCoverageResult } from "../domain/decision-coverage.ts";
+
 import type { SessionProvenanceV1 } from "../domain/agent-runtime.ts";
 import type {
   DecisionAmendmentV1,
@@ -130,7 +131,7 @@ export interface DecisionRelationEdgeRow {
 export interface DecisionCoverageRow {
   readonly decisionRef: string;
   readonly claimRef: string;
-  readonly status: VocabularyCoverageResult["status"];
+  readonly status: Coverage.CoverageResult["status"];
   readonly covered: boolean;
   readonly fulfillment: DecisionFulfillmentMode | null;
   readonly coveringFactRef?: string;

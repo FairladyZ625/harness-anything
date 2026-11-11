@@ -1,15 +1,8 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { daemonControlPhaseWords } from "../api/renderer-dto.ts";
 import { repoCellStateWords } from "../api/renderer-dto.ts";
 import { repoRegistrationStateWords } from "../api/renderer-dto.ts";
-import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "../api/renderer-dto.ts";
-import type {
-  RepoRegistrationState as VocabularyRepoRegistrationState,
-  RepoCellState as VocabularyRepoCellState,
-  RepoLockState as VocabularyRepoLockState,
-  DaemonControlPhase as VocabularyDaemonControlPhase,
-} from "../api/renderer-dto.ts";
-import type { WriteReceiptOutcome as VocabularyWriteReceiptOutcome } from "../api/renderer-dto.ts";
-import type { ReviewResponseDisposition as VocabularyReviewResponseDisposition } from "../api/renderer-dto.ts";
+
 import type { DaemonHomeOverviewResult, DaemonTaskDispatchesPayload } from "@harness-anything/daemon/protocol";
 import type { TaskAssignmentDirectory } from "@harness-anything/daemon/protocol";
 import type { RepositoryReadFrame } from "@harness-anything/daemon/protocol";
@@ -91,7 +84,7 @@ export type {
 
 export interface TaskListSuccess extends Partial<RepositoryReadFrame> {
   readonly ok: true;
-  readonly status: VocabularyReadSetProjectionCut["status"];
+  readonly status: DomainStatus.ReadSetProjectionCut["status"];
   readonly rows: ReadonlyArray<TaskSnapshotProjectionRow>;
   readonly invalidRows: ReadonlyArray<TaskSnapshotInvalidRow>;
   readonly watermark: number;
@@ -143,7 +136,7 @@ export interface AgendaSuccess
     | "summary"
   > {
   readonly ok: true;
-  readonly status: VocabularyReadSetProjectionCut["status"];
+  readonly status: DomainStatus.ReadSetProjectionCut["status"];
   readonly page: { readonly sourceLimit: number; readonly cursor: string | null; readonly nextCursor: string | null };
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -241,15 +234,15 @@ export interface SystemRepoRow {
   /** remote-proxy 仓本机无工作区,daemon 投影为 null;视图按 mode 解释,不伪造路径。 */
   readonly canonicalRoot: string | null;
   readonly authoredBranch: string | null;
-  readonly registrationState: VocabularyRepoRegistrationState;
+  readonly registrationState: DomainStatus.RepoRegistrationState;
   /** registry v2 的模式(PLT-EdgeGUI);invalid 行回落 "local",与 daemon 投影口径一致。 */
   readonly mode: "local" | "remote-proxy" | "remote-center" | "remote-edge";
   /** 该仓挂在哪个连接下("local" 为隐含本机连接)。 */
   readonly connectionId: string;
-  readonly cellState: VocabularyRepoCellState;
+  readonly cellState: DomainStatus.RepoCellState;
   readonly generation: number | null;
   readonly queueDepth: number | null;
-  readonly lockState: VocabularyRepoLockState;
+  readonly lockState: DomainStatus.RepoLockState;
   readonly recoveryMs: number | null;
   readonly lastError: string | null;
   readonly unavailableReason: string | null;
@@ -302,10 +295,10 @@ export interface BridgeError {
 export interface DaemonControlReceipt {
   readonly schema: "daemon-control-receipt/v1";
   readonly ok: boolean;
-  readonly outcome: Extract<VocabularyWriteReceiptOutcome, "pending" | "op_rejected">;
+  readonly outcome: Extract<DomainStatus.WriteReceiptOutcome, "pending" | "op_rejected">;
   readonly kind: "refresh" | "restart";
   readonly operationId: string;
-  readonly phase: VocabularyDaemonControlPhase;
+  readonly phase: DomainStatus.DaemonControlPhase;
   readonly requestedAt: string;
   readonly completedAt: string | null;
   readonly before: DaemonPoint | null;
@@ -492,7 +485,7 @@ export const harnessClient = {
       readonly responses: ReadonlyArray<{
         readonly reviewId: string;
         readonly findingId: string;
-        readonly disposition: VocabularyReviewResponseDisposition;
+        readonly disposition: DomainStatus.ReviewResponseDisposition;
         readonly rationale: string;
         readonly amendmentRef: string | null;
       }>;

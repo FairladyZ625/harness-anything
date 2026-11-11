@@ -1,4 +1,4 @@
-import type { DispatchActivityStatus as VocabularyDispatchActivityStatus } from "../../api/renderer-dto.ts";
+import type * as DomainStatus from "../../api/renderer-dto.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
 import type { AgentRuntimeSessionDto, TaskDeliveryStage } from "@harness-anything/daemon/protocol";
 import type { AgendaAwaitsRow, TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
@@ -17,7 +17,7 @@ export interface LiveFloorRow {
   readonly model: string | null;
   readonly startedAt: string | null;
   /** daemon 派工行的活动判定;null = 旧 daemon 没有该投影。 */
-  readonly activityStatus: VocabularyDispatchActivityStatus | null;
+  readonly activityStatus: DomainStatus.DispatchActivityStatus | null;
   readonly activityObservedAt: string | null;
   readonly activityIdleMinutes: number | null;
   readonly dispatch: TaskDispatchProjectionRow | null;

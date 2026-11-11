@@ -1,5 +1,5 @@
-import type { RuntimeSession as VocabularyRuntimeSession } from "../domain/agent-runtime.ts";
-import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "../domain/task-read-set.ts";
+import type * as RuntimeDomain from "../domain/agent-runtime.ts";
+import type * as ReadSet from "../domain/task-read-set.ts";
 import type { ArtifactEntityState } from "../domain/artifact-entity-state.ts";
 import type { EventListQuery, EventListPage } from "../domain/event-list.ts";
 import type { SettingsEventV1 } from "../domain/settings-event.ts";
@@ -120,7 +120,7 @@ export interface RuntimeDispatchProjectionRow {
   readonly event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
   readonly metrics: RuntimeDispatchMetrics | null;
   readonly endedAt: string | null;
-  readonly outcome: VocabularyRuntimeSession["outcome"];
+  readonly outcome: RuntimeDomain.RuntimeSession["outcome"];
 }
 export interface RuntimeDispatchPage {
   readonly rows: readonly RuntimeDispatchProjectionRow[];
@@ -156,7 +156,7 @@ export interface TaskProjection {
   readonly catchUpAsync?: () => Promise<ProjectionCatchUpReceipt>;
   readonly readStateDigest: () => `sha256:${string}` | null;
   readonly readCut: () => {
-    readonly status: VocabularyReadSetProjectionCut["status"];
+    readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly watermark: number;
     readonly sourceRevision: number;
   };
@@ -203,7 +203,7 @@ export interface TaskProjection {
     narrow?: boolean,
   ) => TaskRelationProjectionRead;
   readonly readTaskStatuses: (taskIds?: readonly string[]) => {
-    readonly status: VocabularyReadSetProjectionCut["status"];
+    readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly rows: readonly { readonly taskId: string; readonly status: string | null }[];
     readonly watermark: number;
     readonly sourceRevision: number;
@@ -307,7 +307,7 @@ export interface TaskProjection {
     /** Header-only projection for aggregate tails; omitted reads return the canonical summary. */
     fields?: "fleet" | { readonly taskIds: readonly string[] },
   ) => {
-    readonly status: VocabularyReadSetProjectionCut["status"];
+    readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];
     /** Present for the newest task-scoped window. */
     readonly hasMore?: boolean;
@@ -321,7 +321,7 @@ export interface TaskProjection {
     prefix: string,
     page?: { readonly limit: number; readonly afterPath?: string },
   ) => {
-    readonly status: VocabularyReadSetProjectionCut["status"];
+    readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly documents: readonly {
       readonly path: string;
       readonly blobSha256: string;
@@ -342,13 +342,13 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
   ) => {
-    readonly status: VocabularyReadSetProjectionCut["status"];
+    readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly CanonicalEventV1[];
     readonly watermark: number;
     readonly sourceRevision: number;
   };
   readonly readScheduleEvents: (scheduleId?: string) => {
-    readonly status: VocabularyReadSetProjectionCut["status"];
+    readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly CanonicalEventV1[];
     readonly watermark: number;
     readonly sourceRevision: number;

@@ -1,4 +1,4 @@
-import type { ObservationStatus as VocabularyObservationStatus } from "@harness-anything/kernel/internal/domain/operational-status.ts";
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import path from "node:path";
 import type { SummaryOptions } from "./probe-options.ts";
 import { readDaemonLogHistory, type AvailabilityEvidence } from "./probe-log-history.ts";
@@ -17,7 +17,7 @@ export interface TimelineCapture {
 }
 
 export interface TimelineSummary {
-  readonly status: VocabularyObservationStatus;
+  readonly status: OperationalStatus.ObservationStatus;
   readonly samples: number;
   readonly up: number;
   readonly slow: number;

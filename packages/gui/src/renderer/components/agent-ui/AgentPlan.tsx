@@ -1,7 +1,4 @@
-import type {
-  AgentPlanStepStatus as VocabularyAgentPlanStepStatus,
-  AgentPlanPhase as VocabularyAgentPlanPhase,
-} from "../../../api/renderer-dto.ts";
+import type * as DomainStatus from "../../../api/renderer-dto.ts";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
@@ -38,7 +35,7 @@ import { steerNoteLayoutId, type SteerNote } from "./AgentSteering.tsx";
  * (attributes/listeners 必须原地展开,Button 不透传),保留原生 button 并在此说明。
  */
 
-export type PlanStepStatus = VocabularyAgentPlanStepStatus;
+export type PlanStepStatus = DomainStatus.AgentPlanStepStatus;
 
 export interface PlanStep {
   readonly id: string;
@@ -271,7 +268,7 @@ export function AgentPlan({
 }: {
   readonly steps: readonly PlanStep[];
   /** editing=运行前(可重命名/调序/增删);running=运行中(计时/重试)。 */
-  readonly phase: VocabularyAgentPlanPhase;
+  readonly phase: DomainStatus.AgentPlanPhase;
   /** 测试注入的基准时间;给出时不建 interval。 */
   readonly nowMs?: number;
   readonly onRename?: (id: string, title: string) => void;

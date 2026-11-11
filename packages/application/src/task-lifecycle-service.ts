@@ -1,4 +1,4 @@
-import type { ReadSetProjectionCut as VocabularyReadSetProjectionCut } from "@harness-anything/kernel/internal/domain/task-read-set.ts";
+import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { createTaskEvent } from "@harness-anything/kernel";
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
 import {
@@ -33,7 +33,7 @@ export class TaskLifecycleOperationConflict extends Error {
 }
 export type TaskLifecycleKillpoint = "after_store_commit" | "before_response_write" | "after_response_write";
 export interface TaskLifecycleServiceRead {
-  readonly status: VocabularyReadSetProjectionCut["status"];
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly snapshot: TaskLifecycleSnapshot;
   readonly packagePath: string | null;
   readonly watermark: number;

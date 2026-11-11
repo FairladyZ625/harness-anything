@@ -5,20 +5,8 @@ import type {
   GuiSubmissionV1,
 } from "@harness-anything/daemon/protocol";
 export { guiQueryPacing } from "@harness-anything/kernel/browser";
-export type {
-  Todo,
-  ContractVersion,
-  DecisionProjectionRow,
-  ProjectionWarning,
-  RelationType,
-  RelationDirection,
-  RelationState,
-  FactProjectionRow,
-  FactAnchorRow,
-  RelationFactRow,
-  RelationGraphEdgeRow,
-  FreshnessReason,
-} from "@harness-anything/kernel/browser";
+export type * from "@harness-anything/kernel/browser";
+export type { RelationDirection, RelationState } from "@harness-anything/kernel/browser";
 /**
  * The coverage row the daemon read actually serves: the kernel projection row plus
  * the optional uncovered-cause classification (kernel `freshnessReasonOf`) attached
@@ -83,55 +71,7 @@ export type GuiBridgeMethod =
   | (typeof import("@harness-anything/daemon/protocol").daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
   | (typeof import("@harness-anything/daemon/protocol").daemonGuiStreamFacets)[number]["guiBridgeMethod"];
 export type { GuiSubmissionV1 };
-export type {
-  RepoRegistrationState,
-  UpdateCheckState,
-  UpdateArtifactState,
-  RuntimeReadinessStatus,
-  SupplyChainReadinessStatus,
-  WriteReceiptOutcome,
-  ReadSetProjectionCut,
-  RepoCellState,
-  RepoLockState,
-  DaemonControlPhase,
-  ReviewResponseDisposition,
-  AnswerFeedbackState,
-  CadenceFeedStatus,
-  BlockingAvailabilityState,
-  DegradedEntityState,
-  AgentPlanStepStatus,
-  AgentPlanPhase,
-  SteerNoteState,
-  ApprovalVerdict,
-  PromptCacheTtlState,
-  AttentionState,
-  ConnectionVisualState,
-  BindingCoverageState,
-  RuntimeLiveness,
-  ObserveTailStatus,
-  DaemonStartupPhase,
-  MutationFeedbackState,
-  CatalogReadState,
-  EntityContentOutcome,
-  EntityWriteState,
-  EntityLocatorReadOutcome,
-  CloseoutGateStatus,
-  DaemonHealthState,
-  ScheduleVerdict,
-  SessionVerdict,
-  ReviewVerdict,
-  ProjectionFreshness,
-  RuntimeIsolationState,
-  ToolCallStatus,
-  TranscriptPlanStepStatus,
-  SteeringEntryStatus,
-  TranscriptTurnStatus,
-  StartWorkPreconditionState,
-  TerminalAttachStatus,
-  TerminalTabState,
-  TerminalRestartState,
-  DispatchActivityStatus,
-} from "@harness-anything/kernel/browser";
+
 export {
   daemonControlPhaseWords,
   repoCellStateWords,

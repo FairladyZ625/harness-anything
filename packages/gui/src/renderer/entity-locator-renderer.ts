@@ -1,4 +1,4 @@
-import type { EntityLocatorReadOutcome as VocabularyEntityLocatorReadOutcome } from "../api/renderer-dto.ts";
+import type * as DomainStatus from "../api/renderer-dto.ts";
 /**
  * 实体 locator → 渲染器的**唯一**选择表(task_0df76ed3fb 设计页 §2)。
  *
@@ -12,7 +12,7 @@ import type { EntityLocatorReadOutcome as VocabularyEntityLocatorReadOutcome } f
 export type EntityLocatorRenderer = "markdown" | "html" | "pdf" | "directory" | "opaque";
 
 /** 读面对一个 locator 的判定,与 `entity-locator-read/v1` 的 outcome 同词表。 */
-export type EntityLocatorReadOutcome = VocabularyEntityLocatorReadOutcome;
+export type EntityLocatorReadOutcome = DomainStatus.EntityLocatorReadOutcome;
 
 export interface EntityLocator {
   /** kernel artifactLocatorKinds: repository-path / url / external-key。 */
