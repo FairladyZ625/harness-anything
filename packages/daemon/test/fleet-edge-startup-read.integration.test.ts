@@ -142,7 +142,6 @@ test(
     });
     assert.ok(hello.result, JSON.stringify(hello));
     t.diagnostic(`hello=${JSON.stringify(hello)}`);
-    const { schema: _schema, ...payload } = e.config;
     const read = async (phase: string, iteration: number) => {
       assert.equal(settled, phase === "settled");
       assert.equal(
@@ -150,12 +149,13 @@ test(
         phase === "settled" ? "attached" : "warming",
       );
       assert.equal(locateFleetMirrorView(e.viewRoot, e.config.repoId, e.config.nodeId), null);
-      const envelope = await request("daemon.fleet.task.run", {
-        payload: { ...payload, action: { kind: "task-list" } },
+      const envelope = await request("repo.task.read", {
+        repo: { repoId: payload.repoId },
+        payload: { action: { kind: "task-list" } },
       });
       const health = readReplicaHealth(path.join(e.viewRoot, "repos", e.config.repoId, "views", e.config.nodeId));
       t.diagnostic(
-        `sample=${JSON.stringify({ phase, iteration, attachmentSettled: settled, method: "daemon.fleet.task.run", health, envelope })}`,
+        `sample=${JSON.stringify({ phase, iteration, attachmentSettled: settled, method: "repo.task.read", health, envelope })}`,
       );
       if (phase === "opening") assert.equal(health.syncFailure, null, "resident sync starts after attachment");
       assert.equal(envelope.jsonrpc, "2.0");

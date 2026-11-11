@@ -2,7 +2,6 @@ import { presetMethods } from "@harness-anything/preset/internal/preset-command-
 import type { ContractVersion } from "@harness-anything/kernel/contract-version";
 import { currentDaemonProtocolVersion } from "./daemon-protocol-identifiers.ts";
 export { currentDaemonProtocolVersion } from "./daemon-protocol-identifiers.ts";
-import type { FleetTaskAction } from "../fleet/command-protocol.ts";
 import { daemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
 import {
   daemonGuiActionMethods,
@@ -116,52 +115,6 @@ type DescriptorParams<Method extends DaemonRpcMethod, Descriptor = DaemonRpcDesc
     : never
   : never;
 
-type DaemonFleetChannelPayload = {
-  readonly host: string;
-  readonly port: number;
-  readonly caPath: string;
-  readonly servername?: string;
-  readonly nodeId: string;
-  readonly credential: string;
-  readonly repoId: string;
-  readonly viewRoot: string;
-  readonly quotaBytes: number;
-};
-export type DaemonFleetTaskAction = FleetTaskAction;
-type DaemonFleetTaskPayload = DaemonFleetChannelPayload & {
-  readonly workspaceRoot?: string;
-  readonly waitTimeoutMs?: number;
-  readonly maxAgeMs?: number;
-  readonly maxLagRevisions?: number;
-  readonly action:
-    | DaemonFleetTaskAction
-    | {
-        readonly kind: "fleet-runtime";
-        readonly method:
-          | "repo.squad.control"
-          | "repo.agentRuntime.spawn"
-          | "repo.agentRuntime.cancel"
-          | "repo.agentRuntime.steer"
-          | "repo.agentRuntime.handoff"
-          | "repo.agentRuntime.overview"
-          | "repo.agentRuntime.sessions.await"
-          | "repo.agentRuntime.sessions.read";
-        readonly payload: JsonObject;
-      }
-    | { readonly kind: "fleet-schedule"; readonly payload: JsonObject };
-};
-type DaemonFleetDocSyncPayload = DaemonFleetChannelPayload & {
-  readonly workspaceRoot: string;
-  readonly dryRun?: boolean;
-  readonly paths?: readonly string[];
-  readonly timeoutMs?: number;
-};
-type DaemonFleetConflictExitPayload = DaemonFleetChannelPayload & {
-  readonly workspaceRoot: string;
-  readonly action: "resolve" | "discard-local" | "overwrite-center";
-  readonly conflictId: string;
-};
-
 type DaemonRpcParamOverrides = {
   readonly "protocol.hello": {
     readonly protocolVersion: ContractVersion;
@@ -180,9 +133,6 @@ type DaemonRpcParamOverrides = {
     readonly outputCapTokens?: number;
     readonly codeRun?: boolean;
   };
-  readonly "daemon.fleet.task.run": { readonly payload: DaemonFleetTaskPayload };
-  readonly "daemon.fleet.doc.sync": { readonly payload: DaemonFleetDocSyncPayload };
-  readonly "daemon.fleet.conflict.exit": { readonly payload: DaemonFleetConflictExitPayload };
 };
 
 type RepoRpcParams<Payload> = {

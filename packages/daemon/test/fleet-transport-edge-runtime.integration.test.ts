@@ -1085,7 +1085,7 @@ test(
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-      get request() {
+      resolveLocation() {
         return resolveRuntimeLocation(userRoot, repoId);
       },
       daemonGeneration: 1,
@@ -1191,7 +1191,7 @@ test(
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-      request: {
+      resolveLocation: () => ({
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
@@ -1203,7 +1203,7 @@ test(
         workspaceRoot,
         method: "repo.agentRuntime.spawn",
         action: {},
-      },
+      }),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(fixture.root, "paged-runtime-user"),

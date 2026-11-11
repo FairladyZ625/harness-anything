@@ -241,7 +241,7 @@ export function createFleetEdgeRuntimeWorkQueue(onError: (error: unknown) => voi
 }
 
 export function openFleetEdgeRuntime(input: {
-  readonly request: FleetRuntimeLocation;
+  readonly resolveLocation: () => FleetRuntimeLocation;
   readonly readAccessToken: (request: FleetRuntimeLocation) => Promise<string | undefined>;
   readonly readBinding: (request?: FleetRuntimeLocation) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
   /** Binding for controls and launches; offline replica identity is valid for reads only. */
@@ -261,7 +261,7 @@ export function openFleetEdgeRuntime(input: {
     now = input.now ?? (() => new Date().toISOString()),
     stream = { publish: () => ({}) as never };
   const context = () => {
-    const request = input.request;
+    const request = input.resolveLocation();
     return runtimeForwardingContext(request, () => input.readAccessToken(request));
   };
   const readSettings = () => {
@@ -505,14 +505,14 @@ export function openFleetEdgeRuntime(input: {
   };
   const spawner = makeRuntimeSpawner({
     get repoId() {
-      return input.request.repoId;
+      return input.resolveLocation().repoId;
     },
     get rootDir() {
-      return input.request.workspaceRoot;
+      return input.resolveLocation().workspaceRoot;
     },
     daemonGeneration: input.daemonGeneration,
     get runtimeNode() {
-      return { nodeId: input.request.nodeId };
+      return { nodeId: input.resolveLocation().nodeId };
     },
     runtimeDaemonRoute: input.daemonRoute,
     remote: {
@@ -814,9 +814,9 @@ export function openFleetEdgeRuntime(input: {
         };
       },
       readRuntimeSession: (runtimeSessionId) =>
-        readRuntimeProjection(input.request, (projection) => projection.readRuntimeSession(runtimeSessionId)),
+        readRuntimeProjection(input.resolveLocation(), (projection) => projection.readRuntimeSession(runtimeSessionId)),
       readRuntimeSessions: async (query) => {
-        const request = input.request;
+        const request = input.resolveLocation();
         if (query?.unsettledOnly || query?.runtimeSessionId !== undefined || query?.providerSessionId !== undefined)
           return readRuntimeProjection(request, (projection) => readEdgeRuntimeSessions(projection, query));
         return readFleetRuntimeSessionsPaged((payload) =>
@@ -834,11 +834,11 @@ export function openFleetEdgeRuntime(input: {
         );
       },
       readDispatchLifecycle: (query) =>
-        readRuntimeProjection(input.request, (projection, frame) =>
+        readRuntimeProjection(input.resolveLocation(), (projection, frame) =>
           readEdgeDispatchLifecycle(projection, frame, query),
         ),
       readRuntimeDispatch: (runtimeSessionId) =>
-        readRuntimeProjection(input.request, (projection) =>
+        readRuntimeProjection(input.resolveLocation(), (projection) =>
           readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId),
         ),
       publish: async (draft) => {
@@ -1094,7 +1094,7 @@ export function openFleetEdgeRuntime(input: {
   });
   const squad = makeFleetSquadCoordinator({
     get request() {
-      return input.request;
+      return input.resolveLocation();
     },
     get peer() {
       return context().writePeer;

@@ -55,7 +55,7 @@ test(
       readBinding: () => fixture.owners.binding("node-one"),
       readAccessToken: fixture.owners.readAccessToken("node-one"),
       controlBinding: () => fixture.owners.binding("node-one"),
-      request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
+      resolveLocation: () => ({ ...config, method: "repo.agentRuntime.spawn", action: {} }),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(fixture.root, "edge-user"),
@@ -260,7 +260,7 @@ test(
           readBinding: () => fixture.owners.binding(nodeId),
           readAccessToken: fixture.owners.readAccessToken(nodeId),
           controlBinding: () => fixture.owners.binding(nodeId),
-          request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
+          resolveLocation: () => ({ ...config, method: "repo.agentRuntime.spawn", action: {} }),
           daemonGeneration: 1,
           daemonRoute: {
             userRoot: daemonRoot,
@@ -477,7 +477,7 @@ test(
       readBinding: () => fixture.owners.binding("node-one"),
       readAccessToken: fixture.owners.readAccessToken("node-one"),
       controlBinding: () => fixture.owners.binding("node-one"),
-      request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
+      resolveLocation: () => ({ ...config, method: "repo.agentRuntime.spawn", action: {} }),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(fixture.root, "edge-user"),

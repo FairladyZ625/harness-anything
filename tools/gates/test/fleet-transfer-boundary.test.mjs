@@ -6,7 +6,6 @@ import path from "node:path";
 import test from "node:test";
 import {
   checkFleetTransferBoundary,
-  checkForwardingBaselineFreshness,
   forwardingSources,
   findFleetForwardingBypasses,
   findFleetTransferBypasses,
@@ -14,7 +13,6 @@ import {
 
 test("Fleet production paths use the unified transfer boundary", () => {
   assert.deepEqual(checkFleetTransferBoundary(process.cwd()), []);
-  assert.deepEqual(checkForwardingBaselineFreshness(process.cwd()), []);
 });
 
 test("the negative direct large reply fixture is rejected", () => {
@@ -88,29 +86,24 @@ test("the full checker rejects forwarding construction in an unregistered CLI fi
     writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
     const errors = checkFleetTransferBoundary(root);
     assert.deepEqual(errors, [
-      "packages/cli/src/daemon/new-forwarding-callsite.ts#<module>: fleetRequestEnvelope count 1 exceeds ratchet baseline 0",
+      "packages/cli/src/daemon/new-forwarding-callsite.ts:1: forwarding construction fleetRequestEnvelope is outside ForwardingPort",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("the full checker rejects a stale baseline that still allows a removed construction", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "fleet-forwarding-stale-baseline-"));
-  try {
-    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
-    writeFileSync(path.join(root, "packages/daemon/src/daemon-host-repository-api.ts"), "export {};\n");
-    assert.deepEqual(checkFleetTransferBoundary(root), []);
-    const control = path.join(root, "packages/cli/src/daemon/control.ts");
-    mkdirSync(path.dirname(control), { recursive: true });
-    writeFileSync(control, "export {};\n");
-    assert.deepEqual(checkForwardingBaselineFreshness(root), [
-      "packages/cli/src/daemon/control.ts#flag: readFleetEdgeConfig " +
-        "count 0 is below ratchet baseline 1; lower the baseline",
-    ]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+// dec_2C49A4516E540906721AF01840: local and ingress responsibilities have no forwarding exemption.
+test("the zero-baseline gate distinguishes local reads, authorization, types and ingress replies", () => {
+  const source = `
+    type Frame = { kind: "fleet-runtime"; payload: JsonObject };
+    function replica(root) { const config = readFleetEdgeConfig(root); return readEdgeRepository(config); }
+    function binding(auth) { return { keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } }; }
+    function ingress(frame) { return immediate({ schema: "fleet.runtime.event.result/v1", receipt: frame }); }
+    function local(fromFile) { if (fromFile) return workspaceText(root, fromFile); }
+  `;
+  for (const file of ["packages/daemon/src/local.ts", "packages/cli/src/daemon/local.ts"])
+    assert.deepEqual(findFleetForwardingBypasses(source, file), []);
 });
 
 test("the full checker applies zero allowance to new CLI and daemon forwarding sources", () => {
@@ -146,7 +139,7 @@ test("the full checker applies zero allowance to new CLI and daemon forwarding s
     const errors = checkFleetTransferBoundary(root);
     assert.deepEqual(
       errors
-        .map((error) => error.match(/: ([A-Za-z][A-Za-z0-9]+) count/u)?.[1])
+        .map((error) => error.match(/forwarding construction ([A-Za-z][A-Za-z0-9]+)/u)?.[1])
         .filter(Boolean)
         .sort(),
       [
@@ -245,6 +238,15 @@ test("an unregistered CLI or daemon production source has zero allowance", () =>
     1,
   );
   assert.equal(forwardingSources(process.cwd()).includes("packages/cli/src/daemon/client.ts"), true);
+});
+
+test("wire requests can only be encoded by the Fleet peer transport", () => {
+  const source = 'session.request({ schema: "fleet.task.command/v1", action });';
+  assert.deepEqual(findFleetForwardingBypasses(source, "packages/daemon/src/fleet/peer.ts"), []);
+  assert.equal(
+    findFleetForwardingBypasses(source, "packages/cli/src/daemon/route.ts")[0]?.fingerprint,
+    "fleetRequestEnvelope",
+  );
 });
 
 test("the forwarding boundary permits the serializer and forwarding port", () => {

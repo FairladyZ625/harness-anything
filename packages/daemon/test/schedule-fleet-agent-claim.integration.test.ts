@@ -165,7 +165,7 @@ test(
         readBinding: () => owners.binding(subject.nodeId),
         readAccessToken: owners.readAccessToken(subject.nodeId),
         controlBinding: () => owners.binding(subject.nodeId),
-        request: {
+        resolveLocation: () => ({
           host: "127.0.0.1",
           port: center.port,
           caPath: certFile,
@@ -178,7 +178,7 @@ test(
           workspaceRoot,
           method: "repo.schedule.run",
           action: {},
-        },
+        }),
         daemonGeneration: 1,
         daemonRoute: {
           userRoot: path.join(root, "edge-user"),

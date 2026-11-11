@@ -103,7 +103,7 @@ for (const restart of [false, true])
         readBinding: () => fixture.owners.binding(subject.nodeId),
         readAccessToken: fixture.owners.readAccessToken(subject.nodeId),
         controlBinding: () => fixture.owners.binding(subject.nodeId),
-        request: {
+        resolveLocation: () => ({
           host: "127.0.0.1",
           port: center.port,
           caPath: fixture.certFile,
@@ -116,7 +116,7 @@ for (const restart of [false, true])
           workspaceRoot,
           method: "repo.schedule.run",
           action: {},
-        },
+        }),
         daemonGeneration: 1,
         daemonRoute: {
           userRoot: path.join(fixture.root, "schedule-user"),

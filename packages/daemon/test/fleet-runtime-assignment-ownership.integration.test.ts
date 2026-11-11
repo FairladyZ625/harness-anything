@@ -116,7 +116,7 @@ for (const distinctNode of [false, true])
             readBinding: () => fixture.owners.binding(subject.nodeId),
             readAccessToken: fixture.owners.readAccessToken(subject.nodeId),
             controlBinding: () => fixture.owners.binding(subject.nodeId),
-            request: {
+            resolveLocation: () => ({
               host: "127.0.0.1",
               port: center.port,
               caPath: fixture.certFile,
@@ -128,7 +128,7 @@ for (const distinctNode of [false, true])
               workspaceRoot,
               method: "repo.agentRuntime.spawn",
               action: {},
-            },
+            }),
             daemonGeneration: 1,
             daemonRoute: {
               userRoot: path.join(fixture.root, "edge-user"),

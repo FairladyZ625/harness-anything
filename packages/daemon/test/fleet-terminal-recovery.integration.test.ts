@@ -54,7 +54,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 12
     readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
     readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
     controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-    request: {
+    resolveLocation: () => ({
       host: "127.0.0.1",
       port: center.port,
       caPath: fixture.certFile,
@@ -66,7 +66,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 12
       workspaceRoot,
       method: "repo.agentRuntime.spawn",
       action: {},
-    },
+    }),
     daemonGeneration: 1,
     daemonRoute: {
       userRoot: path.join(fixture.root, "settlement-user"),
@@ -231,7 +231,7 @@ for (const restart of [false, true])
           readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
           readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
           controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-          request: {
+          resolveLocation: () => ({
             host: "127.0.0.1",
             port: center.port,
             caPath: fixture.certFile,
@@ -243,7 +243,7 @@ for (const restart of [false, true])
             workspaceRoot,
             method: "repo.agentRuntime.spawn",
             action: {},
-          },
+          }),
           daemonGeneration: 1,
           daemonRoute: {
             userRoot: path.join(fixture.root, "settlement-user"),

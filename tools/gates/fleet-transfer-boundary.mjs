@@ -1,13 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { fleetForwardingBoundaryBaseline } from "../gate-allowlists/fleet-forwarding-boundary-baseline.mjs";
+import ts from "typescript";
 
 const FLEET_ROOT = "packages/daemon/src/fleet";
 const FORWARDING_ROOTS = Object.freeze(["packages/cli/src/daemon", "packages/daemon/src"]);
 const FORWARDING_BOUNDARY_SOURCES = new Set([
   "packages/cli/src/daemon/fleet-payload-serializer.ts",
-  "packages/cli/src/daemon/forwarding-port.ts",
   "packages/daemon/src/fleet/forwarding-port.ts",
 ]);
 
@@ -167,63 +166,87 @@ export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
   return violations;
 }
 
-/** Scan the forwarding construction inventory; production counts are ratcheted against baseline. */
+/** dec_2C49A4516E540906721AF01840: zero allowance for command forwarding construction.
+ * Inspect expressions and their use, not shared words in local authorization, replica reads or types.
+ * Fleet frames passed to the peer session are wire encoding; results are ingress/receipt values.
+ */
 export function findFleetForwardingBypasses(sourceText, fileName = "inline.ts") {
   const file = portablePath(fileName);
   if (FORWARDING_BOUNDARY_SOURCES.has(file)) return [];
   const source = String(sourceText),
-    patterns = [
-      ["edgeRuntimeFor", /\bedgeRuntimeFor\s*\(/gu],
-      ["readFleetEdgeConfig", /\breadFleetEdgeConfig\s*\(/gu],
-      [
-        "directFleetEdgeFileRead",
-        /\b(?:readFileSync|readFile)\s*\([^;\n]{0,180}fleet-edge\.json|fleet-edge\.json[^;\n]{0,180}\b(?:readFileSync|readFile)\s*\(/gu,
-      ],
-      ["fromFileSpecialCase", /\bif\s*\([^)]*\bfromFile\b[^)]*\)/gu],
-      ["bodyFileSpecialCase", /\bif\s*\([^)]*\bbodyFile\b[^)]*\)/gu],
-      ["idsFileSpecialCase", /\bif\s*\([^)]*\bidsFile\b[^)]*\)/gu],
-      ["fileInputConditional", /\b(?:fromFile|bodyFile|idsFile)\b\s*\?/gu],
-      [
-        "fleetRequestEnvelope",
-        /(?:=\s*\{|\breturn\s*\{|\b(?:request|send|call|post)\s*\(\s*\{)[^{}]{0,1000}?\bschema\s*:\s*["']fleet\.(?:task|doc|runtime|schedule)\.[^"']+["']|\bkind\s*:\s*["']fleet-(?:task|doc|runtime|schedule)["']/gu,
-      ],
-      [
-        "fleetMethodByDiscriminant",
-        /\b(?:action|command)(?:\.action)?\.kind\b[\s\S]{0,300}?\b(?:fleet[.-](?:task|doc|runtime|schedule)|fleet\.(?:task|doc|runtime|schedule)\.)/gu,
-      ],
-      [
-        "forwardingCredentialAssembly",
-        /\b(?:credential|accessToken|keycloakAuthorization|executionCredential)\s*:\s*[^,\n;}]*?(?:\.(?:credential|accessToken|keycloakAuthorization)|executor|principal)/gu,
-      ],
-    ];
-  return patterns.flatMap(([fingerprint, pattern]) =>
-    [...source.matchAll(pattern)].map((match) => {
-      const offset = match.index + (fingerprint === "fleetRequestEnvelope" ? match[0].lastIndexOf("schema") : 0);
-      return {
-        file,
-        line: lineNumber(source, offset),
-        symbol: symbolAt(source, offset),
-        fingerprint,
-        reason: `forwarding construction ${fingerprint} is outside ForwardingPort`,
-      };
-    }),
-  );
-}
-
-function symbolAt(source, index) {
-  const prefix = source.slice(0, index),
-    keywords = new Set(["if", "for", "while", "switch", "catch", "return", "throw", "try"]),
-    declarations = [
-      ...prefix.matchAll(/\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gu),
-      ...prefix.matchAll(
-        /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/gu,
-      ),
-      ...prefix.matchAll(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^;\n{}]*\)\s*(?::[^\n{}]+)?\{/gmu),
-    ]
-      .filter((match) => !keywords.has(match[1]))
-      .sort((left, right) => left.index - right.index),
-    name = declarations.at(-1)?.[1];
-  return name ?? "<module>";
+    tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true),
+    violations = [];
+  const add = (node, fingerprint) =>
+    violations.push({
+      file,
+      line: lineNumber(source, node.getStart(tree)),
+      fingerprint,
+      reason: `forwarding construction ${fingerprint} is outside ForwardingPort`,
+    });
+  const name = (node) => node.name?.getText(tree).replace(/^["']|["']$/gu, "");
+  const scope = (node) => {
+    let parent = node.parent;
+    while (parent && !ts.isFunctionLike(parent) && !ts.isSourceFile(parent)) parent = parent.parent;
+    return parent?.getText(tree) ?? source;
+  };
+  const forwardingUse = (node) =>
+    /\b(?:payload\s*\.\s*action\s*=|runFleet(?:Task|Schedule|Runtime|Write)[A-Za-z]*Client\s*\(|forward\s*\(|edgeRuntimeFor\s*\(|fleet[.-](?:task|doc|runtime|schedule))/u.test(
+      scope(node),
+    );
+  const visit = (node) => {
+    if (ts.isTypeNode(node) || ts.isInterfaceDeclaration(node) || ts.isImportDeclaration(node)) return;
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression.getText(tree);
+      if (callee === "edgeRuntimeFor") add(node, "edgeRuntimeFor");
+      if (callee === "readFleetEdgeConfig" && forwardingUse(node)) add(node, "readFleetEdgeConfig");
+      if (/^(?:readFileSync|readFile)$/u.test(callee) && /fleet-edge\.json/u.test(node.getText(tree)))
+        add(node, "directFleetEdgeFileRead");
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      const properties = new Map(node.properties.map((property) => [name(property), property])),
+        kind = properties.get("kind"),
+        schema = properties.get("schema"),
+        wireCall =
+          file === `${FLEET_ROOT}/peer.ts` &&
+          ts.isCallExpression(node.parent) &&
+          node.parent.expression.getText(tree) === "session.request";
+      if (
+        kind &&
+        ts.isPropertyAssignment(kind) &&
+        /^fleet-(?:task|doc|runtime|schedule)$/u.test(kind.initializer.text ?? "")
+      )
+        add(kind, "fleetRequestEnvelope");
+      if (
+        schema &&
+        ts.isPropertyAssignment(schema) &&
+        /^fleet\.(?:task|doc|runtime|schedule)\.(?![^/]*result\/)[^/]+\/v\d+$/u.test(schema.initializer.text ?? "") &&
+        !wireCall
+      )
+        add(schema, "fleetRequestEnvelope");
+      // A node credential combined with a person/execution token is a forwarding identity envelope.
+      // A local principal/session binding or a node join response alone is not one.
+      if (
+        properties.has("credential") &&
+        ["accessToken", "executionCredential", "keycloakAuthorization"].some((key) => properties.has(key))
+      )
+        add(node, "forwardingCredentialAssembly");
+    }
+    if ((ts.isIfStatement(node) || ts.isConditionalExpression(node)) && forwardingUse(node)) {
+      const condition = node.expression ?? node.condition;
+      for (const field of ["fromFile", "bodyFile", "idsFile"])
+        if (new RegExp(`\\b${field}\\b`, "u").test(condition.getText(tree)))
+          add(node, ts.isIfStatement(node) ? `${field}SpecialCase` : "fileInputConditional");
+    }
+    if (
+      ts.isConditionalExpression(node) &&
+      /(?:action|command)(?:\.action)?\.kind/u.test(node.condition.getText(tree)) &&
+      /fleet[.-](?:task|doc|runtime|schedule)/u.test(node.getText(tree))
+    )
+      add(node, "fleetMethodByDiscriminant");
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return violations;
 }
 
 export function checkFleetTransferBoundary(rootDir) {
@@ -243,50 +266,15 @@ export function checkFleetTransferBoundary(rootDir) {
     for (const violation of findFleetTransferBypasses(source, relative))
       errors.push(`${violation.file}:${violation.line}: ${violation.reason}`);
   }
-  for (const relative of forwardingSources(rootDir)) {
-    const source = readFileSync(path.join(rootDir, relative), "utf8"),
-      violations = findFleetForwardingBypasses(source, relative),
-      counts = new Map();
-    for (const violation of violations) {
-      const key = `${violation.symbol}\0${violation.fingerprint}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    for (const [key, count] of counts) {
-      const [symbol, fingerprint] = key.split("\0"),
-        allowed = fleetForwardingBoundaryBaseline[relative]?.[symbol]?.[fingerprint] ?? 0;
-      if (count > allowed)
-        errors.push(`${relative}#${symbol}: ${fingerprint} count ${count} exceeds ratchet baseline ${allowed}`);
-    }
-  }
-  return errors;
-}
-
-/** Baseline entries are exact, not ceilings: a removed construction must lower its entry in the same
- * change, otherwise the old judgment can be reintroduced without a gate failure. */
-export function checkForwardingBaselineFreshness(rootDir) {
-  const errors = [];
-  for (const relative of forwardingSources(rootDir)) {
-    const violations = findFleetForwardingBypasses(readFileSync(path.join(rootDir, relative), "utf8"), relative),
-      counts = new Map();
-    for (const violation of violations) {
-      const key = `${violation.symbol}\0${violation.fingerprint}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    for (const [symbol, fingerprints] of Object.entries(fleetForwardingBoundaryBaseline[relative] ?? {}))
-      for (const [fingerprint, allowed] of Object.entries(fingerprints)) {
-        const count = counts.get(`${symbol}\0${fingerprint}`) ?? 0;
-        if (count < allowed)
-          errors.push(
-            `${relative}#${symbol}: ${fingerprint} count ${count} is below ratchet baseline ${allowed}; lower the baseline`,
-          );
-      }
-  }
+  for (const relative of forwardingSources(rootDir))
+    for (const violation of findFleetForwardingBypasses(readFileSync(path.join(rootDir, relative), "utf8"), relative))
+      errors.push(`${violation.file}:${violation.line}: ${violation.reason}`);
   return errors;
 }
 
 async function main() {
   if (!process.argv.includes("--check")) throw new Error("usage: node tools/gates/fleet-transfer-boundary.mjs --check");
-  const errors = [...checkFleetTransferBoundary(process.cwd()), ...checkForwardingBaselineFreshness(process.cwd())];
+  const errors = checkFleetTransferBoundary(process.cwd());
   if (errors.length) {
     console.error(errors.join("\n"));
     process.exitCode = 1;

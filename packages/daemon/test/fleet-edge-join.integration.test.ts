@@ -383,21 +383,13 @@ test(
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
     // This edge joined a different center/node than the fixture's pre-join defaults. Use the
     // accepted workspace config, so the positive control reaches its actual resident replica.
-    const {
-      loginUrl: _loginUrl,
-      loginRealm: _loginRealm,
-      loginServername: _loginServername,
-      loginBrowserUrl: _loginBrowserUrl,
-      loginCertificate: _loginCertificate,
-      ...joinedConfig
-    } = readFleetEdgeConfig(formerOwnerEdge.edgeRoot)!;
     let postJoinId = 100;
     const joinedCommand = async (action: Record<string, unknown>) => {
       const reply = await formerOwnerEdge.rpc.handle({
         jsonrpc: "2.0",
         id: postJoinId++,
-        method: "daemon.fleet.task.run",
-        params: { payload: { ...joinedConfig, workspaceRoot: formerOwnerEdge.edgeRoot, action } },
+        method: "repo.task.run",
+        params: { repo: { repoId: formerOwnerEdge.config.repoId }, payload: { action } },
       });
       assert.ok(reply && !Array.isArray(reply) && "result" in reply, JSON.stringify(reply));
       return reply.result as Record<string, unknown>;

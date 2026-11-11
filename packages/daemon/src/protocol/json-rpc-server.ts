@@ -95,9 +95,6 @@ export function createJsonRpcProtocolServer(options: {
     method: string,
     params: JsonObject,
   ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
-  readonly edgeExecutionPrincipal?: (
-    credential: string,
-  ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
   /** Read-only runtime queries on an edge replica use the persisted replica identity. */
   readonly sessionIndependentRead?: (method: string, params: JsonObject) => boolean;
   /** The daemon's signed-in OIDC principal as of now; read on every request, not once per connection. */
@@ -230,87 +227,6 @@ export function createJsonRpcProtocolServer(options: {
       );
       return response;
     };
-    const dispatchForwardedIntent = async (
-      fleetPayload: JsonObject,
-      fleetAction: unknown,
-      requestParams: JsonObject,
-    ): Promise<Record<string, unknown>> => {
-      if (!isJsonObject(fleetAction))
-        throw Object.assign(new Error("A forwarded fleet intent must be an object."), { code: "invalid_field" });
-      if (fleetAction.kind === "fleet-runtime") {
-        if (
-          ![
-            "repo.squad.control",
-            "repo.agentRuntime.spawn",
-            "repo.agentRuntime.cancel",
-            "repo.agentRuntime.steer",
-            "repo.agentRuntime.handoff",
-            "repo.agentRuntime.overview",
-            "repo.agentRuntime.sessions.read",
-            "repo.agentRuntime.sessions.await",
-          ].includes(String(fleetAction.method)) ||
-          !isJsonObject(fleetAction.payload)
-        )
-          throw Object.assign(new Error("Fleet runtime intent must carry one declared method and payload."), {
-            code: "invalid_field",
-          });
-        return options.host.fleet.edgeRuntime(
-          { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
-          options.authContext,
-        );
-      }
-      if (fleetAction.kind === "fleet-schedule") {
-        if (!isJsonObject(fleetAction.payload))
-          throw Object.assign(new Error("Fleet schedule intent must carry an action payload."), {
-            code: "invalid_field",
-          });
-        return options.host.fleet.edgeRuntime(
-          { ...fleetPayload, method: "repo.schedule.run", action: fleetAction.payload },
-          options.authContext,
-        );
-      }
-      if (typeof fleetAction.kind !== "string")
-        throw Object.assign(new Error("Fleet task intent must carry a declared command."), { code: "invalid_field" });
-      let relayedExecutionPrincipal: DaemonAuthenticationContext["executionPrincipal"],
-        relayedSessionPrincipal: DaemonAuthenticationContext["oidcPrincipal"];
-      if (executionCredential !== undefined) {
-        relayedSessionPrincipal = options.sessionPrincipal
-          ? await options.sessionPrincipal("daemon.fleet.task.run", requestParams)
-          : options.authContext.oidcPrincipal;
-        if (!relayedSessionPrincipal)
-          throw Object.assign(new Error("A device session is required for relayed execution."), {
-            code: "authentication_required",
-          });
-        if (!options.edgeExecutionPrincipal)
-          throw Object.assign(new Error("Edge execution identity is unavailable."), { code: "authorization_denied" });
-        relayedExecutionPrincipal = await options.edgeExecutionPrincipal(executionCredential);
-        Object.assign(options.authContext, {
-          executionPrincipal: relayedExecutionPrincipal,
-          executionCredential,
-          oidcPrincipal: relayedSessionPrincipal,
-        });
-      }
-      const result = makeDaemonCommandReceipt(
-        fleetAction.kind,
-        await options.host.run(String(fleetPayload.repoId), fleetAction as never, options.authContext),
-      );
-      if (
-        fleetAction.kind === "task-escalate" &&
-        relayedExecutionPrincipal !== undefined &&
-        (result.outcome === "applied" || result.outcome === "no_changes")
-      ) {
-        const cancel = await options.host.fleet.edgeRuntime(
-          {
-            ...fleetPayload,
-            method: "repo.agentRuntime.cancel",
-            action: { runtimeSessionId: relayedExecutionPrincipal.runtimeSessionId, escalation: true },
-          },
-          options.authContext,
-        );
-        return { ...result, edgeCancellation: cancel };
-      }
-      return result;
-    };
     if (request.method === "protocol.hello") handshaken = false;
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
@@ -364,14 +280,7 @@ export function createJsonRpcProtocolServer(options: {
     if (daemonControl && executionCredential !== undefined)
       return reply(method, protocolFailure(method, executionCredentialRejected()));
     markDaemonOperationPhase("authorization");
-    const relayExecution =
-      executionCredential !== undefined &&
-      method === "daemon.fleet.task.run" &&
-      isJsonObject(params.payload) &&
-      isJsonObject(params.payload.action) &&
-      params.payload.action.kind !== "fleet-runtime" &&
-      params.payload.action.kind !== "fleet-schedule";
-    if (!daemonControl && executionCredential !== undefined && !relayExecution) {
+    if (!daemonControl && executionCredential !== undefined) {
       try {
         if (!options.executionPrincipal)
           throw Object.assign(new Error("Execution authentication is unavailable."), {
@@ -389,9 +298,7 @@ export function createJsonRpcProtocolServer(options: {
     } else if (
       !daemonControl &&
       !sessionIndependentRbacOperation(method, params as JsonObject) &&
-      !sessionIndependentFleetRuntimeRead(method, params as JsonObject) &&
       !options.sessionIndependentRead?.(method, params as JsonObject) &&
-      !relayExecution &&
       options.sessionPrincipal
     ) {
       // A connection outlives access tokens: each request carries the session as it is now, renewed or ended.
@@ -672,32 +579,6 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
-    if (method === "daemon.fleet.task.run") {
-      try {
-        if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
-          throw Object.assign(new Error("This control is available only through the local session token."), {
-            code: "local_transport_required",
-          });
-        const payload = params.payload;
-        return reply(method, await dispatchForwardedIntent(payload, payload.action, params as JsonObject));
-      } catch (error) {
-        return reply(method, protocolFailure(method, error));
-      }
-    }
-    if (method === "daemon.fleet.doc.sync" || method === "daemon.fleet.conflict.exit") {
-      try {
-        if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
-          throw Object.assign(new Error("This control is available only through the local session token."), {
-            code: "local_transport_required",
-          });
-        return reply(
-          method,
-          protocolFailure(method, new Error("Fleet document sync is handled by the unified document-submit path.")),
-        );
-      } catch (error) {
-        return reply(method, protocolFailure(method, error));
-      }
-    }
     if (method === "daemon.gui.system.read") {
       try {
         markDaemonOperationPhase("projection-read");
@@ -949,13 +830,6 @@ export function createJsonRpcProtocolServer(options: {
     const method = typeof request.method === "string" ? request.method : "";
     // Parked waits are observations, not work: counting one would pin a superseded daemon resident
     // for as long as any --wait client cares to watch, which is exactly what the drain exists to end.
-    const fleetAction =
-      isJsonObject(request.params) && isJsonObject(request.params.payload) ? request.params.payload.action : undefined;
-    const fleetAwait =
-      method === "daemon.fleet.task.run" &&
-      isJsonObject(fleetAction) &&
-      fleetAction.kind === "fleet-runtime" &&
-      fleetAction.method === "repo.agentRuntime.sessions.await";
     if (method === "protocol.hello") {
       if (!helloPending) {
         const admitted = !drainActive();
@@ -977,7 +851,7 @@ export function createJsonRpcProtocolServer(options: {
         if (!handshaken || options.authContext.connectionSignal?.aborted) releaseHello();
       }
     }
-    if (isDaemonParkedWaitMethod(method) || fleetAwait) {
+    if (isDaemonParkedWaitMethod(method)) {
       const admitted = !drainActive() || (helloPending && helloContinuationAdmitted);
       releaseHello();
       let abandoned = false;
@@ -1208,18 +1082,6 @@ function sessionIndependentRbacOperation(method: string, params: JsonObject): bo
     "logout",
     "session",
   ].includes(String(params.operation));
-}
-
-function sessionIndependentFleetRuntimeRead(method: string, params: JsonObject): boolean {
-  if (method !== "daemon.fleet.task.run" || !isJsonObject(params.payload)) return false;
-  const action = params.payload.action;
-  return (
-    isJsonObject(action) &&
-    action.kind === "fleet-runtime" &&
-    ["repo.agentRuntime.overview", "repo.agentRuntime.sessions.read", "repo.agentRuntime.sessions.await"].includes(
-      String(action.method),
-    )
-  );
 }
 
 function protocolFailure(command: string, error: unknown) {

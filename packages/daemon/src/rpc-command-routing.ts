@@ -46,10 +46,6 @@ const hostMethodTopology: ReadonlyMap<string, CommandTopology> = new Map([
   ["daemon.fleet.center.read", repoReadCommandTopology],
   ["daemon.fleet.center.external-address.read", repoReadCommandTopology],
   ["daemon.fleet.center.external-address.set", hostAdminCommandTopology],
-  // Transport coordinators execute locally; their nested actions retain the command routes above.
-  ["daemon.fleet.task.run", hostAdminCommandTopology],
-  ["daemon.fleet.doc.sync", hostAdminCommandTopology],
-  ["daemon.fleet.conflict.exit", hostAdminCommandTopology],
   ["repo.agentRuntime.attach", repoReadCommandTopology],
   // Runtime budget quotes are a local daemon service with no repository payload;
   // keep the socket-only branch explicit instead of treating it as an edge write.

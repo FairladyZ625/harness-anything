@@ -46,7 +46,7 @@ test("forwarding accepts node-owned schedule commands while keeping replica read
   );
 });
 
-test("registration without a forwarding node preserves command admission and keeps node requests closed", async (t) => {
+test("registration without an edge stays local; a registered edge requires a valid location", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-role-"))),
     userRoot = path.join(root, "user"),
     workspace = path.join(root, "workspace");
@@ -89,11 +89,12 @@ test("registration without a forwarding node preserves command admission and kee
         ],
       }),
     );
-    assert.equal(await invoke(command), null, `${mode}: registration alone does not enable command forwarding`);
     if (mode === "remote-edge") {
+      await assert.rejects(invoke(command), { code: "fleet_edge_config_invalid" });
       await assert.rejects(invoke(runtime), { code: "fleet_edge_config_invalid" });
       await assert.rejects(invoke(boundCommand), { code: "fleet_edge_config_invalid" });
     } else {
+      assert.equal(await invoke(command), null, `${mode}: commands stay on this host`);
       assert.equal(await invoke(runtime), null, `${mode}: runtime stays on this host`);
       assert.equal(await invoke(boundCommand), null, `${mode}: a required node cannot change the registry role`);
     }

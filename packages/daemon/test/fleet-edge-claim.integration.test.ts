@@ -73,7 +73,7 @@ test(
     let emit: ((text: string) => void) | undefined, exit: ((code: number | null) => void) | undefined;
     const notified: string[] = [];
     const runtime = openFleetEdgeRuntime({
-      request: {
+      resolveLocation: () => ({
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
@@ -85,7 +85,7 @@ test(
         workspaceRoot,
         method: "repo.agentRuntime.spawn",
         action: {},
-      },
+      }),
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
