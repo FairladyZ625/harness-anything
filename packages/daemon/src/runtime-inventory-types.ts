@@ -16,7 +16,10 @@ export interface RuntimeProviderDeclaration {
   readonly displayName: string;
   readonly defaultProviderId: string;
   readonly executable: {
+    /** Bare command name resolved against PATH, as a shell would. */
     readonly command: string;
+    /** Absolute entries (without PATHEXT suffix) an App bundle ships off PATH, per platform. */
+    readonly bundledEntries?: Partial<Record<NodeJS.Platform, readonly string[]>>;
     readonly configDirectory: string;
     readonly configHomeEnvironment: string | null;
     /** Credential path relative to `configDirectory`; a directory is allowed when the

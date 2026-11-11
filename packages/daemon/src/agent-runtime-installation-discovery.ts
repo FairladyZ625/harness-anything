@@ -37,10 +37,14 @@ export async function discoverRuntimeInstallations(
     // directly launchable by Node, so only inspect executable suffixes here;
     // test and real installations expose the command through a .cmd/.exe entry.
     suffixes = platform === "win32" ? [".cmd", ".exe"] : [""];
-  for (const directory of (env.PATH ?? "").split(path.delimiter).filter(Boolean))
-    for (const { kindId, executable } of runtimeKinds)
+  const directories = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const { kindId, executable } of runtimeKinds)
+    for (const entry of [
+      ...directories.map((directory) => path.resolve(directory, executable.command)),
+      ...((executable as RuntimeProviderDeclaration["executable"]).bundledEntries?.[platform] ?? []),
+    ])
       for (const suffix of suffixes) {
-        const executableEntryPath = path.resolve(directory, `${executable.command}${suffix}`),
+        const executableEntryPath = `${entry}${suffix}`,
           key = `${kindId}\0${executableEntryPath}`;
         try {
           accessSync(executableEntryPath, constants.X_OK);

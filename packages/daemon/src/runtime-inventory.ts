@@ -1035,11 +1035,11 @@ export const runtimeKinds = [
     defaultProviderId: "deepseek",
     executable: {
       // The desktop App's bundled CLI (0.2.1-rc.2); `dsh --profile acp` serves ACP over stdio.
-      // The App does not place `dsh` on PATH, so the catalog names the bundle path: discovery
-      // resolves it against every PATH entry (path.resolve keeps an absolute command) and the
-      // kindId+path key collapses the hits into one installation. Subscription instances reuse
-      // the App's $DSH_HOME; API-key instances get a private DSH_HOME and provider patch.
-      command: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
+      // The Windows installer puts the bundled CLI on PATH; the macOS App does not, so darwin
+      // also probes the bundle path. Subscription instances reuse the App's $DSH_HOME;
+      // API-key instances get a private DSH_HOME and provider patch.
+      command: "dsh",
+      bundledEntries: { darwin: ["/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"] },
       configDirectory: ".dsh",
       configHomeEnvironment: "DSH_HOME",
       authFile: null,
