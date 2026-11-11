@@ -17,6 +17,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 
 test(
   "an edge worker credential submits its cut and automatically dispatches its reviewer",
@@ -515,6 +516,7 @@ test(
       f.auth,
     );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFleetPublication(f.host, repoId, created.opId, f.auth);
     const packagePath = String(created.packagePath);
     await realizeTaskPlanFixture(f.repo, packagePath, (planPath) =>
       f.host.run(repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
