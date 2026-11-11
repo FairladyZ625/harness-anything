@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { publishExit } from "../../../daemon/src/runtime-spawn-settlement.ts";
+import { publishExit } from "../../../daemon/test/runtime-spawn-settlement.fixtures.ts";
 import { openDispatchStream, readDispatchStream } from "../../../daemon/src/dispatch-stream.ts";
 import { readAgentRuntimeTokenUsage } from "../../../daemon/src/agent-runtime-token-usage.ts";
 import type { ActiveRuntime } from "../../../daemon/src/runtime-spawn-types.ts";
@@ -55,7 +55,7 @@ try {
           actor: { principal: { kind: "human", id: "operator" }, executor: { kind: "agent", id: runtimeSessionId } },
           source: "local",
         },
-        process: { pid: process.pid },
+        process: { pid: 2_147_483_647 },
         inputTokens: 900,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,

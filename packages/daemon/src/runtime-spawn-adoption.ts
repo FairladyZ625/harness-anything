@@ -265,7 +265,7 @@ async function restoreRuntime(
       "Only the original runtime owner can authorize recovery.",
     );
   const streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
-  if (header.fallbackAttempt) context.reconcileFallback(streamSummary);
+  if (header.fallbackAttempt) await context.reconcileFallback(header.dispatchId);
   if (lifecycle.policy.attemptSettled || session?.outcome) {
     if (streamSummary && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
       archiveDispatchStream(context.input.rootDir, header.dispatchId);

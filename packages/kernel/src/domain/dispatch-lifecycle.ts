@@ -137,6 +137,9 @@ export interface DispatchGroupSuccessor {
   readonly admissible: boolean;
   /** Earliest time the scheduled successor may launch, when the fallback named one. */
   readonly dueAt: string | null;
+  readonly schedule?: NonNullable<
+    Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>["payload"]["attempt"]
+  >["fallbackSchedule"];
 }
 
 export interface DispatchGroupRuling {
@@ -171,7 +174,9 @@ export type DispatchLifecycleRejection =
   | "dispatch_transition_illegal"
   | "dispatch_owner_fence_mismatch"
   | "dispatch_owner_unverified"
-  | "dispatch_epoch_stale";
+  | "dispatch_epoch_stale"
+  | "dispatch_fallback_not_due"
+  | "dispatch_fallback_candidate_mismatch";
 
 export type DispatchLifecycleStep =
   | { readonly kind: "ignored" }
@@ -288,7 +293,13 @@ export function reduceDispatchLifecycle(
     );
   const rulingResolution = isRulingResolution(input, group, attempt);
   if (attempt.phase === "closed") {
-    if (!rulingResolution)
+    const exhausted =
+      input.type === "runtime_session_outcome_observed" &&
+      group.phase === "waiting_backoff" &&
+      attempt.dispatchId === group.currentDispatchId &&
+      input.payload.outcome === attempt.outcome &&
+      input.payload.attempt?.fallbackState === "exhausted";
+    if (!rulingResolution && !exhausted)
       return reject(
         "dispatch_attempt_closed",
         `Dispatch ${attempt.dispatchId} is closed; a late ${input.type} cannot reopen it.`,
@@ -303,7 +314,7 @@ export function reduceDispatchLifecycle(
         attempts: group.attempts.map((entry) => (entry === attempt ? resolvedAttempt : entry)),
         phase: "closed",
         ruling: null,
-        successor: { admissible: true, dueAt: null },
+        successor: { admissible: rulingResolution, dueAt: null },
         revision,
       },
     };
@@ -335,10 +346,17 @@ export function reduceDispatchLifecycle(
       closedBy?.attempt?.classification === "awaiting_ruling"
         ? ({ dispatchId: attempt.dispatchId, status: "awaiting" } as const)
         : group.ruling,
-    scheduled = closedBy?.attempt?.fallbackState === "scheduled",
+    scheduled =
+      closedBy?.attempt?.fallbackState === "scheduled" &&
+      group.delivery.status !== "registered" &&
+      ruling === null &&
+      next.outcome !== "cancelled",
     successor: DispatchGroupSuccessor = {
       admissible: scheduled || (closedBy !== null && closedBy.attempt === undefined),
-      dueAt: scheduled ? (closedBy?.attempt?.resetAt ?? null) : null,
+      dueAt: scheduled
+        ? (closedBy?.attempt?.fallbackSchedule?.notBeforeAt ?? closedBy?.attempt?.resetAt ?? null)
+        : null,
+      ...(scheduled && closedBy?.attempt?.fallbackSchedule ? { schedule: closedBy.attempt.fallbackSchedule } : {}),
     },
     settled = { ...group, attempts, ruling, successor, revision };
   return { kind: "applied", group: { ...settled, phase: groupPhase(settled, next, scheduled) } };
@@ -402,12 +420,11 @@ function admit(
     };
   if (group.attempts.some(({ eventIds }) => eventIds.includes(event.eventId))) return ignored;
   const refusal = dispatchSuccessorRefusal(
-    {
-      groupPhase: group.phase,
-      successorAdmissible: group.successor.admissible,
-      owner: currentDispatchAttempt(group).fence.owner,
-    },
+    group,
+    currentDispatchAttempt(group).fence.owner,
     owner.owner,
+    event.occurredAt,
+    payload.instanceId,
   );
   if (refusal) return reject(refusal.code, `Group ${group.attemptGroupId}: ${refusal.message}`);
   return {
@@ -427,19 +444,29 @@ function admit(
  * The one successor judgment, shared by the reducer and the center writer: only a group waiting
  * for its scheduled fallback admits another attempt, and only from the owner that holds its fence.
  */
-export function dispatchSuccessorRefusal(
-  group: { readonly groupPhase: DispatchGroupPhase; readonly successorAdmissible: boolean; readonly owner: string },
+function dispatchSuccessorRefusal(
+  group: Pick<DispatchLifecycleGroup, "phase" | "successor">,
+  fenceOwner: string,
   owner: string,
-): { readonly code: "dispatch_group_busy" | "dispatch_owner_fence_mismatch"; readonly message: string } | null {
-  if (!group.successorAdmissible)
+  now?: string,
+  instanceId?: string,
+): { readonly code: DispatchLifecycleRejection; readonly message: string } | null {
+  if (!group.successor.admissible)
     return {
       code: "dispatch_group_busy",
-      message: `the group is ${group.groupPhase}; only a waiting fallback group admits a successor.`,
+      message: `the group is ${group.phase}; only a waiting fallback group admits a successor.`,
     };
-  if (group.owner !== owner)
+  if (fenceOwner !== owner)
     return {
       code: "dispatch_owner_fence_mismatch",
-      message: `the group is fenced to ${group.owner}; ${owner} cannot admit its successor.`,
+      message: `the group is fenced to ${fenceOwner}; ${owner} cannot admit its successor.`,
+    };
+  if (group.successor?.dueAt && now && Date.parse(now) < Date.parse(group.successor.dueAt))
+    return { code: "dispatch_fallback_not_due", message: `The fallback is not due until ${group.successor.dueAt}.` };
+  if (group.successor?.schedule && instanceId !== group.successor.schedule.nextProvider.instance)
+    return {
+      code: "dispatch_fallback_candidate_mismatch",
+      message: "The instance is not the accepted fallback candidate.",
     };
   return null;
 }
@@ -614,15 +641,15 @@ export function dispatchAdmissionRefusal(input: {
   readonly instance: readonly DispatchLifecycleView[];
   readonly instanceId: string;
   readonly owner: string;
+  readonly now?: string;
 }): { readonly code: string; readonly message: string } | null {
   if (input.group !== null) {
     const refusal = dispatchSuccessorRefusal(
-      {
-        groupPhase: input.group.groupPhase,
-        successorAdmissible: input.group.policy.successorAdmissible,
-        owner: input.group.attempt.fence.owner,
-      },
+      { phase: input.group.groupPhase, successor: input.group.successor },
+      input.group.attempt.fence.owner,
       input.owner,
+      input.now,
+      input.instanceId,
     );
     if (refusal) return { code: refusal.code, message: `Group ${input.group.attemptGroupId}: ${refusal.message}` };
   }
@@ -637,6 +664,8 @@ export type DispatchLifecycleQuery =
 
 export interface DispatchLifecycleView {
   readonly attemptGroupId: string;
+  readonly controlLeafDispatchId: string;
+  readonly groupDispatchIds: readonly string[];
   readonly groupPhase: DispatchGroupPhase;
   readonly attempt: DispatchLifecycleAttempt;
   readonly successor: DispatchGroupSuccessor;
@@ -646,6 +675,7 @@ export interface DispatchLifecycleView {
   readonly policy: {
     readonly attemptSettled: boolean;
     readonly groupSettled: boolean;
+    readonly fallbackPending: boolean;
     readonly capacity: DispatchReservationState;
     readonly capacityDisposition: DispatchCapacityDisposition;
     readonly successorAdmissible: boolean;
@@ -673,6 +703,8 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
     capacityDisposition = dispatchCapacityDisposition(attempt);
   return {
     attemptGroupId: group.attemptGroupId,
+    controlLeafDispatchId: group.currentDispatchId,
+    groupDispatchIds: group.attempts.map(({ dispatchId }) => dispatchId),
     groupPhase: group.phase,
     attempt,
     successor: group.successor,
@@ -682,6 +714,7 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
     policy: {
       attemptSettled: attempt.phase === "closed",
       groupSettled: group.phase === "closed",
+      fallbackPending: group.phase === "waiting_backoff",
       capacity: reservationState(attempt),
       capacityDisposition,
       successorAdmissible: group.successor.admissible,
@@ -732,6 +765,6 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 4;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 5;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;

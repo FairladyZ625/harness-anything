@@ -455,8 +455,13 @@ interface RuntimePayloads {
       readonly reason: string;
       readonly faultClass?: "quota_exhausted" | "rate_limited";
       readonly resetAt?: string;
-      /** The dispatch stream's settled fallback state, published for center-side consumers. */
+      /** Accepted fallback disposition; a scheduled attempt remains part of an open group. */
       readonly fallbackState?: "scheduled" | "exhausted" | null;
+      readonly fallbackSchedule?: {
+        readonly notBeforeAt: string;
+        readonly nextProvider: { readonly instance: string; readonly model?: string };
+        readonly waitStartedAt?: string;
+      };
     };
   };
   readonly runtime_handoff_exported: {
@@ -693,7 +698,7 @@ function validateAgentRuntimePayloadFields(
           !hasOnlyFields(value.attempt, [
             "classification",
             "reason",
-            ...["fallbackState", "faultClass", "resetAt"].filter((field) =>
+            ...["fallbackState", "fallbackSchedule", "faultClass", "resetAt"].filter((field) =>
               Object.hasOwn(value.attempt as object, field),
             ),
           ]) ||
@@ -711,6 +716,8 @@ function validateAgentRuntimePayloadFields(
           (value.attempt.faultClass !== undefined &&
             !["quota_exhausted", "rate_limited"].includes(String(value.attempt.faultClass))) ||
           (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))) ||
+          (value.attempt.fallbackSchedule !== undefined &&
+            (value.attempt.fallbackState !== "scheduled" || !validFallbackSchedule(value.attempt.fallbackSchedule))) ||
           (value.attempt.fallbackState !== undefined &&
             value.attempt.fallbackState !== null &&
             value.attempt.fallbackState !== "scheduled" &&
@@ -718,6 +725,20 @@ function validateAgentRuntimePayloadFields(
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];
+}
+
+function validFallbackSchedule(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasRequiredFields(value, ["notBeforeAt", "nextProvider"]) &&
+    Object.keys(value).every((key) => ["notBeforeAt", "nextProvider", "waitStartedAt"].includes(key)) &&
+    timestamp(String(value.notBeforeAt)) &&
+    (value.waitStartedAt === undefined || timestamp(String(value.waitStartedAt))) &&
+    isRecord(value.nextProvider) &&
+    isNonEmptyString(value.nextProvider.instance) &&
+    Object.keys(value.nextProvider).every((key) => ["instance", "model"].includes(key)) &&
+    (value.nextProvider.model === undefined || isNonEmptyString(value.nextProvider.model))
+  );
 }
 
 function validRuntimeDispatchMetrics(value: unknown): value is RuntimeDispatchMetrics {

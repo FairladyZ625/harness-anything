@@ -39,7 +39,7 @@ export async function commitRuntimeSettlement(
   const current = group.rows[0]!;
   if (current.attempt.runtimeSessionId !== event.payload.runtimeSessionId)
     throw cell.cellCodedError("runtime_terminal_superseded", "The dispatch attempt is no longer current.");
-  if (current.policy.attemptSettled) return commit(bundle);
+  if (current.policy.attemptSettled && !current.policy.fallbackPending) return commit(bundle);
   if (current.attempt.stopProof !== "proven_stopped")
     throw cell.cellCodedError("runtime_process_group_unproven", "Dispatch settlement requires accepted stop proof.");
   const preview = previewDispatchLifecycleOutcome(current, event);

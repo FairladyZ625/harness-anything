@@ -42,7 +42,16 @@ test(
       await f.awaitOutcome(String(firstDispatch.payload.runtimeSessionId));
       const settledStream = readDispatchStream(f.root, firstDispatch.payload.dispatchId);
       assert.equal(settledStream?.attemptOutcome?.classification, "provider_quota", JSON.stringify(settledStream));
-      assert.equal(settledStream?.fallbackState, "scheduled", JSON.stringify(settledStream));
+      const pending = await f
+        .cell()
+        .readDispatchLifecycle({ by: "dispatch", dispatchIds: [firstDispatch.payload.dispatchId] });
+      assert.ok(pending.status === "ready");
+      assert.equal(
+        pending.rows[0]?.attempt.phase,
+        "closed",
+        "the predecessor is closed while the group retains its snapshot",
+      );
+      assert.equal(pending.rows[0]?.policy.groupSettled, false);
       assert.equal(
         resolveRuntimeCwd(f.root, {
           scope: "repo-relative",

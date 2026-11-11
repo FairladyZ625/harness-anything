@@ -61,6 +61,8 @@ export function lifecycleReadFor(
       };
     return {
       attemptGroupId: entry.dispatchId,
+      controlLeafDispatchId: entry.dispatchId,
+      groupDispatchIds: [entry.dispatchId],
       groupPhase: groupSettled ? "closed" : phase === "running" ? "running" : "starting",
       attempt,
       successor: { admissible: !groupSettled, dueAt: null },
@@ -70,6 +72,7 @@ export function lifecycleReadFor(
       policy: {
         attemptSettled,
         groupSettled,
+        fallbackPending: false,
         capacity: attemptSettled ? "released" : "held",
         capacityDisposition: attemptSettled ? "free" : "recovering",
         successorAdmissible: !groupSettled,

@@ -1,6 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { checkoutTaskWorktree } from "../src/task-worktree.ts";
+import { noWorktreeSetup } from "../src/worktree-setup.ts";
+import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
+import { scheduleFallbackContinuation } from "../src/runtime-spawn-fallback.ts";
+import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -464,4 +470,145 @@ test("settlement ignores a replayed terminal whose occurrence is already settled
   } finally {
     rmSync(cell.rootDir, { recursive: true, force: true });
   }
+});
+
+test("interrupted reviewer exhaustion replays the frozen terminal, releases its snapshot and notifies its Schedule claim", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "reviewer-exhaustion-replay-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "Reviewer Replay Test");
+  git("config", "user.email", "reviewer-replay@example.invalid");
+  git("commit", "--allow-empty", "-qm", "frozen snapshot");
+  const checkout = (await checkoutTaskWorktree(
+    rootDir,
+    "review-task",
+    {
+      branch: "review-task",
+      path: ".worktrees/review-task",
+    },
+    noWorktreeSetup(),
+    undefined,
+    undefined,
+    { pinnedCommit: git("rev-parse", "HEAD") },
+  ))!;
+  const marker = path.join(checkout.cwd, "snapshot-marker");
+  writeFileSync(marker, "frozen snapshot");
+  const schedule = {
+      scheduleId: "exhaustion",
+      occurrenceId: "occurrence_exhaustion",
+      claimFence: "claim_exhaustion",
+      mode: "detect",
+    } as const,
+    options = { instanceId: "provider-a", source: "local" as const, dispatchId: replayDispatchId },
+    events = ["R", "S", "X"].map((type) => lifecycleEvent(type as "R" | "S" | "X", replayRuntimeSessionId, options)),
+    outcome = lifecycleEvent("O", replayRuntimeSessionId, options),
+    payload = {
+      ...outcome.payload,
+      outcome: "failed",
+      endedAt: "2026-11-11T00:00:00.000Z",
+      attempt: {
+        classification: "provider_quota",
+        fallbackState: "scheduled",
+        fallbackSchedule: { notBeforeAt: "2099-01-01T00:00:00.000Z", nextProvider: { instance: "provider-b" } },
+      },
+    },
+    read = dispatchLifecycleReadOf(() => events),
+    stream = openDispatchStream(rootDir, {
+      dispatchId: replayDispatchId,
+      runtimeSessionId: replayRuntimeSessionId,
+      taskId: null,
+      executionId: null,
+      instanceId: "provider-a",
+      startedAt: "2026-11-11T00:00:00.000Z",
+      dispatchOpId: "replay-op",
+      kindId: "codex",
+      permissionMode: "read-only",
+      binding: { ...binding, actor: { ...binding.actor, principal: { personId: "operator" } } },
+      prompt: "Review frozen snapshot",
+      role: "reviewer",
+      cwd: checkout.cwd,
+      model: "model-a",
+      reasoningEffort: null,
+      schedule,
+      fallbackAttempt: {
+        attemptGroupId: replayDispatchId,
+        attemptIndex: 0,
+        rootDispatchKey: "reviewer-replay",
+        originalMission: "Review frozen snapshot",
+        candidates: [{ instance: "provider-a" }, { instance: "provider-b" }],
+      },
+    });
+  events.push({ ...outcome, payload } as typeof outcome);
+  stream.appendAttemptOutcome(
+    {
+      attemptGroupId: replayDispatchId,
+      attemptIndex: 0,
+      classification: "provider_quota",
+      reason: "quota exhausted",
+      provider: { instance: "provider-a", model: "model-a", kind: "codex" },
+    },
+    "2026-11-11T00:00:00.000Z",
+  );
+  const terminal = {
+    payload: { ...payload, attempt: { classification: "provider_quota", fallbackState: "exhausted" } },
+    reason: "continuation launch refused",
+    body: "original frozen result",
+  } as const;
+  stream.appendTerminalOutcome(terminal as never, "2026-11-11T00:01:00.000Z");
+  const notifications: RuntimeAttemptTerminal[] = [],
+    publications: unknown[] = [],
+    interrupted = new Error("center unavailable");
+  let rejectPublication = true;
+  const openContext = () => {
+    const context = {
+      processes: new Map(),
+      exiting: new Set(),
+      runtimeSpawnError,
+      input: {
+        rootDir,
+        now: () => "2026-11-11T00:02:00.000Z",
+        remote: {
+          readDispatchLifecycle: async (query) => read(query),
+          readRuntimeSession: async () => ({
+            runtimeSessionId: replayRuntimeSessionId,
+            instanceId: "provider-a",
+            outcome: "failed",
+            liveness: "exited",
+          }),
+        },
+        schedule: () => assert.fail("a persisted terminal must be replayed before a future fallback timer"),
+        onAttemptTerminal: async (value: RuntimeAttemptTerminal) => {
+          notifications.push(value);
+        },
+      },
+      publishRuntimeEvent: async (type, value, opId, _binding, body) => {
+        publications.push({ type, payload: value, opId, body });
+        if (rejectPublication) throw interrupted;
+        events.push({ ...lifecycleEvent("O", replayRuntimeSessionId, options), payload: value } as typeof outcome);
+        return {};
+      },
+      reconcileFallback: (dispatchId) =>
+        scheduleFallbackContinuation({
+          context,
+          ...{ closed: () => false },
+          dispatchId,
+          launch: async () => assert.fail("restart must not launch after durable exhaustion"),
+        }),
+    } as RuntimeSpawnerContext;
+    return context;
+  };
+  await assert.rejects(openContext().reconcileFallback(replayDispatchId), interrupted);
+  assert.equal(existsSync(marker), true, "unaccepted terminal keeps the frozen snapshot");
+  assert.equal(read({ by: "dispatch", dispatchIds: [replayDispatchId] }).rows[0]?.policy.groupSettled, false);
+  rejectPublication = false;
+  assert.equal((await adoptRuntimes(openContext()))[0]?.outcome, "settled");
+  assert.deepEqual(publications[1], publications[0]);
+  assert.equal(read({ by: "dispatch", dispatchIds: [replayDispatchId] }).rows[0]?.policy.groupSettled, true);
+  assert.equal(existsSync(checkout.cwd), false, "accepted group closure releases the snapshot");
+  assert.equal(notifications.length, 1);
+  assert.deepEqual(notifications[0]?.schedule, schedule);
+  assert.equal(notifications[0]?.endedAt, terminal.payload.endedAt);
+  await adoptRuntimes(openContext());
+  assert.equal(notifications.length, 1, "the matching Schedule claim is notified once");
 });

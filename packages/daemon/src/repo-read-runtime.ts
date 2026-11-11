@@ -388,6 +388,8 @@ export function makeRepoReadRuntime(
         return readAtCut(projection, method, payload, binding);
       }) as never;
     },
+    readDispatchLifecycle: (inputQuery: import("@harness-anything/kernel").DispatchLifecycleQuery) =>
+      query((projection) => projection.readDispatchLifecycle(inputQuery)),
     readEventWitness: (revision: number) => query((projection) => projection.readEventWitness(revision)),
     readNodeAutoClaimAssignments: (binding?: RepoCellBinding) => {
       const readAssignments = (projection: TaskProjectionQueries) => {

@@ -118,7 +118,13 @@ export function openDecisionPointExecutor(input: {
   return {
     async settle(cell: RepoCell, event: OutcomeEvent): Promise<void> {
       const dispatchId = event.payload.dispatchId;
-      if (!dispatchId || event.payload.attempt?.fallbackState === "scheduled") return;
+      if (!dispatchId) return;
+      const lifecycle = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+      if (
+        lifecycle.status !== "ready" ||
+        !lifecycle.rows.some((row) => row.policy.groupSettled && row.controlLeafDispatchId === dispatchId)
+      )
+        return;
       const sessionResult = await cell.read("repo.agentRuntime.sessions.read", {
           runtimeSessionId: event.payload.runtimeSessionId,
         }),
@@ -126,13 +132,7 @@ export function openDecisionPointExecutor(input: {
       if (sessionResult.status !== "ready" || !task || !sessionResult.result) return;
       const dispatchRead = await cell.read("repo.task.dispatches", { taskId: task.taskId }),
         dispatch = dispatchRead.dispatches.find((row) => row.dispatchId === dispatchId);
-      if (
-        !dispatch ||
-        dispatch.fallbackState === "scheduled" ||
-        dispatch.fallbackState === "dispatched" ||
-        dispatch.nextDispatchId
-      )
-        return;
+      if (!dispatch) return;
 
       const [verticalRead, settingsRead] = await Promise.all([
           cell.read("repo.vertical.declaration.read"),

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { runtimeEventContentClaims } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { history, snapshot } from "./dispatch-lifecycle.fixtures.ts";
+import { history, snapshot, requested, started, outcome, runtimeEvent } from "./dispatch-lifecycle.fixtures.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { readDispatchLifecycleRows } from "../../src/projection/dispatch-lifecycle-projection.ts";
 import { canonicalEventWritePlan, makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -145,6 +145,60 @@ test("active pages are bounded and point reads cap their key count", async () =>
       /at most 100 ids/u,
     );
     projection.close();
+    await store.drain();
+  });
+});
+
+test("accepted fallback schedule and exhaustion survive reopen and cold rebuild without a spool", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "fallback-lifecycle", rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore: store });
+    const append = (event: ReturnType<typeof requested>) => {
+      const accepted = { ...event, workspaceRevision: (store.readHead()?.revision ?? 0) + 1 };
+      store.append({
+        event: accepted,
+        plan: canonicalEventWritePlan(accepted, "agent-runtime/v1", accepted.opId),
+        blobs: runtimeEventContentClaims(accepted).map((claim) => ({ ...claim, body: "" })),
+      });
+      projection.apply(accepted);
+    };
+    const plan = { notBeforeAt: "2099-01-01T00:00:00.000Z", nextProvider: { instance: "codex-fixture" } };
+    append(requested("d-fallback", "s-fallback"));
+    append(started("s-fallback"));
+    append(runtimeEvent("runtime_session_exited", { runtimeSessionId: "s-fallback" }));
+    append(
+      outcome("s-fallback", "failed", {
+        classification: "provider_fault",
+        reason: "fault",
+        fallbackState: "scheduled",
+        fallbackSchedule: plan,
+      }),
+    );
+    const query = { by: "group", attemptGroupId: "d-fallback" } as const;
+    const scheduled = projection.readDispatchLifecycle(query);
+    assert.ok(scheduled.status === "ready");
+    assert.equal(scheduled.rows[0]?.policy.groupSettled, false);
+    assert.deepEqual(scheduled.rows[0]?.successor.schedule, plan);
+    projection.rebuild();
+    assert.deepEqual(projection.readDispatchLifecycle(query), scheduled);
+    append(
+      outcome("s-fallback", "failed", {
+        classification: "provider_fault",
+        reason: "fault",
+        fallbackState: "exhausted",
+      }),
+    );
+    const exhausted = projection.readDispatchLifecycle(query);
+    assert.ok(exhausted.status === "ready");
+    assert.equal(exhausted.rows[0]?.policy.groupSettled, true);
+    assert.equal(exhausted.rows[0]?.policy.fallbackPending, false);
+    projection.rebuild();
+    assert.deepEqual(projection.readDispatchLifecycle(query), exhausted);
+    projection.close();
+    const reopened = makeTaskProjection({ rootDir, eventStore: store });
+    assert.deepEqual(reopened.readDispatchLifecycle(query), exhausted);
+    reopened.close();
     await store.drain();
   });
 });

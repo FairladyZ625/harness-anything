@@ -67,7 +67,12 @@ export async function readActiveDispatchLifecycle(
  */
 export function requireDispatchLifecycleAdmission(
   read: (query: DispatchLifecycleQuery) => DispatchLifecycleRead,
-  input: { readonly attemptGroupId: string; readonly instanceId: string; readonly owner: string },
+  input: {
+    readonly attemptGroupId: string;
+    readonly instanceId: string;
+    readonly owner: string;
+    readonly now?: string;
+  },
   error: CodedError,
 ): void {
   const groupRead = read({ by: "group", attemptGroupId: input.attemptGroupId });
@@ -85,6 +90,7 @@ export function requireDispatchLifecycleAdmission(
     instance,
     instanceId: input.instanceId,
     owner: input.owner,
+    now: input.now,
   });
   if (refusal) throw error(refusal.code, refusal.message);
 }

@@ -1,3 +1,4 @@
+import { releaseFallbackResources } from "./runtime-spawn-fallback.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import type {
@@ -9,7 +10,6 @@ import type {
 } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
-  archiveDispatchStream,
   readDispatchStream,
   readDispatchStreamSummary,
   scrubProviderValue,
@@ -34,7 +34,7 @@ import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { presetSnapshotReader, reclaimReviewWorktree, taskOutputShape } from "./task-worktree.ts";
+import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
 import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
@@ -665,7 +665,7 @@ export async function publishExit(
       Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
         ? active.process.pid
         : undefined;
-    await context.settleFallback(active, attemptOutcome, {
+    const fallback = await context.settleFallback(active, attemptOutcome, {
       runtimeSessionId: active.runtimeSessionId,
       dispatchId: active.dispatchId,
       task: null,
@@ -695,11 +695,6 @@ export async function publishExit(
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
-    const observedFallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState,
-      fallbackState =
-        ({ scheduled: "scheduled", exhausted: "exhausted" } as const)[
-          observedFallbackState as "scheduled" | "exhausted"
-        ] ?? null;
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -714,7 +709,7 @@ export async function publishExit(
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
-          fallbackState,
+          ...(fallback ?? { fallbackState: null }),
           ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
           ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
         },
@@ -805,13 +800,8 @@ async function publishTerminalOutcome(
     body,
   );
   if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
-  const lifecycle = await dispatchLifecycleForTerminal(context, active),
-    groupSettled = lifecycle.groupPhase === "closed" || lifecycle.groupPhase === "awaiting_ruling";
-  if (active.role === "reviewer" && groupSettled) {
-    const reviewCleanupFailure = await reclaimReviewWorktree(context.input.rootDir, active.cwd);
-    if (reviewCleanupFailure)
-      console.error(`[review-worktree] ${active.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
-  }
+  const lifecycle = await dispatchLifecycleForTerminal(context, active);
+  if (lifecycle.policy.fallbackPending) await context.reconcileFallback(active.dispatchId);
   if (
     outcomeEvent.event &&
     active.role === "reviewer" &&
@@ -838,7 +828,7 @@ async function publishTerminalOutcome(
     reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
   });
   context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-  if (archiveAllowed && groupSettled) archiveDispatchStream(context.input.rootDir, active.dispatchId);
+  if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
   const onExitCommand = active.onExitCommand;
   if (typeof onExitCommand === "string")
     setImmediate(() =>

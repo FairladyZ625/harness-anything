@@ -1,11 +1,9 @@
-import { ownedByRuntimeSpawner } from "./runtime-spawn-adoption.ts";
 import {
   archiveDispatchStream,
   readDispatchStream,
-  readDispatchStreamHeaders,
-  readDispatchStreamSummary,
   reopenDispatchStream,
   scrubProviderValue,
+  type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
@@ -18,7 +16,9 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { createHash } from "node:crypto";
+import { consumeKnownError, type AgentRuntimeEventV1, type DispatchLifecycleView } from "@harness-anything/kernel";
+import { readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
@@ -218,13 +218,30 @@ function nextFallbackCandidate(
   return cooling;
 }
 
+export type FallbackSettlement = Pick<
+  NonNullable<Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>["payload"]["attempt"]>,
+  "fallbackState" | "fallbackSchedule"
+>;
+
 export async function settleFallbackAttempt(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   outcome: RuntimeAttemptOutcome,
   terminal: RuntimeAttemptTerminal,
-): Promise<void> {
+): Promise<FallbackSettlement | void> {
   const { input } = context;
+  const exhaustedTerminal = async (reason: string): Promise<FallbackSettlement> => {
+    active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
+    await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
+    return { fallbackState: "exhausted" };
+  };
+  const scheduledTerminal = (
+    schedule: NonNullable<FallbackSettlement["fallbackSchedule"]>,
+    delayMs: number,
+  ): FallbackSettlement => {
+    active.stream.appendFallbackState({ state: "scheduled", ...schedule, delayMs }, input.now());
+    return { fallbackState: "scheduled", fallbackSchedule: schedule };
+  };
   const fallback = active.fallbackAttempt;
   // A delivered attempt is not a provider failure, whatever its tail looked like: an accepted
   // submission or registered review is work the provider did complete, so it keeps the success
@@ -268,120 +285,54 @@ export async function settleFallbackAttempt(
     // No usable candidate in this pass. The exhausted branch either waits out a retry round
     // (including candidates that recover later) or settles permanently unavailable.
     exhausted = selection === null;
-  if (exhausted) {
-    if (retryRound < maxRetries) {
-      const roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
-        roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
-        delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
-        waitStartedAt = fallback.waitStartedAt ? Date.parse(fallback.waitStartedAt) : observedAt,
-        maxWaitMs = Math.max(0, Number(runtimeSettings?.providerMaxWaitSeconds ?? 300) * 1_000),
-        recoverAt = fallback.candidates.reduce<number | null>((earliest, candidate) => {
-          const health = input.runtimeProviderHealth?.get(candidate.instance);
-          if (health?.frozen) return earliest;
-          const blockedUntil = health?.frozenUntil ?? health?.cooldownUntil,
-            blockedMs = blockedUntil ? Date.parse(blockedUntil) : Number.NaN;
-          if (!Number.isFinite(blockedMs) || blockedMs <= observedAt) return earliest ?? observedAt;
-          return earliest === null ? blockedMs : Math.min(earliest, blockedMs);
-        }, null),
-        notBeforeAt = new Date(Math.max(observedAt + delayMs, recoverAt ?? observedAt + delayMs)).toISOString(),
-        next = fallback.candidates[0]!;
-      if (
-        Number.isFinite(waitStartedAt) &&
-        observedAt - waitStartedAt + Math.max(0, Date.parse(notBeforeAt) - observedAt) > maxWaitMs
-      ) {
-        const reason =
-          `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +
-          `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
-        active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-        return;
-      }
-      if (recoverAt === null) {
-        const reason =
-          `Provider fallback exhausted: every instance is permanently unavailable after ${String(nextAttemptIndex)} attempt(s). ` +
-          `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
-        active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-        return;
-      }
-      active.stream.appendFallbackState(
-        {
-          state: "scheduled",
-          delayMs,
-          notBeforeAt,
-          waitStartedAt: new Date(waitStartedAt).toISOString(),
-          nextProvider: next,
-        },
-        input.now(),
-      );
-      context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
-      return;
-    }
-    const reason =
+  const recoverAt = exhausted
+    ? fallback.candidates.reduce<number | null>((earliest, candidate) => {
+        const health = input.runtimeProviderHealth?.get(candidate.instance);
+        if (health?.frozen) return earliest;
+        const blockedUntil = health?.frozenUntil ?? health?.cooldownUntil,
+          blockedMs = blockedUntil ? Date.parse(blockedUntil) : Number.NaN,
+          usableAt = Number.isFinite(blockedMs) ? Math.max(observedAt, blockedMs) : observedAt;
+        return earliest === null ? usableAt : Math.min(earliest, usableAt);
+      }, null)
+    : selection!.recoverAt;
+  if (exhausted && (retryRound >= maxRetries || recoverAt === null))
+    return exhaustedTerminal(
       `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s) and ${String(retryRound)} retry round(s): ${outcome.reason}. ` +
-      `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
-    active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-    try {
-      await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-    } catch (error) {
-      const settlementReason = [
-        "Provider fallback exhaustion could not settle terminal state: ",
-        runtimeErrorMessage(error),
-      ].join("");
-      active.stream.appendFallbackState({ state: "exhausted", reason: settlementReason }, input.now());
-      console.warn(`[runtime-fallback] ${settlementReason}`);
-      throw error;
-    }
-    return;
-  }
-  const selected = selection!,
-    next = fallback.candidates[selected.index]!,
+        `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`,
+    );
+  const next = fallback.candidates[exhausted ? 0 : selection!.index]!,
     roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
     roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
     delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
-    resetAt = outcome.classification === "provider_quota" && outcome.resetAt ? Date.parse(outcome.resetAt) : Number.NaN,
-    notBeforeMs = Math.max(
-      observedAt + delayMs,
-      Number.isFinite(resetAt) ? resetAt : observedAt,
-      selected.recoverAt ?? 0,
-    ),
-    waitStartedAt =
-      fallback.waitStartedAt === undefined
-        ? selected.recoverAt === null
-          ? null
-          : observedAt
-        : Date.parse(fallback.waitStartedAt),
+    resetAt =
+      !exhausted && outcome.classification === "provider_quota" && outcome.resetAt
+        ? Date.parse(outcome.resetAt)
+        : Number.NaN,
+    notBeforeMs = Math.max(observedAt + delayMs, Number.isFinite(resetAt) ? resetAt : observedAt, recoverAt ?? 0),
+    waitStartedAt = fallback.waitStartedAt
+      ? Date.parse(fallback.waitStartedAt)
+      : exhausted || recoverAt !== null
+        ? observedAt
+        : null,
     maxWaitMs = Math.max(0, Number(runtimeSettings?.providerMaxWaitSeconds ?? 300) * 1_000);
-  if (waitStartedAt !== null && observedAt - waitStartedAt + Math.max(0, notBeforeMs - observedAt) > maxWaitMs) {
-    const reason =
+  if (waitStartedAt !== null && observedAt - waitStartedAt + Math.max(0, notBeforeMs - observedAt) > maxWaitMs)
+    return exhaustedTerminal(
       `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +
-      `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
-    active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-    await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-    return;
-  }
-  active.stream.appendFallbackState(
+        `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`,
+    );
+  return scheduledTerminal(
     {
-      state: "scheduled",
-      delayMs,
       notBeforeAt: new Date(notBeforeMs).toISOString(),
-      ...(waitStartedAt === null ? {} : { waitStartedAt: new Date(waitStartedAt).toISOString() }),
       nextProvider: next,
+      ...(waitStartedAt === null ? {} : { waitStartedAt: new Date(waitStartedAt).toISOString() }),
     },
-    input.now(),
+    delayMs,
   );
-  context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
 }
 
-/** Schedules a settled stream's next fallback attempt: bounded timers from the scheduled
- * notBeforeAt, re-reading the stream at fire time so a superseded schedule never launches.
- * The continuation launch is handed in by the spawner because it is the same spawnAttempt
- * entry every other dispatch takes. */
-export function scheduleFallbackContinuation(args: {
-  readonly input: RuntimeSpawnerInput;
-  readonly closed: () => boolean;
-  readonly publishRuntimeEvent: RuntimeSpawnerContext["publishRuntimeEvent"];
-  /** The continuation awaits the launch and uses no result. */
+/** Timers only wake the scheduler; the center's current leaf and accepted schedule authorize launch. */
+export async function scheduleFallbackContinuation(args: {
+  readonly context: RuntimeSpawnerContext;
   readonly launch: (
     payload: JsonObject,
     binding: RuntimeBinding,
@@ -391,85 +342,92 @@ export function scheduleFallbackContinuation(args: {
     publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
     onDispatched: (dispatchId: string, runtimeSessionId: string) => void,
   ) => Promise<unknown>;
-  readonly stream: ReturnType<typeof readDispatchStream>;
-}): void {
-  const { input, stream } = args;
-  if (
-    args.closed() ||
-    !stream ||
-    stream.fallbackState !== "scheduled" ||
-    !stream.fallbackSchedule ||
-    !stream.attemptOutcome ||
-    !stream.header.fallbackAttempt ||
-    !stream.header.binding ||
-    typeof stream.header.cwd !== "string"
-  )
-    return;
-  const notBeforeMs = Date.parse(stream.fallbackSchedule.notBeforeAt),
-    observedNowMs = Date.parse(input.now());
-  if (!Number.isFinite(notBeforeMs) || !Number.isFinite(observedNowMs)) return;
-  const remainingMs = Math.max(0, notBeforeMs - observedNowMs);
-  // setTimeout collapses delays above 2^31-1 ms onto 1 ms, so a quota resetAt years out would
-  // fire immediately; arm at most the platform maximum and re-check the clock at fire time.
+  readonly dispatchId: string;
+}): Promise<void> {
+  const { context } = args,
+    { input } = context;
+  if (context.closed?.()) return;
+  const read = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
+  if (read.status !== "ready")
+    throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
+  const lifecycle = read.rows[0];
+  if (!lifecycle?.policy.fallbackPending || lifecycle.controlLeafDispatchId !== args.dispatchId) return;
+  const stream = readDispatchStream(input.rootDir, args.dispatchId);
+  if (!stream?.header.binding || !stream.header.fallbackAttempt || !stream.attemptOutcome || !stream.header.cwd) return;
+  const header = stream.header,
+    binding = runtimeBindingForDispatch(header.binding!),
+    writer = reopenDispatchStream(input.rootDir, header);
+  const publishTerminal = async (terminal: DispatchTerminalOutcome) => {
+    const result = await context.publishRuntimeEvent(
+      "runtime_session_outcome_observed",
+      terminal.payload,
+      `fallback-terminal-${createHash("sha256").update(JSON.stringify(terminal)).digest("hex")}`,
+      binding,
+      terminal.body,
+    );
+    const settled = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [header.dispatchId] });
+    if (settled.status !== "ready")
+      throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
+    if (!settled.rows[0]?.policy.groupSettled) return false;
+    writer.appendFallbackState({ state: "exhausted", reason: terminal.reason }, input.now());
+    if (result.event) input.onRuntimeOutcome?.(result.event, header.schedule ?? null);
+    await input.onAttemptTerminal?.({
+      runtimeSessionId: header.runtimeSessionId,
+      dispatchId: header.dispatchId,
+      task: null,
+      schedule: header.schedule ?? null,
+      outcome: "failed",
+      reason: terminal.reason,
+      endedAt: terminal.payload.endedAt ?? input.now(),
+      binding,
+    });
+    await releaseFallbackResources(context, settled.rows[0], header.role, header.cwd);
+    return true;
+  };
+  // Replay durable event bytes first; only the center decides whether they close the group.
+  if (stream.terminalOutcome && (await publishTerminal(stream.terminalOutcome))) return;
+  // Previous-version outcomes did not carry the plan. Decode their launch data from the spool
+  // during the current/previous protocol window (expires 2026-12-07); state still comes from the reducer.
+  const plan = lifecycle.successor.schedule ?? stream.fallbackSchedule;
+  if (!plan) throw runtimeSpawnError("runtime_event_missing", `Fallback ${args.dispatchId} has no schedule data.`);
+  const notBeforeMs = Date.parse(plan.notBeforeAt);
   const timer = setTimeout(
     () => {
-      if (args.closed()) return;
-      if (Date.parse(input.now()) < notBeforeMs) {
-        scheduleFallbackContinuation(args);
-        return;
-      }
+      if (context.closed?.()) return;
       input.schedule(async () => {
-        const current = readDispatchStream(input.rootDir, stream.header.dispatchId);
-        if (
-          !current ||
-          current.fallbackState !== "scheduled" ||
-          current.fallbackSchedule?.notBeforeAt !== stream.fallbackSchedule!.notBeforeAt ||
-          !current.attemptOutcome ||
-          !current.header.fallbackAttempt ||
-          !current.header.binding ||
-          typeof current.header.cwd !== "string"
-        )
-          return;
-        const header = current.header,
-          binding = runtimeBindingForDispatch(header.binding!),
-          dispatchCwd = header.cwd;
-        if (!binding || typeof dispatchCwd !== "string") return;
-        const fallback = header.fallbackAttempt!,
+        const currentRead = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [args.dispatchId] });
+        if (currentRead.status !== "ready")
+          throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
+        const currentGroup = currentRead.rows[0];
+        if (!currentGroup?.policy.fallbackPending || currentGroup.controlLeafDispatchId !== args.dispatchId) return;
+        const terminal = readDispatchStream(input.rootDir, args.dispatchId)?.terminalOutcome;
+        if (terminal && (await publishTerminal(terminal))) return;
+        if (Date.parse(input.now()) < notBeforeMs) return scheduleFallbackContinuation(args);
+        const dispatchCwd = header.cwd!,
+          fallback = header.fallbackAttempt!,
           nextAttemptIndex = fallback.attemptIndex + 1,
-          currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
-          naturalNextIndex = currentCandidateIndex + 1,
+          naturalNextIndex = (fallback.candidateIndex ?? fallback.attemptIndex) + 1,
           exhaustedPass = naturalNextIndex >= fallback.candidates.length,
-          // Settle may skip permanently frozen rows, so the scheduled provider is the authority
-          // for the next position. A pass reset still starts at zero and counts a retry round.
-          scheduledCandidateIndex = fallback.candidates.findIndex(
+          nextCandidateIndex = fallback.candidates.findIndex(
             (candidate) =>
-              candidate.instance === current.fallbackSchedule!.nextProvider.instance &&
-              candidate.model === current.fallbackSchedule!.nextProvider.model,
+              candidate.instance === plan.nextProvider.instance && candidate.model === plan.nextProvider.model,
           ),
-          nextCandidateIndex = exhaustedPass
-            ? 0
-            : scheduledCandidateIndex >= 0
-              ? scheduledCandidateIndex
-              : naturalNextIndex,
-          nextRound = (fallback.retryRound ?? 0) + (exhaustedPass ? 1 : 0),
-          nextFallback = {
+          next = fallback.candidates[nextCandidateIndex];
+        if (!next)
+          throw runtimeSpawnError(
+            "runtime_event_missing",
+            "Accepted fallback candidate is missing from the launch inputs.",
+          );
+        const nextFallback = {
             ...fallback,
             attemptIndex: nextAttemptIndex,
             candidateIndex: nextCandidateIndex,
-            retryRound: nextRound,
-            ...(fallback.waitStartedAt || current.fallbackSchedule.waitStartedAt || exhaustedPass
-              ? { waitStartedAt: fallback.waitStartedAt ?? current.fallbackSchedule.waitStartedAt ?? input.now() }
+            retryRound: (fallback.retryRound ?? 0) + (exhaustedPass ? 1 : 0),
+            ...(fallback.waitStartedAt || plan.waitStartedAt || exhaustedPass
+              ? { waitStartedAt: fallback.waitStartedAt ?? plan.waitStartedAt ?? input.now() }
               : {}),
           },
-          next = fallback.candidates[nextCandidateIndex],
-          writer = reopenDispatchStream(input.rootDir, header),
-          continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
-        if (
-          !next ||
-          next.instance !== current.fallbackSchedule.nextProvider.instance ||
-          next.model !== current.fallbackSchedule.nextProvider.model
-        )
-          return;
+          continuation = continuationMission(stream.attemptOutcome!, fallback.originalMission);
         try {
           const continuationPayload: JsonObject = {
               runtimeInstanceId: next.instance,
@@ -514,77 +472,48 @@ export function scheduleFallbackContinuation(args: {
               );
             },
           );
-          archiveDispatchStream(input.rootDir, header.dispatchId);
         } catch (error) {
           consumeKnownError(error);
           const reason = String(
-            scrubProviderValue(`Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`),
-          ).slice(0, 1024);
-          writer.appendFallbackState({ state: "exhausted", reason }, input.now());
-          archiveDispatchStream(input.rootDir, header.dispatchId);
-          await input.onAttemptTerminal?.({
-            runtimeSessionId: header.runtimeSessionId,
-            dispatchId: header.dispatchId,
-            task:
-              header.taskId && header.executionId
-                ? {
-                    taskId: header.taskId,
-                    executionId: header.executionId,
-                    leaseVersion: header.leaseVersion ?? null,
-                  }
-                : null,
-            schedule: header.schedule ?? null,
-            outcome: "failed",
+              scrubProviderValue(`Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`),
+            ).slice(0, 1024),
+            after = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [header.dispatchId] });
+          if (after.status !== "ready")
+            throw runtimeSpawnError("dispatch_lifecycle_pending", "Fallback lifecycle is not ready.");
+          // Once admission creates the successor, that leaf's own settlement owns the group.
+          if (!after.rows[0]?.policy.fallbackPending || after.rows[0].controlLeafDispatchId !== header.dispatchId)
+            return;
+          const terminal = stream.terminalOutcome;
+          if (!terminal?.payload.attempt)
+            throw runtimeSpawnError("runtime_event_missing", "Fallback terminal publication is missing.");
+          const { fallbackSchedule: _schedule, ...attempt } = terminal.payload.attempt;
+          const exhausted = {
+            ...terminal,
             reason,
-            endedAt: input.now(),
-            binding,
-          });
-          if (header.role === "reviewer" && typeof header.cwd === "string") {
-            const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, header.cwd);
-            if (reviewCleanupFailure)
-              console.error(
-                `[review-worktree] ${header.dispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`,
-              );
-          }
+            payload: { ...terminal.payload, attempt: { ...attempt, reason, fallbackState: "exhausted" as const } },
+          };
+          writer.appendTerminalOutcome(exhausted, input.now());
+          await publishTerminal(exhausted);
         }
       }, runtimeBindingForDispatch(stream.header.binding!));
     },
-    Math.min(remainingMs, 2_147_483_647),
+    Math.min(Math.max(0, notBeforeMs - Date.parse(input.now())), 2_147_483_647),
   );
   timer.unref();
 }
 
-/** Reconnects a persisted fallback stream to the spawner's single launch entry point. */
-export function reconcileFallback(args: {
-  readonly input: RuntimeSpawnerInput;
-  readonly publishRuntimeEvent: RuntimeSpawnerContext["publishRuntimeEvent"];
-  readonly closed: () => boolean;
-  readonly launch: (
-    payload: JsonObject,
-    binding: RuntimeBinding,
-    fallback: RuntimeFallbackAttempt,
-    schedule: TrustedScheduleRuntime | undefined,
-    handoffFromRuntimeSessionId: string | undefined,
-    publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
-    onDispatched: (dispatchId: string, runtimeSessionId: string) => void,
-  ) => Promise<unknown>;
-  readonly stream: ReturnType<typeof readDispatchStream>;
-}): void {
-  scheduleFallbackContinuation(args);
-}
-
-/** A terminal attempt can still own a pending continuation. These schedules remain in
- * the live spool until dispatched, so maintenance never enumerates historical archives
- * or treats the terminal attempt as a process that needs adoption. */
-export function restoreFallbackSchedules(context: RuntimeSpawnerContext): void {
-  for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
-    if (
-      !header.fallbackAttempt ||
-      !header.binding ||
-      !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header)
-    )
-      continue;
-    const stream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
-    if (stream?.fallbackState === "scheduled") context.reconcileFallback(stream);
+/** Group resources stay available across every attempt, including delayed/restarted continuations. */
+export async function releaseFallbackResources(
+  context: RuntimeSpawnerContext,
+  lifecycle: DispatchLifecycleView,
+  role?: string | null,
+  cwd?: string | null,
+): Promise<void> {
+  if (!lifecycle.policy.groupSettled) return;
+  if (role === "reviewer" && cwd) {
+    const failure = await reclaimReviewWorktree(context.input.rootDir, cwd);
+    if (failure)
+      console.error(`[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`);
   }
+  for (const dispatchId of lifecycle.groupDispatchIds) archiveDispatchStream(context.input.rootDir, dispatchId);
 }

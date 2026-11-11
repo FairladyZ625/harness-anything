@@ -61,6 +61,9 @@ function executeRead(request: RepoWriterRequestV1): unknown {
     case "canAttach":
       value = reader.canAttach(args[0] as never);
       break;
+    case "readDispatchLifecycle":
+      value = reader.readDispatchLifecycle(args[0] as import("@harness-anything/kernel").DispatchLifecycleQuery);
+      break;
     case "readEventWitness":
       value = reader.readEventWitness(Number(args[0]));
       break;

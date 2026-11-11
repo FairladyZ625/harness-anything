@@ -18,6 +18,11 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import type { RuntimeBinding, RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
+import { scheduleFallbackContinuation } from "../src/runtime-spawn-fallback.ts";
+import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
+import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
+import type { RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
 import { dispatchLifecycleReadOf } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = withPolicyGroup(
@@ -649,6 +654,11 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(resetScheduled.row.classification, "provider_quota");
     assert.equal(resetScheduled.row.resetAt, "2099-01-01T00:00:00.000Z");
     assert.equal(resetScheduled.stream?.fallbackSchedule?.notBeforeAt, "2099-01-01T00:00:00.000Z");
+    const future = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [resetScheduled.row.dispatchId] });
+    assert.ok(future.status === "ready");
+    assert.equal(future.rows[0]?.policy.groupSettled, false, "future fallback keeps its group open");
+    assert.equal(future.rows[0]?.successor.schedule?.notBeforeAt, "2099-01-01T00:00:00.000Z");
+    assert.equal(future.rows[0]?.controlLeafDispatchId, resetScheduled.row.dispatchId);
 
     // owner ruling 2026-10-21 14:35 (T4): a single servable runtime row still gets the bounded
     // retry chain — the first provider failure may not be the dispatch's last word.
@@ -1080,6 +1090,173 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     spawner.close();
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+for (const recovery of ["reconcile", "adoption", "timer"] as const) {
+  test(`interrupted fallback exhaustion replays before ${recovery} can launch again`, async (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "fallback-exhaustion-replay-")),
+      repoId = workspaceId(`fallback-exhaustion-${recovery}`),
+      taskId = `task_fallback_exhaustion_${recovery}`,
+      instance = runtimeInstance("provider-reset-first");
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Fallback Replay Test");
+    git(root, "config", "user.email", "fallback-replay@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(root),
+      ownerId: "fallback-replay",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "fallback-replay",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      keycloakSession: async () => binding.keycloakAuthorization.session,
+      runtimeInstances: () => [instance, runtimeInstance("provider-reset-second")],
+      prepareRuntimeLaunch: async (id, request) => ({
+        definition: definition(id, request.model ?? `${id}-model`),
+        installation,
+        executablePath: installation.executablePath,
+        args: [],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => fakeProcess(2_147_483_647, "429-reset"),
+    });
+    try {
+      await installAgent(cell, "exhaustion-replay", [
+        { instance: instance.instanceId },
+        { instance: "provider-reset-second" },
+      ]);
+      await startTask(cell, root, taskId, `execution-${recovery}`);
+      const spawned = await cell.spawnRuntime(
+        {
+          agentId: "exhaustion-replay",
+          taskId,
+          cwd: { scope: "repo-root" },
+          prompt: "Retain the frozen result across an interrupted exhaustion.",
+          dispatchKey: "exhaustion-replay",
+        },
+        binding,
+      );
+      const dispatchId = String(spawned.dispatchId),
+        pending = await waitForArrival(async () => {
+          const read = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+          return read.status === "ready" && read.rows[0]?.policy.fallbackPending ? read.rows[0] : null;
+        }, watchDirectoryArrival(root));
+      assert.equal(pending.attempt.phase, "closed");
+      const stream = readDispatchStream(root, dispatchId)!;
+      assert.ok(stream.terminalOutcome);
+      const before = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!;
+      assert.ok(before.snapshot.lease, "scheduled fallback retains the task lease");
+      const queue: (() => void | Promise<void>)[] = [],
+        notifications: RuntimeAttemptTerminal[] = [],
+        publications: unknown[] = [],
+        interrupted = new Error("publication interrupted before center acceptance");
+      let rejectPublication = true,
+        launches = 0;
+      t.mock.timers.enable({ apis: ["setTimeout"] });
+      const openContext = () => {
+        const context = {
+          processes: new Map(),
+          exiting: new Set(),
+          runtimeSpawnError,
+          input: {
+            rootDir: root,
+            now: () => "2099-01-01T00:00:00.000Z",
+            schedule: (work: () => void | Promise<void>) => queue.push(work),
+            remote: {
+              readDispatchLifecycle: (query) => cell.readDispatchLifecycle(query),
+              readRuntimeSession: async (runtimeSessionId) =>
+                (await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId })).session,
+            },
+            onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => {
+              notifications.push(terminal);
+            },
+          },
+          publishRuntimeEvent: async (type, payload, opId, eventBinding, resultBody) => {
+            const exhaustion =
+              type === "runtime_session_outcome_observed" && payload.attempt?.fallbackState === "exhausted";
+            if (exhaustion) publications.push({ type, payload, opId, resultBody });
+            assert.deepEqual(
+              readDispatchStream(root, dispatchId)?.terminalOutcome?.payload,
+              payload,
+              "the exact terminal must be durable before publication",
+            );
+            if (exhaustion && rejectPublication) throw interrupted;
+            const receipt = await cell.runtimeIngress(
+              { kind: "event", type, payload, opId, resultBody },
+              { ...eventBinding, keycloakAuthorization: binding.keycloakAuthorization },
+            );
+            assert.ok(["applied", "no_changes"].includes(String(receipt.outcome)), JSON.stringify(receipt));
+            return { receipt, ...(receipt.event ? { event: receipt.event } : {}) };
+          },
+          reconcileFallback: (id) =>
+            scheduleFallbackContinuation({
+              context,
+              ...{ closed: () => false },
+              dispatchId: id,
+              launch: async () => {
+                launches += 1;
+                if (rejectPublication) throw new Error("successor admission refused");
+                return {};
+              },
+            }),
+        } as RuntimeSpawnerContext;
+        return context;
+      };
+      const firstContext = openContext();
+      await firstContext.reconcileFallback(dispatchId);
+      if (recovery === "timer") await firstContext.reconcileFallback(dispatchId);
+      t.mock.timers.tick(0);
+      assert.equal(queue.length, recovery === "timer" ? 2 : 1);
+      await assert.rejects(queue.shift()!(), interrupted);
+      const frozen = readDispatchStream(root, dispatchId)!.terminalOutcome!;
+      assert.equal(frozen.payload.attempt?.fallbackState, "exhausted");
+      assert.equal(launches, 1);
+      assert.equal(notifications.length, 0);
+      assert.equal(path.basename(path.dirname(dispatchStreamPath(root, dispatchId)!)), "dispatches");
+      const stillPending = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+      assert.ok(stillPending.status === "ready" && stillPending.rows[0]?.policy.fallbackPending);
+      rejectPublication = false;
+      const restarted = openContext();
+      if (recovery === "reconcile") await restarted.reconcileFallback(dispatchId);
+      else if (recovery === "adoption") assert.equal((await adoptRuntimes(restarted))[0]?.outcome, "settled");
+      t.mock.timers.tick(0);
+      while (queue.length) await queue.shift()!();
+      assert.equal(launches, 1, "restart must not attempt another successor, even when launch is available");
+      assert.deepEqual(publications[1], publications[0], "replay preserves payload, body and operation identity");
+      assert.equal(frozen.payload.resultRef, stream.terminalOutcome.payload.resultRef);
+      assert.equal(frozen.body, stream.terminalOutcome.body);
+      const closed = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+      assert.ok(closed.status === "ready" && closed.rows[0]?.policy.groupSettled);
+      assert.equal(
+        (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)?.snapshot.lease,
+        null,
+      );
+      assert.equal(notifications.length, 1);
+      assert.equal(notifications[0]?.runtimeSessionId, stream.header.runtimeSessionId);
+      assert.equal(notifications[0]?.endedAt, frozen.payload.endedAt);
+      assert.equal(path.basename(path.dirname(dispatchStreamPath(root, dispatchId)!)), "archive");
+      await openContext().reconcileFallback(dispatchId);
+      await adoptRuntimes(openContext());
+      assert.equal(notifications.length, 1, "settled groups do not notify twice");
+      const releases = makeTaskEventStore({ repoId, rootDir: root })
+        .read()
+        .events.filter(
+          (event) =>
+            event.taskId === taskId &&
+            event.type === "lease_released" &&
+            event.actor.executor?.id === `runtime-session:${stream.header.runtimeSessionId}`,
+        );
+      assert.equal(releases.length, 1, "only the matching runtime lease is released once");
+    } finally {
+      t.mock.timers.reset();
+      await cell.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 }
 
 async function installAgent(

@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { settleFallbackAttempt } from "../src/runtime-spawn-fallback.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "../src/runtime-fallback-contract.ts";
 import type { ActiveRuntime, RuntimeAttemptTerminal, RuntimeSpawnerContext } from "../src/runtime-spawn-types.ts";
@@ -26,7 +25,7 @@ test("a delivered attempt never schedules a fallback, even when its tail is prov
   try {
     const terminal = await sink(rootDir, { delivered: true });
     assert.equal(terminal.outcome, "succeeded");
-    assert.deepEqual(terminal.launchedFallbacks, [], "a delivered attempt must not be re-dispatched");
+    assert.deepEqual(terminal.plannedFallbacks, [], "a delivered attempt must not be re-dispatched");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -36,7 +35,7 @@ test("an undelivered provider_fault still schedules the next declared runtime", 
   const rootDir = mkdtempSync(path.join(tmpdir(), "fallback-undelivered-"));
   try {
     const terminal = await sink(rootDir, { delivered: false });
-    assert.deepEqual(terminal.launchedFallbacks, ["provider-b"]);
+    assert.deepEqual(terminal.plannedFallbacks, ["provider-b"]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -72,29 +71,8 @@ async function sink(
     };
   },
 ) {
-  const launchedFallbacks: string[] = [],
-    terminal: { outcome: "succeeded" | "failed" } = { outcome: options.delivered ? "succeeded" : "failed" },
+  const terminal: { outcome: "succeeded" | "failed" } = { outcome: options.delivered ? "succeeded" : "failed" },
     attempt = classify();
-  // The fallback path re-reads its own stream to arm the continuation; a real (empty) stream
-  // keeps the production branch under test instead of a stub.
-  openDispatchStream(rootDir, {
-    dispatchId: "dispatch_0123456789abcdef01234567",
-    taskId: null,
-    executionId: null,
-    runtimeSessionId: "runtime_0123456789abcdef01234567",
-    instanceId: "provider-a",
-    startedAt: "2026-10-22T00:00:00.000Z",
-    dispatchOpId: "dispatch-op-reconnect",
-    kindId: "codex",
-    permissionMode: "bypass",
-    binding: {} as never,
-    cwd: rootDir,
-    prompt: "reconnect fallback fixture",
-    mission: "reconnect fallback fixture",
-    model: "model-a",
-    reasoningEffort: null,
-    fast: false,
-  });
   const context = {
     input: {
       rootDir,
@@ -105,11 +83,8 @@ async function sink(
       },
       ...(options.runtimeProviderHealth ? { runtimeProviderHealth: options.runtimeProviderHealth } : {}),
     },
-    reconcileFallback: () => {
-      launchedFallbacks.push("provider-b");
-    },
   } as unknown as RuntimeSpawnerContext;
-  await settleFallbackAttempt(
+  const plan = await settleFallbackAttempt(
     context,
     {
       dispatchId: "dispatch_0123456789abcdef01234567",
@@ -130,7 +105,9 @@ async function sink(
       binding: {} as never,
     },
   );
-  return Object.assign(terminal, { launchedFallbacks });
+  return Object.assign(terminal, {
+    plannedFallbacks: plan?.fallbackSchedule ? [plan.fallbackSchedule.nextProvider.instance] : [],
+  });
 }
 
 /** The classification the reconnect rule produces: provider_fault on a stopped outcome. */

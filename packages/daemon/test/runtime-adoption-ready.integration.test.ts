@@ -324,7 +324,9 @@ test("owner adoption checks dead PID before publishing live and preserves live c
           return lifecycle.status === "ready" && lifecycle.rows.some(({ attempt }) => attempt.process === "alive");
         },
       }),
-      published: string[] = [];
+      published: string[] = [],
+      scheduled: Promise<void>[] = [],
+      scheduleFailures: unknown[] = [];
     let centerAvailable = true,
       launches = 0;
     openDispatchStream(rootDir, {
@@ -358,8 +360,14 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         launches += 1;
         throw new Error("adoption must not relaunch");
       },
-      schedule: async (work) => {
-        await work();
+      schedule: (work) => {
+        scheduled.push(
+          Promise.resolve()
+            .then(work)
+            .catch((error) => {
+              scheduleFailures.push(error);
+            }),
+        );
       },
       remote: {
         async readRuntimeSession(id: string) {
@@ -413,6 +421,12 @@ test("owner adoption checks dead PID before publishing live and preserves live c
       }
     } finally {
       runtime.close();
+      await Promise.all(scheduled);
+      assert.deepEqual(
+        scheduleFailures,
+        [],
+        "adoption reports recovery errors directly without a second scheduled fallback scan",
+      );
       hub.close();
       rmSync(rootDir, { recursive: true, force: true });
     }

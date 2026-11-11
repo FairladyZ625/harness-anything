@@ -19,6 +19,7 @@ import { openDecisionPointExecutor } from "../src/decision-point-executor.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { validTaskDispatchRow } from "../src/protocol/daemon-protocol-validate-relation-query.ts";
 import type { TaskDispatchRow } from "../src/protocol/task-dispatch-contract.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { RepoCell } from "../src/repo-cell-types.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
@@ -82,6 +83,9 @@ for (const scenario of [
       reads: string[] = [],
       row = { ...baseRow, ...(scenario.owned ? { squadRunId } : {}) },
       cell = {
+        readDispatchLifecycle: lifecycleReadFor([
+          { dispatchId, runtimeSessionId: row.runtimeSessionId, attemptSettled: true },
+        ]),
         read: async (method: string) => {
           reads.push(method);
           if (method === "repo.agentRuntime.sessions.read")
