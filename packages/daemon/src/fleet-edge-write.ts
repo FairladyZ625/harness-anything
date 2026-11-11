@@ -90,7 +90,7 @@ export async function runFleetEdgeRetry<T>(options: {
   let attempt = 0;
   for (;;) {
     options.signal?.throwIfAborted();
-    const settled = await abortable(options.write, options.signal).then(
+    const settled = await raceLifetime(options.write(), options.signal).then(
       (value) => ({ ok: true as const, value }),
       (error: unknown) => ({ ok: false as const, error }),
     );
@@ -117,13 +117,14 @@ function abortReason(signal: AbortSignal): unknown {
 }
 
 /**
- * Races one attempt against the close signal. A client that ignores the signal still cannot keep
- * the retry loop alive past close; a client that honors it settles through its own rejection.
+ * Reject with the lifetime signal's own reason as soon as it aborts. An operation that ignores
+ * the signal still cannot keep its caller alive past the lifetime; one that honors it also
+ * settles through its own rejection.
  */
-function abortable<T>(operation: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return operation();
+export function raceLifetime<T>(operation: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return operation;
   if (signal.aborted) return Promise.reject(abortReason(signal));
-  const pending = operation();
+  const pending = operation;
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(abortReason(signal));
     signal.addEventListener("abort", onAbort, { once: true });

@@ -429,10 +429,10 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
     try {
       await pending;
     } catch (error) {
-      // The daemon lifetime aborts an in-flight scan; that cancellation is not a close failure.
-      // A scan that failed for another reason still surfaces.
-      if (!input.signal?.aborted) throw error;
-      consumeKnownError(error);
+      // Only the cancellation this close issued is shutdown work. A scan that failed for another
+      // reason still rejects close, even while the lifetime is aborted.
+      if (input.signal?.aborted && error === input.signal.reason) consumeKnownError(error);
+      else throw error;
     }
     await Promise.allSettled([...runs]);
   };

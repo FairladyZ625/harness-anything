@@ -483,11 +483,11 @@ test("a disabled auto-claim loop never opens the owner replica and closes cleanl
   }
 });
 
-test("auto-claim close absorbs the daemon lifetime abort but keeps a real scan failure", async () => {
+test("auto-claim close consumes only its own lifetime abort and keeps other scan failures", async () => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-close-"));
   try {
     writeNodeAutoClaimPolicy(userRoot, policy);
-    const gatedScan = (signal?: AbortSignal) => {
+    const gatedScan = (signal: AbortSignal, rejection: () => unknown) => {
       let started!: () => void;
       const reading = new Promise<void>((resolve) => {
         started = resolve;
@@ -499,15 +499,14 @@ test("auto-claim close absorbs the daemon lifetime abort but keeps a real scan f
       const loop = openNodeAutoClaimLoop({
         userRoot,
         now: () => "2026-11-02T00:00:00.000Z",
-        ...(signal ? { signal } : {}),
+        signal,
         ownerPersonIdFor: async () => "owner",
         repos: () => ["repo-a"],
         repoIdOf: (repo) => repo,
         candidates: async () => {
           started();
           await gate;
-          if (signal?.aborted) throw signal.reason;
-          throw new Error("scan failed for another reason");
+          throw rejection();
         },
         taskIdOf: (candidate: string) => candidate,
         assignmentOf: async () => null,
@@ -518,17 +517,23 @@ test("auto-claim close absorbs the daemon lifetime abort but keeps a real scan f
       return { loop, reading, releaseCandidate, scan: loop.trigger("scan").catch(() => undefined) };
     };
 
-    const lifetime = new AbortController(),
-      cancelled = gatedScan(lifetime.signal);
+    const cancelledLifetime = new AbortController(),
+      cancelled = gatedScan(cancelledLifetime.signal, () => cancelledLifetime.signal.reason);
     await cancelled.reading;
-    lifetime.abort(new Error("daemon closed"));
+    // Shutdown aborts the lifetime and the scan rejects with the exact close reason: this close
+    // cancellation is consumed so teardown can finish.
+    cancelledLifetime.abort(new Error("daemon closed"));
     const closingCancelled = cancelled.loop.close();
     cancelled.releaseCandidate();
     await closingCancelled;
     await cancelled.scan;
 
-    const failed = gatedScan();
+    const failedLifetime = new AbortController(),
+      failed = gatedScan(failedLifetime.signal, () => new Error("scan failed for another reason"));
     await failed.reading;
+    // The lifetime is aborted too, but this scan failed for an unrelated reason: close must
+    // still reject after teardown instead of absorbing it as cancellation.
+    failedLifetime.abort(new Error("daemon closed"));
     const closingFailed = failed.loop.close();
     failed.releaseCandidate();
     await assert.rejects(closingFailed, /scan failed for another reason/u);
