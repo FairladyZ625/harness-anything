@@ -2,6 +2,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture, taskId } from "./task-completion-review.fixture.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
+
+test("a reviewer launch failure closes its admitted attempt without a process or transcript", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false, providerInputLimit: 1 });
+  try {
+    await f.install();
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    assert.equal(dispatch.payload.role, "reviewer");
+    assert.equal(f.launches.length, 0, "launch was rejected before any provider process existed");
+    assert.equal(await f.awaitOutcome(dispatch.payload.runtimeSessionId), "failed");
+    const events = f.events(),
+      stop = events.findIndex(
+        (event) =>
+          event.type === "runtime_session_exited" &&
+          event.payload.runtimeSessionId === dispatch.payload.runtimeSessionId,
+      ),
+      outcome = events.findIndex(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === dispatch.payload.runtimeSessionId,
+      );
+    assert.ok(stop >= 0 && outcome > stop, "the accepted stop proof must precede terminal settlement");
+    assert.equal(readDispatchStream(f.root, dispatch.payload.dispatchId), null);
+  } finally {
+    await f.close();
+  }
+});
 
 test(
   "a first stalled automatic review gets one fresh attempt, while a second stall waits for owner dispatch",

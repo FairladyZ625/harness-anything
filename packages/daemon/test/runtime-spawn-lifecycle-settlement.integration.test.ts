@@ -505,6 +505,15 @@ test(
             })}`,
           );
           assert.equal(launchFailureProjection.read(launchFailureTaskId).snapshot.lease, null);
+          const lifecycle = launchFailureProjection.readDispatchLifecycle({
+            by: "session",
+            runtimeSessionId: String(launchFailureRuntimeSessionId),
+          });
+          assert.equal(lifecycle.status, "ready");
+          if (lifecycle.status === "ready") {
+            assert.equal(lifecycle.rows[0]?.policy.attemptSettled, true);
+            assert.equal(lifecycle.rows[0]?.attempt.outcome, "failed");
+          }
         } finally {
           launchFailureProjection.close();
         }
@@ -579,6 +588,15 @@ test(
             "pre-session cleanup releases the lease only after stop proof",
           );
           assert.equal(preSessionProjection.read(preSessionTaskId).snapshot.lease, null);
+          const lifecycle = preSessionProjection.readDispatchLifecycle({
+            by: "session",
+            runtimeSessionId: String(preSessionRuntimeSessionId),
+          });
+          assert.equal(lifecycle.status, "ready");
+          if (lifecycle.status === "ready") {
+            assert.equal(lifecycle.rows[0]?.policy.attemptSettled, true);
+            assert.equal(lifecycle.rows[0]?.attempt.outcome, "failed");
+          }
         } finally {
           preSessionProjection.close();
         }

@@ -12,6 +12,7 @@ import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { makeAgentRuntimeReadModel, readObservedRuntimeSession } from "../src/agent-runtime-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const dispatchId = "dispatch_000000000000000000000007";
 
@@ -44,18 +45,24 @@ for (const role of ["implementation", "reviewer"] as const) {
         role,
       },
     };
-    const projection = {
-      readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
-      readRuntimeSession: () => session,
-      readRuntimeSessions: () => [session],
-      readRuntimeSessionEvents: () => [],
-      readRuntimeSessionEventsByType: () => [],
-      readRuntimeInstallation: () => null,
-      readRuntimeInstallations: () => [],
-      readRuntimeDispatch: () => dispatch,
-      readTaskRuntimeBatch: () => ({ rows: [] }),
-      listEntities: () => [],
-    } as unknown as TaskProjection;
+    const admitted = lifecycleEvent("R", session.runtimeSessionId, {
+        instanceId: session.instanceId,
+        source: "local",
+        dispatchId,
+      }),
+      projection = {
+        readDispatchLifecycle: dispatchLifecycleReadOf(() => [admitted]),
+        readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
+        readRuntimeSession: () => session,
+        readRuntimeSessions: () => [session],
+        readRuntimeSessionEvents: () => [],
+        readRuntimeSessionEventsByType: () => [],
+        readRuntimeInstallation: () => null,
+        readRuntimeInstallations: () => [],
+        readRuntimeDispatch: () => dispatch,
+        readTaskRuntimeBatch: () => ({ rows: [] }),
+        listEntities: () => [],
+      } as unknown as TaskProjection;
     const reads = makeAgentRuntimeReadModel({
       projection,
       store: { readContentBlob: () => null } as never,
@@ -77,6 +84,7 @@ for (const role of ["implementation", "reviewer"] as const) {
     assert.equal(exited.attachable, false);
     assert.equal(exited.outcome, null);
     assert.equal(exited.exitCode, 0);
+    assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).settlement, null);
     assert.equal(
       reads.session({ runtimeSessionId: session.runtimeSessionId }).session.liveness,
       "live",

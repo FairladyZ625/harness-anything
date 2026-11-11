@@ -15,6 +15,7 @@ import { initRepo } from "./task-surface.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 import { readDispatchStreamHeader } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 
 for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
   test(`production writer resolves the original host session for ${scenario}`, async () => {
@@ -224,7 +225,7 @@ for (const exitCode of [0, 1]) {
   test(
     `a node-origin DeepSeek worker settles after its spawn RPC returns (exit=${exitCode})`,
     { timeout: 20000 },
-    async () => {
+    async (t) => {
       const root = mkdtempSync(path.join(tmpdir(), "ha-writer-runtime-session-")),
         rootDir = canonicalRoot(root),
         repoId = workspaceId(`writer-runtime-${exitCode}`),
@@ -325,10 +326,11 @@ for (const exitCode of [0, 1]) {
             prompt: request.prompt,
           }),
           runtimeLaunch: (_launch, persistence): RuntimeProcess => {
-            const listeners: { output?: (chunk: string) => void; exit?: (code: number | null) => void } = {};
+            const listeners: { output?: (chunk: string) => void; exit?: (code: number | null) => void } = {},
+              runtime = fixtureRuntimeProcess(t);
             callbacks.set(persistence.dispatchId, listeners);
             return {
-              pid: process.pid,
+              ...runtime,
               onOutput: (listener) => {
                 listeners.output = listener;
               },
@@ -336,7 +338,6 @@ for (const exitCode of [0, 1]) {
               onExit: (listener) => {
                 listeners.exit = listener;
               },
-              terminate: () => undefined,
             };
           },
           onRuntimeOutcome: (event) => {

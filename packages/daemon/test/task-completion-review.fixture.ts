@@ -27,7 +27,7 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { policyTestRealm, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 // The fixture's owner writes and closes: closing a task is the maintainer tier's, so it holds both roles.
@@ -836,6 +836,11 @@ export async function fixture(
       for (const pending of pendingProviders) pending.exit?.(1);
       await cell.close();
       for (const stop of runtimeStops) await stop();
+      // The shared realm outlives each disposable ledger. Its deterministic dispatch clients
+      // must not retain a prior fixture's execution identity after that ledger is removed.
+      for (const event of events())
+        if (event.type === "runtime_dispatch_requested")
+          policyTestRealm.keycloak.nodeClients.delete(`harness-execution-${event.payload.dispatchId}`);
       await eventsReader?.drain();
       rmSync(root, { recursive: true, force: true });
     },

@@ -937,7 +937,7 @@ test("an owner can override the worker identity for a rework continuation", asyn
           : null;
     assert.equal(continuation?.type, "runtime_dispatch_requested");
     assert.equal(continuation.payload.agentId, "closeout-reviewer");
-    assert.equal(header?.instanceId, "review-first");
+    assert.equal(header?.instanceId, "review-first", JSON.stringify(returned));
     assert.equal(header?.model, "review-model");
   } finally {
     await f.close();
@@ -1020,7 +1020,7 @@ test("an agent override resolves the rework continuation model from the declarat
     assert.equal(continuation?.type, "runtime_dispatch_requested", JSON.stringify(returned));
     assert.equal(continuation.payload.agentId, "flash-worker");
     const header = readDispatchStream(f.root, continuation.payload.dispatchId)?.header;
-    assert.equal(header?.instanceId, "ambient-first");
+    assert.equal(header?.instanceId, "ambient-first", JSON.stringify(returned));
     assert.equal(header?.model, "flash-model", "the Agent declaration, not the previous dispatch, decides the model");
   } finally {
     await f.close();

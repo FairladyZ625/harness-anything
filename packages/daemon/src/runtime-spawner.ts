@@ -3,7 +3,7 @@ import {
   executionArrangementAllows,
 } from "@harness-anything/kernel/internal/domain/task-execution-arrangement.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
-import { consumeKnownError, DEFAULT_RUNTIME_STALL_TIMEOUT_MS, dispatchOwnerForNode } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, dispatchOwnerForNode, sha256Text } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -39,7 +39,6 @@ import {
 } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
-  runtimeErrorCode,
   runtimeErrorMessage,
   runtimeSpawnError,
   runtimeTaskExecutionFrozenError,
@@ -1017,35 +1016,32 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (reviewCleanupFailure)
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       }
-      if (!taskLeaseHandoff || !taskBinding) {
+      if (!requested && !taskLeaseHandoff) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
       requested ??= await requestDispatch(false);
       if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
-      const exited = await publishRuntimeEvent(
-        "runtime_session_exited",
-        { runtimeSessionId },
-        randomUUID(),
-        activeBinding,
-      ).catch(consumeKnownError);
-      if (!exited?.event) {
-        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
-      }
-      const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed";
-      const settlement = await input.onAttemptTerminal?.({
-        runtimeSessionId,
-        dispatchId: newDispatchId,
-        task: taskBinding,
-        schedule: trustedSchedule ?? null,
-        outcome: "failed",
-        reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
-        endedAt: input.now(),
-        binding: activeBinding,
-        ...(preservePrimaryError ? { preservePrimaryError: true } : {}),
-      });
-      if (settlement?.outcome !== "lease_unproven" && stream) removeDispatchStream(input.rootDir, newDispatchId);
+      await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
+      const body = `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+        sha256 = sha256Text(body),
+        terminal = await publishRuntimeEvent(
+          "runtime_session_outcome_observed",
+          {
+            runtimeSessionId,
+            dispatchId: newDispatchId,
+            outcome: "failed",
+            exitCode: null,
+            resultRef: `artifact:runtime-result/sha256/${sha256}`,
+            result: { sha256, size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" },
+            endedAt: input.now(),
+          },
+          randomUUID(),
+          activeBinding,
+          body,
+        );
+      if (terminal.event) input.onRuntimeOutcome?.(terminal.event, trustedSchedule ?? null);
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {
       await publishRuntimeEvent(
@@ -1213,12 +1209,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ({ process, resumeObservation } = await launchPreparedProcess());
       } catch (error) {
         await cleanupFailedLaunch(error);
-        await publishRuntimeEvent(
-          "runtime_dispatch_outcome_unknown",
-          { dispatchId: newDispatchId, runtimeSessionId },
-          randomUUID(),
-          binding,
-        );
         throw error;
       }
     const runtimeProcess = process;

@@ -197,7 +197,7 @@ export async function materializePgQueryModels(
     const id = runtimeSessionId(event);
     if (id) {
       const session = reduceRuntimeSession(await get<RuntimeSession>("runtime-session", id), event, {
-        allowPreSessionExit: event.type === "runtime_session_exited",
+        allowPreSessionTerminal: true,
       });
       if (session) {
         await put("runtime-session", id, session);

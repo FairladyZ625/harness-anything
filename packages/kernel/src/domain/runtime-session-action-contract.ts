@@ -251,7 +251,7 @@ function compileRuntimeSessionAction(
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
     noChanges =
-      event.type === "runtime_session_exited" &&
+      (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
       current === null &&
       typeof input.action.dispatchId === "string" &&
       input.action.dispatchId.length > 0
