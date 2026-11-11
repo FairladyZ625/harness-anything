@@ -10,6 +10,7 @@ import {
   checkDomainJudgmentSingleDefinition,
   scanDispatchLifecycleObservationSites,
 } from "./check-domain-judgment-single-definition.mjs";
+import { loadOntologyClosureSnapshot } from "./gates/ontology-gate-lib.mjs";
 import { checkAuthoredReadinessSites, scanAuthoredReadinessSites } from "./domain-judgment-authored-readiness.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -17,7 +18,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 // The gate enumerates through git; a directory inside the real repository would
 // resolve to the outer repo's tree, so the checked-in fixture runs from a copy
 // that is its own repository.
-function fixtureFindings(t) {
+function fixtureFindings(t, kinds = []) {
   const fixture = mkdtempSync(path.join(tmpdir(), "ha-domain-judgment-fixture-"));
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   cpSync(path.join(repoRoot, "tools/fixtures/domain-judgment-single-definition"), fixture, { recursive: true });
@@ -38,7 +39,7 @@ function fixtureFindings(t) {
     const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
   }
-  return checkDomainJudgmentSingleDefinition(fixture);
+  return checkDomainJudgmentSingleDefinition(fixture, kinds);
 }
 
 test("domain judgment single-definition gate accepts the repository", () => {
@@ -53,7 +54,7 @@ test("domain judgment single-definition gate accepts the repository", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /thirteen judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active/u,
+    /legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active/u,
   );
 });
 
@@ -319,6 +320,114 @@ test("positive fixture: a second forwarding intent judgment is refused", (t) => 
     findings.some(
       (finding) =>
         finding.includes("forwardingIntent") && finding.includes("packages/daemon/src/duplicate-judgments.ts"),
+    ),
+    findings.join("\n"),
+  );
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260 CH1: new judgments are supplied by EntityKindContract,
+// so neither their symbols nor consumer rules may require editing the gate's fixed list.
+test("registry judgments enforce canonical definitions, consumers and equivalent edge judgments", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-registry-judgment-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  spawnSync("git", ["init", "--quiet"], { cwd: root });
+  const canonical = "packages/kernel/src/domain/eligibility.ts",
+    consumer = "packages/daemon/src/eligibility.ts",
+    judgment = {
+      id: "eligibility",
+      symbol: `${canonical}#isEligible`,
+      consumers: [consumer],
+      consumerRules: [
+        {
+          pathPattern: "^packages/(?:daemon|cli|gui|storage)/",
+          pattern: "status\\s*===\\s*['\"]eligible['\"]|EXISTS[\\s\\S]*eligible",
+          reason: "use the eligibility verdict",
+          flags: "iu",
+        },
+      ],
+    },
+    kinds = [{ kind: "task", judgments: [judgment] }],
+    write = (file, body) => {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      writeFileSync(path.join(root, file), body);
+    },
+    findings = () => checkDomainJudgmentSingleDefinition(root, kinds).filter((item) => item.includes("eligibility"));
+  write(canonical, "export function isEligible(value: boolean) { return value; }");
+  write(
+    consumer,
+    `import { isEligible as eligible } from '@harness-anything/kernel/internal/domain/eligibility.ts';\nexport const verdict = eligible(true);`,
+  );
+  assert.deepEqual(findings(), [], "aliased import and canonical call are allowed");
+  write("packages/gui/src/copy.ts", "export const isEligible = (value: boolean) => value;");
+  assert.ok(
+    findings().some((item) => item.includes("one definition")),
+    findings().join("\n"),
+  );
+  write("packages/gui/src/copy.ts", "// no duplicate");
+  write(consumer, "export const verdict = true;");
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    findings().join("\n"),
+  );
+  write(
+    consumer,
+    `import { isEligible } from '@harness-anything/kernel/internal/domain/eligibility.ts';\nexport const verdict = true;`,
+  );
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "an unused import cannot satisfy consumption",
+  );
+  write(
+    consumer,
+    `import { isEligible } from '@harness-anything/kernel/internal/domain/eligibility.ts';\nexport const verdict = isEligible(true);`,
+  );
+  for (const [file, body] of [
+    ["packages/cli/src/copy.ts", 'export const allowed = row.status === "eligible";'],
+    ["packages/gui/src/copy.ts", 'export const allowed = row.status === "eligible";'],
+    ["packages/storage/src/copy.ts", 'export const sql = "select exists(select eligible from task)";'],
+  ]) {
+    write(file, body);
+    assert.ok(
+      findings().some((item) => item.includes(file) && item.includes("eligibility")),
+      findings().join("\n"),
+    );
+    write(file, "// no equivalent judgment");
+  }
+  write(consumer, "import { isEligible } from './unrelated.ts'; export const verdict = isEligible(true);");
+  assert.ok(
+    findings().some((item) => item.includes("must consume")),
+    "the import must resolve to the canonical owner",
+  );
+  write(canonical, "// canonical definition removed");
+  assert.ok(
+    findings().some((item) => item.includes("one definition")),
+    findings().join("\n"),
+  );
+});
+
+test("registered coverage rules refuse SQL liveness and renamed coverage algorithms", (t) => {
+  const findings = fixtureFindings(t, loadOntologyClosureSnapshot(repoRoot).kinds);
+  for (const file of ["packages/storage/src/duplicate-coverage.ts", "packages/cli/src/duplicate-coverage.ts"]) {
+    assert.ok(
+      findings.some((finding) => finding.includes(file) && finding.includes("coverageOf")),
+      findings.join("\n"),
+    );
+  }
+});
+
+// dec_7E44897ECDCAEF2B92EC66A260 CH1: Fact admission, including archive state, belongs to the kernel.
+test("registered Fact admission refuses copied definitions and archive eligibility", (t) => {
+  const findings = fixtureFindings(t, loadOntologyClosureSnapshot(repoRoot).kinds);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("factAdmission: expected one definition") && finding.includes("fact-archive-copy.ts"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) =>
+      finding.includes("fact-archive-copy.ts: factAdmission: consume the kernel Fact archive-transition verdict"),
     ),
     findings.join("\n"),
   );

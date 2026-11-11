@@ -10,7 +10,7 @@ import { decisionClaimsOpen } from "@harness-anything/kernel/internal/domain/dec
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { readDecisionDocumentState } from "./decision-projection-reads.ts";
-import { FactProjectionError } from "./fact-event-projection.ts";
+import { FactProjectionError } from "@harness-anything/kernel/internal/domain/fact-admission.ts";
 import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
 
 interface DecisionAdmissionState {

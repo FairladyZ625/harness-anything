@@ -1,11 +1,11 @@
 // harness-test-tier: fast
+import { FactProjectionError } from "@harness-anything/kernel/internal/domain/fact-admission.ts";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import type { FactEventV1 } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import {
   createFactProjectionTables,
-  FactProjectionError,
   readFactRow,
   reduceFactEvent,
 } from "../../src/projection/fact-event-projection.ts";
@@ -155,11 +155,13 @@ test("Fact archive toggles the archived flag and rejects repeat or premature tra
         /does not exist/u.test(error.message),
     );
 
+    const originalRow = readFactRow(db, "F-ABCDEFGH");
     reduceFactEvent(db, archive(2, "F-ABCDEFGH", "fact_archived"));
     const archivedRow = readFactRow(db, "F-ABCDEFGH");
     assert.equal(archivedRow?.archived, true);
     assert.equal(archivedRow?.state, "standing");
     assert.equal(archivedRow?.statement, "Fact F-ABCDEFGH");
+    assert.deepEqual(archivedRow, { ...originalRow, archived: true, workspaceRevision: 2 });
 
     assert.throws(
       () => reduceFactEvent(db, archive(3, "F-ABCDEFGH", "fact_archived")),
@@ -180,6 +182,7 @@ test("Fact archive toggles the archived flag and rejects repeat or premature tra
     const restored = readFactRow(db, "F-ABCDEFGH");
     assert.equal(restored?.archived, false);
     assert.equal(restored?.state, "standing");
+    assert.deepEqual(restored, { ...originalRow, archived: false, workspaceRevision: 3 });
   } finally {
     db.close();
   }

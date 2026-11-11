@@ -4,7 +4,6 @@ import {
   compileEntityDocumentRematerialization,
   DECISION_DOCUMENT_POLICY_ID,
   documentWorkspacePath,
-  factLiveness,
   FACT_DOCUMENT_POLICY_ID,
   parseEntityRef,
   readAcceptedCommandOutcome,
@@ -15,15 +14,13 @@ import {
   sha256Text,
   type DecisionRelationLinkResolver,
   type EntityDocumentUpdate,
-  type FactDocumentRecord,
-  type FactProjectionRow,
   type LifecycleDocumentState,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { reject } from "./entity-action-write-helpers.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
-import { publicationKillpoints } from "./entity-action-relation.ts";
+import { factDocumentRecord, publicationKillpoints, relationRows } from "./entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
@@ -259,13 +256,13 @@ function decisionDocumentUpdates(
     state = projection.readDecisionDocumentState?.(decisionId),
     document = projection.readDocument(path).document;
   if (!state || !document) reject("content_not_ready", `Decision document ${path} is unavailable.`);
-  const outgoing = relationRecords(projection.readRelationQuery({ ownerRef: `decision/${decisionId}` }).rows).filter(
+  const outgoing = relationRows(projection.readRelationQuery({ ownerRef: `decision/${decisionId}` }).rows).filter(
       ({ source }) => {
         const owner = parseEntityRef(source);
         return owner?.kind === "decision" && owner.id === decisionId;
       },
     ),
-    incoming = relationRecords(projection.readDecisionIncomingRelations(decisionId)).filter(({ target }) => {
+    incoming = relationRows(projection.readDecisionIncomingRelations(decisionId)).filter(({ target }) => {
       const owner = parseEntityRef(target);
       return owner?.kind === "decision" && owner.id === decisionId;
     });
@@ -303,34 +300,6 @@ function factDocumentUpdates(projection: TaskProjection, factId: string): readon
   ];
 }
 
-/** The Fact document record the current projection implies: observation fields plus derived liveness. */
-export function factDocumentRecord(projection: TaskProjection, fact: FactProjectionRow): FactDocumentRecord {
-  const incoming = relationRecords(
-      projection.readRelationQuery({ target: fact.ref, relationType: "supersedes-fact" }).rows,
-    ).filter(({ target, type, state }) => target === fact.ref && type === "supersedes-fact" && state === "active"),
-    state = factLiveness(
-      { ref: fact.ref },
-      incoming.map(({ source, target, type, state: relationState }) => ({
-        sourceRef: source,
-        targetRef: target,
-        relationType: type,
-        state: relationState,
-      })),
-    );
-  return {
-    factId: fact.factId,
-    ...(fact.taskId ? { taskId: fact.taskId } : {}),
-    statement: fact.statement,
-    evidenceSource: fact.evidenceSource,
-    observedAt: fact.observedAt,
-    ...(fact.observedCommit !== undefined ? { observedCommit: fact.observedCommit } : {}),
-    confidence: fact.confidence,
-    state,
-    supersededBy: incoming.map(({ source, rationale }) => ({ factRef: source, rationale })),
-    workspaceRevision: fact.workspaceRevision,
-  };
-}
-
 function taskDocumentUpdates(
   projection: TaskProjection,
   rootDir: string,
@@ -364,32 +333,5 @@ function taskDocumentUpdates(
     policyId: "typed-machine-writer/v1",
     mediaType: path.endsWith(".json") ? ("application/json" as const) : ("text/markdown" as const),
     body,
-  }));
-}
-
-function relationRecords(
-  rows: readonly Pick<
-    ReturnType<TaskProjection["readRelationQuery"]>["rows"][number],
-    | "relationId"
-    | "sourceRef"
-    | "targetRef"
-    | "relationType"
-    | "strength"
-    | "direction"
-    | "origin"
-    | "rationale"
-    | "state"
-  >[],
-) {
-  return rows.map((edge) => ({
-    relation_id: edge.relationId,
-    source: edge.sourceRef,
-    target: edge.targetRef,
-    type: edge.relationType,
-    strength: edge.strength,
-    direction: edge.direction,
-    origin: edge.origin,
-    rationale: edge.rationale,
-    state: edge.state,
   }));
 }

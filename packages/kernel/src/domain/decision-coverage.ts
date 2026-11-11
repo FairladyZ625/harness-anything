@@ -1,3 +1,4 @@
+import { supersededFactRefs } from "./fact-liveness.ts";
 import { relationIsCurrent, type RelationStrength } from "./entity-relation.ts";
 import type { RelationFreshness } from "./entity-freshness.ts";
 
@@ -71,9 +72,7 @@ export function coverageOf(
   relations: readonly CoverageRelation[],
 ): readonly CoverageResult[] {
   const active = relations.filter(relationIsCurrent),
-    superseded = new Set(
-      active.filter(({ relationType }) => relationType === "supersedes-fact").map(({ targetRef }) => targetRef),
-    ),
+    superseded = supersededFactRefs(active),
     live = new Set(facts.filter(({ ref }) => !superseded.has(ref)).map(({ ref }) => ref)),
     done = new Set(tasks.filter(({ status }) => status === "done").map(({ ref }) => ref)),
     bySource = new Map<string, CoverageRelation[]>(),

@@ -51,26 +51,9 @@ export interface FactRetirementReadinessInput {
  */
 export function assessFactRetirement(input: FactRetirementReadinessInput): FactRetirementAssessment {
   const upstream = upstreamEvidencingFacts(input.taskId, input.decisions, input.relations),
-    taskRef = `task/${input.taskId}`,
-    producedFacts = new Set(
-      input.relations
-        .filter((edge) => edge.state === "active" && edge.relationType === "produces" && edge.sourceRef === taskRef)
-        .map((edge) => edge.targetRef),
-    ),
-    taskSupersededFacts = new Set(
-      input.relations
-        .filter(
-          (edge) =>
-            edge.state === "active" && edge.relationType === "supersedes-fact" && producedFacts.has(edge.sourceRef),
-        )
-        .map((edge) => edge.targetRef),
-    ),
     attestedFacts = new Set(input.stillHoldsAttestations.map((attestation) => attestation.factRef)),
     undischarged = upstream.filter(
-      ({ factRef }) =>
-        factLiveness({ ref: factRef }, input.relations) === "standing" &&
-        !taskSupersededFacts.has(factRef) &&
-        !attestedFacts.has(factRef),
+      ({ factRef }) => factLiveness({ ref: factRef }, input.relations) === "standing" && !attestedFacts.has(factRef),
     );
   return Object.freeze({
     ready: undischarged.length === 0,

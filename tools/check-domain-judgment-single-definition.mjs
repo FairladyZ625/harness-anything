@@ -11,98 +11,50 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { loadOntologyClosureSnapshot } from "./gates/ontology-gate-lib.mjs";
 import { authoredReadinessFindings } from "./domain-judgment-authored-readiness.mjs";
 import { git, listWorktreeFiles, pathExistsAt, pullRequestBase } from "./gates/git.mjs";
 
 const DISPATCH_OBSERVATION_BASELINE = "tools/gate-allowlists/dispatch-lifecycle-observation.json",
   OBSERVATION_BASELINE_SCHEMA = "harness-anything/gate-allowlist/v1";
 
-const judgments = Object.freeze([
-  {
-    id: "closeoutReadiness",
-    symbol: "closeoutReadiness",
-    canonical: "packages/kernel/src/domain/closeout-readiness.ts",
-    declaration: "function",
-  },
-  {
-    id: "factLiveness",
-    symbol: "factLiveness",
-    canonical: "packages/kernel/src/domain/fact-liveness.ts",
-    declaration: "function",
-  },
-  {
-    id: "coverageOf",
-    symbol: "coverageOf",
-    canonical: "packages/kernel/src/domain/decision-coverage.ts",
-    declaration: "function",
-  },
-  {
-    id: "blockingOf",
-    symbol: "blockingOf",
-    canonical: "packages/kernel/src/domain/task-blocking.ts",
-    declaration: "function",
-  },
-  {
-    id: "startability",
-    symbol: "canStartExecution",
-    canonical: "packages/kernel/src/domain/task-lifecycle-command-transitions.ts",
-    declaration: "function",
-  },
-  {
-    id: "queryPayloadValidation",
-    symbol: "queryPayloadValidation",
-    canonical: "packages/kernel/src/domain/query-payload-validation.ts",
-    declaration: "function",
-  },
-  {
-    id: "statusVocabulary",
-    symbol: "statusVocabularies",
-    canonical: "packages/kernel/src/domain/status-vocabulary.ts",
-    declaration: "const",
-  },
-  {
-    id: "authoredDocumentReadiness",
-    symbol: "assessAuthoredDocumentReadiness",
-    canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
-    declaration: "function",
-  },
-  {
-    id: "transitionDocumentReadiness",
-    symbol: "assessTransitionDocument",
-    canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
-    declaration: "function",
-  },
-  {
-    id: "reviewReverifyRoute",
-    symbol: "reviewReverifyRoute",
-    canonical: "packages/kernel/src/domain/review-reverify.ts",
-    declaration: "function",
-  },
-  {
-    id: "ownerVerifiableFindingCategories",
-    symbol: "ownerVerifiableFindingCategories",
-    canonical: "packages/kernel/src/domain/review-reverify.ts",
-    declaration: "const",
-  },
-  {
-    id: "forwardingIntent",
-    symbol: "forwardingIntentIssue",
-    canonical: "packages/daemon/src/fleet/forwarding-intent.ts",
-    declaration: "function",
-  },
-  {
-    id: "closeoutBilingualDelivery",
-    symbol: "missingChineseCloseoutSections",
-    canonical: "packages/kernel/src/domain/transition-document-readiness.ts",
-    declaration: "function",
-  },
-]);
+// Legacy declarations remain enforced while S2 moves their owners into EntityKindContract.
+const judgments = [
+  ["closeoutReadiness", "packages/kernel/src/domain/closeout-readiness.ts", "closeoutReadiness"],
+  ["factLiveness", "packages/kernel/src/domain/fact-liveness.ts", "factLiveness"],
+  ["blockingOf", "packages/kernel/src/domain/task-blocking.ts", "blockingOf"],
+  ["startability", "packages/kernel/src/domain/task-lifecycle-command-transitions.ts", "canStartExecution"],
+  ["queryPayloadValidation", "packages/kernel/src/domain/query-payload-validation.ts", "queryPayloadValidation"],
+  ["statusVocabulary", "packages/kernel/src/domain/status-vocabulary.ts", "statusVocabularies", "const"],
+  [
+    "authoredDocumentReadiness",
+    "packages/kernel/src/domain/transition-document-readiness.ts",
+    "assessAuthoredDocumentReadiness",
+  ],
+  [
+    "transitionDocumentReadiness",
+    "packages/kernel/src/domain/transition-document-readiness.ts",
+    "assessTransitionDocument",
+  ],
+  ["reviewReverifyRoute", "packages/kernel/src/domain/review-reverify.ts", "reviewReverifyRoute"],
+  [
+    "ownerVerifiableFindingCategories",
+    "packages/kernel/src/domain/review-reverify.ts",
+    "ownerVerifiableFindingCategories",
+    "const",
+  ],
+  ["forwardingIntent", "packages/daemon/src/fleet/forwarding-intent.ts", "forwardingIntentIssue"],
+  [
+    "closeoutBilingualDelivery",
+    "packages/kernel/src/domain/transition-document-readiness.ts",
+    "missingChineseCloseoutSections",
+  ],
+].map(([id, canonical, symbol, declaration = "function"]) => ({ id, canonical, symbol, declaration }));
 const requiredConsumers = new Map([
   ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts", "closeoutReadiness("],
   ["packages/kernel/src/domain/completion-readiness.ts", "closeoutReadiness("],
   ["packages/storage/src/projection/sqlite-task-source.ts", "domainCloseoutReadiness("],
   ["packages/storage/src/projection/fact-event-projection.ts", "factLiveness("],
-  ["packages/storage/src/projection/decision-projection-coverage.ts#coverage", "coverageOf("],
   ["packages/storage/src/projection/cold-rebuild-source.ts#liveness", "factLiveness("],
   ["packages/daemon/src/repo-cell.ts#closeout", "closeoutReadiness("],
   ["packages/daemon/src/repo-cell.ts#blocking", "blockingOf("],
@@ -131,43 +83,89 @@ const requiredConsumers = new Map([
  */
 const REVERIFY_COMPARISON = /\.reverify\s*(?:===|!==|==|!=|\?\?|\|\|)|(?:===|!==|==|!=)\s*[\w$.?]*\.reverify\b/u;
 
-export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
+export function checkDomainJudgmentSingleDefinition(
+  root = process.cwd(),
+  kinds = loadOntologyClosureSnapshot(root).kinds,
+) {
   const findings = [],
-    files = listWorktreeFiles(root, ["packages", "tools/gates"]).filter(
+    files = listWorktreeFiles(root, ["packages", "tools"]).filter(
       (rel) =>
         /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(rel) &&
         !/(?:^|\/)(?:test|tests|fixtures)\//u.test(rel) &&
         !/\.(?:test|spec|vitest)\.[cm]?[jt]sx?$/u.test(rel),
     );
-  for (const judgment of judgments) {
-    const definition =
-        judgment.declaration === "function"
-          ? new RegExp(`(?:export\\s+)?function\\s+${judgment.symbol}\\s*\\(`, "gu")
-          : new RegExp(`(?:export\\s+)?const\\s+${judgment.symbol}(?:\\s*:[^=]+)?\\s*=`, "gu"),
-      hits = [];
-    for (const rel of files) {
-      const count = [...readFileSync(path.join(root, rel), "utf8").matchAll(definition)].length;
-      for (let index = 0; index < count; index += 1) hits.push(rel);
-    }
+  const bodies = new Map(files.map((file) => [file, readFileSync(path.join(root, file), "utf8")])),
+    registered = kinds.flatMap((kind) =>
+      (kind.judgments ?? []).map((judgment) => {
+        const [canonical, symbol] = judgment.symbol.split("#");
+        return { ...judgment, canonical, symbol, declaration: "any" };
+      }),
+    );
+  const definitions = new Map();
+  for (const [file, body] of bodies) {
+    const source = ts.createSourceFile(file, body, ts.ScriptTarget.Latest, true);
+    const visit = (node) => {
+      const declaration =
+        ts.isFunctionDeclaration(node) && node.body
+          ? "function"
+          : ts.isVariableDeclaration(node) && node.initializer
+            ? ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)
+              ? "function"
+              : "const"
+            : null;
+      if (declaration && node.name && ts.isIdentifier(node.name)) {
+        const key = `${declaration}:${node.name.text}`;
+        definitions.set(key, [...(definitions.get(key) ?? []), file]);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  for (const judgment of [...judgments, ...registered]) {
+    const hits = definitions.get(`${judgment.declaration === "const" ? "const" : "function"}:${judgment.symbol}`) ?? [];
     if (hits.length !== 1 || hits[0] !== judgment.canonical)
       findings.push(
         `${judgment.id}: expected one definition of ${judgment.symbol} at ${judgment.canonical}; ` +
           `found ${hits.length ? hits.join(", ") : "none"}`,
       );
   }
-  for (const [key, call] of requiredConsumers) {
-    const file = key.split("#")[0],
-      body = read(root, file);
-    if (!body.includes(call)) findings.push(`${file}: must consume named domain judgment ${call.slice(0, -1)}`);
+  for (const judgment of registered) {
+    for (const file of judgment.consumers) {
+      const body = bodies.get(file) ?? "",
+        source = ts.createSourceFile(file, body, ts.ScriptTarget.Latest, true),
+        names = new Set(file === judgment.canonical ? [judgment.symbol] : []);
+      for (const node of source.statements) {
+        if (!ts.isImportDeclaration(node) || node.importClause?.isTypeOnly) continue;
+        const specifier = node.moduleSpecifier.text,
+          imported = specifier.startsWith("@harness-anything/kernel/internal/")
+            ? `packages/kernel/src/${specifier.slice("@harness-anything/kernel/internal/".length)}`
+            : path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier));
+        if (imported !== judgment.canonical) continue;
+        for (const binding of node.importClause?.namedBindings?.elements ?? [])
+          if (!binding.isTypeOnly && (binding.propertyName ?? binding.name).text === judgment.symbol)
+            names.add(binding.name.text);
+      }
+      let called = false;
+      const visit = (node) => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && names.has(node.expression.text))
+          called = true;
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+      if (!called) findings.push(`${file}: must consume named domain judgment ${judgment.id}`);
+    }
+    for (const rule of judgment.consumerRules ?? []) {
+      const scope = new RegExp(rule.pathPattern, "u"),
+        pattern = new RegExp(rule.pattern, rule.flags ?? "u");
+      for (const [file, body] of bodies)
+        if (file !== judgment.canonical && scope.test(file) && pattern.test(body))
+          findings.push(`${file}: ${judgment.id}: ${rule.reason}`);
+    }
   }
-  const projectionBodies = files
-    .filter((file) => /packages\/kernel\/src\/projection\//u.test(file))
-    .map((file) => [file, readFileSync(path.join(root, file), "utf8")]);
-  for (const [file, body] of projectionBodies) {
-    if (/(?:EXISTS|NOT\s+EXISTS)[\s\S]{0,240}supersedes-fact/iu.test(body))
-      findings.push(`${file}: SQL infers Fact liveness instead of calling factLiveness`);
-    if (/function\s+(?:coveragePath|firstFact|standingPolicy)\s*\(/u.test(body))
-      findings.push(`${file}: carries a second Decision coverage algorithm`);
+  for (const [key, call] of requiredConsumers) {
+    const file = key.split("#")[0];
+    if (!(bodies.get(file) ?? "").includes(call))
+      findings.push(`${file}: must consume named domain judgment ${call.slice(0, -1)}`);
   }
   for (const file of files) {
     if (
@@ -178,12 +176,8 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     if (REVERIFY_COMPARISON.test(readFileSync(path.join(root, file), "utf8")))
       findings.push(`${file}: judges a finding's reverify outside the kernel reviewReverifyRoute`);
   }
-  const guiBodies = files
-    .filter((file) => /^packages\/gui\//u.test(file))
-    .map((file) => [file, readFileSync(path.join(root, file), "utf8")]);
   const taskAdapter = read(root, "packages/gui/src/renderer/task-adapter.ts"),
-    triadic = read(root, "packages/gui/src/renderer/triadic-data.ts"),
-    guiTriadic = read(root, "packages/gui/src/renderer/model/triadic.ts");
+    triadic = read(root, "packages/gui/src/renderer/triadic-data.ts");
   const daemonDispatch = read(root, "packages/daemon/src/repo-cell-action-dispatch.ts"),
     taskSurface = read(root, "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts");
   if (/function\s+(?:deriveBlocking|closeoutReadiness|gateResults)\s*\(/u.test(taskAdapter))
@@ -192,11 +186,9 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     findings.push(
       "packages/gui/src/renderer/triadic-data.ts: must consume the projected fact `invalidated` field (row.invalidated)",
     );
-  for (const [file, body] of guiBodies)
-    if (/===\s*"superseded_fact"|"superseded_fact"\s*===/u.test(body))
+  for (const [file, body] of bodies)
+    if (file.startsWith("packages/gui/") && /===\s*"superseded_fact"|"superseded_fact"\s*===/u.test(body))
       findings.push(`${file}: compares the fact liveness word instead of reading the projected invalidated field`);
-  if (/function\s+coverageOf\s*\(/u.test(guiTriadic))
-    findings.push("packages/gui/src/renderer/model/triadic.ts: carries a renderer coverage algorithm");
   if (
     /preview\s*&&\s*!current\.snapshot\.task|preview\s*&&\s*current\.snapshot\.lease|isTerminalStatus\(current\.snapshot\.task\.status\)/u.test(
       daemonDispatch,
@@ -461,7 +453,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Domain judgment single-definition check passed (thirteen judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active).",
+    "Domain judgment single-definition check passed (legacy and registry judgments resolve to their canonical domain services; authored-document reads use the projection port; dispatch observation ratchet is active).",
   );
 }
 const invokedDirectly =

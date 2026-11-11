@@ -1,3 +1,7 @@
+import {
+  assertFactAdmissionAtCut,
+  FactProjectionError,
+} from "@harness-anything/kernel/internal/domain/fact-admission.ts";
 import { createHash } from "node:crypto";
 import {
   compileFactArchiveWrite,
@@ -11,22 +15,16 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { factDocumentRecord } from "./entity-document-rematerialize.ts";
-import { publicationKillpoints, reject } from "./entity-action-relation.ts";
+import { factDocumentRecord, publicationKillpoints, reject } from "./entity-action-relation.ts";
 import { workspaceText } from "./repo-cell-packets.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 
-/** Per-Fact mechanical preconditions shared by the single and batch archive paths: the row must
- * exist, must not already be archived, and its managed document must still be projected — the
- * document's blob hash is the delete proof the event carries. Whether the Fact *ought* to be
- * archived is the caller's judgment, never checked here. */
+/** Compile an admitted Fact archive with the projected document hash as its delete proof. */
 export function factArchiveBundle(
   projection: TaskProjection,
   event: FactEventDraftV1,
 ): ReturnType<typeof compileFactArchiveWrite> {
-  const fact = projection.readFact(event.factId).fact;
-  if (!fact) reject("invalid_command", `Fact fact/${event.factId} does not exist.`);
-  if (fact!.archived === true) reject("invalid_command", `Fact fact/${event.factId} is already archived.`);
+  admittedFact(projection, event);
   const path = `facts/${event.factId}.md`,
     document = projection.readDocument(path).document;
   if (!document) reject("content_not_ready", `Fact document ${path} is unavailable.`);
@@ -37,18 +35,26 @@ export function factUnarchiveBundle(
   projection: TaskProjection,
   event: FactEventDraftV1,
 ): ReturnType<typeof compileFactUnarchiveWrite> {
-  const fact = projection.readFact(event.factId).fact;
-  if (!fact) reject("invalid_command", `Fact fact/${event.factId} does not exist.`);
-  if (fact!.archived !== true) reject("invalid_command", `Fact fact/${event.factId} is not archived.`);
+  const fact = admittedFact(projection, event);
   return compileFactUnarchiveWrite({
     event,
     document: { ...factDocumentRecord(projection, fact!), workspaceRevision: event.workspaceRevision },
   });
 }
 
-/** The archive payload carries the Fact's observation snapshot, copied from the projection row the
- * same way `reclassificationAction` does; `reason` is the only authored field the caller supplies. */
-export function factArchivePreload(
+function admittedFact(projection: TaskProjection, event: FactEventDraftV1) {
+  const row = projection.readFact(event.factId).fact;
+  try {
+    assertFactAdmissionAtCut({ row, domainTypes: [], supersededTarget: null, relations: [] }, event);
+  } catch (error) {
+    if (!(error instanceof FactProjectionError)) throw error;
+    throw reject("invalid_command", error.message);
+  }
+  return row!;
+}
+
+/** Archive and reclassification carry the same immutable observation snapshot from the canonical row. */
+export function factObservationPreload(
   projection: TaskProjection,
   action: Readonly<Record<string, unknown>>,
   factId: string,
@@ -143,7 +149,7 @@ export function archiveAllFacts(
       const memberOpId =
         index === ids.length - 1 ? opId : `${opId}-${createHash("sha256").update(factId).digest("hex").slice(0, 12)}`;
       return input.compile(
-        factArchivePreload(input.projection, action, factId),
+        factObservationPreload(input.projection, action, factId),
         memberOpId,
         occurredAt,
         initialRevision + index + 1,
