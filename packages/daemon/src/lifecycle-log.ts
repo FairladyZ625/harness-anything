@@ -46,6 +46,9 @@ export type DaemonLifecycleEvent =
   | "materializer_inventory_failed"
   | "identity_ready"
   | "rbac_resume_failed"
+  | "rbac_child_exited"
+  | "rbac_restart_scheduled"
+  | "rbac_restart"
   | "fleet_center_restore_failed";
 export interface DaemonLifecycleEntry {
   readonly event: DaemonLifecycleEvent;
@@ -57,6 +60,8 @@ export interface DaemonLifecycleEntry {
   readonly attachTotal?: number;
   readonly endpoint?: string;
   readonly outcome?: string;
+  /** Boolean result of a one-shot lifecycle operation (e.g. a supervised restart). */
+  readonly ok?: boolean;
   readonly error?: string;
   /** The failing operation's own error code, so a repeated failure is classifiable without parsing text. */
   readonly code?: string;
@@ -69,6 +74,10 @@ export interface DaemonLifecycleEntry {
   readonly pid?: number;
   readonly exitCode?: number | null;
   readonly signal?: string | null;
+  /** The daemon-owned managed service an event is about. */
+  readonly service?: string;
+  readonly delayMs?: number;
+  readonly attempt?: number;
   readonly reason?: string | null;
   readonly commit?: string | null;
   readonly entry?: DaemonEntry;

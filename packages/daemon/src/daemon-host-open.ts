@@ -988,7 +988,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     };
   };
   const accessAdminRef: { current: AccessAdminService | null } = { current: null };
-  const managedRbac = input.managedRbac ?? createIdentityManagement(input.userRoot);
+  const managedRbac =
+    input.managedRbac ??
+    createIdentityManagement(input.userRoot, {
+      ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
+    });
   const hostContext: DaemonHostApiContext = {
     remoteProxy,
     cells,

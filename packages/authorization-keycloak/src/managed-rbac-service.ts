@@ -73,6 +73,33 @@ interface Artifact {
   readonly archive: "tar.gz" | "jar-txz" | "zip";
 }
 
+type ManagedChild = "postgres" | "keycloak";
+
+/**
+ * A managed child that reached readiness and then exited is supervised in-process: the daemon that
+ * owns it restarts it instead of forgetting it until the next daemon start. These events go to the
+ * daemon's lifecycle log so an operator sees the exit and every restart attempt.
+ */
+export type ManagedRbacLifecycleEvent =
+  | {
+      readonly event: "rbac_child_exited";
+      readonly service: ManagedChild;
+      readonly exitCode: number | null;
+      readonly signal: NodeJS.Signals | null;
+    }
+  | {
+      readonly event: "rbac_restart_scheduled";
+      readonly service: ManagedChild;
+      readonly delayMs: number;
+      readonly attempt: number;
+    }
+  | {
+      readonly event: "rbac_restart";
+      readonly service: ManagedChild;
+      readonly ok: boolean;
+      readonly error?: string;
+    };
+
 export interface ManagedRbacPorts {
   readonly fetch: typeof fetch;
   readonly spawn: typeof spawn;
@@ -82,6 +109,7 @@ export interface ManagedRbacPorts {
   /** Accepted repository declarations projected to Policy scopes; [] when no repo host is wired. */
   readonly readArtifactActionScopes: () => Promise<readonly string[]>;
   readonly auditLegacyRoleMigration?: (receipt: KeycloakLegacyRoleMigrationReceipt) => void | Promise<void>;
+  readonly recordLifecycle?: (event: ManagedRbacLifecycleEvent) => void;
 }
 
 export interface ManagedPostgresBinaries {
@@ -106,9 +134,15 @@ export class ManagedRbacService {
   }
   readonly #root: string;
   readonly #ports: ManagedRbacPorts;
-  readonly #children = new Map<"postgres" | "keycloak", ChildProcess>();
-  readonly #readiness = new Map<"postgres" | "keycloak", Promise<void>>();
+  readonly #children = new Map<ManagedChild, ChildProcess>();
+  readonly #readiness = new Map<ManagedChild, Promise<void>>();
+  /** Children that reached readiness: only these are restarted when they exit. */
+  readonly #supervised = new Set<ManagedChild>();
   #lifecycle: Promise<unknown> = Promise.resolve();
+  /** Set while an operator or the daemon is stopping the services; exit supervision stays quiet. */
+  #stopping = false;
+  #restartTimer: ReturnType<typeof setTimeout> | null = null;
+  #restartAttempts = 0;
 
   constructor(userRoot: string, host: ManagedRbacHost, ports: Partial<ManagedRbacPorts> = {}) {
     this.#host = host;
@@ -152,7 +186,7 @@ export class ManagedRbacService {
     if (operation === "stop") {
       const config = this.#readConfigIfPresent();
       if (config?.mode === "managed") this.#writeConfig({ ...config, stopped: true });
-      return this.stop();
+      return this.#stopManagedChildren();
     }
     if (operation === "listener") {
       const config = this.#readManagedConfig();
@@ -184,12 +218,16 @@ export class ManagedRbacService {
   }
 
   async start(): Promise<void> {
+    this.#stopping = false;
+    this.#cancelRestart();
     const config = this.#readConfig();
     if (config.mode === "external") return;
     if (!existsSync(managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform)))
       throw managedRbacError("rbac_not_installed", "Run ha bootstrap before starting managed RBAC services.");
     if (config.stopped) this.#writeConfig({ ...config, stopped: false });
     await this.#startPostgres();
+    // A stop issued while PostgreSQL was starting owns the teardown; do not add Keycloak after it.
+    if (this.#stopping) return;
     await this.#startKeycloak();
   }
 
@@ -210,25 +248,52 @@ export class ManagedRbacService {
   }
 
   async stop(): Promise<Record<string, unknown>> {
+    this.#stopping = true;
+    this.#cancelRestart();
+    // Join the lifecycle queue: an automatic restart already in its async start phase must finish or
+    // abort before the teardown scans children, so a stop can never leave a later spawn behind it.
+    const stopped = this.#lifecycle.then(() => this.#stopChildren());
+    this.#lifecycle = stopped.catch(consumeKnownError);
+    return stopped;
+  }
+
+  async #stopChildren(): Promise<Record<string, unknown>> {
     const stopped: string[] = [];
     for (const name of ["keycloak", "postgres"] as const) if (await this.#stopChild(name)) stopped.push(name);
     return { ok: true, command: "rbac-stop", stopped };
   }
 
-  async #stopChild(name: "postgres" | "keycloak"): Promise<boolean> {
+  /**
+   * Stops children from a caller that already owns the lifecycle queue (a run operation such as
+   * backup/restore/stop). Public stop() must not be used there: it would append its teardown behind
+   * the very task awaiting it.
+   */
+  async #stopManagedChildren(): Promise<Record<string, unknown>> {
+    this.#stopping = true;
+    this.#cancelRestart();
+    return this.#stopChildren();
+  }
+
+  async #stopChild(name: ManagedChild): Promise<boolean> {
     const child = this.#children.get(name);
     if (!child) return false;
     await new Promise<void>((resolve) => {
       let settled = false;
-      const timer = setTimeout(() => child.kill("SIGKILL"), 4_000);
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        child.removeListener("exit", finish);
-        resolve();
-      };
-      timer.unref();
+      const timers: { hard?: ReturnType<typeof setTimeout>; force?: ReturnType<typeof setTimeout> } = {},
+        finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timers.hard);
+          clearTimeout(timers.force);
+          child.removeListener("exit", finish);
+          resolve();
+        };
+      // A child that never emits exit (a spawn error leaves no live pid) must not hang the stop.
+      timers.hard = setTimeout(() => {
+        child.kill("SIGKILL");
+        timers.force = setTimeout(finish, 1_000);
+      }, 4_000);
+      timers.hard.unref();
       child.once("exit", finish);
       if (
         (child.exitCode !== null && child.exitCode !== undefined) ||
@@ -270,6 +335,7 @@ export class ManagedRbacService {
       certificateMode = request.certificateMode ?? (listener ? (config.certificateMode ?? "domain") : "self-signed"),
       { listener: _replaced, certificateMode: _oldMode, ...loopback } = config,
       apply = async (next: ManagedRbacConfig): Promise<void> => {
+        this.#stopping = true;
         await this.#stopChild("keycloak");
         this.#writeConfig(next);
         await this.start();
@@ -546,6 +612,7 @@ export class ManagedRbacService {
       platform: this.#ports.platform,
     });
     await this.#hardenPostgresAuthentication(binary, data);
+    if (this.#stopping) return;
     /* @gate-identity non-state/environment-io.a4045c59c63fc3a2 */ mkdirSync(logs, { recursive: true, mode: 0o700 });
     return this.#spawnUntilReady(
       "postgres",
@@ -627,63 +694,127 @@ export class ManagedRbacService {
     if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
     const httpsPort = listener ? (await availableLoopbackPorts())[0] : undefined,
       passthrough = listener ? await listenPassthrough(listener, httpsPort!) : undefined;
-    const ready = this.#spawnUntilReady(
-      "keycloak",
-      kc,
-      [
-        "start",
-        "--http-enabled=true",
-        // A fixed hostname is the issuer of every token, whichever address the request arrived on.
-        listener ? `--hostname=${managedRbacListenerUrl(listener)}` : "--hostname-strict=false",
-        "--import-realm",
-        "--health-enabled=true",
-      ],
-      {
-        ...process.env,
-        JAVA_HOME: javaHome,
-        KC_HTTP_HOST: "127.0.0.1",
-        KC_HTTP_PORT: httpPort,
-        KC_HTTP_MANAGEMENT_HOST: "127.0.0.1",
-        KC_HTTP_MANAGEMENT_PORT: String(config.managementPort),
-        KC_CACHE: "local",
-        KC_DB: "postgres",
-        KC_DB_URL: `jdbc:postgresql://127.0.0.1:${config.postgresPort}/postgres`,
-        KC_DB_USERNAME: "postgres",
-        KC_DB_PASSWORD: this.#postgresPassword(),
-        KC_BOOTSTRAP_ADMIN_USERNAME: "harness-bootstrap",
-        KC_BOOTSTRAP_ADMIN_PASSWORD: readOrCreateSecret(path.join(this.#root, "bootstrap-admin-password")),
-        ...(listener
-          ? {
-              KC_HTTPS_PORT: String(httpsPort),
-              KC_HTTPS_CERTIFICATE_FILE: listener.certificateFile,
-              KC_HTTPS_CERTIFICATE_KEY_FILE: listener.certificateKeyFile,
-            }
-          : {}),
-      },
-      /Keycloak .* started in/u,
-      60_000,
-      path.join(this.#root, "runtime", "keycloak"),
-    );
-    if (passthrough) this.#children.get("keycloak")!.once("exit", () => passthrough.close());
-    return ready;
+    if (this.#stopping) {
+      passthrough?.close();
+      return;
+    }
+    try {
+      return this.#spawnUntilReady(
+        "keycloak",
+        kc,
+        [
+          "start",
+          "--http-enabled=true",
+          // A fixed hostname is the issuer of every token, whichever address the request arrived on.
+          listener ? `--hostname=${managedRbacListenerUrl(listener)}` : "--hostname-strict=false",
+          "--import-realm",
+          "--health-enabled=true",
+        ],
+        {
+          ...process.env,
+          JAVA_HOME: javaHome,
+          KC_HTTP_HOST: "127.0.0.1",
+          KC_HTTP_PORT: httpPort,
+          KC_HTTP_MANAGEMENT_HOST: "127.0.0.1",
+          KC_HTTP_MANAGEMENT_PORT: String(config.managementPort),
+          KC_CACHE: "local",
+          KC_DB: "postgres",
+          KC_DB_URL: `jdbc:postgresql://127.0.0.1:${config.postgresPort}/postgres`,
+          KC_DB_USERNAME: "postgres",
+          KC_DB_PASSWORD: this.#postgresPassword(),
+          KC_BOOTSTRAP_ADMIN_USERNAME: "harness-bootstrap",
+          KC_BOOTSTRAP_ADMIN_PASSWORD: readOrCreateSecret(path.join(this.#root, "bootstrap-admin-password")),
+          ...(listener
+            ? {
+                KC_HTTPS_PORT: String(httpsPort),
+                KC_HTTPS_CERTIFICATE_FILE: listener.certificateFile,
+                KC_HTTPS_CERTIFICATE_KEY_FILE: listener.certificateKeyFile,
+              }
+            : {}),
+        },
+        /Keycloak .* started in/u,
+        60_000,
+        path.join(this.#root, "runtime", "keycloak"),
+        passthrough ? () => passthrough.close() : undefined,
+      );
+    } catch (error) {
+      // The spawn itself failed before the termination path existed; release the listener now.
+      passthrough?.close();
+      throw error;
+    }
   }
 
-  #track(name: "postgres" | "keycloak", child: ChildProcess): void {
-    child.once("exit", () => {
-      this.#children.delete(name);
-      this.#readiness.delete(name);
-    });
+  /** Registers the live child; #spawnUntilReady's terminate() owns every exit/error cleanup. */
+  #track(name: ManagedChild, child: ChildProcess): void {
     this.#children.set(name, child);
   }
 
+  /**
+   * A managed service is daemon-owned infrastructure: once it has been ready, its exit is an
+   * incident rather than the end of the daemon's interest in it. Restart it in this daemon and
+   * record the exit plus every attempt in the lifecycle log. An exit before the first readiness is
+   * a failed start and stays with the caller that asked for it.
+   */
+  #childExited(name: ManagedChild, exitCode: number | null, signal: NodeJS.Signals | null): void {
+    if (!this.#supervised.delete(name) || this.#stopping) return;
+    this.#ports.recordLifecycle?.({ event: "rbac_child_exited", service: name, exitCode, signal });
+    this.#scheduleRestart(name);
+  }
+
+  #scheduleRestart(name: ManagedChild): void {
+    if (this.#restartTimer !== null || this.#stopping) return;
+    const attempt = this.#restartAttempts++,
+      delayMs = Math.min(1_000 * 2 ** Math.min(attempt, 5), 30_000);
+    this.#ports.recordLifecycle?.({ event: "rbac_restart_scheduled", service: name, delayMs, attempt });
+    const timer = setTimeout(() => {
+      this.#restartTimer = null;
+      void this.#restartManaged(name);
+    }, delayMs);
+    timer.unref();
+    this.#restartTimer = timer;
+  }
+
+  async #restartManaged(name: ManagedChild): Promise<void> {
+    const config = this.#readConfigIfPresent();
+    if (this.#stopping || config?.mode !== "managed" || config.stopped) return;
+    const restart = this.#lifecycle.then(async () => {
+      if (this.#stopping) return;
+      await this.start();
+    });
+    this.#lifecycle = restart.catch(consumeKnownError);
+    try {
+      await restart;
+      if (!this.#stopping) this.#ports.recordLifecycle?.({ event: "rbac_restart", service: name, ok: true });
+    } catch (error) {
+      this.#ports.recordLifecycle?.({
+        event: "rbac_restart",
+        service: name,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // The failure is surfaced above and retried below; it is not rethrown to the daemon.
+      consumeKnownError(error);
+      this.#scheduleRestart(name);
+    }
+  }
+
+  #cancelRestart(): void {
+    if (this.#restartTimer === null) return;
+    clearTimeout(this.#restartTimer);
+    this.#restartTimer = null;
+  }
+
   #spawnUntilReady(
-    name: "postgres" | "keycloak",
+    name: ManagedChild,
     command: string,
     args: readonly string[],
     env: NodeJS.ProcessEnv,
     readyPattern: RegExp,
     timeoutMs: number,
     cwd?: string,
+    // Runs once on every termination the supervisor owns (exit, or an error with no exit), before
+    // the next start may claim the same resources (e.g. the Keycloak TLS passthrough listener).
+    onTerminate?: () => void,
   ): Promise<void> {
     const logs = path.join(this.#root, "logs");
     /* @gate-identity non-state/environment-io.17c06ba5fde6715a */ mkdirSync(logs, { recursive: true, mode: 0o700 });
@@ -695,7 +826,9 @@ export class ManagedRbacService {
       });
     let settleReady: (() => void) | null = null,
       settleError: ((error: Error) => void) | null = null,
-      observed = "";
+      observed = "",
+      ready = false,
+      terminated = false;
     const readiness = new Promise<void>((resolve, reject) => {
         settleReady = resolve;
         settleError = reject;
@@ -717,19 +850,36 @@ export class ManagedRbacService {
         observed = `${observed}${text}`.slice(-8_192);
         if (!readyPattern.test(observed)) return;
         clearTimeout(timer);
+        ready = true;
+        this.#supervised.add(name);
+        this.#restartAttempts = 0;
         settleReady?.();
+      },
+      // One termination path for both events and for a spawn error that never emits exit: a child
+      // that failed before readiness settles its start, and a ready child hands itself to the
+      // supervisor. Leaving a rejected readiness in the map would poison every later start.
+      terminate = (code: number | null, signal: NodeJS.Signals | null, error?: Error): void => {
+        if (terminated) return;
+        terminated = true;
+        clearTimeout(timer);
+        log.end();
+        onTerminate?.();
+        this.#children.delete(name);
+        this.#readiness.delete(name);
+        if (!ready)
+          settleError?.(
+            error ??
+              managedRbacError(
+                "rbac_process_failed",
+                `${name} exited before readiness (code ${String(code)}, signal ${String(signal)}).`,
+              ),
+          );
+        this.#childExited(name, code, signal);
       };
     child.stdout?.on("data", observe);
     child.stderr?.on("data", observe);
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      settleError?.(error);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      log.end();
-      if (code !== 0) settleError?.(managedRbacError("rbac_process_failed", `${name} exited with ${String(code)}.`));
-    });
+    child.once("error", (error) => terminate(null, null, error));
+    child.once("exit", (code, signal) => terminate(code, signal));
     this.#track(name, child);
     this.#readiness.set(name, readiness);
     return readiness;
@@ -899,7 +1049,7 @@ export class ManagedRbacService {
     });
     const output = path.join(request.backupDir, "keycloak-data.tar.gz"),
       wasRunning = this.#children.size > 0;
-    if (wasRunning) await this.stop();
+    if (wasRunning) await this.#stopManagedChildren();
     try {
       this.#execute("tar", ["-czf", output, "-C", path.join(this.#root, "data"), "postgres"]);
       /* @gate-identity state-store/runtime-instance.authorization-configuration */ writeFileSync(
@@ -930,7 +1080,7 @@ export class ManagedRbacService {
         "rbac_backup_version_mismatch",
         "Backup runtime versions do not match the installed runtime.",
       );
-    await this.stop();
+    await this.#stopManagedChildren();
     /* @gate-identity state-store/runtime-instance.authorization-configuration */ rmSync(postgresData, {
       recursive: true,
       force: true,
