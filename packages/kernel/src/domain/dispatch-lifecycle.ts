@@ -682,6 +682,7 @@ export interface DispatchLifecycleView {
     readonly canResolveRuling: boolean;
     readonly canRecover: boolean;
     readonly canSteer: boolean;
+    readonly canAdoptProcess: boolean;
     readonly canHandoff: boolean;
     readonly canWrite: boolean;
     readonly canPublish: boolean;
@@ -739,6 +740,7 @@ export function dispatchLifecycleView(group: DispatchLifecycleGroup, dispatchId?
         attempt.phase === "running" &&
         attempt.process === "alive" &&
         attempt.stopProof === "unproven",
+      canAdoptProcess: attempt.fence.verified && attempt.phase !== "closed" && attempt.process !== "unobserved",
       canHandoff: group.phase === "closed" && attempt.phase === "closed" && rulingReady(attempt),
       canWrite: attempt.phase !== "closed" && attempt.phase !== "settling" && attempt.stopProof === "unproven",
       canPublish: attempt.phase === "closed" && attempt.outcome === "succeeded",

@@ -21,6 +21,7 @@ import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts"
 import { applyGithubLaunchCredential } from "../src/runtime-github-credentials.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 const operatorBinding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 
@@ -203,6 +204,17 @@ test(
 function steerContext(rootDir: string, runtimeSessionId: string, active: unknown) {
   return {
     input: { rootDir, repoId: "worker-host-steer-test", now: () => new Date().toISOString() },
+    requiredRuntimeProjection: () => ({
+      readDispatchLifecycle: dispatchLifecycleReadOf(() =>
+        ["R", "S"].map((type) =>
+          lifecycleEvent(type as "R" | "S", runtimeSessionId, {
+            source: "local",
+            instanceId: "worker-host",
+            dispatchId: (active as { dispatchId: string }).dispatchId,
+          }),
+        ),
+      ),
+    }),
     processes: new Map([[runtimeSessionId, active]]),
   };
 }

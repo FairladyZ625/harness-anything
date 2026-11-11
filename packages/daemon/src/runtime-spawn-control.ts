@@ -98,7 +98,7 @@ export async function cancelRuntime(
   }
   // Recovery observes only an admitted attempt with a local spool. Missing spools go to the
   // same fenced process-group observer below; absence never releases a reservation by itself.
-  if (matchingHeader && !active && attempt?.policy.capacityDisposition === "busy") {
+  if (matchingHeader && !active && attempt?.policy.canAdoptProcess) {
     await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
     await assertRuntimeRecoveryReady(context, runtimeSessionId);
   }

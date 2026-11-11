@@ -22,7 +22,12 @@ import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { ModelSlotQueue } from "../src/runtime/model-slot-queue.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
-import { emptyDispatchLifecycleRead, lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import {
+  dispatchLifecycleReadOf,
+  emptyDispatchLifecycleRead,
+  lifecycleEvent,
+  lifecycleReadFor,
+} from "./dispatch-lifecycle-read.fixtures.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 
@@ -323,8 +328,8 @@ test("runtime cancel settles a missing-process stream only after its canonical g
         input: { rootDir, repoId: "cancel-missing-process", now: () => "2026-11-11T00:00:00.000Z" },
         requiredRuntimeProjection: () => ({
           readRuntimeSession: () => liveSession(runtimeSessionId),
-          readDispatchLifecycle: lifecycleReadFor([
-            { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+          readDispatchLifecycle: dispatchLifecycleReadOf(() => [
+            lifecycleEvent("R", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
           ]),
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
@@ -421,8 +426,8 @@ test("runtime cancel leaves a missing-process task dispatch live when stop proof
       },
       requiredRuntimeProjection: () => ({
         readRuntimeSession: () => liveSession(runtimeSessionId),
-        readDispatchLifecycle: lifecycleReadFor([
-          { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+        readDispatchLifecycle: dispatchLifecycleReadOf(() => [
+          lifecycleEvent("R", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
         ]),
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
         readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
@@ -520,8 +525,8 @@ for (const scenario of [
               ) ?? null
             );
           },
-          readDispatchLifecycle: lifecycleReadFor([
-            { runtimeSessionId, dispatchId, instanceId: "instance-1", owner: "local", process: "unknown" },
+          readDispatchLifecycle: dispatchLifecycleReadOf(() => [
+            lifecycleEvent("R", runtimeSessionId, { dispatchId, instanceId: "instance-1", source: "local" }),
           ]),
           readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: async () => ({

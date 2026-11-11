@@ -7,6 +7,7 @@ import test from "node:test";
 import { submissionDigest, type RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 import { requireCurrentExecutionScope, requireExecutionActionScope } from "../src/runtime-execution-scope.ts";
 import { reviewerArtifactFiles, reviewerArtifactsForReview } from "../src/reviewer-artifact-publication.ts";
+import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 
 for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const)
   test(`reviewer ${JSON.stringify(source)} can register its own disk packet or carried report`, (t) => {
@@ -40,6 +41,16 @@ for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const)
         binding: { executionPrincipal: principal, actor, source },
         now: "2026-11-02T00:00:00.000Z",
         projection: {
+          readDispatchLifecycle: dispatchLifecycleReadOf(() =>
+            ["R", "S"].map((type) =>
+              lifecycleEvent(type as "R" | "S", principal.runtimeSessionId, {
+                source,
+                instanceId: "reviewer",
+                dispatchId: principal.dispatchId,
+                role: "reviewer",
+              }),
+            ),
+          ),
           read: () => ({ packagePath, snapshot: { executions: [{ executionId: principal.executionId, submission }] } }),
           readRuntimeSession: () => ({
             liveness: "live",
