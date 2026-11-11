@@ -382,7 +382,7 @@ export async function writeLocalDocument(
     }
 
   try {
-    await /* @gate-identity state-store/legacy.7c5c2af076df84c3 */ writeFile(target.realPath, content, "utf8");
+    await /* @gate-identity state-store/document.local-edits */ writeFile(target.realPath, content, "utf8");
   } catch (cause) {
     return writeFailure(classifyLocalDocWriteFsError(cause), target.realPath, cause);
   }

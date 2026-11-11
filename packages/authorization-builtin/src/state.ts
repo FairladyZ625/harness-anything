@@ -94,23 +94,23 @@ export function writeState(userRoot: string, state: BuiltinState): void {
   const root = path.join(userRoot, "rbac"),
     file = stateFile(userRoot),
     temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  /* @gate-identity state-store/legacy.fc5b3a31c95c8522 */ mkdirSync(root, { recursive: true, mode: 0o700 });
-  /* @gate-identity state-store/legacy.5e66cc1370a23272 */ writeFileSync(
+  /* @gate-identity state-store/runtime-instance.builtin-identity */ mkdirSync(root, { recursive: true, mode: 0o700 });
+  /* @gate-identity state-store/runtime-instance.builtin-identity */ writeFileSync(
     temporary,
     `${JSON.stringify(state, null, 2)}\n`,
     { mode: 0o600 },
   );
   chmodSync(temporary, 0o600);
-  /* @gate-identity state-store/legacy.bfe270e2f13fb660 */ renameSync(temporary, file);
+  /* @gate-identity state-store/runtime-instance.builtin-identity */ renameSync(temporary, file);
   chmodSync(file, 0o600);
 }
 export function ensureBuiltinConfig(userRoot: string): BuiltinConfig {
   const root = path.join(userRoot, "rbac"),
     file = path.join(root, "config.json"),
     config = builtinConfig(userRoot);
-  /* @gate-identity state-store/legacy.c89bff59f37b6241 */ mkdirSync(root, { recursive: true, mode: 0o700 });
+  /* @gate-identity state-store/runtime-instance.builtin-identity */ mkdirSync(root, { recursive: true, mode: 0o700 });
   if (!existsSync(file)) {
-    /* @gate-identity state-store/legacy.677d3c4129025472 */ writeFileSync(
+    /* @gate-identity state-store/runtime-instance.builtin-identity */ writeFileSync(
       file,
       `${JSON.stringify(config, null, 2)}\n`,
       { mode: 0o600 },

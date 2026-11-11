@@ -332,7 +332,7 @@ function cleanupConsumedDocumentDescriptor(file: string): void {
   const metadata = file.endsWith(".sealed") ? `${file.slice(0, -".sealed".length)}.json` : `${file}.json`;
   for (const candidate of [file, metadata]) {
     try {
-      /* @gate-identity state-store/legacy.fs-139 */ unlinkSync(candidate);
+      /* @gate-identity state-store/document.fleet-read */ unlinkSync(candidate);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;

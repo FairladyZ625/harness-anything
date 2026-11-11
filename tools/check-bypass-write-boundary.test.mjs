@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { checkBypassWriteBoundary as runBoundaryCheck, scanBypassWriteCalls } from "./check-bypass-write-boundary.mjs";
+import { stateResidencyBaseline } from "./gate-allowlists/state-residency-baseline.mjs";
 import { auditCacheDriverImports, cacheDriverAdapterCandidates } from "./gates/cache-driver-import-boundary.mjs";
 
 const checkBypassWriteBoundary = (root, options) => runBoundaryCheck(root, { nonStateIoDeclarations: [], ...options });
@@ -353,4 +354,12 @@ test("removes resolved debt and rejects a stale baseline entry", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// dec_499E4E98A3D4754132B3BCA1E6 CH1: slice 7 retires all non-daemon debt.
+test("state residency debt is confined to the deferred daemon slice", () => {
+  assert.deepEqual(
+    stateResidencyBaseline.filter(({ comment }) => !comment.startsWith("packages/daemon/src/")),
+    [],
+  );
 });
