@@ -5,7 +5,7 @@ import path from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import type { SubmissionV1, TaskProjection } from "@harness-anything/kernel";
-import { publishTaskWorkerBranch, updateTaskPullRequestBody } from "../src/runtime-task-publication.ts";
+import { publishTaskWorkerBranch } from "../src/runtime-task-publication.ts";
 import {
   deliveryProjection,
   workerSettlementRuntime,
@@ -72,7 +72,7 @@ test("publication creates then updates one PR for the submitted branch using dae
     if (method === "GET")
       return Response.json(exists ? [{ number: 42, html_url: "https://github.com/acme/repo/pull/42" }] : []);
     exists = true;
-    return Response.json({ number: 42, html_url: "https://github.com/acme/repo/pull/42" });
+    return Response.json({ number: 42, html_url: "https://github.com/acme/repo/pull/42", head: { sha: head } });
   });
   const input = {
     cwd: fixture.worker,
@@ -88,7 +88,7 @@ test("publication creates then updates one PR for the submitted branch using dae
       body: "Repository-owned body.\n\nLiteral `$()`.",
     },
   };
-  await publishTaskWorkerBranch(input);
+  assert.equal((await publishTaskWorkerBranch(input)).pullRequest?.headSha, head);
   const { body: explicitBody, title: explicitTitle, ...defaults } = input.pullRequest;
   await publishTaskWorkerBranch({ ...input, pullRequest: { ...defaults, title: explicitTitle } });
   await publishTaskWorkerBranch({ ...input, pullRequest: { ...defaults, body: explicitBody } });
@@ -172,9 +172,10 @@ test("a reworked push refreshes the machine delivery facts and keeps authored pr
   assert.match(String(requests[1]!.body?.body), /Authored tail stays\./u);
 });
 
-test("submit's update-only path refreshes an existing PR body and never creates one", async (context) => {
-  const first = "1".repeat(40),
-    second = "2".repeat(40),
+test("publication refreshes an existing PR body and creates a missing PR", async (context) => {
+  const { input: base } = publicationFixture(context, "publication-refresh"),
+    first = "1".repeat(40),
+    second = base.submittedCommitSha,
     requests: { method: string; body: Record<string, unknown> | null }[] = [];
   let existing: Record<string, unknown> | undefined = {
     number: 42,
@@ -187,23 +188,20 @@ test("submit's update-only path refreshes an existing PR body and never creates 
     if (method === "GET") return Response.json(existing ? [existing] : []);
     const body = JSON.parse(String(options.body)) as Record<string, unknown>;
     requests.push({ method, body });
-    if (method === "PATCH") existing = { ...existing, ...body };
+    existing = { number: 42, html_url: "https://github.com/acme/repo/pull/42", ...existing, ...body };
     return Response.json(existing);
   });
   const input = {
-    hosting: { kind: "github" as const, host: "github.com", repository: "acme/repo" },
-    branch: fixtureTaskId,
-    taskTitle: "Delivered task",
-    submission: frozenFacts(second, 322, 56),
-    env: { GH_TOKEN: "daemon-only-fixture" },
+    ...base,
+    pullRequest: { ...base.pullRequest, submission: frozenFacts(second, 322, 56) },
   };
-  assert.equal(await updateTaskPullRequestBody(input), String(existing.html_url));
+  assert.equal((await publishTaskWorkerBranch(input)).pullRequest?.url, String(existing.html_url));
   assert.equal(requests.length, 1, "an existing PR is patched, not recreated");
   assert.equal(requests[0]!.method, "PATCH");
   assert.match(
     String(requests[0]!.body?.body),
     new RegExp(`Delivery commit: \x60${second}\x60`, "u"),
-    "the update-only path writes the newly frozen commit",
+    "the publication path writes the newly frozen commit",
   );
   assert.doesNotMatch(String(requests[0]!.body?.body), new RegExp(first, "u"));
   assert.match(String(requests[0]!.body?.body), /Authored summary stays\./u);
@@ -211,8 +209,9 @@ test("submit's update-only path refreshes an existing PR body and never creates 
 
   existing = undefined;
   requests.length = 0;
-  assert.equal(await updateTaskPullRequestBody({ ...input, branch: "task-without-open-pr" }), null);
-  assert.deepEqual(requests, [], "a missing PR is left for the later ha task push create path");
+  assert.equal((await publishTaskWorkerBranch(input)).pullRequest?.url, "https://github.com/acme/repo/pull/42");
+  assert.equal(requests.length, 1, "publication creates the missing PR before review");
+  assert.equal(requests[0]!.method, "POST");
 });
 
 test("settlement default uses frozen prose and preserves repository-authored bodies on repeat", async (context) => {
@@ -280,7 +279,11 @@ test("GitLab publication uses the same port and updates the task merge request",
     if (method === "POST") assert.equal(data.title, "Delivered task");
     else assert.deepEqual(data, { description: "Explicit GitLab description." });
     exists = true;
-    return Response.json({ iid: 7, web_url: "https://gitlab.example/acme/repo/-/merge_requests/7" });
+    return Response.json({
+      iid: 7,
+      web_url: "https://gitlab.example/acme/repo/-/merge_requests/7",
+      sha: input.submittedCommitSha,
+    });
   });
   const gitlab = {
     ...input,
@@ -296,7 +299,7 @@ test("GitLab publication uses the same port and updates the task merge request",
       },
     },
   };
-  await publishTaskWorkerBranch(gitlab);
+  assert.equal((await publishTaskWorkerBranch(gitlab)).pullRequest?.headSha, input.submittedCommitSha);
   await publishTaskWorkerBranch(gitlab);
   assert.deepEqual(methods, ["GET", "GET", "POST", "GET", "GET", "PUT"]);
 });
