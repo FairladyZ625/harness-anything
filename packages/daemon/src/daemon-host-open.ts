@@ -199,6 +199,8 @@ export interface DaemonHostOpenInput {
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
   input = { ...input, storage: input.storage ?? readDaemonStorageConfig(input.userRoot) };
+  // Daemon-close lifetime: parked waits and in-flight edge forwarding/retry stop here.
+  const closeController = new AbortController();
   const skillEvalProduction = openSkillEvalProduction({
     userRoot: input.userRoot,
     ...input.skillEval,
@@ -419,6 +421,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const autoClaimLoop = openNodeAutoClaimLoop<AutoClaimRepo, NodeAutoClaimCandidate>({
     userRoot: input.userRoot,
     now,
+    signal: closeController.signal,
     repos: autoClaimRepos,
     repoIdOf: (repo) => repo.repoId,
     ownerPersonIdFor: async (repo) => (await autoClaimBinding(repo))?.actor.principal.personId ?? null,
@@ -531,7 +534,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }),
       };
     },
-    onFailure: async (candidate, error) => {
+    onFailure: async (candidate, error, signal) => {
       if (candidate.kind !== "review") return;
       const rawCode = runtimeErrorCode(error),
         failure = {
@@ -543,15 +546,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             `Ask the task owner to retry with ha task dispatch-review ${candidate.taskId}.`,
           failedAt: now(),
         };
-      await writeNodeReviewDispatchFailure(candidate, failure);
+      await writeNodeReviewDispatchFailure(candidate, failure, signal);
     },
-    onSuccess: async (candidate) => {
-      if (candidate.kind === "review") await writeNodeReviewDispatchFailure(candidate, null);
+    onSuccess: async (candidate, signal) => {
+      if (candidate.kind === "review") await writeNodeReviewDispatchFailure(candidate, null, signal);
     },
   });
   async function writeNodeReviewDispatchFailure(
     candidate: NodeAutoDispatchCandidate,
     failure: TaskReviewDispatchFailureV1 | null,
+    signal?: AbortSignal,
   ): Promise<void> {
     const repo = autoClaimRepos().find((value) => value.repoId === candidate.repoId);
     if (!repo) throw new Error(`auto-dispatch repository ${candidate.repoId} is unavailable`);
@@ -568,6 +572,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }),
         auth: { transportKind: "unix-socket" },
         oidc,
+        signal: signal ? AbortSignal.any([signal, closeController.signal]) : closeController.signal,
         runRuntime: async () => {
           throw new Error("Review-dispatch state must use the repository command intent.");
         },
@@ -618,6 +623,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               intent: forwardingIntentForAction("repo.task.run", action, { requiredNodeId: nodeId }),
               auth: { transportKind: "unix-socket" },
               oidc,
+              signal: closeController.signal,
               runRuntime: async () => {
                 throw new Error("Squad task actions must use the repository command intent.");
               },
@@ -652,6 +658,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       intent: runtimeForwardingIntent(request.method, request.action, request),
       auth: request.auth,
       oidc,
+      signal: closeController.signal,
       runRuntime: async (value, requestAuth, operation) => {
         const payload = value as unknown as FleetEdgeRuntimeRequest["payload"],
           runtime = runtimeOwnerFor(payload),
@@ -800,6 +807,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const extracted: DaemonHostRegistryContext = {
     cells,
     input,
+    closeSignal: closeController.signal,
     settleWarming,
     unavailable,
     openings,
@@ -1070,6 +1078,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     buildObserver,
     startInitialAttachments,
     waitForWarming,
+    closeSignal: closeController.signal,
     get closing() {
       return closing;
     },
@@ -1116,8 +1125,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       });
     },
   );
-  const parkedWaitController = new AbortController(),
-    edgeJoinProgress = createEdgeJoinProgressTap();
+  const edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
     skillEvalRunner: skillEvalProduction.runner,
     skillEval: skillEvalProduction.service,
@@ -1194,7 +1202,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         throw hostCodedError("authorization_denied", "The current session does not authorize this replica read.");
       return bound.oidcPrincipal;
     },
-    parkedWaitSignal: parkedWaitController.signal,
+    parkedWaitSignal: closeController.signal,
     ...createDaemonHostRepositoryApi(hostContext),
     ...createDaemonHostRuntimeApi(hostContext),
     ...createDaemonHostControlApi(hostContext),
@@ -1368,18 +1376,41 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       })();
     },
     close: async () => {
-      parkedWaitController.abort();
-      markDaemonOperationPhase("auto-claim.close");
-      await autoClaimLoop.close();
-      await autoDispatchLoop.close();
-      for (const { controller } of replicaSyncControllers.values()) controller.abort();
-      replicaSyncControllers.clear();
-      markDaemonOperationPhase("rbac-resume-and-access-admin.close");
-      await rbacResumed.catch(consumeKnownError);
-      await accessAdmin.close();
-      markDaemonOperationPhase("managed-rbac.stop");
-      await managedRbac.stop();
-      await lifecycle.close();
+      closeController.abort(new Error("daemon closed"));
+      // Run every teardown step even when one fails: a rejected step must not strand the rest of
+      // the daemon's handles. The first failure still surfaces once teardown has completed.
+      let failure: unknown;
+      const teardown: readonly (readonly [phase: string, step: () => Promise<unknown>])[] = [
+        ["auto-claim.close", () => autoClaimLoop.close()],
+        ["auto-dispatch.close", () => autoDispatchLoop.close()],
+        [
+          "replica-sync.close",
+          () => {
+            for (const { controller } of replicaSyncControllers.values()) controller.abort();
+            replicaSyncControllers.clear();
+            return Promise.resolve();
+          },
+        ],
+        [
+          "rbac-resume-and-access-admin.close",
+          async () => {
+            await rbacResumed.catch(consumeKnownError);
+            await accessAdmin.close();
+          },
+        ],
+        ["managed-rbac.stop", () => managedRbac.stop()],
+        ["lifecycle.close", () => lifecycle.close()],
+      ];
+      for (const [phase, step] of teardown) {
+        markDaemonOperationPhase(phase);
+        await step().then(
+          () => undefined,
+          (error: unknown) => {
+            failure = failure === undefined ? error : failure;
+          },
+        );
+      }
+      if (failure !== undefined) throw failure;
     },
   };
   const startReplicaSyncs = (): void => {

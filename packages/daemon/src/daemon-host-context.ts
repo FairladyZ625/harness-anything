@@ -76,6 +76,8 @@ export interface DaemonHostAdmissionContext {
   readonly diagnosticForError: typeof import("./daemon-host-errors.ts").diagnosticForError;
   readonly controls: Map<string, DaemonControlReceipt>;
   latestControl: DaemonControlReceipt | null;
+  /** Daemon-close lifetime; aborts parked waits and in-flight edge forwarding/retry. */
+  readonly closeSignal: AbortSignal;
 }
 
 export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmissionContext {

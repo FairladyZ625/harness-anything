@@ -205,3 +205,72 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
     { code: "local_transport_required" },
   );
 });
+
+test("runtime forwarding carries the daemon lifetime into a started request and settles on close", async (t) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-runtime-lifetime-"))),
+    userRoot = path.join(root, "user"),
+    workspace = path.join(root, "workspace");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(userRoot);
+  mkdirSync(workspace);
+  writeFileSync(
+    path.join(workspace, "fleet-edge.json"),
+    JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId: "repo",
+      host: "center",
+      port: 7443,
+      caPath: "ca.pem",
+      nodeId: "node-one",
+      credential: "fixture",
+      viewRoot: "view",
+      quotaBytes: 65536,
+    }),
+  );
+  writeFileSync(
+    path.join(userRoot, "registry.json"),
+    JSON.stringify({
+      schema: "harness-daemon-registry/v2",
+      connections: [{ id: "local", kind: "local", displayName: "Fixture", state: "enabled" }],
+      repos: [
+        {
+          repoId: "repo",
+          canonicalRoot: workspace,
+          displayName: "Fixture",
+          authoredBranch: "main",
+          mode: "remote-edge",
+          connectionId: "local",
+          state: "enabled",
+          registeredAt: "2026-11-01T00:00:00.000Z",
+        },
+      ],
+    }),
+  );
+  const lifetime = new AbortController();
+  let requestStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    requestStarted = resolve;
+  });
+  let received: AbortSignal | undefined;
+  const forwarded = forward({
+    userRoot,
+    repoId: "repo",
+    intent: runtimeForwardingIntent("repo.tasks.autoClaimCandidates", {}),
+    auth: { transportKind: "unix-socket" },
+    oidc: {} as IdentitySessionPort,
+    signal: lifetime.signal,
+    // The consumer holds an operational read that never answers on its own; only the lifetime
+    // can settle it. The handshake proves the call was in flight before close.
+    runRuntime: async (_payload, auth) => {
+      received = auth.connectionSignal;
+      requestStarted();
+      await new Promise<void>(() => undefined);
+      return {};
+    },
+  });
+  await started;
+  assert.equal(received?.aborted, false);
+  lifetime.abort(new Error("daemon closed"));
+  await assert.rejects(forwarded, (error) => error === lifetime.signal.reason);
+  assert.equal(received?.aborted, true);
+});

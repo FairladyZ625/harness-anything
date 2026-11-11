@@ -10,6 +10,7 @@ import { executionCredentialRejected } from "../runtime-execution-credential.ts"
 import type { RepoTaskAction } from "../repo-cell-types.ts";
 import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
 import { FleetEdgeTaskError, runFleetEdgeTask } from "../fleet-edge-task.ts";
+import { raceLifetime } from "../fleet-edge-write.ts";
 import { forwardingIntentIssue, type ForwardingIntent } from "./forwarding-intent.ts";
 
 export type RuntimeForwardingRequest = {
@@ -31,6 +32,8 @@ export async function forward(input: {
   readonly intent: ForwardingIntent;
   readonly auth: DaemonAuthenticationContext;
   readonly oidc: IdentitySessionPort;
+  /** Daemon-close lifetime; combined with the request connection lifetime and carried into retries. */
+  readonly signal?: AbortSignal;
   readonly runRuntime: (
     payload: JsonObject,
     auth: DaemonAuthenticationContext,
@@ -52,12 +55,17 @@ export async function forward(input: {
     config = runtimeLocation(edge, input.repoId, requiredNodeId);
   if (!config) return null;
   const { workspaceRoot } = config;
+  const signal =
+      input.signal && input.auth.connectionSignal
+        ? AbortSignal.any([input.signal, input.auth.connectionSignal])
+        : (input.signal ?? input.auth.connectionSignal),
+    runtimeAuth = signal ? { ...input.auth, connectionSignal: signal } : input.auth;
+  signal?.throwIfAborted();
   if (input.intent.kind === "runtime") {
     const payload = { ...config, method: input.intent.method, action: input.intent.inputs.action },
-      receipt = (await input.runRuntime(
-        payload as unknown as JsonObject,
-        input.auth,
-        input.intent.inputs.operation,
+      receipt = (await raceLifetime(
+        input.runRuntime(payload as unknown as JsonObject, runtimeAuth, input.intent.inputs.operation),
+        signal,
       )) as JsonObject;
     return receipt;
   }
@@ -67,7 +75,7 @@ export async function forward(input: {
   if (scheduleAction || squadControl) {
     if (scheduleAction && (input.auth.executionPrincipal || input.auth.executionCredential))
       throw executionCredentialRejected();
-    const bound = scheduleAction ? await bindPersonSession(input, workspaceRoot) : input.auth,
+    const bound = scheduleAction ? await bindPersonSession(input, workspaceRoot) : runtimeAuth,
       {
         kind: _kind,
         executor: _executor,
@@ -76,13 +84,16 @@ export async function forward(input: {
         detach: _detach,
         ...runtimeAction
       } = action;
-    return input.runRuntime(
-      {
-        ...config,
-        method: scheduleAction ? "repo.schedule.run" : "repo.squad.control",
-        action: { ...runtimeAction, kind: action.kind } as JsonObject,
-      },
-      { ...input.auth, ...bound },
+    return raceLifetime(
+      input.runRuntime(
+        {
+          ...config,
+          method: scheduleAction ? "repo.schedule.run" : "repo.squad.control",
+          action: { ...runtimeAction, kind: action.kind } as JsonObject,
+        },
+        { ...bound, ...(signal ? { connectionSignal: signal } : {}) },
+      ),
+      signal,
     );
   }
   if (input.auth.executionPrincipal && !input.auth.executionCredential) throw executionCredentialRejected();
@@ -101,6 +112,7 @@ export async function forward(input: {
     throw executionCredentialRejected();
   return runFleetEdgeTask(
     {
+      ...(signal ? { signal } : {}),
       payload: {
         ...config,
         workspaceRoot,

@@ -89,6 +89,7 @@
       "packages/dsh-plugin/src/tutorial.ts#writeClipboard",
       "packages/daemon/src/skill-eval-runner.ts#runCase",
       "packages/daemon/src/node-auto-dispatch.ts#scan",
+      "packages/daemon/src/node-auto-claim.ts#close",
       "packages/application/src/task-lifecycle-service.ts#releaseReservation",
       "packages/authorization-keycloak/src/managed-rbac-service.ts##restartManaged",
       "packages/cli/src/cli-render.ts#contractMigrationDryRunSummary",

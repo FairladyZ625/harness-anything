@@ -61,6 +61,8 @@ import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-de
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
 
 export interface FleetEdgeTaskRequest {
+  /** Daemon-close lifetime: aborting cancels in-flight center attempts and their retry budget. */
+  readonly signal?: AbortSignal;
   readonly payload: {
     readonly host: string;
     readonly port: number;
@@ -338,6 +340,7 @@ export async function runFleetEdgeTask(
   receiptFormat: "cli" | "domain" = "cli",
 ): Promise<Record<string, unknown>> {
   const payload = input.payload;
+  const signal = input.signal;
   let action = payload.action;
   const readOnly = commandDescriptorForAction(action.kind).commandClass === "repo-read";
   const credential = payload.credential;
@@ -357,6 +360,7 @@ export async function runFleetEdgeTask(
       credential,
       ...(payload.executionCredential ? { executionCredential: payload.executionCredential } : {}),
       repoId: payload.repoId,
+      ...(signal ? { signal } : {}),
     };
   const workspaceRoot = payload.workspaceRoot ?? null;
   // One edge/view has one registered harness materialization. Hold its round fence
@@ -431,6 +435,7 @@ export async function runFleetEdgeTask(
         repoId: payload.repoId,
         nodeId: payload.nodeId,
         timeoutMs: waitMs,
+        ...(signal ? { signal } : {}),
         write: async () =>
           (
             await runFleetWriteClient({
@@ -532,6 +537,7 @@ export async function runFleetEdgeTask(
       result = await runFleetEdgeTaskCommand({
         timeoutMs: commandTimeoutMs,
         readOnly,
+        ...(signal ? { signal } : {}),
         write: async () => {
           const remaining = Math.max(1, deadline - Date.now());
           const commandPeer = {
@@ -562,6 +568,7 @@ export async function runFleetEdgeTask(
             repoId: payload.repoId,
             nodeId: payload.nodeId,
             timeoutMs: Math.max(1, deadline - Date.now()),
+            ...(signal ? { signal } : {}),
             write: () =>
               runFleetTaskCommandClient({
                 ...peer,
@@ -579,6 +586,8 @@ export async function runFleetEdgeTask(
         },
       });
     } catch (error) {
+      // Close aborted this attempt: surface the abort instead of a normal command receipt.
+      if (signal?.aborted) throw error;
       if (Date.now() >= deadline) throw error;
       const code =
         error instanceof FleetRemoteError

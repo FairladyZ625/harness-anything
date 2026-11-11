@@ -1,3 +1,4 @@
+import { consumeKnownError } from "@harness-anything/kernel";
 import { observeDaemonOperation } from "./daemon-operation.ts";
 import { randomUUID } from "node:crypto";
 import { readNodeAutoClaimPolicy, type NodeAutoClaimPolicy } from "./node-auto-claim-config.ts";
@@ -157,6 +158,8 @@ export interface NodeAutoClaimDiagnosticRow {
 export interface NodeAutoClaimLoopInput<TRepo, TCandidate> {
   readonly userRoot: string;
   readonly now: () => string;
+  /** Daemon-close lifetime: a scan it aborts is shutdown work, not a close failure. */
+  readonly signal?: AbortSignal;
   readonly ownerPersonIdFor: (repo: TRepo) => Promise<string | null>;
   readonly repos: () => readonly TRepo[];
   readonly repoIdOf: (repo: TRepo) => string;
@@ -423,7 +426,14 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
   const close = async (): Promise<void> => {
     closed = true;
     for (const controller of controllers) controller.abort();
-    await pending;
+    try {
+      await pending;
+    } catch (error) {
+      // Only the cancellation this close issued is shutdown work. A scan that failed for another
+      // reason still rejects close, even while the lifetime is aborted.
+      if (input.signal?.aborted && error === input.signal.reason) consumeKnownError(error);
+      else throw error;
+    }
     await Promise.allSettled([...runs]);
   };
   return { trigger, close, diagnostics: () => rows };

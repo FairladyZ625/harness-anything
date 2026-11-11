@@ -482,3 +482,63 @@ test("a disabled auto-claim loop never opens the owner replica and closes cleanl
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+
+test("auto-claim close consumes only its own lifetime abort and keeps other scan failures", async () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-close-"));
+  try {
+    writeNodeAutoClaimPolicy(userRoot, policy);
+    const gatedScan = (signal: AbortSignal, rejection: () => unknown) => {
+      let started!: () => void;
+      const reading = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let releaseCandidate!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseCandidate = resolve;
+      });
+      const loop = openNodeAutoClaimLoop({
+        userRoot,
+        now: () => "2026-11-02T00:00:00.000Z",
+        signal,
+        ownerPersonIdFor: async () => "owner",
+        repos: () => ["repo-a"],
+        repoIdOf: (repo) => repo,
+        candidates: async () => {
+          started();
+          await gate;
+          throw rejection();
+        },
+        taskIdOf: (candidate: string) => candidate,
+        assignmentOf: async () => null,
+        activeTaskKeys: async () => [],
+        agentIds: () => ["sol"],
+        claimAndRun: async () => undefined,
+      });
+      return { loop, reading, releaseCandidate, scan: loop.trigger("scan").catch(() => undefined) };
+    };
+
+    const cancelledLifetime = new AbortController(),
+      cancelled = gatedScan(cancelledLifetime.signal, () => cancelledLifetime.signal.reason);
+    await cancelled.reading;
+    // Shutdown aborts the lifetime and the scan rejects with the exact close reason: this close
+    // cancellation is consumed so teardown can finish.
+    cancelledLifetime.abort(new Error("daemon closed"));
+    const closingCancelled = cancelled.loop.close();
+    cancelled.releaseCandidate();
+    await closingCancelled;
+    await cancelled.scan;
+
+    const failedLifetime = new AbortController(),
+      failed = gatedScan(failedLifetime.signal, () => new Error("scan failed for another reason"));
+    await failed.reading;
+    // The lifetime is aborted too, but this scan failed for an unrelated reason: close must
+    // still reject after teardown instead of absorbing it as cancellation.
+    failedLifetime.abort(new Error("daemon closed"));
+    const closingFailed = failed.loop.close();
+    failed.releaseCandidate();
+    await assert.rejects(closingFailed, /scan failed for another reason/u);
+    await failed.scan;
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
