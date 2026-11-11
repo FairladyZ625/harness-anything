@@ -136,6 +136,17 @@ test("task event types must be declared and owner-prefixed types cannot hide out
   }
 });
 
+test("the runtime aggregate constructor remains visible to schema-and-type discovery", () => {
+  assert.ok(
+    sitesForRepo().some(
+      (site) =>
+        site.schema === "agent-runtime-event/v1" &&
+        site.path === "packages/kernel/src/domain/agent-runtime-event.ts" &&
+        site.form === "dynamic-event",
+    ),
+  );
+});
+
 // dec_499E4E98A3D4754132B3BCA1E6 CH1: clearing the debt removes the
 // exemption mechanism, including for authored-document's aggregate-local events.
 test("a former baseline entry cannot authorize construction outside the owner", () => {
