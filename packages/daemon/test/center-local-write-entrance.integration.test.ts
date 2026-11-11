@@ -146,7 +146,7 @@ test("the center admits no unauthenticated source and the edge admits no local l
     ]) {
       const rejected = (await host.run("edge", action as never, auth)) as Receipt;
       assert.equal(rejected.outcome, "op_rejected", action.kind);
-      assert.equal(rejected.code, "repo_mode_read_only", action.kind);
+      assert.equal(rejected.code, "fleet_edge_config_invalid", action.kind);
     }
     // Runtime-local execution still belongs to the node that holds the assignment.
     const runNow = (await host.run(
