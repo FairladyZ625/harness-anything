@@ -223,14 +223,16 @@ function compileFactArchiveDraft(
 ): FactEventDraftV1 {
   const recorded = compileFactRecordAction(input);
   if (recorded.kind !== "fact") throw new Error("fact archive compiler produced a non-Fact draft");
-  return {
-    ...recorded.event,
-    type,
-    payload: {
-      ...recorded.event.payload,
-      archiveReason: short(input, input.action.reason, "reason"),
+  return createFactEvent(
+    {
+      ...recorded.event,
+      payload: {
+        ...recorded.event.payload,
+        archiveReason: short(input, input.action.reason, "reason"),
+      },
     },
-  };
+    type,
+  );
 }
 export function compileFactArchiveAction(input: EntityActionCompileInput): EntityActionDraft {
   return { kind: "fact-archive", event: compileFactArchiveDraft(input, "fact_archived") };

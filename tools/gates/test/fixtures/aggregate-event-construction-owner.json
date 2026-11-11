@@ -6,9 +6,7 @@
     "schema": "agent-runtime-event/v1",
     "owner": "runtime-session",
     "storeId": "runtime-session.agent-runtime-events",
-    "writers": [
-      "packages/kernel/src/domain/agent-runtime-event.ts"
-    ]
+    "writers": ["packages/kernel/src/domain/agent-runtime-event.ts"]
   },
   "cases": [
     {
@@ -34,6 +32,11 @@
       "schema": "decision-event/v1",
       "owner": "decision",
       "eventType": "decision_accepted"
+    },
+    {
+      "schema": "fact-event/v1",
+      "owner": "fact",
+      "parameterTypes": ["fact_archived", "fact_unarchived"]
     }
   ]
 }

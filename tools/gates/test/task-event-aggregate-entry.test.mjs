@@ -66,17 +66,32 @@ for (const fixtureCase of fixture.cases) {
 
 // A schema carried by a base spread must not hide the newly selected event type.
 for (const fixtureCase of fixture.spreadCases) {
-  test(`${fixtureCase.owner} spread construction outside its aggregate is refused`, () => {
+  test(`${fixtureCase.eventType ?? fixtureCase.parameterTypes.join("/")} spread construction outside its aggregate is refused`, () => {
     const families = loadAggregateEventFamilies(path.resolve(import.meta.dirname, "../../.."));
-    const { rootDir } = makeRepo({
-      "packages/rogue/src/rogue.ts": `export const event = { ...base, type: "${fixtureCase.eventType}", payload: {} };\n`,
-    });
-    const sites = scanAggregateEventConstructionSites(rootDir, families);
-    assert.equal(sites.length, 1, "the canonical event vocabulary must expose a bare spread discriminator");
-    assert.equal(sites[0].schema, fixtureCase.schema);
-    assert.match(
-      checkAggregateEventConstructionSites(sites, { families }).join("\n"),
-      new RegExp(`outside the declared writers of ${fixtureCase.owner}`),
-    );
+    const sources = fixtureCase.parameterTypes
+      ? ["type", "type: type"].map(
+          (property) =>
+            `function build(type: ${fixtureCase.parameterTypes.map((type) => JSON.stringify(type)).join(" | ")}) { ` +
+            `return { ...base, ${property}, payload: {} }; }\n`,
+        )
+      : [`export const event = { ...base, type: "${fixtureCase.eventType}", payload: {} };\n`];
+    for (const source of sources) {
+      const { rootDir } = makeRepo({ "packages/rogue/src/rogue.ts": source });
+      const sites = scanAggregateEventConstructionSites(rootDir, families);
+      assert.equal(sites.length, 1, "the canonical event vocabulary must expose a bare spread discriminator");
+      assert.equal(sites[0].schema, fixtureCase.schema);
+      assert.match(
+        checkAggregateEventConstructionSites(sites, { families }).join("\n"),
+        new RegExp(`outside the declared writers of ${fixtureCase.owner}`),
+      );
+      const family = families.find(({ schema }) => schema === fixtureCase.schema);
+      const owner = makeRepo({ [family.writers[0]]: source });
+      assert.deepEqual(
+        checkAggregateEventConstructionSites(scanAggregateEventConstructionSites(owner.rootDir, families), {
+          families,
+        }),
+        [],
+      );
+    }
   });
 }

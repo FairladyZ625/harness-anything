@@ -10,7 +10,8 @@
  *   - a call to an `*Envelope` helper whose event-type argument is declared by a
  *     registered store;
  *   - a bare `type` literal whose value (or owner-declared token prefix) belongs
- *     to a registered store.
+ *     to a registered store, including a spread discriminator selected from a
+ *     function parameter's literal event-type union.
  *
  * The schema resolves to its owner kind through `canonicalEventSchemas`. Sites in
  * one of that kind's `stateStores[].medium.writers` are the aggregate's own write
@@ -130,6 +131,23 @@ export function scanAggregateEventConstructionSites(root, families) {
         const schema = typeIndex.schemaFor(node.initializer.text);
         if (schema) add(node, schema, "literal-type", node.initializer.text);
       }
+      // A spread can carry the schema while a typed parameter selects its new
+      // discriminator (including shorthand `type,`). Attribute those variants
+      // through the same event vocabulary as literal discriminators.
+      if (
+        (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+        propertyName(node.name) === "type" &&
+        ts.isObjectLiteralExpression(node.parent) &&
+        !hasSchemaProperty(node.parent) &&
+        node.parent.properties.some(ts.isSpreadAssignment) &&
+        node.parent.properties.some((property) => propertyName(property.name) === "payload")
+      ) {
+        const identifier = ts.isShorthandPropertyAssignment(node) ? node.name : node.initializer;
+        if (ts.isIdentifier(identifier)) {
+          const schemas = new Set(parameterEventTypes(node, identifier.text).map(typeIndex.schemaFor).filter(Boolean));
+          for (const schema of schemas) add(node, schema, "dynamic-event", DYNAMIC_EVENT_TYPE);
+        }
+      }
       // (3) envelope helper call: the first string argument is the event type.
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && /[Ee]nvelope$/u.test(node.expression.text)) {
         const eventType = node.arguments[1];
@@ -222,6 +240,19 @@ function buildEventTypeIndex(families) {
 
 function isWriterPath(rel, writers) {
   return writers.some((writer) => rel === writer || rel.startsWith(writer.endsWith("/") ? writer : `${writer}/`));
+}
+
+function parameterEventTypes(node, name) {
+  let scope = node.parent;
+  while (scope && !ts.isFunctionLike(scope)) scope = scope.parent;
+  const parameter = scope?.parameters.find(
+    (parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === name,
+  );
+  if (!parameter?.type) return [];
+  const variants = ts.isUnionTypeNode(parameter.type) ? parameter.type.types : [parameter.type];
+  return variants.every((variant) => ts.isLiteralTypeNode(variant) && ts.isStringLiteralLike(variant.literal))
+    ? variants.map((variant) => variant.literal.text)
+    : [];
 }
 
 function hasSchemaProperty(node) {
