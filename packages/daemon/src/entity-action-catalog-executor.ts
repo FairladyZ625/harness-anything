@@ -51,7 +51,7 @@ import { supersededFactDocumentSource } from "./fact-supersede-document.ts";
 import {
   archiveAllFacts,
   factArchiveBundle,
-  factArchivePreload,
+  factObservationPreload,
   factUnarchiveBundle,
 } from "./fact-archive-document.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -342,11 +342,9 @@ export function makeEntityActionCatalogExecutor(input: {
                 current,
               );
             })()
-          : contract.id === "reclassify"
-            ? reclassificationAction(rawAction, input.projection)
-            : rawAction.kind === "fact-archive" || rawAction.kind === "fact-unarchive"
-              ? factArchivePreload(input.projection, rawAction, requiredCommandText(rawAction.factId, "factId"))
-              : rawAction
+          : contract.id === "reclassify" || rawAction.kind === "fact-archive" || rawAction.kind === "fact-unarchive"
+            ? factObservationPreload(input.projection, rawAction, requiredCommandText(rawAction.factId, "factId"))
+            : rawAction
       ) as RepoTaskAction,
       dryRun = action.dryRun === true,
       existing = dryRun || contract.target.kind === "runtime-session" ? null : input.store.readEvent(opId),
@@ -684,27 +682,6 @@ function resolveActionCriterion(contract: EntityActionContract, criterionRef: st
       { code: "invalid_store" },
     );
   return { ref: criterion.ref, failureCode: criterion.failureCode, explain: criterion.explain };
-}
-
-function reclassificationAction(
-  action: Readonly<Record<string, unknown>>,
-  projection: TaskProjection,
-): Readonly<Record<string, unknown>> {
-  const factId = requiredCommandText(action.factId, "factId"),
-    read = projection.readFact(factId),
-    fact = read.fact;
-  if (!fact) reject("invalid_command", `Fact fact/${factId} does not exist.`);
-  return {
-    ...action,
-    ...(fact.taskId ? { taskId: fact.taskId } : {}),
-    statement: fact.statement,
-    evidenceSource: fact.evidenceSource,
-    observedAt: fact.observedAt,
-    ...(fact.observedCommit !== undefined ? { observedCommit: fact.observedCommit } : {}),
-    confidence: fact.confidence,
-    memoryClass: fact.memoryClass,
-    memoryTags: fact.memoryTags,
-  };
 }
 
 function executableAction(ingress: string): ExecutableAction {

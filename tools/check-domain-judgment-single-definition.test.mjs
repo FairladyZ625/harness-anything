@@ -414,3 +414,21 @@ test("registered coverage rules refuse SQL liveness and renamed coverage algorit
     );
   }
 });
+
+// dec_7E44897ECDCAEF2B92EC66A260 CH1: Fact admission, including archive state, belongs to the kernel.
+test("registered Fact admission refuses copied definitions and archive eligibility", (t) => {
+  const findings = fixtureFindings(t, loadOntologyClosureSnapshot(repoRoot).kinds);
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.includes("factAdmission: expected one definition") && finding.includes("fact-archive-copy.ts"),
+    ),
+    findings.join("\n"),
+  );
+  assert.ok(
+    findings.some((finding) =>
+      finding.includes("fact-archive-copy.ts: factAdmission: consume the kernel Fact archive-transition verdict"),
+    ),
+    findings.join("\n"),
+  );
+});

@@ -1,5 +1,5 @@
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
-import { readPgFactsInTransaction } from "./pg-fact-reads.ts";
+import { projectPgFactLiveness, readPgFactsInTransaction } from "./pg-fact-reads.ts";
 import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
 import { pgKnowledgeQueries, type PgKnowledgeQueries } from "./pg-knowledge-queries.ts";
 import { pgAggregateQueries, type PgAggregateQueries } from "./pg-aggregate-queries.ts";
@@ -35,7 +35,6 @@ import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/do
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import type { FactProjectionRow } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
 import type { EventListPage, EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
-import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
 import { assertPgDecisionIndexReady } from "./pg-decision-index-migration.ts";
 import { listPgDecisionRows } from "./pg-decision-list.ts";
@@ -426,29 +425,11 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           `SELECT value FROM ha_facts WHERE ${where.join(" AND ")} ORDER BY fact_id LIMIT $${values.length}`,
           values,
         );
-        if (result.rows.length === 0) return [];
-        const facts = result.rows.map((row) => row.value),
-          refs = facts.map((fact) => fact.ref),
-          relations = await client.query<{
-            target_ref: string;
-            relation_type: string;
-            relation_state: string;
-          }>(
-            `SELECT target_ref, relation_type, relation_state FROM ha_relations
-             WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3
-               AND target_ref = ANY($4::text[]) AND relation_type = 'supersedes-fact'
-               AND (cardinality($5::text[]) = 0 OR readers && $5::text[])`,
-            [claims.tenantId, claims.projectId, claims.policyEpoch, refs, readers],
-          );
-        const livenessRelations = relations.rows.map((relation) => ({
-          targetRef: relation.target_ref,
-          relationType: relation.relation_type,
-          state: relation.relation_state,
-        }));
-        return facts.map((fact) => {
-          const state = factLiveness(fact, livenessRelations);
-          return { ...fact, state, invalidated: factInvalidated(state), archived: fact.archived === true };
-        });
+        return projectPgFactLiveness(
+          client,
+          options,
+          result.rows.map(({ value }) => value),
+        );
       },
       claims,
       { isolationLevel: "repeatable read" },

@@ -176,9 +176,6 @@ export function checkDomainJudgmentSingleDefinition(
     if (REVERIFY_COMPARISON.test(readFileSync(path.join(root, file), "utf8")))
       findings.push(`${file}: judges a finding's reverify outside the kernel reviewReverifyRoute`);
   }
-  const guiBodies = files
-    .filter((file) => /^packages\/gui\//u.test(file))
-    .map((file) => [file, readFileSync(path.join(root, file), "utf8")]);
   const taskAdapter = read(root, "packages/gui/src/renderer/task-adapter.ts"),
     triadic = read(root, "packages/gui/src/renderer/triadic-data.ts");
   const daemonDispatch = read(root, "packages/daemon/src/repo-cell-action-dispatch.ts"),
@@ -189,8 +186,8 @@ export function checkDomainJudgmentSingleDefinition(
     findings.push(
       "packages/gui/src/renderer/triadic-data.ts: must consume the projected fact `invalidated` field (row.invalidated)",
     );
-  for (const [file, body] of guiBodies)
-    if (/===\s*"superseded_fact"|"superseded_fact"\s*===/u.test(body))
+  for (const [file, body] of bodies)
+    if (file.startsWith("packages/gui/") && /===\s*"superseded_fact"|"superseded_fact"\s*===/u.test(body))
       findings.push(`${file}: compares the fact liveness word instead of reading the projected invalidated field`);
   if (
     /preview\s*&&\s*!current\.snapshot\.task|preview\s*&&\s*current\.snapshot\.lease|isTerminalStatus\(current\.snapshot\.task\.status\)/u.test(

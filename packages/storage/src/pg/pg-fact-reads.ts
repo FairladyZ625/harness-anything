@@ -69,23 +69,11 @@ export async function readPgFactsInTransaction(
       ? filterLiteralTextRows(result.rows, search, ({ value }) => [value.statement, value.evidenceSource])
       : result.rows,
     selected = limit === null ? matched : matched.slice(0, limit),
-    rows = selected.map(({ value }) => value),
-    relationResult =
-      rows.length === 0
-        ? { rows: [] as const }
-        : await client.query<{ target_ref: string; relation_state: string }>(
-            `SELECT target_ref, relation_state FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_type='supersedes-fact' AND target_ref = ANY($4::text[]) AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
-            [claims.tenantId, claims.projectId, claims.policyEpoch, rows.map((row) => row.ref), readers],
-          );
-  const liveness = relationResult.rows.map((row) => ({
-    targetRef: row.target_ref,
-    relationType: "supersedes-fact" as const,
-    state: row.relation_state as never,
-  }));
-  const facts = rows.map((fact) => {
-    const state = factLiveness(fact, liveness);
-    return { ...fact, state, invalidated: factInvalidated(state), archived: fact.archived === true };
-  });
+    facts = await projectPgFactLiveness(
+      client,
+      options,
+      selected.map(({ value }) => value),
+    );
   return {
     status: cut.status,
     facts,
@@ -104,6 +92,30 @@ export async function readPgFactsInTransaction(
           },
         }),
   };
+}
+
+/** The list, search and graph readers share the same Fact-liveness hydration at their transaction cut. */
+export async function projectPgFactLiveness(
+  client: PoolClient,
+  options: PgTaskProjectionSourceOptions,
+  rows: readonly FactProjectionRow[],
+): Promise<readonly FactProjectionRow[]> {
+  if (rows.length === 0) return [];
+  const claims = options.scope,
+    readers = [...(claims.readers ?? [])],
+    relationResult = await client.query<{ target_ref: string; relation_state: string }>(
+      `SELECT target_ref, relation_state FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_type='supersedes-fact' AND target_ref = ANY($4::text[]) AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
+      [claims.tenantId, claims.projectId, claims.policyEpoch, rows.map((row) => row.ref), readers],
+    );
+  const liveness = relationResult.rows.map((row) => ({
+    targetRef: row.target_ref,
+    relationType: "supersedes-fact",
+    state: row.relation_state,
+  }));
+  return rows.map((fact) => {
+    const state = factLiveness(fact, liveness);
+    return { ...fact, state, invalidated: factInvalidated(state), archived: fact.archived === true };
+  });
 }
 
 function encodeFactCursor(parts: readonly string[]): string {

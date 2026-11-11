@@ -39545,28 +39545,6 @@
         "removalSlice": "S1"
       },
       {
-        "id": "judgment:packages/storage:packages/storage/src/projection/fact-event-projection.ts#assertFactAdmission:1e18d7f819f36314c1fc2455f14b4e19",
-        "category": "judgment",
-        "path": "packages/storage/src/projection/fact-event-projection.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/storage",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertFactAdmission; branches=3; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
-        "id": "judgment:packages/storage:packages/storage/src/projection/fact-event-projection.ts#assertFactAdmissionAtCut:b87d1efe9233b3d7977535e21b66adac",
-        "category": "judgment",
-        "path": "packages/storage/src/projection/fact-event-projection.ts",
-        "status": "legacy-to-remove",
-        "owner": "packages/storage",
-        "ref": "dec_7E44897ECDCAEF2B92EC66A260",
-        "reason": "Frozen syntactic judgment candidate, semantic ownership to be resolved in S2: predicate-shaped assertFactAdmissionAtCut; branches=14; booleanReturns=0",
-        "replacementRef": "EntityKindContract.judgments",
-        "removalSlice": "S2"
-      },
-      {
         "id": "action:packages/storage:packages/storage/src/projection/fact-event-projection.ts#reduceFactEvent:cc2e903381e7879eb1d064d54aa5b19e",
         "category": "action",
         "path": "packages/storage/src/projection/fact-event-projection.ts",

@@ -1,4 +1,8 @@
 import {
+  assertFactAdmissionAtCut,
+  FactProjectionError,
+} from "@harness-anything/kernel/internal/domain/fact-admission.ts";
+import {
   assertDecisionAdmission,
   decisionCoverage,
   listDecisionAgendaRowsPage,
@@ -9,8 +13,7 @@ import {
   readDecisionRows,
 } from "./decision-event-projection.ts";
 import {
-  assertFactAdmission,
-  FactProjectionError,
+  readFactAdmissionState,
   listFactDomainTypeRows,
   readFactAnchorRows,
   readFactGraphRows,
@@ -58,7 +61,7 @@ export function knowledgeQueryApi(
             `Fact admission requires projection revision ${round.sourceRevision}; ` +
               `current watermark is ${round.watermark}.`,
           );
-        assertFactAdmission(db, event);
+        assertFactAdmissionAtCut(readFactAdmissionState(db, event), event);
       }),
     readFact: (factId) =>
       withDatabase(projectionPath, readHead, (db) => {

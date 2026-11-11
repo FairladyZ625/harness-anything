@@ -1,3 +1,4 @@
+import { assertFactAdmissionAtCut } from "@harness-anything/kernel/internal/domain/fact-admission.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { factRef, type FactDomainType, type FactEventV1 } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import type {
@@ -21,21 +22,6 @@ import { ftsQuery } from "./fts-query.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
-export class FactProjectionError extends Error {
-  readonly code:
-    | "content_not_ready"
-    | "invalid_transition"
-    | "entity_not_found"
-    | "anchor_not_found"
-    | "fact_type_unregistered"
-    | "relation_invalid";
-  constructor(code: FactProjectionError["code"], message: string) {
-    super(message);
-    this.name = "FactProjectionError";
-    this.code = code;
-  }
-}
-
 export function createFactProjectionTables(db: DatabaseSync): void {
   /* @gate-identity state-store/task.source.storage.src.projection.fact-event-projection.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.fact */ CREATE TABLE IF NOT EXISTS fact (
@@ -58,14 +44,7 @@ export function createFactProjectionTables(db: DatabaseSync): void {
   `);
 }
 
-interface FactAdmissionState {
-  readonly row: FactProjectionRow | null;
-  readonly domainTypes: ReturnType<typeof listFactDomainTypeRows>;
-  readonly supersededTarget: { readonly ref: string } | null;
-  readonly relations: ReturnType<typeof livenessRelations>;
-}
-
-export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void {
+export function readFactAdmissionState(db: DatabaseSync, event: FactEventV1) {
   const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
       | { readonly row_json: string }
       | undefined,
@@ -73,84 +52,19 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
     target = ref
       ? (prepareQuery(db, "SELECT ref FROM fact WHERE ref = ?").get(ref) as { readonly ref: string } | undefined)
       : undefined;
-  assertFactAdmissionAtCut(
-    {
-      row: record ? (JSON.parse(record.row_json) as FactProjectionRow) : null,
-      domainTypes: listFactDomainTypeRows(db),
-      supersededTarget: target ?? null,
-      relations: target ? livenessRelations(db, [target.ref]) : [],
-    },
-    event,
-  );
-}
-
-export function assertFactAdmissionAtCut(state: FactAdmissionState, event: FactEventV1): void {
-  const ownRef = factRef(event.factId),
-    row = state.row;
-  if (event.type === "fact_archived" || event.type === "fact_unarchived") {
-    if (!row) throw new FactProjectionError("entity_not_found", `Fact ${ownRef} does not exist.`);
-    if (event.type === "fact_archived" && row.archived === true)
-      throw new FactProjectionError("invalid_transition", `Fact ${ownRef} is already archived.`);
-    if (event.type === "fact_unarchived" && row.archived !== true)
-      throw new FactProjectionError("invalid_transition", `Fact ${ownRef} is not archived.`);
-    return;
-  }
-  if (event.type === "fact_reclassified" && !row)
-    throw new FactProjectionError("entity_not_found", `Fact ${ownRef} does not exist.`);
-  if (event.type === "fact_recorded" && row)
-    throw new FactProjectionError("invalid_transition", `Fact ${ownRef} already exists.`);
-  if (event.type === "fact_reclassified") {
-    if (row!.archived === true)
-      throw new FactProjectionError(
-        "invalid_transition",
-        `Fact ${ownRef} is archived; unarchive it before reclassifying.`,
-      );
-    if (
-      !row ||
-      row.taskId !== event.taskId ||
-      row.statement !== event.payload.statement ||
-      row.evidenceSource !== event.payload.evidenceSource ||
-      row.observedAt !== event.payload.observedAt ||
-      row.observedCommit !== event.payload.observedCommit ||
-      row.confidence !== event.payload.confidence ||
-      row.memoryClass !== event.payload.memoryClass ||
-      JSON.stringify(row.memoryTags) !== JSON.stringify(event.payload.memoryTags)
-    )
-      throw new FactProjectionError("invalid_transition", `Fact ${ownRef} reclassification changed observation data.`);
-  }
-  if (event.payload.registersDomainType) {
-    if (state.domainTypes.some(({ domainType }) => domainType === event.payload.registersDomainType))
-      throw new FactProjectionError(
-        "invalid_transition",
-        `Fact domain type ${event.payload.registersDomainType} is already registered.`,
-      );
-  }
-  for (const domainType of event.payload.domainTypes ?? [])
-    if (!state.domainTypes.some((row) => row.domainType === domainType)) {
-      const registered = state.domainTypes.map(({ domainType: value }) => value).join(", ");
-      throw new FactProjectionError(
-        "fact_type_unregistered",
-        `Fact domain type ${domainType} is not registered. Registered: ${registered || "none yet"}.`,
-      );
-    }
-  const supersedes = event.payload.supersedes;
-  if (!supersedes) return;
-  const target = state.supersededTarget;
-  if (target && factLiveness(target, state.relations) === "superseded_fact")
-    throw new FactProjectionError(
-      "relation_invalid",
-      `Superseded endpoint ${supersedes.factRef} is already superseded.`,
-    );
+  return {
+    row: record ? (JSON.parse(record.row_json) as FactProjectionRow) : null,
+    domainTypes: listFactDomainTypeRows(db),
+    supersededTarget: target ?? null,
+    relations: target ? livenessRelations(db, [target.ref]) : [],
+  };
 }
 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
-  assertFactAdmission(db, event);
+  const admission = readFactAdmissionState(db, event);
+  assertFactAdmissionAtCut(admission, event);
   if (event.type === "fact_archived" || event.type === "fact_unarchived") {
-    const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
-      | { readonly row_json: string }
-      | undefined;
-    if (!record) throw new FactProjectionError("entity_not_found", `Fact fact/${event.factId} does not exist.`);
-    const row = JSON.parse(record.row_json) as FactProjectionRow;
+    const row = admission.row!;
     prepareQuery(db, "UPDATE fact SET workspace_revision = ?, row_json = ? WHERE fact_id = ?").run(
       event.workspaceRevision,
       JSON.stringify({
@@ -163,11 +77,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     return;
   }
   if (event.type === "fact_reclassified") {
-    const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
-      | { readonly row_json: string }
-      | undefined;
-    if (!record) throw new FactProjectionError("entity_not_found", `Fact fact/${event.factId} does not exist.`);
-    const row = JSON.parse(record.row_json) as FactProjectionRow;
+    const row = admission.row!;
     prepareQuery(db, "UPDATE fact SET workspace_revision = ?, row_json = ? WHERE fact_id = ?").run(
       event.workspaceRevision,
       JSON.stringify({ ...row, domainTypes: event.payload.domainTypes, workspaceRevision: event.workspaceRevision }),
