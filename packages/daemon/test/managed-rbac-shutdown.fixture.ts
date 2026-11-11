@@ -4,13 +4,18 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createIdentityManagement } from "../src/authorization-provider.ts";
+import type { ManagedRbacLifecycleEvent } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 
 export function managedShutdownFixture(
   root: string,
-  fixtureOptions: { readonly ignoreSigterm?: "postgres" | "keycloak" } = {},
+  fixtureOptions: {
+    readonly ignoreSigterm?: "postgres" | "keycloak";
+    readonly recordLifecycle?: (event: ManagedRbacLifecycleEvent) => void;
+  } = {},
 ) {
   const children: ReturnType<typeof spawn>[] = [];
   const service = createIdentityManagement(root, {
+    ...(fixtureOptions.recordLifecycle ? { recordLifecycle: fixtureOptions.recordLifecycle } : {}),
     spawn: ((command: string, _args: string[], spawnOptions: { env: NodeJS.ProcessEnv }) => {
       const name = path.basename(command) === "postgres" ? "postgres" : "keycloak",
         child = spawn(

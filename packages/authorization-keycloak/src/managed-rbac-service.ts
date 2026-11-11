@@ -73,6 +73,33 @@ interface Artifact {
   readonly archive: "tar.gz" | "jar-txz" | "zip";
 }
 
+type ManagedChild = "postgres" | "keycloak";
+
+/**
+ * A managed child that reached readiness and then exited is supervised in-process: the daemon that
+ * owns it restarts it instead of forgetting it until the next daemon start. These events go to the
+ * daemon's lifecycle log so an operator sees the exit and every restart attempt.
+ */
+export type ManagedRbacLifecycleEvent =
+  | {
+      readonly event: "rbac_child_exited";
+      readonly service: ManagedChild;
+      readonly exitCode: number | null;
+      readonly signal: NodeJS.Signals | null;
+    }
+  | {
+      readonly event: "rbac_restart_scheduled";
+      readonly service: ManagedChild;
+      readonly delayMs: number;
+      readonly attempt: number;
+    }
+  | {
+      readonly event: "rbac_restart";
+      readonly service: ManagedChild;
+      readonly ok: boolean;
+      readonly error?: string;
+    };
+
 export interface ManagedRbacPorts {
   readonly fetch: typeof fetch;
   readonly spawn: typeof spawn;
@@ -82,6 +109,7 @@ export interface ManagedRbacPorts {
   /** Accepted repository declarations projected to Policy scopes; [] when no repo host is wired. */
   readonly readArtifactActionScopes: () => Promise<readonly string[]>;
   readonly auditLegacyRoleMigration?: (receipt: KeycloakLegacyRoleMigrationReceipt) => void | Promise<void>;
+  readonly recordLifecycle?: (event: ManagedRbacLifecycleEvent) => void;
 }
 
 export interface ManagedPostgresBinaries {
@@ -106,9 +134,15 @@ export class ManagedRbacService {
   }
   readonly #root: string;
   readonly #ports: ManagedRbacPorts;
-  readonly #children = new Map<"postgres" | "keycloak", ChildProcess>();
-  readonly #readiness = new Map<"postgres" | "keycloak", Promise<void>>();
+  readonly #children = new Map<ManagedChild, ChildProcess>();
+  readonly #readiness = new Map<ManagedChild, Promise<void>>();
+  /** Children that reached readiness: only these are restarted when they exit. */
+  readonly #supervised = new Set<ManagedChild>();
   #lifecycle: Promise<unknown> = Promise.resolve();
+  /** Set while an operator or the daemon is stopping the services; exit supervision stays quiet. */
+  #stopping = false;
+  #restartTimer: ReturnType<typeof setTimeout> | null = null;
+  #restartAttempts = 0;
 
   constructor(userRoot: string, host: ManagedRbacHost, ports: Partial<ManagedRbacPorts> = {}) {
     this.#host = host;
@@ -184,6 +218,8 @@ export class ManagedRbacService {
   }
 
   async start(): Promise<void> {
+    this.#stopping = false;
+    this.#cancelRestart();
     const config = this.#readConfig();
     if (config.mode === "external") return;
     if (!existsSync(managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform)))
@@ -210,12 +246,14 @@ export class ManagedRbacService {
   }
 
   async stop(): Promise<Record<string, unknown>> {
+    this.#stopping = true;
+    this.#cancelRestart();
     const stopped: string[] = [];
     for (const name of ["keycloak", "postgres"] as const) if (await this.#stopChild(name)) stopped.push(name);
     return { ok: true, command: "rbac-stop", stopped };
   }
 
-  async #stopChild(name: "postgres" | "keycloak"): Promise<boolean> {
+  async #stopChild(name: ManagedChild): Promise<boolean> {
     const child = this.#children.get(name);
     if (!child) return false;
     await new Promise<void>((resolve) => {
@@ -270,6 +308,7 @@ export class ManagedRbacService {
       certificateMode = request.certificateMode ?? (listener ? (config.certificateMode ?? "domain") : "self-signed"),
       { listener: _replaced, certificateMode: _oldMode, ...loopback } = config,
       apply = async (next: ManagedRbacConfig): Promise<void> => {
+        this.#stopping = true;
         await this.#stopChild("keycloak");
         this.#writeConfig(next);
         await this.start();
@@ -668,16 +707,72 @@ export class ManagedRbacService {
     return ready;
   }
 
-  #track(name: "postgres" | "keycloak", child: ChildProcess): void {
-    child.once("exit", () => {
+  #track(name: ManagedChild, child: ChildProcess): void {
+    child.once("exit", (code, signal) => {
       this.#children.delete(name);
       this.#readiness.delete(name);
+      this.#childExited(name, code, signal);
     });
     this.#children.set(name, child);
   }
 
+  /**
+   * A managed service is daemon-owned infrastructure: once it has been ready, its exit is an
+   * incident rather than the end of the daemon's interest in it. Restart it in this daemon and
+   * record the exit plus every attempt in the lifecycle log. An exit before the first readiness is
+   * a failed start and stays with the caller that asked for it.
+   */
+  #childExited(name: ManagedChild, exitCode: number | null, signal: NodeJS.Signals | null): void {
+    if (!this.#supervised.delete(name) || this.#stopping) return;
+    this.#ports.recordLifecycle?.({ event: "rbac_child_exited", service: name, exitCode, signal });
+    this.#scheduleRestart(name);
+  }
+
+  #scheduleRestart(name: ManagedChild): void {
+    if (this.#restartTimer !== null || this.#stopping) return;
+    const attempt = this.#restartAttempts++,
+      delayMs = Math.min(1_000 * 2 ** Math.min(attempt, 5), 30_000);
+    this.#ports.recordLifecycle?.({ event: "rbac_restart_scheduled", service: name, delayMs, attempt });
+    const timer = setTimeout(() => {
+      this.#restartTimer = null;
+      void this.#restartManaged(name);
+    }, delayMs);
+    timer.unref();
+    this.#restartTimer = timer;
+  }
+
+  async #restartManaged(name: ManagedChild): Promise<void> {
+    const config = this.#readConfigIfPresent();
+    if (this.#stopping || config?.mode !== "managed" || config.stopped) return;
+    const restart = this.#lifecycle.then(async () => {
+      if (this.#stopping) return;
+      await this.start();
+    });
+    this.#lifecycle = restart.catch(consumeKnownError);
+    try {
+      await restart;
+      if (!this.#stopping) this.#ports.recordLifecycle?.({ event: "rbac_restart", service: name, ok: true });
+    } catch (error) {
+      this.#ports.recordLifecycle?.({
+        event: "rbac_restart",
+        service: name,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // The failure is surfaced above and retried below; it is not rethrown to the daemon.
+      consumeKnownError(error);
+      this.#scheduleRestart(name);
+    }
+  }
+
+  #cancelRestart(): void {
+    if (this.#restartTimer === null) return;
+    clearTimeout(this.#restartTimer);
+    this.#restartTimer = null;
+  }
+
   #spawnUntilReady(
-    name: "postgres" | "keycloak",
+    name: ManagedChild,
     command: string,
     args: readonly string[],
     env: NodeJS.ProcessEnv,
@@ -717,6 +812,8 @@ export class ManagedRbacService {
         observed = `${observed}${text}`.slice(-8_192);
         if (!readyPattern.test(observed)) return;
         clearTimeout(timer);
+        this.#supervised.add(name);
+        this.#restartAttempts = 0;
         settleReady?.();
       };
     child.stdout?.on("data", observe);
