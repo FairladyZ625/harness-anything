@@ -1265,6 +1265,27 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
   },
   {
     ...hostEntityTypeContract,
+    policies: [
+      {
+        id: "fleet-numeric-input",
+        ownerRef: "action:daemon-fleet-edge-sync",
+        unit: "decimal TCP port text / byte count text",
+        bounds:
+          "CLI lexical check: port is 0 or 1–5 decimal digits without leading zeros (0..99999); quota is 1–16 decimal digits without leading zeros (1..9999999999999999). Transport validation applies separately.",
+        defaultValue: null,
+        version: 1,
+        scope: "daemon fleet center start / edge sync: explicit flags or fleet-edge.json values",
+        reason: "Declare the existing fleetNumber lexical admission boundary without changing accepted input.",
+        fixtures: ["packages/cli/test/daemon-fleet-cli.test.ts"],
+        sources: [
+          {
+            candidateId:
+              "policy:packages/cli:packages/cli/src/daemon/control.ts#fleetControl:ffe26bc40e4269ed71c7ce30faa894d0",
+            route: "daemon.fleet.edge.sync",
+          },
+        ],
+      },
+    ],
     schema: hostAggregateSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,

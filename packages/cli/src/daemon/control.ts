@@ -379,7 +379,8 @@ async function fleetControl(
       "unsupported_command",
       "Use daemon fleet status, daemon fleet center start, or daemon fleet edge sync.",
     );
-  const required = center ? ["--port", "--repo", "--quota-bytes"] : [],
+  const byteCountFlag = "--quota-bytes";
+  const required = center ? ["--port", "--repo", byteCountFlag] : [],
     missing = required.filter((name) => !flag(name));
   if (missing.length > 0)
     return reject(
@@ -404,7 +405,7 @@ async function fleetControl(
     caPath: "--ca",
     nodeId: "--node-id",
     viewRoot: "--view-root",
-    quotaBytes: "--quota-bytes",
+    quotaBytes: byteCountFlag,
   } as const;
   const edgeValue = (name: keyof typeof edgeFlags): string | number | undefined =>
     flag(edgeFlags[name]) ?? edgeConfig?.[name];
