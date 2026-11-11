@@ -155,8 +155,13 @@ test("accepted fallback schedule and exhaustion survive reopen and cold rebuild 
     const store = makeTaskEventStore({ repoId: "fallback-lifecycle", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore: store });
     const append = (event: ReturnType<typeof requested>) => {
-      store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId) });
-      projection.apply(event);
+      const accepted = { ...event, workspaceRevision: (store.readHead()?.revision ?? 0) + 1 };
+      store.append({
+        event: accepted,
+        plan: canonicalEventWritePlan(accepted, "agent-runtime/v1", accepted.opId),
+        blobs: runtimeEventContentClaims(accepted).map((claim) => ({ ...claim, body: "" })),
+      });
+      projection.apply(accepted);
     };
     const plan = { notBeforeAt: "2099-01-01T00:00:00.000Z", nextProvider: { instance: "codex-fixture" } };
     append(requested("d-fallback", "s-fallback"));

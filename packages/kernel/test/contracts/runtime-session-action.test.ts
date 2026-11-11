@@ -7,7 +7,7 @@ import {
   type AgentRuntimeEventV1,
   type RuntimeSession,
 } from "../../src/index.ts";
-import { reduceRuntimeSession } from "../../src/domain/agent-runtime.ts";
+import { reduceRuntimeSession, validateAgentRuntimePayload } from "../../src/domain/agent-runtime.ts";
 
 const actor = { principal: { personId: "runtime-action" }, executor: null } as const;
 const source = { kind: "node", nodeId: "edge-a" } as const;
@@ -412,4 +412,35 @@ test("RuntimeSession liveness carries the executing node's provider connectivity
   const after = reduceRuntimeSession(session, cleared.event);
   assert.ok(after);
   assert.equal(after.providerUnreachable, null);
+});
+
+test("runtime outcome accepts a fallback plan only with a valid scheduled disposition", () => {
+  const digest = sha256Text("");
+  const payload = {
+    runtimeSessionId: "fallback-contract",
+    outcome: "failed",
+    exitCode: 1,
+    resultRef: `artifact:runtime-result/sha256/${digest}`,
+    result: { sha256: digest, size: 0, mediaType: "text/plain; charset=utf-8" },
+    attempt: {
+      classification: "provider_fault",
+      reason: "fixture",
+      fallbackState: "scheduled",
+      fallbackSchedule: {
+        notBeforeAt: "2026-11-11T00:01:00.000Z",
+        nextProvider: { instance: "provider-b", model: "model-b" },
+      },
+    },
+  };
+  assert.deepEqual(validateAgentRuntimePayload("runtime_session_outcome_observed", payload), []);
+  for (const attempt of [
+    { ...payload.attempt, fallbackState: "exhausted" },
+    { ...payload.attempt, fallbackSchedule: { ...payload.attempt.fallbackSchedule, notBeforeAt: "tomorrow" } },
+    { ...payload.attempt, fallbackSchedule: { ...payload.attempt.fallbackSchedule, nextProvider: { instance: "" } } },
+    { ...payload.attempt, fallbackSchedule: { ...payload.attempt.fallbackSchedule, extra: "unknown" } },
+  ])
+    assert.match(
+      validateAgentRuntimePayload("runtime_session_outcome_observed", { ...payload, attempt }).join(";"),
+      /settlement metadata is invalid/u,
+    );
 });

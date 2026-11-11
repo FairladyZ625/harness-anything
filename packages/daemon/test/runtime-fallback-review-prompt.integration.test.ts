@@ -46,7 +46,11 @@ test(
         .cell()
         .readDispatchLifecycle({ by: "dispatch", dispatchIds: [firstDispatch.payload.dispatchId] });
       assert.ok(pending.status === "ready");
-      assert.equal(pending.rows[0]?.policy.fallbackPending, true);
+      assert.equal(
+        pending.rows[0]?.attempt.phase,
+        "closed",
+        "the predecessor is closed while the group retains its snapshot",
+      );
       assert.equal(pending.rows[0]?.policy.groupSettled, false);
       assert.equal(
         resolveRuntimeCwd(f.root, {

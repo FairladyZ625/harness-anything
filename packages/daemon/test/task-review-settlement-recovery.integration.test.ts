@@ -261,7 +261,7 @@ test("consent waits while a provider-failed reviewer fallback is scheduled for a
   }
 });
 
-test("consent still waits for a queued reviewer fallback successor in the same cut", async () => {
+test("a registered review closes its group and refuses a fallback successor in the same cut", async () => {
   const f = await fixture(false, true, false, false, false, {
     autoSubmit: false,
     closeoutProfile: "standard",
@@ -280,14 +280,14 @@ test("consent still waits for a queued reviewer fallback successor in the same c
 
     f.failPending();
     assert.equal(await f.awaitOutcome(runtimeSessionId), "failed");
-    const successor = await appendCanonicalReviewSuccessor(f, dispatch, digest, "same-cut"),
-      rows = (await f.cell().read("repo.task.dispatches", { taskId })).dispatches,
-      successorRow = rows.find((row) => row.dispatchId === successor.dispatchId);
-    assert.equal(successorRow?.status, "unknown", "a projected dispatch without a session is still queued");
-    assert.equal(
-      (await f.consent(reviewId)).code,
-      "review_dispatch_unsettled",
-      "a real same-cut successor remains part of the consent gate",
+    const lifecycle = await f.cell().readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+    assert.ok(lifecycle.status === "ready");
+    assert.equal(lifecycle.rows[0]?.policy.groupSettled, true);
+    assert.equal(lifecycle.rows[0]?.policy.successorAdmissible, false);
+    await assert.rejects(
+      () => appendCanonicalReviewSuccessor(f, dispatch, digest, "same-cut"),
+      (error: unknown) => (error as { code?: string }).code === "dispatch_group_busy",
+      "a delivered review must never admit a fallback that repeats its accepted work",
     );
   } finally {
     await f.close();
