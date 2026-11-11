@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ManagedRbacLifecycleEvent } from "@harness-anything/authorization-keycloak/managed-rbac-service";
-import { managedShutdownFixture } from "./managed-rbac-shutdown.fixture.ts";
+import { managedShutdownFixture, type ManagedShutdownFixtureOptions } from "./managed-rbac-shutdown.fixture.ts";
 
 async function availablePort() {
   const server = createServer();
@@ -64,47 +64,56 @@ function createLifecycleWatcher() {
   };
 }
 
+async function createManagedRoot() {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-supervision-")),
+    bin = path.join(root, "rbac", "runtime", "postgres", "bin"),
+    data = path.join(root, "rbac", "data", "postgres"),
+    listener = {
+      address: "127.0.0.1",
+      hostname: "center.example.test",
+      port: await availablePort(),
+      certificateFile: path.join(root, "test.crt"),
+      certificateKeyFile: path.join(root, "test.key"),
+    };
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(data, { recursive: true });
+  writeFileSync(path.join(bin, "postgres"), "fixture");
+  writeFileSync(listener.certificateKeyFile, "fixture", { mode: 0o600 });
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      mode: "managed",
+      url: `http://127.0.0.1:${await availablePort()}`,
+      realm: "harness",
+      clientId: "harness-center",
+      postgresPort: await availablePort(),
+      managementPort: await availablePort(),
+      listener,
+    }),
+  );
+  return { root, listener };
+}
+
+function killChild(child: ReturnType<typeof managedShutdownFixture>["children"][number], signal = "SIGTERM") {
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  child.kill(signal);
+  return exited;
+}
+
 test(
   "a managed service that exits after readiness is restarted by the daemon that owns it",
   { timeout: 30_000 },
   async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-supervision-")),
-      bin = path.join(root, "rbac", "runtime", "postgres", "bin"),
-      data = path.join(root, "rbac", "data", "postgres"),
-      listener = {
-        address: "127.0.0.1",
-        hostname: "center.example.test",
-        port: await availablePort(),
-        certificateFile: path.join(root, "test.crt"),
-        certificateKeyFile: path.join(root, "test.key"),
-      },
-      watcher = createLifecycleWatcher();
-    mkdirSync(bin, { recursive: true });
-    mkdirSync(data, { recursive: true });
-    writeFileSync(path.join(bin, "postgres"), "fixture");
-    writeFileSync(listener.certificateKeyFile, "fixture", { mode: 0o600 });
-    writeFileSync(
-      path.join(root, "rbac", "config.json"),
-      JSON.stringify({
-        mode: "managed",
-        url: `http://127.0.0.1:${await availablePort()}`,
-        realm: "harness",
-        clientId: "harness-center",
-        postgresPort: await availablePort(),
-        managementPort: await availablePort(),
-        listener,
-      }),
-    );
-    const { service, children } = managedShutdownFixture(root, { recordLifecycle: watcher.record });
+    const { root, listener } = await createManagedRoot(),
+      watcher = createLifecycleWatcher(),
+      { service, children } = managedShutdownFixture(root, { recordLifecycle: watcher.record });
     try {
       await service.start();
       assert.equal(children.length, 2, "PostgreSQL and Keycloak are daemon-owned children");
       assert.equal(await exchange(listener.port), "tls:hello");
 
-      const keycloak = children[1]!,
-        exited = new Promise<void>((resolve) => keycloak.once("exit", () => resolve()));
-      keycloak.kill("SIGTERM");
-      await exited;
+      const keycloak = children[1]!;
+      await killChild(keycloak);
 
       const exit = await watcher.next((event) => event.event === "rbac_child_exited");
       if (exit.event !== "rbac_child_exited") throw new Error("expected an rbac_child_exited event");
@@ -128,6 +137,113 @@ test(
         watcher.events.filter((event) => event.event === "rbac_child_exited").length,
         1,
         "the operator's stop is not reported as an unexpected child exit",
+      );
+    } finally {
+      await service.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a replacement that exits 0 before readiness fails its start and the next attempt succeeds",
+  { timeout: 30_000 },
+  async () => {
+    const { root, listener } = await createManagedRoot(),
+      watcher = createLifecycleWatcher(),
+      { service, children } = managedShutdownFixture(root, {
+        recordLifecycle: watcher.record,
+        exitBeforeReadyOnCall: { child: "keycloak", call: 2 },
+      });
+    try {
+      await service.start();
+      await killChild(children[1]!);
+
+      const failed = await watcher.next((event) => event.event === "rbac_restart" && !event.ok);
+      if (failed.event !== "rbac_restart") throw new Error("expected a failed rbac_restart event");
+      assert.equal(failed.service, "keycloak");
+      const retry = await watcher.next((event) => event.event === "rbac_restart_scheduled" && event.attempt === 1);
+      if (retry.event !== "rbac_restart_scheduled") throw new Error("expected a second restart_scheduled event");
+      assert.equal(retry.delayMs, 2_000, "the failed attempt backs off before retrying");
+      const succeeded = await watcher.next((event) => event.event === "rbac_restart" && event.ok);
+      if (succeeded.event !== "rbac_restart") throw new Error("expected a successful rbac_restart event");
+      assert.equal(children.length, 4, "the clean pre-readiness exit was replaced by a live child");
+      assert.equal(await exchange(listener.port), "tls:hello");
+    } finally {
+      await service.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a spawn error without an exit event does not leave a rejected readiness for later retries",
+  { timeout: 30_000 },
+  async () => {
+    const { root, listener } = await createManagedRoot(),
+      watcher = createLifecycleWatcher(),
+      { service, children } = managedShutdownFixture(root, {
+        recordLifecycle: watcher.record,
+        spawnErrorOnCall: { child: "keycloak", call: 2 },
+      });
+    try {
+      await service.start();
+      await killChild(children[1]!);
+
+      const failed = await watcher.next((event) => event.event === "rbac_restart" && !event.ok);
+      if (failed.event !== "rbac_restart") throw new Error("expected a failed rbac_restart event");
+      const succeeded = await watcher.next((event) => event.event === "rbac_restart" && event.ok);
+      if (succeeded.event !== "rbac_restart") throw new Error("expected a successful rbac_restart event");
+      assert.equal(children.length, 4, "the errored spawn was replaced by a live child");
+      assert.equal(await exchange(listener.port), "tls:hello");
+      // The errored child has no valid pid/exit event; stop must still finish.
+      await service.stop();
+      assert.equal(children.length, 4, "stop does not create another child");
+    } finally {
+      await service.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "stop during an in-flight automatic restart leaves no child and spawns nothing after it",
+  { timeout: 30_000 },
+  async () => {
+    const { root, listener } = await createManagedRoot(),
+      gateFile = path.join(root, "postgres-ready.gate"),
+      watcher = createLifecycleWatcher();
+    let releaseReplacement!: () => void;
+    const replacementSpawned = new Promise<void>((resolve) => {
+      releaseReplacement = resolve;
+    });
+    const options: ManagedShutdownFixtureOptions = {
+      recordLifecycle: watcher.record,
+      delayReadyOnCall: { child: "postgres", call: 2, gateFile },
+      onSpawn: (child, call) => {
+        if (child === "postgres" && call === 2) releaseReplacement();
+      },
+    };
+    const { service, children } = managedShutdownFixture(root, options);
+    try {
+      await service.start();
+      assert.equal(await exchange(listener.port), "tls:hello");
+
+      // Both managed services go down: the automatic restart starts PostgreSQL with a gated readiness.
+      await Promise.all(children.map((child) => killChild(child)));
+      await replacementSpawned;
+      assert.equal(children.length, 3, "the restart is paused inside its PostgreSQL start");
+
+      // Stop runs while that start is still awaiting readiness. The teardown joins the lifecycle
+      // queue, and the released start must not add Keycloak after the stop.
+      const stopping = service.stop();
+      writeFileSync(gateFile, "");
+      await stopping;
+
+      assert.equal(children.length, 3, "the aborted restart spawned no Keycloak after the stop");
+      assert.ok(
+        children.every((child) => child.exitCode !== null || child.signalCode !== null),
+        "every child has exited when stop resolves",
       );
     } finally {
       await service.stop();
