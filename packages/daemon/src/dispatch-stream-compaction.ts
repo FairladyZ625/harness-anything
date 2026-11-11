@@ -1,10 +1,9 @@
-import { readSync, statSync, writeSync } from "node:fs";
-import { StringDecoder } from "node:string_decoder";
-import { withReadOnlyFile, writeFileDurablyFrom } from "../../storage/src/durable-file.ts";
+import { visitDispatchStreamLines } from "./dispatch-stream-lines.ts";
+import { statSync, writeSync } from "node:fs";
+import { writeFileDurablyFrom } from "../../storage/src/durable-file.ts";
 
 const compactionVersion = 1 as const;
 const compactionSchema = "dispatch-transcript-compaction/v1" as const;
-const readChunkBytes = 64 * 1024;
 const writeChunkChars = 64 * 1024;
 
 type TranscriptItemType = "text" | "thinking";
@@ -53,7 +52,7 @@ function findCompactionPlan(file: string): CompactionPlan {
     acp = new Map<string, DeltaState>();
   let nextResultId = 1;
 
-  forEachLine(file, (line, lineNumber) => {
+  visitDispatchStreamLines(file, (line, lineNumber) => {
     if (lineNumber === 0 || line.length === 0) return true;
     const record = parseRecord(line, lineNumber);
     if (record.kind !== "provider_event") {
@@ -216,7 +215,7 @@ function writeCompactedArchive(
     writeAllSync(descriptor, Buffer.from(output, "utf8"));
     output = "";
   };
-  forEachLine(file, (line, lineNumber) => {
+  visitDispatchStreamLines(file, (line, lineNumber) => {
     if (plan.droppedLines.has(lineNumber)) return true;
     if (lineNumber === 0) {
       emit(JSON.stringify({ ...originalHeader, transcriptCompactionVersion: compactionVersion }));
@@ -268,7 +267,7 @@ function rewriteDeltaRecord(record: JsonRecord, group: DeltaGroup): void {
 
 function readHeader(file: string): JsonRecord {
   const holder: { header: JsonRecord | null } = { header: null };
-  forEachLine(file, (line, lineNumber) => {
+  visitDispatchStreamLines(file, (line, lineNumber) => {
     if (lineNumber > 0) return false;
     holder.header = parseRecord(line, lineNumber);
     return false;
@@ -290,35 +289,6 @@ function parseRecord(line: string, lineNumber: number): JsonRecord {
   const record = objectOf(parsed);
   if (!record) throw new Error(`Dispatch archive line ${lineNumber + 1} is not a JSON object.`);
   return record;
-}
-
-function forEachLine(file: string, visit: (line: string, lineNumber: number) => boolean): void {
-  withReadOnlyFile(file, (descriptor) => {
-    const decoder = new StringDecoder("utf8"),
-      buffer = Buffer.allocUnsafe(readChunkBytes);
-    let pending = "",
-      lineNumber = 0,
-      shouldContinue = true;
-    while (shouldContinue) {
-      const bytesRead = readSync(descriptor, buffer, 0, buffer.length, null);
-      if (bytesRead === 0) break;
-      pending += decoder.write(buffer.subarray(0, bytesRead));
-      let start = 0,
-        newline = pending.indexOf("\n", start);
-      while (newline >= 0) {
-        const line = pending.slice(start, newline).replace(/\r$/u, "");
-        shouldContinue = visit(line, lineNumber++);
-        if (!shouldContinue) break;
-        start = newline + 1;
-        newline = pending.indexOf("\n", start);
-      }
-      pending = pending.slice(start);
-    }
-    if (shouldContinue) {
-      pending += decoder.end();
-      if (pending.length > 0) visit(pending.replace(/\r$/u, ""), lineNumber);
-    }
-  });
 }
 
 function writeAllSync(descriptor: number, bytes: Buffer): void {
