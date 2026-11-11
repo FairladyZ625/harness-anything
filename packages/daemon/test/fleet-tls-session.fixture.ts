@@ -316,7 +316,9 @@ export async function fleetFixture(
   };
 }
 export function initRepo(rootDir: string): void {
-  git(rootDir, "init", "-q");
+  // The fixture's default branch is part of its contract: the center binds it during registration and
+  // later work compares it with the hosted remote. Never inherit the host's init.defaultBranch.
+  git(rootDir, "init", "-q", "-b", "main");
   git(rootDir, "config", "user.name", "Fleet Test");
   git(rootDir, "config", "user.email", "fleet@example.invalid");
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
