@@ -247,7 +247,7 @@ export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedW
   // and report its changes as this worktree's. An empty one is a leftover and goes; anything else is kept.
   if (!existsSync(path.join(worktree.cwd, ".git"))) {
     if (readdirSync(worktree.cwd).length > 0) return { outcome: "retained", reason: "not a git worktree (no .git)" };
-    rmdirSync(worktree.cwd);
+    /* @gate-identity non-state/environment-io.53361524924e14cc */ rmdirSync(worktree.cwd);
     return { outcome: "removed", archiveTag: null, unmergedCommits: 0 };
   }
   try {

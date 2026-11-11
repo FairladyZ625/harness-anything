@@ -302,6 +302,16 @@ export const nonStateIoDeclarations = Object.freeze([
     scope: "prepare",
   },
   {
+    id: "environment-io.53361524924e14cc",
+    path: "packages/daemon/src/schedule-occurrence-workspace.ts",
+    category: "environment-io",
+    subtype: "worktree-setup",
+    reason:
+      "This empty leftover directory carries no .git marker and no entries, so it records no business workflow state; worktree setup recreates it. Signal: rmdirSync in reclaimManagedWorktree.",
+    api: "rmdirSync",
+    scope: "reclaimManagedWorktree",
+  },
+  {
     id: "environment-io.62027d9c14966472",
     path: "packages/daemon/src/worktree-setup-node-modules.ts",
     category: "environment-io",
