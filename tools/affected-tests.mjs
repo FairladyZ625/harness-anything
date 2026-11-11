@@ -50,6 +50,10 @@ export function buildImportGraph(root, options = {}) {
   const knownTargets = new Set(options.knownTargets ?? []);
   const resolver = createResolver(root, knownTargets);
   const reverse = new Map();
+  // `imports` mirrors `reverse` for callers that rank tests by how closely their direct
+  // imports resemble the tests that directly cover the changed files (see
+  // selectAffectedTests). Keeping both directions costs one extra Set per importer.
+  const imports = new Map();
   const unresolved = [];
   let edges = 0;
   for (const importer of files) {
@@ -65,6 +69,9 @@ export function buildImportGraph(root, options = {}) {
       const importers = reverse.get(target);
       if (importers === undefined) reverse.set(target, new Set([importer]));
       else importers.add(importer);
+      const imported = imports.get(importer);
+      if (imported === undefined) imports.set(importer, new Set([target]));
+      else imported.add(target);
     }
   }
   return {
@@ -74,6 +81,7 @@ export function buildImportGraph(root, options = {}) {
     // that break when it disappears.
     nodes: new Set([...files, ...knownTargets]),
     reverse,
+    imports,
     edges,
     unresolved,
     durationMs: Date.now() - startedAt,
@@ -232,6 +240,16 @@ function normalizeChangedPath(filePath) {
  * The import graph is built once, then one multi-source reverse breadth-first walk attributes
  * each reachable test file to the changed file that reached it first. The walk visits every
  * node at most once, so the cost does not grow with (changed files × repository files).
+ *
+ * A daemon core module is imported by the runtime spawner, which nearly every daemon test
+ * reaches, so distance alone cannot separate a settlement regression from an unrelated
+ * daemon test. When the raw selection exceeds the whole-tier threshold the selector ranks by
+ * import distance first, then by how closely a test's resolved direct imports resemble the
+ * direct imports of the tests that directly cover the changed files. Those direct-cover tests
+ * are the anchors for the changed module's feature cluster; a test that imports the same
+ * runtime fixtures and dispatch helpers is more likely to exercise the same behavior.
+ * The cap is never silent: `deferred` names every unselected affected test file, and
+ * `deferredReason` carries the count and the ranking rule.
  */
 export function selectAffectedTests(options) {
   const startedAt = Date.now();
@@ -287,6 +305,11 @@ export function selectAffectedTests(options) {
       changedFiles,
       changedTests: [...direct].sort(),
       selected: [],
+      deferred: [],
+      rawSelected: 0,
+      deferredCount: 0,
+      deferredReason: "",
+      truncated: false,
       ignored,
       unmapped,
       invalid,
@@ -296,10 +319,12 @@ export function selectAffectedTests(options) {
     };
   }
   const origin = new Map();
+  const distance = new Map();
   const queue = [];
   for (const seed of [...seeds].sort()) {
     if (origin.has(seed)) continue;
     origin.set(seed, seed);
+    distance.set(seed, 0);
     queue.push(seed);
   }
   for (let index = 0; index < queue.length; index += 1) {
@@ -307,20 +332,42 @@ export function selectAffectedTests(options) {
     for (const importer of [...(graph.reverse.get(file) ?? [])].sort()) {
       if (origin.has(importer)) continue;
       origin.set(importer, origin.get(file));
+      distance.set(importer, distance.get(file) + 1);
       queue.push(importer);
     }
   }
-  const selected = [...origin.keys()]
+  const reachable = [...origin.keys()]
     .filter((file) => testSet.has(file))
-    .sort()
-    .map((file) => ({ file, via: origin.get(file), changed: direct.has(file) }));
+    .map((file) => ({ file, via: origin.get(file), changed: direct.has(file), distance: distance.get(file) }));
   const integrationTotal = countIntegrationTests(root, testFiles);
   const maxSelected = Math.max(1, Math.ceil(integrationTotal * ratio));
+  const ranked = reachable.length > maxSelected ? rankAffectedTests(reachable, graph) : sortByPath(reachable);
+  const selected = ranked.slice(0, maxSelected).map(({ file, via, changed }) => ({ file, via, changed }));
+  const deferred = ranked.slice(maxSelected).map(({ file, via, distance: deferredDistance }) => ({
+    file,
+    via,
+    distance: deferredDistance,
+  }));
   return {
     base: options.base ?? "origin/main",
     changedFiles,
     changedTests: [...direct].sort(),
     selected,
+    deferred,
+    rawSelected: reachable.length,
+    deferredCount: deferred.length,
+    deferredReason:
+      deferred.length === 0
+        ? ""
+        : buildDeferredReason({
+            deferredCount: deferred.length,
+            rawSelected: reachable.length,
+            maxSelected,
+            integrationTotal,
+            ratio,
+            anchorCount: countAnchors(reachable),
+          }),
+    truncated: deferred.length > 0,
     ignored,
     unmapped: [],
     invalid: [],
@@ -328,9 +375,74 @@ export function selectAffectedTests(options) {
     mergeBase: resolvedChanges.mergeBase,
     integrationTotal,
     maxSelected,
-    tooMany: selected.length > maxSelected,
+    // A capped selection is runnable; `truncated` names the remainder that is not run.
+    tooMany: false,
     durationMs: Date.now() - startedAt,
   };
+}
+
+function sortByPath(tests) {
+  return [...tests].sort((left, right) => left.file.localeCompare(right.file));
+}
+
+function countAnchors(tests) {
+  if (tests.length === 0) return 0;
+  const nearest = Math.min(...tests.map(({ distance }) => distance));
+  return tests.filter(({ distance }) => distance === nearest).length;
+}
+
+/**
+ * Ranks the reachable tests by distance, then by Jaccard similarity between the test's direct
+ * imports and the direct imports of the nearest tests. The nearest tests are the direct-cover
+ * anchors: changed test files at distance 0, or tests that import a changed source at
+ * distance 1.
+ */
+function rankAffectedTests(tests, graph) {
+  const imports = directImports(graph);
+  const nearest = Math.min(...tests.map(({ distance }) => distance));
+  const centroid = new Map();
+  for (const { file, distance } of tests) {
+    if (distance !== nearest) continue;
+    for (const target of imports.get(file) ?? []) centroid.set(target, (centroid.get(target) ?? 0) + 1);
+  }
+  const empty = new Set();
+  const similarity = (file) => {
+    if (centroid.size === 0) return 0;
+    const candidates = imports.get(file) ?? empty;
+    let intersection = 0;
+    for (const target of candidates) if (centroid.has(target)) intersection += 1;
+    const union = candidates.size + centroid.size - intersection;
+    return union === 0 ? 0 : intersection / union;
+  };
+  return [...tests].sort(
+    (left, right) =>
+      left.distance - right.distance ||
+      similarity(right.file) - similarity(left.file) ||
+      left.file.localeCompare(right.file),
+  );
+}
+
+function directImports(graph) {
+  if (graph.imports instanceof Map) return graph.imports;
+  const imports = new Map();
+  for (const [target, importers] of graph.reverse) {
+    for (const importer of importers) {
+      const imported = imports.get(importer);
+      if (imported === undefined) imports.set(importer, new Set([target]));
+      else imported.add(target);
+    }
+  }
+  return imports;
+}
+
+function buildDeferredReason({ deferredCount, rawSelected, maxSelected, integrationTotal, ratio, anchorCount }) {
+  const percentage = Math.round(ratio * 100);
+  return (
+    `${deferredCount} of ${rawSelected} affected test files are not run: the selection is capped at ` +
+    `${maxSelected} (${percentage}% of the ${integrationTotal} integration tests), ranked by import ` +
+    `distance and then by import-set similarity to the ${anchorCount} test file(s) that directly cover ` +
+    `the changed files. Run the deferred files in CI.`
+  );
 }
 
 function countIntegrationTests(root, testFiles) {

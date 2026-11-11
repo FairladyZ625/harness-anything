@@ -21,6 +21,10 @@ function integrationTest(body) {
   return `// harness-test-tier: integration\n${body}`;
 }
 
+function fastTest(body) {
+  return `// harness-test-tier: fast\n${body}`;
+}
+
 // The positive control is the PR #4498 shape: one settlement module, one settlement
 // wrapper, one test fixture, three integration suites. Two suites import the fixture
 // and one imports the settlement module as a type only. The fixture is fixed here so a
@@ -180,7 +184,7 @@ test("the import graph is built once no matter how many files changed", (t) => {
   );
 });
 
-test("a selection above the whole-tier ratio is reported in full instead of truncated", (t) => {
+test("a selection above the whole-tier ratio is capped and every deferred file is named", (t) => {
   const files = {
     "packages/daemon/src/shared.ts": "export const shared = 1;\n",
   };
@@ -201,8 +205,189 @@ test("a selection above the whole-tier ratio is reported in full instead of trun
 
   assert.equal(result.integrationTotal, 10);
   assert.equal(result.maxSelected, 1);
-  assert.equal(result.tooMany, true);
-  assert.equal(result.selected.length, 3);
+  assert.equal(result.truncated, true);
+  assert.equal(result.tooMany, false);
+  assert.deepEqual(
+    result.selected.map(({ file }) => file),
+    ["packages/daemon/test/suite-0.integration.test.ts"],
+  );
+  assert.deepEqual(
+    result.deferred.map(({ file }) => file),
+    ["packages/daemon/test/suite-1.integration.test.ts", "packages/daemon/test/suite-2.integration.test.ts"],
+  );
+  assert.equal(result.deferredCount, 2);
+  assert.match(result.deferredReason, /^2 of 3 affected test files are not run/u);
+  assert.match(result.deferredReason, /capped at 1 \(10% of the 10 integration tests\)/u);
+  assert.match(result.deferredReason, /Run the deferred files in CI\.$/u);
+});
+
+test("the third-slice settlement fixture selects every reported CI failure within the cap", (t) => {
+  // The PR #4498 shape: a settlement module reached through the runtime spawner by almost
+  // every daemon test. The five files that failed CI are hidden among forty unrelated
+  // integration suites that reach the same module through a longer, unrelated chain.
+  const files = {
+    "packages/daemon/src/runtime-spawn-settlement.ts": "export const settle = true;\n",
+    "packages/daemon/src/runtime-spawner.ts":
+      'import { settle } from "./runtime-spawn-settlement.ts";\nexport const spawner = settle;\n',
+    "packages/daemon/src/runtime-spawn.ts":
+      'import { spawner } from "./runtime-spawner.ts";\nexport const spawn = spawner;\n',
+    "packages/daemon/src/repo-cell-open.ts":
+      'import { spawn } from "./runtime-spawn.ts";\nexport const open = spawn;\n',
+    "packages/daemon/src/fleet-squad-coordinator.ts":
+      'import { spawner } from "./runtime-spawner.ts";\nexport const squad = spawner;\n',
+    "packages/daemon/src/fleet-edge-runtime.ts":
+      'import { spawn } from "./runtime-spawn.ts";\nexport const edge = spawn;\n',
+    "packages/daemon/src/unrelated-host.ts":
+      'import { spawn } from "./runtime-spawn.ts";\nexport const host = spawn;\n',
+    "packages/daemon/src/unrelated-spawn.ts":
+      'import { host } from "./unrelated-host.ts";\nexport const unrelatedSpawn = host;\n',
+    "packages/daemon/test/fixtures/runtime-process.ts":
+      'import { settle } from "../../src/runtime-spawn-settlement.ts";\nexport const runtimeProcessFixture = settle;\n',
+    "packages/daemon/test/dispatch-lifecycle-read.fixtures.ts": 'export const lifecycleEvent = "lifecycle";\n',
+    "packages/daemon/test/repo-settings.fixture.ts":
+      'import { open } from "../src/repo-cell-open.ts";\nexport const openBootstrappedRepoCell = open;\n',
+    "packages/daemon/test/fleet-runtime-recovery.fixtures.ts": 'export const fleetFixture = "fleet";\n',
+    "packages/daemon/test/runtime-spawn-settlement.test.ts": fastTest(
+      [
+        'import { publishExit } from "../src/runtime-spawn-settlement.ts";',
+        'import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";',
+        'import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";',
+        "export const value = [publishExit, lifecycleEvent, runtimeProcessFixture];",
+        "",
+      ].join("\n"),
+    ),
+    "packages/daemon/test/runtime-spawn-escalation-stop.test.ts": fastTest(
+      [
+        'import { publishExit } from "../src/runtime-spawn-settlement.ts";',
+        'import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";',
+        "export const value = [publishExit, lifecycleEvent];",
+        "",
+      ].join("\n"),
+    ),
+    "packages/daemon/test/fleet-squad-canonical.integration.test.ts": integrationTest(
+      [
+        'import { squad } from "../src/fleet-squad-coordinator.ts";',
+        'import { lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";',
+        "export const value = [squad, lifecycleEvent];",
+        "",
+      ].join("\n"),
+    ),
+    "packages/daemon/test/fleet-runtime-assignment-ownership.integration.test.ts": integrationTest(
+      [
+        'import { edge } from "../src/fleet-edge-runtime.ts";',
+        'import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";',
+        "export const value = [edge, fleetFixture];",
+        "",
+      ].join("\n"),
+    ),
+    "packages/daemon/test/review-independence-diagnostics.integration.test.ts": integrationTest(
+      [
+        'import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";',
+        'import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";',
+        "export const value = [openBootstrappedRepoCell, runtimeProcessFixture];",
+        "",
+      ].join("\n"),
+    ),
+    "packages/daemon/test/runtime-spend-cap.integration.test.ts": integrationTest(
+      [
+        'import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";',
+        'import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";',
+        "export const value = [openBootstrappedRepoCell, runtimeProcessFixture];",
+        "",
+      ].join("\n"),
+    ),
+  };
+  for (let index = 0; index < 40; index += 1) {
+    files[`packages/daemon/test/unrelated-${index}.integration.test.ts`] = integrationTest(
+      `import { unrelatedSpawn } from "../src/unrelated-spawn.ts";\nexport const value = ${index} + unrelatedSpawn;\n`,
+    );
+  }
+  const root = fixture(t, files);
+  const testFiles = Object.keys(files).filter((file) => /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file));
+  const result = selectAffectedTests({
+    root,
+    changedFiles: ["packages/daemon/src/runtime-spawn-settlement.ts"],
+    testFiles,
+    ratio: 0.25,
+  });
+
+  assert.equal(result.integrationTotal, 44);
+  assert.equal(result.maxSelected, 11);
+  assert.equal(result.truncated, true);
+  assert.equal(result.selected.length, 11);
+  const selected = new Set(result.selected.map(({ file }) => file));
+  for (const target of [
+    "packages/daemon/test/fleet-squad-canonical.integration.test.ts",
+    "packages/daemon/test/fleet-runtime-assignment-ownership.integration.test.ts",
+    "packages/daemon/test/review-independence-diagnostics.integration.test.ts",
+    "packages/daemon/test/runtime-spend-cap.integration.test.ts",
+    "packages/daemon/test/runtime-spawn-escalation-stop.test.ts",
+  ])
+    assert.ok(selected.has(target), `${target} must stay inside the cap`);
+  assert.equal(result.deferredCount, 35);
+  assert.match(result.deferredReason, /35 of 46 affected test files are not run/u);
+  assert.match(result.deferredReason, /import-set similarity/u);
+  assert.ok(result.deferred.some(({ file }) => file.includes("unrelated-39.integration.test.ts")));
+});
+
+test("a far test stays behind nearer tests even when it shares the anchor fixture", (t) => {
+  const root = fixture(t, {
+    "packages/daemon/src/leaf.ts": "export const leaf = 1;\n",
+    "packages/daemon/src/middle.ts": 'import { leaf } from "./leaf.ts";\nexport const middle = leaf;\n',
+    "packages/daemon/src/far.ts": 'import { middle } from "./middle.ts";\nexport const far = middle;\n',
+    "packages/daemon/test/shared.fixtures.ts": 'export const shared = "shared";\n',
+    "packages/daemon/test/anchor.integration.test.ts": integrationTest(
+      'import { leaf } from "../src/leaf.ts";\nimport { shared } from "./shared.fixtures.ts";\nexport const value = [leaf, shared];\n',
+    ),
+    "packages/daemon/test/near.integration.test.ts": integrationTest(
+      'import { leaf } from "../src/leaf.ts";\nexport const value = leaf;\n',
+    ),
+    "packages/daemon/test/far.integration.test.ts": integrationTest(
+      'import { far } from "../src/far.ts";\nimport { shared } from "./shared.fixtures.ts";\nexport const value = [far, shared];\n',
+    ),
+  });
+  const result = selectAffectedTests({
+    root,
+    changedFiles: ["packages/daemon/src/leaf.ts"],
+    testFiles: [
+      "packages/daemon/test/anchor.integration.test.ts",
+      "packages/daemon/test/near.integration.test.ts",
+      "packages/daemon/test/far.integration.test.ts",
+    ],
+    ratio: 0.25,
+  });
+  assert.equal(result.maxSelected, 1);
+  assert.deepEqual(
+    result.selected.map(({ file }) => file),
+    ["packages/daemon/test/anchor.integration.test.ts"],
+  );
+  assert.deepEqual(
+    result.deferred.map(({ file }) => file),
+    ["packages/daemon/test/near.integration.test.ts", "packages/daemon/test/far.integration.test.ts"],
+  );
+});
+
+test("a changed file with no direct test still caps instead of failing the rank", (t) => {
+  const files = {
+    "packages/daemon/src/leaf.ts": "export const leaf = 1;\n",
+    "packages/daemon/src/middle.ts": 'import { leaf } from "./leaf.ts";\nexport const middle = leaf;\n',
+  };
+  for (let index = 0; index < 5; index += 1) {
+    files[`packages/daemon/test/suite-${index}.integration.test.ts`] = integrationTest(
+      'import { middle } from "../src/middle.ts";\nexport const value = middle;\n',
+    );
+  }
+  const root = fixture(t, files);
+  const result = selectAffectedTests({
+    root,
+    changedFiles: ["packages/daemon/src/leaf.ts"],
+    testFiles: Object.keys(files).filter((file) => file.includes(".integration.test.")),
+    ratio: 0.2,
+  });
+  assert.equal(result.maxSelected, 1);
+  assert.equal(result.selected.length, 1);
+  assert.equal(result.deferredCount, 4);
+  assert.match(result.deferredReason, /4 of 5 affected test files are not run/u);
 });
 
 test("a test-shaped file outside the node manifest fails closed instead of yielding a smaller green set", (t) => {
