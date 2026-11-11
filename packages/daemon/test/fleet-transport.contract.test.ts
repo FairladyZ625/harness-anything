@@ -4,6 +4,7 @@ import test from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
 import {
+  isFleetProtocolVersionCompatible,
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
   FLEET_TRANSFER_CHUNK_BYTES,
@@ -945,4 +946,20 @@ test("Fleet delivery holder proof preserves current and explicit execution targe
     assert.deepEqual(parseFleetFrame(serializeFleetFrame({ ...frame, executionId })), { ...frame, executionId });
   for (const executionId of [false, 42, {}, [], ""])
     assert.throws(() => parseFleetFrame({ ...frame, executionId }), FleetContractError);
+});
+
+// dec_659E15CF / dec_2C49A4516E540906721AF01840: keep only current + previous minor until the fixed sunset.
+test("Fleet accepts the current protocol and only the previous minor before its deletion date", () => {
+  const current = { major: 1, minor: 2 },
+    before = Date.parse("2027-02-05T23:59:59.999Z"),
+    expired = Date.parse("2027-02-06T00:00:00.000Z");
+  assert.equal(isFleetProtocolVersionCompatible(current, current, before), true);
+  assert.equal(isFleetProtocolVersionCompatible({ major: 1, minor: 1 }, current, before), true);
+  assert.equal(isFleetProtocolVersionCompatible({ major: 1, minor: 0 }, current, before), false);
+  assert.equal(isFleetProtocolVersionCompatible({ major: 1, minor: 3 }, current, before), false);
+  assert.equal(isFleetProtocolVersionCompatible({ major: 2, minor: 1 }, current, before), false);
+  assert.equal(isFleetProtocolVersionCompatible("1.1" as never, current, before), false);
+  assert.equal(isFleetProtocolVersionCompatible({ major: 1, minor: 1 }, current, expired), false);
+  assert.equal(isFleetProtocolVersionCompatible(current, current, expired), true);
+  assert.equal(isFleetProtocolVersionCompatible({ major: 1, minor: 0 }), true);
 });

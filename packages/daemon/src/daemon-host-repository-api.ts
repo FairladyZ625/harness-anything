@@ -1,5 +1,3 @@
-import { readFleetOperationalClient } from "./fleet-edge-write.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { forward } from "./fleet/forwarding-port.ts";
 import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
 import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
@@ -17,7 +15,7 @@ import { parseAssignmentExpiry } from "@harness-anything/kernel";
 import { doctorBuildDrift, fleetVersionDoctorCheck, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
-import { existsSync, realpathSync, readFileSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { registerDaemonRepo } from "@harness-anything/storage";
 import {
@@ -989,25 +987,17 @@ export function createDaemonHostRepositoryApi(
           method === "repo.fleet.overview.read" ||
           method === "repo.policy.metadata.read"
         ) {
-          const config = readFleetEdgeConfig(edge.canonicalRoot);
-          if (!config)
-            throw context.hostCodedError("fleet_edge_config_missing", "Center reads require fleet-edge.json.");
           try {
             const result = parseDaemonGuiReadResult(
               method,
-              await readFleetOperationalClient({
-                hostname: config.host,
-                port: config.port,
-                ca: readFileSync(config.caPath, "utf8"),
-                servername: config.servername,
-                nodeId: config.nodeId,
-                credential: config.credential,
+              await forward({
+                userRoot: context.input.userRoot,
                 repoId,
-                method,
-                payload,
-                connectionSignal: auth.connectionSignal,
-                readAccessToken: async () =>
-                  (await context.oidc.bind(auth, edge.canonicalRoot!)).oidcPrincipal?.accessToken,
+                intent: { kind: "operational-read", method, inputs: payload },
+                auth,
+                oidc: context.oidc,
+                signal: context.closeSignal,
+                runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
               }),
             );
             // The center holds the canonical row but not this node's dispatch stream. Join the

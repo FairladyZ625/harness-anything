@@ -398,58 +398,37 @@ async function fleetControl(
       })
     : null;
   const edgeConfig = edge ? readFleetEdgeConfig(edgeTarget!.canonicalRoot) : null;
-  type EdgeConfigKey = "host" | "port" | "caPath" | "nodeId" | "viewRoot" | "quotaBytes";
-  const edgeValue = (name: EdgeConfigKey, cliName: string): string | number | undefined =>
-    flag(cliName) ?? edgeConfig?.[name];
-  if (
-    edge &&
-    ["host", "port", "caPath", "nodeId", "viewRoot", "quotaBytes"].some(
-      (name) =>
-        edgeValue(
-          name as EdgeConfigKey,
-          (
-            {
-              host: "--host",
-              port: "--port",
-              caPath: "--ca",
-              nodeId: "--node-id",
-              viewRoot: "--view-root",
-              quotaBytes: "--quota-bytes",
-            } as const
-          )[name as EdgeConfigKey],
-        ) === undefined,
-    )
-  )
+  const edgeFlags = {
+    host: "--host",
+    port: "--port",
+    caPath: "--ca",
+    nodeId: "--node-id",
+    viewRoot: "--view-root",
+    quotaBytes: "--quota-bytes",
+  } as const;
+  const edgeValue = (name: keyof typeof edgeFlags): string | number | undefined =>
+    flag(edgeFlags[name]) ?? edgeConfig?.[name];
+  if (edge && Object.keys(edgeFlags).some((name) => edgeValue(name as keyof typeof edgeFlags) === undefined))
     return reject("missing_field", "Add edge connection fields or populate fleet-edge.json in the workspace.");
-  if (
-    !fleetNumber.port.test(String(edgeValue("port", "--port"))) ||
-    !fleetNumber.quota.test(String(edgeValue("quotaBytes", "--quota-bytes")))
-  )
+  if (!fleetNumber.port.test(String(edgeValue("port"))) || !fleetNumber.quota.test(String(edgeValue("quotaBytes"))))
     return reject(
       "invalid_field",
       "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
     );
   // The machine credential the center issued at node registration: named on the command line, or kept
   // off it in the workspace's fleet-edge.json.
-  let credential = flag("--credential");
-  if (edge && credential === undefined) {
-    try {
-      credential = readFleetEdgeConfig(edgeTarget!.canonicalRoot)?.credential;
-    } catch (error) {
-      return reject("invalid_field", cliErrorMessage(error));
-    }
-    if (credential === undefined)
-      return reject("missing_field", "Add --credential, or set credential in the workspace fleet-edge.json.");
-  }
+  const credential = flag("--credential") ?? edgeConfig?.credential;
+  if (edge && credential === undefined)
+    return reject("missing_field", "Add --credential, or set credential in the workspace fleet-edge.json.");
   const edgePayload = () => ({
-    host: edgeValue("host", "--host"),
-    port: Number(edgeValue("port", "--port")),
-    caPath: path.resolve(String(edgeValue("caPath", "--ca"))),
-    nodeId: edgeValue("nodeId", "--node-id"),
+    host: edgeValue("host"),
+    port: Number(edgeValue("port")),
+    caPath: path.resolve(String(edgeValue("caPath"))),
+    nodeId: edgeValue("nodeId"),
     credential,
     repoId: edgeTarget!.repoId,
-    viewRoot: path.resolve(String(edgeValue("viewRoot", "--view-root"))),
-    quotaBytes: Number(edgeValue("quotaBytes", "--quota-bytes")),
+    viewRoot: path.resolve(String(edgeValue("viewRoot"))),
+    quotaBytes: Number(edgeValue("quotaBytes")),
     workspaceRoot: edgeTarget!.canonicalRoot,
     ...((flag("--servername") ?? edgeConfig?.servername)
       ? { servername: flag("--servername") ?? edgeConfig?.servername }

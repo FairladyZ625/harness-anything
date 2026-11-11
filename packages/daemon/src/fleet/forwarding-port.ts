@@ -10,7 +10,7 @@ import { executionCredentialRejected } from "../runtime-execution-credential.ts"
 import type { RepoTaskAction } from "../repo-cell-types.ts";
 import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
 import { FleetEdgeTaskError, runFleetEdgeTask } from "../fleet-edge-task.ts";
-import { raceLifetime } from "../fleet-edge-write.ts";
+import { readFleetOperationalClient, raceLifetime } from "../fleet-edge-write.ts";
 import { forwardingIntentIssue, type ForwardingIntent } from "./forwarding-intent.ts";
 
 export type RuntimeForwardingRequest = {
@@ -49,18 +49,36 @@ export async function forward(input: {
   if (input.auth.transportKind !== "unix-socket" || input.auth.nodePrincipal)
     throw new FleetEdgeTaskError("local_transport_required", "Local session transport required.");
   const requiredNodeId =
-      input.intent.kind === "runtime"
-        ? input.intent.inputs.requiredNodeId
-        : input.intent.executionContext.requiredNodeId,
+      input.intent.kind === "command"
+        ? input.intent.executionContext.requiredNodeId
+        : input.intent.kind === "runtime"
+          ? input.intent.inputs.requiredNodeId
+          : undefined,
     config = runtimeLocation(edge, input.repoId, requiredNodeId);
-  if (!config) return null;
+  if (!config) invalidRuntimeLocation();
   const { workspaceRoot } = config;
   const signal =
       input.signal && input.auth.connectionSignal
         ? AbortSignal.any([input.signal, input.auth.connectionSignal])
         : (input.signal ?? input.auth.connectionSignal),
     runtimeAuth = signal ? { ...input.auth, connectionSignal: signal } : input.auth;
+  const readAccessToken = async () => {
+    const bound = await bindPersonSession(input, workspaceRoot);
+    return bound.localSessionAccessToken ? bound.localSessionAccessToken() : bound.oidcPrincipal?.accessToken;
+  };
   signal?.throwIfAborted();
+  if (input.intent.kind === "operational-read") {
+    const { runtimeReadPeer } = runtimeForwardingContext(config, readAccessToken);
+    return raceLifetime(
+      readFleetOperationalClient({
+        ...runtimeReadPeer,
+        method: input.intent.method,
+        payload: input.intent.inputs,
+        connectionSignal: signal,
+      }),
+      signal,
+    );
+  }
   if (input.intent.kind === "runtime") {
     const payload = { ...config, method: input.intent.method, action: input.intent.inputs.action },
       receipt = (await raceLifetime(
@@ -105,8 +123,7 @@ export async function forward(input: {
     planSource: _planSource,
     ...wireAction
   } = action;
-  const bindPersonSessionNow = () => bindPersonSession(input, workspaceRoot),
-    bound = await bindPersonSessionNow(),
+  const bound = await bindPersonSession(input, workspaceRoot),
     personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
   if (input.auth.executionPrincipal && personId !== localDefaultBinding(bound).actor.principal.personId)
     throw executionCredentialRejected();
@@ -115,16 +132,12 @@ export async function forward(input: {
       ...(signal ? { signal } : {}),
       payload: {
         ...config,
-        workspaceRoot,
         principalId: personId,
         ...(input.auth.executionCredential ? { executionCredential: input.auth.executionCredential } : {}),
         action: wireAction as never,
       },
     },
-    async () => {
-      const session = await bindPersonSessionNow();
-      return session.localSessionAccessToken ? session.localSessionAccessToken() : session.oidcPrincipal?.accessToken;
-    },
+    readAccessToken,
     "domain",
   );
 }

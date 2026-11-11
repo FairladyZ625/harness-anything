@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   runtimeForwardingIntent,
 } from "../src/fleet/forwarding-intent.ts";
 import { forward } from "../src/fleet/forwarding-port.ts";
+import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 
 test("forwarding intent binds command identity, method and execution context", () => {
   const action = { kind: "fact-record", executionId: "execution-one", statement: "evidence" },
@@ -194,6 +195,33 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
     assert.equal(requests[index]?.host, `center-${index}`);
     assert.equal(requests[index]?.nodeId, `node-${index}`);
   }
+  const invoke = () =>
+    forward({
+      userRoot,
+      repoId: "repo",
+      intent: runtimeForwardingIntent("repo.agentRuntime.overview", {}),
+      auth: { transportKind: "unix-socket" },
+      oidc: {} as IdentitySessionPort,
+      runRuntime: async () => assert.fail("Invalid edge configuration must never reach the runtime"),
+    });
+  // A registered edge must not fall back to local handling after its config vanishes or names another repo.
+  writeFileSync(
+    path.join(workspaces[1]!, "fleet-edge.json"),
+    JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId: "another-repo",
+      host: "center",
+      port: 7443,
+      caPath: "ca.pem",
+      nodeId: "node-1",
+      credential: "fixture",
+      viewRoot: "view",
+      quotaBytes: 65536,
+    }),
+  );
+  await assert.rejects(invoke(), { code: "fleet_edge_config_invalid" });
+  unlinkSync(path.join(workspaces[1]!, "fleet-edge.json"));
+  await assert.rejects(invoke(), { code: "fleet_edge_config_invalid" });
   await assert.rejects(
     forward({
       userRoot,
@@ -273,4 +301,38 @@ test("runtime forwarding carries the daemon lifetime into a started request and 
   lifetime.abort(new Error("daemon closed"));
   await assert.rejects(forwarded, (error) => error === lifetime.signal.reason);
   assert.equal(received?.aborted, true);
+});
+
+// dec_2C49A4516E540906721AF01840: routing is derived from the complete descriptor catalog.
+test("every declared center-forward command reaches the port and rejected commands stop before routing", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-forward-catalog-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  let forwarded = 0,
+    rejected = 0;
+  for (const descriptor of daemonProtocolCommands) {
+    const kind = ("actionKind" in descriptor ? descriptor.actionKind : undefined) ?? descriptor.id,
+      admission = descriptor.admission["remote-edge"];
+    if (admission !== "via-center-forward" && admission !== "rejected") continue;
+    const invoke = () =>
+      forward({
+        userRoot,
+        repoId: "unregistered",
+        intent: forwardingIntentForAction(descriptor.method, { kind }),
+        auth: { transportKind: "unix-socket" },
+        oidc: {} as IdentitySessionPort,
+        runRuntime: async () => assert.fail("Unregistered repositories must not send requests"),
+      });
+    if (admission === "via-center-forward") {
+      assert.equal(await invoke(), null, descriptor.id);
+      forwarded += 1;
+    } else {
+      await assert.rejects(invoke(), { code: "invalid_field" }, descriptor.id);
+      rejected += 1;
+    }
+  }
+  assert.equal(
+    forwarded,
+    daemonProtocolCommands.filter((command) => command.admission["remote-edge"] === "via-center-forward").length,
+  );
+  assert.ok(rejected > 0);
 });

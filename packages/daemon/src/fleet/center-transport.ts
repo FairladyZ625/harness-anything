@@ -5,11 +5,7 @@ import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import {
-  consumeKnownError,
-  isContractVersionCompatible,
-  TASK_EVENT_SHAPE_COMPAT_VERSION,
-} from "@harness-anything/kernel";
+import { consumeKnownError, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { daemonBuildStamp } from "../build-identity.ts";
 import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
@@ -23,6 +19,7 @@ import {
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
   currentFleetProtocolVersion,
+  isFleetProtocolVersionCompatible,
   FleetUtf8LineDecoder,
   FleetContractError,
   parseFleetFrame,
@@ -549,7 +546,7 @@ export async function serve(
         helloAdmitted();
         nodeId = frame.nodeId;
         nodeSessions.hello(nodeId, frame.buildCommit ?? null);
-        if (!isContractVersionCompatible(frame.protocolVersion, currentFleetProtocolVersion))
+        if (!isFleetProtocolVersionCompatible(frame.protocolVersion))
           throw new FleetFault(
             "protocol_version_unsupported",
             `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; upgrade the edge node to the same version as the center.`,
