@@ -124,23 +124,11 @@ export async function cancelRuntime(
       // after terminateTree would wait for that CLI child, which waits for us: stop the provider
       // now, let the response flush, and finish the full tree cleanup in the next check phase.
       active.process.terminate();
-      setImmediate(() => {
-        const terminateTree = active.process.terminateTree;
-        if (terminateTree)
-          void terminateTree().catch((error: unknown) =>
-            console.error("[runtime-escalation] descendant cleanup failed", error),
-          );
-      });
-      void consumeDurableOutput(context, active)
-        .then(() => context.publishExit(active, null))
+      void context
+        .publishExit(active, null)
         .catch((error: unknown) => console.error("[runtime-escalation] settlement failed", error));
       return context.controlReceipt(opId, runtimeSessionId, "requested");
     }
-    if (active.process.terminateTree) await active.process.terminateTree();
-    else active.process.terminate();
-    // Cancel holds the write queue: lines flushed during termination drain into work queued behind
-    // it, which is dropped once settlement retires the runtime. Settle them from the stream.
-    await consumeDurableOutput(context, active);
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }

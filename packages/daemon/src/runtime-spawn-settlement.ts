@@ -20,7 +20,7 @@ import type { ActiveRuntime, ReviewerReviewArtifacts, RuntimeProcess } from "./r
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import { workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { strayWriteWarning } from "./runtime-write-boundary.ts";
-import { cacheWriteTokensOfUsage, writeRuntime } from "./runtime-spawn-provider-stream.ts";
+import { cacheWriteTokensOfUsage, consumeDurableOutput, writeRuntime } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import {
   readDispatchRuling,
@@ -45,7 +45,8 @@ import { captureDispatchForensics, dispatchForensicsRequired } from "./runtime-d
 import { writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
-import { processGroupRecoveryHint, reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { processGroupRecoveryHint, probeProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { terminateRuntimeTree } from "./runtime-spawn-process.ts";
 export { runtimeSpawnReceipt } from "./runtime-spawn-receipt.ts";
 
 export async function publishExit(
@@ -81,6 +82,9 @@ export async function publishExit(
         `Runtime process group ${String(active.process.pid)} has no stop proof.${processGroupRecoveryHint()}`,
       );
     stopProofPending = false;
+    // Cancel holds the write queue: consume lines flushed by the complete tree stop before
+    // settlement retires the runtime and drops its queued output callbacks.
+    if (active.cancelRequested) await consumeDurableOutput(context, active);
     disposeActiveRuntimeObservations(active);
     // Every terminal path — success, failure, cancellation, and the daemon-restart loss
     // settlement — flows through here, so the run's own temp directory goes with it. A
@@ -746,8 +750,10 @@ export async function runtimeProcessTreeStopped(
 ): Promise<boolean> {
   const pid = runtime.pid;
   if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
-  await runtime.terminateTree?.();
-  return reconcileProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped";
+  if (runtime.terminateTree) await runtime.terminateTree();
+  else if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) !== "proven_stopped")
+    await terminateRuntimeTree(rootDir, dispatchId, pid);
+  return probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped";
 }
 
 async function dispatchLifecycleForTerminal(

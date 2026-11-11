@@ -4,11 +4,61 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit, runtimeProcessTreeStopped } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { active } from "./runtime-spawn-settlement.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+
+import { statSync, truncateSync } from "node:fs";
+import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
+import { cancelRuntime } from "../src/runtime-spawn-control.ts";
+import {
+  appendRuntimeWorkerRecord,
+  dispatchStreamPath,
+  openDispatchStream,
+  readDispatchStream,
+} from "../src/dispatch-stream.ts";
+import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
+import {
+  publishExit as publishSettlementExit,
+  tasklessSettlementRuntime,
+} from "./runtime-spawn-settlement.fixtures.ts";
+
+// Keep controller tests on the real terminal publisher and accepted aggregate, so cancellation
+// assertions cover completed stop/output/terminal behavior across the ownership boundary.
+function withCancellationSettlement(value: unknown, onTerminal: () => void): RuntimeSpawnerContext {
+  const input = value as RuntimeSpawnerContext;
+  const context = {
+    ...input,
+    input: {
+      ...input.input,
+      now: () => "2026-11-11T00:00:00.000Z",
+      stream: { publish: () => ({}) },
+    },
+    exiting: new Set<string>(),
+    runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    runtimeResultText: () => "worker stopped",
+    markProtocolError: () => undefined,
+    publishRuntimeEvent: async (type: string) => {
+      if (type === "runtime_session_outcome_observed") onTerminal();
+      return {};
+    },
+    settleFallback: async () => undefined,
+    controlReceipt: () => ({ ok: true, detail: "cancelled" }),
+    publishExit: (runtime: ActiveRuntime, code: number | null) =>
+      publishSettlementExit(
+        {
+          ...context,
+          input: { ...context.input, remote: { archive: async () => ({ outcome: "applied" }) } },
+        } as unknown as RuntimeSpawnerContext,
+        runtime,
+        code,
+      ),
+  } as unknown as RuntimeSpawnerContext;
+  return context;
+}
 
 test("an unproven self PID rejects settlement without releasing its recovery handle", async () => {
   let released = false;
@@ -195,3 +245,183 @@ for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_re
       await settlement.catch(() => undefined);
     }
   });
+
+test("adoption skips a stream above Node's string limit while runtime cancel still stops the process", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-oversized-read-"));
+  const warning = console.warn,
+    warnings: string[] = [];
+  console.warn = (value: unknown) => warnings.push(String(value));
+  try {
+    const runtime = runtimeProcessFixture(t),
+      dispatchId = "dispatch_777777777777777777777777",
+      target = dispatchStreamPath(rootDir, dispatchId);
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-oversized",
+      executionId: "execution-oversized",
+      reviewTarget: {
+        kind: "decision",
+        decisionId: "dec_PERSISTED_TARGET",
+        digest: `sha256:${"a".repeat(64)}`,
+      },
+      runtimeSessionId: "runtime_777777777777777777777777",
+      instanceId: "instance-1",
+      startedAt: "2026-08-29T00:00:00.000Z",
+      dispatchOpId: "dispatch-op-oversized",
+      kindId: "codex",
+      permissionMode: null,
+      binding: {
+        actor: { principal: { personId: "operator" }, executor: null },
+        source: "local",
+      },
+      cwd: rootDir,
+      prompt: "prompt intentionally contains no review target",
+      model: "gpt-5.6-sol",
+      reasoningEffort: null,
+      fast: false,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: runtime.pid });
+    truncateSync(target, 600 * 1024 * 1024);
+
+    const adopted = new Map(),
+      context = {
+        input: { rootDir, repoId: "oversized-read" },
+        publishRuntimeEvent: async () => ({}),
+        requiredRuntimeProjection: () => ({
+          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+          readRuntimeSession(id: string) {
+            return (
+              this.readRuntimeSessions().find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
+          readRuntimeSessions: () => [
+            {
+              runtimeSessionId: "runtime_777777777777777777777777",
+              liveness: "live",
+              outcome: null,
+            },
+          ],
+          readDispatchLifecycle: lifecycleReadFor([
+            {
+              runtimeSessionId: "runtime_777777777777777777777777",
+              dispatchId,
+              instanceId: "instance-1",
+              process: "alive",
+            },
+          ]),
+        }),
+        processes: adopted,
+        exiting: new Set<string>(),
+      };
+    await adoptRuntimes(context);
+    assert.equal(adopted.size, 1);
+    assert.equal(readDispatchStream(rootDir, dispatchId), null);
+    assert.equal(statSync(target).size, 600 * 1024 * 1024);
+    assert.match(warnings.join("\n"), /skipping full read/u);
+    let terminated = false,
+      published = false;
+    const runtimeSessionId = "runtime_777777777777777777777777",
+      active = adopted.get(runtimeSessionId);
+    assert.ok(active);
+    assert.deepEqual(active.decisionReviewTarget, {
+      decisionId: "dec_PERSISTED_TARGET",
+      digest: `sha256:${"a".repeat(64)}`,
+    });
+    const terminateTree = active.process.terminateTree;
+    active.process.terminateTree = async () => {
+      terminated = true;
+      await terminateTree();
+    };
+    const receipt = await cancelRuntime(
+      {
+        ...context,
+        // This is a bounded-adoption/physical-stop test. The tail-output case below exercises
+        // the full publisher; archiving a sparse 600 MiB invalid JSON line is a separate path.
+        publishExit: async (runtime: ActiveRuntime) => {
+          published = await runtimeProcessTreeStopped(rootDir, runtime.dispatchId, runtime.process);
+          runtime.process.release?.();
+        },
+        controlReceipt: () => ({ ok: true, detail: "cancelled" }),
+      },
+      { runtimeSessionId },
+      { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
+    );
+    assert.equal(receipt.detail, "cancelled");
+    assert.equal(terminated, true);
+    assert.equal(published, true);
+  } finally {
+    console.warn = warning;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime cancel settles provider lines flushed while the provider is terminated", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-cancel-tail-"));
+  try {
+    const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
+      runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-09-10T00:00:00.000Z",
+      binding: { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 1 } });
+    const consumed: string[] = [],
+      settledAfter: number[] = [],
+      active = {
+        ...tasklessSettlementRuntime(rootDir, "worker stopped"),
+        runtimeSessionId,
+        dispatchId,
+        durableOutputCount: 0,
+        process: {
+          pid: 2_147_483_647,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+          // Cancel holds the write queue, so these lines cannot reach settlement through the drain.
+          terminateTree: async () => {
+            appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 2 } });
+            appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: null, signal: "SIGTERM" });
+          },
+        },
+      };
+    const receipt = await cancelRuntime(
+      withCancellationSettlement(
+        {
+          input: {
+            rootDir,
+            repoId: "cancel-tail",
+            remote: {
+              readDispatchLifecycle: lifecycleReadFor([
+                { runtimeSessionId, dispatchId, instanceId: "instance-1", process: "alive" },
+              ]),
+            },
+          },
+          processes: new Map([[runtimeSessionId, active]]),
+          consumeLine: async (runtime: typeof active, line: string) => {
+            runtime.durableOutputCount += 1;
+            consumed.push(line);
+          },
+        },
+        () => {
+          settledAfter.push(consumed.length);
+        },
+      ),
+      { runtimeSessionId },
+      { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
+    );
+    assert.equal(receipt.detail, "cancelled");
+    assert.deepEqual(consumed, ['{"seq":1}', '{"seq":2}']);
+    assert.deepEqual(settledAfter, [2]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
