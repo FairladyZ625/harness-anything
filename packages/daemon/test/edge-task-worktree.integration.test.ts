@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -16,14 +15,17 @@ import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskWorktreeBindingV1 } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { checkoutTaskWorktree } from "../src/task-worktree.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
-import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
+import {
+  dispatchLifecycleReadOf,
+  emptyDispatchLifecycleRead,
+  lifecycleEvent,
+} from "./dispatch-lifecycle-read.fixtures.ts";
 
 // dec_57370FF2021DADF04E3B21724D: an edge node holds no ledger, so the center delivers the task's worktree binding
 // (CH1), the edge dispatch works in that worktree (CH2), and a node that takes a task over continues the branch the
@@ -363,7 +365,17 @@ test("a checkout a stopped runtime left mid-rebase or mid-merge is recovered bef
     );
     assert.equal(existsSync(gitPath(onB.cwd, "MERGE_HEAD")), operation === "merge", operation);
 
-    const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+    const resumed = (await checkoutTaskWorktree(
+      fixture.nodeB,
+      taskId,
+      binding,
+      noWorktreeSetup(),
+      undefined,
+      undefined,
+      {
+        readDispatchLifecycle: emptyDispatchLifecycleRead,
+      },
+    ))!;
     assert.equal(resumed.cwd, onB.cwd, operation);
     assert.equal(git(onB.cwd, "rev-parse", "HEAD"), localTip, `${operation}: the local commits are kept`);
     assert.equal(git(onB.cwd, "status", "--porcelain"), "", `${operation}: the half-done operation is gone`);
@@ -387,10 +399,18 @@ test("a live dispatch keeps the rebase it is in, and the retry after it exits cl
   conflicting(onB.cwd, "rebase", "origin/main");
   const stoppedHead = git(onB.cwd, "rev-parse", "HEAD"),
     status = git(onB.cwd, "status", "--porcelain"),
-    dispatchId = liveDispatch(fixture.nodeB, onB.cwd);
+    options = { source: "local" as const, instanceId: "instance-1" },
+    admitted = lifecycleEvent("R", "runtime_edge_live", options),
+    events = [
+      { ...admitted, payload: { ...admitted.payload, cwd: onB.cwd } } as typeof admitted,
+      lifecycleEvent("S", "runtime_edge_live", options),
+    ],
+    readDispatchLifecycle = dispatchLifecycleReadOf(() => events);
 
   await assert.rejects(
-    checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()),
+    checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup(), undefined, undefined, {
+      readDispatchLifecycle,
+    }),
     (error: unknown) => error instanceof Error && (error as { code?: unknown }).code === "task_worktree_diverged",
     "a live dispatch's rebase is not aborted",
   );
@@ -399,8 +419,10 @@ test("a live dispatch keeps the rebase it is in, and the retry after it exits cl
   assert.equal(git(onB.cwd, "status", "--porcelain"), status);
 
   // The runtime exits: the next retry may clear the rebase it left behind.
-  appendRuntimeWorkerRecord(fixture.nodeB, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
-  await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup());
+  events.push(lifecycleEvent("O", "runtime_edge_live", options));
+  await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup(), undefined, undefined, {
+    readDispatchLifecycle,
+  });
   assert.equal(existsSync(gitPath(onB.cwd, "rebase-merge")), false);
   assert.equal(git(onB.cwd, "rev-parse", "HEAD"), localTip, "abort restores the branch the runtime had");
   assert.equal(git(onB.cwd, "status", "--porcelain"), "");
@@ -659,31 +681,4 @@ function conflicting(cwd: string, ...args: string[]): void {
     status = (error as { status?: number }).status;
   }
   assert.equal(status, 1, `git ${args.join(" ")} was expected to stop on a conflict`);
-}
-
-/** A dispatch whose worker (this test process) is running with its cwd inside the worktree. */
-function liveDispatch(rootDir: string, cwd: string): string {
-  const dispatchId = "dispatch_0123456789abcdef01234567";
-  openDispatchStream(rootDir, {
-    dispatchId,
-    taskId: null,
-    executionId: null,
-    runtimeSessionId: "runtime_edge_live",
-    instanceId: "instance-1",
-    startedAt: "2026-10-21T00:00:00.000Z",
-    dispatchOpId: "edge-live-op",
-    kindId: "codex",
-    permissionMode: null,
-    binding: { actor: { principal: { personId: "person-1" }, executor: null }, source: "local" },
-    cwd,
-    prompt: "work in the task worktree",
-    model: "gpt-5.6-sol",
-    reasoningEffort: null,
-    fast: false,
-  } as Parameters<typeof openDispatchStream>[1]);
-  appendFileSync(
-    dispatchStreamPath(rootDir, dispatchId),
-    `${JSON.stringify({ schema: "runtime-dispatch-stream/v1", kind: "process_started", pid: process.pid })}\n`,
-  );
-  return dispatchId;
 }
