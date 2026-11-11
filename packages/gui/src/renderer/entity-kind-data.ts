@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -30,7 +31,7 @@ export function entityKindCatalogQuery(repoId: string) {
 
 export function useEntityKindCatalog(repoId: string): {
   readonly catalog: EntityKindCatalog;
-  readonly state: "ready" | "pending" | "error";
+  readonly state: DomainStatus.CatalogReadState;
 } {
   const query = useQuery(entityKindCatalogQuery(repoId));
   if (query.isError) return { catalog: emptyEntityKindCatalog, state: "error" };

@@ -1,3 +1,4 @@
+import type { receiptAcceptanceStatuses } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import { migrationWritable, type StorageMigrationRecord } from "../migration/types.ts";
 import { validateContentRange } from "../content-blob-range.ts";
 import type { Pool, PoolClient } from "pg";
@@ -552,7 +553,7 @@ export interface HeadRow {
 }
 export interface OutcomeRow {
   readonly op_id: string;
-  readonly status: "accepted_durable" | "rejected";
+  readonly status: Extract<(typeof receiptAcceptanceStatuses)[number], "accepted_durable" | "rejected">;
   readonly first_revision: string | number | null;
   readonly last_revision: string | number | null;
   readonly intent_digest: string;

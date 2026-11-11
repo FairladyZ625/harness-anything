@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { harnessClient } from "./api-client.ts";
@@ -18,7 +19,7 @@ export type EntityLiveCountSource = "tasks" | "decisions" | "agents" | "squads" 
 
 export interface EntityLiveCount {
   /** 读失败 = 该面缺席,不冒充 0;视图如实显示读取失败。 */
-  readonly state: "ready" | "pending" | "error";
+  readonly state: DomainStatus.CatalogReadState;
   readonly count: number | null;
 }
 
@@ -72,7 +73,7 @@ function countOf(value: number): number {
 }
 
 export interface FactFacetStats {
-  readonly state: "ready" | "pending" | "error";
+  readonly state: DomainStatus.CatalogReadState;
   readonly total: number | null;
   /** 已加载页里的已归档行数:默认隐藏时如实显示「藏了多少」,开关放行时计入 total。 */
   readonly archivedCount: number;

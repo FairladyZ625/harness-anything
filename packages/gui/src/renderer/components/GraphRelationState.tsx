@@ -1,5 +1,6 @@
+import type * as DomainStatus from "../../api/renderer-dto.ts";
 interface GraphRelationStateProps {
-  readonly state: "ready" | "loading" | "error";
+  readonly state: DomainStatus.BlockingAvailabilityState;
 }
 
 export function GraphRelationReadGate({ state }: GraphRelationStateProps) {

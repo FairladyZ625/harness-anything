@@ -1,3 +1,4 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 export const EDGE_JOIN_ENTRY_CHANNEL = "harness:edge:join";
 /** Main → renderer: the OS handed the app a harness-edge:// join link (protocol activation). */
 export const EDGE_JOIN_LINK_CHANNEL = "harness:edge:join-link";
@@ -27,7 +28,7 @@ export interface EdgeJoinRepositoryOutcome {
 export interface EdgeJoinJoined {
   readonly ok: boolean;
   readonly joinId: string;
-  readonly state: "synced" | "partial";
+  readonly state: AccessStatus.EdgeJoinSyncState;
   readonly repoIds: readonly string[];
   readonly repositories: readonly EdgeJoinRepositoryOutcome[];
   readonly nodeId?: string;
@@ -36,7 +37,7 @@ export interface EdgeJoinJoined {
 
 export interface EdgeJoinProgressRepository {
   readonly repoId: string;
-  readonly phase: "workspace" | "register" | "sync" | "synced" | "failed";
+  readonly phase: AccessStatus.EdgeJoinRepositoryPhase;
 }
 
 /** Live per-repository phases of the join this daemon is currently running. */

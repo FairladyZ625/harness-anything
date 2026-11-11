@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../../../api/renderer-dto.ts";
 import { useId, useState, type FormEvent } from "react";
 import { LayoutGroup, motion } from "motion/react";
 import { ChatCircleDots, X } from "@phosphor-icons/react";
@@ -23,7 +24,7 @@ export interface SteerNote {
   /** 目标步骤 id;缺省=吸收进下一个推进到的步骤。 */
   readonly targetStepId?: string;
   readonly createdAt: number;
-  readonly state: "queued" | "absorbed";
+  readonly state: DomainStatus.SteerNoteState;
 }
 
 /** layoutId 前缀:AgentPlan 以同一前缀渲染 absorbed 纸条,FLIP 才能跨组件接续。 */

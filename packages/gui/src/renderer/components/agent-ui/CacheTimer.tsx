@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../../../api/renderer-dto.ts";
 import { motion, useReducedMotion } from "motion/react";
 import { Timer } from "@phosphor-icons/react";
 import { formatDuration } from "../../model/time.ts";
@@ -21,7 +22,7 @@ import { t } from "../../i18n/index.tsx";
  */
 
 /** TTL 三态,与 W1-T1 computePromptCacheTtlState 的返回词同名同义;接线归 W2。 */
-export type PromptCacheTtlState = "normal" | "warning" | "expired";
+export type PromptCacheTtlState = DomainStatus.PromptCacheTtlState;
 
 export function CacheTimer({
   remainingMs,

@@ -20,9 +20,9 @@ export type RetiredCodeDocEventType = (typeof retiredCodeDocEventTypes)[number];
 /**
  * Historical accept-only values of the retired repoint record. Not a live status vocabulary: the
  * event type is rejected by current admission and only the retired payload validator reads this
- * field, so the values stay module-private instead of re-entering the entity status register.
+ * field. The historical vocabulary remains registered so no reader can invent alternate words.
  */
-const retiredCodeDocDispositions = ["repointed", "known-invalid"] as const;
+export const retiredCodeDocDispositions = ["repointed", "known-invalid"] as const;
 type RetiredCodeDocDisposition = (typeof retiredCodeDocDispositions)[number];
 
 /** The exact historical witness value, kept only so accepted replay can type its payload. */

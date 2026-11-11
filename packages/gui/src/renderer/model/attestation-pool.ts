@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../../api/renderer-dto.ts";
 import type { TaskRow } from "./types.ts";
 
 /**
@@ -29,7 +30,7 @@ export interface GateAttestationItem {
   readonly gateId: string;
   readonly mode: GateAttestMode;
   /** 投影里的真实 gate 状态:missing=缺见证,signoff_missing=机器已过缺人签,failed=机器失败。 */
-  readonly gateStatus: "missing" | "signoff_missing" | "failed";
+  readonly gateStatus: Extract<DomainStatus.CloseoutGateStatus, "missing" | "signoff_missing" | "failed">;
   /** 冻结契约声明的见证适配器;legacy 无契约时为 null(如实展示,不猜)。 */
   readonly adapterId: string | null;
   readonly detail?: string;

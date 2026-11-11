@@ -1,3 +1,4 @@
+import type * as ReadSet from "../domain/task-read-set.ts";
 import type { LeaseChangeReason, TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
 import type { CanonicalEventV1, DocumentState } from "../domain/doc-sync.contract.ts";
 import type { LeaseHolder } from "../domain/execution.ts";
@@ -24,7 +25,7 @@ import type {
 
 export type TaskProjectionWarning = "projection_missing";
 export interface TaskProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly snapshot: TaskLifecycleSnapshot;
   readonly packagePath: string | null;
   readonly watermark: number;
@@ -44,7 +45,7 @@ export interface TaskProjectionListRow {
   readonly snapshot: TaskLifecycleSnapshot;
 }
 export interface TaskProjectionListRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly rows: readonly TaskProjectionListRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -68,7 +69,7 @@ export interface TaskIndexProjectionRow {
 }
 export interface TaskIndexProjectionRead {
   readonly schema: "task-index-projection/v1";
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly rows: readonly TaskIndexProjectionRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -102,7 +103,7 @@ export interface ArtifactTimelineRow {
  * reported as this value, so a badge read stays O(cap x readers); the GUI renders >= cap as `999+`. */
 export const ARTIFACT_TIMELINE_COUNT_CAP = 999;
 export interface ArtifactTimelineRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly rows: readonly ArtifactTimelineRow[];
   readonly hasMore: boolean;
   /** Per-kind totals for the whole readable timeline, not this page. Multi-reader unions are
@@ -128,7 +129,7 @@ export interface TaskRuntimeBatchRow {
   readonly sessions: readonly RuntimeSession[];
 }
 export interface TaskRuntimeBatchRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly taskIds: readonly string[];
   readonly rows: readonly TaskRuntimeBatchRow[];
   readonly watermark: number;
@@ -136,13 +137,13 @@ export interface TaskRuntimeBatchRead {
   readonly page: ProjectionPage;
 }
 export interface WorkspaceSummaryProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly summary: WorkspaceSummary;
   readonly watermark: number;
   readonly sourceRevision: number;
 }
 export interface TaskRelationProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly rows: readonly TaskRelationProjectionRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -179,7 +180,7 @@ export interface LeaseInterval {
   readonly reason: LeaseChangeReason;
 }
 export interface DocumentProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly document: DocumentState | null;
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -200,44 +201,44 @@ export interface ReplicaProjectionBasis {
   readonly documents: readonly ReplicaProjectionDocument[];
 }
 export interface PresetSnapshotProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly snapshot: unknown | null;
   readonly watermark: number;
   readonly sourceRevision: number;
 }
 export interface FactProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly fact: FactProjectionRow | null;
   readonly watermark: number;
   readonly sourceRevision: number;
 }
 export interface TaskProgressProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly rows: readonly TaskProgressEventV1[];
   readonly watermark: number;
   readonly sourceRevision: number;
 }
 export interface FactProjectionSearchRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly facts: readonly FactProjectionRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly page?: FactSearchPage;
 }
 export interface FactDomainTypeProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly domainTypes: readonly FactDomainTypeRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
 }
 export interface FactAnchorProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly rows: readonly FactAnchorRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
 }
 export interface FactGraphProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly edges: readonly FactRelationEdgeRow[];
   readonly factAnchors: readonly FactAnchorRow[];
   readonly facts: readonly FactProjectionRow[];
@@ -245,27 +246,27 @@ export interface FactGraphProjectionRead {
   readonly sourceRevision: number;
 }
 export interface DecisionProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly decision: DecisionProjectionRow | null;
   readonly watermark: number;
   readonly sourceRevision: number;
 }
 export interface DecisionProjectionListRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly decisions: readonly DecisionProjectionRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly page?: ProjectionPage;
 }
 export interface DecisionAgendaProjectionPageRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly decisions: readonly DecisionAgendaProjectionRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly page: ProjectionPage;
 }
 export interface DecisionGraphProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly edges: readonly DecisionRelationEdgeRow[];
   readonly decisionAnchors: readonly DecisionAnchorRow[];
   readonly coverageRows: readonly DecisionCoverageRow[];
@@ -273,7 +274,7 @@ export interface DecisionGraphProjectionRead {
   readonly sourceRevision: number;
 }
 export interface DecisionCoverageProjectionRead {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly coverageRows: readonly DecisionCoverageRow[];
   readonly watermark: number;
   readonly sourceRevision: number;

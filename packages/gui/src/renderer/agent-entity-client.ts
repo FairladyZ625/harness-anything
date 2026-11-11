@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
 import type {
   AgentDiffField,
@@ -34,7 +35,7 @@ export const isAvailableAgentEntityRow = (row: AgentEntityRow): row is AgentEnti
 export const isAvailableSquadEntityRow = (row: SquadEntityRow): row is SquadEntityAvailableRow => !("state" in row);
 export type AgentSkillRow = AgentSkillGuiRead["skills"][number];
 export type EntitySaveResult = {
-  readonly outcome: "applied" | "pending" | "op_rejected";
+  readonly outcome: Extract<DomainStatus.WriteReceiptOutcome, "applied" | "pending" | "op_rejected">;
   readonly opId?: string;
   readonly revision?: number;
   readonly proof?: {

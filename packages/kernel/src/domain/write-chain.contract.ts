@@ -47,14 +47,7 @@ export interface WriterGeneration {
   readonly ownerId: string;
 }
 
-export const writeReceiptOutcomes = Object.freeze([
-  "applied",
-  "pending",
-  "no_changes",
-  "indeterminate",
-  "op_rejected",
-] as const);
-export type WriteReceiptOutcome = (typeof writeReceiptOutcomes)[number];
+export { writeReceiptOutcomes, type WriteReceiptOutcome } from "./write-receipt-status.ts";
 
 export interface EventEnvelope<S extends string, T extends string, A extends ActorIdentity, P> {
   readonly schema: S;

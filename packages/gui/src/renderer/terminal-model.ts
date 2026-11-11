@@ -1,7 +1,8 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 export interface TerminalTab {
   readonly sessionId: string;
   readonly name: string;
-  readonly state: "running" | "exited" | "unknown";
+  readonly state: DomainStatus.TerminalTabState;
   readonly daemonGeneration: number;
   readonly attachmentId: string | null;
   readonly lastSeq: number;
@@ -101,7 +102,7 @@ export async function requestTerminalTermination(
   tab: TerminalTab,
   confirmed: boolean,
   deps: { readonly terminate: (repoId: string, sessionId: string, confirmed: true) => Promise<unknown> },
-): Promise<{ readonly state: "confirmation_required" | "requested" }> {
+): Promise<{ readonly state: DomainStatus.TerminalRestartState }> {
   if (!confirmed) return { state: "confirmation_required" };
   await deps.terminate(repoId, tab.sessionId, true);
   return { state: "requested" };

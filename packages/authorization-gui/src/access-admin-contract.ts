@@ -1,3 +1,4 @@
+import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 /** Operating systems supported by the replaceable authorization UI's edge join form. */
 export type EdgeJoinPlatform = "darwin" | "linux" | "win32";
 
@@ -52,7 +53,7 @@ export interface AccessGrant {
 export interface PermissionRequest {
   readonly requestId: string;
   readonly version: number;
-  readonly state: "pending" | "approved" | "rejected" | "withdrawn";
+  readonly state: AccessStatus.PermissionRequestState;
   readonly personId: string;
   readonly groupId: string;
   readonly resource: string;
@@ -68,8 +69,8 @@ export interface AccessReceipt {
   readonly operationId: string;
   readonly operation: string;
   readonly actor: string;
-  readonly phase: "intent" | "settled";
-  readonly outcome?: "applied" | "failed" | "version_conflict";
+  readonly phase: AccessStatus.AccessReceiptPhase;
+  readonly outcome?: AccessStatus.AccessReceiptOutcome;
   readonly recordedAt?: string;
   readonly settledAt?: string;
   readonly groupId?: string;
@@ -155,11 +156,11 @@ export interface EdgeJoinIssued {
 /** Status contains no token or credential. */
 export interface EdgeJoinStatusReply {
   readonly joinId: string;
-  readonly state: "pending" | "consumed" | "expired" | "revoked";
+  readonly state: AccessStatus.EdgeJoinState;
   readonly nodeId?: string;
 }
 export interface EdgeJoinSummary extends EdgeJoinStatusReply {
-  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
+  readonly tunnelState?: AccessStatus.EdgeJoinTunnelState;
   readonly personId: string;
   readonly repoIds: readonly string[];
   readonly groupIds: readonly string[];
@@ -235,7 +236,7 @@ export interface AccessDevice {
   readonly displayName: string;
   readonly platform: string;
   readonly registeredAt: string;
-  readonly state: "active" | "paused" | "removed";
+  readonly state: AccessStatus.AuthorizationNodeState;
   readonly revocation: "pending" | "complete";
   readonly version: string;
 }

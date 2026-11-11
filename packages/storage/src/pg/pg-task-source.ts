@@ -1,3 +1,4 @@
+import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import { projectPgFactLiveness, readPgFactsInTransaction } from "./pg-fact-reads.ts";
 import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
@@ -54,7 +55,7 @@ export interface PgTaskProjectionSourceOptions {
 }
 
 export interface PgProjectionCut {
-  readonly status: "ready" | "pending";
+  readonly status: ReadSet.ReadSetProjectionCut["status"];
   readonly watermark: number;
   readonly sourceRevision: number;
 }

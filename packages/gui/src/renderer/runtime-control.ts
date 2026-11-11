@@ -1,3 +1,6 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
+import { writeReceiptOutcomes } from "../api/renderer-dto.ts";
+
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint, rendererReadError } from "./result-validation.ts";
@@ -28,7 +31,7 @@ type RuntimeReceipt = GuiActionResult & {
 };
 
 export interface RuntimeSpawnSettlement {
-  readonly state: "applied" | "pending" | "op_rejected";
+  readonly state: Extract<DomainStatus.WriteReceiptOutcome, "applied" | "pending" | "op_rejected">;
   readonly opId: string;
   readonly runtimeSessionId: string | null;
   readonly dispatchId: string | null;
@@ -144,7 +147,7 @@ function receipt(value: unknown): RuntimeReceipt {
     !isRendererRecord(value) ||
     value.schema !== "command-receipt/v2" ||
     typeof value.opId !== "string" ||
-    !["applied", "pending", "no_changes", "indeterminate", "op_rejected"].includes(String(value.outcome))
+    !(writeReceiptOutcomes as readonly string[]).includes(String(value.outcome))
   )
     throw new Error(rendererErrorHint(value, "Runtime spawn returned an invalid receipt."));
   return value as RuntimeReceipt;

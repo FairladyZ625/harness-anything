@@ -7,7 +7,7 @@ import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverag
 import { factLiveness, supersededFactRefs } from "../../src/domain/fact-liveness.ts";
 import { consentedApprovedReviewForExecution, reviewDigest } from "../../src/domain/review.ts";
 import { submissionDigest, type ExecutionV1 } from "../../src/domain/execution.ts";
-import { statusWordRegister } from "../../src/domain/status-word-register.ts";
+import { domainStatuses } from "../../src/domain/lifecycle-status.ts";
 
 import { emptyCompletionContract } from "./completion.fixtures.ts";
 import { claimGateRun, settleGateRun } from "../../src/domain/gate-run.ts";
@@ -710,7 +710,8 @@ test("blocking applies depends-on to the source and releases it only when the ta
     refused.map(({ label }) => label),
     ["unresolved", "unresolved"],
   );
-  const registered = new Set(statusWordRegister.map(({ word }) => word));
+  // Labels are distinct from Task lifecycle states; other entities may use the same word.
+  const registered = new Set<string>(domainStatuses);
   assert.deepEqual(
     blockingLabels.filter((label) => registered.has(label)),
     [],

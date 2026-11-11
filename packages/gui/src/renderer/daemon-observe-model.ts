@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts";
 
@@ -72,7 +73,7 @@ export interface ObserveTailSnapshot {
   readonly rows: ObserveRowLog;
   readonly historyCursor: ObserveTailCursor;
   readonly liveCursor: ObserveTailCursor;
-  readonly status: "idle" | "live" | "unavailable" | "gap" | "error";
+  readonly status: DomainStatus.ObserveTailStatus;
   readonly unavailable: { readonly reason: string; readonly centerRevision: number | null } | null;
   readonly gap: { readonly reason: string; readonly requestedFileId: string } | null;
   readonly error: string | null;

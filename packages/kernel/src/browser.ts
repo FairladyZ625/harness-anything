@@ -17,3 +17,16 @@ export type {
 export type { ProjectionWarning } from "./ports/projection-types.ts";
 
 export { openTodoValueEquals, todoIsOpen, type Todo } from "./domain/todo.ts";
+export type * from "./domain/operational-status.ts";
+export type * from "./domain/client-view-status.ts";
+export type { ReadSetProjectionCut } from "./domain/task-read-set.ts";
+export {
+  daemonControlPhaseWords,
+  repoCellStateWords,
+  repoRegistrationStateWords,
+} from "./domain/operational-status.ts";
+export type { ReviewResponseDisposition, ReviewVerdict } from "./domain/review.ts";
+export type { BlockingAvailabilityState } from "./domain/task-blocking.ts";
+export type { RuntimeLiveness } from "./domain/agent-runtime.ts";
+export type { CloseoutGateStatus } from "./domain/status-word-register-closeout.ts";
+export { writeReceiptOutcomes, type WriteReceiptOutcome } from "./domain/write-receipt-status.ts";

@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { CompiledVerticalContract, TemplateCatalog } from "@harness-anything/kernel";
 import type {
   CapabilityRefV1,
@@ -125,7 +126,7 @@ export interface RepositoryScaffoldDocument {
   readonly templateRef: string;
   readonly contentSha256: string;
   readonly existingSha256: string | null;
-  readonly disposition: "created" | "preserved" | "drifted";
+  readonly disposition: OperationalStatus.ScaffoldDocumentDisposition;
 }
 
 export interface RepositoryScaffoldPlan {

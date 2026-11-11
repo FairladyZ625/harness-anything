@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import type { EntityLocator, EntityLocatorReadOutcome } from "./entity-locator-renderer.ts";
@@ -185,7 +186,7 @@ export function receiptFailureText(receipt: { readonly outcome: string; readonly
  *
  * 连接断掉/超时那一类**不是拒绝**:没有回答就说不出中心做了什么,只能按 pending 处理。
  */
-export type EntityWriteState = "applied" | "pending" | "conflict" | "rejected";
+export type EntityWriteState = DomainStatus.EntityWriteState;
 
 export interface EntityWriteSettlement {
   readonly state: EntityWriteState;

@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
 const legacyProductionPath =
@@ -90,7 +91,17 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
     (candidate) => candidate.startsWith("packages/cli/src/") && candidate.endsWith(".ts"),
   )) {
     const body = readFileSync(path.join(rootDir, file), "utf8");
-    const importedSpecifiers = [...body.matchAll(/\bfrom\s+["']([^"']+)["']/gu)].map((match) => match[1]);
+    // dec_499E4E98A3D4754132B3BCA1E6: shared vocabulary types are erased; runtime
+    // imports (including side effects and inline type specifiers) still load authority.
+    const syntax = ts.createSourceFile(file, body, ts.ScriptTarget.Latest, true);
+    const importedSpecifiers = syntax.statements
+      .filter(
+        (node) =>
+          (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly) ||
+          (ts.isExportDeclaration(node) && !node.isTypeOnly),
+      )
+      .filter((node) => node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier))
+      .map((node) => node.moduleSpecifier.text);
     if (importedSpecifiers.some(isDomainModuleImport))
       violations.push(`${file}: thin CLI must not import kernel/application domain modules`);
     if (/\b(?:writeFile|writeFileSync|appendFile|appendFileSync|renameSync|mkdirSync)\s*\(/u.test(body))

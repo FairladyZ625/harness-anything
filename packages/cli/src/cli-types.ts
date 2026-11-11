@@ -1,3 +1,4 @@
+import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 export type RuntimeCwd = Readonly<Record<string, string>>;
 
 export type RuntimeBatchEntry = {
@@ -24,7 +25,7 @@ export type RuntimeBatchResult = {
   readonly instance: string;
   readonly agent: string | null;
   readonly to: string | null;
-  readonly status: "succeeded" | "failed" | "rejected" | "unknown" | "stopped";
+  readonly status: OperationalStatus.RuntimeBatchStatus;
   readonly outcome: string | null;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;

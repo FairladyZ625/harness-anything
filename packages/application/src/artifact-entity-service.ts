@@ -96,7 +96,7 @@ export interface ArtifactEntityImportPreview {
   readonly currentContentVersion: string | null;
   readonly candidateContentVersion: string | null;
   readonly mode: "reference" | "snapshot";
-  readonly contentState: "unobserved" | "observed";
+  readonly contentState: NonNullable<ArtifactDescriptor["contentState"]>;
   readonly declaredContentVersion: string | null;
   readonly relationChanges: number;
   readonly expectedVersion: number;

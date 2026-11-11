@@ -772,3 +772,11 @@ test("the deleted fixed-file and authored-document special cases cannot reappear
     assert.equal(source.includes(removed), false, `${removed} must not come back as a fixed-file special case`);
   }
 });
+
+// dec_499E4E98A3D4754132B3BCA1E6: slice 6 retires every non-daemon exemption.
+test("only daemon declarations remain in the status vocabulary baseline", () => {
+  assert.deepEqual(
+    statusVocabularyBaseline.filter(({ key }) => !key.startsWith("packages/daemon/")),
+    [],
+  );
+});

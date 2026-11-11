@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
@@ -29,7 +30,7 @@ type ReceiptRecord = GuiActionResult & {
 };
 
 export interface DecisionSettlement {
-  readonly state: "applied" | "pending" | "op_rejected";
+  readonly state: Extract<DomainStatus.WriteReceiptOutcome, "applied" | "pending" | "op_rejected">;
   readonly opId: string;
   readonly code?: string;
   readonly origin?: string;
@@ -95,7 +96,7 @@ export function decisionHasReachableEvidence(decision: DecisionRow, relations: R
 export type DecisionAction = "accept" | "reject" | "defer";
 
 export interface DecisionMutationFeedback {
-  readonly state: "pending" | "success" | "error";
+  readonly state: DomainStatus.MutationFeedbackState;
   readonly kind: "propose" | DecisionAction;
   readonly opId: string;
   readonly code?: string;

@@ -1,3 +1,6 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
+import { repoRegistrationStateWords } from "../api/renderer-dto.ts";
+
 import type { AdminConnectionRow, AdminReceipt, ConnectionProbeSuccess } from "../api/connection-admin-contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
@@ -43,7 +46,7 @@ const isConnectionRow = (value: unknown): value is AdminConnectionRow =>
   typeof value.id === "string" &&
   CONNECTION_KINDS.includes(String(value.kind)) &&
   typeof value.displayName === "string" &&
-  ["enabled", "disabled"].includes(String(value.state)) &&
+  (repoRegistrationStateWords as readonly string[]).includes(String(value.state)) &&
   (value.endpoint === undefined || typeof value.endpoint === "string");
 
 export async function fetchConnectionStatus(): Promise<readonly AdminConnectionRow[]> {
@@ -108,7 +111,7 @@ export async function updateConnection(input: {
   readonly connectionId: string;
   readonly displayName?: string;
   readonly endpoint?: string;
-  readonly state?: "enabled" | "disabled";
+  readonly state?: DomainStatus.RepoRegistrationState;
 }): Promise<AdminReceipt> {
   return readReceipt(await connectionsBridge().update(input as Record<string, unknown>), "Connection update");
 }
@@ -134,7 +137,7 @@ export async function updateRepo(input: {
   readonly mode?: string;
   readonly endpoint?: string;
   readonly connectionId?: string;
-  readonly state?: "enabled" | "disabled";
+  readonly state?: DomainStatus.RepoRegistrationState;
 }): Promise<AdminReceipt> {
   return readReceipt(await repoAdminBridge().update(input as Record<string, unknown>), "Repo update");
 }

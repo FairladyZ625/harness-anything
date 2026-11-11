@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { AgendaAnsweredRow, AgendaAwaitsRow } from "../api/renderer-dto.ts";
@@ -59,7 +60,7 @@ export function composeAwaitsAnswer(choice: AwaitsChoice | null, comment: string
 }
 
 export interface AwaitsAnswerFeedback {
-  readonly state: "pending" | "success" | "error" | "conflict";
+  readonly state: DomainStatus.AnswerFeedbackState;
   readonly opId: string;
   readonly code?: string;
   readonly hint: string;

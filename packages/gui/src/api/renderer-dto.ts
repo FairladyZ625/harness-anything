@@ -5,20 +5,8 @@ import type {
   GuiSubmissionV1,
 } from "@harness-anything/daemon/protocol";
 export { guiQueryPacing } from "@harness-anything/kernel/browser";
-export type {
-  Todo,
-  ContractVersion,
-  DecisionProjectionRow,
-  ProjectionWarning,
-  RelationType,
-  RelationDirection,
-  RelationState,
-  FactProjectionRow,
-  FactAnchorRow,
-  RelationFactRow,
-  RelationGraphEdgeRow,
-  FreshnessReason,
-} from "@harness-anything/kernel/browser";
+export type * from "@harness-anything/kernel/browser";
+export type { RelationDirection, RelationState } from "@harness-anything/kernel/browser";
 /**
  * The coverage row the daemon read actually serves: the kernel projection row plus
  * the optional uncovered-cause classification (kernel `freshnessReasonOf`) attached
@@ -83,3 +71,10 @@ export type GuiBridgeMethod =
   | (typeof import("@harness-anything/daemon/protocol").daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
   | (typeof import("@harness-anything/daemon/protocol").daemonGuiStreamFacets)[number]["guiBridgeMethod"];
 export type { GuiSubmissionV1 };
+
+export {
+  daemonControlPhaseWords,
+  repoCellStateWords,
+  repoRegistrationStateWords,
+  writeReceiptOutcomes,
+} from "@harness-anything/kernel/browser";

@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../api/renderer-dto.ts";
 import type {
   DecisionFullRow,
   DecisionProjectionRow,
@@ -37,7 +38,7 @@ export interface DecisionSummaryListSuccess {
 }
 
 export interface DecisionControlListSuccess {
-  readonly status: "ready" | "pending";
+  readonly status: DomainStatus.ReadSetProjectionCut["status"];
   readonly decisionIds: ReadonlyArray<string>;
   readonly opId: string;
   readonly hint?: string;
@@ -48,7 +49,7 @@ export type DecisionShowRow = DecisionProjectionRow &
   Pick<DecisionFullRow, "currentReviewContentDigest" | "acceptReviewReadiness">;
 
 export interface DecisionShowSuccess {
-  readonly status: "ready" | "pending";
+  readonly status: DomainStatus.ReadSetProjectionCut["status"];
   readonly decision: DecisionShowRow;
   readonly hint: string | null;
 }

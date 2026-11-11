@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../../api/renderer-dto.ts";
 import type { CloseoutReadiness, Freshness, DecisionState, RiskTier, Urgency } from "../model/types";
 import {
   CircleNotch,
@@ -48,7 +49,7 @@ export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
 }
 
 /** Agent attention is independent of the task lifecycle: asking must differ from working. */
-export function AgentStateBadge({ state }: { readonly state: "question" | "awaits" | "working" }) {
+export function AgentStateBadge({ state }: { readonly state: DomainStatus.AttentionState }) {
   const working = state === "working";
   return (
     <StatusTag

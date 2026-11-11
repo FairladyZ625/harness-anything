@@ -1,4 +1,5 @@
-export type SupplyChainReadinessStatus = "release-gate-without-published-artifacts";
+import type * as DomainStatus from "../api/renderer-dto.ts";
+export type SupplyChainReadinessStatus = DomainStatus.SupplyChainReadinessStatus;
 
 export interface AuditCommandContract {
   readonly name: "npm-audit-all" | "npm-audit-production";

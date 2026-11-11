@@ -1,3 +1,4 @@
+import type { receiptAcceptanceStatuses } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type { CanonicalContentBlob } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -39,7 +40,7 @@ export interface SqliteCommandIntent {
 }
 export interface SqliteCommandOutcome {
   readonly opId: string;
-  readonly status: "accepted_durable" | "rejected";
+  readonly status: Extract<(typeof receiptAcceptanceStatuses)[number], "accepted_durable" | "rejected">;
   readonly firstRevision: number | null;
   readonly lastRevision: number | null;
   readonly intentDigest: `sha256:${string}`;

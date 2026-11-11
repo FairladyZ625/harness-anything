@@ -1,3 +1,5 @@
+import type * as OperationalStatus from "../domain/operational-status.ts";
+import type { receiptAcceptanceStatuses, receiptFacetStates } from "../domain/receipt-acceptance.ts";
 import {
   type CanonicalEventV1,
   type PersistedCanonicalEventV1,
@@ -109,7 +111,7 @@ export interface PreservedCopy {
 }
 export interface MaterializationReceipt {
   /** "planned" rows describe what a settlement would touch without changing any file. */
-  readonly status: "visible" | "planned";
+  readonly status: OperationalStatus.MaterializationReceiptStatus;
   readonly commitSha: LedgerCommitSha | null;
   /** Documents this pass settled, in authored-relative paths; a settled no-op pass reports none. */
   readonly settlements: readonly MaterializationSettlement[];
@@ -122,7 +124,8 @@ export interface MaterializationRequest {
   /** Report what a whole-closure settlement would touch without changing any file. */
   readonly preview?: boolean;
 }
-export const materializationStates = Object.freeze(["ok", "retrying", "failed"] as const);
+import { materializationStates } from "../domain/operational-status.ts";
+export { materializationStates } from "../domain/operational-status.ts";
 export type MaterializationState = (typeof materializationStates)[number];
 export type MaterializationFailureReason = "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
 export interface MaterializationHealth {
@@ -136,14 +139,14 @@ export interface MaterializationHealth {
 }
 export interface CanonicalCommandOutcome {
   readonly opId: string;
-  readonly status: "accepted_durable" | "rejected";
+  readonly status: Extract<(typeof receiptAcceptanceStatuses)[number], "accepted_durable" | "rejected">;
   readonly firstRevision: number | null;
   readonly lastRevision: number | null;
   readonly recordedAt: string;
   readonly memberOpIds: readonly string[];
 }
 export interface CanonicalFollowerFacet {
-  readonly status: "pending" | "verified";
+  readonly status: Exclude<(typeof receiptFacetStates)[number], "not_configured">;
   readonly cut: LedgerCutIdentity | null;
   readonly commitSha: string | null;
   readonly reason?: string;

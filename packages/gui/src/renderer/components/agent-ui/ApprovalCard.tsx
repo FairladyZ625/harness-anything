@@ -1,3 +1,4 @@
+import type * as DomainStatus from "../../../api/renderer-dto.ts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { CheckCircle, ShieldChevron, XCircle } from "@phosphor-icons/react";
@@ -16,7 +17,7 @@ import { t, type MessageKey } from "../../i18n/index.tsx";
  */
 
 export type ApprovalRisk = "low" | "medium" | "high" | "protected";
-export type ApprovalVerdict = "approved" | "denied";
+export type ApprovalVerdict = DomainStatus.ApprovalVerdict;
 
 export interface ApprovalDecision {
   readonly verdict: ApprovalVerdict;
